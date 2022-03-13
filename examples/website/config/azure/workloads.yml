@@ -1,0 +1,73 @@
+# Workloads information - azure
+---
+globalVariables:
+  # TO-SET: set domain below, like yrn42.com
+  # websiteDomain:         "yrn42website-domain"
+  websiteDomain:         "yrn42.com"
+  # TO-SET: set site address below, like www.yrn42.com
+  # websiteHost:           "www.yrn42website-domain"
+  # see: # https://docs.microsoft.com/en-us/azure/aks/ingress-own-tls
+  websiteHost:           "www.yrn42.com"
+  websiteTlsSecret:      "website-tls-secret"
+  certManagerIssuerEmail: "certificates@yrn42.com"
+  _registryLocation:     '$($([Environment]::GetEnvironmentVariable("${env:registryName}.registryLocation")) -replace ''.azurecr.io'','''')'
+  dockerServer:          "${env:_registryLocation}.azurecr.io"
+  dockerUsername:        "$(az acr credential show -n ${env:_registryLocation} --query username)"
+  dockerPassword:        "$(az acr credential show -n ${env:_registryLocation} --query passwords[0].value)"
+  ingressClass:          "nginx"
+
+workloads:
+- context: "${env:runTag}-${env:project}-${env:runId}"
+  variables:
+    _hostname: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.hostname\"))"
+    _frontendIp: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.frontendIp\"))"
+  deployments:
+    # Uninstall previous workloads: idempotent
+    - kubectl: "delete namespace ${env:namespace} --ignore-not-found=true --v=1"
+    - kubectl: "delete namespace ingress-ns --ignore-not-found=true --v=1"
+    - kubectl: "delete -f https://github.com/jetstack/cert-manager/releases/download/v1.7.1/cert-manager.yaml --ignore-not-found=true --v=1"
+    - kubectl: "delete clusterrole nginx-ingress-ingress-nginx --ignore-not-found=true"
+    - kubectl: "delete clusterrolebinding nginx-ingress-ingress-nginx --ignore-not-found=true"
+    # Install dependencies
+    - kubectl: "create namespace ${env:namespace} --v=1"
+    - kubectl: "create namespace ingress-ns --v=1"
+    - kubectl: "label namespace ingress-ns cert-manager.io/disable-validation=true --v=1"
+    - kubectl: "config set-context --current --namespace=${env:namespace} --v=1"
+    - helm: "repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
+    - helm: "repo update"
+    # Certificate
+    - helm: "repo add jetstack https://charts.jetstack.io"
+    - helm: "repo update"
+    - helm: >
+        install cert-manager jetstack/cert-manager
+        --namespace ingress-ns
+        --version v1.7.1
+        --set installCRDs=true
+        --set nodeSelector."beta\.kubernetes\.io/os"=linux
+        # --debug
+    # Make sure the `azure-dns-label-name` in the Helm deployment has the same label of the `frontendIp` public IP.
+    - helm: >
+        install nginx-ingress ingress-nginx/ingress-nginx
+        --namespace ingress-ns
+        --set controller.replicaCount=1
+        --set controller.nodeSelector."beta\.kubernetes\.io/os"=linux
+        --set defaultBackend.nodeSelector."beta\.kubernetes\.io/os"=linux
+        --set controller.admissionWebhooks.enabled=false
+        --set controller.ingressClass=${env:ingressClass}
+        --set controller.service.loadBalancerIP="${env:_frontendIp}"
+        --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-dns-label-name"="${env:project}-${env:runId}"
+        # --debug
+    # Install components
+    - kubectl: "create secret docker-registry registry-credential --docker-server=${env:dockerServer} --docker-username=${env:dockerUsername} --docker-password=${env:dockerPassword}"
+    - shell: 'Write-Information "-- Waiting: kubectl wait --for=condition=Ready pods --all --all-namespaces --timeout=120s"'
+    - kubectl: "wait --for=condition=Ready pods --all --all-namespaces --timeout=120s"
+    - chart: "frontend/website"
+      variables:
+        installName: "website-${env:runId}"
+    - shell: "Write-Information \">> Enpoint: https://${env:websiteHost}\""
+    - shell: "Write-Information \">> Set DNS: ${env:websiteHost} -> ${env:_frontendIp}\""
+    - shell: 'Write-Information "-- Waiting: kubectl wait --for=condition=Ready pods --all --all-namespaces --timeout=120s"'
+    - kubectl: "wait --for=condition=Ready pods --all --all-namespaces --timeout=120s"
+    - shell: 'Write-Information "-- Check containers started: kubectl get pods --all-namespaces"'
+    - shell: 'Write-Information "-- Check services: kubectl get svc --all-namespaces"'
+    - shell: "Write-Information \">>    Test: curl -k -v http://${env:_frontendIp} -H 'Host: ${env:websiteHost}'\""

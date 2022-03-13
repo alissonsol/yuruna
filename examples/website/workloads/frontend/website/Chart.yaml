@@ -1,0 +1,8 @@
+apiVersion: v2
+name: yrn42website-uxname
+description: A simple .NET C# website container deployed to a Kubernetes cluster.
+
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+icon: https://github.com/cncf/artwork/blob/master/projects/helm/icon/color/helm-icon-color.svg

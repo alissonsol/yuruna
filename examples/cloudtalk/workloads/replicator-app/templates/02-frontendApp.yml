@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.frontendApp }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.frontendApp }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.frontendApp }}
+    spec:
+      containers:
+      - name: website
+        image: {{ index .Values (printf "%s.registryLocation" .Values.registryName) }}/{{ .Values.containerPrefix }}/website:latest
+        imagePullPolicy: Always 
+        ports:
+        - name: port80
+          containerPort: 80
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+          - name: "backendUrl"
+            value: {{ (printf "http://" ) }}{{ .Values._endpointHost }}/{{ .Values.backendPathBase }}/api/KeyValue
+          - name: "pathBase"
+            value: {{ (printf "/%s" .Values.frontendPathBase) }}
+      imagePullSecrets:
+        - name: registry-credential

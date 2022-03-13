@@ -1,0 +1,45 @@
+# Resources information - localhost
+---
+# TO-SET: ensure source context has the right name
+globalVariables:
+  runId:                 "$(-join ((97..122) | Get-Random -Count 6 | %{[char]$_}))"
+  runTag:                "localhost"
+  project:               "cloudtalk"
+  namespace:             "${env:project}"
+  containerPrefix:       "${env:project}"
+  clusterDnsPrefix:      "${env:project}-${env:runId}"
+  resourceGroup:         "${env:project}-${env:runId}"
+  resourceTags:          "${env:project}-${env:runId}"
+  registryName:          "componentsRegistry"
+  sourceContext:         "docker-desktop"
+
+# Careful: if the template needs a variable (variables.tf) and it is not defined globally or locally below then the script will be stuck waiting input
+resources:
+- name:                  "componentsRegistry"
+  template:              "localhost/registry"
+  variables:
+    uniqueName:          "${env:project}${env:runId}"
+
+# context-copy 001
+- name:                  "${env:runTag}-${env:project}-${env:runId}-001"
+  template:              "localhost/context-copy"
+  variables:
+    _number:             "001"
+    clusterName:         "${env:project}-${env:runId}-${env:_number}"
+    destinationContext:  "${env:runTag}-${env:project}-${env:runId}-${env:_number}"
+
+# context-copy 002
+- name:                  "${env:runTag}-${env:project}-${env:runId}-002"
+  template:              "localhost/context-copy"
+  variables:
+    _number:             "002"
+    clusterName:         "${env:project}-${env:runId}-${env:_number}"
+    destinationContext:  "${env:runTag}-${env:project}-${env:runId}-${env:_number}"
+
+# context-copy 003
+- name:                  "${env:runTag}-${env:project}-${env:runId}-003"
+  template:              "localhost/context-copy"
+  variables:
+    _number:             "003"
+    clusterName:         "${env:project}-${env:runId}-${env:_number}"
+    destinationContext:  "${env:runTag}-${env:project}-${env:runId}-${env:_number}"

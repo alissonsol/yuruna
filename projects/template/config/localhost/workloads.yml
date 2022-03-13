@@ -1,0 +1,89 @@
+# Workloads information - localhost
+---
+globalVariables:
+  # TO-SET: set domain below, like yrn42.com
+  # websiteDomain:         "yrn42website-domain"
+  websiteDomain:         "yrn42.com"
+  # TO-SET: set site address below, like www.yrn42.com
+  # websiteHost:           "www.yrn42website-domain"
+  # see: https://letsencrypt.org/docs/certificates-for-localhost/
+  websiteHost:           "localhost"
+  websiteTlsSecret:      "website-tls-secret"
+  certManagerIssuerEmail: "certificates@yrn42.com"
+  _registryLocation:     "$($([Environment]::GetEnvironmentVariable(\"${env:registryName}.registryLocation\")) -replace '.azurecr.io','')"
+  dockerServer:          "http://${env:_registryLocation}"
+  dockerUsername:        "placeholder"
+  dockerPassword:        "placeholder"
+  ingressClass:          "nginx"
+
+workloads:
+- context: "${env:runTag}-${env:project}-${env:runId}"
+  variables:
+    _hostname: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.hostname\"))"
+    _frontendIp: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.frontendIp\"))"
+  deployments:
+    # Uninstall previous workloads: idempotent
+    - kubectl: "delete namespace ${env:namespace} --ignore-not-found=true --v=1"
+    - kubectl: "delete namespace ingress-ns --ignore-not-found=true --v=1"
+    - kubectl: "delete -f https://github.com/jetstack/cert-manager/releases/download/v1.7.1/cert-manager.yaml --ignore-not-found=true --v=1"
+    - kubectl: "delete clusterrole nginx-ingress-ingress-nginx --ignore-not-found=true"
+    - kubectl: "delete clusterrolebinding nginx-ingress-ingress-nginx --ignore-not-found=true"
+    # Install dependencies
+    - kubectl: "create namespace ${env:namespace} --v=1"
+    - kubectl: "create namespace ingress-ns --v=1"
+    - kubectl: "label namespace ingress-ns cert-manager.io/disable-validation=true --v=1"
+    - kubectl: "config set-context --current --namespace=${env:namespace} --v=1"
+    # For localhost: manually create certificate
+    - shell: "mkcert -install"
+    - shell: "mkcert -key-file \"${env:workFolder}/website-tls.key\" -cert-file \"${env:workFolder}/website-tls.crt\" ${env:websiteDomain} \"*.${env:websiteDomain}\" localhost \"*.localhost\" 127.0.0.1 ::1 ${env:_hostname} ${env:_frontendIp}"
+    - kubectl: "delete secret ${env:websiteTlsSecret} --namespace=${env:namespace} --ignore-not-found=true"  
+    - kubectl: "create secret tls ${env:websiteTlsSecret} --key \"${env:workFolder}/website-tls.key\" --cert \"${env:workFolder}/website-tls.crt\" --namespace=${env:namespace}"
+    # Certificate: goes first so clusterIssuer is ready when deploying templates later
+    - helm: "repo add jetstack https://charts.jetstack.io"
+    - helm: "repo update"
+    - helm: >
+        install cert-manager jetstack/cert-manager
+        --namespace ingress-ns
+        --version v1.7.1
+        --set installCRDs=true
+        --set nodeSelector."beta\.kubernetes\.io/os"=linux
+        # --debug
+    # Ingress
+    - helm: "repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
+    - helm: "repo update"
+    - helm: >
+        install nginx-ingress ingress-nginx/ingress-nginx
+        --namespace ingress-ns
+        --set controller.replicaCount=2
+        --set controller.nodeSelector."beta\.kubernetes\.io/os"=linux
+        --set defaultBackend.nodeSelector."beta\.kubernetes\.io/os"=linux
+        --set controller.service.externalTrafficPolicy="Local"
+        --set controller.service.loadBalancerIP="${env:_frontendIp}"
+        --set controller.admissionWebhooks.enabled=false
+        --set controller.ingressClass=${env:ingressClass}
+        --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-dns-label-name"="${env:project}-${env:runId}-${env:_number}"
+        --set controller.service.annotations."metallb\.universe\.tf/address-pool"="default"
+        # --debug
+    # Install components
+    - kubectl: "config set-context --current --namespace=${env:namespace} --v=1"
+    - kubectl: "create secret docker-registry registry-credential --docker-server=${env:dockerServer} --docker-username=${env:dockerUsername} --docker-password=${env:dockerPassword}"
+    - chart: "frontend/website"
+      variables:
+        installName: "website-${env:runId}"
+    - shell: "Write-Information \">> Enpoint: https://${env:websiteHost}\""
+    # - LOCALHOST LB
+    - kubectl: "delete namespace metallb-system --ignore-not-found=true --v=1"
+    - kubectl: "create namespace metallb-system --v=1"
+    - helm: "repo add stable https://charts.helm.sh/stable"
+    - helm: "repo update"
+    - helm: >
+        install metallb stable/metallb
+        --namespace metallb-system
+        --set configInline.address-pools[0].name=default
+        --set configInline.address-pools[0].protocol=layer2
+        --set configInline.address-pools[0].addresses[0]="${env:_frontendIp}-${env:_frontendIp}"
+        --debug         
+    - shell: 'Write-Information "-- Check containers started: kubectl get pods --all-namespaces"'
+    - shell: 'Write-Information "-- Check services: kubectl get svc --all-namespaces"'
+    - shell: 'Write-Information ">>    Test: curl -k -v http://${env:_frontendIp} -H ''Host: ${env:websiteHost}''"'
+    - shell: 'Write-Information ">>    Check usage of ports like 80 and 443 (Quit/starting Docker may resolve; not the menu item Restart!)"'

@@ -1,0 +1,8 @@
+apiVersion: v2
+name: cloudtalk deployment
+description: Helm for cloudtalk
+
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+icon: https://github.com/cncf/artwork/blob/master/projects/helm/icon/color/helm-icon-color.svg

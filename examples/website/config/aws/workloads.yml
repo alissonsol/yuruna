@@ -1,0 +1,64 @@
+# Workloads information - azure
+---
+globalVariables:
+  namespace:             "yrn42website-ns"
+  resourceGroup:         "yrn42website-rg"
+  containerPrefix:       "yrn42website-prefix"
+  registryName:          "componentsRegistry"
+  # TO-SET: set domain below, like yrn42.com
+  # websiteDomain:         "yrn42website-domain"
+  websiteDomain:         "yrn42.com"
+  # TO-SET: set site address below, like www.yrn42.com
+  # websiteHost:           "www.yrn42website-domain"
+  websiteHost:           "www.yrn42.com"
+  websiteTlsSecret:      "website-tls-secret"
+  _registryLocation:     "$($([Environment]::GetEnvironmentVariable(\"${env:registryName}.registryLocation\")) -replace '.azurecr.io','')"
+  dockerServer:          "http://${env:_registryLocation}.azurecr.io"
+  dockerUsername:        "$(az acr credential show -n ${env:_registryLocation} --query username)"
+  dockerPassword:        "$(az acr credential show -n ${env:_registryLocation} --query passwords[0].value)"
+  ingressClass:          "nginx"
+
+workloads:
+# https://docs.microsoft.com/en-us/azure/aks/ingress-own-tls
+- context: "yrn42website-aws"
+  variables:
+    _hostname: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.hostname\"))"
+    _frontendIp: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.frontendIp\"))"
+  deployments:
+  # Uninstall previous workloads: idempotent
+  - kubectl: "delete namespace ${env:namespace} --ignore-not-found=true --v=1"
+  - kubectl: "delete namespace ingress-ns --ignore-not-found=true --v=1"
+  - kubectl: "delete clusterrole nginx-ingress-ingress-nginx --ignore-not-found=true"
+  - kubectl: "delete clusterrolebinding nginx-ingress-ingress-nginx --ignore-not-found=true"
+  # Install dependencies
+  - kubectl: "create namespace ${env:namespace} --v=1"
+  - kubectl: "create namespace ingress-ns --v=1"
+  - kubectl: "config set-context --current --namespace=${env:namespace} --v=1"
+  - helm: "repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
+  - helm: "repo update"
+  # For Azure: create certificate
+  - shell: "mkcert -install"
+  - shell: "mkcert -key-file \"${env:workFolder}/website-tls.key\" -cert-file \"${env:workFolder}/website-tls.crt\" ${env:websiteDomain} \"*.${env:websiteDomain}\" localhost \"*.localhost\" 127.0.0.1 ::1 ${env:_hostname}"
+  - kubectl: "delete secret ${env:websiteTlsSecret} --namespace=${env:namespace} --ignore-not-found=true"
+  - kubectl: "create secret tls ${env:websiteTlsSecret} --key \"${env:workFolder}/website-tls.key\" --cert \"${env:workFolder}/website-tls.crt\" --namespace=${env:namespace}"  
+  - helm: >
+      install nginx-ingress ingress-nginx/ingress-nginx
+      --namespace ingress-ns
+      --set controller.replicaCount=2
+      --set controller.nodeSelector."beta\.kubernetes\.io/os"=linux
+      --set defaultBackend.nodeSelector."beta\.kubernetes\.io/os"=linux
+      --set controller.admissionWebhooks.enabled=false
+      --set controller.ingressClass=${env:ingressClass}
+      --set controller.service.loadBalancerIP="${env:_frontendIp}"
+      # --debug
+  # Install components
+  - kubectl: "create secret docker-registry registry-credential --docker-server=${env:dockerServer} --docker-username=${env:dockerUsername} --docker-password=${env:dockerPassword}"
+  - chart: "frontend/website"
+    variables:
+      installName: "website-${env:runId}"
+  - shell: "Write-Information \">> Enpoint: https://${env:websiteHost}\""
+  - shell: "Write-Information \">> Set DNS: ${env:websiteHost} -> ${env:_frontendIp}\""
+  - shell: 'Write-Information "-- Waiting: kubectl wait --for=condition=Ready pods --all --all-namespaces"'
+  - kubectl: "wait --for=condition=Ready pods --all --all-namespaces"
+  - shell: 'Write-Information "-- Check containers started: kubectl get pods --all-namespaces"'
+  - shell: "Write-Information \">>    Test: curl -k -v http://${env:_frontendIp} -H 'Host: ${env:websiteHost}'\""

@@ -1,0 +1,5 @@
+Resources placeholder file
+
+Prefer to use global resource definitions: that makes it easier to keep them in sync with cloud updates.
+
+Global resources are under the `global` folder.

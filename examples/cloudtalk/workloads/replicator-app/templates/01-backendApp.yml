@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.backendApp }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.backendApp }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.backendApp }}
+    spec:
+      containers:
+      - name: grava
+        image: {{ index .Values (printf "%s.registryLocation" .Values.registryName) }}/{{ .Values.containerPrefix }}/grava:latest
+        imagePullPolicy: Always
+        ports:
+        - name: port8088
+          containerPort: 8088
+        resources:
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+        env:
+          - name: "pathBase"
+            value: {{ (printf "/%s" .Values.backendPathBase) }}
+          - name: "_ironServerPort"
+            value: {{ (printf "\"%s\"" .Values._ironServerPort) }}
+          - name: "ironMachines"
+            value: {{ (printf "\"%s\"" .Values.ironMachines) }}
+          - name: "_ironClientPort"
+            value: {{ (printf "\"%s\"" .Values._ironClientPort) }}
+          - name: "certsServiceFile"
+            value: {{ .Values.certsServiceFile }}
+      imagePullSecrets:
+        - name: registry-credential

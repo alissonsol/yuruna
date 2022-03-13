@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: website
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: website
+  template:
+    metadata:
+      labels:
+        app: website
+    spec:
+      containers:
+      - name: website
+        # Notice that the 'registryName' variable is used to find the name of another variable, requiring the dual indirection
+        image: {{ index .Values (printf "%s.registryLocation" .Values.registryName) }}/{{ .Values.containerPrefix }}/website:latest
+        imagePullPolicy: Always 
+        ports:
+        - name: port80
+          containerPort: 80
+        - name: port443
+          containerPort: 443
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+      imagePullSecrets:
+        - name: registry-credential
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: website
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: website
+spec:
+  type: NodePort
+  ports:
+    - name: port80
+      port: 80
+      targetPort: 80
+      protocol: TCP
+    - name: port443
+      port: 443
+      targetPort: 443
+      protocol: TCP
+  selector:
+    app: website

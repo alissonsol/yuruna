@@ -1,0 +1,34 @@
+# reference: https://kubernetes.github.io/ingress-nginx/user-guide/basic-usage/
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-to-website
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: website
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($host = '' ) {
+        rewrite ^ https://www.$request_uri permanent;
+      }
+spec:
+  ingressClassName: {{ .Values.ingressClass }}
+  tls:
+  - hosts:
+    - {{ .Values.websiteHost }}
+    secretName: {{ .Values.websiteTlsSecret }}
+  rules:
+  - host: {{ .Values.websiteHost }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: website
+            port:
+              number: 80

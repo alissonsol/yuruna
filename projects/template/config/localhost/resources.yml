@@ -1,0 +1,28 @@
+# Resources information - localhost
+---
+# TO-SET: ensure source context has the right name
+globalVariables:
+  runId:                 "$(-join ((97..122) | Get-Random -Count 6 | %{[char]$_}))"
+  runTag:                "localhost"
+  project:               "TO-SET"
+  namespace:             "${env:project}"
+  containerPrefix:       "${env:project}"
+  clusterDnsPrefix:      "${env:project}-${env:runId}"
+  resourceGroup:         "${env:project}-${env:runId}"
+  resourceTags:          "${env:project}-${env:runId}"
+  registryName:          "componentsRegistry"
+  sourceContext:         "docker-desktop"
+
+# Careful: if the template needs a variable (variables.tf) and it is not defined globally or locally below then the script will be stuck waiting input
+resources:
+- name:                  "componentsRegistry"
+  template:              "localhost/registry"
+  variables:
+    uniqueName:          "${env:project}${env:runId}"
+
+# cluster reference
+- name:                  "${env:runTag}-${env:project}-${env:runId}"
+  template:              "localhost/context-copy"
+  variables:
+    clusterName:         "${env:project}-${env:runId}"
+    destinationContext:  "${env:runTag}-${env:project}-${env:runId}"

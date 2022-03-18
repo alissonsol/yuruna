@@ -29,14 +29,14 @@ function Confirm-RequirementList {
 
     if (-Not ($null -eq $requirementsYaml.requirements)) {
         $output = "{0,20}" -f "Tool" + "{0,16}" -f "Required" + "  {0}" -f "Found"
-        Write-Host $output
+        Write-Information $output
         foreach ($tool in $requirementsYaml.requirements) {
             $toolName = $tool['tool']
             $toolCommand = $tool['command']
             $toolVersion = $tool['version']
             $toolFound = Invoke-Expression $toolCommand *>&1
             $output = "{0,20}" -f $toolName + "{0,16}" -f $toolVersion + "  {0}" -f $toolFound
-            Write-Host $output
+            Write-Information $output
         }
     }
 

@@ -89,13 +89,21 @@ function Publish-ComponentList {
     # For each component in components.yml
     foreach ($component in $componentsYaml.components) {
         # Component project
-        $project = $component['project']
-        if ([string]::IsNullOrEmpty($project)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return $false; }
+        $projectName = $component['project']
+        if ([string]::IsNullOrEmpty($projectName)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return $false; }
+        $projectNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($projectName)
+        Write-Verbose "$projectName = $projectNameExpanded"
+        $projectName = $projectNameExpanded
+        Set-Item -Path Env:projectName -Value ${projectName}
         $buildPath = $component['buildPath']
-        if ([string]::IsNullOrEmpty($buildPath)) { Write-Information "component.buildPath cannot be null or empty in file: $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($buildPath)) {
+            $buildPath = $projectName;
+        }
+        $buildPath = $ExecutionContext.InvokeCommand.ExpandString($buildPath)
+
         $buildFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "components/$buildPath")
         if (-Not (Test-Path -Path $buildFolder)) { Write-Information "Components folder not found: $buildFolder`nUsed in file: $componentsFile"; return $false; }
-        Write-Information "-- Component: $project from $buildFolder"
+        Write-Information "-- Component: $projectName from $buildFolder"
 
         # Notice how there is not string expansion for the components script
         $componentVars = [ordered]@{}
@@ -149,14 +157,14 @@ function Publish-ComponentList {
         if (-Not (Test-Path -Path $dockerfile)) { $dockerfile = Join-Path -Path $buildFolder -ChildPath "$project-dockerfile"; }
         if (-Not (Test-Path -Path $dockerfile)) { Write-Information "Missing dockerfile in folder: $buildFolder"; return $false; }
 
-        $componentVars['project'] = $project
+        $componentVars['project'] = $projectName
         $componentVars['buildPath'] = $buildPath
         $componentVars['dockerfile'] = $dockerfile
         foreach ($key in $componentVars.Keys) {
             $value = $componentVars[$key]
             if ([string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
             Set-Item -Path Env:$key -Value ${value}
-            Write-Debug "$project[Env:$key] is $(Get-Content -Path Env:$key)"
+            Write-Debug "$projectName[Env:$key] is $(Get-Content -Path Env:$key)"
         }
 
         Push-Location $componentsPath

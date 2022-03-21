@@ -98,6 +98,7 @@ function Publish-ResourceListHelper {
             Get-ChildItem -Path "$workFolder/*.tf" | Remove-Item -Force -ErrorAction SilentlyContinue
             Copy-Item "$templateFolder/*" -Destination $workFolder -Recurse -Container -ErrorAction SilentlyContinue
 
+            Set-Item -Path Env:resourceName -Value ${resourceName}
             $terraformVarsFile = Join-Path -Path $workFolder -ChildPath "terraform.tfvars"
             $null = New-Item -Path $terraformVarsFile -ItemType File -Force
             $terraformVars = [ordered]@{}

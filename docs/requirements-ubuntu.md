@@ -126,4 +126,4 @@ brew install awscli
 snap install google-cloud-sdk --classic
 ```
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

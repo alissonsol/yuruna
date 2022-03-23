@@ -50,4 +50,4 @@ As output, the following values will become available for later steps:
 
 - How to validate the system functionality.
 
-Back to main [readme](../../README.md).
+Back to the main [readme](../../README.md).

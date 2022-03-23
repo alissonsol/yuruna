@@ -55,4 +55,4 @@
 - NGINX Ingress Controller [Bare-metal considerations](https://kubernetes.github.io/ingress-nginx/deploy/baremetal/)
 - [Allow non-root process to bind to port 80 and 443?](https://superuser.com/questions/710253/allow-non-root-process-to-bind-to-port-80-and-443/892391#892391)
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

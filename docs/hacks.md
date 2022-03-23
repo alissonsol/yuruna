@@ -67,4 +67,4 @@ GitHub issue documenting need to restart Docker: <https://github.com/docker/for-
 - Check with `kubectl get psp -A`
 - Delete with `kubectl delete psp [name]`
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

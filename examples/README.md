@@ -18,4 +18,4 @@ Read the Connectivity section of the [Frequently Asked Questions](../docs/faq.md
   - Copy and paste folder structure to new folder.
   - Make needed changes and add component code (seek for `TO-SET`).
 
-Back to main [readme](../../README.md)
+Back to the main [readme](../../README.md)

@@ -64,4 +64,4 @@ Ahead of installing certificates in the localhost, it is recommended to run `mkc
 
 See some additional guidance on how machines were setup for the [macOS](./requirements-mac-os.md) and [Ubuntu](./requirements-ubuntu.md) tests (no guarantees!).
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

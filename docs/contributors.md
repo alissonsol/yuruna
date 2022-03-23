@@ -10,4 +10,4 @@ Appreciate all the help from everyone developing, testing, and contributing to `
 - [Paulo Haimann Pinto](https://github.com/PSergioHP)
 - [Ross Savage](https://github.com/Ross-GH)
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

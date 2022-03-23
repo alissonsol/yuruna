@@ -26,6 +26,8 @@ Before deploying, seek for `TO-SET` in the config files and set the required val
 
 - Deploy the  workloads
 
+This is the best time to confirm that port 80 is free to avoid localhost connection issues as per [FAQ](../../docs/faq.md). Stop Docker, then confirm port 80 is free, and start it again before the workloads deployment.
+
 ```shell
 ./yuruna.ps1 workloads ../examples/cloudtalk localhost
 ```
@@ -88,4 +90,4 @@ In a localhost, using connected [IronRSLKVServer](https://github.com/microsoft/I
 
 <img src="docs/cloudtalk-localhost-ironrslkv.png" alt="cloudtalk in the localhost using ironrslkv" width="640"/>
 
-Back to main [readme](../../README.md). Back to list of [examples](../README.md).
+Back to the main [readme](../../README.md). Back to list of [examples](../README.md).

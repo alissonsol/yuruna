@@ -41,4 +41,4 @@ Frontend website for user authentication and human-computer interface
     - Check if container is running
     - Stop the pod: `kubectl delete pod/yrn42website-prefix-website-test`
 
-Back to main [readme](../../../README.md)
+Back to the main [readme](../../../README.md)

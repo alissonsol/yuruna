@@ -8,4 +8,4 @@ Focused on major theme for the mid-month release.
   - PI day launch of videos explaining example and the PowerShell scripts
   - Cleanup of repository ahead of that to reduce "entropy"
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

@@ -64,4 +64,4 @@
   - Consequence: hack to deploy the ingress, since today it depends on v1.19+ syntax
 - IP load balancer not working.
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

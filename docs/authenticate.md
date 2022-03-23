@@ -57,4 +57,4 @@
     - Configure default project with: `gcloud config set project [project]`
   - Authorize the SDK to access GCP: `gcloud auth application-default login`
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

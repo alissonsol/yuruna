@@ -77,4 +77,4 @@ brew cask install google-cloud-sdk
 
 After the install for the Google CLI, pay attention to the messages asking to add configuration to the user profile! For PowerShell, added the `bash` lines to `[User]/.bash_profile`.
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

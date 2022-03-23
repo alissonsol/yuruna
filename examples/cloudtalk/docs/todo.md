@@ -69,4 +69,4 @@
     - Docker [container](https://hub.docker.com/_/zookeeper)
     - Application: Java [KeptCollections](https://github.com/anthonyu/KeptCollections)
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

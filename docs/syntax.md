@@ -38,4 +38,4 @@ Additional commands are:
 
 - A folder `.yuruna` is create under the `project_root` for the temporary files.
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

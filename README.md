@@ -39,9 +39,9 @@ See project [examples](examples/README.md) and check the [syntax](docs/syntax.md
 
 - Scripts and examples are provided "as is" without guarantees. See [license](LICENSE.md). Always check for the [latest version](https://bit.ly/asol-yrn).
 - Creating cloud resources and not deleting them may result in a growing bill even if they aren't used.
-  - You should [clean up](docs/cleanup.md) resources if those won't be in use.
+  - You should promptly [clean up](docs/cleanup.md) resources no longer in use.
 - Questions? Check the [FAQ](docs/faq.md) document first.
-- Want to contribute: check the list of [to do](docs/todo.md) tasks, and the guidelines for [contributing](docs/contributing.md).
+- Want to contribute: check the list of [to do](docs/todo.md) tasks and the guidelines for [contributing](docs/contributing.md).
   - Review the [hacks](docs/hacks.md), [updates](docs/updates.md), and additional [references](docs/references.md).
 - Thanks to all users and [contributors](docs/contributors.md)
 

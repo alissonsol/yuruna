@@ -32,7 +32,6 @@ function Publish-ResourceListHelper {
     )
 
     Write-Debug "     Execution command: $executionCommand"
-    if (!(Confirm-ResourceList $project_root $config_subfolder)) { return $false; }
     # For each resource in resources.yml
     #   copy template to work folder under .yuruna
     #   apply variables from resources.yml
@@ -168,6 +167,7 @@ function Publish-ResourceList {
     # terraform plan -compact-warnings
     # terraform graph | dot -Tsvg > graph.svg
     # terraform apply -auto-approve
+    if (!(Confirm-ResourceList $project_root $config_subfolder)) { return $false; }
 
     # copy resourcesFile to work folder under .yuruna
     $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"

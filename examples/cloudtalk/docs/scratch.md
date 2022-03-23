@@ -316,4 +316,4 @@ Sending a request with sequence number 0 to IronfleetIoFramework.PublicIdentity
 #timeout; rotating to server 0
 ```
 
-Back to main [readme](../README.md)
+Back to the main [readme](../README.md)

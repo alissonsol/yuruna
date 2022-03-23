@@ -79,4 +79,4 @@ As output, the following values will become available for later steps:
   - Make sure the `azure-dns-label-name` in the Helm deployment has the same label of the `frontendIp` public IP. You can verify that in the <https://portal.azure.com>. Hint: it is the cluster name!
 - In AKS, if you need to rerun the `workloads`, your IP Address may be deleted when the previous ingress controller is deleted. Check how to lock the IP resource in this [issue](https://stackoverflow.com/questions/66435282/how-to-make-azure-not-delete-public-ip-when-deleting-service-ingress-controlle).
 
-Back to main [readme](../../README.md). Back to list of [examples](../README.md).
+Back to the main [readme](../../README.md). Back to list of [examples](../README.md).

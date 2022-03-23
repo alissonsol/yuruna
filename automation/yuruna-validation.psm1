@@ -95,14 +95,15 @@ function Confirm-ResourceList {
         }
     }
 
-    # Secrets, if defined, shouldn't be empty
+    # Secrets, if defined, shouldn't be empty.
+    # For resources, that is informed but resource creation proceeds.
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
     if (Test-Path -Path $secrets_folder) {
         $files = Get-ChildItem -Path $secrets_folder -Filter *.txt
         foreach ($file in $files){
             Write-Verbose "Checking secret file: $file"
             $content = Get-Content $file
-            if ([string]::IsNullOrEmpty($content)) { Write-Information "Empty secret file: $file"; return $false; }
+            if ([string]::IsNullOrEmpty($content)) { Write-Information "Empty secret file: $file"; }
             git update-index --assume-unchanged $file
         }
     }
@@ -235,6 +236,32 @@ function Confirm-WorkloadList {
             }
             # if ($isKubectl -or $isHelm -or $isShell)
             # only possibility: verify it is not null or empty, what has already been done!
+        }
+    }
+
+    # Secrets, if defined, shouldn't be empty.
+    # For workloads, that blocks execution.
+    $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
+    if (Test-Path -Path $secrets_folder) {
+        Write-Debug "---- Validating Secrets folder: $secrets_folder"
+        $files = Get-ChildItem -Path $secrets_folder -Filter *.txt
+        foreach ($file in $files){
+            Write-Verbose "Checking secret file: $file"
+            $content = Get-Content $file
+            if ([string]::IsNullOrEmpty($content)) { Write-Information "Empty secret file: $file"; return $false; }
+            git update-index --assume-unchanged $file
+        }
+    }
+    # Try also peer folder: that is possible for workloads
+    $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/../secrets"
+    if (Test-Path -Path $secrets_folder) {
+        Write-Debug "---- Validating Secrets folder: $secrets_folder"
+        $files = Get-ChildItem -Path $secrets_folder -Filter *.txt
+        foreach ($file in $files){
+            Write-Verbose "Checking secret file: $file"
+            $content = Get-Content $file
+            if ([string]::IsNullOrEmpty($content)) { Write-Information "Empty secret file: $file"; return $false; }
+            git update-index --assume-unchanged $file
         }
     }
 

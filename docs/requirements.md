@@ -56,11 +56,12 @@ Ahead of installing certificates in the localhost, it is recommended to run `mkc
   - Operating systems
     - Windows 10 Professional.
       - `ver`
-        - `Microsoft Windows [Version 10.0.19044.1387]`
+        - `Microsoft Windows [Version 10.0.19044.1620]`
   - Required tools
     - Check with the implemented command `yuruna requirements`
       - It will show for each tool what was the version in the test environment and version locally found.
       - Follow links above to install or update tools.
+      - While the scripts and example may work with previous versions, the tests were performed with the indicated versions.
 
 See some additional guidance on how machines were setup for the [macOS](./requirements-mac-os.md) and [Ubuntu](./requirements-ubuntu.md) tests (no guarantees!).
 

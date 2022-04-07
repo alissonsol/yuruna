@@ -71,7 +71,7 @@ workloads:
       variables:
         installName: "website-${env:runId}"
     - shell: "Write-Information \">> Enpoint: https://${env:websiteHost}\""
-    # - LOCALHOST HACK
+    # - LOCALHOST LB
     - kubectl: "delete namespace metallb-system --ignore-not-found=true --v=1"
     - kubectl: "create namespace metallb-system --v=1"
     - helm: "repo add stable https://charts.helm.sh/stable"

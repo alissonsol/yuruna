@@ -35,7 +35,10 @@ function Confirm-RequirementList {
             $toolCommand = $tool['command']
             $toolVersion = $tool['version']
             $toolFound = Invoke-Expression $toolCommand *>&1
+            $toolReleases = $tool['releases']
             $output = "{0,20}" -f $toolName + "{0,16}" -f $toolVersion + "  {0}" -f $toolFound
+            Write-Information $output
+            $output = "{0,36}" -f "" + "  {0}" -f $toolReleases
             Write-Information $output
         }
     }

@@ -6,36 +6,38 @@ Ahead of installing certificates in the localhost, it is recommended to run `mkc
 
 ## Required tools
 
-- You obviously need [Git](https://git-scm.com/downloads)
-  - `git config --global user.name "Your Name"`
-  - `git config --global user.email "Your@email.address"`
-  - `git config --global core.autocrlf input`
-- Using a Hyper-V machine in Windows? Enable [nested virtualization](https://docs.microsoft.com/en-us/virtualization/hyper-v-on-windows/user-guide/nested-virtualization)
-- Installed [Docker Desktop](https://docs.docker.com/desktop/)
-  - Enable [Kubernetes](https://docs.docker.com/get-started/orchestration/)
-- Installed [PowerShell Core](https://github.com/powershell/powershell), the cross-platform automation and configuration tool/framework, version 7+.
+Install each of the tools lined to, following the instructions from that link. After installing PowerShell, you can keep checking if you have already a tool installed and if you got a version equal or more recent than the one used in the tests with the command `yuruna.ps1 requirements`.
+
+- Install [PowerShell Core](https://github.com/powershell/powershell), the cross-platform automation and configuration tool/framework, version 7+.
   - For Windows: learn about [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170)
     - From PowerShell as Administrator, run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned`
   - While in the Administrator PowerShell window, install the module "powershell-yaml"
     - Execute: `Install-Module -Name powershell-yaml`
-- Installed [Helm](https://helm.sh/docs/intro/install/) in the path.
+- Install [Git](https://git-scm.com/downloads)
+  - `git config --global user.name "Your Name"`
+  - `git config --global user.email "Your@email.address"`
+  - `git config --global core.autocrlf input`
+- Using a Hyper-V machine in Windows? Enable [nested virtualization](https://docs.microsoft.com/en-us/virtualization/hyper-v-on-windows/user-guide/nested-virtualization)
+- Install [Docker Desktop](https://docs.docker.com/desktop/)
+  - Enable [Kubernetes](https://docs.docker.com/get-started/orchestration/)
+- Install [Helm](https://helm.sh/docs/intro/install/) in the path.
   - Download: [`https://github.com/helm/helm/releases`](https://github.com/helm/helm/releases)
-- Installed [Terraform](https://www.terraform.io/downloads.html) in the path.
-- Installed [mkcert](https://github.com/FiloSottile/mkcert) in the path.
-  - Run `mkcert -install`
-- Installed [wget](https://www.gnu.org/software/wget/) in the path.
+- Install [Terraform](https://www.terraform.io/downloads.html) in the path.
+- Install [wget](https://www.gnu.org/software/wget/) in the path.
   - Binaries for Windows at [webfolderio.github.io](https://webfolderio.github.io/wget-windows/)
+- Install [mkcert](https://github.com/FiloSottile/mkcert) in the path.
+  - Run `mkcert -install`
 
 ## Cloud tools
 
 - AWS
-  - Created [AWS Account](https://aws.amazon.com/free)
-  - Installed [AWS CLI](https://aws.amazon.com/cli/)
+  - Create an [AWS Account](https://aws.amazon.com/free)
+  - Install the [AWS CLI](https://aws.amazon.com/cli/)
 - Azure
-  - Created [Azure Account](https://azure.microsoft.com/free)
-  - Installed [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
+  - Create an [Azure Account](https://azure.microsoft.com/free)
+  - Install the [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Google Cloud SDK
-  - Created [Google Cloud Account](https://console.cloud.google.com/freetrial)
+  - Create a [Google Cloud Account](https://console.cloud.google.com/freetrial)
   - Install the [Google Cloud SDK CLI](https://cloud.google.com/sdk/docs/install)
 - DNS provider and instructions to create A record
   - Instructions for [Amazon Route 53](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resource-record-sets-creating.html)
@@ -44,11 +46,11 @@ Ahead of installing certificates in the localhost, it is recommended to run `mkc
 
 ## Recommended tools
 
-- Installed version of [Visual Studio Code](https://code.visualstudio.com/)
-  - Installed [Docker](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker) extension.
-  - Installed extension for [Kubernetes](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools).
-- Installed [Graphviz](https://graphviz.org/download/) in the path.
-- Installed [K9S](https://k9scli.io/topics/install/) in the path.
+- Install the latest version of [Visual Studio Code](https://code.visualstudio.com/)
+  - Install the [Docker](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker) extension.
+  - Install the [Kubernetes](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools) extension.
+- Install [Graphviz](https://graphviz.org/download/) in the path.
+- Install [K9S](https://k9scli.io/topics/install/) in the path.
 
 ## Development environment
 

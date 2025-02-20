@@ -20,6 +20,7 @@ Install each of the tools lined to, following the instructions from that link. A
 - Using a Hyper-V machine in Windows? Enable [nested virtualization](https://docs.microsoft.com/en-us/virtualization/hyper-v-on-windows/user-guide/nested-virtualization)
 - Install [Docker Desktop](https://docs.docker.com/desktop/)
   - Enable [Kubernetes](https://docs.docker.com/get-started/orchestration/)
+  - Install [Docker buildx](https://github.com/docker/buildx) in the path.
 - Install [Helm](https://helm.sh/docs/intro/install/) in the path.
   - Download: [`https://github.com/helm/helm/releases`](https://github.com/helm/helm/releases)
 - Install [Terraform](https://www.terraform.io/downloads.html) in the path.

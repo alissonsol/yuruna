@@ -18,6 +18,7 @@
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/yuruna-validation"
 Import-Module -Name $validationModulePath
+Remove-Item Env:DOCKER_BUILDKIT
 
 function Publish-ComponentList {
     param (

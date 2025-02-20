@@ -4,6 +4,7 @@
 
 ### P0, P1
 
+- buildx: install Mac, Ubuntu and make changes to build scripts
 - Need something like: loop: _number(001-003)
 - curl x wget?
 - How to "pack and move" to another machine

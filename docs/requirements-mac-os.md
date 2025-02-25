@@ -51,6 +51,12 @@ Install Docker.
 brew install --cask docker
 ```
 
+Aside: At times Docker Desktop is installed and just needs to be linked..
+
+```shell
+brew link docker
+```
+
 Start Docker from the `Applications` folder. Then, open the settings panel and [enable Kubernetes](https://docs.docker.com/docker-for-mac/#kubernetes).
 
 ## Steps without manual interaction
@@ -72,7 +78,7 @@ After installing Visual Studio Code, it is recommended to install the externsion
 ```shell
 brew install awscli
 brew install azure-cli
-brew cask install google-cloud-sdk
+brew install --cask google-cloud-sdk
 ```
 
 After the install for the Google CLI, pay attention to the messages asking to add configuration to the user profile! For PowerShell, added the `bash` lines to `[User]/.bash_profile`.

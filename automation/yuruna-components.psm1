@@ -3,7 +3,7 @@
 .GUID 06e8bceb-f7aa-47e8-a633-1fc36173d278
 .AUTHOR Alisson Sol
 .COMPANYNAME None
-.COPYRIGHT (c) 2020-2022 Alisson Sol et al.
+.COPYRIGHT (c) 2020-2025 Alisson Sol et al.
 .TAGS yuruna-components
 .LICENSEURI http://www.yuruna.com
 .PROJECTURI http://www.yuruna.com
@@ -18,6 +18,7 @@
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/yuruna-validation"
 Import-Module -Name $validationModulePath
+Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 
 function Publish-ComponentList {
     param (

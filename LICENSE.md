@@ -1,6 +1,6 @@
 # MIT License
 
-Copyright (c) 2020-2022 Alisson Sol et al.
+Copyright (c) 2020-2025 Alisson Sol et al.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -2,7 +2,6 @@
 ---
 globalVariables:
   DOCKER_SCAN_SUGGEST:   "false"
-  DOCKER_BUILDKIT:       "0"
   # Notice that the 'registryName' variable is used to find the name of another variable, requiring the dual indirection
   buildCommand: docker build --progress=plain --rm --build-arg DEV=1 --no-cache -f ${env:dockerfile} -t "${env:containerPrefix}/${env:project}:latest" "${env:buildPath}"
   # buildCommand: docker build --progress=plain --rm -f ${env:dockerfile} -t "${env:containerPrefix}/${env:project}:latest" "${env:buildPath}"

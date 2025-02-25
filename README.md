@@ -45,4 +45,4 @@ See project [examples](examples/README.md) and check the [syntax](docs/syntax.md
   - Review the [hacks](docs/hacks.md), [updates](docs/updates.md), and additional [references](docs/references.md).
 - Thanks to all users and [contributors](docs/contributors.md)
 
-Copyright (c) 2020-2022 by Alisson Sol et al.
+Copyright (c) 2020-2025 by Alisson Sol et al.

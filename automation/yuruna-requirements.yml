@@ -16,7 +16,7 @@ requirements:
     version: "27.5.1"
     releases: "https://docs.docker.com/desktop/"
   - tool: "Docker buildx"
-    command: "docker-buildx version"
+    command: "(docker buildx version)"
     version: "v0.20.1"
     releases: "https://github.com/docker/buildx"
   - tool: "Kubectl"

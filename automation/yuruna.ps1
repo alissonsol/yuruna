@@ -46,15 +46,15 @@
     Helper application output.
 
     .EXAMPLE
-    C:\PS> ./yuruna.ps1 resources ../examples/website localhost
+    C:\PS> ./yuruna.ps1 resources website localhost
     Deploys resources using Terraform as helper.
 
     .EXAMPLE
-    C:\PS> ./yuruna.ps1 resources ../examples/website localhost
+    C:\PS> ./yuruna.ps1 resources website localhost
     Build and push components to registry.
 
     .EXAMPLE
-    C:\PS> ./yuruna.ps1 resources ../examples/website localhost
+    C:\PS> ./yuruna.ps1 resources website localhost
     Deploy workloads using Helm as helper.
 
     .LINK

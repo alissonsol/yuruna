@@ -13,7 +13,7 @@ yuruna clear [project_root] [config_subfolder]
 Clearing the resources for the project `website` in the `Azure` cloud (assuming [authentication](authenticate.md) steps were followed).
 
 ```shell
-./yuruna.ps1 clear ../examples/website azure
+./yuruna.ps1 clear website azure
 ```
 
 If needed, resources can be deleted by executing the command below from the folder with the initial deployment files (`.yuruna/resources/$resourceTemplate`)

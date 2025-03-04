@@ -8,10 +8,6 @@ Read the Connectivity section of the [Frequently Asked Questions](../docs/faq.md
 
 - [website](website/README.md): A simple .NET C# website container deployed to a Kubernetes cluster.
 
-## cloudtalk
-
-- [cloudtalk](cloudtalk/README.md) demonstrates key/value replication across nodes using the [IronRSL - Key-Value Store](https://github.com/microsoft/Ironclad/blob/main/ironfleet/README.md#ironrsl---key-value-store).
-
 ## Template
 
 - This is just the [folder structure](../projects/template/) to create a new project.

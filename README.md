@@ -28,9 +28,9 @@ yuruna.ps1 workloads  [project_root] [config_subfolder] [options]
 For example, these commands deploy the [website](examples/website/README.md) example to Azure, showing debug and verbose messages.
 
 ```shell
-./yuruna.ps1 resources  ../examples/website azure -debug_mode $true -verbose_mode $true
-./yuruna.ps1 components ../examples/website azure -debug_mode $true -verbose_mode $true
-./yuruna.ps1 workloads  ../examples/website azure -debug_mode $true -verbose_mode $true
+./yuruna.ps1 resources  website azure -debug_mode $true -verbose_mode $true
+./yuruna.ps1 components website azure -debug_mode $true -verbose_mode $true
+./yuruna.ps1 workloads  website azure -debug_mode $true -verbose_mode $true
 ```
 
 See project [examples](examples/README.md) and check the [syntax](docs/syntax.md) documentation for more details.

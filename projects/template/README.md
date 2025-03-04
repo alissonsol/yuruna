@@ -13,19 +13,19 @@ Before deploying, seek for `TO-SET` in the config files and set the required val
 - Create resources
 
 ```shell
-./yuruna.ps1 resources ../examples/TO-SET localhost
+./yuruna.ps1 resources TO-SET localhost
 ```
 
 - Build the components
 
 ```shell
-./yuruna.ps1 components ../examples/TO-SET localhost
+./yuruna.ps1 components TO-SET localhost
 ```
 
 - Deploy the  workloads
 
 ```shell
-./yuruna.ps1 workloads ../examples/TO-SET localhost
+./yuruna.ps1 workloads TO-SET localhost
 ```
 
 ## Resources

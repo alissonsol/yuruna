@@ -10,7 +10,6 @@
 - How to "pack and move" to another machine
 - Before "cloud-based" scripts execute, validate session
 - Validation: repeated resource names and other duplications like context names
-- Seek for TODO tag.
 
 ### P1
 

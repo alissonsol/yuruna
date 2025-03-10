@@ -13,19 +13,19 @@ Before deploying, seek for `TO-SET` in the config files and set the required val
 - Create resources
 
 ```shell
-./yuruna.ps1 resources website localhost
+yuruna.ps1 resources website localhost
 ```
 
 - Build the components
 
 ```shell
-./yuruna.ps1 components website localhost
+yuruna.ps1 components website localhost
 ```
 
 - Deploy the  workloads
 
 ```shell
-./yuruna.ps1 workloads website localhost
+yuruna.ps1 workloads website localhost
 ```
 
 ## Resources
@@ -63,7 +63,7 @@ As output, the following values will become available for later steps:
 
 ### DNS
 
-- Before executing `./yuruna.ps1 workloads` please confirm that the `yrn42website-domain` DNS entry (example: www.yrn42.com) already points to the `frontendIp`.
+- Before executing `yuruna.ps1 workloads` please confirm that the `yrn42website-domain` DNS entry (example: www.yrn42.com) already points to the `frontendIp`.
   - After resource creation, you will get the Terraform output with the `frontendIp`. From the configuration interface for your DNS provider, point the `yrn42website-domain` to that IP address.
     - Another option to test is: `curl -v http://{frontendIp} -H 'Host: {yrn42website-domain}'`.
     - Yet another option: add an entry to your `hosts` folder pointing `yrn42website-domain` to the resulting value for`frontendIp`. Don't forget to remove it!

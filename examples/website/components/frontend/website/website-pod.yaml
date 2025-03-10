@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: website-pod
+  labels:
+    app: website-pod
+spec:
+  containers:
+    - name: website-app
+      image: "localhost:5000/website/website:latest"
+      ports:
+        - containerPort: 80
+        - containerPort: 443
+      env:
+      - name: ASPNETCORE_URLS
+        value: "https://+;http://+"
+      - name: ASPNETCORE_HTTPS_PORT
+        value: "8001"
+      - name: ASPNETCORE_Kestrel__Certificates__Default__Password
+        value: "password"
+      - name: ASPNETCORE_Kestrel__Certificates__Default__Path
+        value: "/app/aspnetapp.pfx"

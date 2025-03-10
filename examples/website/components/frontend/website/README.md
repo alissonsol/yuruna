@@ -29,17 +29,29 @@ Frontend website for user authentication and human-computer interface
 
 ## Running the docker image locally
 
+### Docker
+
 - You may start debugging the Docker build in Visual Studio. This will run the container usually tagged as `website:dev`, with name `website`. Stopping the debugging may leave it running.
-- You can use the CMD script `frontend/website/docker-run-dev`, which will build an image tagged as `yrn42website-prefix/website:latest` and then run it with name `yrn42website-prefix-website`.
-  - If coming directly to this step, check if the Docker file sharing is enable for the `C:\` drive (or whichever is needed). Information about sharing is in item above.
+  - Remember to cleanup!
+
+- You can use the CMD script `frontend/website/docker-run-dev.ps1`, which will build an image tagged as `yrn42website-prefix/website:latest` and then run it with name `yrn42website-prefix-website`.
   - Check if the password in the command matches the one used when trusting the development certificates.
-  - Open in browser: `https://localhost:8001/`
+  - Open in browser: `http://localhost:8000/`
+  - Remember to cleanup!
+
+- Or you can build the components (using `yuruna.ps1 components website localhost`) and then start a container interactively.
+  - `docker run --rm -it -p 8000:80 -p 8001:443 --name "test-website" -e ASPNETCORE_URLS="https://+;http://+" -e ASPNETCORE_HTTPS_PORT=8001 -e ASPNETCORE_Kestrel__Certificates__Default__Password="password" -e ASPNETCORE_Kestrel__Certificates__Default__Path=/app/aspnetapp.pfx localhost:5000/website/website:latest`
+
+### Kubernetes
 
 - Local Kubernetes cluster 'docker-desktop'
-  - Test if 'Running the docker image locally' works, as per instructions below.
-  - If local Kubernetes cluster is enabled, loading can be locally tested
-    - `kubectl run --image="yrn42website-prefix/website:latest" yrn42website-prefix-website-test --port=80 --env="DOMAIN=www.yrn42website-domain" --expose=true --image-pull-policy=IfNotPresent`
-    - Check if container is running
-    - Stop the pod: `kubectl delete pod/yrn42website-prefix-website-test`
+  - Build the components (using `yuruna.ps1 components website localhost`)
+    - Deploy the containter: `kubectl apply -f website-pod.yaml`
+    - Deploy a service: `kubectl apply -f website-service.yaml`
+    = Forward machine ports to service: `kubectl port-forward services/website-service 8000:8000 8001:8001 -n default`
+    - Open in browser: `http://localhost:8000/`
+    - Remember to cleanup!
+      - `kubectl delete svc website-service`
+      - `kubectl delete pod website-pod`
 
 Back to the main [readme](../../../README.md)

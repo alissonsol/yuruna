@@ -12,3 +12,6 @@ components:
 - project: "website"
   buildPath: "frontend/website"
   variables:
+    preProcessor:   "Push-Location ${env:buildPath};
+                     ./copy-pfx.ps1;
+                     Pop-Location"

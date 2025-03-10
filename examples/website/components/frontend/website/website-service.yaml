@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: website-service
+spec:
+  selector:
+    app: website-pod
+  type: NodePort
+  ports:
+    - protocol: TCP
+      name: tcp80
+      port: 8000        # External port
+      targetPort: 80    # Internal container port
+      nodePort: 30080   # Node port (optional)
+    - protocol: TCP
+      name: tcp443
+      port: 8001        # External port
+      targetPort: 443   # Internal container port
+      nodePort: 30443   # Node port (optional)

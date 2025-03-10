@@ -27,6 +27,15 @@ spec:
           limits:
             memory: "128Mi"
             cpu: "200m"
+        env:
+        - name: ASPNETCORE_URLS
+          value: "https://+;http://+"
+        - name: ASPNETCORE_HTTPS_PORT
+          value: "443"
+        - name: ASPNETCORE_Kestrel__Certificates__Default__Password
+          value: "password"
+        - name: ASPNETCORE_Kestrel__Certificates__Default__Path
+          value: "/app/aspnetapp.pfx"          
       imagePullSecrets:
         - name: registry-credential
 ---

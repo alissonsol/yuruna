@@ -15,39 +15,43 @@ globalVariables:
   dockerUsername:        "placeholder"
   dockerPassword:        "placeholder"
   ingressClass:          "nginx"
+  certManagerLatest:     "v1.17.1"
 
 workloads:
 - context: "${env:runTag}-${env:project}-${env:runId}"
   variables:
     _hostname: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.hostname\"))"
     _frontendIp: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.frontendIp\"))"
+    tls-crt: "$(Join-Path -Path ${env:workFolder} -ChildPath \"website-tls.crt\")"
+    tls-key: "$(Join-Path -Path ${env:workFolder} -ChildPath \"website-tls.key\")"
   deployments:
     # Uninstall previous workloads: idempotent
     - kubectl: "delete namespace ${env:namespace} --ignore-not-found=true --v=1"
     - kubectl: "delete namespace ingress-ns --ignore-not-found=true --v=1"
-    - kubectl: "delete -f https://github.com/jetstack/cert-manager/releases/download/v1.7.1/cert-manager.yaml --ignore-not-found=true --v=1"
+    - kubectl: "delete -f https://github.com/jetstack/cert-manager/releases/download/${env:certManagerLatest}/cert-manager.yaml --ignore-not-found=true --v=1"
+    - kubectl: "delete -f https://github.com/cert-manager/cert-manager/releases/download/${env:certManagerLatest}/cert-manager.crds.yaml --ignore-not-found=true --v=1"
     - kubectl: "delete clusterrole nginx-ingress-ingress-nginx --ignore-not-found=true"
     - kubectl: "delete clusterrolebinding nginx-ingress-ingress-nginx --ignore-not-found=true"
     # Install dependencies
     - kubectl: "create namespace ${env:namespace} --v=1"
-    - kubectl: "create namespace ingress-ns --v=1"
-    - kubectl: "label namespace ingress-ns cert-manager.io/disable-validation=true --v=1"
     - kubectl: "config set-context --current --namespace=${env:namespace} --v=1"
     # For localhost: manually create certificate
     - shell: "mkcert -install"
-    - shell: "mkcert -key-file \"${env:workFolder}/website-tls.key\" -cert-file \"${env:workFolder}/website-tls.crt\" ${env:websiteDomain} \"*.${env:websiteDomain}\" localhost \"*.localhost\" 127.0.0.1 ::1 ${env:_hostname} ${env:_frontendIp}"
+    - shell: "mkcert -key-file \"${env:tls-key}\" -cert-file \"${env:tls-crt}\" ${env:websiteDomain} \"*.${env:websiteDomain}\" localhost \"*.localhost\" 127.0.0.1 ::1 ${env:_hostname} ${env:_frontendIp}"
     - kubectl: "delete secret ${env:websiteTlsSecret} --namespace=${env:namespace} --ignore-not-found=true"  
-    - kubectl: "create secret tls ${env:websiteTlsSecret} --key \"${env:workFolder}/website-tls.key\" --cert \"${env:workFolder}/website-tls.crt\" --namespace=${env:namespace}"
+    - kubectl: "create secret tls ${env:websiteTlsSecret} --key \"${env:tls-key}\" --cert \"${env:tls-crt}\" --namespace=${env:namespace}"
     # Certificate: goes first so clusterIssuer is ready when deploying templates later
-    - helm: "repo add jetstack https://charts.jetstack.io"
-    - helm: "repo update"
+    #- kubectl: "apply -f https://github.com/cert-manager/cert-manager/releases/download/${env:certManagerLatest}/cert-manager.crds.yaml"
+    - helm: "repo add jetstack https://charts.jetstack.io --force-update"
     - helm: >
         install cert-manager jetstack/cert-manager
         --namespace ingress-ns
-        --version v1.7.1
-        --set installCRDs=true
-        --set nodeSelector."beta\.kubernetes\.io/os"=linux
-        # --debug
+        --create-namespace
+        --version ${env:certManagerLatest}
+        --set crds.enabled=true
+        --set nodeSelector."kubernetes\.io/os"=linux
+        --set startupapicheck.timeout=5m
+        --debug
     # Ingress
     - helm: "repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
     - helm: "repo update"
@@ -55,13 +59,14 @@ workloads:
         install nginx-ingress ingress-nginx/ingress-nginx
         --namespace ingress-ns
         --set controller.replicaCount=2
-        --set controller.nodeSelector."beta\.kubernetes\.io/os"=linux
-        --set defaultBackend.nodeSelector."beta\.kubernetes\.io/os"=linux
+        --set controller.nodeSelector."kubernetes\.io/os"=linux
+        --set defaultBackend.nodeSelector."kubernetes\.io/os"=linux
         --set controller.service.externalTrafficPolicy="Local"
+        --set controller.service.type="LoadBalancer"
         --set controller.service.loadBalancerIP="${env:_frontendIp}"
         --set controller.admissionWebhooks.enabled=false
         --set controller.ingressClass=${env:ingressClass}
-        --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-dns-label-name"="${env:project}-${env:runId}-${env:_number}"
+        --set controller.service.annotations."service\.kubernetes\.io/azure-dns-label-name"="${env:project}-${env:runId}-${env:_number}"
         --set controller.service.annotations."metallb\.universe\.tf/address-pool"="default"
         # --debug
     # Install components

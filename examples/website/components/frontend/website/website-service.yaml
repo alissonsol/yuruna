@@ -9,11 +9,11 @@ spec:
   ports:
     - protocol: TCP
       name: tcp80
-      port: 8000        # External port
+      port: 80          # External port
       targetPort: 80    # Internal container port
       nodePort: 30080   # Node port (optional)
     - protocol: TCP
       name: tcp443
-      port: 8001        # External port
+      port: 443         # External port
       targetPort: 443   # Internal container port
       nodePort: 30443   # Node port (optional)

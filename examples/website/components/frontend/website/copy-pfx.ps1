@@ -1,6 +1,6 @@
 Push-Location $PSScriptRoot
 
-$env:basePath = Join-Path -Path "${env:HOMEDRIVE}" -ChildPath "${env:HOMEPATH}"
+$env:basePath = $HOME
 echo "basePath: ${env:basePath}";
 
 $env:pfxPath = ".aspnet/https/aspnetapp.pfx"

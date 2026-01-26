@@ -2,18 +2,28 @@
 
 Frontend website for user authentication and human-computer interface
 
+## Development certificates
+
+- Check existence
+  - `dotnet dev-certs https --check --trust`
+- If no valid certificate is found, create it
+  - Create folder
+    - `mkdir $HOME/.aspnet/https`
+  = Create certificate
+    - `dotnet dev-certs https -ep $HOME/.aspnet/https/aspnetapp.pfx -p { password here }`
+      - If getting error: `A valid HTTPS certificate is already present.`
+        - Clean up with `dotnet dev-certs https --clean` and try again.
+  - Trust certificate
+    - `dotnet dev-certs https --trust`
+
 ## Regenerating and modifying website project (if needed)
 
 - Created CSharp project "website" as per instructions from [Tutorial: Get started with ASP.NET Core](https://docs.microsoft.com/en-us/aspnet/core/getting-started/?view=aspnetcore-9.0)
   - Under `components/frontend`, issue command: `dotnet new webapp -o website`
   - Add `**/wwwroot/lib/*` to `.gitignore`
 - Containerize service, including [Running pre-built container images with HTTPS](https://docs.microsoft.com/en-us/aspnet/core/security/docker-https?view=aspnetcore-9.0).
-  - Project was missing references to `Microsoft.VisualStudio.Azure.Containers.Tools.Targets (1.10.9)`.
-    - Solved with `dotnet add package Microsoft.VisualStudio.Azure.Containers.Tools.Targets --version 1.10.9`. Reference from [nuget](https://www.nuget.org/packages/Microsoft.VisualStudio.Azure.Containers.Tools.Targets/).
-  - dotnet dev-certs https -ep %USERPROFILE%\.aspnet\https\aspnetapp.pfx -p { password here }
-    - If getting error: `A valid HTTPS certificate is already present.`
-      - Clean up with `dotnet dev-certs https --clean` and try again.
-  - dotnet dev-certs https --trust
+  - Project was missing references to `Microsoft.VisualStudio.Azure.Containers.Tools.Targets (1.21.2)`.
+    - Solved with `dotnet add package Microsoft.VisualStudio.Azure.Containers.Tools.Targets --version 1.21.2`. Reference from [nuget](https://www.nuget.org/packages/Microsoft.VisualStudio.Azure.Containers.Tools.Targets/).
   - Right-click on project, select `Add -> Docker Support...`
     - Depends on [Visual Studio](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/docker/visual-studio-tools-for-docker?view=aspnetcore-9.0)
 - Test project starting with `IIS Express`, and possibly the project name (`website`)
@@ -48,7 +58,7 @@ Frontend website for user authentication and human-computer interface
   - Build the components (using `yuruna.ps1 components website localhost`)
     - Deploy the containter: `kubectl apply -f website-pod.yaml`
     - Deploy a service: `kubectl apply -f website-service.yaml`
-    = Forward machine ports to service: `kubectl port-forward services/website-service 8000:8000 8001:8001 -n default`
+    = Forward machine ports to service:`kubectl port-forward services/website-service 8000:80 8001:443 -n default`
     - Open in browser: `http://localhost:8000/`
     - Remember to cleanup!
       - `kubectl delete svc website-service`

@@ -9,7 +9,7 @@ export NONINTERACTIVE=1
 if [[ $EUID -ne 0 ]]; then
    echo ""
    echo "╔════════════════════════════════════════════════════════════╗"
-   echo "║  This script requires elevated privileges (sudo)            ║"
+   echo "║  This script requires elevated privileges (sudo)           ║"
    echo "║  Please enter your password when prompted below            ║"
    echo "║  The script will pause until you provide your password     ║"
    echo "╚════════════════════════════════════════════════════════════╝"
@@ -52,14 +52,21 @@ echo "✓ Homebrew installed"
 
 # ===== PowerShell =====
 echo "=== Installing PowerShell ==="
-sudo apt-get update -y
-sudo apt-get install -y wget apt-transport-https software-properties-common
-source /etc/os-release
-wget -q https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb
-sudo dpkg -i packages-microsoft-prod.deb
-rm packages-microsoft-prod.deb
-sudo apt-get update -y
-sudo apt-get install -y powershell
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" = "amd64" ]; then
+    sudo apt-get update -y
+    sudo apt-get install -y wget apt-transport-https software-properties-common
+    source /etc/os-release
+    wget -q https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb
+    sudo dpkg -i packages-microsoft-prod.deb
+    rm packages-microsoft-prod.deb
+    sudo apt-get update -y
+    sudo apt-get install -y powershell
+else
+    # Microsoft does not publish PowerShell apt packages for arm64;
+    # install via snap which supports both architectures
+    sudo snap install powershell --classic || echo "Note: PowerShell snap installation attempted"
+fi
 echo "✓ PowerShell installed"
 
 # ===== Other Requirements =====

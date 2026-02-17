@@ -5,7 +5,7 @@ set -euo pipefail
 if [[ $EUID -ne 0 ]]; then
    echo ""
    echo "╔════════════════════════════════════════════════════════════╗"
-   echo "║  This script requires elevated privileges (sudo)            ║"
+   echo "║  This script requires elevated privileges (sudo)           ║"
    echo "║  Please enter your password when prompted below            ║"
    echo "║  The script will pause until you provide your password     ║"
    echo "╚════════════════════════════════════════════════════════════╝"

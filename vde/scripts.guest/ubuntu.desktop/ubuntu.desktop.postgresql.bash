@@ -29,6 +29,7 @@ sudo apt-get install -y postgresql-18 postgresql-contrib-18
 # Enable and start the PostgreSQL service
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
+sudo systemctl is-active postgresql > /dev/null 2>&1 || echo "Note: PostgreSQL service status unknown"
 
 # Show installed version
 echo "PostgreSQL: $(psql --version)"

@@ -27,7 +27,7 @@ sudo apt-get install -y ssh net-tools apt-transport-https curl git
 
 # Enable and start SSH
 sudo systemctl enable --now ssh
-sudo systemctl status ssh || true
+sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status unknown"
 
 echo "✓ Basic tools installed"
 
@@ -53,12 +53,14 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
 
 sudo systemctl enable docker
 sudo systemctl start docker
-sudo systemctl status docker || true
+sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service status unknown"
 
 # Configure Docker user permissions
 sudo chmod 666 /var/run/docker.sock
-sudo groupadd docker || true
-sudo usermod -aG docker "$REAL_USER"
+if ! getent group docker > /dev/null 2>&1; then
+    sudo groupadd docker
+fi
+sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
 newgrp docker || true
 
 # Test Docker
@@ -96,8 +98,10 @@ sudo apt-get install -y build-essential curl file
 # Add Homebrew to PATH for current session
 eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) || true
 
-# Add Homebrew to shell profile for future sessions
-echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' | sudo tee -a "$REAL_HOME/.bashrc" > /dev/null
+# Add Homebrew to shell profile for future sessions (only if not already present)
+if ! grep -q 'brew shellenv' "$REAL_HOME/.bashrc"; then
+    echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' | sudo tee -a "$REAL_HOME/.bashrc" > /dev/null
+fi
 
 echo "✓ Homebrew installed"
 

@@ -118,8 +118,8 @@ Remove-Item -Recurse -Force $seedTempDir -ErrorAction SilentlyContinue
 
 # Create new Generation 2 Hyper-V VM
 Write-Output "Creating new VM '$VMName'..."
-New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 8192MB -SwitchName "Default Switch" -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 8192MB -MemoryMinimumBytes 8192MB -MemoryMaximumBytes 8192MB | Out-Null
+New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 16384MB -SwitchName "Default Switch" -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -MemoryMaximumBytes 16384MB | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 

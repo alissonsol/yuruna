@@ -49,6 +49,21 @@ This is how to quickly create VMs with specific configuration. First, the steps 
   - The section `runcmd` in the `user-data` file already downloaded the file `amazon.linux.update.bash` to the root of the target VM. After executing the Bash script, the Graphical User Interface and the tools from section 2 are installed.
 - Execute `sudo reboot now` and the VM reboots already in the GUI mode with the tools.
 
+### 2.1) Changing memory allocation
+
+The VM is created with 16 GB of RAM by default. To change the memory allocation for an existing VM (the VM must be stopped first):
+
+```powershell
+# Stop the VM if running
+Stop-VM -Name "amazon-linux01" -Force
+# Set memory to desired value (e.g., 32 GB)
+Set-VM -Name "amazon-linux01" -MemoryStartupBytes 32768MB -MemoryMinimumBytes 32768MB -MemoryMaximumBytes 32768MB
+# Start the VM again
+Start-VM -Name "amazon-linux01"
+```
+
+To change the default for new VMs, edit the `New-VM.ps1` script and replace `16384MB` with the desired value in megabytes (e.g., `32768MB` for 32 GB).
+
 <mark>CHECKPOINT: This is a great time to create a checkpoint `VM Configured` for each VM.</mark>
 
 - If lost track, all you did so far was to configure the data files, execute two PowerShell scripts, change a password, execute a Bash script, and reboot. You are now in a GUI and can start a browser or VS Code.

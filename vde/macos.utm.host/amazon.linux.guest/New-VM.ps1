@@ -106,7 +106,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IDENTIFIER__',  $SeedId `
     -replace '__SEED_IMAGE_NAME__',  'seed.iso' `
     -replace '__CPU_COUNT__',        '4' `
-    -replace '__MEMORY_SIZE__',      '8192'
+    -replace '__MEMORY_SIZE__',      '16384'
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 

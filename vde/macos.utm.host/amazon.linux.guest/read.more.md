@@ -45,7 +45,7 @@ The script [`New-VM.ps1`](./New-VM.ps1) creates a UTM VM bundle on your Desktop.
 - Copies the downloaded Amazon Linux qcow2 image into the bundle as the boot disk.
 - Resizes the disk to 128GB (thin-provisioned, no extra space used until written).
 - Generates a cloud-init `seed.iso` that configures the VM hostname on first boot.
-- Generates a `config.plist` from [`config.plist.template`](./config.plist.template) for a QEMU ARM64 VM (4 CPUs, 8 GB RAM, VirtIO disk, UEFI boot, shared networking, sound, clipboard sharing).
+- Generates a `config.plist` from [`config.plist.template`](./config.plist.template) for a QEMU ARM64 VM (4 CPUs, 16 GB RAM, VirtIO disk, UEFI boot, shared networking, sound, clipboard sharing).
 
 ```bash
 pwsh ./New-VM.ps1
@@ -54,6 +54,13 @@ pwsh ./New-VM.ps1 -VMName myhostname
 ```
 
 After the script completes, double-click `<hostname>.utm` on your Desktop to import it into UTM. Start the VM and cloud-init will apply the configuration on first boot.
+
+### 2.1) Changing memory allocation
+
+The VM is created with 16 GB of RAM by default. To change the memory allocation:
+
+- **For new VMs:** Edit the `New-VM.ps1` script and replace `16384` in the `__MEMORY_SIZE__` substitution with the desired value in megabytes (e.g., `32768` for 32 GB).
+- **For existing VMs:** Open UTM, select the VM, click the settings icon, go to **System**, and change the **Memory** value to the desired amount.
 
 - Default credentials: username `ec2-user`, password `amazonlinux`.
 - Cloud-init sets the hostname and network configuration from the `seed.iso`.

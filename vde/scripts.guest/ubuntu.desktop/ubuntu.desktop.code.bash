@@ -1,6 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
+# ===== Request sudo elevation if not already root =====
+if [[ $EUID -ne 0 ]]; then
+   echo ""
+   echo "╔════════════════════════════════════════════════════════════╗"
+   echo "║  This script requires elevated privileges (sudo)            ║"
+   echo "║  Please enter your password when prompted below            ║"
+   echo "║  The script will pause until you provide your password     ║"
+   echo "╚════════════════════════════════════════════════════════════╝"
+   echo ""
+   sudo "$0" "$@"
+   exit $?
+fi
+
 # Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")

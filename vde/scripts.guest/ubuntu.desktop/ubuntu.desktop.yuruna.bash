@@ -37,18 +37,27 @@ echo "✓ Basic tools installed"
 
 # ===== Homebrew =====
 echo "=== Installing Homebrew ==="
-sudo apt-get install -y build-essential curl file
-sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
+sudo apt-get install -y build-essential procps curl file git
+sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/brew/HEAD/install.sh)" || true
 
-# Add Homebrew to PATH for current session
-eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) || true
+# Verify Homebrew is installed before continuing
+BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
+if [ ! -x "$BREW_BIN" ]; then
+    echo "ERROR: Homebrew installation failed — $BREW_BIN not found"
+    echo "Skipping all brew-based installations (helm, terraform, mkcert, graphviz, awscli)"
+    BREW_AVAILABLE=false
+else
+    # Add Homebrew to PATH for current session
+    eval $("$BREW_BIN" shellenv)
 
-# Add Homebrew to shell profile for future sessions (only if not already present)
-if ! grep -q 'brew shellenv' "$REAL_HOME/.bashrc"; then
-    echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' | sudo tee -a "$REAL_HOME/.bashrc" > /dev/null
+    # Add Homebrew to shell profile for future sessions (only if not already present)
+    if ! grep -q 'brew shellenv' "$REAL_HOME/.bashrc"; then
+        echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' | sudo tee -a "$REAL_HOME/.bashrc" > /dev/null
+    fi
+
+    BREW_AVAILABLE=true
+    echo "✓ Homebrew installed"
 fi
-
-echo "✓ Homebrew installed"
 
 # ===== PowerShell =====
 echo "=== Installing PowerShell ==="
@@ -71,15 +80,20 @@ echo "✓ PowerShell installed"
 
 # ===== Other Requirements =====
 echo "=== Installing other requirements ==="
-eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) || true
-/home/linuxbrew/.linuxbrew/bin/brew install helm || true
-/home/linuxbrew/.linuxbrew/bin/brew install terraform || true
-sudo apt-get install -y libnss3-tools
-/home/linuxbrew/.linuxbrew/bin/brew install mkcert || true
-/home/linuxbrew/.linuxbrew/bin/brew install graphviz || true
+if [ "$BREW_AVAILABLE" = true ]; then
+    eval $("$BREW_BIN" shellenv)
+    "$BREW_BIN" install helm || true
+    "$BREW_BIN" install terraform || true
+    sudo apt-get install -y libnss3-tools
+    "$BREW_BIN" install mkcert || true
+    "$BREW_BIN" install graphviz || true
 
-# Setup mkcert
-mkcert -install || true
+    # Setup mkcert
+    mkcert -install || true
+else
+    echo "Skipping brew-based tools (helm, terraform, mkcert, graphviz) — Homebrew not available"
+    sudo apt-get install -y libnss3-tools
+fi
 
 echo "✓ Other requirements installed"
 
@@ -108,9 +122,13 @@ sudo apt-get install -y azure-cli
 echo "✓ Azure CLI installed"
 
 # AWS CLI
-eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) || true
-/home/linuxbrew/.linuxbrew/bin/brew install awscli || true
-echo "✓ AWS CLI installed"
+if [ "$BREW_AVAILABLE" = true ]; then
+    eval $("$BREW_BIN" shellenv)
+    "$BREW_BIN" install awscli || true
+    echo "✓ AWS CLI installed"
+else
+    echo "Skipping AWS CLI — Homebrew not available"
+fi
 
 # Google Cloud SDK
 sudo snap install google-cloud-sdk --classic || echo "Google Cloud SDK snap installation attempted"
@@ -197,7 +215,7 @@ git --version
 kubeadm version || true
 kubectl version --client || true
 powershell --version 2>/dev/null || echo "PowerShell - run: powershell --version"
-/home/linuxbrew/.linuxbrew/bin/brew --version || true
+[ "$BREW_AVAILABLE" = true ] && "$BREW_BIN" --version || echo "Homebrew — not installed"
 azure --version || true
 aws --version || true
 gcloud --version || echo "Google Cloud SDK - run: gcloud --version"

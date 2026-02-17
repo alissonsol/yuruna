@@ -126,6 +126,7 @@ sudo apt-get install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "✓ Certificate for Docker repository added"
 
 sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
@@ -134,15 +135,18 @@ Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
 Components: stable
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
+echo "✓ Source for Docker repository added"
 
 sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+echo "✓ Docker installed"
 
 # Docker service starts automatically after installation;
 # enable + start as a safety net, tolerating errors in environments where systemd is not fully available
 sudo systemctl enable docker 2>/dev/null || echo "Note: systemctl enable docker skipped (systemd may not be available)"
 sudo systemctl start docker 2>/dev/null || echo "Note: systemctl start docker skipped (systemd may not be available)"
 sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service status unknown"
+echo "✓ Service for Docker enabled and started (if systemd is available)"
 
 # Configure Docker user permissions
 sudo chmod 666 /var/run/docker.sock
@@ -151,6 +155,7 @@ if ! getent group docker > /dev/null 2>&1; then
 fi
 sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
 newgrp docker || true
+echo "✓ Permissions for Docker configured (may require terminal restart to take effect)"
 
 # Test Docker
 docker run hello-world || echo "Docker test - may need terminal restart for group permissions"

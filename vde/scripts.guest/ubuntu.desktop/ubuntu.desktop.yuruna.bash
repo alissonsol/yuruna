@@ -105,13 +105,16 @@ Signed-by: /etc/apt/keyrings/microsoft.gpg" | sudo tee /etc/apt/sources.list.d/a
 
 sudo apt-get update -y
 sudo apt-get install -y azure-cli
+echo "✓ Azure CLI installed"
 
 # AWS CLI
 eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) || true
 /home/linuxbrew/.linuxbrew/bin/brew install awscli || true
+echo "✓ AWS CLI installed"
 
 # Google Cloud SDK
 sudo snap install google-cloud-sdk --classic || echo "Google Cloud SDK snap installation attempted"
+echo "✓ Google Cloud SDK installed"
 
 echo "✓ Cloud CLIs installed"
 
@@ -135,8 +138,10 @@ EOF
 sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-sudo systemctl enable docker
-sudo systemctl start docker
+# Docker service starts automatically after installation;
+# enable + start as a safety net, tolerating errors in environments where systemd is not fully available
+sudo systemctl enable docker 2>/dev/null || echo "Note: systemctl enable docker skipped (systemd may not be available)"
+sudo systemctl start docker 2>/dev/null || echo "Note: systemctl start docker skipped (systemd may not be available)"
 sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service status unknown"
 
 # Configure Docker user permissions

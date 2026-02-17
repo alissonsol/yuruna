@@ -30,13 +30,13 @@ Or with a custom hostname:
 pwsh ./New-VM.ps1 -VMName myhostname
 ```
 
-Double-click `HOSTNAME.utm` on your Desktop to import it into UTM and start the VM. The Ubuntu installer will run automatically using autoinstall. <mark>This step may take a few minutes (~15)</mark>. The screen may not be shown. If not shown after ~15 minutes, stop and restart the VM.
+Double-click `HOSTNAME.utm` on your Desktop to import it into UTM and start the VM. The Ubuntu installer will run automatically using autoinstall. **This step may take approximately 15 minutes.** The screen may not be shown. If not shown after 15 minutes, stop and restart the VM.
 
 **On the VM (after setup): Updating**
 
 You should be prompted to change the password on first login. You can change the password at any time with the `passwd` command. The default user is `ubuntu` and the initial password is `password`.
 
-Open a terminal and enter the commands. If needed, the default user is `ubuntu` and the initial password is `password`.
+Open a terminal and enter the commands.
 
 ```bash
 wget --no-cache -O ubuntu.desktop.update.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.update.bash
@@ -50,7 +50,7 @@ Confirm all installations finished correctly, and then reboot.
 sudo reboot now
 ```
 
-The Ubuntu Desktop guest is now ready! You should be prompted to change the password on first login. You can change the password at any time with the `passwd` command.
+The Ubuntu Desktop guest is now ready!
 
 ## Next Steps
 

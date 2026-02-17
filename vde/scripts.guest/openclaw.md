@@ -33,7 +33,7 @@ Open a terminal and run:
 openclaw onboard --install-daemon
 ```
 
-<mark>Careful: you are about to give AI some precious access to your accounts!</mark>
+**Careful: you are about to give AI some precious access to your accounts!**
 
 ![](images/001.openclaw.config.png)
 

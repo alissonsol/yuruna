@@ -33,4 +33,22 @@ Remove-Item $destQcow2File -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceFile to $destQcow2File"
 Invoke-WebRequest -Uri $sourceFile -OutFile $destQcow2File
 
+# Verify download integrity using SHA256 checksum
+$checksumFile = ($html.Links | Where-Object { $_.href -match "\.qcow2\.sha256$" })
+if ($checksumFile) {
+    $checksumUrl = $sourceFolder + $checksumFile[0].href
+    Write-Output "Verifying download integrity..."
+    $checksumContent = (Invoke-WebRequest -Uri $checksumUrl).Content
+    $expectedHash = ($checksumContent -split '\s+')[0]
+    $actualHash = (Get-FileHash -Path $destQcow2File -Algorithm SHA256).Hash
+    if ($expectedHash -ine $actualHash) {
+        Write-Error "Checksum verification failed. Expected: $expectedHash, Got: $actualHash"
+        Remove-Item $destQcow2File -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+    Write-Output "Checksum verified successfully."
+} else {
+    Write-Warning "No checksum file found. Skipping integrity verification."
+}
+
 Write-Output "Download Complete: $destQcow2File"

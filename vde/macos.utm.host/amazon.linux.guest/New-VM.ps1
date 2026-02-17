@@ -19,6 +19,11 @@ param(
     [string]$VMName = "amazon-linux01"
 )
 
+if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
+    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    exit 1
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $UtmDir = "$HOME/Desktop/$VMName.utm"
 $DataDir = "$UtmDir/Data"
@@ -106,7 +111,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IDENTIFIER__',  $SeedId `
     -replace '__SEED_IMAGE_NAME__',  'seed.iso' `
     -replace '__CPU_COUNT__',        '4' `
-    -replace '__MEMORY_SIZE__',      '8192'
+    -replace '__MEMORY_SIZE__',      '16384'
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 

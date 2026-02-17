@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
@@ -13,7 +14,7 @@ export JAVA_HOME=/usr/lib/jvm/default-java
 echo 'export JAVA_HOME=/usr/lib/jvm/default-java' | tee -a /etc/bash.bashrc
 
 # Install .NET Core
-sudo apt-get install -y dotnet-sdk-9.0
+sudo apt-get install -y dotnet-sdk-10.0
 dotnet --version
 
 # Install Git

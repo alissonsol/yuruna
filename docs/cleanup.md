@@ -16,7 +16,7 @@ Clearing the resources for the project `website` in the `Azure` cloud (assuming 
 Invoke-Clear.ps1 website azure
 ```
 
-If needed, resources can be deleted by executing the command below from the folder with the initial deployment files (`.yuruna/resources/$resourceTemplate`)
+If needed, you can delete resources by executing the command below from the folder with the initial deployment files (`.yuruna/resources/$resourceTemplate`)
 
 ```shell
 terraform destroy -auto-approve -refresh=false

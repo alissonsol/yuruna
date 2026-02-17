@@ -43,6 +43,24 @@ Remove-Item $destFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceFile to $destFile"
 Invoke-WebRequest -Uri $sourceFile -OutFile $destFile
 
+# Verify download integrity using SHA256 checksum
+$checksumFile = ($html.Links | Where-Object { $_.href -match "\.zip\.sha256$" })
+if ($checksumFile) {
+	$checksumUrl = $sourceFolder + $checksumFile[0].href
+	Write-Output "Verifying download integrity..."
+	$checksumContent = (Invoke-WebRequest -Uri $checksumUrl).Content
+	$expectedHash = ($checksumContent -split '\s+')[0]
+	$actualHash = (Get-FileHash -Path $destFile -Algorithm SHA256).Hash
+	if ($expectedHash -ine $actualHash) {
+		Write-Error "Checksum verification failed. Expected: $expectedHash, Got: $actualHash"
+		Remove-Item $destFile -Force -ErrorAction SilentlyContinue
+		exit 1
+	}
+	Write-Output "Checksum verified successfully."
+} else {
+	Write-Warning "No checksum file found. Skipping integrity verification."
+}
+
 # Extract the .vhdx file from the zip and save as amazonlinux.vhdx
 $vhdxName = "amazonlinux.vhdx"
 $vhdxFile = Join-Path $localVhdxPath $vhdxName

@@ -34,7 +34,7 @@ The script [`New-VM.ps1`](./New-VM.ps1) creates a Hyper-V Generation 2 VM. It ac
 
 - Creates a 512GB dynamically expanding VHDX for installation.
 - Generates an autoinstall `seed.iso` that automatically configures the Ubuntu installation with the given hostname.
-- Creates a Generation 2 Hyper-V VM (8 GB RAM, half of host CPU cores, UEFI boot, Secure Boot off, Default Switch networking).
+- Creates a Generation 2 Hyper-V VM (16 GB RAM, half of host CPU cores, UEFI boot, Secure Boot off, Default Switch networking).
 - Mounts the Ubuntu ISO and seed ISO as DVD drives.
 - Sets the DVD drive as the first boot device for installation.
 
@@ -49,7 +49,22 @@ After the script completes, start the VM from Hyper-V Manager. The Ubuntu instal
 - Default credentials: username `ubuntu`, password `password`. You will be required to change the password on first login.
 - The autoinstall sets the hostname, locale (`en_US.UTF-8`), keyboard (`us`), LVM storage layout, and enables SSH.
 
-### 2.1) Testing connectivity
+### 2.1) Changing memory allocation
+
+The VM is created with 16 GB of RAM by default. To change the memory allocation for an existing VM (the VM must be stopped first):
+
+```powershell
+# Stop the VM if running
+Stop-VM -Name "ubuntu-desktop01" -Force
+# Set memory to desired value (e.g., 32 GB)
+Set-VM -Name "ubuntu-desktop01" -MemoryStartupBytes 32768MB -MemoryMinimumBytes 32768MB -MemoryMaximumBytes 32768MB
+# Start the VM again
+Start-VM -Name "ubuntu-desktop01"
+```
+
+To change the default for new VMs, edit the `New-VM.ps1` script and replace `16384MB` with the desired value in megabytes (e.g., `32768MB` for 32 GB).
+
+### 2.2) Testing connectivity
 
 Once the VM is running, you can find its IP address:
 

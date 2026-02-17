@@ -37,7 +37,7 @@ The script [`New-VM.ps1`](./New-VM.ps1) creates a UTM VM bundle on your Desktop.
 - Copies the downloaded Ubuntu ISO into the bundle (named `<hostname>.iso`).
 - Creates a 512GB blank qcow2 disk for installation.
 - Generates an autoinstall `seed.iso` that automatically configures the Ubuntu installation with the given hostname.
-- Generates a `config.plist` from [`config.plist.template`](./config.plist.template) for a QEMU ARM64 VM (4 CPUs, 8 GB RAM, VirtIO disk, UEFI boot, shared networking, sound, clipboard sharing).
+- Generates a `config.plist` from [`config.plist.template`](./config.plist.template) for a QEMU ARM64 VM (4 CPUs, 16 GB RAM, VirtIO disk, UEFI boot, shared networking, sound, clipboard sharing).
 
 ```bash
 pwsh ./New-VM.ps1
@@ -48,6 +48,13 @@ pwsh ./New-VM.ps1 -VMName myhostname
 **Prerequisites:** `brew install openssl qemu` (for password hashing and disk image creation).
 
 After the script completes, double-click `<hostname>.utm` on your Desktop to import it into UTM. Start the VM and the Ubuntu installer will run automatically via autoinstall.
+
+### 2.1) Changing memory allocation
+
+The VM is created with 16 GB of RAM by default. To change the memory allocation:
+
+- **For new VMs:** Edit the `New-VM.ps1` script and replace `16384` in the `__MEMORY_SIZE__` substitution with the desired value in megabytes (e.g., `32768` for 32 GB).
+- **For existing VMs:** Open UTM, select the VM, click the settings icon, go to **System**, and change the **Memory** value to the desired amount.
 
 - Default credentials: username `ubuntu`, password `password`. You will be required to change the password on first login.
 - The autoinstall sets the hostname, locale (`en_US.UTF-8`), keyboard (`us`), LVM storage layout, and enables SSH.

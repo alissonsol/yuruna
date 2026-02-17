@@ -3,7 +3,7 @@
 .GUID 06e8bceb-f7aa-47e8-a633-1fc36173d278
 .AUTHOR Alisson Sol
 .COMPANYNAME None
-.COPYRIGHT (c) 2020-2025 Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS import-yaml
 .LICENSEURI http://www.yuruna.com
 .PROJECTURI http://www.yuruna.com

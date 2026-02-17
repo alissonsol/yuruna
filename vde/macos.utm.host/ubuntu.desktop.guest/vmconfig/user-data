@@ -1,0 +1,23 @@
+#cloud-config
+bootcmd:
+  - echo $(cat /proc/cmdline) autoinstall > /tmp/cmdline
+  - mount -n --bind -o ro /tmp/cmdline /proc/cmdline
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  identity:
+    hostname: HOSTNAME_PLACEHOLDER
+    username: ubuntu
+    password: "HASH_PLACEHOLDER"
+  storage:
+    layout:
+      name: lvm
+  ssh:
+    install-server: true
+    allow-pw: true
+  late-commands:
+    - curtin in-target --target=/target -- passwd --expire ubuntu
+    - wget --no-cache -O /target/ubuntu.desktop.update.bash "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.update.bash"
+    - curtin in-target --target=/target -- chmod +x /ubuntu.desktop.update.bash

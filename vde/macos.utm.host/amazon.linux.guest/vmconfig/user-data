@@ -1,0 +1,13 @@
+#cloud-config
+#vim:syntax=yaml
+users:
+# A user by the name `ec2-user` is created in the image by default.
+  - default
+chpasswd:
+  list: |
+    ec2-user:amazonlinux
+# In the above line, do not add any spaces after 'ec2-user:'.
+
+runcmd:
+  - wget --no-cache -O amazon.linux.update.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/amazon.linux/amazon.linux.update.bash
+  - chmod +x amazon.linux.update.bash

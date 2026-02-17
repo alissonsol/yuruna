@@ -9,5 +9,6 @@ Appreciate all the help from everyone developing, testing, and contributing to `
 - [Markus Kuppe](https://github.com/lemmy)
 - [Paulo Haimann Pinto](https://github.com/PSergioHP)
 - [Ross Savage](https://github.com/Ross-GH)
+- [Seth Eliot](https://github.com/setheliot)
 
 Back to the main [readme](../README.md)

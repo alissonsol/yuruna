@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Install the GUI
 dnf update -y
@@ -22,7 +23,7 @@ openclaw onboard --install-daemon --non-interactive --workspace ~/openclaw
 openclaw doctor --non-interactive
 
 # Show installed versions
-echo "Git: `git --version`"
-echo "Node.js: `node --version`"
-echo "npm: `npm --version`"
-echo "OpenClaw: `openclaw --version`"
+echo "Git: $(git --version)"
+echo "Node.js: $(node --version)"
+echo "npm: $(npm --version)"
+echo "OpenClaw: $(openclaw --version)"

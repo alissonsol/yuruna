@@ -66,7 +66,7 @@ The VM is created with 16 GB of RAM by default. To change the memory allocation:
 - Cloud-init sets the hostname and network configuration from the `seed.iso`.
 - After first boot, install the graphical desktop with `sudo dnf groupinstall "Desktop" -y`.
 
-### Key differences from the Hyper-V version
+### 2.2) Key differences from the Hyper-V version
 
 - Amazon Linux provides pre-built qcow2 disk images for KVM (ARM64), so there is no installer ISO step. The VM boots directly from the disk image.
 - The `seed.iso` uses cloud-init (not autoinstall) to configure the hostname and default credentials.

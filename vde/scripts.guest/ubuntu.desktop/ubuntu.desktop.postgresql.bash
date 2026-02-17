@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Install prerequisites
 sudo apt-get install -y postgresql-common

@@ -8,7 +8,7 @@ Yuruna automates the complexity of provisioning infrastructure, building contain
 
 Yuruna uses a **three-phase deployment model**:
 
-```
+```text
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │  Resources  │ ──▶ │ Components  │ ──▶ │  Workloads  │
 │ (Terraform) │     │  (Docker)   │     │   (Helm)    │
@@ -117,7 +117,7 @@ See the [website example](../examples/website/) for a complete reference and the
 
 ## Project Structure
 
-```
+```text
 yuruna/
 ├── automation/          # PowerShell scripts (Set-Resource.ps1, Set-Component.ps1, etc.)
 ├── global/resources/    # Terraform templates for each cloud provider

@@ -22,7 +22,7 @@ Major  Minor  Patch  PreReleaseLabel BuildLabel
 7      5      4
 ```
 
-<mark>Run the PowerShell script [`Get-Image.ps1`](./Get-Image.ps1).</mark>
+**Run the PowerShell script [`Get-Image.ps1`](./Get-Image.ps1).**
 
 ## 2) Creating the VM(s)
 
@@ -33,7 +33,7 @@ This is how to quickly create VMs with specific configuration. First, the steps 
 - Confirm that the path to the executable `oscdimg.exe` is correct at the top of the `VM.common.psm1` PowerShell module.
 - The PowerShell script `Get-Image.ps1` needs to be executed at least once per host machine.
 
-<mark>Now, for each VM to be created.</mark>
+**Now, for each VM to be created.**
 - Configure the files in the `vmconfig` folder.
   - A minimal change that is suggested: change the `local-hostname` in the `meta-data` file.
   - See the instructions [here](https://github.com/alissonsol/experiments/tree/main/2025/2025-09.amazon.linux.hyper-v) to recreate the `seed.iso` file.
@@ -64,7 +64,7 @@ Start-VM -Name "amazon-linux01"
 
 To change the default for new VMs, edit the `New-VM.ps1` script and replace `16384MB` with the desired value in megabytes (e.g., `32768MB` for 32 GB).
 
-<mark>CHECKPOINT: This is a great time to create a checkpoint `VM Configured` for each VM.</mark>
+**CHECKPOINT: This is a great time to create a checkpoint `VM Configured` for each VM.**
 
 - If lost track, all you did so far was to configure the data files, execute two PowerShell scripts, change a password, execute a Bash script, and reboot. You are now in a GUI and can start a browser or VS Code.
   - Technically, you can add the line to run `bash amazon.linux.update.bash` to the `user-data` file. That usually ends-up creating a confusing first login that is still under the command line interface, instead of the GUI, when the password needs to be changed. It is a personal preference to do that, which technically removes one step in the process (execute a Bash script).
@@ -75,7 +75,7 @@ Test VM connectivity.
 - For convenience, you can find the IP addresses for the running guests from the Hyper-V host with this PowerShell command:
   - `Get-VM | Where-Object {$_.State -eq "Running"} | Get-VMNetworkAdapter | Select-Object VMName, IPAddresses`
 
-<mark>Technically, that is all folks!</mark> You should now be able to follow the OpenClaw [Getting Started](https://docs.openclaw.ai/start/getting-started). You have the requirements installed, and can start by running the onboarding wizard: `openclaw onboard --install-daemon`. Note: you may benefit from installing and configuring other required software ahead of time, like AI connectors, email clients, messaging clients, etc.
+**Technically, that is all folks!** You should now be able to follow the OpenClaw [Getting Started](https://docs.openclaw.ai/start/getting-started). You have the requirements installed, and can start by running the onboarding wizard: `openclaw onboard --install-daemon`. Note: you may benefit from installing and configuring other required software ahead of time, like AI connectors, email clients, messaging clients, etc.
 
 ## 3) Optional
 

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"

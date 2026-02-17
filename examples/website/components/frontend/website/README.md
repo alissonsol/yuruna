@@ -9,7 +9,7 @@ Frontend website for user authentication and human-computer interface
 - If no valid certificate is found, create it
   - Create folder
     - `mkdir $HOME/.aspnet/https`
-  = Create certificate
+  - Create certificate
     - `dotnet dev-certs https -ep $HOME/.aspnet/https/aspnetapp.pfx -p { password here }`
       - If getting error: `A valid HTTPS certificate is already present.`
         - Clean up with `dotnet dev-certs https --clean` and try again.
@@ -58,7 +58,7 @@ Frontend website for user authentication and human-computer interface
   - Build the components (using `yuruna.ps1 components website localhost`)
     - Deploy the containter: `kubectl apply -f website-pod.yaml`
     - Deploy a service: `kubectl apply -f website-service.yaml`
-    = Forward machine ports to service:`kubectl port-forward services/website-service 8000:80 8001:443 -n default`
+    - Forward machine ports to service:`kubectl port-forward services/website-service 8000:80 8001:443 -n default`
     - Open in browser: `http://localhost:8000/`
     - Remember to cleanup!
       - `kubectl delete svc website-service`

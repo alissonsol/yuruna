@@ -28,7 +28,7 @@ Or with a custom hostname:
 .\New-VM.ps1 -VMName myhostname
 ```
 
-Start the VM from Hyper-V Manager. The Ubuntu installer will run automatically using autoinstall. <mark>This step may take a few minutes (~15)</mark>. The screen may not be shown. If not shown after ~15 minutes, stop and restart the VM.
+Start the VM from Hyper-V Manager. The Ubuntu installer will run automatically using autoinstall. **This step may take approximately 15 minutes.** The screen may not be shown. If not shown after 15 minutes, stop and restart the VM.
 
 **On the VM (after setup): Updating**
 

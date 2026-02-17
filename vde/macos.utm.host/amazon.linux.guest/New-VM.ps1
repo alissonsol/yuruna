@@ -19,6 +19,11 @@ param(
     [string]$VMName = "amazon-linux01"
 )
 
+if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
+    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    exit 1
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $UtmDir = "$HOME/Desktop/$VMName.utm"
 $DataDir = "$UtmDir/Data"

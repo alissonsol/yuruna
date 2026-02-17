@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Install PostgreSQL 17 server and contrib modules
 dnf install -y postgresql17-server postgresql17-contrib

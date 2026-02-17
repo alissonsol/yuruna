@@ -21,6 +21,11 @@ param(
 	[string]$VMName = "openclaw01"
 )
 
+if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
+	Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+	exit 1
+}
+
 $global:InformationPreference = "Continue"
 $global:DebugPreference = "SilentlyContinue"
 $global:VerbosePreference = "SilentlyContinue"

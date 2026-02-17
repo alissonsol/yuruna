@@ -44,7 +44,7 @@ sudo dnf groupinstall "Desktop" -y
 sudo reboot now
 ```
 
-The machine is now ready!
+The Amazon Linux guest is now ready!
 
 ## Next Steps
 

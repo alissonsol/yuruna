@@ -34,6 +34,8 @@ Double-click `HOSTNAME.utm` on your Desktop to import it into UTM and start the 
 
 **On the VM (after setup): Updating**
 
+You should be prompted to change the password on first login. You can change the password at any time with the `passwd` command. The default user is `ubuntu` and the initial password is `password`.
+
 Open a terminal and enter the commands. If needed, the default user is `ubuntu` and the initial password is `password`.
 
 ```bash
@@ -48,7 +50,7 @@ Confirm all installations finished correctly, and then reboot.
 sudo reboot now
 ```
 
-The machine is now ready! You should be prompted to change the password on first login. You can change the password at any time with the `passwd` command.
+The Ubuntu Desktop guest is now ready! You should be prompted to change the password on first login. You can change the password at any time with the `passwd` command.
 
 ## Next Steps
 

@@ -48,7 +48,7 @@ Confirm all installations finished correctly, and then reboot.
 sudo reboot now
 ```
 
-The machine is now ready!
+The Ubuntu Desktop guest is now ready!
 
 ## Next Steps
 

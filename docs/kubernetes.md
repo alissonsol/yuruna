@@ -33,7 +33,7 @@ Install the following tools:
 - [Git](https://git-scm.com/downloads)
 - [Docker Desktop](https://docs.docker.com/desktop/) with [Kubernetes enabled](https://docs.docker.com/get-started/orchestration/)
 - [Helm](https://helm.sh/docs/intro/install/)
-- [Terraform](https://www.terraform.io/downloads.html)
+- [Terraform](https://developer.hashicorp.com/terraform/install)
 - [mkcert](https://github.com/FiloSottile/mkcert) - Run `mkcert -install` after installing
 
 See [full requirements](requirements.md) for detailed setup instructions.

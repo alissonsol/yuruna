@@ -11,7 +11,7 @@
 - [Azure Container Registry documentation](https://docs.microsoft.com/en-us/azure/container-registry/)
 - [Create an ingress controller with a static public IP address in Azure Kubernetes Service (AKS)](https://docs.microsoft.com/en-us/azure/aks/ingress-static-ip)
 - [Use a static public IP address and DNS label with the Azure Kubernetes Service (AKS) load balancer](https://docs.microsoft.com/en-us/azure/aks/static-ip)
-- [AKS with multiple nginx ingress controllers, Application Gateway and Key Vault certificates](https://blog.hjgraca.com/aks-with-multiple-nginx-ingress-controllers-application-gateway-and-key-vault-certificates)
+- [AKS with multiple nginx ingress controllers, Application Gateway and Key Vault certificates](https://web.archive.org/web/2023/https://blog.hjgraca.com/aks-with-multiple-nginx-ingress-controllers-application-gateway-and-key-vault-certificates)
 
 ### GCP
 
@@ -26,7 +26,7 @@
 
 ### Kubernetes
 
-- [Manage Kubernetes with Terraform](https://learn.hashicorp.com/collections/terraform/kubernetes)
+- [Manage Kubernetes with Terraform](https://developer.hashicorp.com/terraform/tutorials/kubernetes)
 - [Declarative Management of Kubernetes Objects Using Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/)
 
 ### Ingress
@@ -38,7 +38,7 @@
 ### Certificates
 
 - [mkcert](https://github.com/FiloSottile/mkcert) is a simple tool for making locally-trusted development certificates.
-- [cert-manager](https://cert-manager.io/docs/installation/kubernetes/) documentation
+- [cert-manager](https://cert-manager.io/docs/installation/) documentation
 - NGINX Ingress Controller [TLS termination](https://kubernetes.github.io/ingress-nginx/examples/tls-termination/)
 
 ### PowerShell

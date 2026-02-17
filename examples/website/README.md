@@ -22,7 +22,7 @@ Set-Resource.ps1 website localhost
 Set-Component.ps1 website localhost
 ```
 
-- Deploy the  workloads
+- Deploy the workloads
 
 ```shell
 Set-Workload.ps1 website localhost
@@ -66,7 +66,7 @@ As output, the following values will become available for later steps:
 - Before executing `yuruna.ps1 workloads` please confirm that the `yrn42website-domain` DNS entry (example: www.yrn42.com) already points to the `frontendIp`.
   - After resource creation, you will get the Terraform output with the `frontendIp`. From the configuration interface for your DNS provider, point the `yrn42website-domain` to that IP address.
     - Another option to test is: `curl -v http://{frontendIp} -H 'Host: {yrn42website-domain}'`.
-    - Yet another option: add an entry to your `hosts` folder pointing `yrn42website-domain` to the resulting value for`frontendIp`. Don't forget to remove it!
+    - Yet another option: add an entry to your `hosts` folder pointing `yrn42website-domain` to the resulting value for `frontendIp`. Don't forget to remove it!
 
 ### Azure
 

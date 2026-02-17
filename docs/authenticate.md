@@ -31,14 +31,13 @@
   - Initialize the configuration and project
     - It is recommended to start a new configuration and project with `gcloud init --skip-diagnostics`
       - Create new configuration and project, so that you don't disrupt any other work
-  - Enable required APIs (Change project name as needed)
+  - Enable required APIs (change project name as needed)
     - Navigate to <https://console.developers.google.com/apis/library/compute.googleapis.com?project=yuruna>. Click `Enable API`. If this is the first API enabled for the project, it will require enabling billing.
-    - Navigate to <https://console.developers.google.com/apis/library/compute.googleapis.com?project=yuruna>. Click `Enable API`.
     - Navigate to <https://console.developers.google.com/apis/library/containerregistry.googleapis.com?project=yuruna>. Click `Enable API`.
   - Make sure that a default region is set for the project
     - Execute: `gcloud compute project-info describe --project [project]`
-    - If needed, changed the default region with: `gcloud compute project-info add-metadata --metadata google-compute-default-region=[region]`
-      - It is recommmended that the default region is set to the same used in the `terraforms.tfvars` file.
+    - If needed, change the default region with: `gcloud compute project-info add-metadata --metadata google-compute-default-region=[region]`
+      - It is recommended that the default region match the one used in the `terraform.tfvars` file.
   - GCP Docker Registry Access
     - Create a service account with the role 'Container Registry Service Agent'. You can also use the one automatically added when you enabled the Container Registry API [link](https://cloud.google.com/container-registry/docs/overview#container_registry_service_account).
     - Creating the JSON access key file

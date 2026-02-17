@@ -19,7 +19,7 @@
   - Before deploying workloads, make sure that ports to be used are not held by other processes. It is also common that, in the `localhost`, the Docker Desktop process itself holds on to the ports, preventing the local load balancer from binding (see an example of [issue](https://github.com/docker/for-mac/issues/4903) repeatedly reported).
   - Solving that may require quitting and starting Docker again (surprisingly, the Restart item in the menu doesn't have the same effect).
 
-### As example doesn't work if executed twice or after another example.
+### An example doesn't work if executed twice or after another example.
 
   - If you run an example, clear it, and port 80 is still in use, try quitting Docker and starting again.
   - Check if the ports are exposed to the external IP address: `kubectl get svc --all-namespaces`

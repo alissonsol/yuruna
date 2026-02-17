@@ -2,7 +2,7 @@
 
 Shortcut through the many guides to install [requirements](./requirements.md) in the macOS.
 
-Tested with macOS Monterrey: `sw_vers`: `ProductVersion: 12.2.1` : `BuildVersion: 21D62`. Test with both Intel processor and Apple M1.
+Tested with macOS Monterey: `sw_vers`: `ProductVersion: 12.2.1` : `BuildVersion: 21D62`. Tested with both Intel processor and Apple M1.
 
 ## Upgrading the environment
 
@@ -51,13 +51,13 @@ Install Docker.
 brew install --cask docker
 ```
 
-Aside: At times Docker Desktop is installed and just needs to be linked..
+Aside: At times Docker Desktop is already installed and just needs to be linked.
 
 ```shell
 brew link docker
 ```
 
-Start Docker from the `Applications` folder. Then, open the settings panel and [enable Kubernetes](https://docs.docker.com/docker-for-mac/#kubernetes).
+Start Docker from the `Applications` folder. Then, open the settings panel and [enable Kubernetes](https://docs.docker.com/get-started/orchestration/).
 
 ## Steps without manual interaction
 
@@ -71,7 +71,7 @@ brew install wget
 brew install --cask visual-studio-code
 ```
 
-After installing Visual Studio Code, it is recommended to install the externsions for [Docker](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker) and [Kubernetes](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools).
+After installing Visual Studio Code, it is recommended to install the extensions for [Docker](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker) and [Kubernetes](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools).
 
 ## Cloud CLIs
 

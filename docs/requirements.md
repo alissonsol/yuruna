@@ -2,11 +2,11 @@
 
 Some examples assume that you have a registered domain and know how to create/edit DNS records in your registrar.
 
-Ahead of installing certificates in the localhost, it is recommended to run `mkcert -install` once to create the local certificate authority. Depending on the operating system, that may demand elevation.
+Before installing certificates on localhost, run `mkcert -install` once to create the local certificate authority. Depending on the operating system, this may require elevated privileges.
 
 ## Required tools
 
-Install each of the tools lined to, following the instructions from that link. After installing PowerShell, you can keep checking if you have already a tool installed and if you got a version equal or more recent than the one used in the tests with the command `yuruna.ps1 requirements`.
+Install each of the tools linked below, following the instructions at each link. After installing PowerShell, you can verify whether a tool is already installed and whether your version is equal to or more recent than the one used in testing by running `yuruna.ps1 requirements`.
 
 - Install [PowerShell Core](https://github.com/powershell/powershell), the cross-platform automation and configuration tool/framework, version 7+.
   - For Windows: learn about [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170)
@@ -23,9 +23,9 @@ Install each of the tools lined to, following the instructions from that link. A
   - Install [Docker buildx](https://github.com/docker/buildx) in the path.
 - Install [Helm](https://helm.sh/docs/intro/install/) in the path.
   - Download: [`https://github.com/helm/helm/releases`](https://github.com/helm/helm/releases)
-- Install [Terraform](https://www.terraform.io/downloads.html) in the path.
+- Install [Terraform](https://developer.hashicorp.com/terraform/install) in the path.
 - Install [wget](https://www.gnu.org/software/wget/) in the path.
-  - Binaries for Windows at [webfolderio.github.io](https://webfolderio.github.io/wget-windows/)
+  - Binaries for Windows at [eternallybored.org](https://eternallybored.org/misc/wget/)
 - Install [mkcert](https://github.com/FiloSottile/mkcert) in the path.
   - Run `mkcert -install`
 
@@ -43,7 +43,7 @@ Install each of the tools lined to, following the instructions from that link. A
 - DNS provider and instructions to create A record
   - Instructions for [Amazon Route 53](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resource-record-sets-creating.html)
   - Instructions for [Azure DNS](https://docs.microsoft.com/en-us/azure/dns/dns-getstarted-portal)
-  - Instructions for [Google Domains](https://support.google.com/domains/answer/9211383)
+  - Instructions for [Google Cloud DNS](https://cloud.google.com/dns/docs/records)
 
 ## Recommended tools
 
@@ -64,7 +64,7 @@ Install each of the tools lined to, following the instructions from that link. A
     - Check with the implemented command `yuruna requirements`
       - It will show for each tool what was the version in the test environment and version locally found.
       - Follow links above to install or update tools.
-      - While the scripts and example may work with previous versions, the tests were performed with the indicated versions.
+      - While the scripts and examples may work with previous versions, the tests were performed with the indicated versions.
 
 See some additional guidance on how machines were setup for the [macOS](./requirements-mac-os.md) and [Ubuntu](./requirements-ubuntu.md) tests (no guarantees!).
 

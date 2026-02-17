@@ -36,6 +36,6 @@ Additional commands are:
 
 ## Notes
 
-- A folder `.yuruna` is create under the `project_root` for the temporary files.
+- A folder `.yuruna` is created under the `project_root` for the temporary files.
 
 Back to the main [readme](../README.md)

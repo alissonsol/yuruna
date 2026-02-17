@@ -121,7 +121,7 @@ function Publish-WorkloadList {
         }
 
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
-        $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction Si
+        $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
         #context should exist
         $originalContext = kubectl config current-context
         kubectl config use-context $contextName *>&1 | Write-Verbose
@@ -130,7 +130,7 @@ function Publish-WorkloadList {
         if ($currentContext -ne $contextName) { Write-Information "K8S context not found: $contextName`nFile: $workloadsFile"; return $false; }
         kubectl config use-context $contextName *>&1 | Write-Verbose
 
-        # deployments shoudn't be null or empty
+        # deployments shouldn't be null or empty
         foreach ($deployment in $workload.deployments) {
             # apply deployments: chart, kubectl, helm, or shell
             $isChart = !([string]::IsNullOrEmpty($deployment['chart']))
@@ -222,7 +222,7 @@ function Publish-WorkloadList {
                 $line = "contextName: `"$contextName`""
                 Add-Content -Path $helmValuesFile -Value $line
                 # execute helm install in work folder
-                Write-Debug "`Helm execute from: $workFolder"
+                Write-Debug "Helm execute from: $workFolder"
                 Push-Location $workFolder
                 Write-Debug "Helm lint"
                 $result = $(helm lint *>&1 | Write-Verbose)

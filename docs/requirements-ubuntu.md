@@ -19,11 +19,11 @@ sudo apt-get install -y net-tools apt-transport-https curl
 sudo apt-get install -y git
 ```
 
-Next, you can install Visual Studio and the extension directly from the Visual Installer in Ubuntu. The reference also has up-to-date instructions.
+Next, you can install Visual Studio Code and its extensions directly from the Ubuntu Software Center. The official documentation also has up-to-date instructions.
 
 ## Docker
 
-Now for "[the long dard teatime of the soul](https://en.wikipedia.org/wiki/The_Long_Dark_Tea-Time_of_the_Soul)"
+Now for "[the long dark tea-time of the soul](https://en.wikipedia.org/wiki/The_Long_Dark_Tea-Time_of_the_Soul)"
 
 ```shell
 sudo apt-get install -y docker.io
@@ -39,7 +39,7 @@ docker run hello-world
 
 Next, disable the swap file.
 
-- First, use `sudo vi /etc/fstab` (or you preferred editor) and comment the line for the swapfile.
+- First, use `sudo vi /etc/fstab` (or your preferred editor) and comment out the line for the swapfile.
 - Then, execute `sudo swapoff -a`
 
 ## Kubernetes

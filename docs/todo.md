@@ -48,7 +48,7 @@
 - Terraform
   - Create+output registry
   - Standard names
-- import-clusters: get created registry crendentials
+- import-clusters: get created registry credentials
 - Cluster IP?
   - <https://docs.aws.amazon.com/vpc/latest/userguide/vpc-ip-addressing.html#vpc-public-ipv4-addresses>
   - public_subnet_map_public_ip_on_launch

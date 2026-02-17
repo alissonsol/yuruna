@@ -22,7 +22,7 @@ Set-Resource.ps1 TO-SET localhost
 Set-Component.ps1 TO-SET localhost
 ```
 
-- Deploy the  workloads
+- Deploy the workloads
 
 ```shell
 Set-Workload.ps1 TO-SET localhost

@@ -27,7 +27,7 @@ kubectl config rename-context old-name new-name
 
 ## Hack to debug issues from container
 
-The containers have minimal software install. Even to ping you have to install it.
+The containers have minimal software installed. Even to ping you have to install it.
 
 ```shell
 apt-get update
@@ -55,7 +55,7 @@ In ~/.docker/config.json change credsStore to credStore. That temporarily disabl
 
 ## Azure deletes static IP when deleting an ingress using it
 
-This is an unexpected Azure behavior, confirmed by this post: [How to make Azure not delete Public IP when deleting service / ingress-controller?](https://www.javaer101.com/en/article/75709569.html). Following the workaround also has its side-effects. Makes is better to `clear`, and then rebuild everything (`resources`, `components`, and `workloads`).
+This is an unexpected Azure behavior, confirmed by this post: [How to make Azure not delete Public IP when deleting service / ingress-controller?](https://stackoverflow.com/questions/66435282/how-to-make-azure-not-delete-public-ip-when-deleting-service-ingress-controlle). Following the workaround also has its side-effects. It is better to `clear`, and then rebuild everything (`resources`, `components`, and `workloads`).
 
 ## Invoke-Expression: Cannot bind argument to parameter 'Command' because it is an empty string.
 
@@ -67,7 +67,7 @@ Edit until it works using `kubectl edit svc [service-name] -n [namespace-name]`.
 
 ## Debugging localhost issues
 
-A hack here after deploying resources and components is just to reset the Kubernetes cluster in Docker and reconnect the contexts. There is a PowerShell script named `context-copy` under the automation folder that can be used for that. The names of the contexts that may need to be reconnected at in the `resources.output.yml` file, and deleting those ahead of time avoids issues. Then, just use `context-copy [sourceContextName] [destinationContextName]`.
+A workaround after deploying resources and components is to reset the Kubernetes cluster in Docker and reconnect the contexts. There is a PowerShell script named `context-copy` under the automation folder that can be used for this. The context names that may need to be reconnected are listed in the `resources.output.yml` file; deleting those contexts ahead of time avoids issues. Then, use `context-copy [sourceContextName] [destinationContextName]`.
 
 GitHub issue documenting need to restart Docker: <https://github.com/docker/for-mac/issues/4903>
 

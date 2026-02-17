@@ -214,7 +214,7 @@ function Confirm-WorkloadList {
         $currentContext = kubectl config current-context
         kubectl config use-context $originalContext *>&1 | Write-Verbose
         if ($currentContext -ne $contextName) { Write-Debug "K8S context not found: $contextName`nFile: $workloadsFile"; }
-        # deployments shoudn't be null or empty
+        # deployments shouldn't be null or empty
         foreach ($deployment in $workload.deployments) {
             # valid deployments are chart, kubectl, helm and shell
             $isChart = !([string]::IsNullOrEmpty($deployment['chart']))

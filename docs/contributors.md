@@ -1,6 +1,6 @@
 # `yuruna` project contributors
 
-Appreciate all the help from everyone developing, testing, and contributing to `yuruna`. The always incomplete list of contributors:
+Thanks to everyone who has contributed to developing, testing, and improving `yuruna`. Contributors:
 
 - [Alisson Sol](https://github.com/alissonsol)
 - [Chris Hawblitzel](https://github.com/Chris-Hawblitzel)

@@ -37,6 +37,6 @@ Don't forget to delete the cluster context from `[user]/.kube/config`. That can 
 
 ## Manually cleaning up GCP resources
 
-- From the [GCP Console](https://console.cloud.google.com/), delete any resources that were previous created.
+- From the [GCP Console](https://console.cloud.google.com/), delete any resources that were previously created.
 
 Back to the main [readme](../README.md)

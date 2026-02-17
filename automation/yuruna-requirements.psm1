@@ -25,7 +25,7 @@ function Confirm-RequirementList {
     if (-Not (Test-Path -Path $requirementsFile)) { Write-Information "File not found: $requirementsFile"; return $false; }
     $requirementsYaml = ConvertFrom-File $requirementsFile
     if ($null -eq $requirementsYaml) { Write-Information "Requirements null or empty in file: $requirementsFile"; return $true; }
-    if ($null -eq $requirementsYaml.requirements) { Write-Information "Components null or empty in file: $requirementsFile"; return $true; }
+    if ($null -eq $requirementsYaml.requirements) { Write-Information "Requirements null or empty in file: $requirementsFile"; return $true; }
 
     if (-Not ($null -eq $requirementsYaml.requirements)) {
         $output = "{0,20}" -f "Tool" + "{0,16}" -f "Required" + "  {0}" -f "Found"

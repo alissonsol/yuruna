@@ -50,11 +50,11 @@
     Deploys resources using Terraform as helper.
 
     .EXAMPLE
-    C:\PS> yuruna.ps1 resources website localhost
+    C:\PS> yuruna.ps1 components website localhost
     Build and push components to registry.
 
     .EXAMPLE
-    C:\PS> yuruna.ps1 resources website localhost
+    C:\PS> yuruna.ps1 workloads website localhost
     Deploy workloads using Helm as helper.
 
     .LINK

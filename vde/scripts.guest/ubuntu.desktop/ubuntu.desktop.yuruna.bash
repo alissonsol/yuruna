@@ -122,9 +122,13 @@ echo "✓ Cloud CLIs installed"
 echo "=== Installing Docker ==="
 # Add Docker's official repository
 sudo apt-get update -y
+echo "✓ apt-get update completed"
 sudo apt-get install -y ca-certificates curl
+echo "✓ ca-certificates and curl installed"
 sudo install -m 0755 -d /etc/apt/keyrings
+echo "✓ keyrings directory created with correct permissions"
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+echo "✓ gpg key for Docker downloaded"
 sudo chmod a+r /etc/apt/keyrings/docker.asc
 echo "✓ Certificate for Docker repository added"
 

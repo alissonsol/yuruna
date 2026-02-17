@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# Non-interactive mode for all installations
+export DEBIAN_FRONTEND=noninteractive
+export NONINTERACTIVE=1
+
 # ===== Request sudo elevation if not already root =====
 if [[ $EUID -ne 0 ]]; then
    echo ""
@@ -10,7 +14,7 @@ if [[ $EUID -ne 0 ]]; then
    echo "║  The script will pause until you provide your password     ║"
    echo "╚════════════════════════════════════════════════════════════╝"
    echo ""
-   sudo "$0" "$@"
+   sudo -E "$0" "$@"
    exit $?
 fi
 
@@ -31,69 +35,10 @@ sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status 
 
 echo "✓ Basic tools installed"
 
-# ===== Docker =====
-echo "=== Installing Docker ==="
-# Add Docker's official repository
-sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/ubuntu
-Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
-Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-sudo systemctl enable docker
-sudo systemctl start docker
-sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service status unknown"
-
-# Configure Docker user permissions
-sudo chmod 666 /var/run/docker.sock
-if ! getent group docker > /dev/null 2>&1; then
-    sudo groupadd docker
-fi
-sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
-newgrp docker || true
-
-# Test Docker
-docker run hello-world || echo "Docker test - may need terminal restart for group permissions"
-echo "✓ Docker installed"
-
-# ===== Disable Swap =====
-echo "=== Disabling swap ==="
-sudo sed -i '/ swap / s/^/#/' /etc/fstab
-sudo swapoff -a || true
-echo "✓ Swap disabled"
-
-# ===== Kubernetes =====
-echo "=== Installing Kubernetes ==="
-# Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
-sudo apt-get install -y apt-transport-https ca-certificates curl gpg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
-
-sudo apt-get update -y
-sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
-sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to be run after kubeadm init"
-
-echo "✓ Kubernetes tools installed"
-echo "  NOTE: Run 'sudo kubeadm init --pod-network-cidr=10.244.0.0/16' to initialize the cluster"
-echo "  Then configure ~/.kube/config and install networking plugin"
-
 # ===== Homebrew =====
 echo "=== Installing Homebrew ==="
 sudo apt-get install -y build-essential curl file
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
+sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
 
 # Add Homebrew to PATH for current session
 eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) || true
@@ -162,6 +107,65 @@ eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) || true
 sudo snap install google-cloud-sdk --classic || echo "Google Cloud SDK snap installation attempted"
 
 echo "✓ Cloud CLIs installed"
+
+# ===== Docker =====
+echo "=== Installing Docker ==="
+# Add Docker's official repository
+sudo apt-get update -y
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+sudo apt-get update -y
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service status unknown"
+
+# Configure Docker user permissions
+sudo chmod 666 /var/run/docker.sock
+if ! getent group docker > /dev/null 2>&1; then
+    sudo groupadd docker
+fi
+sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
+newgrp docker || true
+
+# Test Docker
+docker run hello-world || echo "Docker test - may need terminal restart for group permissions"
+echo "✓ Docker installed"
+
+# ===== Disable Swap =====
+echo "=== Disabling swap ==="
+sudo sed -i '/ swap / s/^/#/' /etc/fstab
+sudo swapoff -a || true
+echo "✓ Swap disabled"
+
+# ===== Kubernetes =====
+echo "=== Installing Kubernetes ==="
+# Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
+sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
+
+sudo apt-get update -y
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to be run after kubeadm init"
+
+echo "✓ Kubernetes tools installed"
+echo "  NOTE: Run 'sudo kubeadm init --pod-network-cidr=10.244.0.0/16' to initialize the cluster"
+echo "  Then configure ~/.kube/config and install networking plugin"
 
 # ===== Version Check =====
 echo ""

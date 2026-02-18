@@ -147,6 +147,24 @@ echo "✓ Permissions for Docker configured (log out and back in for group membe
 docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"
 echo "✓ Docker installed"
 
+# ===== Docker Desktop =====
+echo "=== Installing Docker Desktop ==="
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" = "amd64" ]; then
+    DOCKER_DESKTOP_URL="https://desktop.docker.com/linux/main/amd64/docker-desktop-amd64.deb"
+elif [ "$ARCH" = "arm64" ]; then
+    DOCKER_DESKTOP_URL="https://desktop.docker.com/linux/main/arm64/docker-desktop-arm64.deb"
+else
+    DOCKER_DESKTOP_URL=""
+    echo "WARNING: Unsupported architecture '$ARCH' for Docker Desktop"
+fi
+if [ -n "$DOCKER_DESKTOP_URL" ]; then
+    curl -fsSL "$DOCKER_DESKTOP_URL" -o /tmp/docker-desktop.deb
+    sudo apt-get install -y /tmp/docker-desktop.deb
+    rm -f /tmp/docker-desktop.deb
+    echo "✓ Docker Desktop installed"
+fi
+
 # ===== Disable Swap =====
 echo "=== Disabling swap ==="
 sudo sed -i '/ swap / s/^/#/' /etc/fstab

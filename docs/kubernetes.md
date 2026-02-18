@@ -10,7 +10,7 @@ Yuruna uses a **three-phase deployment model**:
 
 ```text
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Resources  │ ──▶ │ Components  │ ──▶ │  Workloads  │
+│  Resources  │ ==> │ Components  │ ==> │  Workloads  │
 │ (OpenTofu)  │     │  (Docker)   │     │   (Helm)    │
 └─────────────┘     └─────────────┘     └─────────────┘
 ```
@@ -21,24 +21,15 @@ Yuruna uses a **three-phase deployment model**:
 
 Each phase reads from YAML configuration files and passes outputs to the next phase.
 
+See [full requirements](requirements.md) for detailed setup instructions.
+
 ## Quick Start (Localhost)
 
 Deploy a sample .NET website to Docker Desktop Kubernetes in minutes. No cloud account required.
 
-### Prerequisites
-
-Install the following tools:
-
-- [PowerShell 7+](https://github.com/powershell/powershell) - Run `Install-Module -Name powershell-yaml` after installing
-- [Git](https://git-scm.com/downloads)
-- [Docker Desktop](https://docs.docker.com/desktop/) with [Kubernetes enabled](https://docs.docker.com/get-started/orchestration/)
-- [Helm](https://helm.sh/docs/intro/install/)
-- [OpenTofu](https://opentofu.org/docs/intro/install/)
-- [mkcert](https://github.com/FiloSottile/mkcert) - Run `mkcert -install` after installing
-
-See [full requirements](requirements.md) for detailed setup instructions.
-
 ### Deploy the Example Website
+
+Execute these commands in a PowerShell command line (`pwsh`).
 
 ```powershell
 # Clone the repository
@@ -46,7 +37,8 @@ git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
 
 # Add automation folder to your path (or run from automation folder)
-$env:PATH += ";$PWD/automation"
+$env:PATH += ":$(Get-Location)/automation"
+Add-Content -Path $PROFILE -Value "`n`$env:PATH += `":$(Get-Location)/automation`""
 
 # Phase 1: Create local resources (registry, Kubernetes context)
 Set-Resource.ps1 website localhost

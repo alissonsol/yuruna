@@ -11,9 +11,7 @@ Installs [LM Studio](https://lmstudio.ai/).
 Open a terminal and enter the commands.
 
 ```bash
-wget --no-cache -O ubuntu.desktop.lmstudio.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.lmstudio.bash
-chmod a+x ubuntu.desktop.lmstudio.bash
-bash ./ubuntu.desktop.lmstudio.bash
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.lmstudio.bash)"
 ```
 
 Back to [Post-VDE Setup](README.md)

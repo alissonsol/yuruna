@@ -37,9 +37,7 @@ You should be prompted to change the password on first login. You can change the
 Open a terminal and enter the commands.
 
 ```bash
-wget --no-cache -O ubuntu.desktop.update.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.update.bash
-chmod a+x ubuntu.desktop.update.bash
-sudo ./ubuntu.desktop.update.bash
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.update.bash)"
 ```
 
 Confirm all installations finished correctly, and then reboot.

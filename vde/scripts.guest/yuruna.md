@@ -13,9 +13,7 @@ See the full list of [requirements](../../docs/requirements.md) for more details
 Open a terminal and enter the commands.
 
 ```bash
-wget --no-cache -O ubuntu.desktop.yuruna.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.yuruna.bash
-chmod a+x ubuntu.desktop.yuruna.bash
-bash ./ubuntu.desktop.yuruna.bash
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.yuruna.bash)"
 ```
 
 **Manual steps after the script completes**

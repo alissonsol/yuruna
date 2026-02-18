@@ -10,9 +10,7 @@ Installs Java (JDK), .NET SDK, Git, and [Visual Studio Code](https://code.visual
 **Amazon Linux**
 
 ```bash
-wget --no-cache -O amazon.linux.code.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/amazon.linux/amazon.linux.code.bash
-chmod a+x amazon.linux.code.bash
-bash ./amazon.linux.code.bash
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/amazon.linux/amazon.linux.code.bash)"
 ```
 
 **Ubuntu Desktop**
@@ -20,9 +18,7 @@ bash ./amazon.linux.code.bash
 Open a terminal and enter the commands.
 
 ```bash
-wget --no-cache -O ubuntu.desktop.code.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.code.bash
-chmod a+x ubuntu.desktop.code.bash
-bash ./ubuntu.desktop.code.bash
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.code.bash)"
 ```
 
 Back to [Post-VDE Setup](README.md)

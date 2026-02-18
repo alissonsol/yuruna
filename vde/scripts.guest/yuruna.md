@@ -15,7 +15,7 @@ Open a terminal and enter the commands.
 ```bash
 wget --no-cache -O ubuntu.desktop.yuruna.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.yuruna.bash
 chmod a+x ubuntu.desktop.yuruna.bash
-sudo bash ./ubuntu.desktop.yuruna.bash
+bash ./ubuntu.desktop.yuruna.bash
 ```
 
 **Manual steps after the script completes**

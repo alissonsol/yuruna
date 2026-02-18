@@ -12,7 +12,7 @@ Installs Java (JDK), .NET SDK, Git, and [Visual Studio Code](https://code.visual
 ```bash
 wget --no-cache -O amazon.linux.code.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/amazon.linux/amazon.linux.code.bash
 chmod a+x amazon.linux.code.bash
-sudo bash ./amazon.linux.code.bash
+bash ./amazon.linux.code.bash
 ```
 
 **Ubuntu Desktop**
@@ -22,5 +22,5 @@ Open a terminal and enter the commands.
 ```bash
 wget --no-cache -O ubuntu.desktop.code.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.code.bash
 chmod a+x ubuntu.desktop.code.bash
-sudo bash ./ubuntu.desktop.code.bash
+bash ./ubuntu.desktop.code.bash
 ```

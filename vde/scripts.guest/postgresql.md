@@ -12,7 +12,7 @@ Installs [PostgreSQL](https://www.postgresql.org/).
 ```bash
 wget --no-cache -O amazon.linux.postgresql.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/amazon.linux/amazon.linux.postgresql.bash
 chmod a+x amazon.linux.postgresql.bash
-sudo bash ./amazon.linux.postgresql.bash
+bash ./amazon.linux.postgresql.bash
 ```
 
 **Ubuntu Desktop**
@@ -22,7 +22,7 @@ Open a terminal and enter the commands.
 ```bash
 wget --no-cache -O ubuntu.desktop.postgresql.bash https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.postgresql.bash
 chmod a+x ubuntu.desktop.postgresql.bash
-sudo bash ./ubuntu.desktop.postgresql.bash
+bash ./ubuntu.desktop.postgresql.bash
 ```
 
 **Verify the installation**

@@ -80,9 +80,10 @@ else
     echo "✓ Homebrew installed"
 fi
 
-# Re-cache sudo credentials — the Homebrew installer runs "sudo -k" which
-# invalidates the timestamp, causing the background keepalive (sudo -n -v)
-# to silently fail from this point onward.
+# Re-cache sudo credentials — Homebrew's brew.sh calls "sudo --reset-timestamp"
+# on every non-trivial command (a security measure added after a 2024 audit).
+# This unconditionally wipes the sudo timestamp, breaking our background
+# keepalive (sudo -n -v) which then silently fails until we re-authenticate.
 if [[ $EUID -ne 0 ]]; then
     sudo -v || { echo "Failed to refresh sudo privileges after Homebrew install."; exit 1; }
 fi
@@ -134,6 +135,9 @@ if [ "$BREW_AVAILABLE" = true ]; then
 else
     echo "Skipping AWS CLI — Homebrew not available"
 fi
+
+# Re-cache sudo — brew install wipes the timestamp (see Homebrew section comment)
+if [[ $EUID -ne 0 ]]; then sudo -v; fi
 
 # Google Cloud SDK
 sudo snap install google-cloud-sdk --classic || echo "Google Cloud SDK snap installation attempted"
@@ -213,6 +217,10 @@ if [ "$BREW_AVAILABLE" = true ]; then
     "$BREW_BIN" install terraform || true
     "$BREW_BIN" install mkcert || true
     "$BREW_BIN" install graphviz || true
+
+    # Re-cache sudo — brew install wipes the timestamp (see Homebrew section comment)
+    # mkcert -install calls sudo internally to install the CA into the system trust store
+    if [[ $EUID -ne 0 ]]; then sudo -v; fi
 
     # Setup mkcert
     mkcert -install || true

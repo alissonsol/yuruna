@@ -42,17 +42,16 @@ echo "✓ Basic tools installed"
 
 # ===== Homebrew =====
 echo "=== Installing Homebrew ==="
-BREW_INSTALLER=$(mktemp)
+BREW_INSTALLER="$REAL_HOME/Downloads/install_homebrew.sh"
 BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-for attempt in 1 2 3; do
-    if curl -fsSL --retry 3 --retry-delay 5 "$BREW_URL" -o "$BREW_INSTALLER" && [ -s "$BREW_INSTALLER" ]; then
-        break
-    fi
-    echo "Homebrew download attempt $attempt failed, retrying in 10s..."
-    sleep 10
-done
+curl -fsSL --retry 3 --retry-delay 5 "$BREW_URL" -o "$BREW_INSTALLER"
+echo "Checking Homebrew installer script at: $(ls -la $BREW_INSTALLER)"
+
 if [ -s "$BREW_INSTALLER" ]; then
-    chmod +x "$BREW_INSTALLER"
+    chmod a+r "$BREW_INSTALLER"
+    # Pre-create the default prefix with correct ownership so the non-root installer succeeds
+    sudo mkdir -p /home/linuxbrew/.linuxbrew
+    sudo chown -R "$REAL_USER":"$REAL_USER" /home/linuxbrew/.linuxbrew
     sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash "$BREW_INSTALLER" || true
 else
     echo "ERROR: Failed to download Homebrew installer after 3 attempts"

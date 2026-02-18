@@ -147,6 +147,20 @@ echo "✓ Permissions for Docker configured (log out and back in for group membe
 docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"
 echo "✓ Docker installed"
 
+# ===== KVM Virtualization Support (required by Docker Desktop) =====
+echo "=== Configuring KVM for Docker Desktop ==="
+sudo apt-get install -y cpu-checker qemu-kvm libvirt-daemon-system libvirt-clients
+sudo modprobe kvm
+# Load the appropriate vendor-specific KVM module
+if grep -q vmx /proc/cpuinfo 2>/dev/null; then
+    sudo modprobe kvm_intel
+elif grep -q svm /proc/cpuinfo 2>/dev/null; then
+    sudo modprobe kvm_amd
+fi
+# Grant the current user access to /dev/kvm
+sudo usermod -aG kvm "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to kvm group"
+echo "✓ KVM configured"
+
 # ===== Docker Desktop =====
 echo "=== Installing Docker Desktop ==="
 ARCH=$(dpkg --print-architecture)

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# ===== Request sudo elevation if not already root =====
+# ===== Ensure sudo credentials are cached =====
 if [[ $EUID -ne 0 ]]; then
    echo ""
    echo "╔════════════════════════════════════════════════════════════╗"
@@ -10,19 +10,22 @@ if [[ $EUID -ne 0 ]]; then
    echo "║  The script will pause until you provide your password     ║"
    echo "╚════════════════════════════════════════════════════════════╝"
    echo ""
-   sudo "$0" "$@"
-   exit $?
+   sudo -v || { echo "Failed to obtain sudo privileges."; exit 1; }
+   # Keep sudo credentials fresh for long-running installations
+   while true; do sudo -n -v 2>/dev/null; sleep 50; done &
+   SUDO_KEEPALIVE_PID=$!
+   trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null' EXIT
 fi
 
 # Install PostgreSQL 17 server and contrib modules
-dnf install -y postgresql17-server postgresql17-contrib
+sudo dnf install -y postgresql17-server postgresql17-contrib
 
 # Initialize the database
-/usr/bin/postgresql-setup --initdb
+sudo /usr/bin/postgresql-setup --initdb
 
 # Enable and start the PostgreSQL service
-systemctl enable postgresql
-systemctl start postgresql
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
 
 # Show installed version
 echo "PostgreSQL: $(/usr/bin/psql --version)"

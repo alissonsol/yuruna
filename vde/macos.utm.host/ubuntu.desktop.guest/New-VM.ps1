@@ -88,9 +88,9 @@ if (-not (Test-Path $UserDataTemplate)) {
     exit 1
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate) `
-    -replace 'HOSTNAME_PLACEHOLDER', $VMName `
-    -replace 'HASH_PLACEHOLDER', $PasswordHash
+# Use .Replace() (literal) instead of -replace (regex) because the hash
+# contains $ delimiters ($6$salt$hash) that regex would interpret as backreferences
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash)
 
 Set-Content -Path "$SeedDir/user-data" -Value $UserData
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

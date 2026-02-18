@@ -5,7 +5,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
-# ===== Request sudo elevation if not already root =====
+# ===== Ensure sudo credentials are cached =====
 if [[ $EUID -ne 0 ]]; then
    echo ""
    echo "╔════════════════════════════════════════════════════════════╗"
@@ -14,8 +14,11 @@ if [[ $EUID -ne 0 ]]; then
    echo "║  The script will pause until you provide your password     ║"
    echo "╚════════════════════════════════════════════════════════════╝"
    echo ""
-   sudo -E "$0" "$@"
-   exit $?
+   sudo -v || { echo "Failed to obtain sudo privileges."; exit 1; }
+   # Keep sudo credentials fresh for long-running installations
+   while true; do sudo -n -v 2>/dev/null; sleep 50; done &
+   SUDO_KEEPALIVE_PID=$!
+   trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null' EXIT
 fi
 
 # Determine the real user (even when running with sudo)
@@ -52,7 +55,7 @@ if [ -s "$BREW_INSTALLER" ]; then
     # Pre-create the default prefix with correct ownership so the non-root installer succeeds
     sudo mkdir -p /home/linuxbrew/.linuxbrew
     sudo chown -R "$REAL_USER":"$REAL_USER" /home/linuxbrew/.linuxbrew
-    sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash "$BREW_INSTALLER" || true
+    NONINTERACTIVE=1 /bin/bash "$BREW_INSTALLER" || true
 else
     echo "ERROR: Failed to download Homebrew installer after 3 attempts"
 fi
@@ -98,13 +101,13 @@ echo "✓ PowerShell installed"
 echo "=== Installing other requirements ==="
 if [ "$BREW_AVAILABLE" = true ]; then
     eval $("$BREW_BIN" shellenv)
-    sudo -u "$REAL_USER" "$BREW_BIN" install helm || true
-    sudo -u "$REAL_USER" "$BREW_BIN" install terraform || true
-    sudo -u "$REAL_USER" "$BREW_BIN" install mkcert || true
-    sudo -u "$REAL_USER" "$BREW_BIN" install graphviz || true
+    "$BREW_BIN" install helm || true
+    "$BREW_BIN" install terraform || true
+    "$BREW_BIN" install mkcert || true
+    "$BREW_BIN" install graphviz || true
 
     # Setup mkcert
-    sudo -u "$REAL_USER" mkcert -install || true
+    mkcert -install || true
 else
     echo "Skipping brew-based tools (helm, terraform, mkcert, graphviz) — Homebrew not available"
 fi
@@ -136,7 +139,7 @@ echo "✓ Azure CLI installed"
 # AWS CLI
 if [ "$BREW_AVAILABLE" = true ]; then
     eval $("$BREW_BIN" shellenv)
-    sudo -u "$REAL_USER""$BREW_BIN" install awscli || true
+    "$BREW_BIN" install awscli || true
     echo "✓ AWS CLI installed"
 else
     echo "Skipping AWS CLI — Homebrew not available"

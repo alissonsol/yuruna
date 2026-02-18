@@ -21,3 +21,13 @@ autoinstall:
     - curtin in-target --target=/target -- passwd --expire ubuntu
     - wget --no-cache -O /target/ubuntu.desktop.update.bash "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.update.bash"
     - curtin in-target --target=/target -- chmod +x /ubuntu.desktop.update.bash
+    - curtin in-target --target=/target -- mkdir -p /etc/xdg/autostart
+    - |
+      cat > /target/etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
+      [Desktop Entry]
+      Type=Application
+      Name=Open Terminal
+      Exec=gnome-terminal
+      X-GNOME-Autostart-enabled=true
+      NoDisplay=true
+      DESKTOP

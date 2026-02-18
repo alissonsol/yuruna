@@ -5,7 +5,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
-# ===== Request sudo elevation if not already root =====
+# ===== Ensure sudo credentials are cached =====
 if [[ $EUID -ne 0 ]]; then
    echo ""
    echo "╔════════════════════════════════════════════════════════════╗"
@@ -14,8 +14,11 @@ if [[ $EUID -ne 0 ]]; then
    echo "║  The script will pause until you provide your password     ║"
    echo "╚════════════════════════════════════════════════════════════╝"
    echo ""
-   sudo "$0" "$@"
-   exit $?
+   sudo -v || { echo "Failed to obtain sudo privileges."; exit 1; }
+   # Keep sudo credentials fresh for long-running installations
+   while true; do sudo -n -v 2>/dev/null; sleep 50; done &
+   SUDO_KEEPALIVE_PID=$!
+   trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null' EXIT
 fi
 
 # Install prerequisites

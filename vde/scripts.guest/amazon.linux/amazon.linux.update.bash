@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# ===== Request sudo elevation if not already root =====
+# ===== Ensure sudo credentials are cached =====
 if [[ $EUID -ne 0 ]]; then
    echo ""
    echo "╔════════════════════════════════════════════════════════════╗"
@@ -10,10 +10,13 @@ if [[ $EUID -ne 0 ]]; then
    echo "║  The script will pause until you provide your password     ║"
    echo "╚════════════════════════════════════════════════════════════╝"
    echo ""
-   sudo "$0" "$@"
-   exit $?
+   sudo -v || { echo "Failed to obtain sudo privileges."; exit 1; }
+   # Keep sudo credentials fresh for long-running installations
+   while true; do sudo -n -v 2>/dev/null; sleep 50; done &
+   SUDO_KEEPALIVE_PID=$!
+   trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null' EXIT
 fi
 
-dnf update -y
-dnf upgrade -y
-dnf autoremove -y
+sudo dnf update -y
+sudo dnf upgrade -y
+sudo dnf autoremove -y

@@ -154,7 +154,7 @@ Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 $Cores = (Get-CimInstance -ClassName Win32_Processor).NumberOfCores | Measure-Object -Sum
 $CoreCount = $Cores.Sum
 $vmCores = [math]::Floor($CoreCount / 2)
-Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
+Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions $true | Out-Null
 
 Write-Output ""
 Write-Output "VM '$VMName' created and configured."

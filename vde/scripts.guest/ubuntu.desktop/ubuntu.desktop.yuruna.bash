@@ -159,7 +159,15 @@ elif grep -q svm /proc/cpuinfo 2>/dev/null; then
 fi
 # Grant the current user access to /dev/kvm
 sudo usermod -aG kvm "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to kvm group"
-echo "✓ KVM configured"
+# Verify /dev/kvm is available (requires nested virtualization on the host)
+if [ -e /dev/kvm ]; then
+    echo "✓ KVM configured (/dev/kvm is available)"
+else
+    echo "WARNING: /dev/kvm not found. Nested virtualization may not be enabled on the host."
+    echo "  Hyper-V host: Set-VMProcessor -VMName <name> -ExposeVirtualizationExtensions \$true"
+    echo "  UTM host: Set CPU type to 'host' in VM settings"
+    echo "  Docker Desktop will not run without KVM support."
+fi
 
 # ===== Docker Desktop =====
 echo "=== Installing Docker Desktop ==="

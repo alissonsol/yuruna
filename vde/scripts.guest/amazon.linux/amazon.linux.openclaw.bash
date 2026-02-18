@@ -39,6 +39,7 @@ openclaw onboard --install-daemon --non-interactive --workspace ~/openclaw
 openclaw doctor --non-interactive
 
 # Show installed versions
+echo ""
 echo "Git: $(git --version)"
 echo "Node.js: $(node --version)"
 echo "npm: $(npm --version)"

@@ -28,4 +28,5 @@ sudo systemctl enable postgresql
 sudo systemctl start postgresql
 
 # Show installed version
+echo ""
 echo "PostgreSQL: $(/usr/bin/psql --version)"

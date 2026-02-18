@@ -40,6 +40,7 @@ sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.m
 sudo dnf -y install code
 
 # Show installed versions
+echo ""
 echo "Java: $(javac -version)"
 echo "DotNet: $(dotnet --version)"
 echo "Git: $(git --version)"

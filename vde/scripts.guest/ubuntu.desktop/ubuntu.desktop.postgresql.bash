@@ -39,4 +39,5 @@ sudo systemctl start postgresql
 sudo systemctl is-active postgresql > /dev/null 2>&1 || echo "Note: PostgreSQL service status unknown"
 
 # Show installed version
+echo ""
 echo "PostgreSQL: $(psql --version)"

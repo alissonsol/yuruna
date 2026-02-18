@@ -51,6 +51,7 @@ sudo apt-get update -y
 sudo apt-get install -y code
 
 # Show installed versions
+echo ""
 echo "Java: $(javac -version)"
 echo "DotNet: $(dotnet --version)"
 echo "Git: $(git --version)"

@@ -58,6 +58,7 @@ if [ -n "$NVM_BIN" ]; then
 fi
 
 # Show installed versions
+echo ""
 echo "Git: $(git --version)"
 bash -c '
     export NVM_DIR="$HOME/.nvm"

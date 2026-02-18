@@ -1,4 +1,4 @@
-# `yuruna` contributing guidance
+# Yuruna Contributing Guidance
 
 ## Overview
 

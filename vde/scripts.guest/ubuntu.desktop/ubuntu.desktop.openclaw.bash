@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# Non-interactive mode for all installations
+export DEBIAN_FRONTEND=noninteractive
+export NONINTERACTIVE=1
+
 # ===== Request sudo elevation if not already root =====
 if [[ $EUID -ne 0 ]]; then
    echo ""

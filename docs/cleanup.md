@@ -1,4 +1,4 @@
-# `yuruna` resources clean up
+# Yuruna Resources Clean Up
 
 **These instructions will destroy resources**. Make sure you enter the correct parameters.
 

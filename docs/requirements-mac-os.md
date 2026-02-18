@@ -1,4 +1,4 @@
-# `yuruna` macOS instructions
+# Yuruna macOS Instructions
 
 Shortcut through the many guides to install [requirements](./requirements.md) in the macOS.
 

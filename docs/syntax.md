@@ -1,4 +1,4 @@
-# `yuruna` syntax
+# Yuruna Syntax
 
 The connection between the Yaml configuration files and the actions taken by each command is explained in a presentation available in [PowerPoint](yuruna.pptx) and [PDF](yuruna.pdf) formats.
 

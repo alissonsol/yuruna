@@ -39,3 +39,5 @@ bash ./ubuntu.desktop.yuruna.bash
 5. Remove taints from nodes (if needed for single-node cluster)
 6. Rename kubectl context: `kubectl config rename-context kubernetes-admin@kubernetes docker-desktop`
 7. Terminal restart may be needed for group permissions to take effect
+
+Back to [Post-VDE Setup](README.md)

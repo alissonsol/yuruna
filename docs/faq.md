@@ -1,4 +1,4 @@
-# `yuruna` Frequently Asked Questions
+# Yuruna Frequently Asked Questions
 
 ## Connectivity
 

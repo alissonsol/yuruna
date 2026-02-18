@@ -1,4 +1,4 @@
-# `yuruna` requirements
+# Yuruna Requirements
 
 Some examples assume that you have a registered domain and know how to create/edit DNS records in your registrar.
 

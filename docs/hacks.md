@@ -1,4 +1,4 @@
-# `yuruna` hacks
+# Yuruna Hacks
 
 Some notes and hacks learned during the development process.
 

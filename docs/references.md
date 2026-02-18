@@ -1,4 +1,4 @@
-# `yuruna` references
+# Yuruna References
 
 ## Cloud-specific
 

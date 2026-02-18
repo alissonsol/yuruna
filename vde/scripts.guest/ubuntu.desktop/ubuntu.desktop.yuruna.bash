@@ -45,7 +45,7 @@ echo "=== Installing Homebrew ==="
 BREW_INSTALLER="$REAL_HOME/Downloads/install_homebrew.sh"
 BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 curl -fsSL --retry 3 --retry-delay 5 "$BREW_URL" -o "$BREW_INSTALLER"
-echo "Checking Homebrew installer script at: $(ls -la $BREW_INSTALLER)"
+echo "Checking Homebrew installer script at: $(ls -la "$BREW_INSTALLER")"
 
 if [ -s "$BREW_INSTALLER" ]; then
     chmod a+r "$BREW_INSTALLER"
@@ -98,13 +98,13 @@ echo "✓ PowerShell installed"
 echo "=== Installing other requirements ==="
 if [ "$BREW_AVAILABLE" = true ]; then
     eval $("$BREW_BIN" shellenv)
-    "$BREW_BIN" install helm || true
-    "$BREW_BIN" install terraform || true
-    "$BREW_BIN" install mkcert || true
-    "$BREW_BIN" install graphviz || true
+    sudo -u "$REAL_USER" "$BREW_BIN" install helm || true
+    sudo -u "$REAL_USER" "$BREW_BIN" install terraform || true
+    sudo -u "$REAL_USER" "$BREW_BIN" install mkcert || true
+    sudo -u "$REAL_USER" "$BREW_BIN" install graphviz || true
 
     # Setup mkcert
-    mkcert -install || true
+    sudo -u "$REAL_USER" mkcert -install || true
 else
     echo "Skipping brew-based tools (helm, terraform, mkcert, graphviz) — Homebrew not available"
 fi
@@ -136,7 +136,7 @@ echo "✓ Azure CLI installed"
 # AWS CLI
 if [ "$BREW_AVAILABLE" = true ]; then
     eval $("$BREW_BIN" shellenv)
-    "$BREW_BIN" install awscli || true
+    sudo -u "$REAL_USER""$BREW_BIN" install awscli || true
     echo "✓ AWS CLI installed"
 else
     echo "Skipping AWS CLI — Homebrew not available"

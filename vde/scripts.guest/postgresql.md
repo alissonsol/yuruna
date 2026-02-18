@@ -32,3 +32,5 @@ sudo -u postgres psql -c "SELECT version();"
 ```
 
 See the official PostgreSQL documentation for [Ubuntu](https://www.postgresql.org/download/linux/ubuntu/) and [Red Hat](https://www.postgresql.org/download/linux/redhat/) for more details.
+
+Back to [Post-VDE Setup](README.md)

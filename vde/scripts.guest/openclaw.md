@@ -38,3 +38,5 @@ openclaw onboard --install-daemon
 ![](images/001.openclaw.config.png)
 
 See the OpenClaw [Getting Started](https://docs.openclaw.ai/start/getting-started) guide for more details.
+
+Back to [Post-VDE Setup](README.md)

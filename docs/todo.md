@@ -1,4 +1,4 @@
-# `yuruna` TO DO list
+# Yuruna TO DO List
 
 ## Global
 

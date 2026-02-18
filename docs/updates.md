@@ -1,4 +1,4 @@
-# `yuruna` updates
+# Yuruna Updates
 
 ## Project updates
 

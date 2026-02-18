@@ -1,4 +1,4 @@
-# `yuruna` template project
+# Yuruna Template Project
 
 Folder structure template project.
 

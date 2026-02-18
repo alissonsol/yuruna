@@ -24,3 +24,5 @@ wget --no-cache -O ubuntu.desktop.code.bash https://raw.githubusercontent.com/al
 chmod a+x ubuntu.desktop.code.bash
 bash ./ubuntu.desktop.code.bash
 ```
+
+Back to [Post-VDE Setup](README.md)

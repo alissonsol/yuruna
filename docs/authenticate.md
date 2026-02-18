@@ -1,4 +1,4 @@
-# `yuruna` authentication instructions
+# Yuruna Authentication Instructions
 
 ## Docker Desktop
 

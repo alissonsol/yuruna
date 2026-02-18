@@ -15,3 +15,5 @@ wget --no-cache -O ubuntu.desktop.lmstudio.bash https://raw.githubusercontent.co
 chmod a+x ubuntu.desktop.lmstudio.bash
 bash ./ubuntu.desktop.lmstudio.bash
 ```
+
+Back to [Post-VDE Setup](README.md)

@@ -1,4 +1,4 @@
-# `yuruna` website example
+# Yuruna Website Example
 
 A simple .NET C# website container deployed to a Kubernetes cluster.
 

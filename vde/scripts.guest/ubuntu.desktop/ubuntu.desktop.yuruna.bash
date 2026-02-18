@@ -38,7 +38,7 @@ echo "✓ Basic tools installed"
 # ===== Homebrew =====
 echo "=== Installing Homebrew ==="
 sudo apt-get install -y build-essential procps curl file git
-sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/brew/HEAD/install.sh)" || true
+sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
 
 # Verify Homebrew is installed before continuing
 BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
@@ -161,7 +161,7 @@ echo "✓ Source for Docker repository added"
 
 sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-echo "✓ Docker installed"
+echo "✓ Packages installed"
 
 # Docker service starts automatically after installation;
 # enable + start as a safety net, tolerating errors in environments where systemd is not fully available
@@ -171,16 +171,14 @@ sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service s
 echo "✓ Service for Docker enabled and started (if systemd is available)"
 
 # Configure Docker user permissions
-sudo chmod 666 /var/run/docker.sock
 if ! getent group docker > /dev/null 2>&1; then
     sudo groupadd docker
 fi
 sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
-newgrp docker || true
-echo "✓ Permissions for Docker configured (may require terminal restart to take effect)"
+echo "✓ Permissions for Docker configured (log out and back in for group membership to take effect)"
 
 # Test Docker
-docker run hello-world || echo "Docker test - may need terminal restart for group permissions"
+docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"
 echo "✓ Docker installed"
 
 # ===== Disable Swap =====
@@ -216,7 +214,7 @@ kubeadm version || true
 kubectl version --client || true
 powershell --version 2>/dev/null || echo "PowerShell - run: powershell --version"
 [ "$BREW_AVAILABLE" = true ] && "$BREW_BIN" --version || echo "Homebrew — not installed"
-azure --version || true
+az --version 2>/dev/null | head -1 || true
 aws --version || true
 gcloud --version || echo "Google Cloud SDK - run: gcloud --version"
 

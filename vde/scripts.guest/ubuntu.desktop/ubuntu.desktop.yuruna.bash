@@ -27,7 +27,12 @@ echo "=== Installing yuruna requirements for Ubuntu ==="
 # ===== Basic Tools =====
 echo "=== Installing basic tools ==="
 sudo apt-get update -y
-sudo apt-get install -y ssh net-tools apt-transport-https curl git
+sudo apt-get install -y \
+    ssh net-tools apt-transport-https curl git \
+    build-essential procps file \
+    wget software-properties-common \
+    ca-certificates lsb-release gnupg gpg \
+    libnss3-tools
 
 # Enable and start SSH
 sudo systemctl enable --now ssh
@@ -37,8 +42,22 @@ echo "✓ Basic tools installed"
 
 # ===== Homebrew =====
 echo "=== Installing Homebrew ==="
-sudo apt-get install -y build-essential procps curl file git
-sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
+BREW_INSTALLER=$(mktemp)
+BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+for attempt in 1 2 3; do
+    if curl -fsSL --retry 3 --retry-delay 5 "$BREW_URL" -o "$BREW_INSTALLER" && [ -s "$BREW_INSTALLER" ]; then
+        break
+    fi
+    echo "Homebrew download attempt $attempt failed, retrying in 10s..."
+    sleep 10
+done
+if [ -s "$BREW_INSTALLER" ]; then
+    chmod +x "$BREW_INSTALLER"
+    sudo -u "$REAL_USER" NONINTERACTIVE=1 /bin/bash "$BREW_INSTALLER" || true
+else
+    echo "ERROR: Failed to download Homebrew installer after 3 attempts"
+fi
+rm -f "$BREW_INSTALLER"
 
 # Verify Homebrew is installed before continuing
 BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
@@ -63,8 +82,6 @@ fi
 echo "=== Installing PowerShell ==="
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
-    sudo apt-get update -y
-    sudo apt-get install -y wget apt-transport-https software-properties-common
     source /etc/os-release
     wget -q https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb
     sudo dpkg -i packages-microsoft-prod.deb
@@ -84,7 +101,6 @@ if [ "$BREW_AVAILABLE" = true ]; then
     eval $("$BREW_BIN" shellenv)
     "$BREW_BIN" install helm || true
     "$BREW_BIN" install terraform || true
-    sudo apt-get install -y libnss3-tools
     "$BREW_BIN" install mkcert || true
     "$BREW_BIN" install graphviz || true
 
@@ -92,15 +108,12 @@ if [ "$BREW_AVAILABLE" = true ]; then
     mkcert -install || true
 else
     echo "Skipping brew-based tools (helm, terraform, mkcert, graphviz) — Homebrew not available"
-    sudo apt-get install -y libnss3-tools
 fi
 
 echo "✓ Other requirements installed"
 
 # ===== Cloud CLIs =====
 echo "=== Installing Cloud CLIs ==="
-sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl apt-transport-https lsb-release gnupg
 
 # Azure CLI (using new DEB-822 format)
 sudo mkdir -p /etc/apt/keyrings
@@ -139,10 +152,6 @@ echo "✓ Cloud CLIs installed"
 # ===== Docker =====
 echo "=== Installing Docker ==="
 # Add Docker's official repository
-sudo apt-get update -y
-echo "✓ apt-get update completed"
-sudo apt-get install -y ca-certificates curl
-echo "✓ ca-certificates and curl installed"
 sudo install -m 0755 -d /etc/apt/keyrings
 echo "✓ keyrings directory created with correct permissions"
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
@@ -190,7 +199,6 @@ echo "✓ Swap disabled"
 # ===== Kubernetes =====
 echo "=== Installing Kubernetes ==="
 # Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
-sudo apt-get install -y apt-transport-https ca-certificates curl gpg
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null

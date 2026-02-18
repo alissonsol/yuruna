@@ -189,9 +189,9 @@ echo "✓ OpenTofu installed"
 echo "--- Installing mkcert ---"
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
-    MKCERT_ARCH="linux-amd64"
+    MKCERT_ARCH="linux/amd64"
 elif [ "$ARCH" = "arm64" ]; then
-    MKCERT_ARCH="linux-arm64"
+    MKCERT_ARCH="linux/arm64"
 else
     MKCERT_ARCH=""
     echo "WARNING: Unsupported architecture '$ARCH' for mkcert"

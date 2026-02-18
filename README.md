@@ -12,7 +12,7 @@ See the [VDE documentation](vde/README.md) to get started.
 
 ## Kubernetes Deployment
 
-Deploy containerized applications to Kubernetes across multiple clouds with a single workflow. Write your configuration once, then deploy to localhost, Azure, AWS, or Google Cloud by changing a single parameter. Yuruna automates infrastructure provisioning (Terraform), container building (Docker), and application deployment (Helm).
+Deploy containerized applications to Kubernetes across multiple clouds with a single workflow. Write your configuration once, then deploy to localhost, Azure, AWS, or Google Cloud by changing a single parameter. Yuruna automates infrastructure provisioning (OpenTofu), container building (Docker), and application deployment (Helm).
 
 See the [Kubernetes documentation](docs/kubernetes.md) for setup and usage instructions.
 

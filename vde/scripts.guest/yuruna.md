@@ -1,6 +1,6 @@
 # yuruna
 
-Installs the [yuruna](https://github.com/alissonsol/yuruna) requirements: SSH, Git, Docker, Kubernetes, Homebrew, PowerShell, Helm, Terraform, mkcert, Graphviz, and Cloud CLIs (Azure, AWS, Google Cloud).
+Installs the [yuruna](https://github.com/alissonsol/yuruna) requirements: SSH, Git, Docker, Kubernetes, Homebrew, PowerShell, Helm, OpenTofu, mkcert, Graphviz, and Cloud CLIs (Azure, AWS, Google Cloud).
 
 See the full list of [requirements](../../docs/requirements.md) for more details.
 

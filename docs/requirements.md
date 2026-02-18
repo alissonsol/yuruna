@@ -23,7 +23,7 @@ Install each of the tools linked below, following the instructions at each link.
   - Install [Docker buildx](https://github.com/docker/buildx) in the path.
 - Install [Helm](https://helm.sh/docs/intro/install/) in the path.
   - Download: [`https://github.com/helm/helm/releases`](https://github.com/helm/helm/releases)
-- Install [Terraform](https://developer.hashicorp.com/terraform/install) in the path.
+- Install [OpenTofu](https://opentofu.org/docs/intro/install/) in the path.
 - Install [wget](https://www.gnu.org/software/wget/) in the path.
   - Binaries for Windows at [eternallybored.org](https://eternallybored.org/misc/wget/)
 - Install [mkcert](https://github.com/FiloSottile/mkcert) in the path.

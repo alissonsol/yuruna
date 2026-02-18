@@ -47,7 +47,7 @@
 
     .EXAMPLE
     C:\PS> yuruna.ps1 resources website localhost
-    Deploys resources using Terraform as helper.
+    Deploys resources using OpenTofu as helper.
 
     .EXAMPLE
     C:\PS> yuruna.ps1 components website localhost
@@ -125,7 +125,7 @@ switch -Exact ($operation)
         Write-Output "yuruna requirements`n    Check if machine has all requirements.";
         Write-Output "yuruna clear [project_root] [config_subfolder]`n    Clear resources for given configuration.";
         Write-Output "yuruna validate [project_root] [config_subfolder]`n    Validate configuration files.";
-        Write-Output "yuruna resources [project_root] [config_subfolder]`n    Deploys resources using Terraform as helper.";
+        Write-Output "yuruna resources [project_root] [config_subfolder]`n    Deploys resources using OpenTofu as helper.";
         Write-Output "yuruna components [project_root] [config_subfolder]`n    Build and push components to registry.";
         Write-Output "yuruna workloads [project_root] [config_subfolder]`n    Deploy workloads using Helm as helper.";
     }

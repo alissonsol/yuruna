@@ -11,11 +11,11 @@ Yuruna uses a **three-phase deployment model**:
 ```text
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │  Resources  │ ──▶ │ Components  │ ──▶ │  Workloads  │
-│ (Terraform) │     │  (Docker)   │     │   (Helm)    │
+│ (OpenTofu)  │     │  (Docker)   │     │   (Helm)    │
 └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
-1. **Resources** - Provision cloud infrastructure (Kubernetes clusters, container registries, databases) using Terraform
+1. **Resources** - Provision cloud infrastructure (Kubernetes clusters, container registries, databases) using OpenTofu
 2. **Components** - Build Docker images and push them to your container registry
 3. **Workloads** - Deploy applications to Kubernetes using Helm charts
 
@@ -33,7 +33,7 @@ Install the following tools:
 - [Git](https://git-scm.com/downloads)
 - [Docker Desktop](https://docs.docker.com/desktop/) with [Kubernetes enabled](https://docs.docker.com/get-started/orchestration/)
 - [Helm](https://helm.sh/docs/intro/install/)
-- [Terraform](https://developer.hashicorp.com/terraform/install)
+- [OpenTofu](https://opentofu.org/docs/intro/install/)
 - [mkcert](https://github.com/FiloSottile/mkcert) - Run `mkcert -install` after installing
 
 See [full requirements](requirements.md) for detailed setup instructions.
@@ -120,7 +120,7 @@ See the [website example](../examples/website/) for a complete reference and the
 ```text
 yuruna/
 ├── automation/          # PowerShell scripts (Set-Resource.ps1, Set-Component.ps1, etc.)
-├── global/resources/    # Terraform templates for each cloud provider
+├── global/resources/    # OpenTofu templates for each cloud provider
 ├── examples/            # Example projects (website, template)
 └── docs/                # Documentation
 ```

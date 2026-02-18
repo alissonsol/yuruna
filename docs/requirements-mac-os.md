@@ -61,10 +61,10 @@ Start Docker from the `Applications` folder. Then, open the settings panel and [
 
 ## Steps without manual interaction
 
-These steps can then be executed to install Terraform, Helm and optionally Visual Studio Code and GraphViz (if you want to visualize Terraform plans).
+These steps can then be executed to install OpenTofu, Helm and optionally Visual Studio Code and GraphViz (if you want to visualize OpenTofu plans).
 
 ```shell
-brew install terraform
+brew install opentofu
 brew install helm
 brew install graphviz
 brew install wget

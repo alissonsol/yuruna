@@ -22,7 +22,7 @@
     A developer toolset for cross-cloud Kubernetes-based applications - Deploy resources.
 
     .DESCRIPTION
-    Deploy resources using Terraform as helper.
+    Deploy resources using OpenTofu as helper.
 
     .PARAMETER project_root
     Base folder for the operations.
@@ -44,7 +44,7 @@
 
     .EXAMPLE
     C:\PS> Set-Resource.ps1 website localhost
-    Deploy resources using Terraform as helper.
+    Deploy resources using OpenTofu as helper.
 
     .LINK
     Online version: http://www.yuruna.com

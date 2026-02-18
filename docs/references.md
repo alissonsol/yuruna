@@ -26,7 +26,7 @@
 
 ### Kubernetes
 
-- [Manage Kubernetes with Terraform](https://developer.hashicorp.com/terraform/tutorials/kubernetes)
+- [Manage Kubernetes with OpenTofu](https://opentofu.org/docs/)
 - [Declarative Management of Kubernetes Objects Using Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/)
 
 ### Ingress
@@ -46,7 +46,7 @@
 - PSScriptAnalyzer [code](https://github.com/PowerShell/PSScriptAnalyzer)
   - If not yet installed: `Install-Module -Name PSScriptAnalyzer`
   - `Invoke-ScriptAnalyzer -Path .`
-- [Quickstart: Configure Terraform using Azure PowerShell](https://docs.microsoft.com/en-us/azure/developer/terraform/get-started-powershell)
+- [Quickstart: Configure OpenTofu using Azure PowerShell](https://docs.microsoft.com/en-us/azure/developer/terraform/get-started-powershell)
 
 ### Ubuntu
 

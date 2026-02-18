@@ -15,7 +15,7 @@
 
 - Better PowerShell scripts (likely eternal goal!).
   - Consider check behavior like that of the [GitHub actions](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions), appending to each command: `if ((Test-Path -LiteralPath variable:\LASTEXITCODE)) { exit $LASTEXITCODE }`
-- Check if terraform requires variable and not provide it if not needed (avoids warnings).
+- Check if tofu requires variable and not provide it if not needed (avoids warnings).
 - Documentation
   - How to start new project from the "template".
   - How to use a single PowerShell script for the several commands in a repeated block until someday implementing loop: _number(001-003)
@@ -24,7 +24,7 @@
 
 ### P2
 
-- For resources created using terraform `local-exec`: destroy when doing `terraform destroy`
+- For resources created using tofu `local-exec`: destroy when doing `tofu destroy`
 - Create Visual Studio Code extension to start projects, run commands, etc.
   - Visual Studio Code: [Your First Extension](https://code.visualstudio.com/api/get-started/your-first-extension)
 - Graph from YML: Python [graphviz 0.15](https://pypi.org/project/graphviz/)
@@ -43,9 +43,9 @@
 
 ## AWS
 
-- Fix issue with Windows (/bin/sh) when executing `terraform apply` [Works for macOS]
+- Fix issue with Windows (/bin/sh) when executing `tofu apply` [Works for macOS]
   - <https://github.com/terraform-aws-modules/terraform-aws-eks/issues/757>
-- Terraform
+- OpenTofu
   - Create+output registry
   - Standard names
 - import-clusters: get created registry credentials

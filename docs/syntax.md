@@ -16,7 +16,7 @@ yuruna.ps1 workloads  [project_root] [config_subfolder] [options]
 
 The main PowerShell script is named `yuruna` and accepts the following parameters:
 
-- `yuruna.ps1 resources [project_root] [config_subfolder]`: Deploys resources using Terraform as helper (`terraform apply` is executed in the configured work folder).
+- `yuruna.ps1 resources [project_root] [config_subfolder]`: Deploys resources using OpenTofu as helper (`tofu apply` is executed in the configured work folder).
 - `yuruna.ps1 components [project_root] [config_subfolder]`: Build and push components to registry.
 - `yuruna.ps1 workloads [project_root] [config_subfolder]`: Deploy workloads using Helm as helper (`helm install` is executed in the configured work folder).
 
@@ -30,7 +30,7 @@ You can also execute commands in "verbose mode" setting the `verbose_mode` param
 
 Additional commands are:
 
-- `yuruna.ps1 clear [project_root] [config_subfolder]`: Clear resources for given configuration (`terraform destroy` is executed in the configured work folder).
+- `yuruna.ps1 clear [project_root] [config_subfolder]`: Clear resources for given configuration (`tofu destroy` is executed in the configured work folder).
 - `yuruna.ps1 validate [project_root] [config_subfolder]`: Validate configuration files.
 - `yuruna.ps1 requirements`: Check if machine has all requirements. [Under development]
 

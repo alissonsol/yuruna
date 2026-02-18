@@ -30,7 +30,7 @@ Set-Workload.ps1 website localhost
 
 ## Resources
 
-Terraform will be used to create the following resources:
+OpenTofu will be used to create the following resources:
 
 - A Kubernetes cluster
 - A container registry
@@ -64,7 +64,7 @@ As output, the following values will become available for later steps:
 ### DNS
 
 - Before executing `yuruna.ps1 workloads` please confirm that the `yrn42website-domain` DNS entry (example: www.yrn42.com) already points to the `frontendIp`.
-  - After resource creation, you will get the Terraform output with the `frontendIp`. From the configuration interface for your DNS provider, point the `yrn42website-domain` to that IP address.
+  - After resource creation, you will get the OpenTofu output with the `frontendIp`. From the configuration interface for your DNS provider, point the `yrn42website-domain` to that IP address.
     - Another option to test is: `curl -v http://{frontendIp} -H 'Host: {yrn42website-domain}'`.
     - Yet another option: add an entry to your `hosts` folder pointing `yrn42website-domain` to the resulting value for `frontendIp`. Don't forget to remove it!
 

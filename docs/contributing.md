@@ -11,7 +11,7 @@
 
 ## Resources
 
-- Create a simple configurable set of Terraform files with minimal amount of variables.
+- Create a simple configurable set of OpenTofu files with minimal amount of variables.
   - Create example using the template set for clarity.
 
 ## Components

@@ -37,7 +37,7 @@
   - Make sure that a default region is set for the project
     - Execute: `gcloud compute project-info describe --project [project]`
     - If needed, change the default region with: `gcloud compute project-info add-metadata --metadata google-compute-default-region=[region]`
-      - It is recommended that the default region match the one used in the `terraform.tfvars` file.
+      - It is recommended that the default region match the one used in the `terraform.tfvars` file (used by OpenTofu).
   - GCP Docker Registry Access
     - Create a service account with the role 'Container Registry Service Agent'. You can also use the one automatically added when you enabled the Container Registry API [link](https://cloud.google.com/container-registry/docs/overview#container_registry_service_account).
     - Creating the JSON access key file

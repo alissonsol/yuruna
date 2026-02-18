@@ -6,4 +6,4 @@ After your base Virtual Development Environment is ready, use the scripts in thi
 - [LM Studio](lmstudio.md) - LM Studio for local AI
 - [OpenClaw](openclaw.md) - Git, Node.js, and the OpenClaw AI agent
 - [PostgreSQL](postgresql.md) - PostgreSQL database from the official PGDG repository
-- [yuruna](yuruna.md) - All yuruna requirements (Docker, Kubernetes, Helm, Terraform, Cloud CLIs, and more)
+- [yuruna](yuruna.md) - All yuruna requirements (Docker, Kubernetes, Helm, OpenTofu, Cloud CLIs, and more)

@@ -58,11 +58,11 @@ function Clear-Configuration {
             if (-Not ([string]::IsNullOrEmpty($workFolder))) {
                 $workFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
                 if (-Not ([string]::IsNullOrEmpty($workFolder))) {
-                    # execute terraform destroy from work folder
+                    # execute tofu destroy from work folder
                     Push-Location $workFolder
                     Write-Information "-- Clear: $workFolder"
-                    $result = terraform destroy -auto-approve -refresh=false
-                    Write-Debug "Terraform destroy: $result"
+                    $result = tofu destroy -auto-approve -refresh=false
+                    Write-Debug "OpenTofu destroy: $result"
                     Pop-Location
                     Remove-Item -Path $workFolder -Force -Recurse -ErrorAction SilentlyContinue
                 }

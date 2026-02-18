@@ -30,7 +30,7 @@ Set-Workload.ps1 TO-SET localhost
 
 ## Resources
 
-Terraform will be used to create the following resources:
+OpenTofu will be used to create the following resources:
 
 - Project resources description.
 

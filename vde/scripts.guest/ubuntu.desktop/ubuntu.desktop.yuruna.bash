@@ -4,8 +4,6 @@ set -euo pipefail
 # Non-interactive mode for all installations
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
-export HOMEBREW_NO_INSTALL_CLEANUP=1
-export HOMEBREW_NO_ENV_HINTS=1
 
 # ===== Ensure sudo credentials are cached =====
 if [[ $EUID -ne 0 ]]; then
@@ -37,58 +35,13 @@ sudo apt-get install -y \
     build-essential procps file \
     wget software-properties-common \
     ca-certificates lsb-release gnupg gpg \
-    libnss3-tools
+    libnss3-tools unzip
 
 # Enable and start SSH
 sudo systemctl enable --now ssh
 sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status unknown"
 
 echo "✓ Basic tools installed"
-
-# ===== Homebrew =====
-echo "=== Installing Homebrew ==="
-BREW_INSTALLER="$REAL_HOME/Downloads/install_homebrew.sh"
-BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-curl -fsSL --retry 3 --retry-delay 5 "$BREW_URL" -o "$BREW_INSTALLER"
-echo "Checking Homebrew installer script at: $(ls -la "$BREW_INSTALLER")"
-
-if [ -s "$BREW_INSTALLER" ]; then
-    chmod a+r "$BREW_INSTALLER"
-    # Pre-create the default prefix with correct ownership so the non-root installer succeeds
-    sudo mkdir -p /home/linuxbrew/.linuxbrew
-    sudo chown -R "$REAL_USER":"$REAL_USER" /home/linuxbrew/.linuxbrew
-    NONINTERACTIVE=1 /bin/bash "$BREW_INSTALLER" || true
-else
-    echo "ERROR: Failed to download Homebrew installer after 3 attempts"
-fi
-rm -f "$BREW_INSTALLER"
-
-# Verify Homebrew is installed before continuing
-BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
-if [ ! -x "$BREW_BIN" ]; then
-    echo "ERROR: Homebrew installation failed — $BREW_BIN not found"
-    echo "Skipping all brew-based installations (helm, terraform, mkcert, graphviz, awscli)"
-    BREW_AVAILABLE=false
-else
-    # Add Homebrew to PATH for current session
-    eval $("$BREW_BIN" shellenv)
-
-    # Add Homebrew to shell profile for future sessions (only if not already present)
-    if ! grep -q 'brew shellenv' "$REAL_HOME/.bashrc"; then
-        echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' | sudo tee -a "$REAL_HOME/.bashrc" > /dev/null
-    fi
-
-    BREW_AVAILABLE=true
-    echo "✓ Homebrew installed"
-fi
-
-# Re-cache sudo credentials — Homebrew's brew.sh calls "sudo --reset-timestamp"
-# on every non-trivial command (a security measure added after a 2024 audit).
-# This unconditionally wipes the sudo timestamp, breaking our background
-# keepalive (sudo -n -v) which then silently fails until we re-authenticate.
-if [[ $EUID -ne 0 ]]; then
-    sudo -v || { echo "Failed to refresh sudo privileges after Homebrew install."; exit 1; }
-fi
 
 # ===== PowerShell =====
 echo "=== Installing PowerShell ==="
@@ -129,17 +82,23 @@ sudo apt-get update -y
 sudo apt-get install -y azure-cli
 echo "✓ Azure CLI installed"
 
-# AWS CLI
-if [ "$BREW_AVAILABLE" = true ]; then
-    eval $("$BREW_BIN" shellenv)
-    "$BREW_BIN" install awscli || true
-    echo "✓ AWS CLI installed"
+# AWS CLI (official installer — supports amd64 and arm64)
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" = "amd64" ]; then
+    AWS_CLI_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+elif [ "$ARCH" = "arm64" ]; then
+    AWS_CLI_URL="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"
 else
-    echo "Skipping AWS CLI — Homebrew not available"
+    echo "WARNING: Unsupported architecture '$ARCH' for AWS CLI"
+    AWS_CLI_URL=""
 fi
-
-# Re-cache sudo — brew install wipes the timestamp (see Homebrew section comment)
-if [[ $EUID -ne 0 ]]; then sudo -v; fi
+if [ -n "$AWS_CLI_URL" ]; then
+    curl -fsSL "$AWS_CLI_URL" -o /tmp/awscliv2.zip
+    unzip -qo /tmp/awscliv2.zip -d /tmp
+    sudo /tmp/aws/install --update || true
+    rm -rf /tmp/aws /tmp/awscliv2.zip
+    echo "✓ AWS CLI installed"
+fi
 
 # Google Cloud SDK
 sudo snap install google-cloud-sdk --classic || echo "Google Cloud SDK snap installation attempted"
@@ -211,24 +170,44 @@ echo "  NOTE: Run 'sudo kubeadm init --pod-network-cidr=10.244.0.0/16' to initia
 echo "  Then configure ~/.kube/config and install networking plugin"
 
 # ===== Other Requirements =====
-# Moved to the end to avoid timing-related sudo re-prompts during long brew installs
 echo "=== Installing other requirements ==="
-if [ "$BREW_AVAILABLE" = true ]; then
-    eval $("$BREW_BIN" shellenv)
-    "$BREW_BIN" install helm || true
-    "$BREW_BIN" install terraform || true
-    "$BREW_BIN" install mkcert || true
-    "$BREW_BIN" install graphviz || true
 
-    # Re-cache sudo — brew install wipes the timestamp (see Homebrew section comment)
-    # mkcert -install calls sudo internally to install the CA into the system trust store
-    if [[ $EUID -ne 0 ]]; then sudo -v; fi
+# Helm (official install script)
+echo "--- Installing Helm ---"
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true
+echo "✓ Helm installed"
 
-    # Setup mkcert
-    mkcert -install || true
+# OpenTofu (official install script, deb method)
+echo "--- Installing OpenTofu ---"
+curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o /tmp/install-opentofu.sh
+chmod +x /tmp/install-opentofu.sh
+/tmp/install-opentofu.sh --install-method deb || true
+rm -f /tmp/install-opentofu.sh
+echo "✓ OpenTofu installed"
+
+# mkcert (download pre-built binary from GitHub)
+echo "--- Installing mkcert ---"
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" = "amd64" ]; then
+    MKCERT_ARCH="linux-amd64"
+elif [ "$ARCH" = "arm64" ]; then
+    MKCERT_ARCH="linux-arm64"
 else
-    echo "Skipping brew-based tools (helm, terraform, mkcert, graphviz) — Homebrew not available"
+    MKCERT_ARCH=""
+    echo "WARNING: Unsupported architecture '$ARCH' for mkcert"
 fi
+if [ -n "$MKCERT_ARCH" ]; then
+    curl -fsSL "https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}" -o /tmp/mkcert
+    chmod +x /tmp/mkcert
+    sudo mv /tmp/mkcert /usr/local/bin/mkcert
+    mkcert -install || true
+    echo "✓ mkcert installed"
+fi
+
+# graphviz (available in Ubuntu repositories)
+echo "--- Installing graphviz ---"
+sudo apt-get install -y graphviz
+echo "✓ graphviz installed"
 
 echo "✓ Other requirements installed"
 
@@ -241,7 +220,9 @@ git --version
 kubeadm version || true
 kubectl version --client || true
 powershell --version 2>/dev/null || echo "PowerShell - run: powershell --version"
-[ "$BREW_AVAILABLE" = true ] && "$BREW_BIN" --version || echo "Homebrew — not installed"
+helm version --short 2>/dev/null || echo "Helm - run: helm version --short"
+tofu version 2>/dev/null | head -1 || echo "OpenTofu - run: tofu version"
+mkcert -version 2>/dev/null || echo "mkcert - run: mkcert -version"
 az --version 2>/dev/null | head -1 || true
 aws --version || true
 gcloud --version || echo "Google Cloud SDK - run: gcloud --version"

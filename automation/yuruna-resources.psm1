@@ -35,8 +35,8 @@ function Publish-ResourceListHelper {
     # For each resource in resources.yml
     #   copy template to work folder under .yuruna
     #   apply variables from resources.yml
-    #   execute terraform apply from work folder
-    #     creates local .terraform under work folder, which can be used later in terraform destroy
+    #   execute tofu apply from work folder
+    #     creates local .terraform under work folder, which can be used later in tofu destroy
 
     $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"
     if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
@@ -126,19 +126,19 @@ function Publish-ResourceListHelper {
 
             $terraformPath = Join-Path -Path $workFolder -ChildPath ".terraform"
             if ($isInitialization -and (Test-Path -Path $terraformPath)) {
-                Write-Information "-- WARNING: terraform already initialized: $terraformPath `n   Resource may not be created. Use 'yuruna clear' to clear terraform state.";
+                Write-Information "-- WARNING: tofu already initialized: $terraformPath `n   Resource may not be created. Use 'yuruna clear' to clear tofu state.";
                 Pop-Location;
                 return $false;
             }
-            Write-Debug "Terraform init"
-            $result = $(terraform init *>&1 | Write-Verbose)
+            Write-Debug "OpenTofu init"
+            $result = $(tofu init *>&1 | Write-Verbose)
             if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
-            Write-Debug "Executing terraform command from $workFolder"
+            Write-Debug "Executing tofu command from $workFolder"
             $result = $($(Invoke-Expression $executionCommand) *>&1 | Write-Verbose)
             if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
             # resource.output file processing
             if (-Not $isInitialization) {
-                $jsonOutput = "$(terraform output -json)"
+                $jsonOutput = "$(tofu output -json)"
                 if (![string]::IsNullOrEmpty($jsonOutput)) {
                     $terraformYaml = $jsonOutput | ConvertFrom-Json
                     $tuple = @{ }
@@ -164,9 +164,9 @@ function Publish-ResourceList {
     )
 
     Write-Debug "---- Publishing Resources"
-    # terraform plan -compact-warnings
-    # terraform graph | dot -Tsvg > graph.svg
-    # terraform apply -auto-approve
+    # tofu plan -compact-warnings
+    # tofu graph | dot -Tsvg > graph.svg
+    # tofu apply -auto-approve
     if (!(Confirm-ResourceList $project_root $config_subfolder)) { return $false; }
 
     # copy resourcesFile to work folder under .yuruna
@@ -180,10 +180,10 @@ function Publish-ResourceList {
     Copy-Item "$resourcesFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
     Write-Verbose "Backup of: $resourcesFile copied to: $backupFile"
 
-    $executionCommand = "terraform plan -compact-warnings"
+    $executionCommand = "tofu plan -compact-warnings"
     $result = Publish-ResourceListHelper -project_root $project_root -config_subfolder $config_subfolder -executionCommand $executionCommand -isInitialization $true
     if ($result) {
-        $executionCommand = "terraform apply -auto-approve"
+        $executionCommand = "tofu apply -auto-approve"
         return Publish-ResourceListHelper -project_root $project_root -config_subfolder $config_subfolder -executionCommand $executionCommand -isInitialization $false
     }
 

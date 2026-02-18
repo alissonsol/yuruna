@@ -337,7 +337,7 @@ MigrationBackup/
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
 
-# Terraform
+# OpenTofu / Terraform
 **/.terraform/*
 **/.terraform*
 .terraform.lock.hcl

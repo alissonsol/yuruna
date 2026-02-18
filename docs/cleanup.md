@@ -19,7 +19,7 @@ Invoke-Clear.ps1 website azure
 If needed, you can delete resources by executing the command below from the folder with the initial deployment files (`.yuruna/resources/$resourceTemplate`)
 
 ```shell
-terraform destroy -auto-approve -refresh=false
+tofu destroy -auto-approve -refresh=false
 ```
 
 In some cases, that command doesn't find the resources to destroy (`0 destroyed`). It needs the created `.terraform` folder to be still available. If that was removed, you should follow the instructions below for manually cleaning resources.

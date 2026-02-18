@@ -80,6 +80,13 @@ else
     echo "✓ Homebrew installed"
 fi
 
+# Re-cache sudo credentials — the Homebrew installer runs "sudo -k" which
+# invalidates the timestamp, causing the background keepalive (sudo -n -v)
+# to silently fail from this point onward.
+if [[ $EUID -ne 0 ]]; then
+    sudo -v || { echo "Failed to refresh sudo privileges after Homebrew install."; exit 1; }
+fi
+
 # ===== PowerShell =====
 echo "=== Installing PowerShell ==="
 ARCH=$(dpkg --print-architecture)
@@ -96,23 +103,6 @@ else
     sudo snap install powershell --classic || echo "Note: PowerShell snap installation attempted"
 fi
 echo "✓ PowerShell installed"
-
-# ===== Other Requirements =====
-echo "=== Installing other requirements ==="
-if [ "$BREW_AVAILABLE" = true ]; then
-    eval $("$BREW_BIN" shellenv)
-    "$BREW_BIN" install helm || true
-    "$BREW_BIN" install terraform || true
-    "$BREW_BIN" install mkcert || true
-    "$BREW_BIN" install graphviz || true
-
-    # Setup mkcert
-    mkcert -install || true
-else
-    echo "Skipping brew-based tools (helm, terraform, mkcert, graphviz) — Homebrew not available"
-fi
-
-echo "✓ Other requirements installed"
 
 # ===== Cloud CLIs =====
 echo "=== Installing Cloud CLIs ==="
@@ -213,6 +203,24 @@ sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to b
 echo "✓ Kubernetes tools installed"
 echo "  NOTE: Run 'sudo kubeadm init --pod-network-cidr=10.244.0.0/16' to initialize the cluster"
 echo "  Then configure ~/.kube/config and install networking plugin"
+
+# ===== Other Requirements =====
+# Moved to the end to avoid timing-related sudo re-prompts during long brew installs
+echo "=== Installing other requirements ==="
+if [ "$BREW_AVAILABLE" = true ]; then
+    eval $("$BREW_BIN" shellenv)
+    "$BREW_BIN" install helm || true
+    "$BREW_BIN" install terraform || true
+    "$BREW_BIN" install mkcert || true
+    "$BREW_BIN" install graphviz || true
+
+    # Setup mkcert
+    mkcert -install || true
+else
+    echo "Skipping brew-based tools (helm, terraform, mkcert, graphviz) — Homebrew not available"
+fi
+
+echo "✓ Other requirements installed"
 
 # ===== Version Check =====
 echo ""

@@ -56,7 +56,7 @@ cd examples
 Set-Resource.ps1 website localhost
 ```
 
-Create the HTTPS development certificate (required by the website example)
+Create the HTTPS development certificate (required by the website example). On Ubuntu desktops provisioned with `ubuntu.desktop.yuruna.bash`, this certificate is created automatically.
 
 ```powershell
 $pfxDir = Join-Path $HOME ".aspnet/https"

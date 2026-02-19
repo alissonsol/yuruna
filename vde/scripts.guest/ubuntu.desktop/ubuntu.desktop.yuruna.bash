@@ -148,6 +148,16 @@ fi
 sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
 echo "✓ Permissions for Docker configured (log out and back in for group membership to take effect)"
 
+# Add "newgrp docker" to PowerShell profile so docker group is active on shell start
+sudo -u "$REAL_USER" pwsh -NoProfile -Command '
+    $profileDir = Split-Path $PROFILE
+    if (!(Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
+    if (!(Test-Path $PROFILE) -or !(Select-String -Path $PROFILE -Pattern "newgrp docker" -Quiet)) {
+        Add-Content -Path $PROFILE -Value "`nnewgrp docker"
+    }
+' || echo "Note: Could not configure PowerShell profile for docker group"
+echo "✓ PowerShell profile configured with newgrp docker"
+
 # Test Docker
 docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"
 echo "✓ Docker installed"
@@ -255,6 +265,17 @@ sudo apt-get install -y graphviz
 echo "✓ graphviz installed"
 
 echo "✓ Other requirements installed"
+
+# ===== HTTPS Development Certificate =====
+echo "=== Creating HTTPS development certificate (required by the website example) ==="
+PFX_DIR="${REAL_HOME}/.aspnet/https"
+mkdir -p "$PFX_DIR"
+openssl req -x509 -newkey rsa:4096 -keyout "$PFX_DIR/aspnetapp.key" -out "$PFX_DIR/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>/dev/null
+openssl pkcs12 -export -out "$PFX_DIR/aspnetapp.pfx" -inkey "$PFX_DIR/aspnetapp.key" -in "$PFX_DIR/aspnetapp.crt" -password pass:password
+rm -f "$PFX_DIR/aspnetapp.key" "$PFX_DIR/aspnetapp.crt"
+# Ensure the real user owns the certificate files (not root)
+chown -R "$REAL_USER:$REAL_USER" "$PFX_DIR"
+echo "✓ HTTPS development certificate created at $PFX_DIR/aspnetapp.pfx"
 
 # ===== Version Check =====
 echo ""

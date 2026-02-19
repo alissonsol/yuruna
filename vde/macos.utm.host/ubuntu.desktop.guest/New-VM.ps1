@@ -167,7 +167,7 @@ Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"
 Write-Output "Generating seed.iso with autoinstall configuration..."
-& hdiutil makehybrid -o "$SeedIso" -hfs -joliet -iso -default-volume-name cidata "$SeedDir"
+& hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to create seed.iso with hdiutil."
     exit 1

@@ -148,15 +148,23 @@ fi
 sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
 echo "✓ Permissions for Docker configured (log out and back in for group membership to take effect)"
 
-# Add "newgrp docker" to PowerShell profile so docker group is active on shell start
-sudo -u "$REAL_USER" pwsh -NoProfile -Command '
-    $profileDir = Split-Path $PROFILE
-    if (!(Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
-    if (!(Test-Path $PROFILE) -or !(Select-String -Path $PROFILE -Pattern "newgrp docker" -Quiet)) {
-        Add-Content -Path $PROFILE -Value "`nnewgrp docker"
-    }
-' || echo "Note: Could not configure PowerShell profile for docker group"
-echo "✓ PowerShell profile configured with newgrp docker"
+# Add "newgrp docker" to .bashrc so the docker group is active in every terminal session.
+# The guard (id -nG check) prevents an infinite loop: newgrp starts a new shell that
+# re-sources .bashrc, but this time the group is already active so the guard is skipped.
+# PowerShell (pwsh) launched from that shell inherits the docker group automatically.
+BASHRC="${REAL_HOME}/.bashrc"
+if ! grep -q 'newgrp docker' "$BASHRC" 2>/dev/null; then
+    cat >> "$BASHRC" <<'DOCKER_GROUP'
+
+# Activate docker group without requiring logout/login
+# Only run newgrp if: user is in docker group in /etc/group BUT the current shell doesn't have it yet
+if getent group docker 2>/dev/null | grep -qw "$(whoami)" && ! id -nG | grep -qw docker; then
+    newgrp docker
+fi
+DOCKER_GROUP
+    chown "$REAL_USER:$REAL_USER" "$BASHRC"
+fi
+echo "✓ Bash profile configured with newgrp docker"
 
 # Test Docker
 docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"

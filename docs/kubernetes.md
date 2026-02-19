@@ -56,6 +56,16 @@ cd examples
 Set-Resource.ps1 website localhost
 ```
 
+Create the HTTPS development certificate (required by the website example)
+
+```powershell
+$pfxDir = Join-Path $HOME ".aspnet/https"
+if (!(Test-Path $pfxDir)) { New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null }
+openssl req -x509 -newkey rsa:4096 -keyout "$pfxDir/aspnetapp.key" -out "$pfxDir/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>$null
+openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.key" -in "$pfxDir/aspnetapp.crt" -password pass:password
+Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
+```
+
 Phase 2: Build and push the Docker image
 
 ```powershell

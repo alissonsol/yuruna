@@ -111,12 +111,29 @@ Write-Output "Creating VM '$VMName' using ISO: $IsoSource"
 if (Test-Path $UtmDir) { Remove-Item -Recurse -Force $UtmDir }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
-# 4. Copy Ubuntu ISO into the bundle (named after hostname)
+# 4. Create EFI variable store (required by Apple Virtualization UEFI boot)
+$EfiVarsFile = "$DataDir/efi_vars.fd"
+Write-Output "Creating EFI variable store..."
+$swiftCode = @'
+import Foundation
+import Virtualization
+let url = URL(fileURLWithPath: CommandLine.arguments[1])
+do { _ = try VZEFIVariableStore(creatingVariableStoreAt: url) }
+catch { fputs("Error: \(error.localizedDescription)\n", stderr); exit(1) }
+'@
+$swiftCode | & swift - "$EfiVarsFile"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to create EFI variable store. Ensure Xcode command line tools are installed."
+    exit 1
+}
+Write-Output "EFI variable store created."
+
+# 5. Copy Ubuntu ISO into the bundle (named after hostname)
 $DestIso = "$DataDir/$VMName.iso"
 Copy-Item -Path $IsoSource -Destination $DestIso
 Write-Output "Copied installer ISO as: $VMName.iso"
 
-# 5. Create blank disk for installation (512GB, sparse raw image for Apple Virtualization)
+# 6. Create blank disk for installation (512GB, sparse raw image for Apple Virtualization)
 $DiskImage = "$DataDir/disk.img"
 Write-Output "Creating 512GB disk image (raw format for Apple Virtualization)..."
 & qemu-img create -f raw "$DiskImage" 512G
@@ -125,7 +142,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# 6. Generate autoinstall seed ISO
+# 7. Generate autoinstall seed ISO
 $SeedDir = Join-Path $DownloadDir "seed_temp/$VMName"
 if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -159,7 +176,7 @@ if ($LASTEXITCODE -ne 0) {
 # Clean up temp directory
 Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
 
-# 7. Generate UTM config.plist from template (Apple Virtualization backend)
+# 8. Generate UTM config.plist from template (Apple Virtualization backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."

@@ -31,22 +31,35 @@ Deploy a sample .NET website to Docker Desktop Kubernetes in minutes. No cloud a
 
 Execute these commands in a PowerShell command line (`pwsh`).
 
+Clone the repository
+
 ```powershell
-# Clone the repository
 git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
+```
 
-# Add automation folder to your path (or run from automation folder)
+Add automation folder to your path (or run from automation folder)
+
+```powershell
 $env:PATH += ":$(Get-Location)/automation"
 Add-Content -Path $PROFILE -Value "`n`$env:PATH += `":$(Get-Location)/automation`""
+```
 
-# Phase 1: Create local resources (registry, Kubernetes context)
+Phase 1: Create local resources (registry, Kubernetes context)
+
+```powershell
 Set-Resource.ps1 website localhost
+```
 
-# Phase 2: Build and push the Docker image
+Phase 2: Build and push the Docker image
+
+```powershell
 Set-Component.ps1 website localhost
+```
 
-# Phase 3: Deploy to Kubernetes
+Phase 3: Deploy to Kubernetes
+
+```powershell
 Set-Workload.ps1 website localhost
 ```
 

@@ -165,7 +165,7 @@ if [ -e /dev/kvm ]; then
 else
     echo "WARNING: /dev/kvm not found. Nested virtualization may not be enabled on the host."
     echo "  Hyper-V host: Set-VMProcessor -VMName <name> -ExposeVirtualizationExtensions \$true"
-    echo "  UTM host: Set CPU type to 'host' in VM settings"
+    echo "  UTM host: Requires Apple Virtualization backend (not QEMU), macOS 15+, Apple M3+ chip, UTM v4.6+"
     echo "  Docker Desktop will not run without KVM support."
 fi
 

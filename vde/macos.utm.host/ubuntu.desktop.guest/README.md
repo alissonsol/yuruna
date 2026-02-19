@@ -4,6 +4,8 @@ Copyright (c) 2019-2026 by Alisson Sol et al.
 
 Minimal commands for creating the VM. Link to details at the end.
 
+**Nested virtualization requirements (for Docker Desktop / KVM inside the VM):** macOS 15 Sequoia or later, Apple M3+ chip, UTM v4.6+. The `New-VM.ps1` script checks these automatically. See [details](read.more.md).
+
 ## One-time setup
 
 Careful not to execute the PowerShell scripts in the macOS terminal as a superuser, or that could create files that will not be accessible to processes started as the normal user later. Check `whoami` before executing the scripts.

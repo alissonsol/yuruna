@@ -6,11 +6,24 @@ Copyright (c) 2019-2026 by Alisson Sol et al.
 
 What can you do during [The Long Dark Tea-Time of the Soul](https://en.wikipedia.org/wiki/The_Long_Dark_Tea-Time_of_the_Soul)?
 
-This is the macOS counterpart of the [Hyper-V version](../../windows.hyper-v.host/ubuntu.desktop.guest/). It uses [UTM](https://mac.getutm.app/) to run an Ubuntu ARM64 VM on Apple Silicon Macs.
+This is the macOS counterpart of the [Hyper-V version](../../windows.hyper-v.host/ubuntu.desktop.guest/). It uses [UTM](https://mac.getutm.app/) with the Apple Virtualization framework to run an Ubuntu ARM64 VM on Apple Silicon Macs.
+
+### Nested virtualization requirements
+
+Docker Desktop inside the VM requires KVM (`/dev/kvm`), which depends on nested virtualization. This is only supported with:
+
+| Requirement | Detail |
+|---|---|
+| **macOS** | 15.0 Sequoia or later |
+| **Chip** | Apple M3, M4, or later (M1 and M2 are **not** supported) |
+| **UTM** | v4.6.0 or later |
+| **Backend** | Apple Virtualization (not QEMU) |
+
+The `New-VM.ps1` script checks these requirements automatically and exits with an error if they are not met.
 
 ### 1.1) Installing UTM
 
-[UTM](https://mac.getutm.app/) is a full-featured virtual machine host for macOS based on QEMU. Install it using [Homebrew](https://brew.sh/):
+[UTM](https://mac.getutm.app/) is a full-featured virtual machine host for macOS. Install it using [Homebrew](https://brew.sh/):
 
 ```bash
 brew install --cask utm
@@ -35,9 +48,9 @@ pwsh ./Get-Image.ps1
 The script [`New-VM.ps1`](./New-VM.ps1) creates a UTM VM bundle on your Desktop. It accepts an optional `-VMName` parameter (default: `ubuntu-desktop01`) and:
 
 - Copies the downloaded Ubuntu ISO into the bundle (named `<hostname>.iso`).
-- Creates a 512GB blank qcow2 disk for installation.
+- Creates a 512GB blank raw disk for installation (Apple Virtualization requires raw format).
 - Generates an autoinstall `seed.iso` that automatically configures the Ubuntu installation with the given hostname.
-- Generates a `config.plist` from [`config.plist.template`](./config.plist.template) for a QEMU ARM64 VM (4 CPUs, 16 GB RAM, VirtIO disk, UEFI boot, shared networking, sound, clipboard sharing).
+- Generates a `config.plist` from [`config.plist.template`](./config.plist.template) for an Apple Virtualization ARM64 VM (4 CPUs, 16 GB RAM, VirtIO disk, UEFI boot, shared networking, clipboard sharing, nested virtualization via GenericPlatform).
 
 ```bash
 pwsh ./New-VM.ps1

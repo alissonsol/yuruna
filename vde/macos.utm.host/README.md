@@ -18,5 +18,5 @@ After installing `brew`, you may need to open another terminal.
 brew install --cask utm
 brew install git
 brew install powershell/tap/powershell
-brew install openssl qemu xz wget
+brew install openssl qemu wget
 ```

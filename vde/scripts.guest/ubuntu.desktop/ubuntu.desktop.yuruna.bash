@@ -60,6 +60,11 @@ else
 fi
 echo "✓ PowerShell installed"
 
+# Install powershell-yaml module for all users
+echo "=== Installing PowerShell module: powershell-yaml ==="
+pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force" || echo "Note: powershell-yaml module installation attempted"
+echo "✓ powershell-yaml module installed"
+
 # ===== Cloud CLIs =====
 echo "=== Installing Cloud CLIs ==="
 

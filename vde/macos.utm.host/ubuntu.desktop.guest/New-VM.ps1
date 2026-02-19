@@ -143,10 +143,10 @@ if (-not (Test-Path $UserDataTemplate)) {
 # contains $ delimiters ($6$salt$hash) that regex would interpret as backreferences
 $UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash)
 
-Set-Content -Path "$SeedDir/user-data" -Value $UserData
+Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $VMName
-Set-Content -Path "$SeedDir/meta-data" -Value $MetaData
+Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"
 Write-Output "Generating seed.iso with autoinstall configuration..."
@@ -171,15 +171,16 @@ $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $IsoId = [guid]::NewGuid().ToString().ToUpper()
 $SeedId = [guid]::NewGuid().ToString().ToUpper()
+$rng = [System.Random]::new()
 $MacBytes = [byte[]]::new(6)
-[System.Random]::new().NextBytes($MacBytes)
+$rng.NextBytes($MacBytes)
 $MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
 $MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
 
 # Generate machineIdentifier (16 random bytes, base64-encoded) for GenericPlatform
 # Required by Apple Virtualization.framework for nested virtualization support
 $MachineIdBytes = [byte[]]::new(16)
-[System.Random]::new().NextBytes($MachineIdBytes)
+$rng.NextBytes($MachineIdBytes)
 $MachineIdentifier = [Convert]::ToBase64String($MachineIdBytes)
 
 $PlistContent = (Get-Content -Raw $TemplatePath) `

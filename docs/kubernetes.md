@@ -41,8 +41,12 @@ cd yuruna
 Add automation folder to your path (or run from automation folder)
 
 ```powershell
-$env:PATH += ":$(Get-Location)/automation"
-Add-Content -Path $PROFILE -Value "`n`$env:PATH += `":$(Get-Location)/automation`""
+$automationPath = "$(Get-Location)/automation"
+if ($env:PATH -split [IO.Path]::PathSeparator -notcontains $automationPath) {
+    $env:PATH += "$([IO.Path]::PathSeparator)$automationPath"
+}
+if (!(Test-Path (Split-Path $PROFILE))) { New-Item -ItemType Directory -Path (Split-Path $PROFILE) -Force | Out-Null }
+Add-Content -Path $PROFILE -Value "`nif (`$env:PATH -split [IO.Path]::PathSeparator -notcontains '$automationPath') { `$env:PATH += `"$([IO.Path]::PathSeparator)$automationPath`" }"
 ```
 
 Phase 1: Create local resources (registry, Kubernetes context)
@@ -143,7 +147,7 @@ yuruna/
 
 - **Cost warning**: Cloud resources incur charges. Always [clean up](cleanup.md) resources you're not using.
 - **Windows users**: Set `git config --global core.autocrlf input` before cloning to avoid line-ending issues with Linux containers.
-- Scripts and examples are provided "as is" without guarantees. See [license](../license.md).
+- Scripts and examples are provided "as is" without guarantees. See [license](../LICENSE.md).
 
 ## Contributing
 

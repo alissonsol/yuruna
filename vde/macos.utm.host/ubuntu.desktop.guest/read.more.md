@@ -37,7 +37,7 @@ brew install powershell/tap/powershell
 
 ### 1.2) Downloading the Ubuntu image
 
-The script [`Get-Image.ps1`](./Get-Image.ps1) fetches the Ubuntu Desktop 25.10 ARM64 ISO. The image is saved to `~/virtual/ubuntu.env/`.
+The script [`Get-Image.ps1`](./Get-Image.ps1) fetches the Ubuntu Desktop 24.04 LTS (Noble Numbat) ARM64 ISO. The image is saved to `~/virtual/ubuntu.env/`.
 
 ```bash
 pwsh ./Get-Image.ps1

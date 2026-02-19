@@ -117,7 +117,7 @@ Copy-Item -Path $IsoSource -Destination $DestIso
 Write-Output "Copied installer ISO as: $VMName.iso"
 
 # 5. Create blank disk for installation (512GB, sparse raw image for Apple Virtualization)
-$DiskImage = "$DataDir/disk.raw"
+$DiskImage = "$DataDir/disk.img"
 Write-Output "Creating 512GB disk image (raw format for Apple Virtualization)..."
 & qemu-img create -f raw "$DiskImage" 512G
 if ($LASTEXITCODE -ne 0) {
@@ -188,7 +188,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VM_UUID__',             $VmUuid `
     -replace '__MAC_ADDRESS__',         $MacAddress `
     -replace '__DISK_IDENTIFIER__',     $DiskId `
-    -replace '__DISK_IMAGE_NAME__',     'disk.raw' `
+    -replace '__DISK_IMAGE_NAME__',     'disk.img' `
     -replace '__ISO_IDENTIFIER__',      $IsoId `
     -replace '__ISO_IMAGE_NAME__',      "$VMName.iso" `
     -replace '__SEED_IDENTIFIER__',     $SeedId `

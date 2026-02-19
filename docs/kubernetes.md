@@ -52,6 +52,7 @@ Add-Content -Path $PROFILE -Value "`nif (`$env:PATH -split [IO.Path]::PathSepara
 Phase 1: Create local resources (registry, Kubernetes context)
 
 ```powershell
+cd examples
 Set-Resource.ps1 website localhost
 ```
 

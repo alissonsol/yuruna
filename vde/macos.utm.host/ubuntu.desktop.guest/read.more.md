@@ -48,9 +48,9 @@ pwsh ./Get-Image.ps1
 The script [`New-VM.ps1`](./New-VM.ps1) creates a UTM VM bundle on your Desktop. It accepts an optional `-VMName` parameter (default: `ubuntu-desktop01`) and:
 
 - Copies the downloaded Ubuntu ISO into the bundle (named `<hostname>.iso`).
-- Creates a 512GB blank raw disk for installation (Apple Virtualization requires raw format).
+- Creates a 512GB blank raw disk (`.img`) for installation (Apple Virtualization requires raw format).
 - Generates an autoinstall `seed.iso` that automatically configures the Ubuntu installation with the given hostname.
-- Generates a `config.plist` from [`config.plist.template`](./config.plist.template) for an Apple Virtualization ARM64 VM (4 CPUs, 16 GB RAM, VirtIO disk, UEFI boot, shared networking, clipboard sharing, nested virtualization via GenericPlatform).
+- Generates a `config.plist` from [`config.plist.template`](./config.plist.template) for an Apple Virtualization ARM64 VM (4 CPUs, 16 GB RAM, UEFI boot, shared networking, clipboard sharing, nested virtualization via GenericPlatform).
 
 ```bash
 pwsh ./New-VM.ps1

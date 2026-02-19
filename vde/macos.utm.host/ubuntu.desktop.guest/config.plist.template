@@ -6,54 +6,6 @@
 	<string>Apple</string>
 	<key>ConfigurationVersion</key>
 	<integer>4</integer>
-	<key>Display</key>
-	<array>
-		<dict>
-			<key>DynamicResolution</key>
-			<true/>
-			<key>PixelsPerInch</key>
-			<integer>226</integer>
-		</dict>
-	</array>
-	<key>Drive</key>
-	<array>
-		<dict>
-			<key>Identifier</key>
-			<string>__DISK_IDENTIFIER__</string>
-			<key>ImageName</key>
-			<string>__DISK_IMAGE_NAME__</string>
-			<key>ImageType</key>
-			<string>Disk</string>
-			<key>Interface</key>
-			<string>VirtIO</string>
-			<key>ReadOnly</key>
-			<false/>
-		</dict>
-		<dict>
-			<key>Identifier</key>
-			<string>__ISO_IDENTIFIER__</string>
-			<key>ImageName</key>
-			<string>__ISO_IMAGE_NAME__</string>
-			<key>ImageType</key>
-			<string>CD</string>
-			<key>Interface</key>
-			<string>USB</string>
-			<key>ReadOnly</key>
-			<true/>
-		</dict>
-		<dict>
-			<key>Identifier</key>
-			<string>__SEED_IDENTIFIER__</string>
-			<key>ImageName</key>
-			<string>__SEED_IMAGE_NAME__</string>
-			<key>ImageType</key>
-			<string>CD</string>
-			<key>Interface</key>
-			<string>USB</string>
-			<key>ReadOnly</key>
-			<true/>
-		</dict>
-	</array>
 	<key>Information</key>
 	<dict>
 		<key>Icon</key>
@@ -65,48 +17,28 @@
 		<key>UUID</key>
 		<string>__VM_UUID__</string>
 	</dict>
-	<key>Network</key>
-	<array>
-		<dict>
-			<key>MacAddress</key>
-			<string>__MAC_ADDRESS__</string>
-			<key>Mode</key>
-			<string>Shared</string>
-		</dict>
-	</array>
-	<key>Serial</key>
-	<array/>
-	<key>Sharing</key>
-	<dict>
-		<key>ClipboardSharing</key>
-		<true/>
-		<key>DirectoryShareMode</key>
-		<string>VirtFS</string>
-		<key>DirectoryShareReadOnly</key>
-		<false/>
-	</dict>
-	<key>Sound</key>
-	<array>
-		<dict/>
-	</array>
 	<key>System</key>
 	<dict>
 		<key>Architecture</key>
 		<string>aarch64</string>
-		<key>Boot</key>
-		<dict>
-			<key>Bootloader</key>
-			<string>UEFI</string>
-		</dict>
 		<key>CPUCount</key>
 		<integer>__CPU_COUNT__</integer>
+		<key>MemorySize</key>
+		<integer>__MEMORY_SIZE__</integer>
+		<key>Boot</key>
+		<dict>
+			<key>OperatingSystem</key>
+			<string>Linux</string>
+			<key>UEFIBoot</key>
+			<true/>
+			<key>EfiVariableStoragePath</key>
+			<string>efi_vars.fd</string>
+		</dict>
 		<key>GenericPlatform</key>
 		<dict>
 			<key>machineIdentifier</key>
 			<data>__MACHINE_IDENTIFIER__</data>
 		</dict>
-		<key>MemorySize</key>
-		<integer>__MEMORY_SIZE__</integer>
 	</dict>
 	<key>Virtualization</key>
 	<dict>
@@ -114,18 +46,67 @@
 		<true/>
 		<key>Balloon</key>
 		<true/>
-		<key>Clipboard</key>
-		<true/>
 		<key>Entropy</key>
 		<true/>
 		<key>Keyboard</key>
-		<true/>
+		<string>Generic</string>
 		<key>Pointer</key>
+		<string>Mouse</string>
+		<key>ClipboardSharing</key>
 		<true/>
 		<key>Rosetta</key>
 		<false/>
-		<key>Trackpad</key>
-		<false/>
 	</dict>
+	<key>Display</key>
+	<array>
+		<dict>
+			<key>WidthPixels</key>
+			<integer>1920</integer>
+			<key>HeightPixels</key>
+			<integer>1200</integer>
+			<key>PixelsPerInch</key>
+			<integer>80</integer>
+			<key>DynamicResolution</key>
+			<true/>
+		</dict>
+	</array>
+	<key>Drive</key>
+	<array>
+		<dict>
+			<key>Identifier</key>
+			<string>__DISK_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__DISK_IMAGE_NAME__</string>
+			<key>ReadOnly</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Identifier</key>
+			<string>__ISO_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__ISO_IMAGE_NAME__</string>
+			<key>ReadOnly</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>Identifier</key>
+			<string>__SEED_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__SEED_IMAGE_NAME__</string>
+			<key>ReadOnly</key>
+			<true/>
+		</dict>
+	</array>
+	<key>Network</key>
+	<array>
+		<dict>
+			<key>Mode</key>
+			<string>Shared</string>
+			<key>MacAddress</key>
+			<string>__MAC_ADDRESS__</string>
+		</dict>
+	</array>
+	<key>Serial</key>
+	<array/>
 </dict>
 </plist>

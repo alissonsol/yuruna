@@ -232,6 +232,13 @@ echo "✓ Kubernetes tools installed"
 
 # ===== Initialize Kubernetes Cluster =====
 echo "=== Initializing Kubernetes cluster ==="
+
+# Reconfigure containerd to enable CRI plugin (disabled by default in the containerd.io package)
+sudo mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+sudo systemctl restart containerd
+
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
 sudo kubeadm init --pod-network-cidr=10.244.0.0/16
 

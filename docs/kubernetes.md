@@ -66,11 +66,21 @@ openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.ke
 Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
 ```
 
+Commands to check status
+
+```powershell
+systemctl status docker
+docker images
+docker ps -a
+```
+
 Phase 2: Build and push the Docker image
 
 ```powershell
 Set-Component.ps1 website localhost
 ```
+
+Can check status with the same commands previously shared. At this point, the registry should be running, and there are image ready for the website.
 
 Phase 3: Deploy to Kubernetes
 

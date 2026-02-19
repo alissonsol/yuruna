@@ -220,7 +220,7 @@ echo "✓ Swap disabled"
 echo "=== Installing Kubernetes ==="
 # Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
 
 sudo apt-get update -y
@@ -229,8 +229,32 @@ sudo apt-mark hold kubelet kubeadm kubectl
 sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to be run after kubeadm init"
 
 echo "✓ Kubernetes tools installed"
-echo "  NOTE: Run 'sudo kubeadm init --pod-network-cidr=10.244.0.0/16' to initialize the cluster"
-echo "  Then configure ~/.kube/config and install networking plugin"
+
+# ===== Initialize Kubernetes Cluster =====
+echo "=== Initializing Kubernetes cluster ==="
+sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
+sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+
+# Configure kubectl for the real user
+mkdir -p "${REAL_HOME}/.kube"
+sudo cp /etc/kubernetes/admin.conf "${REAL_HOME}/.kube/config"
+sudo chown "$REAL_USER:$REAL_USER" "${REAL_HOME}/.kube/config"
+export KUBECONFIG="${REAL_HOME}/.kube/config"
+echo "✓ kubectl configured"
+
+# Install Flannel networking plugin
+kubectl --kubeconfig="${REAL_HOME}/.kube/config" apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+echo "✓ Flannel networking plugin installed"
+
+# Remove control-plane taint for single-node cluster
+kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kubernetes.io/control-plane- || true
+echo "✓ Control-plane taint removed (single-node cluster)"
+
+# Rename kubectl context to docker-desktop
+kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
+echo "✓ kubectl context renamed to docker-desktop"
+
+echo "✓ Kubernetes cluster initialized"
 
 # ===== Other Requirements =====
 echo "=== Installing other requirements ==="
@@ -302,15 +326,6 @@ aws --version || true
 gcloud --version || echo "Google Cloud SDK - run: gcloud --version"
 
 echo ""
-echo "=== Manual Steps Required ==="
+echo "=== Optional Steps ==="
 echo "1. Set hostname: sudo hostnamectl set-hostname [desired-hostname]"
-echo "2. Initialize Kubernetes: sudo kubeadm init --pod-network-cidr=10.244.0.0/16"
-echo "3. Configure kubectl config:"
-echo "   mkdir -p \$HOME/.kube"
-echo "   sudo cp -i /etc/kubernetes/admin.conf \$HOME/.kube/config"
-echo "   sudo chown \$(id -u):\$(id -g) \$HOME/.kube/config"
-echo "4. Install networking plugin (e.g., Flannel):"
-echo "   kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml"
-echo "5. Remove taints from nodes (if needed for single-node cluster)"
-echo "6. Rename kubectl context: kubectl config rename-context kubernetes-admin@kubernetes docker-desktop"
-echo "7. Terminal restart may be needed for group permissions to take effect"
+echo "2. Terminal restart may be needed for group permissions to take effect"

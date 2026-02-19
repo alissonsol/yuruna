@@ -16,26 +16,19 @@ Open a terminal and enter the commands.
 /bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.yuruna.bash)"
 ```
 
-**Manual steps after the script completes**
+**Optional steps after the script completes**
 
 1. Set hostname: `sudo hostnamectl set-hostname [desired-hostname]`
-2. Initialize Kubernetes: `sudo kubeadm init --pod-network-cidr=10.244.0.0/16`
-3. Configure kubectl:
+2. Terminal restart may be needed for group permissions to take effect
 
-    ```bash
-    mkdir -p $HOME/.kube
-    sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-    sudo chown $(id -u):$(id -g) $HOME/.kube/config
-    ```
+**Verify the Kubernetes cluster**
 
-4. Install networking plugin (e.g., Flannel):
+```bash
+kubectl get nodes
+kubectl get pods -A
+kubectl config current-context
+```
 
-    ```bash
-    kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-    ```
-
-5. Remove taints from nodes (if needed for single-node cluster)
-6. Rename kubectl context: `kubectl config rename-context kubernetes-admin@kubernetes docker-desktop`
-7. Terminal restart may be needed for group permissions to take effect
+The node should show `Ready` status, system pods should be running, and the context should be `docker-desktop`.
 
 Back to [Post-VDE Setup](README.md)

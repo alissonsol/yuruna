@@ -15,7 +15,7 @@ globalVariables:
   dockerUsername:        "placeholder"
   dockerPassword:        "placeholder"
   ingressClass:          "nginx"
-  certManagerLatest:     "v1.17.1"
+  certManagerLatest:     "v1.19.3"
 
 workloads:
 - context: "${env:runTag}-${env:project}-${env:runId}"
@@ -42,9 +42,8 @@ workloads:
     - kubectl: "create secret tls ${env:websiteTlsSecret} --key \"${env:tls-key}\" --cert \"${env:tls-crt}\" --namespace=${env:namespace}"
     # Certificate: goes first so clusterIssuer is ready when deploying templates later
     #- kubectl: "apply -f https://github.com/cert-manager/cert-manager/releases/download/${env:certManagerLatest}/cert-manager.crds.yaml"
-    - helm: "repo add jetstack https://charts.jetstack.io --force-update"
     - helm: >
-        install cert-manager jetstack/cert-manager
+        install cert-manager oci://quay.io/jetstack/charts/cert-manager
         --namespace ingress-ns
         --create-namespace
         --version ${env:certManagerLatest}

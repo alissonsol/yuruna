@@ -241,12 +241,31 @@ sudo systemctl enable containerd
 sudo systemctl restart containerd
 
 # Reset any existing kubeadm state so the script can be re-run safely
+# Reference: https://k8s.io/docs/reference/setup-tools/kubeadm/kubeadm-reset/
 if [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ] || [ -d /etc/kubernetes/pki ]; then
     echo "Existing Kubernetes cluster detected — resetting before re-initialization"
     sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock
+    # Clean up CNI plugin configuration
     sudo rm -rf /etc/cni/net.d
+    # Clean up network filtering rules left by the previous cluster
+    sudo iptables -F && sudo iptables -t nat -F && sudo iptables -t mangle -F && sudo iptables -X || true
+    if command -v ipvsadm &>/dev/null; then
+        sudo ipvsadm --clear || true
+    fi
+    # Clean up kubeconfig
     sudo rm -f "${REAL_HOME}/.kube/config"
 fi
+
+# Restart containerd after reset (reset can disrupt it) and wait for the socket
+sudo systemctl restart containerd
+for i in $(seq 1 30); do
+    if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then
+        echo "✓ containerd is ready"
+        break
+    fi
+    echo "Waiting for containerd to be ready... ($i/30)"
+    sleep 1
+done
 
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
 sudo kubeadm init --pod-network-cidr=10.244.0.0/16

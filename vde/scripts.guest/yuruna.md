@@ -31,4 +31,6 @@ kubectl config current-context
 
 The node should show `Ready` status, system pods should be running, and the context should be `docker-desktop`.
 
+You can now follow the instructions to install the Yuruna-based [Kubernetes](../../docs/kubernetes.md) examples.
+
 Back to [Post-VDE Setup](README.md)

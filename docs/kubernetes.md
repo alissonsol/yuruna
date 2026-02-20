@@ -38,7 +38,7 @@ git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
 ```
 
-Add automation folder to your path (or run from automation folder)
+Add automation folder to your path (or run from automation folder). Ensure the commands below are executed in a PowerShell command line.
 
 ```powershell
 $automationPath = "$(Get-Location)/automation"

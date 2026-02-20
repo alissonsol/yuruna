@@ -237,7 +237,16 @@ echo "=== Initializing Kubernetes cluster ==="
 sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+sudo systemctl enable containerd
 sudo systemctl restart containerd
+
+# Reset any existing kubeadm state so the script can be re-run safely
+if [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ] || [ -d /etc/kubernetes/pki ]; then
+    echo "Existing Kubernetes cluster detected — resetting before re-initialization"
+    sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock
+    sudo rm -rf /etc/cni/net.d
+    sudo rm -f "${REAL_HOME}/.kube/config"
+fi
 
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
 sudo kubeadm init --pod-network-cidr=10.244.0.0/16

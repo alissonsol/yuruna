@@ -362,5 +362,6 @@ gcloud --version || echo "Google Cloud SDK - run: gcloud --version"
 
 echo ""
 echo "=== Optional Steps ==="
-echo "1. Set hostname: sudo hostnamectl set-hostname [desired-hostname]"
+echo "Current hostname: $(hostnamectl hostname)"
+echo "1. Change hostname: sudo hostnamectl set-hostname [desired-hostname]"
 echo "2. Terminal restart may be needed for group permissions to take effect"

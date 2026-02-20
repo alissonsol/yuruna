@@ -18,18 +18,40 @@ Open a terminal and enter the commands.
 
 **Optional steps after the script completes**
 
-1. Set hostname: `sudo hostnamectl set-hostname [desired-hostname]`
+1. Change hostname: `sudo hostnamectl set-hostname [desired-hostname]`
 2. Terminal restart may be needed for group permissions to take effect
 
-**Verify the Kubernetes cluster**
+**Verify the Docker and Kubernetes status**
+
+Docker: list images
+
+```bash
+docker images
+````
+
+Docker: list containers
+
+```bash
+docker ps -a
+````
+
+Kubernetes: list nodes
 
 ```bash
 kubectl get nodes
-kubectl get pods -A
-kubectl config current-context
-```
+````
 
-The node should show `Ready` status, system pods should be running, and the context should be `docker-desktop`.
+Kubernetes: list pods
+
+```bash
+kubectl get pods -A
+````
+
+Kubernetes: current context
+
+```bash
+kubectl config current-context
+````
 
 You can now follow the instructions to install the Yuruna-based [Kubernetes](../../docs/kubernetes.md) examples.
 

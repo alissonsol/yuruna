@@ -19,7 +19,7 @@ Yuruna provides two main capabilities: creating Virtual Development Environments
 ## Important Notes
 
 - **Cost warning**: Cloud resources incur charges. Always [clean up](docs/cleanup.md) resources you're not using.
-- Scripts and examples are provided "as is" without guarantees. See [license](license.md).
+- Scripts and examples are provided "as is" without guarantees. See [license](LICENSE.md).
 
 ---
 

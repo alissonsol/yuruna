@@ -60,7 +60,7 @@ pwsh ./New-VM.ps1 -VMName myhostname
 
 **Prerequisites:** `brew install openssl qemu` (for password hashing and disk image creation).
 
-After the script completes, double-click `<hostname>.utm` on your Desktop to import it into UTM. Start the VM and the Ubuntu installer will run automatically via autoinstall.
+After the script completes, double-click `<hostname>.utm.nosync` on your Desktop to import it into UTM. Start the VM and the Ubuntu installer will run automatically via autoinstall.
 
 ### 2.1) Changing memory allocation
 

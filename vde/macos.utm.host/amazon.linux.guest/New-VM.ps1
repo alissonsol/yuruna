@@ -25,7 +25,7 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$UtmDir = "$HOME/Desktop/$VMName.utm"
+$UtmDir = "$HOME/Desktop/$VMName.utm.nosync"
 $DataDir = "$UtmDir/Data"
 $DownloadDir = "$HOME/virtual/amazon.linux"
 
@@ -117,6 +117,6 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
 Write-Output ""
 Write-Output "VM bundle created: $UtmDir"
-Write-Output "Double-click '$VMName.utm' on your Desktop to import it into UTM."
+Write-Output "Double-click '$VMName.utm.nosync' on your Desktop to import it into UTM."
 Write-Output "Cloud-init will configure the VM on first boot."
 Write-Output "Default credentials - username: ec2-user, password: amazonlinux"

@@ -25,7 +25,7 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$UtmDir = "$HOME/Desktop/$VMName.utm"
+$UtmDir = "$HOME/Desktop/$VMName.utm.nosync"
 $DataDir = "$UtmDir/Data"
 $DownloadDir = "$HOME/virtual/ubuntu.env"
 
@@ -219,6 +219,6 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 Write-Output ""
 Write-Output "VM bundle created: $UtmDir"
 Write-Output "Backend: Apple Virtualization (with nested virtualization / KVM support)"
-Write-Output "Double-click '$VMName.utm' on your Desktop to import it into UTM."
+Write-Output "Double-click '$VMName.utm.nosync' on your Desktop to import it into UTM."
 Write-Output "The Ubuntu installer will start automatically with autoinstall."
 Write-Output "Default credentials - username: ubuntu, password: password (must be changed on first login)"

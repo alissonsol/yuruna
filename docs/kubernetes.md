@@ -1,3 +1,5 @@
+> **[Man at Work]** This section is under reform due to the ongoing migration to OpenTofu. Content may be incomplete or inaccurate.
+
 # Yuruna - Kubernetes Deployment
 
 **Deploy containerized applications to Kubernetes across multiple clouds with a single workflow.**
@@ -80,7 +82,7 @@ Phase 2: Build and push the Docker image
 Set-Component.ps1 website localhost
 ```
 
-Can check status with the same commands previously shared. At this point, the registry should be running, and there are image ready for the website.
+Can check status with the same commands previously shared. At this point, the registry should be running, and there are images ready for the website.
 
 Phase 3: Deploy to Kubernetes
 

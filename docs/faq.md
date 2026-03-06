@@ -53,6 +53,6 @@
 
 ### Why the error message: `Error: can't find external program "pwsh"`
 
-  - Check that you have PowerShell version 7.1, with the command `$PSVersionTable`. See latest setup instructions at <https://aka.ms/powershell>. 
+  - Check that you have PowerShell version 7.5+, with the command `$PSVersionTable`. See latest setup instructions at <https://aka.ms/powershell>.
 
 Back to the main [readme](../README.md)

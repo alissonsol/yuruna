@@ -52,7 +52,7 @@ sudo dnf install -y postgresql17-server postgresql17-contrib
 # Clear data directory if non-empty to allow re-initialization
 if [ -d /var/lib/pgsql/data ] && [ "$(ls -A /var/lib/pgsql/data 2>/dev/null)" ]; then
   echo "Note: Clearing existing PostgreSQL data directory for re-initialization"
-  sudo rm -rf /var/lib/pgsql/data/*
+  sudo rm -rf /var/lib/pgsql/data/
 fi
 sudo /usr/bin/postgresql-setup --initdb
 

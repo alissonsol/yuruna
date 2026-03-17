@@ -54,7 +54,7 @@ echo -e "\e[1;36m>>> Installing NVM and Node.js...\e[0m"
 bash << 'EOF'
 # Install NVM (installer is idempotent — updates existing installation)
 export NVM_DIR="$HOME/.nvm"
-wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+wget -qO- "https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh?nocache=$(date +%s)" | bash
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
 

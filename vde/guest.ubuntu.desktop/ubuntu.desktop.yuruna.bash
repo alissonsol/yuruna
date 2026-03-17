@@ -67,7 +67,7 @@ ARCH_DEB=$(dpkg --print-architecture)
 if [ "$ARCH_DEB" = "amd64" ]; then
     if ! dpkg -s packages-microsoft-prod &>/dev/null; then
         source /etc/os-release
-        wget -q https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb
+        wget -q "https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb?nocache=$(date +%s)"
         sudo dpkg -i packages-microsoft-prod.deb
         rm -f packages-microsoft-prod.deb
     else
@@ -94,7 +94,7 @@ echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e
 echo ""
 echo -e "\e[1;36m>>> Installing Azure CLI...\e[0m"
 sudo mkdir -p /etc/apt/keyrings
-curl -sLS https://packages.microsoft.com/keys/microsoft.asc |
+curl -sLS "https://packages.microsoft.com/keys/microsoft.asc?nocache=$(date +%s)" |
     gpg --batch --yes --dearmor |
     sudo tee /etc/apt/keyrings/microsoft.gpg > /dev/null
 sudo chmod go+r /etc/apt/keyrings/microsoft.gpg
@@ -124,7 +124,7 @@ else
     AWS_CLI_URL=""
 fi
 if [ -n "$AWS_CLI_URL" ]; then
-    curl -fsSL "$AWS_CLI_URL" -o /tmp/awscliv2.zip
+    curl -fsSL "${AWS_CLI_URL}?nocache=$(date +%s)" -o /tmp/awscliv2.zip
     unzip -qo /tmp/awscliv2.zip -d /tmp
     sudo /tmp/aws/install --update || true
     rm -rf /tmp/aws /tmp/awscliv2.zip
@@ -142,7 +142,7 @@ echo ""
 echo -e "\e[1;36m>>> Installing Docker...\e[0m"
 # Add Docker's official repository
 sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo curl -fsSL "https://download.docker.com/linux/ubuntu/gpg?nocache=$(date +%s)" -o /etc/apt/keyrings/docker.asc
 sudo chmod a+r /etc/apt/keyrings/docker.asc
 
 sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
@@ -225,7 +225,7 @@ else
     echo "WARNING: Unsupported architecture '$ARCH' for Docker Desktop"
 fi
 if [ -n "$DOCKER_DESKTOP_URL" ]; then
-    curl -fsSL "$DOCKER_DESKTOP_URL" -o /tmp/docker-desktop.deb
+    curl -fsSL "${DOCKER_DESKTOP_URL}?nocache=$(date +%s)" -o /tmp/docker-desktop.deb
     sudo apt-get install -y /tmp/docker-desktop.deb
     rm -f /tmp/docker-desktop.deb
 fi
@@ -243,7 +243,7 @@ echo ""
 echo -e "\e[1;36m>>> Installing Kubernetes...\e[0m"
 # Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+curl -fsSL "https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key?nocache=$(date +%s)" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
 
 sudo apt-get update -y
@@ -311,13 +311,13 @@ echo -e "\e[1;32m<<< Kubernetes installation complete.\e[0m"
 # Helm (official install script)
 echo ""
 echo -e "\e[1;36m>>> Installing Helm...\e[0m"
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true
+curl -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3?nocache=$(date +%s)" | bash || true
 echo -e "\e[1;32m<<< Helm installation complete.\e[0m"
 
 # OpenTofu (official install script, deb method)
 echo ""
 echo -e "\e[1;36m>>> Installing OpenTofu...\e[0m"
-curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o /tmp/install-opentofu.sh
+curl --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh?nocache=$(date +%s)" -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
 /tmp/install-opentofu.sh --install-method deb || true
 rm -f /tmp/install-opentofu.sh
@@ -336,7 +336,7 @@ else
     echo "WARNING: Unsupported architecture '$ARCH' for mkcert"
 fi
 if [ -n "$MKCERT_ARCH" ]; then
-    curl -fsSL "https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}" -o /tmp/mkcert
+    curl -fsSL "https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}&nocache=$(date +%s)" -o /tmp/mkcert
     chmod +x /tmp/mkcert
     sudo mv /tmp/mkcert /usr/local/bin/mkcert
     mkcert -install || true

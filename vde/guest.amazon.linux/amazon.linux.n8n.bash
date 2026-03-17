@@ -38,7 +38,7 @@ echo ""
 echo -e "\e[1;36m>>> Installing Node.js...\e[0m"
 # Install Node.js 22+ (required for n8n)
 # NodeSource setup script auto-detects architecture
-wget -qO- https://rpm.nodesource.com/setup_22.x | sudo bash -
+wget -qO- "https://rpm.nodesource.com/setup_22.x?nocache=$(date +%s)" | sudo bash -
 sudo dnf -y install nodejs
 echo -e "\e[1;32m<<< Node.js installation complete.\e[0m"
 

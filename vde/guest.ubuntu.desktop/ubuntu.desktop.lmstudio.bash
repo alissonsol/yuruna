@@ -55,7 +55,7 @@ echo -e "\e[1;32m<<< LM Studio dependencies installation complete.\e[0m"
 echo ""
 echo -e "\e[1;36m>>> Installing LM Studio...\e[0m"
 # LM Studio AppImage download differs by architecture
-wget -O LM-Studio.AppImage "https://lmstudio.ai/download/latest/linux/$LM_ARCH"
+wget -O LM-Studio.AppImage "https://lmstudio.ai/download/latest/linux/$LM_ARCH?nocache=$(date +%s)"
 chmod a+x LM-Studio.AppImage
 
 echo ""

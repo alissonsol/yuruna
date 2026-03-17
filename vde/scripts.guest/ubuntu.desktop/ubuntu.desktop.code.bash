@@ -42,11 +42,17 @@ sudo apt-get install -y git
 git --version
 
 # Install Visual Studio Code
+# The dotnet-sdk package may have added a Microsoft repo with signed-by=/usr/share/keyrings/microsoft.gpg.
+# Use that same key path for the VS Code repo to avoid "Conflicting values set for option Signed-By" errors.
 sudo apt-get install -y wget gpg
-wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
-sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
-echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
-rm -f packages.microsoft.gpg
+MSFT_KEY="/usr/share/keyrings/microsoft.gpg"
+if [ ! -f "$MSFT_KEY" ]; then
+  MSFT_KEY="/etc/apt/keyrings/packages.microsoft.gpg"
+  wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
+  sudo install -D -o root -g root -m 644 packages.microsoft.gpg "$MSFT_KEY"
+  rm -f packages.microsoft.gpg
+fi
+echo "deb [arch=amd64,arm64,armhf signed-by=${MSFT_KEY}] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
 sudo apt-get update -y
 sudo apt-get install -y code
 

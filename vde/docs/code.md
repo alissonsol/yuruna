@@ -1,6 +1,6 @@
 # Code
 
-Installs Java (JDK), .NET SDK, Git, and [Visual Studio Code](https://code.visualstudio.com/).
+Installs Java (JDK), .NET SDK, Git, [Visual Studio Code](https://code.visualstudio.com/), and PowerShell.
 
 | Guest Environment | Script |
 |---|---|

@@ -6,8 +6,8 @@ Scripts and tools for Amazon Linux guest environments.
 
 Create the VM on your host first:
 
-- [macOS UTM host](../host.macos.utm/amazon.linux.guest/README.md)
-- [Windows Hyper-V host](../host.windows.hyper-v/amazon.linux.guest/README.md)
+- [macOS UTM host](../host.macos.utm/guest.amazon.linux/README.md)
+- [Windows Hyper-V host](../host.windows.hyper-v/guest.amazon.linux/README.md)
 
 ## Post-VDE Setup
 

@@ -1,4 +1,4 @@
-# Ubuntu Desktop running in Windows Hyper-V
+# Ubuntu Desktop guest on Windows Hyper-V host
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -8,7 +8,7 @@ Minimal commands for creating the VM. Link to details at the end.
 
 **On the Windows host (Administrator PowerShell): Getting the base image**
 
-Assuming you are in the `yuruna\vde\host.windows.hyper-v\ubuntu.desktop.guest` folder.
+Assuming you are in the `yuruna\vde\host.windows.hyper-v\guest.ubuntu.desktop` folder.
 
 ```powershell
 .\Get-Image.ps1

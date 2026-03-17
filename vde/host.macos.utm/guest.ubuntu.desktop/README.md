@@ -1,4 +1,4 @@
-# Ubuntu Desktop running in macOS UTM
+# Ubuntu Desktop guest on macOS UTM host
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -12,7 +12,7 @@ Careful not to execute the PowerShell scripts in the macOS terminal as a superus
 
 **On the macOS host: Getting the base image**
 
-Assuming you are in the `yuruna/vde/host.macos.utm/ubuntu.desktop.guest` folder.
+Assuming you are in the `yuruna/vde/host.macos.utm/guest.ubuntu.desktop` folder.
 
 ```bash
 pwsh ./Get-Image.ps1

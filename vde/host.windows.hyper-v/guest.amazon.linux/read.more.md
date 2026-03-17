@@ -1,4 +1,4 @@
-# Amazon Linux running in Windows Hyper-V - Nerd-Level Details
+# Amazon Linux guest on Windows Hyper-V host - Nerd-Level Details
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -67,7 +67,7 @@ To change the default for new VMs, edit the `New-VM.ps1` script and replace `163
 **CHECKPOINT: This is a great time to create a checkpoint `VM Configured` for each VM.**
 
 - If lost track, all you did so far was to configure the data files, execute two PowerShell scripts, change a password, execute a Bash script, and reboot. You are now in a GUI and can start a browser or VS Code.
-  - Technically, you can add the line to run `bash amazon.linux.update.bash` to the `user-data` file. That usually ends-up creating a confusing first login that is still under the command line interface, instead of the GUI, when the password needs to be changed. It is a personal preference to do that, which technically removes one step in the process (execute a Bash script).
+  - Technically, you can add the line to run `bash amazon.linux.update.bash` to the `user-data` file. That usually ends up creating a confusing first login that is still under the command line interface, instead of the GUI, when the password needs to be changed. It is a personal preference to do that, which technically removes one step in the process (execute a Bash script).
 
 Test VM connectivity.
 - Open a terminal and get the IP for each VM: `ifconfig` or `ifconfig eth0`.

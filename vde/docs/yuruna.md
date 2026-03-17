@@ -1,6 +1,6 @@
 # yuruna
 
-Installs the [yuruna](https://github.com/alissonsol/yuruna) requirements: SSH, Git, Docker, Kubernetes, Homebrew, PowerShell, Helm, OpenTofu, mkcert, Graphviz, and Cloud CLIs (Azure, AWS, Google Cloud).
+Installs the [yuruna](https://github.com/alissonsol/yuruna) requirements: SSH, Git, Docker, Kubernetes, PowerShell, Helm, OpenTofu, mkcert, Graphviz, and Cloud CLIs (Azure, AWS, Google Cloud).
 
 See the full list of [requirements](../../docs/requirements.md) for more details.
 
@@ -27,31 +27,31 @@ Docker: list images
 
 ```bash
 docker images
-````
+```
 
 Docker: list containers
 
 ```bash
 docker ps -a
-````
+```
 
 Kubernetes: list nodes
 
 ```bash
 kubectl get nodes
-````
+```
 
 Kubernetes: list pods
 
 ```bash
 kubectl get pods -A
-````
+```
 
 Kubernetes: current context
 
 ```bash
 kubectl config current-context
-````
+```
 
 You can now follow the instructions to install the Yuruna-based [Kubernetes](../../docs/kubernetes.md) examples.
 

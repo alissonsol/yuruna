@@ -1,4 +1,4 @@
-# Amazon Linux running in macOS UTM - Nerd-Level Details
+# Amazon Linux guest on macOS UTM host - Nerd-Level Details
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -6,7 +6,7 @@ Copyright (c) 2019-2026 by Alisson Sol et al.
 
 What can you do during [The Long Dark Tea-Time of the Soul](https://en.wikipedia.org/wiki/The_Long_Dark_Tea-Time_of_the_Soul)?
 
-This is the macOS counterpart of the [Hyper-V version](../../host.windows.hyper-v/amazon.linux.guest/). It uses [UTM](https://mac.getutm.app/) to run an Amazon Linux ARM64 VM on Apple Silicon Macs. See [requirements and limitations](https://docs.aws.amazon.com/linux/al2023/ug/hyperv-supported-configurations.html). Instructions here were tested using Amazon Linux 2023 (not Amazon Linux 1 or Amazon Linux 2).
+This is the macOS counterpart of the [Hyper-V version](../../host.windows.hyper-v/guest.amazon.linux/). It uses [UTM](https://mac.getutm.app/) to run an Amazon Linux ARM64 VM on Apple Silicon Macs. See [requirements and limitations](https://docs.aws.amazon.com/linux/al2023/ug/hyperv-supported-configurations.html). Instructions here were tested using Amazon Linux 2023 (not Amazon Linux 1 or Amazon Linux 2).
 
 ### 1.1) Installing UTM
 

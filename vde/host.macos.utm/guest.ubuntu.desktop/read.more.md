@@ -1,4 +1,4 @@
-# Ubuntu Desktop running in macOS UTM - Nerd-Level Details
+# Ubuntu Desktop guest on macOS UTM host - Nerd-Level Details
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -6,7 +6,7 @@ Copyright (c) 2019-2026 by Alisson Sol et al.
 
 What can you do during [The Long Dark Tea-Time of the Soul](https://en.wikipedia.org/wiki/The_Long_Dark_Tea-Time_of_the_Soul)?
 
-This is the macOS counterpart of the [Hyper-V version](../../host.windows.hyper-v/ubuntu.desktop.guest/). It uses [UTM](https://mac.getutm.app/) with the Apple Virtualization framework to run an Ubuntu ARM64 VM on Apple Silicon Macs.
+This is the macOS counterpart of the [Hyper-V version](../../host.windows.hyper-v/guest.ubuntu.desktop/). It uses [UTM](https://mac.getutm.app/) with the Apple Virtualization framework to run an Ubuntu ARM64 VM on Apple Silicon Macs.
 
 ### Nested virtualization requirements
 

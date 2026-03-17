@@ -25,5 +25,5 @@ brew install openssl qemu wget
 
 After completing the host setup, follow the instructions for your guest operating system:
 
-- [Amazon Linux](amazon.linux.guest/README.md)
-- [Ubuntu Desktop](ubuntu.desktop.guest/README.md)
+- [Amazon Linux](guest.amazon.linux/README.md)
+- [Ubuntu Desktop](guest.ubuntu.desktop/README.md)

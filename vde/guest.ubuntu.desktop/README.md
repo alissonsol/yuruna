@@ -6,8 +6,8 @@ Scripts and tools for Ubuntu Desktop guest environments.
 
 Create the VM on your host first:
 
-- [macOS UTM host](../host.macos.utm/ubuntu.desktop.guest/README.md)
-- [Windows Hyper-V host](../host.windows.hyper-v/ubuntu.desktop.guest/README.md)
+- [macOS UTM host](../host.macos.utm/guest.ubuntu.desktop/README.md)
+- [Windows Hyper-V host](../host.windows.hyper-v/guest.ubuntu.desktop/README.md)
 
 ## Post-VDE Setup
 

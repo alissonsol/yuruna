@@ -1,4 +1,4 @@
-# Amazon Linux running in macOS UTM
+# Amazon Linux guest on macOS UTM host
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -10,7 +10,7 @@ Careful not to execute the PowerShell scripts in the macOS terminal as a superus
 
 **On the macOS host: Getting the base image**
 
-Assuming you are in the `yuruna/vde/host.macos.utm/amazon.linux.guest` folder.
+Assuming you are in the `yuruna/vde/host.macos.utm/guest.amazon.linux` folder.
 
 ```bash
 pwsh ./Get-Image.ps1

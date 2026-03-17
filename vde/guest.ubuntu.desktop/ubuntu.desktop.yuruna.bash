@@ -63,23 +63,18 @@ echo -e "\e[1;32m<<< Basic Tools installation complete.\e[0m"
 # ===== PowerShell =====
 echo ""
 echo -e "\e[1;36m>>> Installing PowerShell...\e[0m"
-ARCH_DEB=$(dpkg --print-architecture)
-if [ "$ARCH_DEB" = "amd64" ]; then
-    if ! dpkg -s packages-microsoft-prod &>/dev/null; then
-        source /etc/os-release
-        wget -q "https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb?nocache=$(date +%s)"
-        sudo dpkg -i packages-microsoft-prod.deb
-        rm -f packages-microsoft-prod.deb
-    else
-        echo "Note: packages-microsoft-prod already installed, skipping"
-    fi
-    sudo apt-get update -y
-    sudo apt-get install -y powershell
-else
-    # Microsoft does not publish PowerShell apt packages for arm64;
-    # install via snap which supports both architectures
-    sudo snap install powershell --classic || echo "Note: PowerShell snap installation attempted"
-fi
+# Install from GitHub tarball — works on both amd64 and arm64 without Microsoft repo
+case "$ARCH" in
+  x86_64)  PS_ARCH="x64" ;;
+  aarch64) PS_ARCH="arm64" ;;
+esac
+wget -q -O /tmp/powershell.tar.gz \
+  "https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-${PS_ARCH}.tar.gz?nocache=$(date +%s)"
+sudo mkdir -p /opt/microsoft/powershell/7
+sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
+sudo chmod +x /opt/microsoft/powershell/7/pwsh
+sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
+rm -f /tmp/powershell.tar.gz
 echo -e "\e[1;32m<<< PowerShell installation complete.\e[0m"
 
 # Install powershell-yaml module for all users

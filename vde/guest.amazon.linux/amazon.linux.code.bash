@@ -88,7 +88,7 @@ echo ""
 echo "Java: $(javac -version)"
 echo "DotNet: $(dotnet --version)"
 echo "Git: $(git --version)"
-if [ -z "$TMPDIR" ]; then
+if [ -z "${TMPDIR:-}" ]; then
 	TMPDIR=$(mktemp -d)
     export TMPDIR
 	echo "TMPDIR not set. Created and set TMPDIR to $TMPDIR"

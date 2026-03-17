@@ -53,9 +53,10 @@ echo ">>> Installing .NET SDK..."
 # Use Microsoft's official dotnet-install.sh script instead of RPM repos.
 # The CentOS 8/9 repo configs are incompatible with Amazon Linux 2023 (Fedora-based).
 # dotnet-install.sh auto-detects architecture (x86_64/aarch64) and works reliably.
+sudo mkdir -p /usr/local/dotnet
 curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
-/tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
+sudo bash /tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
 rm -f /tmp/dotnet-install.sh
 
 # Make dotnet available system-wide

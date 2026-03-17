@@ -64,7 +64,7 @@ The VM is created with 16 GB of RAM by default. To change the memory allocation:
 
 - Default credentials: username `ec2-user`, password `amazonlinux`.
 - Cloud-init sets the hostname and network configuration from the `seed.iso`.
-- After first boot, install the graphical desktop with `sudo dnf groupinstall "Desktop" -y`.
+- After first boot, install the graphical desktop with `sudo dnf groupinstall -y "Desktop"`.
 
 ### 2.2) Key differences from the Hyper-V version
 

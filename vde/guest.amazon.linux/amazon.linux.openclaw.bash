@@ -37,7 +37,7 @@ esac
 # Install the GUI
 sudo dnf update -y
 sudo dnf upgrade -y
-sudo dnf groupinstall "Desktop" -y
+sudo dnf groupinstall -y "Desktop"
 
 # Install Git
 sudo dnf -y install git

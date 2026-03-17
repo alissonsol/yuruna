@@ -34,7 +34,7 @@ Unless you changed the defaults in the [vmconfig/user-data](./vmconfig/user-data
 
 ```bash
 sudo bash /amazon.linux.update.bash
-sudo dnf groupinstall "Desktop" -y
+sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```
 

@@ -96,14 +96,13 @@ if ($VMName -ne $defaultVMName) {
 		}
 	}
  else {
-		Write-Output "Default VHDX not found: $defaultVhdxFile. Cannot create '$vhdxFile'. Please ensure default VHDX exists."
+		Write-Output "Default VHDX not found: $defaultVhdxFile. Run Get-Image.ps1 first."
 		exit 1
 	}
 }
 
 if (!(Test-Path -Path $vhdxFile)) {
-	Write-Output "The VHDX file does not exist: $vhdxFile"
-	Write-Output "Please run the download script first."
+	Write-Output "VHDX file not found at '$vhdxFile'. Run Get-Image.ps1 first."
 	exit 1
 }
 

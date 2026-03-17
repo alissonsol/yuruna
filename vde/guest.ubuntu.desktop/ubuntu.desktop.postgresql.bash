@@ -53,10 +53,17 @@ sudo apt-get update -y
 # Install PostgreSQL 18 server and contrib modules
 sudo apt-get install -y postgresql-18 postgresql-contrib-18
 
+# Stop PostgreSQL if running, drop existing cluster, and re-create
+sudo systemctl stop postgresql 2>/dev/null || true
+if sudo pg_lsclusters -h 2>/dev/null | grep -q '18'; then
+  echo "Note: Dropping existing PostgreSQL 18 cluster for re-initialization"
+  sudo pg_dropcluster --stop 18 main 2>/dev/null || true
+fi
+sudo pg_createcluster 18 main --start
+
 # Enable and start the PostgreSQL service
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
-sudo systemctl is-active postgresql > /dev/null 2>&1 || echo "Note: PostgreSQL service status unknown"
 echo -e "\e[1;32m<<< PostgreSQL installation complete.\e[0m"
 
 # Show installed version

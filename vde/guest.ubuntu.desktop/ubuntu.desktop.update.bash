@@ -46,6 +46,6 @@ sudo apt-get dist-upgrade -y;
 sudo apt-get autoclean -y;
 sudo apt-get autoremove -y;
 sudo apt-get install deborphan -y;
-sudo deborphan | xargs sudo apt-get -y remove --purge;
-sudo deborphan --guess-data | xargs sudo apt-get -y remove --purge;
-echo "<<< System packages update complete."
+sudo deborphan | xargs --no-run-if-empty sudo apt-get -y remove --purge;
+sudo deborphan --guess-data | xargs --no-run-if-empty sudo apt-get -y remove --purge;
+echo -e "\e[1;32m<<< System packages update complete.\e[0m"

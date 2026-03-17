@@ -40,16 +40,17 @@ echo -e "\e[1;36m>>> Installing PostgreSQL...\e[0m"
 # PostgreSQL packages are available for both x86_64 and aarch64 via dnf
 sudo dnf install -y postgresql17-server postgresql17-contrib
 
-# Initialize the database (skip if already initialized)
-if [ ! -f /var/lib/pgsql/data/PG_VERSION ]; then
-  sudo /usr/bin/postgresql-setup --initdb
-else
-  echo "Note: PostgreSQL database already initialized, skipping initdb"
+# Stop PostgreSQL if running, clean data directory, and re-initialize
+sudo systemctl stop postgresql 2>/dev/null || true
+if [ -d /var/lib/pgsql/data ] && [ "$(ls -A /var/lib/pgsql/data 2>/dev/null)" ]; then
+  echo "Note: Clearing existing PostgreSQL data directory for re-initialization"
+  sudo rm -rf /var/lib/pgsql/data/*
 fi
+sudo /usr/bin/postgresql-setup --initdb
 
 # Enable and start the PostgreSQL service
 sudo systemctl enable postgresql
-sudo systemctl start postgresql || echo "Note: PostgreSQL may already be running"
+sudo systemctl start postgresql
 echo -e "\e[1;32m<<< PostgreSQL installation complete.\e[0m"
 
 # Show installed version

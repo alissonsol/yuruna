@@ -43,13 +43,13 @@ echo -e "\e[1;36m>>> Installing NVM and Node.js...\e[0m"
 # Install NVM, Node.js, and n8n
 # NVM and npm handle architecture automatically
 bash << 'EOF'
-# Install NVM
-wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+# Install NVM (installer is idempotent — updates existing installation)
 export NVM_DIR="$HOME/.nvm"
+wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
 
-# Install Node.js
+# Install Node.js (nvm reinstalls gracefully if already present)
 nvm install 22
 
 echo ""

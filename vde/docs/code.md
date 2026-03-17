@@ -10,7 +10,7 @@ Installs Java (JDK), .NET SDK, Git, and [Visual Studio Code](https://code.visual
 **Amazon Linux**
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/amazon.linux/amazon.linux.code.bash)"
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.bash)"
 ```
 
 **Ubuntu Desktop**
@@ -18,7 +18,7 @@ Installs Java (JDK), .NET SDK, Git, and [Visual Studio Code](https://code.visual
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.code.bash)"
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.bash)"
 ```
 
 ## Reminders
@@ -46,4 +46,4 @@ code --install-extension anthropic.claude-code
 
 Then open VS Code and sign in to each extension that requires authentication.
 
-Back to [Post-VDE Setup](README.md)
+Back to [Amazon Linux guest](../guest.amazon.linux/README.md) or [Ubuntu Desktop guest](../guest.ubuntu.desktop/README.md)

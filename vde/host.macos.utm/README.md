@@ -20,3 +20,10 @@ brew install git
 brew install powershell/tap/powershell
 brew install openssl qemu wget
 ```
+
+## Next: Create a Guest VM
+
+After completing the host setup, follow the instructions for your guest operating system:
+
+- [Amazon Linux](amazon.linux.guest/README.md)
+- [Ubuntu Desktop](ubuntu.desktop.guest/README.md)

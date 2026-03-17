@@ -6,7 +6,7 @@ Copyright (c) 2019-2026 by Alisson Sol et al.
 
 What can you do during [The Long Dark Tea-Time of the Soul](https://en.wikipedia.org/wiki/The_Long_Dark_Tea-Time_of_the_Soul)?
 
-This is the Windows Hyper-V counterpart of the [macOS UTM version](../../macos.utm.host/ubuntu.desktop.guest/). It uses [Hyper-V](https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/) to run an Ubuntu Desktop VM on Windows.
+This is the Windows Hyper-V counterpart of the [macOS UTM version](../../host.macos.utm/ubuntu.desktop.guest/). It uses [Hyper-V](https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/) to run an Ubuntu Desktop VM on Windows.
 
 ### 1.1) Prerequisites
 

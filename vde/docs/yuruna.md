@@ -13,7 +13,7 @@ See the full list of [requirements](../../docs/requirements.md) for more details
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.yuruna.bash)"
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.yuruna.bash)"
 ```
 
 **Optional steps after the script completes**
@@ -55,4 +55,4 @@ kubectl config current-context
 
 You can now follow the instructions to install the Yuruna-based [Kubernetes](../../docs/kubernetes.md) examples.
 
-Back to [Post-VDE Setup](README.md)
+Back to [Ubuntu Desktop guest](../guest.ubuntu.desktop/README.md)

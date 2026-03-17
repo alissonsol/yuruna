@@ -12,7 +12,7 @@ Careful not to execute the PowerShell scripts in the macOS terminal as a superus
 
 **On the macOS host: Getting the base image**
 
-Assuming you are in the `yuruna/vde/macos.utm.host/ubuntu.desktop.guest` folder.
+Assuming you are in the `yuruna/vde/host.macos.utm/ubuntu.desktop.guest` folder.
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -41,7 +41,7 @@ You should be prompted to change the password on first login. You can change the
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/scripts.guest/ubuntu.desktop/ubuntu.desktop.update.bash)"
+/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.update.bash)"
 ```
 
 Confirm all installations finished correctly, and then reboot.
@@ -54,7 +54,7 @@ The Ubuntu Desktop guest is now ready!
 
 ## Next Steps
 
-Proceed to the [Post-VDE Setup](../../scripts.guest/README.md) instructions to install additional tools and services.
+Proceed to the [Ubuntu Desktop guest](../../guest.ubuntu.desktop/README.md) instructions to install additional tools and services.
 
 Read more [here](read.more.md) about the details of the VM creation process.
 

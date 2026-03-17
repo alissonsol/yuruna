@@ -8,7 +8,7 @@ Minimal commands for creating the VM. Link to details at the end.
 
 **On the Windows host (Administrator PowerShell): Getting the base image**
 
-Assuming you are in the `yuruna\vde\windows.hyper-v.host\amazon.linux.guest` folder.
+Assuming you are in the `yuruna\vde\host.windows.hyper-v\amazon.linux.guest` folder.
 
 ```powershell
 .\Get-Image.ps1
@@ -42,7 +42,7 @@ The Amazon Linux guest is now ready!
 
 ## Next Steps
 
-Proceed to the [Post-VDE Setup](../../scripts.guest/README.md) instructions to install additional tools and services.
+Proceed to the [Amazon Linux guest](../../guest.amazon.linux/README.md) instructions to install additional tools and services.
 
 Read more [here](read.more.md) about the details of the VM creation process.
 

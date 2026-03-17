@@ -4,8 +4,8 @@
 
 Yuruna provides two main capabilities: creating Virtual Development Environments (VDE) for consistent, reproducible workspaces, and deploying containerized applications to Kubernetes across multiple clouds.
 
-- Setup a VDE on a [Windows Hyper-V host](vde/windows-hyper-v.host.md)
-- Setup a VDE on a [macOS UTM host](vde/macos.utm.host.md)
+- Setup a VDE on a [Windows Hyper-V host](vde/host.windows.hyper-v/README.md)
+- Setup a VDE on a [macOS UTM host](vde/host.macos.utm/README.md)
 - Deploy [Kubernetes application](docs/kubernetes.md)
 
 ## Documentation

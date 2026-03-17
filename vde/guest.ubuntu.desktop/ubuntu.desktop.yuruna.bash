@@ -62,12 +62,16 @@ echo "✓ Basic tools installed"
 
 # ===== PowerShell =====
 echo "=== Installing PowerShell ==="
-ARCH=$(dpkg --print-architecture)
-if [ "$ARCH" = "amd64" ]; then
-    source /etc/os-release
-    wget -q https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb
-    sudo dpkg -i packages-microsoft-prod.deb
-    rm packages-microsoft-prod.deb
+ARCH_DEB=$(dpkg --print-architecture)
+if [ "$ARCH_DEB" = "amd64" ]; then
+    if ! dpkg -s packages-microsoft-prod &>/dev/null; then
+        source /etc/os-release
+        wget -q https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb
+        sudo dpkg -i packages-microsoft-prod.deb
+        rm -f packages-microsoft-prod.deb
+    else
+        echo "Note: packages-microsoft-prod already installed, skipping"
+    fi
     sudo apt-get update -y
     sudo apt-get install -y powershell
 else
@@ -88,7 +92,7 @@ echo "=== Installing Cloud CLIs ==="
 # Azure CLI (using new DEB-822 format)
 sudo mkdir -p /etc/apt/keyrings
 curl -sLS https://packages.microsoft.com/keys/microsoft.asc |
-    gpg --dearmor |
+    gpg --batch --yes --dearmor |
     sudo tee /etc/apt/keyrings/microsoft.gpg > /dev/null
 sudo chmod go+r /etc/apt/keyrings/microsoft.gpg
 

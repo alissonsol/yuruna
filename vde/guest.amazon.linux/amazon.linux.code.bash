@@ -40,20 +40,30 @@ sudo dnf install -y java-21-amazon-corretto-devel
 java -version
 javac -version
 export JAVA_HOME=/etc/alternatives/java_sdk
-echo 'export JAVA_HOME=/etc/alternatives/java_sdk' | sudo tee -a /etc/bashrc
+if ! grep -q 'export JAVA_HOME=/etc/alternatives/java_sdk' /etc/bashrc 2>/dev/null; then
+  echo 'export JAVA_HOME=/etc/alternatives/java_sdk' | sudo tee -a /etc/bashrc
+fi
 
 # ===== Install .NET SDK =====
 # Microsoft RPM repo configuration differs by architecture
 case "$ARCH" in
   x86_64)
     # x86_64: Microsoft provides packages via the CentOS 8 repo config
-    sudo rpm -Uvh https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm
+    if ! rpm -q packages-microsoft-prod &>/dev/null; then
+      sudo rpm -Uvh https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm
+    else
+      echo "Note: packages-microsoft-prod already installed, skipping"
+    fi
     sudo dnf -y update
     sudo dnf -y install dotnet-sdk-10.0
     ;;
   aarch64)
     # aarch64: Microsoft provides packages via the CentOS 9 repo config (arm64 support)
-    sudo rpm -Uvh https://packages.microsoft.com/config/centos/9/packages-microsoft-prod.rpm
+    if ! rpm -q packages-microsoft-prod &>/dev/null; then
+      sudo rpm -Uvh https://packages.microsoft.com/config/centos/9/packages-microsoft-prod.rpm
+    else
+      echo "Note: packages-microsoft-prod already installed, skipping"
+    fi
     sudo dnf -y update
     sudo dnf -y install dotnet-sdk-10.0
     ;;
@@ -66,7 +76,7 @@ git --version
 
 # ===== Install Visual Studio Code =====
 # The VS Code yum repo provides both x86_64 and aarch64 packages
-sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null || true
 sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo'
 sudo dnf -y install code
 

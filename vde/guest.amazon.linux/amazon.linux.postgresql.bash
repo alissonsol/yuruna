@@ -38,12 +38,16 @@ esac
 # PostgreSQL packages are available for both x86_64 and aarch64 via dnf
 sudo dnf install -y postgresql17-server postgresql17-contrib
 
-# Initialize the database
-sudo /usr/bin/postgresql-setup --initdb
+# Initialize the database (skip if already initialized)
+if [ ! -f /var/lib/pgsql/data/PG_VERSION ]; then
+  sudo /usr/bin/postgresql-setup --initdb
+else
+  echo "Note: PostgreSQL database already initialized, skipping initdb"
+fi
 
 # Enable and start the PostgreSQL service
 sudo systemctl enable postgresql
-sudo systemctl start postgresql
+sudo systemctl start postgresql || echo "Note: PostgreSQL may already be running"
 
 # Show installed version
 echo ""

@@ -49,7 +49,9 @@ sudo apt-get install -y default-jdk
 java -version
 javac -version
 export JAVA_HOME=/usr/lib/jvm/default-java
-echo 'export JAVA_HOME=/usr/lib/jvm/default-java' | sudo tee -a /etc/bash.bashrc
+if ! grep -q 'export JAVA_HOME=/usr/lib/jvm/default-java' /etc/bash.bashrc 2>/dev/null; then
+  echo 'export JAVA_HOME=/usr/lib/jvm/default-java' | sudo tee -a /etc/bash.bashrc
+fi
 
 # ===== Install .NET SDK =====
 # The dotnet-sdk package is available for both amd64 and arm64 via apt
@@ -87,7 +89,7 @@ wget -q -O /tmp/powershell.tar.gz \
 sudo mkdir -p /opt/microsoft/powershell/7
 sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
 sudo chmod +x /opt/microsoft/powershell/7/pwsh
-sudo ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
+sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
 pwsh --version
 
 # ===== Show installed versions =====

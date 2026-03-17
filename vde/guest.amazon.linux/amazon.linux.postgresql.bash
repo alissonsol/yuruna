@@ -36,42 +36,31 @@ esac
 
 echo ""
 echo -e "\e[1;36m>>> Installing PostgreSQL...\e[0m"
-# Add the official PostgreSQL YUM repository (PGDG) for PostgreSQL 18
-# Amazon Linux 2023 is Fedora-based; use the EL-9 repo which is compatible
-case "$ARCH" in
-  x86_64)
-    sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm || true
-    ;;
-  aarch64)
-    sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-aarch64/pgdg-redhat-repo-latest.noarch.rpm || true
-    ;;
-esac
-
-# Disable the default Amazon Linux PostgreSQL module to avoid conflicts
-sudo dnf -qy module disable postgresql 2>/dev/null || true
-
-# Install PostgreSQL 18 server and contrib modules
-sudo dnf install -y postgresql18-server postgresql18-contrib
-
-# Stop PostgreSQL if running and wait for full shutdown before cleaning data
-if sudo systemctl is-active postgresql-18 &>/dev/null; then
-  sudo systemctl stop postgresql-18
-  while sudo systemctl is-active postgresql-18 &>/dev/null; do
+# Stop PostgreSQL if running and wait for full shutdown before re-initializing
+if sudo systemctl is-active postgresql &>/dev/null; then
+  sudo systemctl stop postgresql
+  while sudo systemctl is-active postgresql &>/dev/null; do
     echo "Waiting for PostgreSQL to stop..."
     sleep 1
   done
 fi
-if [ -d /var/lib/pgsql/18/data ] && [ "$(ls -A /var/lib/pgsql/18/data 2>/dev/null)" ]; then
+
+# Install PostgreSQL 17 server and contrib modules
+# PostgreSQL packages are available for both x86_64 and aarch64 via dnf
+sudo dnf install -y postgresql17-server postgresql17-contrib
+
+# Clear data directory if non-empty to allow re-initialization
+if [ -d /var/lib/pgsql/data ] && [ "$(ls -A /var/lib/pgsql/data 2>/dev/null)" ]; then
   echo "Note: Clearing existing PostgreSQL data directory for re-initialization"
-  sudo rm -rf /var/lib/pgsql/18/data/*
+  sudo rm -rf /var/lib/pgsql/data/*
 fi
-sudo /usr/pgsql-18/bin/postgresql-18-setup initdb
+sudo /usr/bin/postgresql-setup --initdb
 
 # Enable and start the PostgreSQL service
-sudo systemctl enable postgresql-18
-sudo systemctl start postgresql-18
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
 echo -e "\e[1;32m<<< PostgreSQL installation complete.\e[0m"
 
 # Show installed version
 echo ""
-echo "PostgreSQL: $(/usr/pgsql-18/bin/psql --version)"
+echo "PostgreSQL: $(/usr/bin/psql --version)"

@@ -17,29 +17,60 @@ if [[ $EUID -ne 0 ]]; then
    trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null' EXIT
 fi
 
-# Install the JDK
+# ===== Detect architecture =====
+ARCH=$(uname -m)
+echo "Detected architecture: $ARCH"
+case "$ARCH" in
+  x86_64)
+    echo "Environment: x86_64 (Hyper-V)"
+    ;;
+  aarch64)
+    echo "Environment: aarch64/arm64 (UTM on Apple Silicon)"
+    ;;
+  *)
+    echo "WARNING: Unsupported architecture: $ARCH"
+    echo "This script supports x86_64 (Hyper-V) and aarch64 (UTM on Apple Silicon)."
+    exit 1
+    ;;
+esac
+
+# ===== Install the JDK =====
+# Amazon Corretto provides both x86_64 and aarch64 packages
 sudo dnf install -y java-21-amazon-corretto-devel
 java -version
 javac -version
 export JAVA_HOME=/etc/alternatives/java_sdk
 echo 'export JAVA_HOME=/etc/alternatives/java_sdk' | sudo tee -a /etc/bashrc
 
-# Install .NET Core
-sudo rpm -Uvh https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm
-sudo dnf -y update
-sudo dnf -y install dotnet-sdk-10.0
+# ===== Install .NET SDK =====
+# Microsoft RPM repo configuration differs by architecture
+case "$ARCH" in
+  x86_64)
+    # x86_64: Microsoft provides packages via the CentOS 8 repo config
+    sudo rpm -Uvh https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm
+    sudo dnf -y update
+    sudo dnf -y install dotnet-sdk-10.0
+    ;;
+  aarch64)
+    # aarch64: Microsoft provides packages via the CentOS 9 repo config (arm64 support)
+    sudo rpm -Uvh https://packages.microsoft.com/config/centos/9/packages-microsoft-prod.rpm
+    sudo dnf -y update
+    sudo dnf -y install dotnet-sdk-10.0
+    ;;
+esac
 dotnet --version
 
-# Install Git
+# ===== Install Git =====
 sudo dnf -y install git
 git --version
 
-# Install Visual Studio Code
+# ===== Install Visual Studio Code =====
+# The VS Code yum repo provides both x86_64 and aarch64 packages
 sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
 sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo'
 sudo dnf -y install code
 
-# Show installed versions
+# ===== Show installed versions =====
 echo ""
 echo "Java: $(javac -version)"
 echo "DotNet: $(dotnet --version)"

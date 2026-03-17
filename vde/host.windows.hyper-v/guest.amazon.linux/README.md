@@ -35,10 +35,10 @@ Unless you changed the defaults in the [vmconfig/user-data](./vmconfig/user-data
 ```bash
 sudo bash /amazon.linux.update.bash
 sudo dnf groupinstall "Desktop" -y
-sudo reboot now
+sudo shutdown now
 ```
 
-The Amazon Linux guest is now ready!
+The Amazon Linux guest is now ready! Good time for a checkpoint.
 
 ## Next Steps
 

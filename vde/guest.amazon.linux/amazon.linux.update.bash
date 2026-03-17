@@ -17,6 +17,23 @@ if [[ $EUID -ne 0 ]]; then
    trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null' EXIT
 fi
 
+# ===== Detect architecture =====
+ARCH=$(uname -m)
+echo "Detected architecture: $ARCH"
+case "$ARCH" in
+  x86_64)
+    echo "Environment: x86_64 (Hyper-V)"
+    ;;
+  aarch64)
+    echo "Environment: aarch64/arm64 (UTM on Apple Silicon)"
+    ;;
+  *)
+    echo "WARNING: Unsupported architecture: $ARCH"
+    echo "This script supports x86_64 (Hyper-V) and aarch64 (UTM on Apple Silicon)."
+    exit 1
+    ;;
+esac
+
 sudo dnf update -y
 sudo dnf upgrade -y
 sudo dnf autoremove -y

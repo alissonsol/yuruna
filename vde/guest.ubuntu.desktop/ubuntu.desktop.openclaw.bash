@@ -42,9 +42,14 @@ case "$ARCH" in
     ;;
 esac
 
+echo ""
+echo ">>> Installing Git..."
 # Install Git
 sudo apt-get install git -y
+echo "<<< Git installation complete."
 
+echo ""
+echo ">>> Installing NVM and Node.js..."
 # Install NVM, Node.js, and OpenClaw
 bash << 'EOF'
 # Install NVM
@@ -56,6 +61,8 @@ export NVM_DIR="$HOME/.nvm"
 # Install Node.js
 nvm install 22
 
+echo ""
+echo ">>> Installing OpenClaw..."
 # Install OpenClaw
 npm install -g openclaw@latest
 
@@ -64,6 +71,7 @@ openclaw onboard --install-daemon --non-interactive --workspace ~/openclaw
 
 # Verify OpenClaw installation (non-interactive to skip prompts)
 openclaw doctor --non-interactive
+echo "<<< OpenClaw installation complete."
 EOF
 
 # Make node, npm, and openclaw available to all users by symlinking to /usr/local/bin
@@ -73,6 +81,7 @@ if [ -n "$NVM_BIN" ]; then
     sudo ln -sf "$NVM_BIN/npm" /usr/local/bin/npm
     sudo ln -sf "$NVM_BIN/openclaw" /usr/local/bin/openclaw
 fi
+echo "<<< NVM and Node.js installation complete."
 
 # Show installed versions
 echo ""

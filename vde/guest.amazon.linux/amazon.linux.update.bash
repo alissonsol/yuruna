@@ -34,6 +34,9 @@ case "$ARCH" in
     ;;
 esac
 
+echo ""
+echo ">>> Updating system packages..."
 sudo dnf update -y
 sudo dnf upgrade -y
 sudo dnf autoremove -y
+echo "<<< System packages update complete."

@@ -34,18 +34,29 @@ case "$ARCH" in
     ;;
 esac
 
+echo ""
+echo ">>> Installing Desktop GUI..."
 # Install the GUI
 sudo dnf update -y
 sudo dnf upgrade -y
 sudo dnf groupinstall -y "Desktop"
+echo "<<< Desktop GUI installation complete."
 
+echo ""
+echo ">>> Installing Git..."
 # Install Git
 sudo dnf -y install git
+echo "<<< Git installation complete."
 
+echo ""
+echo ">>> Installing Node.js..."
 # Install Node.js 22+ (required for OpenClaw)
 wget -qO- https://rpm.nodesource.com/setup_22.x | sudo bash -
 sudo dnf -y install nodejs
+echo "<<< Node.js installation complete."
 
+echo ""
+echo ">>> Installing OpenClaw..."
 # Install OpenClaw
 sudo npm install -g openclaw@latest
 
@@ -54,6 +65,7 @@ openclaw onboard --install-daemon --non-interactive --workspace ~/openclaw
 
 # Verify OpenClaw installation (non-interactive to skip prompts)
 openclaw doctor --non-interactive
+echo "<<< OpenClaw installation complete."
 
 # Show installed versions
 echo ""

@@ -41,10 +41,27 @@ case "$ARCH" in
 esac
 
 cd ~/Downloads
+
+echo ""
+echo ">>> Updating system packages..."
 sudo bash /ubuntu.desktop.update.bash
+echo "<<< System packages update complete."
+
+echo ""
+echo ">>> Installing LM Studio dependencies..."
 sudo apt install -y curl fuse libfuse2 npm zlib1g-dev
+echo "<<< LM Studio dependencies installation complete."
+
+echo ""
+echo ">>> Installing LM Studio..."
 # LM Studio AppImage download differs by architecture
 wget -O LM-Studio.AppImage "https://lmstudio.ai/download/latest/linux/$LM_ARCH"
 chmod a+x LM-Studio.AppImage
+
+echo ""
+echo ">>> Updating system packages..."
 sudo bash /ubuntu.desktop.update.bash
+echo "<<< System packages update complete."
+
+echo "<<< LM Studio installation complete."
 ./LM-Studio.AppImage --no-sandbox

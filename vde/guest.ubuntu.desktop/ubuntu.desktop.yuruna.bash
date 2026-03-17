@@ -45,7 +45,8 @@ esac
 echo "=== Installing yuruna requirements for Ubuntu ==="
 
 # ===== Basic Tools =====
-echo "=== Installing basic tools ==="
+echo ""
+echo ">>> Installing Basic Tools..."
 sudo apt-get update -y
 sudo apt-get install -y \
     ssh net-tools apt-transport-https curl git \
@@ -57,11 +58,11 @@ sudo apt-get install -y \
 # Enable and start SSH
 sudo systemctl enable --now ssh
 sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status unknown"
-
-echo "✓ Basic tools installed"
+echo "<<< Basic Tools installation complete."
 
 # ===== PowerShell =====
-echo "=== Installing PowerShell ==="
+echo ""
+echo ">>> Installing PowerShell..."
 ARCH_DEB=$(dpkg --print-architecture)
 if [ "$ARCH_DEB" = "amd64" ]; then
     if ! dpkg -s packages-microsoft-prod &>/dev/null; then
@@ -79,17 +80,19 @@ else
     # install via snap which supports both architectures
     sudo snap install powershell --classic || echo "Note: PowerShell snap installation attempted"
 fi
-echo "✓ PowerShell installed"
+echo "<<< PowerShell installation complete."
 
 # Install powershell-yaml module for all users
-echo "=== Installing PowerShell module: powershell-yaml ==="
+echo ""
+echo ">>> Installing PowerShell module: powershell-yaml..."
 sudo pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force" || echo "Note: powershell-yaml module installation attempted"
-echo "✓ powershell-yaml module installed"
+echo "<<< PowerShell module: powershell-yaml installation complete."
 
 # ===== Cloud CLIs =====
-echo "=== Installing Cloud CLIs ==="
 
 # Azure CLI (using new DEB-822 format)
+echo ""
+echo ">>> Installing Azure CLI..."
 sudo mkdir -p /etc/apt/keyrings
 curl -sLS https://packages.microsoft.com/keys/microsoft.asc |
     gpg --batch --yes --dearmor |
@@ -106,9 +109,11 @@ Signed-by: /etc/apt/keyrings/microsoft.gpg" | sudo tee /etc/apt/sources.list.d/a
 
 sudo apt-get update -y
 sudo apt-get install -y azure-cli
-echo "✓ Azure CLI installed"
+echo "<<< Azure CLI installation complete."
 
 # AWS CLI (official installer — supports amd64 and arm64)
+echo ""
+echo ">>> Installing AWS CLI..."
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
     AWS_CLI_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
@@ -123,24 +128,22 @@ if [ -n "$AWS_CLI_URL" ]; then
     unzip -qo /tmp/awscliv2.zip -d /tmp
     sudo /tmp/aws/install --update || true
     rm -rf /tmp/aws /tmp/awscliv2.zip
-    echo "✓ AWS CLI installed"
 fi
+echo "<<< AWS CLI installation complete."
 
 # Google Cloud SDK
+echo ""
+echo ">>> Installing Google Cloud SDK..."
 sudo snap install google-cloud-sdk --classic || echo "Google Cloud SDK snap installation attempted"
-echo "✓ Google Cloud SDK installed"
-
-echo "✓ Cloud CLIs installed"
+echo "<<< Google Cloud SDK installation complete."
 
 # ===== Docker =====
-echo "=== Installing Docker ==="
+echo ""
+echo ">>> Installing Docker..."
 # Add Docker's official repository
 sudo install -m 0755 -d /etc/apt/keyrings
-echo "✓ keyrings directory created with correct permissions"
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-echo "✓ gpg key for Docker downloaded"
 sudo chmod a+r /etc/apt/keyrings/docker.asc
-echo "✓ Certificate for Docker repository added"
 
 sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
@@ -149,25 +152,20 @@ Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
 Components: stable
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
-echo "✓ Source for Docker repository added"
-
 sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-echo "✓ Packages installed"
 
 # Docker service starts automatically after installation;
 # enable + start as a safety net, tolerating errors in environments where systemd is not fully available
 sudo systemctl enable docker 2>/dev/null || echo "Note: systemctl enable docker skipped (systemd may not be available)"
 sudo systemctl start docker 2>/dev/null || echo "Note: systemctl start docker skipped (systemd may not be available)"
 sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service status unknown"
-echo "✓ Service for Docker enabled and started (if systemd is available)"
 
 # Configure Docker user permissions
 if ! getent group docker > /dev/null 2>&1; then
     sudo groupadd docker
 fi
 sudo usermod -aG docker "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to docker group"
-echo "✓ Permissions for Docker configured (log out and back in for group membership to take effect)"
 
 # Add "newgrp docker" to .bashrc so the docker group is active in every terminal session.
 # The guard (id -nG check) prevents an infinite loop: newgrp starts a new shell that
@@ -185,14 +183,14 @@ fi
 DOCKER_GROUP
     chown "$REAL_USER:$REAL_USER" "$BASHRC"
 fi
-echo "✓ Bash profile configured with newgrp docker"
 
 # Test Docker
 docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"
-echo "✓ Docker installed"
+echo "<<< Docker installation complete."
 
 # ===== KVM Virtualization Support (required by Docker Desktop) =====
-echo "=== Configuring KVM for Docker Desktop ==="
+echo ""
+echo ">>> Installing KVM Virtualization Support..."
 sudo apt-get install -y cpu-checker qemu-kvm libvirt-daemon-system libvirt-clients
 sudo modprobe kvm
 # Load the appropriate vendor-specific KVM module
@@ -205,16 +203,18 @@ fi
 sudo usermod -aG kvm "$REAL_USER" 2>/dev/null || echo "Note: Could not add user to kvm group"
 # Verify /dev/kvm is available (requires nested virtualization on the host)
 if [ -e /dev/kvm ]; then
-    echo "✓ KVM configured (/dev/kvm is available)"
+    echo "KVM configured (/dev/kvm is available)"
 else
     echo "WARNING: /dev/kvm not found. Nested virtualization may not be enabled on the host."
     echo "  Hyper-V host: Set-VMProcessor -VMName <name> -ExposeVirtualizationExtensions \$true"
     echo "  UTM host: Requires Apple Virtualization backend (not QEMU), macOS 15+, Apple M3+ chip, UTM v4.6+"
     echo "  Docker Desktop will not run without KVM support."
 fi
+echo "<<< KVM Virtualization Support installation complete."
 
 # ===== Docker Desktop =====
-echo "=== Installing Docker Desktop ==="
+echo ""
+echo ">>> Installing Docker Desktop..."
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
     DOCKER_DESKTOP_URL="https://desktop.docker.com/linux/main/amd64/docker-desktop-amd64.deb"
@@ -228,17 +228,19 @@ if [ -n "$DOCKER_DESKTOP_URL" ]; then
     curl -fsSL "$DOCKER_DESKTOP_URL" -o /tmp/docker-desktop.deb
     sudo apt-get install -y /tmp/docker-desktop.deb
     rm -f /tmp/docker-desktop.deb
-    echo "✓ Docker Desktop installed"
 fi
+echo "<<< Docker Desktop installation complete."
 
 # ===== Disable Swap =====
-echo "=== Disabling swap ==="
+echo ""
+echo ">>> Disabling swap..."
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 sudo swapoff -a || true
-echo "✓ Swap disabled"
+echo "<<< Swap disabled."
 
 # ===== Kubernetes =====
-echo "=== Installing Kubernetes ==="
+echo ""
+echo ">>> Installing Kubernetes..."
 # Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
@@ -249,10 +251,7 @@ sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to be run after kubeadm init"
 
-echo "✓ Kubernetes tools installed"
-
 # ===== Initialize Kubernetes Cluster =====
-echo "=== Initializing Kubernetes cluster ==="
 
 # Reconfigure containerd to enable CRI plugin (disabled by default in the containerd.io package)
 sudo mkdir -p /etc/containerd
@@ -281,7 +280,7 @@ fi
 sudo systemctl restart containerd
 for i in $(seq 1 30); do
     if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then
-        echo "✓ containerd is ready"
+        echo "containerd is ready"
         break
     fi
     echo "Waiting for containerd to be ready... ($i/30)"
@@ -296,40 +295,37 @@ mkdir -p "${REAL_HOME}/.kube"
 sudo cp /etc/kubernetes/admin.conf "${REAL_HOME}/.kube/config"
 sudo chown "$REAL_USER:$REAL_USER" "${REAL_HOME}/.kube/config"
 export KUBECONFIG="${REAL_HOME}/.kube/config"
-echo "✓ kubectl configured"
 
 # Install Flannel networking plugin
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-echo "✓ Flannel networking plugin installed"
 
 # Remove control-plane taint for single-node cluster
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kubernetes.io/control-plane- || true
-echo "✓ Control-plane taint removed (single-node cluster)"
 
 # Rename kubectl context to docker-desktop
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
-echo "✓ kubectl context renamed to docker-desktop"
-
-echo "✓ Kubernetes cluster initialized"
+echo "<<< Kubernetes installation complete."
 
 # ===== Other Requirements =====
-echo "=== Installing other requirements ==="
 
 # Helm (official install script)
-echo "--- Installing Helm ---"
+echo ""
+echo ">>> Installing Helm..."
 curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true
-echo "✓ Helm installed"
+echo "<<< Helm installation complete."
 
 # OpenTofu (official install script, deb method)
-echo "--- Installing OpenTofu ---"
+echo ""
+echo ">>> Installing OpenTofu..."
 curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
 /tmp/install-opentofu.sh --install-method deb || true
 rm -f /tmp/install-opentofu.sh
-echo "✓ OpenTofu installed"
+echo "<<< OpenTofu installation complete."
 
 # mkcert (download pre-built binary from GitHub)
-echo "--- Installing mkcert ---"
+echo ""
+echo ">>> Installing mkcert..."
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
     MKCERT_ARCH="linux/amd64"
@@ -344,18 +340,18 @@ if [ -n "$MKCERT_ARCH" ]; then
     chmod +x /tmp/mkcert
     sudo mv /tmp/mkcert /usr/local/bin/mkcert
     mkcert -install || true
-    echo "✓ mkcert installed"
 fi
+echo "<<< mkcert installation complete."
 
 # graphviz (available in Ubuntu repositories)
-echo "--- Installing graphviz ---"
+echo ""
+echo ">>> Installing graphviz..."
 sudo apt-get install -y graphviz
-echo "✓ graphviz installed"
-
-echo "✓ Other requirements installed"
+echo "<<< graphviz installation complete."
 
 # ===== HTTPS Development Certificate =====
-echo "=== Creating HTTPS development certificate (required by the website example) ==="
+echo ""
+echo ">>> Creating HTTPS development certificate..."
 PFX_DIR="${REAL_HOME}/.aspnet/https"
 mkdir -p "$PFX_DIR"
 openssl req -x509 -newkey rsa:4096 -keyout "$PFX_DIR/aspnetapp.key" -out "$PFX_DIR/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>/dev/null
@@ -363,12 +359,11 @@ openssl pkcs12 -export -out "$PFX_DIR/aspnetapp.pfx" -inkey "$PFX_DIR/aspnetapp.
 rm -f "$PFX_DIR/aspnetapp.key" "$PFX_DIR/aspnetapp.crt"
 # Ensure the real user owns the certificate files (not root)
 chown -R "$REAL_USER:$REAL_USER" "$PFX_DIR"
-echo "✓ HTTPS development certificate created at $PFX_DIR/aspnetapp.pfx"
+echo "<<< HTTPS development certificate created at $PFX_DIR/aspnetapp.pfx"
 
 # ===== Version Check =====
 echo ""
 echo "=== Installation Summary ==="
-echo "✓ SSH enabled"
 docker --version
 git --version
 kubeadm version || true

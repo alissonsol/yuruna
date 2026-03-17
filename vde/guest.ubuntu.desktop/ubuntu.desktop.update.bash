@@ -38,6 +38,8 @@ case "$ARCH" in
     ;;
 esac
 
+echo ""
+echo ">>> Updating system packages..."
 sudo apt-get update;
 sudo apt-get upgrade -y;
 sudo apt-get dist-upgrade -y;
@@ -46,3 +48,4 @@ sudo apt-get autoremove -y;
 sudo apt-get install deborphan -y;
 sudo deborphan | xargs sudo apt-get -y remove --purge;
 sudo deborphan --guess-data | xargs sudo apt-get -y remove --purge;
+echo "<<< System packages update complete."

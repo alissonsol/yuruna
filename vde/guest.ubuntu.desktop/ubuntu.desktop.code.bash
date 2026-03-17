@@ -43,6 +43,8 @@ case "$ARCH" in
 esac
 
 # ===== Install the JDK =====
+echo ""
+echo ">>> Installing JDK (OpenJDK)..."
 # OpenJDK packages are available for both amd64 and arm64 via apt
 sudo apt-get update -y
 sudo apt-get install -y default-jdk
@@ -52,17 +54,26 @@ export JAVA_HOME=/usr/lib/jvm/default-java
 if ! grep -q 'export JAVA_HOME=/usr/lib/jvm/default-java' /etc/bash.bashrc 2>/dev/null; then
   echo 'export JAVA_HOME=/usr/lib/jvm/default-java' | sudo tee -a /etc/bash.bashrc
 fi
+echo "<<< JDK (OpenJDK) installation complete."
 
 # ===== Install .NET SDK =====
+echo ""
+echo ">>> Installing .NET SDK..."
 # The dotnet-sdk package is available for both amd64 and arm64 via apt
 sudo apt-get install -y dotnet-sdk-10.0
 dotnet --version
+echo "<<< .NET SDK installation complete."
 
 # ===== Install Git =====
+echo ""
+echo ">>> Installing Git..."
 sudo apt-get install -y git
 git --version
+echo "<<< Git installation complete."
 
 # ===== Install Visual Studio Code =====
+echo ""
+echo ">>> Installing Visual Studio Code..."
 # The VS Code APT repo provides both amd64 and arm64 packages
 # The dotnet-sdk package may have added a Microsoft repo with signed-by=/usr/share/keyrings/microsoft.gpg.
 # Use that same key path for the VS Code repo to avoid "Conflicting values set for option Signed-By" errors.
@@ -77,8 +88,11 @@ fi
 echo "deb [arch=amd64,arm64,armhf signed-by=${MSFT_KEY}] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
 sudo apt-get update -y
 sudo apt-get install -y code
+echo "<<< Visual Studio Code installation complete."
 
 # ===== Install PowerShell =====
+echo ""
+echo ">>> Installing PowerShell..."
 # PowerShell binary download differs by architecture
 case "$ARCH" in
   x86_64)  PS_ARCH="x64" ;;
@@ -91,6 +105,7 @@ sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
 sudo chmod +x /opt/microsoft/powershell/7/pwsh
 sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
 pwsh --version
+echo "<<< PowerShell installation complete."
 
 # ===== Show installed versions =====
 echo ""

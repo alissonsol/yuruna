@@ -34,13 +34,19 @@ case "$ARCH" in
     ;;
 esac
 
+echo ""
+echo ">>> Installing Node.js..."
 # Install Node.js 22+ (required for n8n)
 # NodeSource setup script auto-detects architecture
 wget -qO- https://rpm.nodesource.com/setup_22.x | sudo bash -
 sudo dnf -y install nodejs
+echo "<<< Node.js installation complete."
 
+echo ""
+echo ">>> Installing n8n..."
 # Install n8n
 sudo npm install -g n8n
+echo "<<< n8n installation complete."
 
 # Show installed versions
 echo ""

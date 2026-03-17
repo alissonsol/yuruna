@@ -38,6 +38,8 @@ case "$ARCH" in
     ;;
 esac
 
+echo ""
+echo ">>> Installing PostgreSQL..."
 # Install prerequisites
 # PostgreSQL APT repository handles architecture automatically
 sudo apt-get install -y postgresql-common
@@ -55,6 +57,7 @@ sudo apt-get install -y postgresql-18 postgresql-contrib-18
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
 sudo systemctl is-active postgresql > /dev/null 2>&1 || echo "Note: PostgreSQL service status unknown"
+echo "<<< PostgreSQL installation complete."
 
 # Show installed version
 echo ""

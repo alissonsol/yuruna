@@ -34,6 +34,8 @@ case "$ARCH" in
     ;;
 esac
 
+echo ""
+echo ">>> Installing PostgreSQL..."
 # Install PostgreSQL 17 server and contrib modules
 # PostgreSQL packages are available for both x86_64 and aarch64 via dnf
 sudo dnf install -y postgresql17-server postgresql17-contrib
@@ -48,6 +50,7 @@ fi
 # Enable and start the PostgreSQL service
 sudo systemctl enable postgresql
 sudo systemctl start postgresql || echo "Note: PostgreSQL may already be running"
+echo "<<< PostgreSQL installation complete."
 
 # Show installed version
 echo ""

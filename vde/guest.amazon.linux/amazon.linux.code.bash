@@ -35,6 +35,8 @@ case "$ARCH" in
 esac
 
 # ===== Install the JDK =====
+echo ""
+echo ">>> Installing JDK (Amazon Corretto)..."
 # Amazon Corretto provides both x86_64 and aarch64 packages
 sudo dnf install -y java-21-amazon-corretto-devel
 java -version
@@ -43,8 +45,11 @@ export JAVA_HOME=/etc/alternatives/java_sdk
 if ! grep -q 'export JAVA_HOME=/etc/alternatives/java_sdk' /etc/bashrc 2>/dev/null; then
   echo 'export JAVA_HOME=/etc/alternatives/java_sdk' | sudo tee -a /etc/bashrc
 fi
+echo "<<< JDK (Amazon Corretto) installation complete."
 
 # ===== Install .NET SDK =====
+echo ""
+echo ">>> Installing .NET SDK..."
 # Microsoft RPM repo configuration differs by architecture
 case "$ARCH" in
   x86_64)
@@ -69,16 +74,23 @@ case "$ARCH" in
     ;;
 esac
 dotnet --version
+echo "<<< .NET SDK installation complete."
 
 # ===== Install Git =====
+echo ""
+echo ">>> Installing Git..."
 sudo dnf -y install git
 git --version
+echo "<<< Git installation complete."
 
 # ===== Install Visual Studio Code =====
+echo ""
+echo ">>> Installing Visual Studio Code..."
 # The VS Code yum repo provides both x86_64 and aarch64 packages
 sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null || true
 sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo'
 sudo dnf -y install code
+echo "<<< Visual Studio Code installation complete."
 
 # ===== Show installed versions =====
 echo ""

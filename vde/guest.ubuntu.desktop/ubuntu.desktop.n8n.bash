@@ -38,6 +38,8 @@ case "$ARCH" in
     ;;
 esac
 
+echo ""
+echo ">>> Installing NVM and Node.js..."
 # Install NVM, Node.js, and n8n
 # NVM and npm handle architecture automatically
 bash << 'EOF'
@@ -50,8 +52,11 @@ export NVM_DIR="$HOME/.nvm"
 # Install Node.js
 nvm install 22
 
+echo ""
+echo ">>> Installing n8n..."
 # Install n8n
 npm install -g n8n
+echo "<<< n8n installation complete."
 EOF
 
 # Make node, npm, and n8n available to all users by symlinking to /usr/local/bin
@@ -61,6 +66,7 @@ if [ -n "$NVM_BIN" ]; then
     sudo ln -sf "$NVM_BIN/npm" /usr/local/bin/npm
     sudo ln -sf "$NVM_BIN/n8n" /usr/local/bin/n8n
 fi
+echo "<<< NVM and Node.js installation complete."
 
 # Show installed versions
 echo ""

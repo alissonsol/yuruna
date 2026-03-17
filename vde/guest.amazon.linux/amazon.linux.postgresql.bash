@@ -49,12 +49,8 @@ fi
 # PostgreSQL packages are available for both x86_64 and aarch64 via dnf
 sudo dnf install -y postgresql17-server postgresql17-contrib
 
-# Clear data directory if non-empty to allow re-initialization
-# Use sudo for ls because /var/lib/pgsql/data is owned by the postgres user
-if [ -d /var/lib/pgsql/data ] && [ "$(sudo ls -A /var/lib/pgsql/data 2>/dev/null)" ]; then
-  echo "Note: Clearing existing PostgreSQL data directory for re-initialization"
-  sudo rm -rf /var/lib/pgsql/data/
-fi
+# Clear data directory to allow re-initialization
+sudo rm -rf /var/lib/pgsql/data/ 2>/dev/null || true
 sudo /usr/bin/postgresql-setup --initdb
 
 # Enable and start the PostgreSQL service

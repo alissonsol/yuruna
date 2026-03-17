@@ -115,8 +115,14 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
+# Create a .utm symlink so double-clicking opens UTM, while the .nosync bundle prevents iCloud sync
+$SymlinkPath = "$HOME/Desktop/$VMName.utm"
+if (Test-Path $SymlinkPath) { Remove-Item $SymlinkPath -Force }
+New-Item -ItemType SymbolicLink -Path $SymlinkPath -Target $UtmDir | Out-Null
+
 Write-Output ""
 Write-Output "VM bundle created: $UtmDir"
-Write-Output "Double-click '$VMName.utm.nosync' on your Desktop to import it into UTM."
+Write-Output "Symlink created: $SymlinkPath -> $UtmDir"
+Write-Output "Double-click '$VMName.utm' on your Desktop to open it in UTM."
 Write-Output "Cloud-init will configure the VM on first boot."
 Write-Output "Default credentials - username: ec2-user, password: amazonlinux"

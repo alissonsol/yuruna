@@ -216,9 +216,15 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
+# Create a .utm symlink so double-clicking opens UTM, while the .nosync bundle prevents iCloud sync
+$SymlinkPath = "$HOME/Desktop/$VMName.utm"
+if (Test-Path $SymlinkPath) { Remove-Item $SymlinkPath -Force }
+New-Item -ItemType SymbolicLink -Path $SymlinkPath -Target $UtmDir | Out-Null
+
 Write-Output ""
 Write-Output "VM bundle created: $UtmDir"
+Write-Output "Symlink created: $SymlinkPath -> $UtmDir"
 Write-Output "Backend: Apple Virtualization (with nested virtualization / KVM support)"
-Write-Output "Double-click '$VMName.utm.nosync' on your Desktop to import it into UTM."
+Write-Output "Double-click '$VMName.utm' on your Desktop to open it in UTM."
 Write-Output "The Ubuntu installer will start automatically with autoinstall."
 Write-Output "Default credentials - username: ubuntu, password: password (must be changed on first login)"

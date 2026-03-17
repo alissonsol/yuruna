@@ -56,3 +56,7 @@ After your base VM is running, use these scripts to install additional tools and
 ```bash
 /bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.yuruna.bash)"
 ```
+
+## Troubleshooting
+
+If you run into problems, see [common issues and solutions](troubleshooting.md).

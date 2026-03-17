@@ -27,3 +27,7 @@ After completing the host setup, follow the instructions for your guest operatin
 
 - [Amazon Linux](guest.amazon.linux/README.md)
 - [Ubuntu Desktop](guest.ubuntu.desktop/README.md)
+
+## Troubleshooting
+
+If you run into problems, see [common issues and solutions](troubleshooting.md).

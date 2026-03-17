@@ -44,3 +44,7 @@ sudo bash /amazon.linux.update.bash
 ```bash
 /bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.postgresql.bash)"
 ```
+
+## Troubleshooting
+
+If you run into problems, see [common issues and solutions](troubleshooting.md).

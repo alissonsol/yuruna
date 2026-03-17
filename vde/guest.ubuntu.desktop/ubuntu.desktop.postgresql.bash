@@ -53,8 +53,14 @@ sudo apt-get update -y
 # Install PostgreSQL 18 server and contrib modules
 sudo apt-get install -y postgresql-18 postgresql-contrib-18
 
-# Stop PostgreSQL if running, drop existing cluster, and re-create
-sudo systemctl stop postgresql 2>/dev/null || true
+# Stop PostgreSQL if running and wait for full shutdown before re-creating cluster
+if sudo systemctl is-active postgresql &>/dev/null; then
+  sudo systemctl stop postgresql
+  while sudo systemctl is-active postgresql &>/dev/null; do
+    echo "Waiting for PostgreSQL to stop..."
+    sleep 1
+  done
+fi
 if sudo pg_lsclusters -h 2>/dev/null | grep -q '18'; then
   echo "Note: Dropping existing PostgreSQL 18 cluster for re-initialization"
   sudo pg_dropcluster --stop 18 main 2>/dev/null || true

@@ -35,37 +35,37 @@ case "$ARCH" in
 esac
 
 echo ""
-echo ">>> Installing Desktop GUI..."
+echo -e "\e[1;36m>>> Installing Desktop GUI...\e[0m"
 # Install the GUI
 sudo dnf update -y
 sudo dnf upgrade -y
 sudo dnf groupinstall -y "Desktop"
-echo "<<< Desktop GUI installation complete."
+echo -e "\e[1;32m<<< Desktop GUI installation complete.\e[0m"
 
 echo ""
-echo ">>> Installing Git..."
+echo -e "\e[1;36m>>> Installing Git...\e[0m"
 # Install Git
 sudo dnf -y install git
-echo "<<< Git installation complete."
+echo -e "\e[1;32m<<< Git installation complete.\e[0m"
 
 echo ""
-echo ">>> Installing Node.js..."
+echo -e "\e[1;36m>>> Installing Node.js...\e[0m"
 # Install Node.js 22+ (required for OpenClaw)
 wget -qO- https://rpm.nodesource.com/setup_22.x | sudo bash -
 sudo dnf -y install nodejs
-echo "<<< Node.js installation complete."
+echo -e "\e[1;32m<<< Node.js installation complete.\e[0m"
 
 echo ""
-echo ">>> Installing OpenClaw..."
+echo -e "\e[1;36m>>> Installing OpenClaw...\e[0m"
 # Install OpenClaw
 sudo npm install -g openclaw@latest
 
 # Run OpenClaw onboarding (installs daemon with defaults, no interactive prompts)
-openclaw onboard --install-daemon --non-interactive --workspace ~/openclaw
+openclaw onboard --install-daemon --non-interactive --accept-risk --workspace ~/openclaw
 
 # Verify OpenClaw installation (non-interactive to skip prompts)
 openclaw doctor --non-interactive
-echo "<<< OpenClaw installation complete."
+echo -e "\e[1;32m<<< OpenClaw installation complete.\e[0m"
 
 # Show installed versions
 echo ""

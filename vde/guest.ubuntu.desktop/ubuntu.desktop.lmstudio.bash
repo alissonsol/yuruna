@@ -43,25 +43,25 @@ esac
 cd ~/Downloads
 
 echo ""
-echo ">>> Updating system packages..."
+echo -e "\e[1;36m>>> Updating system packages...\e[0m"
 sudo bash /ubuntu.desktop.update.bash
-echo "<<< System packages update complete."
+echo -e "\e[1;32m<<< System packages update complete.\e[0m"
 
 echo ""
-echo ">>> Installing LM Studio dependencies..."
+echo -e "\e[1;36m>>> Installing LM Studio dependencies...\e[0m"
 sudo apt install -y curl fuse libfuse2 npm zlib1g-dev
-echo "<<< LM Studio dependencies installation complete."
+echo -e "\e[1;32m<<< LM Studio dependencies installation complete.\e[0m"
 
 echo ""
-echo ">>> Installing LM Studio..."
+echo -e "\e[1;36m>>> Installing LM Studio...\e[0m"
 # LM Studio AppImage download differs by architecture
 wget -O LM-Studio.AppImage "https://lmstudio.ai/download/latest/linux/$LM_ARCH"
 chmod a+x LM-Studio.AppImage
 
 echo ""
-echo ">>> Updating system packages..."
+echo -e "\e[1;36m>>> Updating system packages...\e[0m"
 sudo bash /ubuntu.desktop.update.bash
-echo "<<< System packages update complete."
+echo -e "\e[1;32m<<< System packages update complete.\e[0m"
 
-echo "<<< LM Studio installation complete."
+echo -e "\e[1;32m<<< LM Studio installation complete.\e[0m"
 ./LM-Studio.AppImage --no-sandbox

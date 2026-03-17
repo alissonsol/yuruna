@@ -46,7 +46,7 @@ echo "=== Installing yuruna requirements for Ubuntu ==="
 
 # ===== Basic Tools =====
 echo ""
-echo ">>> Installing Basic Tools..."
+echo -e "\e[1;36m>>> Installing Basic Tools...\e[0m"
 sudo apt-get update -y
 sudo apt-get install -y \
     ssh net-tools apt-transport-https curl git \
@@ -58,11 +58,11 @@ sudo apt-get install -y \
 # Enable and start SSH
 sudo systemctl enable --now ssh
 sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status unknown"
-echo "<<< Basic Tools installation complete."
+echo -e "\e[1;32m<<< Basic Tools installation complete.\e[0m"
 
 # ===== PowerShell =====
 echo ""
-echo ">>> Installing PowerShell..."
+echo -e "\e[1;36m>>> Installing PowerShell...\e[0m"
 ARCH_DEB=$(dpkg --print-architecture)
 if [ "$ARCH_DEB" = "amd64" ]; then
     if ! dpkg -s packages-microsoft-prod &>/dev/null; then
@@ -80,19 +80,19 @@ else
     # install via snap which supports both architectures
     sudo snap install powershell --classic || echo "Note: PowerShell snap installation attempted"
 fi
-echo "<<< PowerShell installation complete."
+echo -e "\e[1;32m<<< PowerShell installation complete.\e[0m"
 
 # Install powershell-yaml module for all users
 echo ""
-echo ">>> Installing PowerShell module: powershell-yaml..."
+echo -e "\e[1;36m>>> Installing PowerShell module: powershell-yaml...\e[0m"
 sudo pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force" || echo "Note: powershell-yaml module installation attempted"
-echo "<<< PowerShell module: powershell-yaml installation complete."
+echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e[0m"
 
 # ===== Cloud CLIs =====
 
 # Azure CLI (using new DEB-822 format)
 echo ""
-echo ">>> Installing Azure CLI..."
+echo -e "\e[1;36m>>> Installing Azure CLI...\e[0m"
 sudo mkdir -p /etc/apt/keyrings
 curl -sLS https://packages.microsoft.com/keys/microsoft.asc |
     gpg --batch --yes --dearmor |
@@ -109,11 +109,11 @@ Signed-by: /etc/apt/keyrings/microsoft.gpg" | sudo tee /etc/apt/sources.list.d/a
 
 sudo apt-get update -y
 sudo apt-get install -y azure-cli
-echo "<<< Azure CLI installation complete."
+echo -e "\e[1;32m<<< Azure CLI installation complete.\e[0m"
 
 # AWS CLI (official installer — supports amd64 and arm64)
 echo ""
-echo ">>> Installing AWS CLI..."
+echo -e "\e[1;36m>>> Installing AWS CLI...\e[0m"
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
     AWS_CLI_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
@@ -129,17 +129,17 @@ if [ -n "$AWS_CLI_URL" ]; then
     sudo /tmp/aws/install --update || true
     rm -rf /tmp/aws /tmp/awscliv2.zip
 fi
-echo "<<< AWS CLI installation complete."
+echo -e "\e[1;32m<<< AWS CLI installation complete.\e[0m"
 
 # Google Cloud SDK
 echo ""
-echo ">>> Installing Google Cloud SDK..."
+echo -e "\e[1;36m>>> Installing Google Cloud SDK...\e[0m"
 sudo snap install google-cloud-sdk --classic || echo "Google Cloud SDK snap installation attempted"
-echo "<<< Google Cloud SDK installation complete."
+echo -e "\e[1;32m<<< Google Cloud SDK installation complete.\e[0m"
 
 # ===== Docker =====
 echo ""
-echo ">>> Installing Docker..."
+echo -e "\e[1;36m>>> Installing Docker...\e[0m"
 # Add Docker's official repository
 sudo install -m 0755 -d /etc/apt/keyrings
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
@@ -186,11 +186,11 @@ fi
 
 # Test Docker
 docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"
-echo "<<< Docker installation complete."
+echo -e "\e[1;32m<<< Docker installation complete.\e[0m"
 
 # ===== KVM Virtualization Support (required by Docker Desktop) =====
 echo ""
-echo ">>> Installing KVM Virtualization Support..."
+echo -e "\e[1;36m>>> Installing KVM Virtualization Support...\e[0m"
 sudo apt-get install -y cpu-checker qemu-kvm libvirt-daemon-system libvirt-clients
 sudo modprobe kvm
 # Load the appropriate vendor-specific KVM module
@@ -210,11 +210,11 @@ else
     echo "  UTM host: Requires Apple Virtualization backend (not QEMU), macOS 15+, Apple M3+ chip, UTM v4.6+"
     echo "  Docker Desktop will not run without KVM support."
 fi
-echo "<<< KVM Virtualization Support installation complete."
+echo -e "\e[1;32m<<< KVM Virtualization Support installation complete.\e[0m"
 
 # ===== Docker Desktop =====
 echo ""
-echo ">>> Installing Docker Desktop..."
+echo -e "\e[1;36m>>> Installing Docker Desktop...\e[0m"
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
     DOCKER_DESKTOP_URL="https://desktop.docker.com/linux/main/amd64/docker-desktop-amd64.deb"
@@ -229,18 +229,18 @@ if [ -n "$DOCKER_DESKTOP_URL" ]; then
     sudo apt-get install -y /tmp/docker-desktop.deb
     rm -f /tmp/docker-desktop.deb
 fi
-echo "<<< Docker Desktop installation complete."
+echo -e "\e[1;32m<<< Docker Desktop installation complete.\e[0m"
 
 # ===== Disable Swap =====
 echo ""
-echo ">>> Disabling swap..."
+echo -e "\e[1;36m>>> Disabling swap...\e[0m"
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 sudo swapoff -a || true
-echo "<<< Swap disabled."
+echo -e "\e[1;32m<<< Swap disabled.\e[0m"
 
 # ===== Kubernetes =====
 echo ""
-echo ">>> Installing Kubernetes..."
+echo -e "\e[1;36m>>> Installing Kubernetes...\e[0m"
 # Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
@@ -304,28 +304,28 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kub
 
 # Rename kubectl context to docker-desktop
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
-echo "<<< Kubernetes installation complete."
+echo -e "\e[1;32m<<< Kubernetes installation complete.\e[0m"
 
 # ===== Other Requirements =====
 
 # Helm (official install script)
 echo ""
-echo ">>> Installing Helm..."
+echo -e "\e[1;36m>>> Installing Helm...\e[0m"
 curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true
-echo "<<< Helm installation complete."
+echo -e "\e[1;32m<<< Helm installation complete.\e[0m"
 
 # OpenTofu (official install script, deb method)
 echo ""
-echo ">>> Installing OpenTofu..."
+echo -e "\e[1;36m>>> Installing OpenTofu...\e[0m"
 curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
 /tmp/install-opentofu.sh --install-method deb || true
 rm -f /tmp/install-opentofu.sh
-echo "<<< OpenTofu installation complete."
+echo -e "\e[1;32m<<< OpenTofu installation complete.\e[0m"
 
 # mkcert (download pre-built binary from GitHub)
 echo ""
-echo ">>> Installing mkcert..."
+echo -e "\e[1;36m>>> Installing mkcert...\e[0m"
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
     MKCERT_ARCH="linux/amd64"
@@ -341,17 +341,17 @@ if [ -n "$MKCERT_ARCH" ]; then
     sudo mv /tmp/mkcert /usr/local/bin/mkcert
     mkcert -install || true
 fi
-echo "<<< mkcert installation complete."
+echo -e "\e[1;32m<<< mkcert installation complete.\e[0m"
 
 # graphviz (available in Ubuntu repositories)
 echo ""
-echo ">>> Installing graphviz..."
+echo -e "\e[1;36m>>> Installing graphviz...\e[0m"
 sudo apt-get install -y graphviz
-echo "<<< graphviz installation complete."
+echo -e "\e[1;32m<<< graphviz installation complete.\e[0m"
 
 # ===== HTTPS Development Certificate =====
 echo ""
-echo ">>> Creating HTTPS development certificate..."
+echo -e "\e[1;36m>>> Creating HTTPS development certificate...\e[0m"
 PFX_DIR="${REAL_HOME}/.aspnet/https"
 mkdir -p "$PFX_DIR"
 openssl req -x509 -newkey rsa:4096 -keyout "$PFX_DIR/aspnetapp.key" -out "$PFX_DIR/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>/dev/null
@@ -359,7 +359,7 @@ openssl pkcs12 -export -out "$PFX_DIR/aspnetapp.pfx" -inkey "$PFX_DIR/aspnetapp.
 rm -f "$PFX_DIR/aspnetapp.key" "$PFX_DIR/aspnetapp.crt"
 # Ensure the real user owns the certificate files (not root)
 chown -R "$REAL_USER:$REAL_USER" "$PFX_DIR"
-echo "<<< HTTPS development certificate created at $PFX_DIR/aspnetapp.pfx"
+echo -e "\e[1;32m<<< HTTPS development certificate created at $PFX_DIR/aspnetapp.pfx\e[0m"
 
 # ===== Version Check =====
 echo ""

@@ -36,7 +36,7 @@ esac
 
 # ===== Install the JDK =====
 echo ""
-echo ">>> Installing JDK (Amazon Corretto)..."
+echo -e "\e[1;36m>>> Installing JDK (Amazon Corretto)...\e[0m"
 # Amazon Corretto provides both x86_64 and aarch64 packages
 sudo dnf install -y java-21-amazon-corretto-devel
 java -version
@@ -45,11 +45,11 @@ export JAVA_HOME=/etc/alternatives/java_sdk
 if ! grep -q 'export JAVA_HOME=/etc/alternatives/java_sdk' /etc/bashrc 2>/dev/null; then
   echo 'export JAVA_HOME=/etc/alternatives/java_sdk' | sudo tee -a /etc/bashrc
 fi
-echo "<<< JDK (Amazon Corretto) installation complete."
+echo -e "\e[1;32m<<< JDK (Amazon Corretto) installation complete.\e[0m"
 
 # ===== Install .NET SDK =====
 echo ""
-echo ">>> Installing .NET SDK..."
+echo -e "\e[1;36m>>> Installing .NET SDK...\e[0m"
 # Use Microsoft's official dotnet-install.sh script instead of RPM repos.
 # The CentOS 8/9 repo configs are incompatible with Amazon Linux 2023 (Fedora-based).
 # dotnet-install.sh auto-detects architecture (x86_64/aarch64) and works reliably.
@@ -65,23 +65,23 @@ if ! grep -q 'export DOTNET_ROOT=/usr/local/dotnet' /etc/bashrc 2>/dev/null; the
   echo 'export DOTNET_ROOT=/usr/local/dotnet' | sudo tee -a /etc/bashrc
 fi
 dotnet --version
-echo "<<< .NET SDK installation complete."
+echo -e "\e[1;32m<<< .NET SDK installation complete.\e[0m"
 
 # ===== Install Git =====
 echo ""
-echo ">>> Installing Git..."
+echo -e "\e[1;36m>>> Installing Git...\e[0m"
 sudo dnf -y install git
 git --version
-echo "<<< Git installation complete."
+echo -e "\e[1;32m<<< Git installation complete.\e[0m"
 
 # ===== Install Visual Studio Code =====
 echo ""
-echo ">>> Installing Visual Studio Code..."
+echo -e "\e[1;36m>>> Installing Visual Studio Code...\e[0m"
 # The VS Code yum repo provides both x86_64 and aarch64 packages
 sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null || true
 sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo'
 sudo dnf -y install code
-echo "<<< Visual Studio Code installation complete."
+echo -e "\e[1;32m<<< Visual Studio Code installation complete.\e[0m"
 
 # ===== Show installed versions =====
 echo ""

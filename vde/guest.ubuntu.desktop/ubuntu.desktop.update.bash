@@ -39,7 +39,7 @@ case "$ARCH" in
 esac
 
 echo ""
-echo ">>> Updating system packages..."
+echo -e "\e[1;36m>>> Updating system packages...\e[0m"
 sudo apt-get update;
 sudo apt-get upgrade -y;
 sudo apt-get dist-upgrade -y;

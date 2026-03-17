@@ -50,29 +50,19 @@ echo "<<< JDK (Amazon Corretto) installation complete."
 # ===== Install .NET SDK =====
 echo ""
 echo ">>> Installing .NET SDK..."
-# Microsoft RPM repo configuration differs by architecture
-case "$ARCH" in
-  x86_64)
-    # x86_64: Microsoft provides packages via the CentOS 8 repo config
-    if ! rpm -q packages-microsoft-prod &>/dev/null; then
-      sudo rpm -Uvh https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm
-    else
-      echo "Note: packages-microsoft-prod already installed, skipping"
-    fi
-    sudo dnf -y update
-    sudo dnf -y install dotnet-sdk-10.0
-    ;;
-  aarch64)
-    # aarch64: Microsoft provides packages via the CentOS 9 repo config (arm64 support)
-    if ! rpm -q packages-microsoft-prod &>/dev/null; then
-      sudo rpm -Uvh https://packages.microsoft.com/config/centos/9/packages-microsoft-prod.rpm
-    else
-      echo "Note: packages-microsoft-prod already installed, skipping"
-    fi
-    sudo dnf -y update
-    sudo dnf -y install dotnet-sdk-10.0
-    ;;
-esac
+# Use Microsoft's official dotnet-install.sh script instead of RPM repos.
+# The CentOS 8/9 repo configs are incompatible with Amazon Linux 2023 (Fedora-based).
+# dotnet-install.sh auto-detects architecture (x86_64/aarch64) and works reliably.
+curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+chmod +x /tmp/dotnet-install.sh
+/tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
+rm -f /tmp/dotnet-install.sh
+
+# Make dotnet available system-wide
+sudo ln -sf /usr/local/dotnet/dotnet /usr/local/bin/dotnet
+if ! grep -q 'export DOTNET_ROOT=/usr/local/dotnet' /etc/bashrc 2>/dev/null; then
+  echo 'export DOTNET_ROOT=/usr/local/dotnet' | sudo tee -a /etc/bashrc
+fi
 dotnet --version
 echo "<<< .NET SDK installation complete."
 

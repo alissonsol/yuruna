@@ -21,9 +21,8 @@ Write-Output "================================================================"
 Write-Output "  WARNING: DESTRUCTIVE OPERATION"
 Write-Output "================================================================"
 Write-Output ""
-Write-Output "  This script deletes UTM VM bundles (.utm.nosync) and their"
-Write-Output "  symlinks (.utm) from ~/Desktop that are NOT registered"
-Write-Output "  in UTM."
+Write-Output "  This script deletes UTM VM bundles (.utm) from ~/Desktop"
+Write-Output "  that are NOT registered in UTM."
 Write-Output ""
 Write-Output "  THIS CANNOT BE UNDONE."
 Write-Output ""
@@ -37,11 +36,12 @@ if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# The New-VM.ps1 scripts create VM bundles under ~/Desktop
-$ScanPath = "$HOME/Desktop"
+# The New-VM.ps1 scripts create VM bundles under ~/Desktop/Yuruna.VDE/<hostname>/
+$MachineName = $(hostname -s)
+$ScanPath = "$HOME/Desktop/Yuruna.VDE/$MachineName"
 if (-not (Test-Path $ScanPath)) {
-    Write-Error "Desktop folder not found at '$ScanPath'."
-    exit 1
+    Write-Output "No Yuruna.VDE folder found at '$ScanPath'. Nothing to scan."
+    exit 0
 }
 
 # Get all UTM-registered VMs via utmctl
@@ -70,29 +70,15 @@ foreach ($line in $utmOutput) {
 Write-Output "UTM registered VMs: $($registeredVMs.Count)"
 Write-Output ""
 
-# Find all .utm.nosync bundles on the Desktop
-$utmBundles = Get-ChildItem -Path $ScanPath -Directory -Filter "*.utm.nosync" -ErrorAction SilentlyContinue
-# Find all .utm symlinks on the Desktop
-$utmSymlinks = Get-ChildItem -Path $ScanPath -Filter "*.utm" -ErrorAction SilentlyContinue |
-    Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint }
+# Find all .utm bundles on the Desktop
+$utmBundles = Get-ChildItem -Path $ScanPath -Directory -Filter "*.utm" -ErrorAction SilentlyContinue
 
 # Build a map of Desktop bundles: VMName -> bundle path
 $desktopBundles = @{}
 foreach ($bundle in $utmBundles) {
-    # Extract VM name: remove .utm.nosync suffix
-    $vmName = $bundle.Name -replace '\.utm\.nosync$', ''
+    $vmName = $bundle.Name -replace '\.utm$', ''
     $desktopBundles[$vmName] = $bundle.FullName
 }
-
-# Build a map of Desktop symlinks: VMName -> symlink path
-$desktopSymlinks = @{}
-foreach ($symlink in $utmSymlinks) {
-    $vmName = $symlink.Name -replace '\.utm$', ''
-    $desktopSymlinks[$vmName] = $symlink.FullName
-}
-
-# All VM names found on Desktop (union of bundles and symlinks)
-$allDesktopVMs = @($desktopBundles.Keys) + @($desktopSymlinks.Keys) | Sort-Object -Unique
 
 # ===== List registered VMs and their associated files =====
 if ($registeredVMs.Count -gt 0) {
@@ -104,9 +90,6 @@ foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
     $status = $registeredVMs[$vmName]
     Write-Output "  $vmName [$status]"
 
-    $hasFiles = $false
-
-    # Check for .utm.nosync bundle
     if ($desktopBundles.ContainsKey($vmName)) {
         $bundlePath = $desktopBundles[$vmName]
         $bundleFiles = Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue
@@ -114,79 +97,45 @@ foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
             $sizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
             Write-Output "    $($f.FullName)  ($sizeStr)"
         }
-        $hasFiles = $true
-    }
-
-    # Check for .utm symlink
-    if ($desktopSymlinks.ContainsKey($vmName)) {
-        $symlinkPath = $desktopSymlinks[$vmName]
-        $target = (Get-Item $symlinkPath).Target
-        Write-Output "    $symlinkPath  (symlink -> $target)"
-        $hasFiles = $true
-    }
-
-    if (-not $hasFiles) {
-        Write-Output "    (no files found on Desktop)"
+    } else {
+        Write-Output "    (no bundle found on Desktop)"
     }
     Write-Output ""
 }
 
-# ===== Find orphaned bundles and symlinks =====
+# ===== Find orphaned bundles =====
 $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 
-foreach ($vmName in $allDesktopVMs) {
+foreach ($vmName in $desktopBundles.Keys) {
     if ($registeredVMs.ContainsKey($vmName)) { continue }
 
-    # This VM has files on Desktop but is not registered in UTM
-    if ($desktopBundles.ContainsKey($vmName)) {
-        $bundlePath = $desktopBundles[$vmName]
-        $bundleSize = (Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
-            Measure-Object -Property Length -Sum).Sum
-        $orphanedItems.Add(@{
-            Type = "bundle"
-            Name = $vmName
-            Path = $bundlePath
-            Size = if ($bundleSize) { $bundleSize } else { 0 }
-        })
-    }
-    if ($desktopSymlinks.ContainsKey($vmName)) {
-        $orphanedItems.Add(@{
-            Type = "symlink"
-            Name = $vmName
-            Path = $desktopSymlinks[$vmName]
-            Size = 0
-        })
-    }
-}
-
-# Also find broken .utm symlinks (pointing to nonexistent targets)
-foreach ($vmName in $desktopSymlinks.Keys) {
-    if ($registeredVMs.ContainsKey($vmName)) { continue }
-    # Already covered above if the VM name is in allDesktopVMs
+    $bundlePath = $desktopBundles[$vmName]
+    $bundleSize = (Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum
+    $orphanedItems.Add(@{
+        Name = $vmName
+        Path = $bundlePath
+        Size = if ($bundleSize) { $bundleSize } else { 0 }
+    })
 }
 
 if ($orphanedItems.Count -eq 0) {
-    Write-Output "No orphaned VM files found. Nothing to clean up."
+    Write-Output "No orphaned VM bundles found. Nothing to clean up."
     exit 0
 }
 
 # Present orphaned items
-Write-Output "The following items are NOT associated with any registered UTM VM:"
+Write-Output "The following .utm bundles are NOT associated with any registered UTM VM:"
 Write-Output ""
 $totalSize = 0
 foreach ($item in $orphanedItems) {
     $totalSize += $item.Size
-    if ($item.Type -eq "bundle") {
-        $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
-        Write-Output "  $($item.Path)  ($sizeStr)"
-        # List files within the bundle
-        $bundleFiles = Get-ChildItem -Path $item.Path -Recurse -File -ErrorAction SilentlyContinue
-        foreach ($f in ($bundleFiles | Sort-Object FullName)) {
-            $fSizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
-            Write-Output "    $($f.FullName)  ($fSizeStr)"
-        }
-    } else {
-        Write-Output "  $($item.Path)  (symlink)"
+    $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
+    Write-Output "  $($item.Path)  ($sizeStr)"
+    $bundleFiles = Get-ChildItem -Path $item.Path -Recurse -File -ErrorAction SilentlyContinue
+    foreach ($f in ($bundleFiles | Sort-Object FullName)) {
+        $fSizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
+        Write-Output "    $($f.FullName)  ($fSizeStr)"
     }
 }
 Write-Output ""
@@ -200,17 +149,12 @@ if ($confirmation -ne "YES") {
     exit 0
 }
 
-# Delete orphaned items (symlinks first, then bundles)
+# Delete orphaned bundles
 $errors = 0
-foreach ($item in ($orphanedItems | Sort-Object { $_.Type })) {
+foreach ($item in $orphanedItems) {
     try {
-        if ($item.Type -eq "symlink") {
-            Remove-Item -Path $item.Path -Force
-            Write-Output "  Deleted symlink: $($item.Path)"
-        } else {
-            Remove-Item -Path $item.Path -Recurse -Force
-            Write-Output "  Deleted bundle: $($item.Path)"
-        }
+        Remove-Item -Path $item.Path -Recurse -Force
+        Write-Output "  Deleted: $($item.Path)"
     } catch {
         Write-Warning "  Failed to delete: $($item.Path) - $_"
         $errors++
@@ -219,7 +163,7 @@ foreach ($item in ($orphanedItems | Sort-Object { $_.Type })) {
 
 Write-Output ""
 if ($errors -eq 0) {
-    Write-Output "Cleanup complete. All orphaned items deleted."
+    Write-Output "Cleanup complete. All orphaned bundles deleted."
 } else {
     Write-Output "Cleanup complete with $errors error(s). Some items could not be deleted."
 }

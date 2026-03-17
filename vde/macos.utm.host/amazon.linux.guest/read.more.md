@@ -40,7 +40,7 @@ pwsh ./Get-Image.ps1
 
 ## 2) Creating the VM
 
-The script [`New-VM.ps1`](./New-VM.ps1) creates a UTM VM bundle on your Desktop. It accepts an optional `-VMName` parameter (default: `amazon-linux01`) and:
+The script [`New-VM.ps1`](./New-VM.ps1) creates a UTM VM bundle under `~/Desktop/Yuruna.VDE/<machinename>/`. It accepts an optional `-VMName` parameter (default: `amazon-linux01`) and:
 
 - Copies the downloaded Amazon Linux qcow2 image into the bundle as the boot disk.
 - Resizes the disk to 128GB (thin-provisioned, no extra space used until written).
@@ -53,7 +53,7 @@ pwsh ./New-VM.ps1
 pwsh ./New-VM.ps1 -VMName myhostname
 ```
 
-After the script completes, double-click `<hostname>.utm` on your Desktop to import it into UTM. Start the VM and cloud-init will apply the configuration on first boot.
+After the script completes, double-click `<hostname>.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to import it into UTM. Start the VM and cloud-init will apply the configuration on first boot.
 
 ### 2.1) Changing memory allocation
 

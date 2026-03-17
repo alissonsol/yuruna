@@ -45,7 +45,7 @@ pwsh ./Get-Image.ps1
 
 ## 2) Creating the VM
 
-The script [`New-VM.ps1`](./New-VM.ps1) creates a UTM VM bundle on your Desktop. It accepts an optional `-VMName` parameter (default: `ubuntu-desktop01`) and:
+The script [`New-VM.ps1`](./New-VM.ps1) creates a UTM VM bundle under `~/Desktop/Yuruna.VDE/<machinename>/`. It accepts an optional `-VMName` parameter (default: `ubuntu-desktop01`) and:
 
 - Copies the downloaded Ubuntu ISO into the bundle (named `<hostname>.iso`).
 - Creates a 512GB blank raw disk (`.img`) for installation (Apple Virtualization requires raw format).
@@ -60,7 +60,7 @@ pwsh ./New-VM.ps1 -VMName myhostname
 
 **Prerequisites:** `brew install openssl qemu` (for password hashing and disk image creation).
 
-After the script completes, double-click `<hostname>.utm.nosync` on your Desktop to import it into UTM. Start the VM and the Ubuntu installer will run automatically via autoinstall.
+After the script completes, double-click `<hostname>.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to import it into UTM. Start the VM and the Ubuntu installer will run automatically via autoinstall.
 
 ### 2.1) Changing memory allocation
 

@@ -30,7 +30,7 @@ Or with a custom hostname:
 pwsh ./New-VM.ps1 -VMName myhostname
 ```
 
-Double-click `HOSTNAME.utm` on your Desktop to import it into UTM and start the VM. Cloud-init will configure the VM on first boot (hostname, default user, and password).
+Double-click `HOSTNAME.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to import it into UTM and start the VM. Cloud-init will configure the VM on first boot (hostname, default user, and password).
 
 **On the VM: First login and GUI install**
 

@@ -10,7 +10,7 @@ Installs Java (JDK), .NET SDK, Git, [Visual Studio Code](https://code.visualstud
 **Amazon Linux**
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.bash)"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.bash?nocache=$(date +%s)")"
 ```
 
 **Ubuntu Desktop**
@@ -18,7 +18,7 @@ Installs Java (JDK), .NET SDK, Git, [Visual Studio Code](https://code.visualstud
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.bash)"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.bash?nocache=$(date +%s)")"
 ```
 
 ## Reminders

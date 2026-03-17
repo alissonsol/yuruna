@@ -13,7 +13,7 @@ See the full list of [requirements](../../docs/requirements.md) for more details
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.yuruna.bash)"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.yuruna.bash?nocache=$(date +%s)")"
 ```
 
 **Optional steps after the script completes**

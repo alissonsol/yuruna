@@ -10,7 +10,7 @@ Installs Git, Node.js, and [OpenClaw](https://docs.openclaw.ai/start/getting-sta
 **Amazon Linux**
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.openclaw.bash)"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.openclaw.bash?nocache=$(date +%s)")"
 ```
 
 **Ubuntu Desktop**
@@ -18,7 +18,7 @@ Installs Git, Node.js, and [OpenClaw](https://docs.openclaw.ai/start/getting-sta
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.openclaw.bash)"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.openclaw.bash?nocache=$(date +%s)")"
 ```
 
 **After reboot, configure OpenClaw**

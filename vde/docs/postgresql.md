@@ -10,7 +10,7 @@ Installs [PostgreSQL](https://www.postgresql.org/).
 **Amazon Linux**
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.postgresql.bash)"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.postgresql.bash?nocache=$(date +%s)")"
 ```
 
 **Ubuntu Desktop**
@@ -18,7 +18,7 @@ Installs [PostgreSQL](https://www.postgresql.org/).
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget --no-cache -qO- https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.postgresql.bash)"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.postgresql.bash?nocache=$(date +%s)")"
 ```
 
 **Verify the installation**

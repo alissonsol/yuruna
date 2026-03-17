@@ -25,7 +25,25 @@ fi
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
 
-# Install the JDK
+# ===== Detect architecture =====
+ARCH=$(uname -m)
+echo "Detected architecture: $ARCH"
+case "$ARCH" in
+  x86_64)
+    echo "Environment: x86_64/amd64 (Hyper-V)"
+    ;;
+  aarch64)
+    echo "Environment: aarch64/arm64 (UTM on Apple Silicon)"
+    ;;
+  *)
+    echo "WARNING: Unsupported architecture: $ARCH"
+    echo "This script supports x86_64 (Hyper-V) and aarch64 (UTM on Apple Silicon)."
+    exit 1
+    ;;
+esac
+
+# ===== Install the JDK =====
+# OpenJDK packages are available for both amd64 and arm64 via apt
 sudo apt-get update -y
 sudo apt-get install -y default-jdk
 java -version
@@ -33,15 +51,17 @@ javac -version
 export JAVA_HOME=/usr/lib/jvm/default-java
 echo 'export JAVA_HOME=/usr/lib/jvm/default-java' | sudo tee -a /etc/bash.bashrc
 
-# Install .NET Core
+# ===== Install .NET SDK =====
+# The dotnet-sdk package is available for both amd64 and arm64 via apt
 sudo apt-get install -y dotnet-sdk-10.0
 dotnet --version
 
-# Install Git
+# ===== Install Git =====
 sudo apt-get install -y git
 git --version
 
-# Install Visual Studio Code
+# ===== Install Visual Studio Code =====
+# The VS Code APT repo provides both amd64 and arm64 packages
 # The dotnet-sdk package may have added a Microsoft repo with signed-by=/usr/share/keyrings/microsoft.gpg.
 # Use that same key path for the VS Code repo to avoid "Conflicting values set for option Signed-By" errors.
 sudo apt-get install -y wget gpg
@@ -56,13 +76,11 @@ echo "deb [arch=amd64,arm64,armhf signed-by=${MSFT_KEY}] https://packages.micros
 sudo apt-get update -y
 sudo apt-get install -y code
 
-# Install PowerShell
-ARCH=$(uname -m)
+# ===== Install PowerShell =====
+# PowerShell binary download differs by architecture
 case "$ARCH" in
   x86_64)  PS_ARCH="x64" ;;
   aarch64) PS_ARCH="arm64" ;;
-  armv7l)  PS_ARCH="arm32" ;;
-  *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 wget -q -O /tmp/powershell.tar.gz \
   "https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-${PS_ARCH}.tar.gz"
@@ -72,7 +90,7 @@ sudo chmod +x /opt/microsoft/powershell/7/pwsh
 sudo ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
 pwsh --version
 
-# Show installed versions
+# ===== Show installed versions =====
 echo ""
 echo "Java: $(javac -version)"
 echo "DotNet: $(dotnet --version)"

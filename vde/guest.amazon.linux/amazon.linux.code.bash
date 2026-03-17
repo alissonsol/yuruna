@@ -85,9 +85,9 @@ echo "<<< Visual Studio Code installation complete."
 
 # ===== Show installed versions =====
 echo ""
-echo "Java: $(javac -version)"
 echo "DotNet: $(dotnet --version)"
 echo "Git: $(git --version)"
+echo "Java: $(javac -version)"
 if [ -z "${TMPDIR:-}" ]; then
 	TMPDIR=$(mktemp -d)
     export TMPDIR

@@ -57,8 +57,15 @@ sudo apt-get update -y
 sudo apt-get install -y code
 
 # Install PowerShell
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)  PS_ARCH="x64" ;;
+  aarch64) PS_ARCH="arm64" ;;
+  armv7l)  PS_ARCH="arm32" ;;
+  *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
 wget -q -O /tmp/powershell.tar.gz \
-  https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-arm64.tar.gz
+  "https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-${PS_ARCH}.tar.gz"
 sudo mkdir -p /opt/microsoft/powershell/7
 sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
 sudo chmod +x /opt/microsoft/powershell/7/pwsh

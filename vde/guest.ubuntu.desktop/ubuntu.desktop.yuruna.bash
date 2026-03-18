@@ -282,6 +282,24 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# Load kernel modules required by Kubernetes networking (Flannel uses vxlan which needs overlay + br_netfilter)
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+# Persist modules across reboots
+cat <<'EOF' | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+# Required sysctl settings: allow bridged traffic through iptables and enable IP forwarding
+cat <<'EOF' | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+sudo sysctl --system
+
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
 sudo kubeadm init --pod-network-cidr=10.244.0.0/16
 
@@ -293,6 +311,16 @@ export KUBECONFIG="${REAL_HOME}/.kube/config"
 
 # Install Flannel networking plugin
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+
+# Wait for Flannel DaemonSet pods to be ready before proceeding
+echo "Waiting for Flannel pods to be ready..."
+kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=180s \
+    || echo "Note: Flannel rollout status check timed out — pods may still be starting"
+
+# Wait for the node to report Ready (networking must be up for this to succeed)
+echo "Waiting for node to be Ready..."
+kubectl --kubeconfig="${REAL_HOME}/.kube/config" wait --for=condition=ready node --all --timeout=180s \
+    || echo "Note: Node ready wait timed out — node may still be initializing"
 
 # Remove control-plane taint for single-node cluster
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kubernetes.io/control-plane- || true

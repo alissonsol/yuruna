@@ -40,22 +40,24 @@ git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
 ```
 
-Add automation folder to your path (or run from automation folder). Ensure the commands below are executed in a PowerShell command line.
+Add automation folder to your path (or run from automation folder). Ensure the is executed from a PowerShell command line. Keep using that command line from now on.
 
 ```powershell
-$automationPath = "$(Get-Location)/automation"
-if ($env:PATH -split [IO.Path]::PathSeparator -notcontains $automationPath) {
-    $env:PATH += "$([IO.Path]::PathSeparator)$automationPath"
-}
-if (!(Test-Path (Split-Path $PROFILE))) { New-Item -ItemType Directory -Path (Split-Path $PROFILE) -Force | Out-Null }
-Add-Content -Path $PROFILE -Value "`nif (`$env:PATH -split [IO.Path]::PathSeparator -notcontains '$automationPath') { `$env:PATH += `"$([IO.Path]::PathSeparator)$automationPath`" }"
+Add-AutomationToPath.ps1
 ```
 
 Phase 1: Create local resources (registry, Kubernetes context)
 
+First, ensure you are at the examples folder.
+
 ```powershell
 cd examples
-Set-Resource.ps1 website localhost
+```
+
+Then, create resources.
+
+```powershell
+Set-Resource.ps1 website localhost -debug_mode $true -verbose_mode $true
 ```
 
 Create the HTTPS development certificate (required by the website example). On Ubuntu desktops provisioned with `ubuntu.desktop.yuruna.bash`, this certificate is created automatically.
@@ -79,7 +81,7 @@ docker ps -a
 Phase 2: Build and push the Docker image
 
 ```powershell
-Set-Component.ps1 website localhost
+Set-Component.ps1 website localhost -debug_mode $true -verbose_mode $true
 ```
 
 Can check status with the same commands previously shared. At this point, the registry should be running, and there are images ready for the website.
@@ -87,7 +89,7 @@ Can check status with the same commands previously shared. At this point, the re
 Phase 3: Deploy to Kubernetes
 
 ```powershell
-Set-Workload.ps1 website localhost
+Set-Workload.ps1 website localhost -debug_mode $true -verbose_mode $true
 ```
 
 Once complete, visit the URL shown in the output to see your deployed website.

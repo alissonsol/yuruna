@@ -18,6 +18,8 @@
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/import-yaml"
 Import-Module -Name $modulePath
+$validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/yuruna-validation"
+Import-Module -Name $validationModulePath
 
 function Clear-Configuration {
     param (
@@ -28,7 +30,7 @@ function Clear-Configuration {
     if (!(Confirm-ResourceList $project_root $config_subfolder)) { return $false; }
     Write-Debug "---- Destroying Resources"
 
-    $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"
+    $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
     if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
     $yaml = ConvertFrom-File $resourcesFile
 

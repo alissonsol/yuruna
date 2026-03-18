@@ -15,7 +15,7 @@ globalVariables:
   dockerUsername:        "placeholder"
   dockerPassword:        "placeholder"
   ingressClass:          "nginx"
-  certManagerLatest:     "v1.19.3"
+  certManagerLatest:     "v1.20.0"
 
 workloads:
 - context: "${env:runTag}-${env:project}-${env:runId}"
@@ -48,7 +48,7 @@ workloads:
         --create-namespace
         --version ${env:certManagerLatest}
         --set crds.enabled=true
-        --set nodeSelector."kubernetes\.io/os"=linux
+        --set "nodeSelector.kubernetes\.io/os=linux"
         --set startupapicheck.timeout=5m
         --debug
     # Ingress

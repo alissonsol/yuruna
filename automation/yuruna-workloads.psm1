@@ -111,6 +111,7 @@ function Publish-WorkloadList {
             }
         }
         Set-Item -Path Env:contextName -Value ${contextName}
+        Set-Item -Path Env:workFolder -Value ${workFolder}
 
         if ((-Not ($null -eq $workload.variables)) -and (-Not ($null -eq $workload.variables.Keys))) {
             foreach ($key in $workload.variables.Keys) {

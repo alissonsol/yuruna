@@ -7,7 +7,7 @@ globalVariables:
   # TO-SET: set site address below, like www.yrn42.com
   # websiteHost:           "www.yrn42website-domain"
   # see: https://letsencrypt.org/docs/certificates-for-localhost/
-  websiteHost:           "localhost"
+  websiteHost:           "website.localhost"
   websiteTlsSecret:      "website-tls-secret"
   certManagerIssuerEmail: "certificates@yrn42.com"
   _registryLocation:     "$($([Environment]::GetEnvironmentVariable(\"${env:registryName}.registryLocation\")) -replace '.azurecr.io','')"
@@ -88,23 +88,22 @@ workloads:
         --wait
         --debug
     - shell: >
-        @"
-        apiVersion: metallb.io/v1beta1
-        kind: IPAddressPool
-        metadata:
-          name: default
-          namespace: metallb-system
-        spec:
-          addresses:
-          - ${env:_frontendIp}/32
-        ---
-        apiVersion: metallb.io/v1beta1
-        kind: L2Advertisement
-        metadata:
-          name: default
-          namespace: metallb-system
-        "@ | kubectl apply -f -
+        @('apiVersion: metallb.io/v1beta1',
+        'kind: IPAddressPool',
+        'metadata:',
+        '  name: default',
+        '  namespace: metallb-system',
+        'spec:',
+        '  addresses:',
+        '  - ${env:_frontendIp}/32',
+        '---',
+        'apiVersion: metallb.io/v1beta1',
+        'kind: L2Advertisement',
+        'metadata:',
+        '  name: default',
+        '  namespace: metallb-system') -join "`n" | kubectl apply -f -
     - shell: 'Write-Information "-- Check containers started: kubectl get pods --all-namespaces"'
     - shell: 'Write-Information "-- Check services: kubectl get svc --all-namespaces"'
     - shell: 'Write-Information ">>    Test: curl -k -v http://${env:_frontendIp} -H ''Host: ${env:websiteHost}''"'
     - shell: 'Write-Information ">>    Check usage of ports like 80 and 443 (Quit/starting Docker may resolve; not the menu item Restart!)"'
+    - shell: 'Write-Information ">> Run: examples/website/config/localhost/Set-SiteName.ps1 (maps ${env:websiteHost} -> ${env:_frontendIp} in the system hosts file)"'

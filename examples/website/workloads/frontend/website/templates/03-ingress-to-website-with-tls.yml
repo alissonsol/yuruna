@@ -9,12 +9,6 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
-    cert-manager.io/cluster-issuer: "letsencrypt"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($host = '' ) {
-        rewrite ^ https://www.$request_uri permanent;
-      }
 spec:
   ingressClassName: {{ .Values.ingressClass }}
   tls:

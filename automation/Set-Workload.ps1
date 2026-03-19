@@ -68,41 +68,10 @@ if ($true -eq $verbose_mode) {
     $global:VerbosePreference = "Continue"
 }
 
-# Pre-flight check: Docker and Kubectl
-$dockerOk = $false
-$null = docker info 2>&1
-if ($LASTEXITCODE -eq 0) {
-    $dockerOk = $true
-    Write-Verbose "Docker is running and healthy."
-} else {
-    Write-Warning "Docker is not running or is in a bad state."
-}
-
-$kubectlOk = $false
-$null = kubectl version --client 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Warning "kubectl is not available or not configured."
-} else {
-    $null = kubectl cluster-info 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        $kubectlOk = $true
-        Write-Verbose "kubectl is connected to the Kubernetes cluster."
-    } else {
-        Write-Warning "kubectl cannot connect to the Kubernetes cluster."
-        if ($IsLinux) {
-            $swapInfo = swapon --show 2>&1
-            if (-not [string]::IsNullOrWhiteSpace($swapInfo)) {
-                Write-Warning "Swap is currently ON. Kubernetes requires swap to be disabled."
-                Write-Warning "Run the following to disable swap and restart Kubernetes:"
-                Write-Warning "  sudo swapoff -a"
-                Write-Warning "  sudo systemctl restart kubelet"
-            }
-        }
-    }
-}
-
-if (-not $dockerOk -or -not $kubectlOk) {
-    Write-Warning "Prerequisites check failed. Ensure Docker and Kubernetes are running before deploying workloads."
+# Pre-flight check: delegate to Test-Runtime.ps1
+$testRuntimeScript = Join-Path -Path $PSScriptRoot -ChildPath "Test-Runtime.ps1"
+$runtimeOk = & $testRuntimeScript -debug_mode $debug_mode -verbose_mode $verbose_mode
+if (-not $runtimeOk) {
     return $false
 }
 

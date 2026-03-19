@@ -172,4 +172,11 @@ else
 fi
 
 echo ""
-info "Done. If this is your first run, open a NEW terminal for changes to take effect."
+# If running in a subshell, spawn a new shell with the updated PATH
+# so the parent terminal picks up the changes automatically.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    info "Launching a new shell with the updated PATH ..."
+    exec zsh -l
+else
+    info "Done. Changes are active in this terminal session."
+fi

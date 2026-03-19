@@ -19,7 +19,7 @@ brew install --cask utm
 The scripts in this folder use PowerShell. Install it with:
 
 ```bash
-brew install powershell/tap/powershell
+brew install powershell
 ```
 
 Additional dependencies:

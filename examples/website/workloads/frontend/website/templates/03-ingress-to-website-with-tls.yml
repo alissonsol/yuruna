@@ -9,6 +9,8 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:
   ingressClassName: {{ .Values.ingressClass }}
   tls:
@@ -25,4 +27,4 @@ spec:
           service:
             name: website
             port:
-              number: 80
+              number: 443

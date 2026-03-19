@@ -4,13 +4,13 @@ Installs [n8n](https://n8n.io/) workflow automation.
 
 | Guest Environment | Script |
 |---|---|
-| **Amazon Linux** | `amazon.linux.n8n.bash` |
-| **Ubuntu Desktop** | `ubuntu.desktop.n8n.bash` |
+| **Amazon Linux** | `amazon.linux.n8n.sh` |
+| **Ubuntu Desktop** | `ubuntu.desktop.n8n.sh` |
 
 **Amazon Linux**
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.n8n.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.n8n.sh?nocache=$(date +%s)")"
 ```
 
 **Ubuntu Desktop**
@@ -18,7 +18,7 @@ Installs [n8n](https://n8n.io/) workflow automation.
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.n8n.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.n8n.sh?nocache=$(date +%s)")"
 ```
 
 **Verify the installation**

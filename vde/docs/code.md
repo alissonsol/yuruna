@@ -4,13 +4,13 @@ Installs Java (JDK), .NET SDK, Git, [Visual Studio Code](https://code.visualstud
 
 | Guest Environment | Script |
 |---|---|
-| **Amazon Linux** | `amazon.linux.code.bash` |
-| **Ubuntu Desktop** | `ubuntu.desktop.code.bash` |
+| **Amazon Linux** | `amazon.linux.code.sh` |
+| **Ubuntu Desktop** | `ubuntu.desktop.code.sh` |
 
 **Amazon Linux**
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.sh?nocache=$(date +%s)")"
 ```
 
 **Ubuntu Desktop**
@@ -18,7 +18,7 @@ Installs Java (JDK), .NET SDK, Git, [Visual Studio Code](https://code.visualstud
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh?nocache=$(date +%s)")"
 ```
 
 ## Reminders

@@ -16,7 +16,7 @@ After your base VM is running, use these scripts to install additional tools and
 ### Update
 
 ```bash
-sudo bash /amazon.linux.update.bash
+sudo bash /amazon.linux.update.sh
 ```
 
 ### Available toolsets
@@ -24,25 +24,25 @@ sudo bash /amazon.linux.update.bash
 - [Code](../docs/code.md) - Java (JDK), .NET SDK, Git, and Visual Studio Code
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.sh?nocache=$(date +%s)")"
 ```
 
 - [n8n](../docs/n8n.md) - n8n workflow automation
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.n8n.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.n8n.sh?nocache=$(date +%s)")"
 ```
 
 - [OpenClaw](../docs/openclaw.md) - Git, Node.js, and the OpenClaw AI agent
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.openclaw.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.openclaw.sh?nocache=$(date +%s)")"
 ```
 
 - [PostgreSQL](../docs/postgresql.md) - PostgreSQL database from the official PGDG repository
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.postgresql.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.postgresql.sh?nocache=$(date +%s)")"
 ```
 
 ## Troubleshooting

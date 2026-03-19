@@ -6,14 +6,14 @@ See the full list of [requirements](../../docs/requirements.md) for more details
 
 | Guest Environment | Script |
 |---|---|
-| **Ubuntu Desktop** | `ubuntu.desktop.yuruna.bash` |
+| **Ubuntu Desktop** | `ubuntu.desktop.yuruna.sh` |
 
 **Ubuntu Desktop**
 
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.yuruna.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.yuruna.sh?nocache=$(date +%s)")"
 ```
 
 **Optional steps after the script completes**

@@ -19,8 +19,8 @@ autoinstall:
     allow-pw: true
   late-commands:
     - curtin in-target --target=/target -- passwd --expire ubuntu
-    - wget --no-cache -O /target/ubuntu.desktop.update.bash "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.update.bash"
-    - curtin in-target --target=/target -- chmod +x /ubuntu.desktop.update.bash
+    - wget --no-cache -O /target/ubuntu.desktop.update.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh"
+    - curtin in-target --target=/target -- chmod +x /ubuntu.desktop.update.sh
     - curtin in-target --target=/target -- mkdir -p /etc/xdg/autostart
     - |
       cat > /target/etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'

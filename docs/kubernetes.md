@@ -60,7 +60,7 @@ Then, create resources.
 Set-Resource.ps1 website localhost -debug_mode $true -verbose_mode $true
 ```
 
-Create the HTTPS development certificate (required by the website example). On Ubuntu desktops provisioned with `ubuntu.desktop.yuruna.bash`, this certificate is created automatically.
+Create the HTTPS development certificate (required by the website example). On Ubuntu desktops provisioned with `ubuntu.desktop.yuruna.sh`, this certificate is created automatically.
 
 ```powershell
 $pfxDir = Join-Path $HOME ".aspnet/https"

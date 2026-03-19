@@ -44,7 +44,7 @@ cd ~/Downloads
 
 echo ""
 echo -e "\e[1;36m>>> Updating system packages...\e[0m"
-sudo bash /ubuntu.desktop.update.bash
+sudo bash /ubuntu.desktop.update.sh
 echo -e "\e[1;32m<<< System packages update complete.\e[0m"
 
 echo ""
@@ -60,7 +60,7 @@ chmod a+x LM-Studio.AppImage
 
 echo ""
 echo -e "\e[1;36m>>> Updating system packages...\e[0m"
-sudo bash /ubuntu.desktop.update.bash
+sudo bash /ubuntu.desktop.update.sh
 echo -e "\e[1;32m<<< System packages update complete.\e[0m"
 
 echo -e "\e[1;32m<<< LM Studio installation complete.\e[0m"

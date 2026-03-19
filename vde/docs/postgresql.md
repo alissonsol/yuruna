@@ -4,13 +4,13 @@ Installs [PostgreSQL](https://www.postgresql.org/).
 
 | Guest Environment | Script |
 |---|---|
-| **Amazon Linux** | `amazon.linux.postgresql.bash` |
-| **Ubuntu Desktop** | `ubuntu.desktop.postgresql.bash` |
+| **Amazon Linux** | `amazon.linux.postgresql.sh` |
+| **Ubuntu Desktop** | `ubuntu.desktop.postgresql.sh` |
 
 **Amazon Linux**
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.postgresql.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.postgresql.sh?nocache=$(date +%s)")"
 ```
 
 **Ubuntu Desktop**
@@ -18,7 +18,7 @@ Installs [PostgreSQL](https://www.postgresql.org/).
 Open a terminal and enter the commands.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.postgresql.bash?nocache=$(date +%s)")"
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.postgresql.sh?nocache=$(date +%s)")"
 ```
 
 **Verify the installation**

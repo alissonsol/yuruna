@@ -33,7 +33,7 @@ Or with a custom hostname:
 Unless you changed the defaults in the [vmconfig/user-data](./vmconfig/user-data) file, the user is `ec2-user` and the password is `amazonlinux`.
 
 ```bash
-sudo bash /amazon.linux.update.bash
+sudo bash /amazon.linux.update.sh
 sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```

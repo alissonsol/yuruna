@@ -4,7 +4,7 @@
 
 - Update the system:
   - Press `Ctrl+Alt+T` (or `Ctrl+Alt+F3`). This brings up a terminal.
-  - Run the command: `sudo bash /ubuntu.desktop.update.bash`
+  - Run the command: `sudo bash /ubuntu.desktop.update.sh`
     - Run two or three times, until there are no updates or cleanup remaining.
   - Run `sudo reboot now`.
 - Usually, this solves the issue.

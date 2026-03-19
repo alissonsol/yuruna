@@ -45,8 +45,8 @@ This is how to quickly create VMs with specific configuration. First, the steps 
   - Unless you changed the defaults in the [vmconfig/user-data](./vmconfig/user-data) file, at this point the user is `ec2-user` and the password is `amazonlinux`.
   - Having to type the password again to confirm you want to change it is as annoying as it gets!
   - At this point, if there is any update since the Amazon Linux image was last downloaded, you will be asked to execute the command `/usr/bin/dnf check-release-update`. Proceed as per the instructions to upgrade the operating system binaries before proceeding.
-- Navigate to the root folder (`cd /`) and execute `sudo bash amazon.linux.update.bash`.
-  - The section `runcmd` in the `user-data` file already downloaded the file `amazon.linux.update.bash` to the root of the target VM. After executing the Bash script, the Graphical User Interface and the tools from section 2 are installed.
+- Navigate to the root folder (`cd /`) and execute `sudo bash amazon.linux.update.sh`.
+  - The section `runcmd` in the `user-data` file already downloaded the file `amazon.linux.update.sh` to the root of the target VM. After executing the Bash script, the Graphical User Interface and the tools from section 2 are installed.
 - Execute `sudo reboot now` and the VM reboots already in the GUI mode with the tools.
 
 ### 2.1) Changing memory allocation
@@ -67,7 +67,7 @@ To change the default for new VMs, edit the `New-VM.ps1` script and replace `163
 **CHECKPOINT: This is a great time to create a checkpoint `VM Configured` for each VM.**
 
 - If lost track, all you did so far was to configure the data files, execute two PowerShell scripts, change a password, execute a Bash script, and reboot. You are now in a GUI and can start a browser or VS Code.
-  - Technically, you can add the line to run `bash amazon.linux.update.bash` to the `user-data` file. That usually ends up creating a confusing first login that is still under the command line interface, instead of the GUI, when the password needs to be changed. It is a personal preference to do that, which technically removes one step in the process (execute a Bash script).
+  - Technically, you can add the line to run `bash amazon.linux.update.sh` to the `user-data` file. That usually ends up creating a confusing first login that is still under the command line interface, instead of the GUI, when the password needs to be changed. It is a personal preference to do that, which technically removes one step in the process (execute a Bash script).
 
 Test VM connectivity.
 - Open a terminal and get the IP for each VM: `ifconfig` or `ifconfig eth0`.

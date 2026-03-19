@@ -1,3 +1,20 @@
+<#PSScriptInfo
+.VERSION 0.1
+.GUID 42006182-9304-4512-8345-6789012c4d5e
+.AUTHOR Alisson Sol
+.COMPANYNAME None
+.COPYRIGHT (c) 2019-2026 Alisson Sol et al.
+.TAGS
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES powershell-yaml
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
 # yuruna helper: copy context
 # As a result, this code creates copies of those entries with the same name of the destinationContext
 #

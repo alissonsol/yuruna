@@ -404,3 +404,16 @@ echo "=== Optional Steps ==="
 echo "Current hostname: $(hostnamectl hostname)"
 echo "1. Change hostname: sudo hostnamectl set-hostname [desired-hostname]"
 echo "2. Terminal restart may be needed for group permissions to take effect"
+
+# ===== Add Automation Folder to PowerShell PATH =====
+echo ""
+echo -e "\e[1;36m>>> Adding automation folder to PowerShell PATH...\e[0m"
+SCRIPT_DIR="$(cd "$(dirname "$(realpath "$0")")" && pwd)"
+REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/Add-AutomationToPath.ps1" ]; then
+    sudo -u "$REAL_USER" pwsh -NoProfile -File "$REPO_ROOT/Add-AutomationToPath.ps1" \
+        || echo "Note: Add-AutomationToPath.ps1 returned a non-zero exit code"
+else
+    echo "Note: Add-AutomationToPath.ps1 not found — skipping"
+fi
+echo -e "\e[1;32m<<< Automation folder added to PowerShell PATH.\e[0m"

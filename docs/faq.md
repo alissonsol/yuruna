@@ -14,17 +14,17 @@
     - Navigate to `about://net-internals#hsts` in the browser address bar
       - Under "Delete domain security policies", type the site (example `localhost`) and press the "Delete" button.
 
-### Browsing to a container via port forward works but not via the ingress in a localhost deployment.
+### Why does browsing to a container work via port forward but not via the ingress in a localhost deployment?
 
   - Before deploying workloads, make sure that ports to be used are not held by other processes. It is also common that, in the `localhost`, the Docker Desktop process itself holds on to the ports, preventing the local load balancer from binding (see an example of [issue](https://github.com/docker/for-mac/issues/4903) repeatedly reported).
   - Solving that may require quitting and starting Docker again (surprisingly, the Restart item in the menu doesn't have the same effect).
 
-### An example doesn't work if executed twice or after another example.
+### Why doesn't an example work if executed twice or after another example?
 
   - If you run an example, clear it, and port 80 is still in use, try quitting Docker and starting again.
   - Check if the ports are exposed to the external IP address: `kubectl get svc --all-namespaces`
 
-### Why is the local registry not working in the macOS?
+### Why is the local registry not working on macOS?
 
   - For macOS Monterey, confirm that port 5000 is not in use and stop any service using it. See Stack Overflow [issue](https://stackoverflow.com/questions/69818376/localhost5000-unavailable-in-macos-v12-monterey).
     - See instructions on how to check port usage in the macOS in this [article](https://stackoverflow.com/questions/4421633/who-is-listening-on-a-given-tcp-port-on-mac-os-x).

@@ -49,7 +49,7 @@ For the error
 docker-credential-desktop executable file not found in $PATH
 ```
 
-In ~/.docker/config.json change `credsStore` to `credStore`. This switches from the desktop credential store to file-based credential storage.
+In ~/.docker/config.json, change `credsStore` to `credStore`. This switches from the desktop credential store to file-based credential storage.
 
 You can either remove the `credsStore` entry to store credentials directly in the config file or install a suitable credential helper (like osxkeychain or wincred) and update the `credsStore` value accordingly.
 

@@ -27,7 +27,7 @@ sudo apt update && sudo apt install --reinstall -y gnome-control-center
 
 ## Time Zone Incorrect
 
-- The timezone is auto-detected during installation via IP geolocation and GNOME's "Automatic Time Zone" is enabled via dconf defaults.
+- The time zone is auto-detected during installation via IP geolocation and GNOME's "Automatic Time Zone" is enabled via dconf defaults.
 - If the timezone is still incorrect after boot, GNOME's geolocation service may not be working (e.g., no network or geolocation API unavailable). To fix manually:
   - Bring up the Settings control center.
     - An easy way is to right-click on any open area on the desktop and select "Display Settings".

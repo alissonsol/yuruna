@@ -1,6 +1,6 @@
 # macOS UTM Host Troubleshooting
 
-WARNING: This is not a section for everyone. Instructions are intentionally vague, so you won't follow unless you "know what you are doing"!
+WARNING: This is not a section for everyone. Instructions are intentionally brief — don't follow them unless you know what you are doing!
 
 ## Packages, PATH, and Homebrew issues
 

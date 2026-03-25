@@ -6,7 +6,7 @@
 
 - buildx: install Mac, Ubuntu and make changes to build scripts
 - Need something like: loop: _number(001-003)
-- curl x wget?
+- curl vs wget?
 - How to "pack and move" to another machine
 - Before "cloud-based" scripts execute, validate session
 - Validation: repeated resource names and other duplications like context names

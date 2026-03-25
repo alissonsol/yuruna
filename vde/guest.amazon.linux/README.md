@@ -16,7 +16,7 @@ After your base VM is running, use these instructions to install workloads. Open
 ### Update
 
 ```bash
-sudo bash /amazon.linux.update.sh
+/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.update.sh?nocache=$(date +%s)")"
 ```
 
 ### Available workloads

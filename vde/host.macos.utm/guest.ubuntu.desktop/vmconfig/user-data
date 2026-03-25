@@ -1,0 +1,62 @@
+#cloud-config
+bootcmd:
+  - echo $(cat /proc/cmdline) autoinstall > /tmp/cmdline
+  - mount -n --bind -o ro /tmp/cmdline /proc/cmdline
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  identity:
+    hostname: HOSTNAME_PLACEHOLDER
+    username: ubuntu
+    password: "HASH_PLACEHOLDER"
+  storage:
+    layout:
+      name: lvm
+  ssh:
+    install-server: true
+    allow-pw: true
+  late-commands:
+    # --- Security: user account ---
+    - curtin in-target --target=/target -- passwd --expire ubuntu
+    # --- System: disable swap ---
+    - sed -i '/ swap / s/^/#/' /target/etc/fstab
+    - curtin in-target --target=/target -- systemctl mask swap.target
+    # --- System: disable MOTD ---
+    - chmod -x /target/etc/update-motd.d/*
+    - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
+    # --- GNOME: skip initial setup ---
+    - curtin in-target --target=/target -- mkdir -p /etc/skel/.config
+    - echo 'yes' > /target/etc/skel/.config/gnome-initial-setup-done
+    - curtin in-target --target=/target -- mkdir -p /home/ubuntu/.config
+    - echo 'yes' > /target/home/ubuntu/.config/gnome-initial-setup-done
+    - curtin in-target --target=/target -- chown -R ubuntu:ubuntu /home/ubuntu/.config
+    # --- GNOME: auto-open terminal on login ---
+    - curtin in-target --target=/target -- mkdir -p /etc/xdg/autostart
+    - |
+      cat > /target/etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
+      [Desktop Entry]
+      Type=Application
+      Name=Open Terminal
+      Exec=gnome-terminal
+      X-GNOME-Autostart-enabled=true
+      NoDisplay=true
+      DESKTOP
+    # --- GNOME: enable automatic timezone (requires dconf) ---
+    - mkdir -p /target/etc/dconf/db/local.d
+    - |
+      cat > /target/etc/dconf/db/local.d/00-timezone << 'DCONF'
+      [org/gnome/desktop/datetime]
+      automatic-timezone=true
+
+      [org/gnome/system/location]
+      enabled=true
+      DCONF
+    - curtin in-target --target=/target -- dconf update
+    # --- Network: download update script ---
+    - wget --no-cache -O /target/ubuntu.desktop.update.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh"
+    - curtin in-target --target=/target -- chmod +x /ubuntu.desktop.update.sh
+    # --- Network: timezone detection via IP geolocation and NTP ---
+    - curtin in-target --target=/target -- timedatectl set-ntp true
+    - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'

@@ -1,0 +1,4 @@
+# Default values for yuruna.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+# Will be replaced with the "workloads.yml" just before deployment

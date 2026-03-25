@@ -1,0 +1,28 @@
+#cloud-config
+#vim:syntax=yaml
+users:
+# A user by the name `ec2-user` is created in the image by default.
+  - default
+chpasswd:
+  list: |
+    ec2-user:amazonlinux
+# In the above line, do not add any spaces after 'ec2-user:'.
+
+runcmd:
+  # --- GNOME: auto-open terminal on login ---
+  - mkdir -p /etc/xdg/autostart
+  - |
+    cat > /etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
+    [Desktop Entry]
+    Type=Application
+    Name=Open Terminal
+    Exec=ptyxis --new-window
+    X-GNOME-Autostart-enabled=true
+    NoDisplay=true
+    DESKTOP
+  # --- Network: download update script ---
+  - wget --no-cache -O amazon.linux.update.sh https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.update.sh
+  - chmod +x amazon.linux.update.sh
+  # --- Network: timezone detection via IP geolocation and NTP ---
+  - timedatectl set-ntp true
+  - bash -c 'command -v curl >/dev/null 2>&1 && TZ=$(curl -s --max-time 5 http://ip-api.com/line?fields=timezone) && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check curl, network, or API)" >&2'

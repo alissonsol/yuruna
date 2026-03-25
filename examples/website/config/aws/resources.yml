@@ -1,0 +1,30 @@
+# Resources information - azure
+---
+globalVariables:
+  namespace:             "yrn42website-ns"
+  clusterDnsPrefix:      "yrn42website-dns"
+  resourceGroup:         "yrn42website-rg"
+  # regions: az account list-locations -o table
+  resourceRegion:        "us-east-1"
+  resourceTags:          "yrn42website-tags"
+  registryName:          "componentsRegistry"
+  # https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html
+  clusterVersion:        "1.21"
+  nodeType:              "Standard_D2_v2"
+  nodeCount:             3
+
+resources:
+# Careful: if the template needs a variable (variables.tf) and it is not defined globally or locally below then the script will be stuck waiting input
+- name:                  "componentsRegistry"
+  template:              "aws/registry"
+  variables:
+    # TO-SET: registry name must be globally unique
+    uniqueName:          "yrn42registry"
+
+# cluster reference
+- name:                  "yrn42website-aws"
+  template:              "aws/eks-cluster"
+  variables:
+    clusterName:         "yrn42website-cluster"
+    destinationContext:  "yrn42website-aws"
+    nodeResourceGroup:   "${env:resourceGroup}-eks"

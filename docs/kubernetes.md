@@ -1,0 +1,187 @@
+# Kubernetes Deployment
+
+**Deploy containerized applications to Kubernetes across multiple clouds with a single workflow.**
+
+Yuruna automates the complexity of provisioning infrastructure, building containers, and deploying to Kubernetes. Write your configuration once, then deploy to localhost, Azure, AWS, or Google Cloud by changing a single parameter.
+
+## How It Works
+
+Yuruna uses a **three-phase deployment model**:
+
+```text
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Resources  │ ==> │ Components  │ ==> │  Workloads  │
+│ (OpenTofu)  │     │  (Docker)   │     │   (Helm)    │
+└─────────────┘     └─────────────┘     └─────────────┘
+```
+
+1. **Resources** - Provision cloud infrastructure (Kubernetes clusters, container registries, databases) using OpenTofu
+2. **Components** - Build Docker images and push them to your container registry
+3. **Workloads** - Deploy applications to Kubernetes using Helm charts
+
+Each phase reads from YAML configuration files and passes outputs to the next phase.
+
+See [full requirements](requirements.md) for detailed setup instructions.
+
+## Quick Start (Localhost)
+
+Deploy a sample .NET website to Docker Desktop Kubernetes in minutes. No cloud account required.
+
+### Deploy the Example Website
+
+Execute these commands in a PowerShell command line (`pwsh`).
+
+Clone the repository
+
+```powershell
+git clone https://github.com/alissonsol/yuruna.git
+cd yuruna
+```
+
+Add automation folder to your path (or run from automation folder). Ensure this is executed from a PowerShell command line. Keep using that command line from now on.
+
+```powershell
+./Add-AutomationToPath.ps1
+```
+
+Phase 1: Create local resources (registry, Kubernetes context)
+
+First, ensure you are at the examples folder.
+
+```powershell
+cd examples
+```
+
+Then, create resources.
+
+```powershell
+Set-Resource.ps1 website localhost -debug_mode $true -verbose_mode $true
+```
+
+Create the HTTPS development certificate (required by the website example). On Ubuntu desktops provisioned with `ubuntu.desktop.k8s.sh`, this certificate is created automatically.
+
+```powershell
+$pfxDir = Join-Path $HOME ".aspnet/https"
+if (!(Test-Path $pfxDir)) { New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null }
+openssl req -x509 -newkey rsa:4096 -keyout "$pfxDir/aspnetapp.key" -out "$pfxDir/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>$null
+openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.key" -in "$pfxDir/aspnetapp.crt" -password pass:password
+Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
+```
+
+Commands to test and display runtime readiness
+
+```powershell
+Test-Runtime.ps1
+```
+
+Phase 2: Build and push the Docker image
+
+```powershell
+Set-Component.ps1 website localhost -debug_mode $true -verbose_mode $true
+```
+
+Can check status with the same commands previously shared. At this point, the registry should be running, and there are images ready for the website.
+
+Phase 3: Deploy to Kubernetes
+
+```powershell
+Set-Workload.ps1 website localhost -debug_mode $true -verbose_mode $true
+```
+
+Once complete, visit the URL shown in the output to see your deployed website.
+
+## Cloud Deployment
+
+To deploy to a cloud provider instead of localhost, authenticate with your cloud CLI, then replace `localhost` with your target cloud.
+
+### Azure
+
+```powershell
+# Authenticate (once per session)
+az login --use-device-code
+az account set --subscription <your-subscription-id>  # if you have multiple subscriptions
+
+# Deploy to Azure
+Set-Resource.ps1 website azure
+Set-Component.ps1 website azure
+Set-Workload.ps1 website azure
+```
+
+### AWS
+
+```powershell
+# Authenticate (configure once)
+aws configure  # Enter your Access Key ID, Secret Access Key, region, and output format
+
+# Deploy to AWS
+Set-Resource.ps1 website aws
+Set-Component.ps1 website aws
+Set-Workload.ps1 website aws
+```
+
+### Google Cloud
+
+```powershell
+# Authenticate (once per session)
+gcloud auth application-default login
+
+# Deploy to GCP
+Set-Resource.ps1 website gcp
+Set-Component.ps1 website gcp
+Set-Workload.ps1 website gcp
+```
+
+See [authentication docs](authenticate.md) for detailed setup instructions including service accounts and API enablement.
+
+## Configuration
+
+Each project has three YAML configuration files in the `config/<cloud>/` folder:
+
+| File | Purpose |
+|------|---------|
+| `resources.yml` | Infrastructure to create (clusters, registries, IPs) |
+| `components.yml` | Docker images to build and push |
+| `workloads.yml` | Applications to deploy via Helm |
+
+See the [website example](../examples/website/) for a complete reference and the [syntax documentation](syntax.md) for configuration details.
+
+## Project Structure
+
+```text
+yuruna/
+├── automation/          # PowerShell scripts (Set-Resource.ps1, Set-Component.ps1, etc.)
+├── global/resources/    # OpenTofu templates for each cloud provider
+├── examples/            # Example projects (website, template)
+└── docs/                # Documentation
+```
+
+## Documentation
+
+- [Requirements](requirements.md) - Full tool installation guide
+- [Authentication](authenticate.md) - Cloud provider setup
+- [Syntax](syntax.md) - Configuration file reference
+- [FAQ](faq.md) - Troubleshooting common issues
+- [Cleanup](cleanup.md) - Removing deployed resources
+- [Examples](../examples/README.md) - Sample projects
+
+## Important Notes
+
+- **Cost warning**: Cloud resources incur charges. Always [clean up](cleanup.md) resources you're not using.
+- **Windows users**: Set `git config --global core.autocrlf input` before cloning to avoid line-ending issues with Linux containers.
+- Scripts and examples are provided "as is" without guarantees. See [license](../LICENSE.md).
+
+## Contributing
+
+Check the [contributing guidelines](contributing.md) and the list of [open tasks](todo.md).
+
+Thanks to all [contributors](contributors.md)!
+
+## Resources
+
+- [Yuruna YouTube channel](https://www.youtube.com/channel/UCl36lZ2MwZ0f6_QAUOmGNDw) - Video tutorials
+- [Latest version](https://github.com/alissonsol/yuruna)
+- [References](references.md) - Additional reading
+
+---
+
+Copyright (c) 2019-2026 by Alisson Sol et al.

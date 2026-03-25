@@ -1,0 +1,19 @@
+<#PSScriptInfo
+.VERSION 0.1
+.GUID 4205b637-e859-4067-8890-123090a1b2c3
+.AUTHOR Alisson Sol
+.COMPANYNAME None
+.COPYRIGHT (c) 2019-2026 Alisson Sol et al.
+.TAGS
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+$param1=$args[0]
+Write-Information "Parameter: $param1"

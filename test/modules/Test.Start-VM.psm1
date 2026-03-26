@@ -58,17 +58,64 @@ function Start-HyperVVM {
     }
 }
 
+# ── Stop VM (without destroy) ────────────────────────────────────────────────
+
+# Stops a running VM without deleting it. Used between per-guest tests
+# to avoid one guest's window interfering with another's screenshot.
+# Returns $true on success.
+function Stop-TestVM {
+    param([string]$HostType, [string]$VMName)
+    switch ($HostType) {
+        "host.macos.utm" {
+            & utmctl stop "$VMName" 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Output "Stopped UTM VM: $VMName"
+                Start-Sleep -Seconds 2
+                return $true
+            }
+            Write-Warning "utmctl stop failed for '$VMName' (exit $LASTEXITCODE)"
+            return $false
+        }
+        "host.windows.hyper-v" {
+            try {
+                Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop
+                Write-Output "Stopped Hyper-V VM: $VMName"
+                return $true
+            } catch {
+                Write-Warning "Stop-VM failed for '$VMName': $_"
+                return $false
+            }
+        }
+        default {
+            Write-Warning "Unknown host type for StopVM: $HostType"
+            return $false
+        }
+    }
+}
+
 # ── Verify running ───────────────────────────────────────────────────────────
 
 # Polls until the VM reaches a running state or the timeout expires.
+# After confirming the VM is running, waits an additional BootDelaySeconds
+# to allow the guest OS to initialise before any screenshot or test.
 # Returns $true on success.
 function Confirm-VMStarted {
-    param([string]$HostType, [string]$VMName, [int]$TimeoutSeconds = 120)
-    switch ($HostType) {
-        "host.macos.utm"       { return Confirm-UtmVMStarted    -VMName $VMName -TimeoutSeconds $TimeoutSeconds }
-        "host.windows.hyper-v" { return Confirm-HyperVVMStarted -VMName $VMName -TimeoutSeconds $TimeoutSeconds }
-        default { Write-Error "Unknown host type for start verification: $HostType"; return $false }
+    param(
+        [string]$HostType,
+        [string]$VMName,
+        [int]$TimeoutSeconds  = 120,
+        [int]$BootDelaySeconds = 0
+    )
+    $running = switch ($HostType) {
+        "host.macos.utm"       { Confirm-UtmVMStarted    -VMName $VMName -TimeoutSeconds $TimeoutSeconds }
+        "host.windows.hyper-v" { Confirm-HyperVVMStarted -VMName $VMName -TimeoutSeconds $TimeoutSeconds }
+        default { Write-Error "Unknown host type for start verification: $HostType"; $false }
     }
+    if ($running -and $BootDelaySeconds -gt 0) {
+        Write-Output "VM is running. Waiting ${BootDelaySeconds}s for guest OS to initialise..."
+        Start-Sleep -Seconds $BootDelaySeconds
+    }
+    return $running
 }
 
 function Confirm-UtmVMStarted {
@@ -148,4 +195,4 @@ function Invoke-GuestTests {
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
 
-Export-ModuleMember -Function Invoke-StartVM, Confirm-VMStarted, Get-GuestTestScripts, Invoke-GuestTests
+Export-ModuleMember -Function Invoke-StartVM, Stop-TestVM, Confirm-VMStarted, Get-GuestTestScripts, Invoke-GuestTests

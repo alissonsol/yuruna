@@ -23,14 +23,15 @@ param(
 )
 
 # === Resolve paths ===
-$TestRoot      = $PSScriptRoot
-$RepoRoot      = Split-Path -Parent $TestRoot
-$VdeRoot       = Join-Path $RepoRoot "vde"
-$StatusDir     = Join-Path $TestRoot "status"
-$StatusFile    = Join-Path $StatusDir "status.json"
-$StatusTmpl    = Join-Path $StatusDir "status.json.template"
-$ModulesDir    = Join-Path $TestRoot "modules"
-$ExtensionsDir = Join-Path $TestRoot "extensions"
+$TestRoot       = $PSScriptRoot
+$RepoRoot       = Split-Path -Parent $TestRoot
+$VdeRoot        = Join-Path $RepoRoot "vde"
+$StatusDir      = Join-Path $TestRoot "status"
+$StatusFile     = Join-Path $StatusDir "status.json"
+$StatusTmpl     = Join-Path $StatusDir "status.json.template"
+$ModulesDir     = Join-Path $TestRoot "modules"
+$ExtensionsDir  = Join-Path $TestRoot "extensions"
+$ScreenshotsDir = Join-Path $TestRoot "screenshots"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 
@@ -45,7 +46,7 @@ if (-not (Test-Path $StatusFile)) {
 }
 
 # === Import modules ===
-foreach ($mod in @("Test.Host", "Test.Status", "Test.StatusServer", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM")) {
+foreach ($mod in @("Test.Host", "Test.Status", "Test.StatusServer", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Screenshot")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -90,18 +91,24 @@ foreach ($GuestKey in $GuestList) {
     }
 }
 
-# Determine step list (add CustomTests if any guest has extension scripts)
+# Determine step list based on available extensions and screenshot schedules
 $BaseSteps = @("NewVM", "StartVM", "VerifyVM")
 $hasExtensions = $false
+$hasScreenshots = $false
 foreach ($GuestKey in $GuestList) {
     if ((Get-GuestTestScripts -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir).Count -gt 0) {
         $hasExtensions = $true
-        break
+    }
+    if ((Get-ScreenshotSchedule -GuestKey $GuestKey -ScreenshotsDir $ScreenshotsDir).Count -gt 0) {
+        $hasScreenshots = $true
     }
 }
-$StepNames = if ($hasExtensions) { $BaseSteps + @("CustomTests") } else { $BaseSteps }
+$StepNames = $BaseSteps
+if ($hasScreenshots) { $StepNames += @("Screenshots") }
+if ($hasExtensions)  { $StepNames += @("CustomTests") }
 
 $VmStartTimeout = if ($Config.vmStartTimeoutSeconds) { [int]$Config.vmStartTimeoutSeconds } else { 120 }
+$VmBootDelay    = if ($Config.vmBootDelaySeconds)    { [int]$Config.vmBootDelaySeconds }    else { 15 }
 $CycleDelay     = if ($Config.cycleDelaySeconds)     { [int]$Config.cycleDelaySeconds }     else { $CycleDelaySeconds }
 
 # === Continuous test loop ===
@@ -205,19 +212,19 @@ while ($true) {
         }
     }
 
-    # --- Create, start, verify, and test each VM ---
+    # --- Create all VMs (NewVM step for each guest) ---
+    Write-Output ""
+    Write-Output "--- Create VMs ---"
     foreach ($GuestKey in $GuestList) {
         $VMName = $VMNames[$GuestKey]
         Set-GuestVMName -GuestKey $GuestKey -VMName $VMName
-        Write-Output ""
-        Write-Output "=== $GuestKey (VM: $VMName) ==="
         Set-GuestStatus -GuestKey $GuestKey -Status "running"
 
-        # --- NewVM ---
         Set-StepStatus -GuestKey $GuestKey -StepName "NewVM" -Status "running"
         $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName
         if ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "NewVM" -Status "pass"
+            Write-Output "  $GuestKey NewVM: PASS"
         } else {
             Write-Warning "  ERROR [$GuestKey / NewVM]: $($r.errorMessage)"
             Set-StepStatus  -GuestKey $GuestKey -StepName "NewVM" -Status "fail" -ErrorMessage $r.errorMessage
@@ -225,6 +232,19 @@ while ($true) {
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "NewVM"; $FailureMessage = $r.errorMessage
             break
         }
+    }
+
+    if (-not $OverallPassed) {
+        Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
+        break
+    }
+
+    # --- Test each guest individually (start → verify → screenshots → custom → stop) ---
+    # Only one guest VM runs at a time so its window is in focus for screenshots.
+    foreach ($GuestKey in $GuestList) {
+        $VMName = $VMNames[$GuestKey]
+        Write-Output ""
+        Write-Output "=== $GuestKey (VM: $VMName) ==="
 
         # --- StartVM ---
         Set-StepStatus -GuestKey $GuestKey -StepName "StartVM" -Status "running"
@@ -239,9 +259,10 @@ while ($true) {
             break
         }
 
-        # --- VerifyVM (confirm it reached running state) ---
+        # --- VerifyVM (poll until running, then wait boot delay) ---
         Set-StepStatus -GuestKey $GuestKey -StepName "VerifyVM" -Status "running"
-        $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName -TimeoutSeconds $VmStartTimeout
+        $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName `
+            -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
         if ($ok) {
             Set-StepStatus -GuestKey $GuestKey -StepName "VerifyVM" -Status "pass"
         } else {
@@ -251,6 +272,26 @@ while ($true) {
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "VerifyVM"; $FailureMessage = $err
             break
+        }
+
+        # --- Screenshots (compare against trained references) ---
+        if ($hasScreenshots) {
+            Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "running"
+            $r = Invoke-ScreenshotTests -HostType $HostType -GuestKey $GuestKey `
+                -VMName $VMName -ScreenshotsDir $ScreenshotsDir
+            if ($r.skipped) {
+                Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "skipped" -Skipped $true
+            } elseif ($r.success) {
+                Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "pass"
+            } else {
+                Write-Warning "  ERROR [$GuestKey / Screenshots]: $($r.errorMessage)"
+                Set-StepStatus  -GuestKey $GuestKey -StepName "Screenshots" -Status "fail" -ErrorMessage $r.errorMessage
+                Set-GuestStatus -GuestKey $GuestKey -Status "fail"
+                $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Screenshots"; $FailureMessage = $r.errorMessage
+                # Stop this guest before breaking
+                Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                break
+            }
         }
 
         # --- CustomTests (extension scripts) ---
@@ -266,12 +307,16 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "CustomTests" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "CustomTests"; $FailureMessage = $r.errorMessage
+                # Stop this guest before breaking
+                Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
                 break
             }
         }
 
+        # --- Stop this guest VM before starting the next ---
         Set-GuestStatus -GuestKey $GuestKey -Status "pass"
         Write-Output "  ${GuestKey}: PASS"
+        Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
     }
 
     # === Finalise cycle ===

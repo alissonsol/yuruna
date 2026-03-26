@@ -10,6 +10,7 @@
   "testVmNamePrefix": "test-",
   "cycleDelaySeconds": 30,
   "vmStartTimeoutSeconds": 120,
+  "vmBootDelaySeconds": 15,
   "statusServer": {
     "port": 8080,
     "enabled": true

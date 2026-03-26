@@ -71,6 +71,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `testVmNamePrefix` | `"test-"` | Prefix for test VM names |
 | `cycleDelaySeconds` | `30` | Pause between cycles |
 | `vmStartTimeoutSeconds` | `120` | How long to wait for a VM to reach running state |
+| `vmBootDelaySeconds` | `15` | Extra wait after VM is running, before screenshots/tests |
 | `alwaysRedownloadImages` | `false` | Force re-download even if image exists |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
@@ -135,7 +136,7 @@ http://localhost:8080/status/
 
 The page polls `status.json` every 30 seconds and shows:
 - Overall pass/fail banner
-- Per-guest status with step-level breakdown (NewVM, StartVM, VerifyVM, CustomTests)
+- Per-guest status with step-level breakdown (NewVM, StartVM, VerifyVM, Screenshots, CustomTests)
 - History of recent runs
 
 ### How the status page is served
@@ -175,6 +176,68 @@ exit $LASTEXITCODE
 The runner discovers extension scripts automatically. The `CustomTests` step
 appears in the status page when any extension exists.
 
+## Screenshot-based testing
+
+The runner can compare the VM screen at specific moments against pre-trained
+reference screenshots. This catches visual regressions (boot failures, UI
+changes, installer prompts) that state-polling alone would miss.
+
+### Training reference screenshots
+
+Run the interactive training tool for each guest:
+
+```powershell
+pwsh test/Train-Screenshots.ps1 -GuestKey guest.amazon.linux
+pwsh test/Train-Screenshots.ps1 -GuestKey guest.ubuntu.desktop
+pwsh test/Train-Screenshots.ps1 -GuestKey guest.windows.11
+```
+
+The tool creates a VM, starts it, and waits for you to capture screenshots at
+key moments. Commands during training:
+
+| Command | Action |
+|---------|--------|
+| `c boot-complete` | Capture a screenshot named "boot-complete" |
+| `c login-screen` | Capture another checkpoint |
+| `d` | Done — save the schedule and exit |
+| `q` | Quit without saving |
+
+Training produces:
+- `test/screenshots/<guestKey>/schedule.json` — checkpoint timing and thresholds
+- `test/screenshots/<guestKey>/reference/*.png` — reference images
+
+### Schedule format
+
+The `schedule.json` file is editable. Each checkpoint specifies when to capture
+and how strict the comparison should be:
+
+```json
+{
+  "guestKey": "guest.amazon.linux",
+  "hostType": "host.macos.utm",
+  "trainedAt": "2026-03-26T10:00:00Z",
+  "vmName": "test-amazon-linux01",
+  "checkpoints": [
+    { "name": "boot-complete", "delaySeconds": 60, "threshold": 0.85 },
+    { "name": "login-screen",  "delaySeconds": 120, "threshold": 0.80 }
+  ]
+}
+```
+
+- `delaySeconds` — seconds after VM start to capture
+- `threshold` — minimum similarity (0.0–1.0) to pass; 0.85 means 85% pixel match
+
+### How it works during test runs
+
+1. The runner starts one guest VM at a time (to avoid window overlap)
+2. After VerifyVM confirms the VM is running, the boot delay elapses
+3. For each checkpoint: wait `delaySeconds`, capture a screenshot, compare
+4. If similarity drops below threshold, the `Screenshots` step fails
+5. The VM is stopped before the next guest starts
+
+Captures from each run are saved to `test/screenshots/<guestKey>/captures/`
+(git-ignored) for post-mortem inspection.
+
 ## Module architecture
 
 ```
@@ -190,12 +253,18 @@ test/
     Test.Notify.psm1              # Resend API email notifications
     Test.Get-Image.psm1           # Base image download and refresh
     Test.New-VM.psm1              # VM creation, verification, and cleanup
-    Test.Start-VM.psm1            # VM start, boot verification, custom tests
+    Test.Start-VM.psm1            # VM start, stop, boot verification, custom tests
+    Test.Screenshot.psm1          # Screenshot capture, comparison, schedule
   extensions/
     README.md                                       # Extension API documentation
     Test-Workload.guest.amazon.linux.ps1             # Amazon Linux workload test
     Test-Workload.guest.ubuntu.desktop.ps1           # Ubuntu Desktop workload test
     Test-Workload.guest.windows.11.ps1               # Windows 11 workload test
+  screenshots/
+    guest.amazon.linux/
+      schedule.json               # Checkpoint timing and thresholds
+      reference/                  # Trained reference PNGs (committed)
+      captures/                   # Runtime captures (git-ignored)
   status/
     index.html                    # Status dashboard
     status.json.template          # Template for status data
@@ -212,7 +281,8 @@ test/
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |
 | `Test.Get-Image` | Base image download/refresh | `Get-ImagePath`, `Invoke-GetImage` |
 | `Test.New-VM` | VM create + verify creation + cleanup | `Invoke-NewVM`, `Confirm-VMCreated`, `Remove-TestVM` |
-| `Test.Start-VM` | VM start + verify running + extensions | `Invoke-StartVM`, `Confirm-VMStarted`, `Invoke-GuestTests` |
+| `Test.Start-VM` | VM start/stop + verify running + extensions | `Invoke-StartVM`, `Stop-TestVM`, `Confirm-VMStarted`, `Invoke-GuestTests` |
+| `Test.Screenshot` | Screenshot capture, comparison, schedules | `Get-VMScreenshot`, `Compare-Screenshots`, `Invoke-ScreenshotTests` |
 
 ## Exit codes
 

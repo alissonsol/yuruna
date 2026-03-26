@@ -368,6 +368,9 @@ test/test-config.json
 # Test status (modified at runtime)
 test/status/status.json
 
+# Test screenshots (captured at runtime)
+test/screenshots/*/captures/
+
 # yuruna
 **/.yuruna/*
 **/resources.output.yml

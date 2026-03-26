@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yuruna VDE Status</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9fafb; color: #111827; font-size: 14px; line-height: 1.5;
+      padding-bottom: 3rem;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #111827; color: #fff;
+      padding: 1.25rem 2rem;
+      display: flex; align-items: baseline; gap: 1rem;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; }
+    header p  { color: #9ca3af; font-size: .875rem; }
+
+    /* ── Status banner ── */
+    #banner {
+      display: flex; align-items: center; gap: .625rem;
+      padding: .9rem 2rem; font-weight: 600; font-size: .9375rem;
+      transition: background .3s;
+    }
+    #banner.idle    { background: #6b7280; color: #fff; }
+    #banner.running { background: #2563eb; color: #fff; }
+    #banner.pass    { background: #16a34a; color: #fff; }
+    #banner.fail    { background: #dc2626; color: #fff; }
+    #banner .dot {
+      width: .625rem; height: .625rem; border-radius: 50%;
+      background: currentColor; display: inline-block; flex-shrink: 0;
+    }
+    #banner.running .dot { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* ── Main container ── */
+    main { max-width: 860px; margin: 1.75rem auto; padding: 0 1.5rem; }
+
+    /* ── Section heading ── */
+    .section-title {
+      font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #6b7280;
+      border-bottom: 1px solid #e5e7eb; padding-bottom: .4rem; margin-bottom: .875rem;
+    }
+    section { margin-bottom: 2rem; }
+
+    /* ── Meta row ── */
+    .meta-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem;
+    }
+    .meta-card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
+      padding: .75rem 1rem;
+    }
+    .meta-card .label { font-size: .6875rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .2rem; }
+    .meta-card .value { font-size: .875rem; font-weight: 500; font-family: 'Menlo','Consolas',monospace; color: #111827; word-break: break-all; }
+
+    /* ── Guest card ── */
+    .guest-card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
+      padding: .875rem 1.125rem; margin-bottom: .625rem;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+    }
+    .guest-card .left { flex: 1; min-width: 0; }
+    .guest-name { font-weight: 600; font-size: .9375rem; margin-bottom: .2rem; }
+    .guest-meta { font-size: .75rem; color: #6b7280; margin-bottom: .45rem; }
+    .steps      { display: flex; flex-wrap: wrap; gap: .375rem; }
+    .step-pill  {
+      font-size: .6875rem; font-weight: 600; padding: .2rem .55rem; border-radius: 9999px;
+      white-space: nowrap;
+    }
+    .guest-error {
+      margin-top: .5rem; font-size: .75rem; color: #dc2626;
+      background: #fef2f2; border: 1px solid #fecaca;
+      border-radius: .375rem; padding: .45rem .625rem;
+      font-family: 'Menlo','Consolas',monospace; word-break: break-all;
+    }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-flex; align-items: center; gap: .3rem;
+      font-size: .75rem; font-weight: 700; padding: .25rem .7rem;
+      border-radius: 9999px; white-space: nowrap;
+    }
+    .badge::before {
+      content: ''; display: inline-block;
+      width: .45rem; height: .45rem; border-radius: 50%; background: currentColor;
+    }
+
+    /* Colours for badges & pills */
+    .idle, .idle-bg     { background: #f3f4f6; color: #6b7280; }
+    .pending, .pending-bg { background: #f3f4f6; color: #6b7280; }
+    .running, .running-bg { background: #dbeafe; color: #1d4ed8; }
+    .pass, .pass-bg     { background: #dcfce7; color: #16a34a; }
+    .fail, .fail-bg     { background: #fee2e2; color: #dc2626; }
+    .skipped, .skipped-bg { background: #fef9c3; color: #a16207; }
+
+    /* ── History table ── */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%; border-collapse: collapse;
+      background: #fff; border: 1px solid #e5e7eb;
+      border-radius: .5rem; overflow: hidden; font-size: .8125rem;
+    }
+    th {
+      background: #f9fafb; padding: .625rem 1rem; text-align: left;
+      font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb;
+      white-space: nowrap;
+    }
+    td { padding: .625rem 1rem; border-bottom: 1px solid #f3f4f6; color: #374151; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #f9fafb; }
+    .mono { font-family: 'Menlo','Consolas',monospace; font-size: .75rem; }
+
+    /* ── No data ── */
+    .no-data {
+      text-align: center; padding: 3.5rem 1rem; color: #9ca3af;
+    }
+    .no-data h3 { font-size: 1.125rem; margin-bottom: .5rem; color: #6b7280; }
+    .no-data code {
+      background: #f3f4f6; padding: .125rem .375rem; border-radius: .25rem;
+      font-family: 'Menlo','Consolas',monospace; font-size: .8125rem;
+    }
+
+    /* ── Footer bar ── */
+    #footer-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #111827; color: #9ca3af; font-size: .6875rem;
+      padding: .35rem 1rem; display: flex; justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Yuruna VDE</h1>
+  <p>Virtual Development Environment Test Status</p>
+</header>
+
+<div id="banner" class="idle">
+  <span class="dot"></span>
+  <span id="banner-text">Loading…</span>
+</div>
+
+<main>
+
+  <section id="sec-meta" style="display:none">
+    <div class="section-title">Current Run</div>
+    <div class="meta-grid">
+      <div class="meta-card"><div class="label">Host</div><div class="value" id="m-host">—</div></div>
+      <div class="meta-card"><div class="label">Machine</div><div class="value" id="m-hostname">—</div></div>
+      <div class="meta-card"><div class="label">Commit</div><div class="value" id="m-commit">—</div></div>
+      <div class="meta-card"><div class="label">Run ID</div><div class="value" id="m-runid">—</div></div>
+      <div class="meta-card"><div class="label">Started</div><div class="value" id="m-started">—</div></div>
+      <div class="meta-card"><div class="label">Finished</div><div class="value" id="m-finished">—</div></div>
+    </div>
+  </section>
+
+  <section id="sec-guests" style="display:none">
+    <div class="section-title">Guests</div>
+    <div id="guest-list"></div>
+  </section>
+
+  <section id="sec-history" style="display:none">
+    <div class="section-title">Recent Runs</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Run ID</th><th>Host</th><th>Commit</th><th>Status</th>
+            <th>Guests</th><th>Started</th><th>Duration</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div id="no-data" class="no-data">
+    <h3>No test data yet</h3>
+    <p>Run <code>Invoke-TestRunner.ps1</code> to start a test cycle.</p>
+  </div>
+
+</main>
+
+<div id="footer-bar">
+  <span>Last loaded: <span id="last-loaded">—</span></span>
+  <span>Refreshing in <span id="countdown">30</span>s · <a href="#" onclick="loadStatus();return false" style="color:#6b7280">Refresh now</a></span>
+</div>
+
+<script>
+  const BANNER = {
+    idle:    'No test data available',
+    running: 'Test run in progress',
+    pass:    'All guests operational',
+    fail:    'Incident detected — see details below'
+  };
+
+  function cls(status) {
+    return ['idle','running','pass','fail','skipped','pending'].includes(status) ? status : 'idle';
+  }
+
+  function badge(status, label) {
+    const c = cls(status);
+    return `<span class="badge ${c}">${label || status}</span>`;
+  }
+
+  function pill(step) {
+    const c = cls(step.status);
+    const skip = step.skipped ? ' (skip)' : '';
+    const err  = step.errorMessage ? ` title="${step.errorMessage.replace(/"/g,'&quot;')}"` : '';
+    return `<span class="step-pill ${c}"${err}>${step.name}${skip}</span>`;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString(undefined, { dateStyle:'short', timeStyle:'short' });
+  }
+
+  function fmtDuration(a, b) {
+    if (!a || !b) return '—';
+    const s = Math.round((new Date(b) - new Date(a)) / 1000);
+    if (s < 0) return '—';
+    const m = Math.floor(s / 60), r = s % 60;
+    return m ? (r ? `${m}m ${r}s` : `${m}m`) : `${s}s`;
+  }
+
+  function renderStatus(data) {
+    const noData = document.getElementById('no-data');
+    const banner = document.getElementById('banner');
+
+    if (!data || (!data.currentRun && !data.runId && !data.guests?.length && !data.history?.length)) {
+      banner.className = 'idle';
+      document.getElementById('banner-text').textContent = BANNER.idle;
+      ['sec-meta','sec-guests','sec-history'].forEach(id => document.getElementById(id).style.display = 'none');
+      noData.style.display = '';
+      return;
+    }
+    noData.style.display = 'none';
+
+    const status = data.overallStatus || 'idle';
+    banner.className = cls(status);
+    document.getElementById('banner-text').textContent = BANNER[status] || status;
+
+    // Meta
+    if (data.runId) {
+      document.getElementById('sec-meta').style.display = '';
+      document.getElementById('m-host').textContent     = data.host     || '—';
+      document.getElementById('m-hostname').textContent = data.hostname || '—';
+      document.getElementById('m-commit').textContent   = (data.gitCommit || '—').slice(0, 12);
+      document.getElementById('m-runid').textContent    = (data.runId || '—').slice(0, 19);
+      document.getElementById('m-started').textContent  = fmtDate(data.startedAt);
+      document.getElementById('m-finished').textContent = data.finishedAt ? fmtDate(data.finishedAt) : (status === 'running' ? '(in progress)' : '—');
+    }
+
+    // Guests
+    const guests = data.guests || [];
+    if (guests.length) {
+      document.getElementById('sec-guests').style.display = '';
+      document.getElementById('guest-list').innerHTML = guests.map(g => {
+        const steps  = (g.steps || []).map(pill).join('');
+        const dur    = fmtDuration(g.steps?.find(s=>s.name==='GetImage')?.startedAt, g.steps?.slice(-1)[0]?.finishedAt);
+        const errHtml = g.steps?.find(s => s.errorMessage)
+          ? `<div class="guest-error">${g.steps.find(s=>s.errorMessage).errorMessage}</div>` : '';
+        return `<div class="guest-card">
+          <div class="left">
+            <div class="guest-name">${g.guestKey}</div>
+            <div class="guest-meta">${g.vmName ? 'VM: '+g.vmName+' · ' : ''}${dur !== '—' ? 'Duration: '+dur : ''}</div>
+            <div class="steps">${steps}</div>
+            ${errHtml}
+          </div>
+          <div>${badge(g.status)}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // History
+    const history = data.history || [];
+    if (history.length) {
+      document.getElementById('sec-history').style.display = '';
+      document.getElementById('history-body').innerHTML = history.map(h => {
+        const gs = h.guestSummary || {};
+        const guestPills = Object.entries(gs).map(([k, v]) =>
+          `<span class="badge ${cls(v)}" style="font-size:.625rem;padding:.15rem .4rem">${k.replace('guest.','')}</span>`
+        ).join(' ');
+        return `<tr>
+          <td class="mono">${(h.runId||'—').slice(0,19)}</td>
+          <td>${h.host||'—'}</td>
+          <td class="mono">${(h.gitCommit||'—').slice(0,8)}</td>
+          <td>${badge(h.overallStatus)}</td>
+          <td>${guestPills}</td>
+          <td>${fmtDate(h.startedAt)}</td>
+          <td>${fmtDuration(h.startedAt, h.finishedAt)}</td>
+        </tr>`;
+      }).join('');
+    }
+  }
+
+  let countdown = 30;
+
+  async function loadStatus() {
+    try {
+      const res  = await fetch('status.json?_=' + Date.now());
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      renderStatus(data);
+    } catch (e) {
+      console.warn('Could not load status.json:', e.message);
+      renderStatus(null);
+    }
+    document.getElementById('last-loaded').textContent = new Date().toLocaleTimeString();
+    countdown = 30;
+  }
+
+  setInterval(() => {
+    countdown = Math.max(0, countdown - 1);
+    document.getElementById('countdown').textContent = countdown;
+    if (countdown === 0) loadStatus();
+  }, 1000);
+
+  loadStatus();
+</script>
+
+</body>
+</html>

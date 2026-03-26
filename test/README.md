@@ -63,6 +63,24 @@ For Slack/Teams webhooks, set `"type": "slack"` (or `"teams"`) and add:
 "webhook": { "url": "https://hooks.slack.com/services/..." }
 ```
 
+## Verifying your configuration
+
+After editing `test/test-config.json`, run the config checker to validate settings and send a test notification before launching the full test cycle:
+
+```powershell
+pwsh test/Test-Config.ps1
+```
+
+Each check prints `[PASS]`, `[WARN]`, or `[FAIL]` with diagnostic detail. A test notification is sent at the end so you can confirm delivery end-to-end.
+
+```powershell
+# Validate settings only — skip the live notification send
+pwsh test/Test-Config.ps1 -SkipSend
+
+# Use a custom config path
+pwsh test/Test-Config.ps1 -ConfigPath /path/to/my-config.json
+```
+
 ## Usage
 
 ```powershell
@@ -116,6 +134,7 @@ test/
   Invoke-TestRunner.ps1     # Entry point
   test-config.json.template # Configuration template (committed)
   test-config.json          # Your local configuration (git-ignored)
+  Test-Config.ps1           # Validates config and sends a test notification
   modules/
     Test.Host.psm1          # Host detection, elevation, git
     Test.Status.psm1        # status.json management, HTTP server

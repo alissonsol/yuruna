@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 0.1
-.GUID a1b2c3d4-e5f6-4789-8abc-def012345607
+.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol
 .COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
@@ -169,7 +169,7 @@ foreach ($GuestKey in $GuestList) {
     }
 
     Set-GuestStatus -GuestKey $GuestKey -Status "pass"
-    Write-Output "$GuestKey: PASS"
+    Write-Output "${GuestKey}: PASS"
 }
 
 # === Phase 3: Finalise ===

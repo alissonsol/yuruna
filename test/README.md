@@ -42,58 +42,35 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 ```json
 {
   "notification": {
-    "type": "smtp",
-    "toAddress": "ops@example.com",
-    "smtp": {
-      "server": "smtp.example.com",
-      "port": 587,
-      "useTls": true,
-      "fromAddress": "vde-test@example.com",
-      "username": "vde-test@example.com",
-      "password": "your-password"
+    "toAddress": "recipient@example.com",
+    "resend": {
+      "apiKey": "re_your_api_key",
+      "from": "Yuruna VDE <notifications@yourdomain.com>"
     }
   },
   "alwaysRedownloadImages": false,
-  "cleanupAfterTest": true
+  "cleanupAfterTest": true,
+  "testVmNamePrefix": "test-",
+  "statusServer": {
+    "port": 8080,
+    "enabled": true
+  },
+  "maxHistoryRuns": 30
 }
 ```
 
-For Slack/Teams webhooks, set `"type": "slack"` (or `"teams"`) and add:
-```json
-"webhook": { "url": "https://hooks.slack.com/services/..." }
-```
+### Setting up notifications
 
-### Using an Outlook or Hotmail account for notifications
+Notifications are sent via the [Resend](https://resend.com) email API. Any SMTP-capable email provider (SendGrid, Mailgun, Amazon SES, etc.) could be used instead, but that would require changing the notification code in `modules/Test.Notify.psm1`.
 
-Microsoft has deprecated Basic Authentication for personal Microsoft accounts (`@outlook.com`, `@hotmail.com`). You must use an **App Password** instead of your regular password.
+**One-time Resend setup:**
 
-**One-time setup:**
+1. Create a free account at [resend.com](https://resend.com).
+2. Go to [API Keys](https://resend.com/api-keys) and create a new API key. Copy the key (it starts with `re_`).
+3. Add and verify your sending domain under [Domains](https://resend.com/domains), or use the provided `onboarding@resend.dev` address for testing.
+4. Set `notification.resend.apiKey` to your API key and `notification.resend.from` to your verified sender address in `test-config.json`.
 
-1. Sign in to the [Microsoft Security Dashboard](https://account.microsoft.com/security).
-2. Enable **Two-Step Verification** if it is not already on.
-3. Go to **Advanced security options** → **App passwords** → **Create a new app password**.
-4. Copy the generated 16-character code.
-
-Use these settings in `test-config.json`:
-
-```json
-{
-  "notification": {
-    "type": "smtp",
-    "toAddress": "recipient@example.com",
-    "smtp": {
-      "server": "smtp-mail.outlook.com",
-      "port": 587,
-      "useTls": true,
-      "fromAddress": "your-account@outlook.com",
-      "username": "your-account@outlook.com",
-      "password": "xxxx xxxx xxxx xxxx"
-    }
-  }
-}
-```
-
-The scripts automatically detect `@outlook.com` and `@hotmail.com` addresses and switch to the App Password credential method that Microsoft requires. Run `pwsh test/Test-Config.ps1` to verify the settings and send a test email.
+**Domain verification:** To send from your own domain (rather than `onboarding@resend.dev`), you must register the domain with Resend and add the DNS records (typically TXT and/or MX) that Resend provides to verify domain ownership. Your DNS provider's dashboard is where you add these records. Resend will not deliver mail from an unverified domain.
 
 ## Verifying your configuration
 
@@ -170,7 +147,7 @@ test/
   modules/
     Test.Host.psm1          # Host detection, elevation, git
     Test.Status.psm1        # status.json management, HTTP server
-    Test.Notify.psm1        # SMTP and webhook notifications
+    Test.Notify.psm1        # Resend API email notifications
     Test.Runner.psm1        # Get-Image / New-VM invocation
     Test.Verify.psm1        # VM creation verification
     Test.Cleanup.psm1       # Test VM removal

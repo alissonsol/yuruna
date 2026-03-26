@@ -21,8 +21,8 @@
 
 .DESCRIPTION
     Checks that test-config.json exists and is well-formed, validates all required
-    fields for the configured notification type (smtp, slack, teams, webhook), probes
-    network connectivity where possible, and finally sends a live test notification.
+    fields for Resend API notification, probes network connectivity, and finally
+    sends a live test notification.
     Each check prints a PASS / FAIL / WARN line with diagnostic detail so you can
     fix problems before running the full test cycle.
 
@@ -141,156 +141,70 @@ if (-not $Config.ContainsKey("notification")) { exit 1 }
 
 $notif = $Config.notification
 
-# ── Section 4: Notification type ─────────────────────────────────────────────
+# ── Section 4: Resend API settings ───────────────────────────────────────────
 
-Write-Section "Notification type"
+Write-Section "Resend API settings"
 
-$notifType = "$($notif.type)".ToLower().Trim()
-$validTypes = @("smtp", "slack", "teams", "webhook")
+if (Is-Set $notif.toAddress) { Write-Pass "notification.toAddress = '$($notif.toAddress)'" }
+else                         { Write-Fail "notification.toAddress is not set." }
 
-if (-not (Is-Set $notifType)) {
-    Write-Fail "'notification.type' is not set. Valid values: $($validTypes -join ', ')."
+$resend = $notif.resend
+
+if (-not $resend) {
+    Write-Fail "'notification.resend' block is missing."
     exit 1
 }
 
-if ($notifType -notin $validTypes) {
-    Write-Fail "'notification.type' is '$notifType'. Valid values: $($validTypes -join ', ')."
+Write-Pass "'notification.resend' block is present."
+
+if (Is-Set $resend.apiKey) {
+    Write-Pass "resend.apiKey is set (not shown)."
+    if (-not "$($resend.apiKey)".StartsWith("re_")) {
+        Write-Warn "resend.apiKey does not start with 're_' — Resend API keys typically begin with 're_'."
+    }
+} else {
+    Write-Fail "resend.apiKey is not set. Get your API key at https://resend.com/api-keys"
+}
+
+if (Is-Set $resend.from) {
+    Write-Pass "resend.from = '$($resend.from)'"
+} else {
+    Write-Fail "resend.from is not set. Example: 'Yuruna VDE <notifications@yourdomain.com>'"
+}
+
+# Abort if any FAIL was recorded before network checks.
+if ($script:FailCount -gt 0) {
+    Write-Host "`nFix the errors above before testing network connectivity." -ForegroundColor Red
     exit 1
 }
 
-Write-Pass "'notification.type' = '$notifType'."
+# ── Section 5: Resend API connectivity ───────────────────────────────────────
 
-# ── Section 5a: SMTP checks ───────────────────────────────────────────────────
+Write-Section "Resend API connectivity"
 
-if ($notifType -eq "smtp") {
-
-    Write-Section "SMTP settings"
-
-    $smtp = $notif.smtp
-
-    if (-not $smtp) {
-        Write-Fail "'notification.smtp' block is missing."
-        exit 1
-    }
-
-    foreach ($field in @("server", "fromAddress")) {
-        if (Is-Set $smtp[$field]) { Write-Pass "smtp.$field = '$($smtp[$field])'" }
-        else                      { Write-Fail "smtp.$field is not set." }
-    }
-
-    if (Is-Set $notif.toAddress) { Write-Pass "notification.toAddress = '$($notif.toAddress)'" }
-    else                         { Write-Fail "notification.toAddress is not set." }
-
-    $port = if ($smtp.ContainsKey("port")) { [int]$smtp.port } else { 587 }
-    if ($port -gt 0 -and $port -lt 65536) { Write-Pass "smtp.port = $port" }
-    else                                  { Write-Fail "smtp.port '$port' is not a valid port number." }
-
-    $useTls = if ($smtp.ContainsKey("useTls")) { [bool]$smtp.useTls } else { $true }
-    Write-Pass "smtp.useTls = $useTls"
-
-    if (Is-Set $smtp.username) {
-        Write-Pass "smtp.username = '$($smtp.username)'"
-        if (Is-Set $smtp.password) { Write-Pass "smtp.password is set (not shown)." }
-        else                       { Write-Warn "smtp.username is set but smtp.password is empty — authentication may fail." }
-    } else {
-        Write-Warn "smtp.username is empty — will attempt unauthenticated relay."
-    }
-
-    # Outlook / Hotmail detection
-    $fromAddr  = "$($smtp.fromAddress)".ToLower()
-    $isOutlook = ($fromAddr -like '*@outlook.com' -or $fromAddr -like '*@hotmail.com')
-    if ($isOutlook) {
-        Write-Pass "Outlook/Hotmail account detected — app password credential path will be used."
-        $expectedServer = "smtp-mail.outlook.com"
-        if ("$($smtp.server)".Trim() -ne $expectedServer) {
-            Write-Warn "smtp.server is '$($smtp.server)' but Outlook requires '$expectedServer'."
-            Write-Info "Update smtp.server to '$expectedServer' in test-config.json."
-        } else {
-            Write-Pass "smtp.server is correctly set to '$expectedServer'."
-        }
-        if (-not (Is-Set $smtp.password)) {
-            Write-Fail "smtp.password must be set to an App Password for Outlook/Hotmail accounts."
-            Write-Info "Generate one at: https://account.microsoft.com/security"
-            Write-Info "Enable Two-Step Verification, then create an App Password under Advanced security options."
-        } else {
-            Write-Info "Ensure smtp.password is a Microsoft App Password, not your regular account password."
-            Write-Info "Regular passwords are rejected by Microsoft for SMTP. See the README for setup steps."
-        }
-    }
-
-    # Abort if any FAIL was recorded before network checks.
-    if ($script:FailCount -gt 0) {
-        Write-Host "`nFix the errors above before testing network connectivity." -ForegroundColor Red
-        exit 1
-    }
-
-    # DNS resolution
-    Write-Section "SMTP connectivity"
-    $server = $smtp.server
-    try {
-        $resolved = [System.Net.Dns]::GetHostAddresses($server)
-        Write-Pass "DNS resolved '$server' -> $($resolved[0].IPAddressToString)"
-    } catch {
-        Write-Fail "DNS resolution failed for '$server': $_"
-        Write-Info "Check that smtp.server is spelled correctly and DNS is available."
-        exit 1
-    }
-
-    # TCP connect (5-second timeout)
-    try {
-        $tcp = [System.Net.Sockets.TcpClient]::new()
-        $ar  = $tcp.BeginConnect($server, $port, $null, $null)
-        $ok  = $ar.AsyncWaitHandle.WaitOne(5000, $false)
-        if ($ok -and $tcp.Connected) {
-            $tcp.EndConnect($ar)
-            Write-Pass "TCP connection to ${server}:${port} succeeded."
-        } else {
-            Write-Fail "TCP connection to ${server}:${port} timed out."
-            Write-Info "Verify the server address, port, and that no firewall is blocking outbound SMTP."
-        }
-        $tcp.Close()
-    } catch {
-        Write-Fail "TCP connection to ${server}:${port} failed: $_"
-    }
+try {
+    $resolved = [System.Net.Dns]::GetHostAddresses("api.resend.com")
+    Write-Pass "DNS resolved 'api.resend.com' -> $($resolved[0].IPAddressToString)"
+} catch {
+    Write-Fail "DNS resolution failed for 'api.resend.com': $_"
+    Write-Info "Check that DNS is available and api.resend.com is reachable."
+    exit 1
 }
 
-# ── Section 5b: Webhook / Slack / Teams checks ────────────────────────────────
-
-if ($notifType -in @("slack", "teams", "webhook")) {
-
-    Write-Section "Webhook settings"
-
-    $wh = $notif.webhook
-    if (-not $wh) {
-        Write-Fail "'notification.webhook' block is missing."
-        exit 1
-    }
-
-    if (Is-Set $wh.url) {
-        $url = $wh.url
-        Write-Pass "notification.webhook.url is set."
-        try {
-            $uri = [System.Uri]::new($url)
-            if ($uri.Scheme -in @("http","https")) {
-                Write-Pass "URL scheme is '$($uri.Scheme)', host is '$($uri.Host)'."
-            } else {
-                Write-Fail "URL scheme '$($uri.Scheme)' is not http or https."
-            }
-        } catch {
-            Write-Fail "webhook.url is not a valid URI: $_"
-        }
+try {
+    $tcp = [System.Net.Sockets.TcpClient]::new()
+    $ar  = $tcp.BeginConnect("api.resend.com", 443, $null, $null)
+    $ok  = $ar.AsyncWaitHandle.WaitOne(5000, $false)
+    if ($ok -and $tcp.Connected) {
+        $tcp.EndConnect($ar)
+        Write-Pass "TCP connection to api.resend.com:443 succeeded."
     } else {
-        Write-Fail "notification.webhook.url is not set."
+        Write-Fail "TCP connection to api.resend.com:443 timed out."
+        Write-Info "Verify that no firewall is blocking outbound HTTPS."
     }
-
-    if ($notifType -eq "teams") {
-        Write-Info "Teams webhooks use the MessageCard schema — make sure your URL is an 'Incoming Webhook' connector URL."
-    }
-
-    if ($script:FailCount -gt 0) {
-        Write-Host "`nFix the errors above before sending a test notification." -ForegroundColor Red
-        exit 1
-    }
+    $tcp.Close()
+} catch {
+    Write-Fail "TCP connection to api.resend.com:443 failed: $_"
 }
 
 # ── Section 6: Live send ──────────────────────────────────────────────────────
@@ -319,15 +233,13 @@ If you received this, your notification settings in test-config.json are working
 Sent: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 "@
 
-        Write-Info "Sending test notification via '$notifType'..."
+        Write-Info "Sending test notification via Resend API..."
         try {
             Send-Notification -Config $Config -Subject $subject -Body $body
-            # Send-Notification writes its own success/failure output; capture failures via exit code check.
-            if ($script:FailCount -eq 0) {
-                Write-Pass "Send-Notification completed (see output above for delivery confirmation)."
-            }
+            Write-Pass "Send-Notification completed successfully."
         } catch {
-            Write-Fail "Unexpected error during send: $_"
+            Write-Fail "Send-Notification failed: $_"
+            Write-Info "Verify your Resend API key and 'from' domain at https://resend.com"
         }
     }
 }

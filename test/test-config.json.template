@@ -1,18 +1,9 @@
 {
   "notification": {
-    "type": "smtp",
     "toAddress": "",
-    "smtp": {
-      "server": "",
-      "port": 587,
-      "useTls": true,
-      "fromAddress": "",
-      "username": "",
-      "password": ""
-    },
-    "webhook": {
-      "url": "",
-      "format": "slack"
+    "resend": {
+      "apiKey": "",
+      "from": ""
     }
   },
   "alwaysRedownloadImages": false,

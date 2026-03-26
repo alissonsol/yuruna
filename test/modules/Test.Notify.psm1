@@ -15,7 +15,7 @@
 .PRIVATEDATA
 #>
 
-# Dispatches a notification via SMTP or webhook based on config.notification.type.
+# Dispatches a notification via the Resend API based on config.notification.
 function Send-Notification {
     param(
         $Config,
@@ -24,79 +24,30 @@ function Send-Notification {
     )
     $notif = $Config.notification
     if (-not $notif) { Write-Warning "No notification config found."; return }
-    if (-not $notif.toAddress -and -not $notif.webhook.url) {
-        Write-Warning "No notification address configured. Set notification.toAddress or notification.webhook.url in test-config.json (copy from test-config.json.template)."
+    if (-not $notif.toAddress) {
+        Write-Warning "No notification address configured. Set notification.toAddress in test-config.json (copy from test-config.json.template)."
         return
     }
-    switch ($notif.type) {
-        "smtp"    { Send-SmtpNotification    -Notif $notif -Subject $Subject -Body $Body }
-        "slack"   { Send-WebhookNotification -Notif $notif -Subject $Subject -Body $Body -Format "slack" }
-        "teams"   { Send-WebhookNotification -Notif $notif -Subject $Subject -Body $Body -Format "teams" }
-        "webhook" { Send-WebhookNotification -Notif $notif -Subject $Subject -Body $Body -Format "slack" }
-        default   { Write-Warning "Unknown notification type: $($notif.type). Set type to smtp, webhook, slack, or teams." }
+
+    $resend = $notif.resend
+    if (-not $resend -or -not $resend.apiKey -or -not $resend.from) {
+        throw "Resend configuration incomplete: notification.resend.apiKey and notification.resend.from are required."
     }
-}
 
-function Test-IsOutlookAddress {
-    param([string]$Address)
-    $a = $Address.ToLower()
-    return ($a -like '*@outlook.com' -or $a -like '*@hotmail.com')
-}
-
-function Send-SmtpNotification {
-    param($Notif, [string]$Subject, [string]$Body)
-    try {
-        $smtp     = $Notif.smtp
-        $fromAddr = "$($smtp.fromAddress)"
-        $isOutlook = Test-IsOutlookAddress -Address $fromAddr
-
-        if ($isOutlook) {
-            # Outlook/Hotmail requires an App Password delivered via PSCredential.
-            # Basic Authentication with a regular password is rejected by Microsoft.
-            $secPwd = ConvertTo-SecureString $smtp.password -AsPlainText -Force
-            $cred   = [System.Management.Automation.PSCredential]::new($smtp.username, $secPwd)
-            $server = if ("$($smtp.server)".Trim()) { $smtp.server } else { "smtp-mail.outlook.com" }
-            $port   = if ($smtp.port) { [int]$smtp.port } else { 587 }
-            Send-MailMessage -From $fromAddr `
-                             -To $Notif.toAddress `
-                             -Subject $Subject `
-                             -Body $Body `
-                             -SmtpServer $server `
-                             -Port $port `
-                             -UseSsl `
-                             -Credential $cred
-        } else {
-            $client = [System.Net.Mail.SmtpClient]::new($smtp.server, [int]$smtp.port)
-            $client.EnableSsl = [bool]$smtp.useTls
-            if ($smtp.username) {
-                $client.Credentials = [System.Net.NetworkCredential]::new($smtp.username, $smtp.password)
-            }
-            $msg = [System.Net.Mail.MailMessage]::new($fromAddr, $Notif.toAddress, $Subject, $Body)
-            $client.Send($msg)
-            $msg.Dispose()
-        }
-        Write-Output "Notification sent via SMTP to: $($Notif.toAddress)"
-    } catch {
-        Write-Warning "Failed to send SMTP notification: $_"
+    $headers = @{
+        "Authorization" = "Bearer $($resend.apiKey)"
+        "Content-Type"  = "application/json"
     }
-}
 
-function Send-WebhookNotification {
-    param($Notif, [string]$Subject, [string]$Body, [string]$Format = "slack")
-    try {
-        $url = $Notif.webhook.url
-        if (-not $url) { Write-Warning "No webhook URL configured in notification.webhook.url."; return }
-        $text = "$Subject`n`n$Body"
-        $payload = if ($Format -eq "teams") {
-            @{ "@type" = "MessageCard"; "@context" = "http://schema.org/extensions"; summary = $Subject; text = $text }
-        } else {
-            @{ text = $text }
-        }
-        Invoke-RestMethod -Uri $url -Method Post -Body ($payload | ConvertTo-Json -Compress) -ContentType "application/json" | Out-Null
-        Write-Output "Notification sent via webhook ($Format)."
-    } catch {
-        Write-Warning "Failed to send webhook notification: $_"
-    }
+    $emailBody = @{
+        from    = $resend.from
+        to      = $notif.toAddress
+        subject = $Subject
+        html    = "<pre>$([System.Net.WebUtility]::HtmlEncode($Body))</pre>"
+    } | ConvertTo-Json
+
+    Invoke-RestMethod -Uri "https://api.resend.com/emails" -Method Post -Headers $headers -Body $emailBody
+    Write-Output "Notification sent via Resend API to: $($notif.toAddress)"
 }
 
 # Builds a human-readable failure message for notifications.

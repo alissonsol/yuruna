@@ -19,6 +19,8 @@ $script:Doc  = $null
 $script:File = $null
 
 # Initialises a fresh status document for a new run and writes status.json.
+# $StepNames controls which steps are tracked per guest (allows the caller
+# to add "CustomTests" when extension scripts are present).
 # Returns the runId string.
 function Initialize-StatusDocument {
     param(
@@ -26,45 +28,50 @@ function Initialize-StatusDocument {
         [string]   $HostType,
         [string]   $Hostname,
         [string]   $GitCommit,
-        [string[]] $GuestList
+        [string[]] $GuestList,
+        [string[]] $StepNames = @("NewVM", "StartVM", "VerifyVM")
     )
     $script:File = $StatusFilePath
 
     $history = @()
+    $lastGetImageAt = $null
+    $cycle = 0
     if (Test-Path $StatusFilePath) {
         try {
             $prev = Get-Content -Raw $StatusFilePath | ConvertFrom-Json
             if ($prev.history) { $history = @($prev.history) }
+            if ($prev.lastGetImageAt) { $lastGetImageAt = $prev.lastGetImageAt }
+            if ($prev.cycle) { $cycle = [int]$prev.cycle }
         } catch { }
     }
 
     $runId = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
 
     $guests = foreach ($key in $GuestList) {
+        $steps = foreach ($sn in $StepNames) {
+            [ordered]@{ name=$sn; status="pending"; startedAt=$null; finishedAt=$null; skipped=$false; errorMessage=$null }
+        }
         [ordered]@{
             guestKey = $key
             vmName   = $null
             status   = "pending"
-            steps    = @(
-                [ordered]@{ name="GetImage";  status="pending"; startedAt=$null; finishedAt=$null; skipped=$false; errorMessage=$null }
-                [ordered]@{ name="NewVM";     status="pending"; startedAt=$null; finishedAt=$null; skipped=$false; errorMessage=$null }
-                [ordered]@{ name="VerifyVM";  status="pending"; startedAt=$null; finishedAt=$null; skipped=$false; errorMessage=$null }
-                [ordered]@{ name="CleanupVM"; status="pending"; startedAt=$null; finishedAt=$null; skipped=$false; errorMessage=$null }
-            )
+            steps    = @($steps)
         }
     }
 
     $script:Doc = [ordered]@{
-        schemaVersion = 1
-        host          = $HostType
-        hostname      = $Hostname
-        runId         = $runId
-        startedAt     = $runId
-        finishedAt    = $null
-        overallStatus = "running"
-        gitCommit     = $GitCommit
-        guests        = @($guests)
-        history       = $history
+        schemaVersion  = 1
+        host           = $HostType
+        hostname       = $Hostname
+        runId          = $runId
+        startedAt      = $runId
+        finishedAt     = $null
+        overallStatus  = "running"
+        gitCommit      = $GitCommit
+        lastGetImageAt = $lastGetImageAt
+        cycle          = $cycle + 1
+        guests         = @($guests)
+        history        = $history
     }
 
     Write-StatusJson
@@ -142,57 +149,24 @@ function Write-StatusJson {
     Move-Item -Path $tmp -Destination $script:File -Force
 }
 
-# Starts a background HTTP server serving the status/ directory.
-# Returns the background job object.
-function Start-StatusServer {
-    param([string]$StatusDir, [int]$Port = 8080)
-    $prefix = "http://localhost:$Port/"
-    $job = Start-Job -ScriptBlock {
-        param($dir, $pfx)
-        $listener = [System.Net.HttpListener]::new()
-        $listener.Prefixes.Add($pfx)
-        try {
-            $listener.Start()
-            while ($listener.IsListening) {
-                $ctx  = $listener.GetContext()
-                $req  = $ctx.Request
-                $res  = $ctx.Response
-                $path = $req.Url.LocalPath.TrimStart('/')
-                if ($path -eq '' -or $path -eq 'status/' -or $path -eq 'status') { $path = 'index.html' }
-                $path = $path -replace '^status[/\\]?', ''
-                $file = Join-Path $dir $path
-                if (Test-Path $file -PathType Leaf) {
-                    $ext = [System.IO.Path]::GetExtension($file)
-                    $res.ContentType = switch ($ext) {
-                        '.html' { 'text/html; charset=utf-8' }
-                        '.json' { 'application/json; charset=utf-8' }
-                        '.css'  { 'text/css; charset=utf-8' }
-                        '.js'   { 'application/javascript; charset=utf-8' }
-                        default { 'application/octet-stream' }
-                    }
-                    $bytes = [System.IO.File]::ReadAllBytes($file)
-                    $res.ContentLength64 = $bytes.Length
-                    $res.OutputStream.Write($bytes, 0, $bytes.Length)
-                } else {
-                    $res.StatusCode = 404
-                    $body = [System.Text.Encoding]::UTF8.GetBytes('Not Found')
-                    $res.OutputStream.Write($body, 0, $body.Length)
-                }
-                $res.OutputStream.Close()
-            }
-        } finally { $listener.Stop() }
-    } -ArgumentList $StatusDir, $prefix
-    Write-Information "Status page: ${prefix}status/" -InformationAction Continue
-    return $job
-}
-
-# Stops the background HTTP server job.
-function Stop-StatusServer {
-    param($Job)
-    if ($Job) {
-        Stop-Job   -Job $Job -ErrorAction SilentlyContinue
-        Remove-Job -Job $Job -Force -ErrorAction SilentlyContinue
+# Reads the lastGetImageAt timestamp from the status file.
+# Returns $null if not set.
+function Get-LastGetImageTime {
+    param([string]$StatusFilePath)
+    if ($script:Doc -and $script:Doc.lastGetImageAt) {
+        return $script:Doc.lastGetImageAt
     }
+    if (-not (Test-Path $StatusFilePath)) { return $null }
+    try {
+        $doc = Get-Content -Raw $StatusFilePath | ConvertFrom-Json
+        return $doc.lastGetImageAt
+    } catch { return $null }
 }
 
-Export-ModuleMember -Function Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Complete-Run, Write-StatusJson, Start-StatusServer, Stop-StatusServer
+# Records the current time as the last Get-Image timestamp and flushes status.json.
+function Set-LastGetImageTime {
+    $script:Doc.lastGetImageAt = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    Write-StatusJson
+}
+
+Export-ModuleMember -Function Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime

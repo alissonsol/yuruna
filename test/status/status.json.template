@@ -7,6 +7,8 @@
   "finishedAt": null,
   "overallStatus": "idle",
   "gitCommit": null,
+  "lastGetImageAt": null,
+  "cycle": 0,
   "guests": [],
   "history": []
 }

@@ -264,7 +264,7 @@
       document.getElementById('sec-guests').style.display = '';
       document.getElementById('guest-list').innerHTML = guests.map(g => {
         const steps  = (g.steps || []).map(pill).join('');
-        const dur    = fmtDuration(g.steps?.find(s=>s.name==='GetImage')?.startedAt, g.steps?.slice(-1)[0]?.finishedAt);
+        const dur    = fmtDuration(g.steps?.[0]?.startedAt, g.steps?.slice(-1)[0]?.finishedAt);
         const errHtml = g.steps?.find(s => s.errorMessage)
           ? `<div class="guest-error">${g.steps.find(s=>s.errorMessage).errorMessage}</div>` : '';
         return `<div class="guest-card">

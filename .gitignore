@@ -365,6 +365,9 @@ crash.log
 # Test configuration (contains credentials)
 test/test-config.json
 
+# Test status (modified at runtime)
+test/status/status.json
+
 # yuruna
 **/.yuruna/*
 **/resources.output.yml

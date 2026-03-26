@@ -31,7 +31,13 @@ The same prerequisites as the VDE scripts apply — see `vde/host.*/README.md` f
 
 ## Configuration
 
-Edit `test/test-config.json` before first run:
+Copy the template and edit your local copy before first run:
+
+```powershell
+cp test/test-config.json.template test/test-config.json
+```
+
+Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 
 ```json
 {
@@ -108,7 +114,8 @@ Then open `http://localhost:8080/status/`.
 ```
 test/
   Invoke-TestRunner.ps1     # Entry point
-  test-config.json          # User configuration
+  test-config.json.template # Configuration template (committed)
+  test-config.json          # Your local configuration (git-ignored)
   modules/
     Test.Host.psm1          # Host detection, elevation, git
     Test.Status.psm1        # status.json management, HTTP server

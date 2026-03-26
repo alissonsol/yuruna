@@ -25,7 +25,7 @@ function Send-Notification {
     $notif = $Config.notification
     if (-not $notif) { Write-Warning "No notification config found."; return }
     if (-not $notif.toAddress -and -not $notif.webhook.url) {
-        Write-Warning "No notification address configured. Set notification.toAddress or notification.webhook.url in test-config.json."
+        Write-Warning "No notification address configured. Set notification.toAddress or notification.webhook.url in test-config.json (copy from test-config.json.template)."
         return
     }
     switch ($notif.type) {

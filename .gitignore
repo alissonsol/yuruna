@@ -362,6 +362,9 @@ crash.log
 **/selenium/msedgedriver.exe
 **/selenium/chromedriver.exe
 
+# Test configuration (contains credentials)
+test/test-config.json
+
 # yuruna
 **/.yuruna/*
 **/resources.output.yml

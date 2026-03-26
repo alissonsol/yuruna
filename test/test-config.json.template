@@ -1,0 +1,26 @@
+{
+  "notification": {
+    "type": "smtp",
+    "toAddress": "",
+    "smtp": {
+      "server": "",
+      "port": 587,
+      "useTls": true,
+      "fromAddress": "",
+      "username": "",
+      "password": ""
+    },
+    "webhook": {
+      "url": "",
+      "format": "slack"
+    }
+  },
+  "alwaysRedownloadImages": false,
+  "cleanupAfterTest": true,
+  "testVmNamePrefix": "test-",
+  "statusServer": {
+    "port": 8080,
+    "enabled": true
+  },
+  "maxHistoryRuns": 30
+}

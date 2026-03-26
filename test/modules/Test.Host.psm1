@@ -60,9 +60,9 @@ function Assert-Elevation {
 # Runs git pull in the repo root. Returns $true on success.
 function Invoke-GitPull {
     param([string]$RepoRoot)
-    Write-Output "Running git pull in: $RepoRoot"
+    Write-Information "Running git pull in: $RepoRoot" -InformationAction Continue
     $output = & git -C $RepoRoot pull 2>&1
-    Write-Output $output
+    Write-Information "$output" -InformationAction Continue
     if ($LASTEXITCODE -ne 0) {
         Write-Error "git pull failed (exit $LASTEXITCODE)."
         return $false

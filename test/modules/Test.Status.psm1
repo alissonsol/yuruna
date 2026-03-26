@@ -182,7 +182,7 @@ function Start-StatusServer {
             }
         } finally { $listener.Stop() }
     } -ArgumentList $StatusDir, $prefix
-    Write-Output "Status page: ${prefix}status/"
+    Write-Information "Status page: ${prefix}status/" -InformationAction Continue
     return $job
 }
 

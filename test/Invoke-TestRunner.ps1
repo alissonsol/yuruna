@@ -55,14 +55,30 @@ if ($Config.statusServer.enabled -and -not $NoServer) {
 }
 
 # === Phase 1: Git pull ===
+$Warnings = [System.Collections.Generic.List[string]]::new()
 if (-not $NoGitPull) {
     if (-not (Invoke-GitPull -RepoRoot $RepoRoot)) {
+        Write-Output ""
+        Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        Write-Output "  ERROR: git pull failed"
+        Write-Output "  Check network connectivity and repository access."
+        Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        Write-Output ""
+        $body = Format-FailureMessage `
+            -HostType     $HostType `
+            -GuestKey     "(bootstrap)" `
+            -StepName     "GitPull" `
+            -ErrorMessage "git pull failed. Check network connectivity and repository access." `
+            -RunId        "(not yet assigned)" `
+            -GitCommit    (Get-CurrentGitCommit -RepoRoot $RepoRoot)
         Send-Notification -Config $Config `
-            -Subject "Yuruna VDE Test: git pull failed on $HostType" `
-            -Body    "git pull failed. Check network connectivity and repository access."
+            -Subject "Yuruna VDE Test: FAIL on $HostType / GitPull" `
+            -Body    $body
         Stop-StatusServer -Job $ServerJob
         exit 1
     }
+} else {
+    $Warnings.Add("Git pull was skipped (-NoGitPull).")
 }
 $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
 
@@ -103,7 +119,7 @@ foreach ($GuestKey in $GuestList) {
     if ($GuestKey -eq "guest.windows.11" -and $HostType -eq "host.windows.hyper-v") {
         if (-not (Test-SeleniumPrerequisite -RepoRoot $RepoRoot)) {
             $err = "chromedriver.exe not found. Run vde/host.windows.hyper-v/Get-Selenium.ps1 as Administrator first."
-            Write-Error $err
+            Write-Warning "  ERROR: $err"
             Set-StepStatus  -GuestKey $GuestKey -StepName "GetImage" -Status "fail" -ErrorMessage $err
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $err
@@ -121,6 +137,7 @@ foreach ($GuestKey in $GuestList) {
     } elseif ($r.success) {
         Set-StepStatus -GuestKey $GuestKey -StepName "GetImage" -Status "pass"
     } else {
+        Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
         Set-StepStatus  -GuestKey $GuestKey -StepName "GetImage" -Status "fail" -ErrorMessage $r.errorMessage
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage
@@ -133,6 +150,7 @@ foreach ($GuestKey in $GuestList) {
     if ($r.success) {
         Set-StepStatus -GuestKey $GuestKey -StepName "NewVM" -Status "pass"
     } else {
+        Write-Warning "  ERROR [$GuestKey / NewVM]: $($r.errorMessage)"
         Set-StepStatus  -GuestKey $GuestKey -StepName "NewVM" -Status "fail" -ErrorMessage $r.errorMessage
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "NewVM"; $FailureMessage = $r.errorMessage
@@ -146,6 +164,7 @@ foreach ($GuestKey in $GuestList) {
         Set-StepStatus -GuestKey $GuestKey -StepName "VerifyVM" -Status "pass"
     } else {
         $err = "VM '$VMName' not found after New-VM.ps1 succeeded."
+        Write-Warning "  ERROR [$GuestKey / VerifyVM]: $err"
         Set-StepStatus  -GuestKey $GuestKey -StepName "VerifyVM" -Status "fail" -ErrorMessage $err
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "VerifyVM"; $FailureMessage = $err
@@ -159,9 +178,10 @@ foreach ($GuestKey in $GuestList) {
         if ($cleaned) {
             Set-StepStatus -GuestKey $GuestKey -StepName "CleanupVM" -Status "pass"
         } else {
-            Set-StepStatus -GuestKey $GuestKey -StepName "CleanupVM" -Status "fail" `
-                -ErrorMessage "Cleanup failed. Manual removal required for $VMName."
-            Write-Warning "CleanupVM failed for '$VMName'. Continuing to next guest."
+            $err = "Cleanup failed. Manual removal required for $VMName."
+            Set-StepStatus -GuestKey $GuestKey -StepName "CleanupVM" -Status "fail" -ErrorMessage $err
+            Write-Warning "[$GuestKey / CleanupVM]: $err"
+            $Warnings.Add("$GuestKey / CleanupVM: $err")
         }
     } else {
         Set-StepStatus -GuestKey $GuestKey -StepName "CleanupVM" -Status "skipped" -Skipped $true
@@ -179,7 +199,19 @@ Complete-Run -OverallStatus $FinalStatus -MaxHistoryRuns ([int]$Config.maxHistor
 Write-Output ""
 Write-Output "=== Run complete: $FinalStatus ==="
 
+# === Error / Warning summary ===
 if (-not $OverallPassed -and $FailedGuest) {
+    Write-Output ""
+    Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    Write-Output "  FAILURE SUMMARY"
+    Write-Output "  Host:    $HostType"
+    Write-Output "  Guest:   $FailedGuest"
+    Write-Output "  Step:    $FailedStep"
+    Write-Output "  Error:   $FailureMessage"
+    Write-Output "  Run ID:  $RunId"
+    Write-Output "  Commit:  $GitCommit"
+    Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+
     $body = Format-FailureMessage `
         -HostType     $HostType `
         -GuestKey     $FailedGuest `
@@ -190,6 +222,14 @@ if (-not $OverallPassed -and $FailedGuest) {
     Send-Notification -Config $Config `
         -Subject "Yuruna VDE Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
         -Body    $body
+}
+
+if ($Warnings.Count -gt 0) {
+    Write-Output ""
+    Write-Output "--- Warnings ---"
+    foreach ($w in $Warnings) {
+        Write-Warning "  $w"
+    }
 }
 
 Stop-StatusServer -Job $ServerJob

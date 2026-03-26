@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol
@@ -54,14 +54,14 @@ $script:PassCount = 0
 $script:FailCount = 0
 $script:WarnCount = 0
 
-function Write-Pass  { param([string]$msg) Write-Host "  [PASS] $msg" -ForegroundColor Green;  $script:PassCount++ }
-function Write-Fail  { param([string]$msg) Write-Host "  [FAIL] $msg" -ForegroundColor Red;    $script:FailCount++ }
-function Write-Warn  { param([string]$msg) Write-Host "  [WARN] $msg" -ForegroundColor Yellow; $script:WarnCount++ }
-function Write-Info  { param([string]$msg) Write-Host "        $msg"  -ForegroundColor Cyan }
-function Write-Section { param([string]$msg) Write-Host "`n=== $msg ===" -ForegroundColor White }
+function Write-Pass  { param([string]$msg) Write-Output "  [PASS] $msg"; $script:PassCount++ }
+function Write-Fail  { param([string]$msg) Write-Output "  [FAIL] $msg"; $script:FailCount++ }
+function Write-Warn  { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
+function Write-Info  { param([string]$msg) Write-Output "        $msg" }
+function Write-Section { param([string]$msg) Write-Output "`n=== $msg ===" }
 
 # Returns $true when a value is a non-empty string, $false otherwise.
-function Is-Set { param($v) return ($null -ne $v -and "$v".Trim() -ne "") }
+function Test-IsSet { param($v) return ($null -ne $v -and "$v".Trim() -ne "") }
 
 # ── Section 1: Config file ────────────────────────────────────────────────────
 
@@ -145,7 +145,7 @@ $notif = $Config.notification
 
 Write-Section "Resend API settings"
 
-if (Is-Set $notif.toAddress) { Write-Pass "notification.toAddress = '$($notif.toAddress)'" }
+if (Test-IsSet $notif.toAddress) { Write-Pass "notification.toAddress = '$($notif.toAddress)'" }
 else                         { Write-Fail "notification.toAddress is not set." }
 
 $resend = $notif.resend
@@ -157,7 +157,7 @@ if (-not $resend) {
 
 Write-Pass "'notification.resend' block is present."
 
-if (Is-Set $resend.apiKey) {
+if (Test-IsSet $resend.apiKey) {
     Write-Pass "resend.apiKey is set (not shown)."
     if (-not "$($resend.apiKey)".StartsWith("re_")) {
         Write-Warn "resend.apiKey does not start with 're_' — Resend API keys typically begin with 're_'."
@@ -166,7 +166,7 @@ if (Is-Set $resend.apiKey) {
     Write-Fail "resend.apiKey is not set. Get your API key at https://resend.com/api-keys"
 }
 
-if (Is-Set $resend.from) {
+if (Test-IsSet $resend.from) {
     Write-Pass "resend.from = '$($resend.from)'"
 } else {
     Write-Fail "resend.from is not set. Example: 'Yuruna VDE <notifications@yourdomain.com>'"
@@ -174,7 +174,7 @@ if (Is-Set $resend.from) {
 
 # Abort if any FAIL was recorded before network checks.
 if ($script:FailCount -gt 0) {
-    Write-Host "`nFix the errors above before testing network connectivity." -ForegroundColor Red
+    Write-Output "`nFix the errors above before testing network connectivity."
     exit 1
 }
 
@@ -246,10 +246,9 @@ Sent: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
-Write-Host ""
-Write-Host "─────────────────────────────────────────" -ForegroundColor DarkGray
-$color = if ($script:FailCount -gt 0) { "Red" } elseif ($script:WarnCount -gt 0) { "Yellow" } else { "Green" }
-Write-Host ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:PassCount, $script:WarnCount, $script:FailCount) -ForegroundColor $color
-Write-Host "─────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Output ""
+Write-Output "─────────────────────────────────────────"
+Write-Output ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:PassCount, $script:WarnCount, $script:FailCount)
+Write-Output "─────────────────────────────────────────"
 
 exit $(if ($script:FailCount -gt 0) { 1 } else { 0 })

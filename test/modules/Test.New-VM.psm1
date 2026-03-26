@@ -90,15 +90,25 @@ function Remove-TestVM {
 
 function Remove-UtmTestVM {
     param([string]$VMName)
+    # Stop the VM in UTM first (it may be running from a previous cycle)
+    & utmctl stop "$VMName" 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Output "Stopped UTM VM: $VMName"
+        Start-Sleep -Seconds 2
+    }
+    # Delete the VM from UTM's registry
+    & utmctl delete "$VMName" 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Output "Deleted UTM VM from registry: $VMName"
+    }
+    # Remove the bundle directory from disk
     $hostname  = if ($IsMacOS) { (& hostname -s 2>$null).Trim() } else { (& hostname).Trim() }
     $utmBundle = "$HOME/Desktop/Yuruna.VDE/$hostname.nosync/$VMName.utm"
     if (Test-Path $utmBundle) {
         Remove-Item -Recurse -Force $utmBundle
         Write-Output "Removed UTM bundle: $utmBundle"
-        return $true
     }
-    Write-Warning "UTM bundle not found for cleanup: $utmBundle"
-    return $false
+    return $true
 }
 
 function Remove-HyperVTestVM {

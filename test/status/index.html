@@ -16,10 +16,14 @@
     header {
       background: #111827; color: #fff;
       padding: 1.25rem 2rem;
-      display: flex; align-items: baseline; gap: 1rem;
+      display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
     }
     header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; }
     header p  { color: #9ca3af; font-size: .875rem; }
+    #header-machine {
+      margin-left: auto; color: #9ca3af; font-size: .75rem;
+      font-family: 'Menlo','Consolas',monospace;
+    }
 
     /* ── Status banner ── */
     #banner {
@@ -140,6 +144,7 @@
 <header>
   <h1>Yuruna VDE</h1>
   <p>Virtual Development Environment Test Status</p>
+  <span id="header-machine"></span>
 </header>
 
 <div id="banner" class="idle">
@@ -155,9 +160,11 @@
       <div class="meta-card"><div class="label">Host</div><div class="value" id="m-host">—</div></div>
       <div class="meta-card"><div class="label">Machine</div><div class="value" id="m-hostname">—</div></div>
       <div class="meta-card"><div class="label">Commit</div><div class="value" id="m-commit">—</div></div>
+      <div class="meta-card"><div class="label">Cycle</div><div class="value" id="m-cycle">—</div></div>
       <div class="meta-card"><div class="label">Run ID</div><div class="value" id="m-runid">—</div></div>
       <div class="meta-card"><div class="label">Started</div><div class="value" id="m-started">—</div></div>
       <div class="meta-card"><div class="label">Finished</div><div class="value" id="m-finished">—</div></div>
+      <div class="meta-card"><div class="label">Last Get-Image</div><div class="value" id="m-getimage">—</div></div>
     </div>
   </section>
 
@@ -189,6 +196,7 @@
 </main>
 
 <div id="footer-bar">
+  <span id="footer-machine">Connecting to <span class="mono" id="footer-server"></span></span>
   <span>Last loaded: <span id="last-loaded">—</span></span>
   <span>Refreshing in <span id="countdown">30</span>s · <a href="#" onclick="loadStatus();return false" style="color:#6b7280">Refresh now</a></span>
 </div>
@@ -200,6 +208,9 @@
     pass:    'All guests operational',
     fail:    'Incident detected — see details below'
   };
+
+  // Show the server we are connected to in the footer
+  document.getElementById('footer-server').textContent = window.location.host;
 
   function cls(status) {
     return ['idle','running','pass','fail','skipped','pending'].includes(status) ? status : 'idle';
@@ -233,8 +244,18 @@
   function renderStatus(data) {
     const noData = document.getElementById('no-data');
     const banner = document.getElementById('banner');
+    const headerMachine = document.getElementById('header-machine');
 
-    if (!data || (!data.currentRun && !data.runId && !data.guests?.length && !data.history?.length)) {
+    // Update header with machine identity (always, even before run data)
+    if (data && data.hostname) {
+      const hostLabel = data.host ? data.host.replace('host.','') : '';
+      headerMachine.textContent = data.hostname + (hostLabel ? ' (' + hostLabel + ')' : '');
+      document.title = 'Yuruna VDE — ' + data.hostname;
+    } else {
+      headerMachine.textContent = window.location.hostname || '';
+    }
+
+    if (!data || (!data.runId && !data.guests?.length && !data.history?.length)) {
       banner.className = 'idle';
       document.getElementById('banner-text').textContent = BANNER.idle;
       ['sec-meta','sec-guests','sec-history'].forEach(id => document.getElementById(id).style.display = 'none');
@@ -253,9 +274,11 @@
       document.getElementById('m-host').textContent     = data.host     || '—';
       document.getElementById('m-hostname').textContent = data.hostname || '—';
       document.getElementById('m-commit').textContent   = (data.gitCommit || '—').slice(0, 12);
+      document.getElementById('m-cycle').textContent    = data.cycle    || '—';
       document.getElementById('m-runid').textContent    = (data.runId || '—').slice(0, 19);
       document.getElementById('m-started').textContent  = fmtDate(data.startedAt);
       document.getElementById('m-finished').textContent = data.finishedAt ? fmtDate(data.finishedAt) : (status === 'running' ? '(in progress)' : '—');
+      document.getElementById('m-getimage').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';
     }
 
     // Guests

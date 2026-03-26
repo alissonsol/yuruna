@@ -16,11 +16,11 @@
 #>
 
 # Starts a background HTTP server that serves the status/ directory.
-# Uses System.Net.HttpListener inside a PowerShell background job.
+# Binds to all interfaces so remote machines can connect.
 # Returns the job object so the caller can stop it later.
 function Start-StatusServer {
     param([string]$StatusDir, [int]$Port = 8080)
-    $prefix = "http://localhost:$Port/"
+    $prefix = "http://*:$Port/"
     $job = Start-Job -ScriptBlock {
         param($dir, $pfx)
         $listener = [System.Net.HttpListener]::new()
@@ -31,9 +31,16 @@ function Start-StatusServer {
                 $ctx  = $listener.GetContext()
                 $req  = $ctx.Request
                 $res  = $ctx.Response
+
+                # Allow cross-origin requests from any host
+                $res.Headers.Add("Access-Control-Allow-Origin", "*")
+
                 $path = $req.Url.LocalPath.TrimStart('/')
+                # Root or /status/ → serve index.html
                 if ($path -eq '' -or $path -eq 'status/' -or $path -eq 'status') { $path = 'index.html' }
-                $path = $path -replace '^status[/\\]?', ''
+                # Strip the optional status/ directory prefix (require the trailing separator
+                # so that /status.json is NOT corrupted into .json)
+                $path = $path -replace '^status[/\\]', ''
                 $file = Join-Path $dir $path
                 if (Test-Path $file -PathType Leaf) {
                     $ext = [System.IO.Path]::GetExtension($file)
@@ -43,6 +50,11 @@ function Start-StatusServer {
                         '.css'  { 'text/css; charset=utf-8' }
                         '.js'   { 'application/javascript; charset=utf-8' }
                         default { 'application/octet-stream' }
+                    }
+                    # Prevent caching of JSON so the dashboard always gets fresh data
+                    if ($ext -eq '.json') {
+                        $res.Headers.Add("Cache-Control", "no-store, no-cache, must-revalidate")
+                        $res.Headers.Add("Pragma", "no-cache")
                     }
                     $bytes = [System.IO.File]::ReadAllBytes($file)
                     $res.ContentLength64 = $bytes.Length
@@ -56,7 +68,22 @@ function Start-StatusServer {
             }
         } finally { $listener.Stop() }
     } -ArgumentList $StatusDir, $prefix
-    Write-Information "Status page: ${prefix}status/" -InformationAction Continue
+
+    # Resolve the machine's hostname and IP for display
+    $machineName = (hostname).Trim()
+    $ip = try {
+        ([System.Net.Dns]::GetHostAddresses($machineName) |
+            Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
+            Select-Object -First 1).IPAddressToString
+    } catch { $null }
+
+    Write-Information "" -InformationAction Continue
+    Write-Information "Status page (local):  http://localhost:$Port/status/" -InformationAction Continue
+    if ($ip) {
+        Write-Information "Status page (remote): http://${ip}:$Port/status/" -InformationAction Continue
+    }
+    Write-Information "Status page (host):   http://${machineName}:$Port/status/" -InformationAction Continue
+    Write-Information "" -InformationAction Continue
     return $job
 }
 

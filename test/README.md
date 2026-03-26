@@ -63,6 +63,38 @@ For Slack/Teams webhooks, set `"type": "slack"` (or `"teams"`) and add:
 "webhook": { "url": "https://hooks.slack.com/services/..." }
 ```
 
+### Using an Outlook or Hotmail account for notifications
+
+Microsoft has deprecated Basic Authentication for personal Microsoft accounts (`@outlook.com`, `@hotmail.com`). You must use an **App Password** instead of your regular password.
+
+**One-time setup:**
+
+1. Sign in to the [Microsoft Security Dashboard](https://account.microsoft.com/security).
+2. Enable **Two-Step Verification** if it is not already on.
+3. Go to **Advanced security options** → **App passwords** → **Create a new app password**.
+4. Copy the generated 16-character code.
+
+Use these settings in `test-config.json`:
+
+```json
+{
+  "notification": {
+    "type": "smtp",
+    "toAddress": "recipient@example.com",
+    "smtp": {
+      "server": "smtp-mail.outlook.com",
+      "port": 587,
+      "useTls": true,
+      "fromAddress": "your-account@outlook.com",
+      "username": "your-account@outlook.com",
+      "password": "xxxx xxxx xxxx xxxx"
+    }
+  }
+}
+```
+
+The scripts automatically detect `@outlook.com` and `@hotmail.com` addresses and switch to the App Password credential method that Microsoft requires. Run `pwsh test/Test-Config.ps1` to verify the settings and send a test email.
+
 ## Verifying your configuration
 
 After editing `test/test-config.json`, run the config checker to validate settings and send a test notification before launching the full test cycle:

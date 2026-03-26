@@ -37,18 +37,44 @@ function Send-Notification {
     }
 }
 
+function Test-IsOutlookAddress {
+    param([string]$Address)
+    $a = $Address.ToLower()
+    return ($a -like '*@outlook.com' -or $a -like '*@hotmail.com')
+}
+
 function Send-SmtpNotification {
     param($Notif, [string]$Subject, [string]$Body)
     try {
-        $smtp   = $Notif.smtp
-        $client = [System.Net.Mail.SmtpClient]::new($smtp.server, [int]$smtp.port)
-        $client.EnableSsl = [bool]$smtp.useTls
-        if ($smtp.username) {
-            $client.Credentials = [System.Net.NetworkCredential]::new($smtp.username, $smtp.password)
+        $smtp     = $Notif.smtp
+        $fromAddr = "$($smtp.fromAddress)"
+        $isOutlook = Test-IsOutlookAddress -Address $fromAddr
+
+        if ($isOutlook) {
+            # Outlook/Hotmail requires an App Password delivered via PSCredential.
+            # Basic Authentication with a regular password is rejected by Microsoft.
+            $secPwd = ConvertTo-SecureString $smtp.password -AsPlainText -Force
+            $cred   = [System.Management.Automation.PSCredential]::new($smtp.username, $secPwd)
+            $server = if ("$($smtp.server)".Trim()) { $smtp.server } else { "smtp-mail.outlook.com" }
+            $port   = if ($smtp.port) { [int]$smtp.port } else { 587 }
+            Send-MailMessage -From $fromAddr `
+                             -To $Notif.toAddress `
+                             -Subject $Subject `
+                             -Body $Body `
+                             -SmtpServer $server `
+                             -Port $port `
+                             -UseSsl `
+                             -Credential $cred
+        } else {
+            $client = [System.Net.Mail.SmtpClient]::new($smtp.server, [int]$smtp.port)
+            $client.EnableSsl = [bool]$smtp.useTls
+            if ($smtp.username) {
+                $client.Credentials = [System.Net.NetworkCredential]::new($smtp.username, $smtp.password)
+            }
+            $msg = [System.Net.Mail.MailMessage]::new($fromAddr, $Notif.toAddress, $Subject, $Body)
+            $client.Send($msg)
+            $msg.Dispose()
         }
-        $msg = [System.Net.Mail.MailMessage]::new($smtp.fromAddress, $Notif.toAddress, $Subject, $Body)
-        $client.Send($msg)
-        $msg.Dispose()
         Write-Output "Notification sent via SMTP to: $($Notif.toAddress)"
     } catch {
         Write-Warning "Failed to send SMTP notification: $_"

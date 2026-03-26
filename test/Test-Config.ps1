@@ -196,6 +196,28 @@ if ($notifType -eq "smtp") {
         Write-Warn "smtp.username is empty — will attempt unauthenticated relay."
     }
 
+    # Outlook / Hotmail detection
+    $fromAddr  = "$($smtp.fromAddress)".ToLower()
+    $isOutlook = ($fromAddr -like '*@outlook.com' -or $fromAddr -like '*@hotmail.com')
+    if ($isOutlook) {
+        Write-Pass "Outlook/Hotmail account detected — app password credential path will be used."
+        $expectedServer = "smtp-mail.outlook.com"
+        if ("$($smtp.server)".Trim() -ne $expectedServer) {
+            Write-Warn "smtp.server is '$($smtp.server)' but Outlook requires '$expectedServer'."
+            Write-Info "Update smtp.server to '$expectedServer' in test-config.json."
+        } else {
+            Write-Pass "smtp.server is correctly set to '$expectedServer'."
+        }
+        if (-not (Is-Set $smtp.password)) {
+            Write-Fail "smtp.password must be set to an App Password for Outlook/Hotmail accounts."
+            Write-Info "Generate one at: https://account.microsoft.com/security"
+            Write-Info "Enable Two-Step Verification, then create an App Password under Advanced security options."
+        } else {
+            Write-Info "Ensure smtp.password is a Microsoft App Password, not your regular account password."
+            Write-Info "Regular passwords are rejected by Microsoft for SMTP. See the README for setup steps."
+        }
+    }
+
     # Abort if any FAIL was recorded before network checks.
     if ($script:FailCount -gt 0) {
         Write-Host "`nFix the errors above before testing network connectivity." -ForegroundColor Red

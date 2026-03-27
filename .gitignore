@@ -358,9 +358,11 @@ kubeconfig_*
 # Crash log files
 crash.log
 
-# Selenium WebDriver (downloaded by vde/host.windows.hyper-v/Get-Selenium.ps1)
+# Selenium WebDriver (downloaded by test/Get-Selenium.ps1)
 **/selenium/msedgedriver.exe
+**/selenium/msedgedriver
 **/selenium/chromedriver.exe
+**/selenium/chromedriver
 
 # Test configuration (contains credentials)
 test/test-config.json

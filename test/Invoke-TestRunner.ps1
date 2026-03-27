@@ -72,7 +72,7 @@ if ($Config.statusServer.enabled -and -not $NoServer) {
 $GuestList = Get-GuestList
 if ($GuestList -contains "guest.windows.11" -and $HostType -eq "host.windows.hyper-v") {
     if (-not (Test-SeleniumPrerequisite -RepoRoot $RepoRoot)) {
-        Write-Error "chromedriver.exe not found. Run vde/host.windows.hyper-v/Get-Selenium.ps1 as Administrator first."
+        Write-Error "chromedriver.exe not found. Run test/Get-Selenium.ps1 as Administrator first."
         Stop-StatusServer -Job $ServerJob
         exit 1
     }

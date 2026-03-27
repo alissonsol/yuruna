@@ -78,11 +78,12 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
-# Checks that chromedriver.exe exists for the Hyper-V Selenium prerequisite (Windows 11 image download).
+# Checks that chromedriver exists for the Selenium prerequisite (Windows 11 image download).
 function Test-SeleniumPrerequisite {
     param([string]$RepoRoot)
-    $seleniumDir = Join-Path $RepoRoot "vde/host.windows.hyper-v/selenium"
-    $driverExe   = Join-Path $seleniumDir "chromedriver.exe"
+    $seleniumDir = Join-Path $RepoRoot "test/selenium"
+    $driverName  = if ($IsWindows) { "chromedriver.exe" } else { "chromedriver" }
+    $driverExe   = Join-Path $seleniumDir $driverName
     return (Test-Path $driverExe)
 }
 

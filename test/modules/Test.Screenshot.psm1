@@ -84,23 +84,15 @@ function Get-HyperVScreenshot {
     param([string]$VMName, [string]$OutputPath)
     try {
         # Hyper-V provides Get-VMVideo for screen capture
-        $vm = Get-VM -Name $VMName -ErrorAction Stop
+        $null = Get-VM -Name $VMName -ErrorAction Stop
         $video = Get-VMVideo -VMName $VMName -ErrorAction Stop
         # Use the thumbnail path from Hyper-V and copy as our screenshot
         $thumbPath = $video.ImagePath
         if ($thumbPath -and (Test-Path $thumbPath)) {
             Copy-Item -Path $thumbPath -Destination $OutputPath -Force
         } else {
-            # Fallback: generate bitmap via vmconnect screenshot
-            Add-Type -AssemblyName System.Windows.Forms
-            Add-Type -AssemblyName System.Drawing
-            $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-            $bitmap = [System.Drawing.Bitmap]::new($screen.Bounds.Width, $screen.Bounds.Height)
-            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-            $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
-            $bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
-            $graphics.Dispose()
-            $bitmap.Dispose()
+            Write-Warning "Hyper-V VM video thumbnail not available for '$VMName'. Ensure Enhanced Session Mode is enabled."
+            return $null
         }
         if (Test-Path $OutputPath) {
             Write-Output "Screenshot saved: $OutputPath"

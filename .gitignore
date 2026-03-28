@@ -375,6 +375,12 @@ test/status/server.err
 # Test screenshots (captured at runtime)
 test/screenshots/*/captures/
 
+# Verify screenshots (actual captures are runtime, expected PNGs are committed)
+test/verify/actual/
+
+# Appium local config
+test/appium/
+
 # yuruna
 **/.yuruna/*
 **/resources.output.yml

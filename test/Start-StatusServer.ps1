@@ -54,7 +54,23 @@ if ($Port -eq 0) {
 # --- Check for an existing server ---
 if (Test-Path $PidFile) {
     $oldPid = (Get-Content $PidFile).Trim()
-    if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
+    $serverAlive = $false
+    if ($oldPid) {
+        $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
+        # Verify the PID belongs to a pwsh process (not a recycled PID from something else)
+        if ($proc -and $proc.ProcessName -match 'pwsh|PowerShell') {
+            # Confirm the port is actually responding
+            try {
+                $null = Invoke-WebRequest -Uri "http://localhost:$Port/status.json" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+                $serverAlive = $true
+            } catch {
+                Write-Output "PID $oldPid exists but port $Port is not responding. Replacing server."
+                Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 1
+            }
+        }
+    }
+    if ($serverAlive) {
         Write-Output "Status server is already running (PID $oldPid, port $Port)."
         Write-Output "Stop with: .\Stop-StatusServer.ps1"
         exit 0
@@ -118,6 +134,21 @@ if ($IsWindows) {
     $stdErr = Join-Path $StatusDir "server.err"
     & bash -c "nohup pwsh -NoProfile -EncodedCommand $encodedCommand > /dev/null 2>'$stdErr' & echo `$!"  | Set-Variable -Name bgPid
     Set-Content -Path $PidFile -Value $bgPid
+}
+
+# --- Verify server started ---
+$serverReady = $false
+for ($i = 0; $i -lt 5; $i++) {
+    Start-Sleep -Seconds 1
+    try {
+        $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+        $serverReady = $true
+        break
+    } catch { }
+}
+if (-not $serverReady) {
+    Write-Warning "Status server process started but port $Port is not responding after 5 seconds."
+    Write-Warning "Check the server error log: $(Join-Path $StatusDir 'server.err')"
 }
 
 # --- Display connection info ---

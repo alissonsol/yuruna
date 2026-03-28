@@ -32,6 +32,7 @@ $StatusTmpl     = Join-Path $StatusDir "status.json.template"
 $ModulesDir     = Join-Path $TestRoot "modules"
 $ExtensionsDir  = Join-Path $TestRoot "extensions"
 $ScreenshotsDir = Join-Path $TestRoot "screenshots"
+$VerifyDir      = Join-Path $TestRoot "verify"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 
@@ -46,7 +47,7 @@ if (-not (Test-Path $StatusFile)) {
 }
 
 # === Import modules ===
-foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Screenshot", "Test.Invoke-PoolTest")) {
+foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -92,10 +93,14 @@ foreach ($GuestKey in $GuestList) {
 }
 
 # Determine step list based on available extensions and screenshot schedules
-$BaseSteps = @("New-VM", "Start-VM", "Verify-VM")
-$hasExtensions = $false
+$BaseSteps = @("New-VM", "Start-VM", "Install-OS", "Verify-VM")
+$hasStartTests  = $false
+$hasExtensions  = $false
 $hasScreenshots = $false
 foreach ($GuestKey in $GuestList) {
+    if ((Get-StartTestScripts -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir).Count -gt 0) {
+        $hasStartTests = $true
+    }
     if ((Get-GuestTestScripts -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir).Count -gt 0) {
         $hasExtensions = $true
     }
@@ -249,14 +254,28 @@ while ($true) {
             break
         }
 
-        # --- Verify-VM (poll until running, then wait boot delay) ---
+        # --- Install-OS (run Test-Start scripts to drive OS installation) ---
+        Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "running"
+        $r = Invoke-StartTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir
+        if ($r.skipped) {
+            Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "skipped" -Skipped $true
+        } elseif ($r.success) {
+            Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "pass"
+            Write-Output "  $GuestKey Install-OS: PASS"
+        } else {
+            Write-Warning "  ERROR [$GuestKey / Install-OS]: $($r.errorMessage)"
+            Set-StepStatus  -GuestKey $GuestKey -StepName "Install-OS" -Status "fail" -ErrorMessage $r.errorMessage
+            Set-GuestStatus -GuestKey $GuestKey -Status "fail"
+            $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Install-OS"; $FailureMessage = $r.errorMessage
+            Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+            break
+        }
+
+        # --- Verify-VM (poll until running, wait boot delay, then verify screenshot) ---
         Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "running"
         $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName `
             -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
-        if ($ok) {
-            Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "pass"
-            Write-Output "  $GuestKey Verify-VM: PASS"
-        } else {
+        if (-not $ok) {
             $err = "VM '$VMName' did not reach running state after start."
             Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
             Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
@@ -265,6 +284,34 @@ while ($true) {
             Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
             break
         }
+        # Check verification screenshot if one exists for this host+guest
+        $verifyRef = Get-VerifyScreenshot -HostType $HostType -GuestKey $GuestKey -VerifyDir $VerifyDir
+        if ($verifyRef) {
+            $verifyFileName = "$HostType.$GuestKey.png"
+            $verifyCapture = Join-Path $VerifyDir "actual/$verifyFileName"
+            $actualDir = Join-Path $VerifyDir "actual"
+            if (-not (Test-Path $actualDir)) { New-Item -ItemType Directory -Force -Path $actualDir | Out-Null }
+            $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $verifyCapture
+            if ($captured) {
+                $threshold = if ($Config.verifyScreenshotThreshold) { [double]$Config.verifyScreenshotThreshold } else { 0.85 }
+                $cmp = Compare-Screenshots -ReferencePath $verifyRef -ActualPath $verifyCapture -Threshold $threshold
+                if (-not $cmp.match) {
+                    $err = "Verify screenshot mismatch: similarity=$($cmp.similarity) threshold=$threshold"
+                    Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
+                    Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
+                    Set-GuestStatus -GuestKey $GuestKey -Status "fail"
+                    $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
+                    Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                    break
+                }
+                Write-Output "  $GuestKey Verify-VM: PASS (screenshot similarity=$($cmp.similarity))"
+            } else {
+                Write-Output "  $GuestKey Verify-VM: PASS (screenshot capture skipped)"
+            }
+        } else {
+            Write-Output "  $GuestKey Verify-VM: PASS"
+        }
+        Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "pass"
 
         # --- Screenshots (compare against trained references) ---
         if ($hasScreenshots) {

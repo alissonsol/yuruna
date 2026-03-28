@@ -39,9 +39,6 @@ Write-Output ""
 Write-Output "Stopping VMs with prefix '$Prefix'..."
 Write-Output ""
 
-$savedProgress = $global:ProgressPreference
-$global:ProgressPreference = 'SilentlyContinue'
-
 switch ($HostType) {
     "host.windows.hyper-v" {
         $testVMs = Get-VM | Where-Object { $_.Name -like "${Prefix}*" }
@@ -51,12 +48,12 @@ switch ($HostType) {
         foreach ($vm in $testVMs) {
             Write-Output "  Stopping $($vm.Name) [$($vm.State)]..."
             if ($vm.State -ne 'Off') {
-                Stop-VM -Name $vm.Name -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+                Stop-VM -Name $vm.Name -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 6>$null
                 Write-Output "    Stopped."
             } else {
                 Write-Output "    Already off."
             }
-            Remove-VM -Name $vm.Name -Force
+            Remove-VM -Name $vm.Name -Force 6>$null
             Write-Output "    Removed from Hyper-V."
         }
     }
@@ -92,8 +89,6 @@ switch ($HostType) {
         exit 1
     }
 }
-
-$global:ProgressPreference = $savedProgress
 
 Write-Output ""
 

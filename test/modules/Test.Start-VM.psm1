@@ -51,7 +51,7 @@ function Start-UtmVM {
 function Start-HyperVVM {
     param([string]$VMName)
     try {
-        Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue
+        Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
         return @{ success=$true; errorMessage=$null }
     } catch {
         return @{ success=$false; errorMessage="Start-VM failed for '$VMName': $_" }
@@ -78,7 +78,7 @@ function Stop-TestVM {
         }
         "host.windows.hyper-v" {
             try {
-                Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop -WarningAction SilentlyContinue
+                Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
                 Write-Output "Stopped Hyper-V VM: $VMName"
                 return $true
             } catch {
@@ -150,49 +150,4 @@ function Confirm-HyperVVMStarted {
     return $false
 }
 
-# ── Custom test extensions ───────────────────────────────────────────────────
-
-# Discovers extension test scripts for a guest under the extensions/ directory.
-# Naming convention:
-#   Test-Workload.guest.amazon.linux.ps1               (single test)
-#   Test-Workload.guest.amazon.linux.check-ssh.ps1     (named test)
-# Returns an array of FileInfo objects, sorted alphabetically.
-function Get-GuestTestScripts {
-    param([string]$GuestKey, [string]$ExtensionsDir)
-    if (-not (Test-Path $ExtensionsDir)) { return @() }
-    $prefix   = "Test-Workload.$GuestKey"
-    $exact    = Join-Path $ExtensionsDir "$prefix.ps1"
-    $extra    = Get-ChildItem -Path $ExtensionsDir -Filter "$prefix.*.ps1" -ErrorAction SilentlyContinue
-    $scripts  = @()
-    if (Test-Path $exact) { $scripts += Get-Item $exact }
-    if ($extra)           { $scripts += @($extra) }
-    return @($scripts | Sort-Object Name)
-}
-
-# Runs all extension test scripts for a guest.
-# Each script is executed as a child process and receives:
-#   -HostType, -GuestKey, -VMName
-# Returns a hashtable: { success, skipped, errorMessage }
-function Invoke-GuestTests {
-    param(
-        [string]$HostType,
-        [string]$GuestKey,
-        [string]$VMName,
-        [string]$ExtensionsDir
-    )
-    $scripts = Get-GuestTestScripts -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir
-    if ($scripts.Count -eq 0) {
-        return @{ success=$true; skipped=$true; errorMessage=$null }
-    }
-    foreach ($s in $scripts) {
-        Write-Output "Running test: $($s.Name)"
-        & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName
-        if ($LASTEXITCODE -ne 0) {
-            return @{ success=$false; skipped=$false; errorMessage="Test '$($s.Name)' failed (exit code $LASTEXITCODE)" }
-        }
-        Write-Output "  $($s.Name): PASS"
-    }
-    return @{ success=$true; skipped=$false; errorMessage=$null }
-}
-
-Export-ModuleMember -Function Invoke-StartVM, Stop-TestVM, Confirm-VMStarted, Get-GuestTestScripts, Invoke-GuestTests
+Export-ModuleMember -Function Invoke-StartVM, Stop-TestVM, Confirm-VMStarted

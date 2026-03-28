@@ -46,7 +46,7 @@ if (-not (Test-Path $StatusFile)) {
 }
 
 # === Import modules ===
-foreach ($mod in @("Test.Host", "Test.Status", "Test.StatusServer", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Screenshot")) {
+foreach ($mod in @("Test.Host", "Test.Status", "Test.StatusServer", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Screenshot", "Test.Invoke-PoolTest")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -92,7 +92,7 @@ foreach ($GuestKey in $GuestList) {
 }
 
 # Determine step list based on available extensions and screenshot schedules
-$BaseSteps = @("NewVM", "StartVM", "VerifyVM")
+$BaseSteps = @("New-VM", "Start-VM", "Verify-VM")
 $hasExtensions = $false
 $hasScreenshots = $false
 foreach ($GuestKey in $GuestList) {
@@ -105,7 +105,7 @@ foreach ($GuestKey in $GuestList) {
 }
 $StepNames = $BaseSteps
 if ($hasScreenshots) { $StepNames += @("Screenshots") }
-if ($hasExtensions)  { $StepNames += @("CustomTests") }
+if ($hasExtensions)  { $StepNames += @("Invoke-PoolTest") }
 
 $VmStartTimeout = if ($Config.vmStartTimeoutSeconds) { [int]$Config.vmStartTimeoutSeconds } else { 120 }
 $VmBootDelay    = if ($Config.vmBootDelaySeconds)    { [int]$Config.vmBootDelaySeconds }    else { 15 }
@@ -206,7 +206,7 @@ while ($true) {
         break
     }
 
-    # --- Test each guest sequentially (cleanup → create → start → verify → screenshots → custom → stop) ---
+    # --- Test each guest sequentially (cleanup → create → start → verify → screenshots → pool test → stop) ---
     # Only one guest VM exists at a time, so failures don't leave other VMs active.
     foreach ($GuestKey in $GuestList) {
         $VMName = $VMNames[$GuestKey]
@@ -214,53 +214,55 @@ while ($true) {
         Write-Output "=== $GuestKey (VM: $VMName) ==="
 
         # --- Cleanup previous VM ---
-        $cleaned = Remove-TestVM -HostType $HostType -VMName $VMName
-        if ($cleaned) {
-            Write-Output "  Removed previous: $VMName"
-        }
+        $savedProgress = $global:ProgressPreference
+        $global:ProgressPreference = 'SilentlyContinue'
+        Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
+        $global:ProgressPreference = $savedProgress
 
-        # --- NewVM ---
+        # --- New-VM ---
         Set-GuestVMName -GuestKey $GuestKey -VMName $VMName
         Set-GuestStatus -GuestKey $GuestKey -Status "running"
 
-        Set-StepStatus -GuestKey $GuestKey -StepName "NewVM" -Status "running"
+        Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "running"
         $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName
         if ($r.success) {
-            Set-StepStatus -GuestKey $GuestKey -StepName "NewVM" -Status "pass"
-            Write-Output "  $GuestKey NewVM: PASS"
+            Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
+            Write-Output "  $GuestKey New-VM: PASS"
         } else {
-            Write-Warning "  ERROR [$GuestKey / NewVM]: $($r.errorMessage)"
-            Set-StepStatus  -GuestKey $GuestKey -StepName "NewVM" -Status "fail" -ErrorMessage $r.errorMessage
+            Write-Warning "  ERROR [$GuestKey / New-VM]: $($r.errorMessage)"
+            Set-StepStatus  -GuestKey $GuestKey -StepName "New-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
-            $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "NewVM"; $FailureMessage = $r.errorMessage
+            $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "New-VM"; $FailureMessage = $r.errorMessage
             break
         }
 
-        # --- StartVM ---
-        Set-StepStatus -GuestKey $GuestKey -StepName "StartVM" -Status "running"
+        # --- Start-VM ---
+        Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "running"
         $r = Invoke-StartVM -HostType $HostType -VMName $VMName
         if ($r.success) {
-            Set-StepStatus -GuestKey $GuestKey -StepName "StartVM" -Status "pass"
+            Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "pass"
+            Write-Output "  $GuestKey Start-VM: PASS"
         } else {
-            Write-Warning "  ERROR [$GuestKey / StartVM]: $($r.errorMessage)"
-            Set-StepStatus  -GuestKey $GuestKey -StepName "StartVM" -Status "fail" -ErrorMessage $r.errorMessage
+            Write-Warning "  ERROR [$GuestKey / Start-VM]: $($r.errorMessage)"
+            Set-StepStatus  -GuestKey $GuestKey -StepName "Start-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
-            $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "StartVM"; $FailureMessage = $r.errorMessage
+            $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Start-VM"; $FailureMessage = $r.errorMessage
             break
         }
 
-        # --- VerifyVM (poll until running, then wait boot delay) ---
-        Set-StepStatus -GuestKey $GuestKey -StepName "VerifyVM" -Status "running"
+        # --- Verify-VM (poll until running, then wait boot delay) ---
+        Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "running"
         $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName `
             -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
         if ($ok) {
-            Set-StepStatus -GuestKey $GuestKey -StepName "VerifyVM" -Status "pass"
+            Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "pass"
+            Write-Output "  $GuestKey Verify-VM: PASS"
         } else {
             $err = "VM '$VMName' did not reach running state after start."
-            Write-Warning "  ERROR [$GuestKey / VerifyVM]: $err"
-            Set-StepStatus  -GuestKey $GuestKey -StepName "VerifyVM" -Status "fail" -ErrorMessage $err
+            Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
+            Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
-            $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "VerifyVM"; $FailureMessage = $err
+            $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
             Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
             break
         }
@@ -284,19 +286,20 @@ while ($true) {
             }
         }
 
-        # --- CustomTests (extension scripts) ---
+        # --- Invoke-PoolTest (extension scripts) ---
         if ($hasExtensions) {
-            Set-StepStatus -GuestKey $GuestKey -StepName "CustomTests" -Status "running"
-            $r = Invoke-GuestTests -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir
+            Set-StepStatus -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "running"
+            $r = Invoke-PoolTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir
             if ($r.skipped) {
-                Set-StepStatus -GuestKey $GuestKey -StepName "CustomTests" -Status "skipped" -Skipped $true
+                Set-StepStatus -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "skipped" -Skipped $true
             } elseif ($r.success) {
-                Set-StepStatus -GuestKey $GuestKey -StepName "CustomTests" -Status "pass"
+                Set-StepStatus -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "pass"
+                Write-Output "  $GuestKey Invoke-PoolTest: PASS"
             } else {
-                Write-Warning "  ERROR [$GuestKey / CustomTests]: $($r.errorMessage)"
-                Set-StepStatus  -GuestKey $GuestKey -StepName "CustomTests" -Status "fail" -ErrorMessage $r.errorMessage
+                Write-Warning "  ERROR [$GuestKey / Invoke-PoolTest]: $($r.errorMessage)"
+                Set-StepStatus  -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
-                $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "CustomTests"; $FailureMessage = $r.errorMessage
+                $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Invoke-PoolTest"; $FailureMessage = $r.errorMessage
                 Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
                 break
             }
@@ -305,8 +308,11 @@ while ($true) {
         # --- Stop and remove this guest VM before starting the next ---
         Set-GuestStatus -GuestKey $GuestKey -Status "pass"
         Write-Output "  ${GuestKey}: PASS"
+        $savedProgress = $global:ProgressPreference
+        $global:ProgressPreference = 'SilentlyContinue'
         Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
         Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
+        $global:ProgressPreference = $savedProgress
     }
 
     # === Finalise cycle ===

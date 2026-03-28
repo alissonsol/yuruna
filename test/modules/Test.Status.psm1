@@ -29,7 +29,7 @@ function Initialize-StatusDocument {
         [string]   $Hostname,
         [string]   $GitCommit,
         [string[]] $GuestList,
-        [string[]] $StepNames = @("NewVM", "StartVM", "VerifyVM")
+        [string[]] $StepNames = @("New-VM", "Start-VM", "Verify-VM")
     )
     $script:File = $StatusFilePath
 

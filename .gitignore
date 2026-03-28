@@ -369,6 +369,7 @@ test/test-config.json
 
 # Test status (modified at runtime)
 test/status/status.json
+test/status/server.pid
 
 # Test screenshots (captured at runtime)
 test/screenshots/*/captures/

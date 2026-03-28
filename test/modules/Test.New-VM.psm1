@@ -32,9 +32,16 @@ function Invoke-NewVM {
         return @{ success=$false; errorMessage="New-VM.ps1 not found at: $scriptPath" }
     }
     Write-Output "Running: $scriptPath -VMName $VMName"
-    & pwsh -NoProfile -Command "`$global:ProgressPreference='SilentlyContinue'; & '$scriptPath' -VMName '$VMName'; exit `$LASTEXITCODE"
-    if ($LASTEXITCODE -ne 0) {
-        return @{ success=$false; errorMessage="New-VM.ps1 exited with code $LASTEXITCODE" }
+    $output = & pwsh -NoProfile -File $scriptPath -VMName $VMName 2>&1
+    $exitCode = $LASTEXITCODE
+    foreach ($line in $output) {
+        $text = "$line".TrimEnd()
+        if ($text -ne '' -and $text -notmatch '^\s*\d+%\s+complete') {
+            Write-Output $text
+        }
+    }
+    if ($exitCode -ne 0) {
+        return @{ success=$false; errorMessage="New-VM.ps1 exited with code $exitCode" }
     }
     return @{ success=$true; errorMessage=$null }
 }

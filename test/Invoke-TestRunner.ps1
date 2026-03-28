@@ -46,7 +46,7 @@ if (-not (Test-Path $StatusFile)) {
 }
 
 # === Import modules ===
-foreach ($mod in @("Test.Host", "Test.Status", "Test.StatusServer", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Screenshot", "Test.Invoke-PoolTest")) {
+foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Screenshot", "Test.Invoke-PoolTest")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -63,9 +63,10 @@ Write-Output "Host type: $HostType"
 
 if (-not (Assert-Elevation -HostType $HostType)) { exit 1 }
 
-$ServerJob = $null
 if ($Config.statusServer.enabled -and -not $NoServer) {
-    $ServerJob = Start-StatusServer -StatusDir $StatusDir -Port ([int]$Config.statusServer.port)
+    $startScript = Join-Path $TestRoot "Start-StatusServer.ps1"
+    $serverPort  = if ($Config.statusServer.port) { [int]$Config.statusServer.port } else { 8080 }
+    & $startScript -Port $serverPort
 }
 
 # Selenium prerequisite (one-time check for Hyper-V + Windows 11)
@@ -73,7 +74,6 @@ $GuestList = Get-GuestList
 if ($GuestList -contains "guest.windows.11" -and $HostType -eq "host.windows.hyper-v") {
     if (-not (Test-SeleniumPrerequisite -RepoRoot $RepoRoot)) {
         Write-Error "chromedriver.exe not found. Run test/Get-Selenium.ps1 as Administrator first."
-        Stop-StatusServer -Job $ServerJob
         exit 1
     }
 }
@@ -154,7 +154,6 @@ while ($true) {
             Send-Notification -Config $Config `
                 -Subject "Yuruna VDE Test: FAIL on $HostType / GitPull" `
                 -Body    $body
-            Stop-StatusServer -Job $ServerJob
             exit 1
         }
     } else {
@@ -364,5 +363,4 @@ if (-not $OverallPassed -and $FailedGuest) {
         -Body    $body
 }
 
-Stop-StatusServer -Job $ServerJob
 exit $(if ($OverallPassed) { 0 } else { 1 })

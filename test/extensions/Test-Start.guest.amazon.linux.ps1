@@ -45,8 +45,8 @@ param(
     [string]$VMName
 )
 
-Write-Output "[$GuestKey] Amazon Linux boots from a pre-built image with cloud-init."
-Write-Output "[$GuestKey] No interactive installation steps required."
+Write-Output "[$GuestKey] Amazon Linux boots from a pre-built image with cloud-init on $HostType."
+Write-Output "[$GuestKey] No interactive installation steps required for VM '$VMName'."
 
 # Cloud-init typically completes within 30-60 seconds after VM reports running.
 # The Verify-VM step (with boot delay) handles this wait.

@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456701
 .AUTHOR Alisson Sol
@@ -15,8 +15,11 @@
 .PRIVATEDATA
 #>
 
-# Returns "host.macos.utm" or "host.windows.hyper-v" based on the current platform.
 function Get-HostType {
+    <#
+    .SYNOPSIS
+    Returns "host.macos.utm" or "host.windows.hyper-v" based on the current platform.
+    #>
     if ($IsMacOS) {
         if (-not (Test-Path "/Applications/UTM.app")) {
             Write-Warning "Running on macOS but UTM not found at /Applications/UTM.app."
@@ -34,19 +37,28 @@ function Get-HostType {
     return $null
 }
 
-# Returns the ordered list of guest keys to test.
 function Get-GuestList {
+    <#
+    .SYNOPSIS
+    Returns the ordered list of guest keys to test.
+    #>
     return @("guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11")
 }
 
-# Returns $true if the host type requires Administrator elevation.
 function Test-ElevationRequired {
+    <#
+    .SYNOPSIS
+    Returns $true if the host type requires Administrator elevation.
+    #>
     param([string]$HostType)
     return ($HostType -eq "host.windows.hyper-v")
 }
 
-# Checks elevation if required. Returns $false and writes an error if elevation is needed but absent.
 function Assert-Elevation {
+    <#
+    .SYNOPSIS
+    Checks elevation if required. Returns $false and writes an error if elevation is needed but absent.
+    #>
     param([string]$HostType)
     if (-not (Test-ElevationRequired -HostType $HostType)) { return $true }
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")
@@ -57,8 +69,11 @@ function Assert-Elevation {
     return $true
 }
 
-# Runs git pull in the repo root. Returns $true on success.
 function Invoke-GitPull {
+    <#
+    .SYNOPSIS
+    Runs git pull in the repo root. Returns $true on success.
+    #>
     param([string]$RepoRoot)
 
     # Fetch latest from remote without modifying the working tree
@@ -101,16 +116,22 @@ function Invoke-GitPull {
     return $false
 }
 
-# Returns the short git commit hash of HEAD.
 function Get-CurrentGitCommit {
+    <#
+    .SYNOPSIS
+    Returns the short git commit hash of HEAD.
+    #>
     param([string]$RepoRoot)
     $hash = & git -C $RepoRoot rev-parse --short HEAD 2>$null
     if ($LASTEXITCODE -ne 0) { return "unknown" }
     return $hash.Trim()
 }
 
-# Checks that chromedriver exists for the Selenium prerequisite (Windows 11 image download).
 function Test-SeleniumPrerequisite {
+    <#
+    .SYNOPSIS
+    Checks that chromedriver exists for the Selenium prerequisite (Windows 11 image download).
+    #>
     param([string]$RepoRoot)
     $seleniumDir = Join-Path $RepoRoot "test/selenium"
     $driverName  = if ($IsWindows) { "chromedriver.exe" } else { "chromedriver" }

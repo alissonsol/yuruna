@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456714
 .AUTHOR Alisson Sol
@@ -17,10 +17,14 @@
 
 # ── Screenshot capture ───────────────────────────────────────────────────────
 
-# Captures a screenshot of a VM window.
-# UTM:     uses screencapture (macOS) targeting the UTM window.
-# Hyper-V: uses Get-VMVideo / vmconnect bitmap capture.
-# Returns the path to the saved PNG, or $null on failure.
+<#
+.SYNOPSIS
+    Captures a screenshot of a VM window.
+.DESCRIPTION
+    UTM:     uses screencapture (macOS) targeting the UTM window.
+    Hyper-V: uses Get-VMVideo / vmconnect bitmap capture.
+    Returns the path to the saved PNG, or $null on failure.
+#>
 function Get-VMScreenshot {
     param(
         [string]$HostType,
@@ -83,18 +87,61 @@ end if
 function Get-HyperVScreenshot {
     param([string]$VMName, [string]$OutputPath)
     try {
-        # Hyper-V provides Get-VMVideo for screen capture
-        $null = Get-VM -Name $VMName -ErrorAction Stop
-        $video = Get-VMVideo -VMName $VMName -ErrorAction Stop
-        # Use the thumbnail path from Hyper-V and copy as our screenshot
-        $thumbPath = $video.ImagePath
-        if ($thumbPath -and (Test-Path $thumbPath)) {
-            Copy-Item -Path $thumbPath -Destination $OutputPath -Force
-        } else {
-            Write-Warning "Hyper-V VM video thumbnail not available for '$VMName'. Ensure Enhanced Session Mode is enabled."
+        # Find the vmconnect window for this VM and capture it.
+        # This works in basic mode without Enhanced Session or guest tools.
+        Add-Type -AssemblyName System.Drawing
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Drawing;
+public class WindowCapture {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+
+    public static IntPtr FindWindow(string titleContains) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lParam) => {
+            if (!IsWindowVisible(hWnd)) return true;
+            var sb = new StringBuilder(256);
+            GetWindowText(hWnd, sb, 256);
+            if (sb.ToString().Contains(titleContains)) { found = hWnd; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    public static Bitmap CaptureWindow(IntPtr hWnd) {
+        RECT rect;
+        GetWindowRect(hWnd, out rect);
+        int w = rect.Right - rect.Left;
+        int h = rect.Bottom - rect.Top;
+        if (w <= 0 || h <= 0) return null;
+        var bmp = new Bitmap(w, h);
+        using (var g = Graphics.FromImage(bmp)) {
+            IntPtr hdc = g.GetHdc();
+            PrintWindow(hWnd, hdc, 2);
+            g.ReleaseHdc(hdc);
+        }
+        return bmp;
+    }
+}
+"@ -ErrorAction SilentlyContinue
+
+        $hWnd = [WindowCapture]::FindWindow($VMName)
+        if ($hWnd -eq [IntPtr]::Zero) {
+            Write-Warning "vmconnect window not found for '$VMName'."
             return $null
         }
-        if (Test-Path $OutputPath) {
+        $bmp = [WindowCapture]::CaptureWindow($hWnd)
+        if ($bmp) {
+            $bmp.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose()
             Write-Output "Screenshot saved: $OutputPath"
             return $OutputPath
         }
@@ -107,9 +154,13 @@ function Get-HyperVScreenshot {
 
 # ── Screenshot comparison ────────────────────────────────────────────────────
 
-# Compares two PNG images and returns a similarity score (0.0 to 1.0).
-# Uses pixel-level comparison. Returns 1.0 for identical images.
-function Compare-Screenshots {
+<#
+.SYNOPSIS
+    Compares two PNG images and returns a similarity score (0.0 to 1.0).
+.DESCRIPTION
+    Uses pixel-level comparison. Returns 1.0 for identical images.
+#>
+function Compare-Screenshot {
     param(
         [string]$ReferencePath,
         [string]$ActualPath,
@@ -136,7 +187,6 @@ function Compare-Screenshots {
             $act = $resized
         }
 
-        $totalPixels = $ref.Width * $ref.Height
         $matchingPixels = 0
 
         # Sample pixels (every 4th pixel for performance)
@@ -171,9 +221,13 @@ function Compare-Screenshots {
 
 # ── Schedule management ──────────────────────────────────────────────────────
 
-# Reads the screenshot schedule JSON for a guest.
-# Returns an array of checkpoints: @( @{ name; delaySeconds; threshold } )
-# Returns empty array if no schedule file exists.
+<#
+.SYNOPSIS
+    Reads the screenshot schedule JSON for a guest.
+.DESCRIPTION
+    Returns an array of checkpoints: @( @{ name; delaySeconds; threshold } )
+    Returns empty array if no schedule file exists.
+#>
 function Get-ScreenshotSchedule {
     param([string]$GuestKey, [string]$ScreenshotsDir)
     $scheduleFile = Join-Path $ScreenshotsDir "$GuestKey/schedule.json"
@@ -187,10 +241,14 @@ function Get-ScreenshotSchedule {
     }
 }
 
-# Executes all screenshot checkpoints for a running VM.
-# Waits the specified delay, captures, and compares with reference.
-# Returns a hashtable: { success, skipped, errorMessage }
-function Invoke-ScreenshotTests {
+<#
+.SYNOPSIS
+    Executes all screenshot checkpoints for a running VM.
+.DESCRIPTION
+    Waits the specified delay, captures, and compares with reference.
+    Returns a hashtable: { success, skipped, errorMessage }
+#>
+function Invoke-ScreenshotTest {
     param(
         [string]$HostType,
         [string]$GuestKey,
@@ -225,7 +283,7 @@ function Invoke-ScreenshotTests {
             return @{ success=$false; skipped=$false; errorMessage="Failed to capture screenshot for checkpoint '$cpName'" }
         }
 
-        $result = Compare-Screenshots -ReferencePath $refFile -ActualPath $capFile -Threshold $threshold
+        $result = Compare-Screenshot -ReferencePath $refFile -ActualPath $capFile -Threshold $threshold
         if (-not $result.match) {
             $msg = "Screenshot '$cpName' mismatch: similarity=$($result.similarity) threshold=$threshold"
             if ($result.error) { $msg += " error=$($result.error)" }
@@ -237,4 +295,4 @@ function Invoke-ScreenshotTests {
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
 
-Export-ModuleMember -Function Get-VMScreenshot, Compare-Screenshots, Get-ScreenshotSchedule, Invoke-ScreenshotTests
+Export-ModuleMember -Function Get-VMScreenshot, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest

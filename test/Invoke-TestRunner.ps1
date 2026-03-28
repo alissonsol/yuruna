@@ -94,14 +94,10 @@ foreach ($GuestKey in $GuestList) {
 
 # Determine step list based on available extensions and screenshot schedules
 $BaseSteps = @("New-VM", "Start-VM", "Install-OS", "Verify-VM")
-$hasStartTests  = $false
 $hasExtensions  = $false
 $hasScreenshots = $false
 foreach ($GuestKey in $GuestList) {
-    if ((Get-StartTestScripts -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir).Count -gt 0) {
-        $hasStartTests = $true
-    }
-    if ((Get-GuestTestScripts -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir).Count -gt 0) {
+    if ((Get-GuestTestScript -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir).Count -gt 0) {
         $hasExtensions = $true
     }
     if ((Get-ScreenshotSchedule -GuestKey $GuestKey -ScreenshotsDir $ScreenshotsDir).Count -gt 0) {
@@ -294,7 +290,7 @@ while ($true) {
             $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $verifyCapture
             if ($captured) {
                 $threshold = if ($Config.verifyScreenshotThreshold) { [double]$Config.verifyScreenshotThreshold } else { 0.85 }
-                $cmp = Compare-Screenshots -ReferencePath $verifyRef -ActualPath $verifyCapture -Threshold $threshold
+                $cmp = Compare-Screenshot -ReferencePath $verifyRef -ActualPath $verifyCapture -Threshold $threshold
                 if (-not $cmp.match) {
                     $err = "Verify screenshot mismatch: similarity=$($cmp.similarity) threshold=$threshold"
                     Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
@@ -316,7 +312,7 @@ while ($true) {
         # --- Screenshots (compare against trained references) ---
         if ($hasScreenshots) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "running"
-            $r = Invoke-ScreenshotTests -HostType $HostType -GuestKey $GuestKey `
+            $r = Invoke-ScreenshotTest -HostType $HostType -GuestKey $GuestKey `
                 -VMName $VMName -ScreenshotsDir $ScreenshotsDir
             if ($r.skipped) {
                 Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "skipped" -Skipped $true

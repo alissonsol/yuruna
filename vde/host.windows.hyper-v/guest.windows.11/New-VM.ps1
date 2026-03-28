@@ -151,20 +151,16 @@ Set-VMHost -EnableEnhancedSessionMode $false
 # === Cleanup temporary folders ===
 Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
 
-# === Start VM and bypass "Press any key to boot from CD/DVD" prompt ===
-Write-Output "Starting VM '$VMName'..."
-Start-VM -Name $VMName
-Start-Sleep -Seconds 3
-$vmObj = Get-CimInstance -Namespace root\virtualization\v2 -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
-$kb = Get-CimAssociatedInstance -InputObject $vmObj -ResultClassName Msvm_Keyboard
-Invoke-CimMethod -InputObject $kb -MethodName "PressKey" -Arguments @{keyCode=0x1C} | Out-Null
-Write-Output "VM started. Keystroke sent to bypass boot prompt."
-
 # === Guidance ===
 Write-Output ""
-Write-Output "VM '$VMName' created, configured, and started."
+Write-Output "VM '$VMName' created and configured."
+Write-Output "The test runner will start the VM, open vmconnect, and send the"
+Write-Output "'Press any key to boot from CD/DVD' keystroke automatically."
+Write-Output ""
+Write-Output "To start manually instead:"
+Write-Output "  Start-VM -Name '$VMName'"
+Write-Output "  vmconnect.exe localhost '$VMName'"
+Write-Output "  # Press any key in the vmconnect window within 5 seconds"
+Write-Output ""
 Write-Output "The Windows installer will run automatically via autounattend.xml."
 Write-Output "Default credentials - username: User, password: password (must be changed on first login)"
-Write-Output ""
-Write-Output "After installation completes, remove the DVD drives:"
-Write-Output "  Get-VMDvdDrive -VMName '$VMName' | Remove-VMDvdDrive"

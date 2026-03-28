@@ -144,7 +144,7 @@ for ($i = 0; $i -lt 5; $i++) {
         $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
         $serverReady = $true
         break
-    } catch { }
+    } catch { Write-Output "  Waiting for server... ($($i + 1)/5)" }
 }
 if (-not $serverReady) {
     Write-Warning "Status server process started but port $Port is not responding after 5 seconds."

@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol
@@ -18,15 +18,21 @@
 $script:Doc  = $null
 $script:File = $null
 
-# Returns the current UTC time as an ISO 8601 string with Z suffix.
+<#
+.SYNOPSIS
+    Returns the current UTC time as an ISO 8601 string with Z suffix.
+#>
 function Get-UtcTimestamp {
     return (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
 }
 
-# Initializes a fresh status document for a new run and writes status.json.
-# $StepNames controls which steps are tracked per guest (allows the caller
-# to add "Invoke-PoolTest" when extension scripts are present).
-# Returns the runId string.
+<#
+.SYNOPSIS
+    Initializes a fresh status document for a new run and writes status.json.
+    StepNames controls which steps are tracked per guest (allows the caller
+    to add Invoke-PoolTest when extension scripts are present).
+    Returns the runId string.
+#>
 function Initialize-StatusDocument {
     param(
         [string]   $StatusFilePath,
@@ -47,7 +53,7 @@ function Initialize-StatusDocument {
             if ($prev.history) { $history = @($prev.history) }
             if ($prev.lastGetImageAt) { $lastGetImageAt = $prev.lastGetImageAt }
             if ($prev.cycle) { $cycle = [int]$prev.cycle }
-        } catch { }
+        } catch { Write-Warning "Could not read previous status: $_" }
     }
 
     $runId = (Get-UtcTimestamp)
@@ -83,23 +89,39 @@ function Initialize-StatusDocument {
     return $runId
 }
 
-# Sets the vmName field for a guest in the current document.
+<#
+.SYNOPSIS
+    Sets the vmName field for a guest in the current document.
+#>
 function Set-GuestVMName {
+    [CmdletBinding(SupportsShouldProcess)]
     param([string]$GuestKey, [string]$VMName)
-    $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
-    if ($g) { $g.vmName = $VMName }
+    if ($PSCmdlet.ShouldProcess($GuestKey, "Set VM name to '$VMName'")) {
+        $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
+        if ($g) { $g.vmName = $VMName }
+    }
 }
 
-# Updates the top-level status of a guest and flushes status.json.
+<#
+.SYNOPSIS
+    Updates the top-level status of a guest and flushes status.json.
+#>
 function Set-GuestStatus {
+    [CmdletBinding(SupportsShouldProcess)]
     param([string]$GuestKey, [string]$Status)
-    $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
-    if ($g) { $g.status = $Status }
-    Write-StatusJson
+    if ($PSCmdlet.ShouldProcess($GuestKey, "Set guest status to '$Status'")) {
+        $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
+        if ($g) { $g.status = $Status }
+        Write-StatusJson
+    }
 }
 
-# Updates a step inside a guest and flushes status.json.
+<#
+.SYNOPSIS
+    Updates a step inside a guest and flushes status.json.
+#>
 function Set-StepStatus {
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [string] $GuestKey,
         [string] $StepName,
@@ -107,25 +129,30 @@ function Set-StepStatus {
         [bool]   $Skipped      = $false,
         [string] $ErrorMessage = $null
     )
-    $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
-    if (-not $g) { return }
-    $step = $g.steps | Where-Object { $_.name -eq $StepName }
-    if (-not $step) { return }
+    if ($PSCmdlet.ShouldProcess("$GuestKey/$StepName", "Set step status to '$Status'")) {
+        $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
+        if (-not $g) { return }
+        $step = $g.steps | Where-Object { $_.name -eq $StepName }
+        if (-not $step) { return }
 
-    $now = (Get-UtcTimestamp)
-    if ($Status -eq "running") {
-        $step.startedAt = $now
-    } else {
-        if (-not $step.startedAt) { $step.startedAt = $now }
-        $step.finishedAt = $now
+        $now = (Get-UtcTimestamp)
+        if ($Status -eq "running") {
+            $step.startedAt = $now
+        } else {
+            if (-not $step.startedAt) { $step.startedAt = $now }
+            $step.finishedAt = $now
+        }
+        $step.status  = $Status
+        $step.skipped = $Skipped
+        if ($ErrorMessage) { $step.errorMessage = $ErrorMessage }
+        Write-StatusJson
     }
-    $step.status  = $Status
-    $step.skipped = $Skipped
-    if ($ErrorMessage) { $step.errorMessage = $ErrorMessage }
-    Write-StatusJson
 }
 
-# Marks the run as finished, appends to history, and flushes status.json.
+<#
+.SYNOPSIS
+    Marks the run as finished, appends to history, and flushes status.json.
+#>
 function Complete-Run {
     param([string]$OverallStatus, [int]$MaxHistoryRuns = 30)
     $script:Doc.finishedAt    = (Get-UtcTimestamp)
@@ -147,15 +174,20 @@ function Complete-Run {
     Write-StatusJson
 }
 
-# Atomically writes the in-memory document to status.json.
+<#
+.SYNOPSIS
+    Atomically writes the in-memory document to status.json.
+#>
 function Write-StatusJson {
     $tmp = "$($script:File).tmp"
     $script:Doc | ConvertTo-Json -Depth 10 | Set-Content -Path $tmp -Encoding utf8
     Move-Item -Path $tmp -Destination $script:File -Force
 }
 
-# Reads the lastGetImageAt timestamp from the status file.
-# Returns $null if not set.
+<#
+.SYNOPSIS
+    Reads the lastGetImageAt timestamp from the status file. Returns null if not set.
+#>
 function Get-LastGetImageTime {
     param([string]$StatusFilePath)
     if ($script:Doc -and $script:Doc.lastGetImageAt) {
@@ -168,10 +200,17 @@ function Get-LastGetImageTime {
     } catch { return $null }
 }
 
-# Records the current time as the last Get-Image timestamp and flushes status.json.
+<#
+.SYNOPSIS
+    Records the current time as the last Get-Image timestamp and flushes status.json.
+#>
 function Set-LastGetImageTime {
-    $script:Doc.lastGetImageAt = (Get-UtcTimestamp)
-    Write-StatusJson
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if ($PSCmdlet.ShouldProcess("lastGetImageAt", "Set to current UTC time")) {
+        $script:Doc.lastGetImageAt = (Get-UtcTimestamp)
+        Write-StatusJson
+    }
 }
 
 Export-ModuleMember -Function Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime

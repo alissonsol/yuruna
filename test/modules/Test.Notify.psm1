@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456703
 .AUTHOR Alisson Sol
@@ -15,7 +15,10 @@
 .PRIVATEDATA
 #>
 
-# Dispatches a notification via the Resend API based on config.notification.
+<#
+.SYNOPSIS
+    Dispatches a notification via the Resend API based on config.notification.
+#>
 function Send-Notification {
     param(
         $Config,
@@ -50,7 +53,10 @@ function Send-Notification {
     Write-Information "Notification sent via Resend API to: $($notif.toAddress)" -InformationAction Continue
 }
 
-# Builds a human-readable failure message for notifications.
+<#
+.SYNOPSIS
+    Builds a human-readable failure message for notifications.
+#>
 function Format-FailureMessage {
     param(
         [string]$HostType,

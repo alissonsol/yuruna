@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456750
 .AUTHOR Alisson Sol
@@ -96,12 +96,25 @@ if ($nodeVersion -and $nodeVersion -match '^v\d+') {
     if ($nodeMajor -ge 18) {
         Write-Output "[OK]   Node.js: $nodeVersion"
     } else {
-        Write-Output "[FAIL] Node.js $nodeVersion is too old (need 18+)"
-        if ($IsMacOS) {
-            $issues.Add("Upgrade Node.js: brew upgrade node")
-        } elseif ($IsWindows) {
-            $issues.Add("Upgrade Node.js: winget upgrade OpenJS.NodeJS.LTS")
-            $issues.Add("  Or download from: https://nodejs.org")
+        Write-Output "[WARN] Node.js $nodeVersion is too old (need 18+). Attempting upgrade..."
+        if ($IsMacOS -and (Get-Command "brew" -ErrorAction SilentlyContinue)) {
+            & brew upgrade node 2>&1 | ForEach-Object { Write-Output "  $_" }
+        } elseif ($IsWindows -and (Get-Command "winget" -ErrorAction SilentlyContinue)) {
+            & winget upgrade OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements 2>&1 | ForEach-Object { Write-Output "  $_" }
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        }
+        $nodeVersion = try { (& node --version 2>&1).Trim() } catch { $null }
+        $nodeMajor = if ($nodeVersion) { [int]($nodeVersion -replace '^v', '' -split '\.')[0] } else { 0 }
+        if ($nodeMajor -ge 18) {
+            Write-Output "[OK]   Node.js upgraded: $nodeVersion"
+        } else {
+            Write-Output "[FAIL] Node.js is still $nodeVersion after upgrade attempt"
+            if ($IsMacOS) {
+                $issues.Add("Upgrade Node.js manually: brew upgrade node")
+            } else {
+                $issues.Add("Upgrade Node.js: winget upgrade OpenJS.NodeJS.LTS")
+                $issues.Add("  Or download from: https://nodejs.org")
+            }
         }
     }
 } else {
@@ -109,11 +122,11 @@ if ($nodeVersion -and $nodeVersion -match '^v\d+') {
     $nodeInstalled = $false
     if ($IsMacOS -and (Get-Command "brew" -ErrorAction SilentlyContinue)) {
         Write-Output "       Running: brew install node"
-        & brew install node 2>&1 | ForEach-Object { Write-Host "  $_" }
+        & brew install node 2>&1 | ForEach-Object { Write-Output "  $_" }
         $nodeInstalled = $true
     } elseif ($IsWindows -and (Get-Command "winget" -ErrorAction SilentlyContinue)) {
         Write-Output "       Running: winget install OpenJS.NodeJS.LTS"
-        & winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements 2>&1 | ForEach-Object { Write-Host "  $_" }
+        & winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements 2>&1 | ForEach-Object { Write-Output "  $_" }
         # Refresh PATH for the current session
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
         $nodeInstalled = $true
@@ -214,12 +227,20 @@ if ($appiumCmd) {
     Write-Output "Version: $appiumVersion"
 }
 if ($appiumVersion -and $appiumVersion -match '^\d+\.\d+') {
-    Write-Output "Appium already installed: $appiumVersion"
+    Write-Output "Appium installed: $appiumVersion. Checking for updates..."
+    & $npmCmd.Source update -g appium 2>&1 | ForEach-Object { Write-Output "  $_" }
+    $newVersion = try { (& $appiumCmd.Source --version 2>&1).Trim() } catch { $appiumVersion }
+    if ($newVersion -ne $appiumVersion) {
+        Write-Output "Appium updated: $appiumVersion -> $newVersion"
+        $appiumVersion = $newVersion
+    } else {
+        Write-Output "Appium is up to date: $appiumVersion"
+    }
 } else {
     Write-Output "Appium not found in PATH. Installing..."
     Write-Output "Running: $($npmCmd.Source) install -g appium"
     Write-Output "(this may take several minutes)"
-    & $npmCmd.Source install -g appium 2>&1 | ForEach-Object { Write-Host "  $_" }
+    & $npmCmd.Source install -g appium 2>&1 | ForEach-Object { Write-Output "  $_" }
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to install Appium (exit code $LASTEXITCODE). Try running manually: npm install -g appium"
         exit 1
@@ -249,15 +270,23 @@ if (-not $appiumCmd) {
         Write-Output "  appium driver install mac2"
     }
 } elseif ($IsWindows) {
-    Write-Output "--- Installing Appium Windows Driver ---"
-    Write-Output "Running: appium driver install --source=npm appium-windows-driver"
-    Write-Output "(this may take a few minutes)"
-    & $appiumCmd.Source driver install --source=npm appium-windows-driver 2>&1 | ForEach-Object { Write-Host "  $_" }
+    Write-Output "--- Appium Windows Driver ---"
+    # Try update first; if not installed, fall back to install
+    Write-Output "Checking for appium-windows-driver updates..."
+    & $appiumCmd.Source driver update --source=npm appium-windows-driver 2>&1 | ForEach-Object { Write-Output "  $_" }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "Driver not installed yet. Installing..."
+        & $appiumCmd.Source driver install --source=npm appium-windows-driver 2>&1 | ForEach-Object { Write-Output "  $_" }
+    }
 } elseif ($IsMacOS) {
-    Write-Output "--- Installing Appium Mac2 Driver ---"
-    Write-Output "Running: appium driver install mac2"
-    Write-Output "(this may take a few minutes)"
-    & $appiumCmd.Source driver install mac2 2>&1 | ForEach-Object { Write-Host "  $_" }
+    Write-Output "--- Appium Mac2 Driver ---"
+    # Try update first; if not installed, fall back to install
+    Write-Output "Checking for appium-mac2-driver updates..."
+    & $appiumCmd.Source driver update mac2 2>&1 | ForEach-Object { Write-Output "  $_" }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "Driver not installed yet. Installing..."
+        & $appiumCmd.Source driver install mac2 2>&1 | ForEach-Object { Write-Output "  $_" }
+    }
 }
 
 # === Create appium directory for local config ===
@@ -269,7 +298,7 @@ if (-not (Test-Path $AppiumDir)) {
 Write-Output ""
 Write-Output "--- Installed Appium drivers ---"
 if ($appiumCmd) {
-    & $appiumCmd.Source driver list --installed 2>&1 | ForEach-Object { Write-Host "  $_" }
+    & $appiumCmd.Source driver list --installed 2>&1 | ForEach-Object { Write-Output "  $_" }
 } else {
     Write-Output "  (restart terminal to see drivers)"
 }

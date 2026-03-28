@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456711
 .AUTHOR Alisson Sol
@@ -15,8 +15,12 @@
 .PRIVATEDATA
 #>
 
-# Returns the expected filesystem path of the base image for a given host+guest pair.
-# Returns $null if the path cannot be determined statically (caller should not skip Get-Image).
+<#
+.SYNOPSIS
+    Returns the expected filesystem path of the base image for a given host+guest pair.
+.DESCRIPTION
+    Returns $null if the path cannot be determined statically (caller should not skip Get-Image).
+#>
 function Get-ImagePath {
     param([string]$HostType, [string]$GuestKey)
     switch ("$HostType/$GuestKey") {
@@ -51,8 +55,12 @@ function Get-ImagePath {
     }
 }
 
-# Runs Get-Image.ps1 for the given host+guest, or skips if the image exists and AlwaysRedownload is false.
-# Returns a hashtable: { success, skipped, errorMessage }
+<#
+.SYNOPSIS
+    Runs Get-Image.ps1 for the given host+guest, or skips if the image exists.
+.DESCRIPTION
+    Returns a hashtable: { success, skipped, errorMessage }
+#>
 function Invoke-GetImage {
     param(
         [string]$HostType,

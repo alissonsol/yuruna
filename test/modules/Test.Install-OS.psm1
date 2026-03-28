@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456716
 .AUTHOR Alisson Sol
@@ -17,10 +17,14 @@
 
 # ── Test-Start extension discovery ───────────────────────────────────────────
 
-# Discovers Test-Start scripts for a guest under the extensions/ directory.
-# Naming convention: Test-Start.guest.<key>.ps1
-# Returns an array of FileInfo objects, sorted alphabetically.
-function Get-StartTestScripts {
+<#
+.SYNOPSIS
+    Discovers Test-Start scripts for a guest under the extensions/ directory.
+.DESCRIPTION
+    Naming convention: Test-Start.guest.<key>.ps1
+    Returns an array of FileInfo objects, sorted alphabetically.
+#>
+function Get-StartTestScript {
     param([string]$GuestKey, [string]$ExtensionsDir)
     if (-not (Test-Path $ExtensionsDir)) { return @() }
     $prefix = "Test-Start.$GuestKey"
@@ -32,10 +36,14 @@ function Get-StartTestScripts {
     return @($scripts | Sort-Object Name)
 }
 
-# Runs all Test-Start scripts for a guest.
-# Each script is executed as a child process and receives:
-#   -HostType, -GuestKey, -VMName
-# Returns a hashtable: { success, skipped, errorMessage }
+<#
+.SYNOPSIS
+    Runs all Test-Start scripts for a guest.
+.DESCRIPTION
+    Each script is executed as a child process and receives:
+    -HostType, -GuestKey, -VMName.
+    Returns a hashtable: { success, skipped, errorMessage }
+#>
 function Invoke-StartTest {
     param(
         [string]$HostType,
@@ -43,7 +51,7 @@ function Invoke-StartTest {
         [string]$VMName,
         [string]$ExtensionsDir
     )
-    $scripts = Get-StartTestScripts -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir
+    $scripts = Get-StartTestScript -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir
     if ($scripts.Count -eq 0) {
         return @{ success=$true; skipped=$true; errorMessage=$null }
     }
@@ -60,9 +68,13 @@ function Invoke-StartTest {
 
 # ── Post-install verification via screenshot ─────────────────────────────────
 
-# Checks if a verification screenshot exists for the given host+guest pair.
-# Files are named <hostType>.<guestKey>.png under verify/expected/.
-# Returns the path to the expected screenshot, or $null if none exists.
+<#
+.SYNOPSIS
+    Checks if a verification screenshot exists for the given host+guest pair.
+.DESCRIPTION
+    Files are named <hostType>.<guestKey>.png under verify/expected/.
+    Returns the path to the expected screenshot, or $null if none exists.
+#>
 function Get-VerifyScreenshot {
     param([string]$HostType, [string]$GuestKey, [string]$VerifyDir)
     $fileName = "$HostType.$GuestKey.png"
@@ -71,4 +83,4 @@ function Get-VerifyScreenshot {
     return $null
 }
 
-Export-ModuleMember -Function Get-StartTestScripts, Invoke-StartTest, Get-VerifyScreenshot
+Export-ModuleMember -Function Get-StartTestScript, Invoke-StartTest, Get-VerifyScreenshot

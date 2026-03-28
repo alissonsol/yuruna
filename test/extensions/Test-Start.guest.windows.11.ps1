@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456762
 .AUTHOR Alisson Sol
@@ -84,13 +84,14 @@ param(
 # === Keystroke sequence ===
 # Each step: DelaySeconds (wait before sending), Key, Description.
 #
-# On Hyper-V, New-VM.ps1 already sends Enter during creation to bypass
-# the "Press any key to boot from CD/DVD" prompt. The step below is
-# a safety net — it sends Enter again in case the first one was too early.
-#
-# On UTM, New-VM.ps1 does NOT send this keystroke, so this is essential.
+# The "Press any key to boot from CD or DVD..." prompt appears shortly after
+# the VM starts. On Hyper-V, the test runner opens vmconnect (basic mode)
+# and this script sends Enter via WMI. On UTM, it sends Enter via AppleScript.
+# The "Press any key" prompt has a ~5-second window. We send Enter twice
+# to cover timing variations (UEFI firmware delay, vmconnect startup).
 $Steps = @(
-    @{ DelaySeconds = 5;  Key = "Enter"; Description = "Boot from CD/DVD — bypass 'Press any key' prompt" }
+    @{ DelaySeconds = 3;  Key = "Enter"; Description = "Boot from CD/DVD (first attempt)" }
+    @{ DelaySeconds = 5;  Key = "Enter"; Description = "Boot from CD/DVD (retry)" }
 )
 
 # === Keystroke delivery functions ===
@@ -103,12 +104,22 @@ function Send-KeystrokeHyperV {
         "F1"=0x3B; "F2"=0x3C; "F5"=0x3F; "F8"=0x42; "F12"=0x46
     }
     $code = $keyMap[$Key]
-    if (-not $code) { Write-Warning "Unknown key '$Key' for Hyper-V"; return $false }
+    if (-not $code) { Write-Warning "Unknown key '$Key' for Hyper-V (scan code not mapped)"; return $false }
     try {
+        Write-Output "    [keystroke] Looking up VM '$VMName' via WMI..."
         $vmObj = Get-CimInstance -Namespace root\virtualization\v2 -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
+        if (-not $vmObj) { Write-Warning "VM '$VMName' not found in WMI"; return $false }
+        Write-Output "    [keystroke] VM found (state: $($vmObj.EnabledState)). Getting keyboard device..."
         $kb = Get-CimAssociatedInstance -InputObject $vmObj -ResultClassName Msvm_Keyboard
-        Invoke-CimMethod -InputObject $kb -MethodName "PressKey" -Arguments @{keyCode=$code} | Out-Null
-        return $true
+        if (-not $kb) { Write-Warning "Keyboard device not found for '$VMName'"; return $false }
+        Write-Output "    [keystroke] Sending key '$Key' (scan code 0x$($code.ToString('X2'))): PressKey..."
+        $pressResult = Invoke-CimMethod -InputObject $kb -MethodName "PressKey" -Arguments @{keyCode=$code}
+        Write-Output "    [keystroke] PressKey returned: $($pressResult.ReturnValue)"
+        Start-Sleep -Milliseconds 100
+        Write-Output "    [keystroke] ReleaseKey..."
+        $releaseResult = Invoke-CimMethod -InputObject $kb -MethodName "ReleaseKey" -Arguments @{keyCode=$code}
+        Write-Output "    [keystroke] ReleaseKey returned: $($releaseResult.ReturnValue)"
+        return ($pressResult.ReturnValue -eq 0 -and $releaseResult.ReturnValue -eq 0)
     } catch {
         Write-Warning "Failed to send keystroke via Hyper-V WMI: $_"
         return $false

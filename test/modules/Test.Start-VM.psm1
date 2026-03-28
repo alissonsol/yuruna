@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456713
 .AUTHOR Alisson Sol
@@ -17,8 +17,11 @@
 
 # ── Start VM ─────────────────────────────────────────────────────────────────
 
-# Starts a VM that was previously created by New-VM.ps1.
-# Returns a hashtable: { success, errorMessage }
+<#
+.SYNOPSIS
+    Starts a VM that was previously created by New-VM.ps1.
+    Returns a hashtable: { success, errorMessage }
+#>
 function Invoke-StartVM {
     param([string]$HostType, [string]$VMName)
     switch ($HostType) {
@@ -29,6 +32,8 @@ function Invoke-StartVM {
 }
 
 function Start-UtmVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
     param([string]$VMName)
     $hostname = if ($IsMacOS) { (& hostname -s 2>$null).Trim() } else { (& hostname).Trim() }
     $utmBundle = "$HOME/Desktop/Yuruna.VDE/$hostname.nosync/$VMName.utm"
@@ -36,11 +41,13 @@ function Start-UtmVM {
         return @{ success=$false; errorMessage="UTM bundle not found: $utmBundle" }
     }
     try {
-        & open "$utmBundle"
-        Start-Sleep -Seconds 5
-        & utmctl start "$VMName" 2>&1 | Write-Output
-        if ($LASTEXITCODE -ne 0) {
-            return @{ success=$false; errorMessage="utmctl start failed for '$VMName' (exit code $LASTEXITCODE)" }
+        if ($PSCmdlet.ShouldProcess($VMName, 'Start UTM VM')) {
+            & open "$utmBundle"
+            Start-Sleep -Seconds 5
+            & utmctl start "$VMName" 2>&1 | Write-Output
+            if ($LASTEXITCODE -ne 0) {
+                return @{ success=$false; errorMessage="utmctl start failed for '$VMName' (exit code $LASTEXITCODE)" }
+            }
         }
         return @{ success=$true; errorMessage=$null }
     } catch {
@@ -49,9 +56,21 @@ function Start-UtmVM {
 }
 
 function Start-HyperVVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
     param([string]$VMName)
     try {
-        Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
+        if ($PSCmdlet.ShouldProcess($VMName, 'Start Hyper-V VM')) {
+            Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
+            # Open the VM console window in basic mode (no Enhanced Session).
+            # This provides a visible window for screenshots and keystroke delivery
+            # without requiring guest integration tools inside the VM.
+            $vmconnect = "$env:SystemRoot\System32\vmconnect.exe"
+            if (Test-Path $vmconnect) {
+                Start-Process -FilePath $vmconnect -ArgumentList "localhost", $VMName
+                Start-Sleep -Seconds 2
+            }
+        }
         return @{ success=$true; errorMessage=$null }
     } catch {
         return @{ success=$false; errorMessage="Start-VM failed for '$VMName': $_" }
@@ -60,25 +79,39 @@ function Start-HyperVVM {
 
 # ── Stop VM (without destroy) ────────────────────────────────────────────────
 
-# Stops a running VM without deleting it. Used between per-guest tests
-# to avoid one guest's window interfering with another's screenshot.
-# Returns $true on success.
+<#
+.SYNOPSIS
+    Stops a running VM without deleting it. Used between per-guest tests
+    to avoid one guest's window interfering with another's screenshot.
+    Returns $true on success.
+#>
 function Stop-TestVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
     param([string]$HostType, [string]$VMName)
     switch ($HostType) {
         "host.macos.utm" {
-            & utmctl stop "$VMName" 2>&1 | Out-Null
-            if ($LASTEXITCODE -eq 0) {
-                Write-Output "Stopped UTM VM: $VMName"
-                Start-Sleep -Seconds 2
-                return $true
+            if ($PSCmdlet.ShouldProcess($VMName, 'Stop UTM VM')) {
+                & utmctl stop "$VMName" 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Output "Stopped UTM VM: $VMName"
+                    Start-Sleep -Seconds 2
+                    return $true
+                }
+                Write-Warning "utmctl stop failed for '$VMName' (exit $LASTEXITCODE)"
+                return $false
             }
-            Write-Warning "utmctl stop failed for '$VMName' (exit $LASTEXITCODE)"
-            return $false
+            return $true
         }
         "host.windows.hyper-v" {
             try {
-                Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
+                if ($PSCmdlet.ShouldProcess($VMName, 'Stop Hyper-V VM')) {
+                    Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
+                    # Close the vmconnect window for this VM
+                    Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+                        Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+                        Stop-Process -Force -ErrorAction SilentlyContinue
+                }
                 Write-Output "Stopped Hyper-V VM: $VMName"
                 return $true
             } catch {
@@ -95,10 +128,13 @@ function Stop-TestVM {
 
 # ── Verify running ───────────────────────────────────────────────────────────
 
-# Polls until the VM reaches a running state or the timeout expires.
-# After confirming the VM is running, waits an additional BootDelaySeconds
-# to allow the guest OS to initialize before any screenshot or test.
-# Returns $true on success.
+<#
+.SYNOPSIS
+    Polls until the VM reaches a running state or the timeout expires.
+    After confirming the VM is running, waits an additional BootDelaySeconds
+    to allow the guest OS to initialize before any screenshot or test.
+    Returns $true on success.
+#>
 function Confirm-VMStarted {
     param(
         [string]$HostType,

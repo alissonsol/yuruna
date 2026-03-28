@@ -138,8 +138,9 @@ if ($IsWindows) {
 $chromeMajor = ($chromeVersion -split '\.')[0]
 Write-Output "Installed Chrome version: $chromeVersion (major: $chromeMajor)"
 
-# === Step 3: Check existing ChromeDriver ===
+# === Step 3: Check existing ChromeDriver and find latest available ===
 $needsDriver = $true
+$driverVersion = $null
 if (Test-Path $driverExe) {
     try {
         $driverOutput = & $driverExe --version 2>&1
@@ -148,16 +149,39 @@ if (Test-Path $driverExe) {
             $driverVersion = $driverVersionMatch.Groups[1].Value
             $driverMajor = ($driverVersion -split '\.')[0]
             Write-Output "Installed ChromeDriver version: $driverVersion (major: $driverMajor)"
-            if ($driverMajor -eq $chromeMajor) {
-                Write-Output "ChromeDriver major version matches Chrome browser. OK."
-                $needsDriver = $false
-            } else {
+            if ($driverMajor -ne $chromeMajor) {
                 Write-Output "Major version mismatch: Chrome=$chromeMajor, Driver=$driverMajor. Updating..."
             }
         }
     } catch {
         Write-Output "Could not determine existing driver version. Re-downloading..."
     }
+}
+
+# Check for the latest available version matching Chrome's major
+$latestDriverVersion = $null
+try {
+    Write-Output "Checking for latest ChromeDriver for Chrome $chromeMajor..."
+    $knownVersionsUrl = "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
+    $knownVersions = Invoke-RestMethod -Uri $knownVersionsUrl -UseBasicParsing -ErrorAction Stop
+    $bestMatch = $knownVersions.versions |
+        Where-Object { ($_.version -split '\.')[0] -eq $chromeMajor } |
+        Where-Object { $_.downloads.chromedriver } |
+        Sort-Object { [version]$_.version } -Descending |
+        Select-Object -First 1
+    if ($bestMatch) { $latestDriverVersion = $bestMatch.version }
+} catch {
+    Write-Warning "Could not check latest version: $($_.Exception.Message)"
+}
+
+if ($driverVersion -and $latestDriverVersion -and $driverVersion -eq $latestDriverVersion) {
+    Write-Output "ChromeDriver is up to date: $driverVersion"
+    $needsDriver = $false
+} elseif ($driverVersion -and $latestDriverVersion) {
+    Write-Output "Update available: $driverVersion -> $latestDriverVersion"
+} elseif ($driverVersion -and ($driverVersion -split '\.')[0] -eq $chromeMajor -and -not $latestDriverVersion) {
+    Write-Output "ChromeDriver major version matches Chrome. Could not check for patch updates."
+    $needsDriver = $false
 }
 
 # === Step 4: Download ChromeDriver ===

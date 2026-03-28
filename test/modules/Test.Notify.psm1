@@ -54,6 +54,7 @@ function Send-Notification {
 function Format-FailureMessage {
     param(
         [string]$HostType,
+        [string]$Hostname,
         [string]$GuestKey,
         [string]$StepName,
         [string]$ErrorMessage,
@@ -63,13 +64,14 @@ function Format-FailureMessage {
     return @"
 Yuruna VDE Test Failure
 
-Host:    $HostType
-Guest:   $GuestKey
-Step:    $StepName
-Error:   $ErrorMessage
-Run ID:  $RunId
-Commit:  $GitCommit
-Time:    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
+Host:     $HostType
+Machine:  $Hostname
+Guest:    $GuestKey
+Step:     $StepName
+Error:    $ErrorMessage
+Run ID:   $RunId
+Commit:   $GitCommit
+Time:     $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
 "@
 }
 

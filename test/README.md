@@ -53,6 +53,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
     }
   },
   "alwaysRedownloadImages": false,
+  "getImageRefreshHours": 24,
   "testVmNamePrefix": "test-",
   "cycleDelaySeconds": 30,
   "vmStartTimeoutSeconds": 120,
@@ -73,6 +74,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `vmStartTimeoutSeconds` | `120` | How long to wait for a VM to reach running state |
 | `vmBootDelaySeconds` | `15` | Extra wait after VM is running, before screenshots/tests |
 | `alwaysRedownloadImages` | `false` | Force re-download even if image exists |
+| `getImageRefreshHours` | `24` | Hours between automatic image re-downloads |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
 | `statusServer.port` | `8080` | Port for the status server |

@@ -15,6 +15,10 @@
 .PRIVATEDATA
 #>
 
+param(
+    [switch]$Force
+)
+
 # === Warning ===
 Write-Output ""
 Write-Output "================================================================"
@@ -204,11 +208,15 @@ Write-Output ""
 Write-Output ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
 Write-Output ""
 
-# Ask for confirmation
-$confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
-if ($confirmation -ne "YES") {
-    Write-Output "Operation cancelled. No files were deleted."
-    exit 0
+# Ask for confirmation (skip if -Force)
+if ($Force) {
+    Write-Output "Force mode enabled — skipping confirmation."
+} else {
+    $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
+    if ($confirmation -ne "YES") {
+        Write-Output "Operation cancelled. No files were deleted."
+        exit 0
+    }
 }
 
 $errors = 0

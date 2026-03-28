@@ -65,12 +65,6 @@ When your script runs:
 - Do not delete or stop the VM (the runner handles cleanup)
 - Do not modify `status.json` (the runner manages it)
 
-## PSScriptInfo header
-
-All extension scripts should include a PSScriptInfo header with a GUID
-starting with `42` and version `0.1`. See the existing `Test-Workload.*.ps1`
-files for the template.
-
 ## Example: SSH connectivity check
 
 ```powershell

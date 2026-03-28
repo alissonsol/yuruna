@@ -7,6 +7,7 @@
     }
   },
   "alwaysRedownloadImages": false,
+  "getImageRefreshHours": 24,
   "testVmNamePrefix": "test-",
   "cycleDelaySeconds": 30,
   "vmStartTimeoutSeconds": 120,

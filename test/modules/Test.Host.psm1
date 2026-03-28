@@ -60,14 +60,45 @@ function Assert-Elevation {
 # Runs git pull in the repo root. Returns $true on success.
 function Invoke-GitPull {
     param([string]$RepoRoot)
-    Write-Information "Running git pull in: $RepoRoot" -InformationAction Continue
-    $output = & git -C $RepoRoot pull 2>&1
+
+    # Fetch latest from remote without modifying the working tree
+    Write-Information "Fetching remote changes in: $RepoRoot" -InformationAction Continue
+    $output = & git -C $RepoRoot fetch 2>&1
     Write-Information "$output" -InformationAction Continue
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "git pull failed (exit $LASTEXITCODE)."
+        Write-Error "git fetch failed (exit $LASTEXITCODE)."
         return $false
     }
-    return $true
+
+    # Determine local vs remote HEAD positions
+    $local  = & git -C $RepoRoot rev-parse HEAD 2>$null
+    $remote = & git -C $RepoRoot rev-parse '@{u}' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Information "No upstream tracking branch found; skipping ahead/behind check." -InformationAction Continue
+        return $true
+    }
+
+    if ($local -eq $remote) {
+        Write-Information "Local branch is up to date with remote." -InformationAction Continue
+        return $true
+    }
+
+    $mergeBase = & git -C $RepoRoot merge-base $local $remote 2>$null
+
+    if ($mergeBase -eq $remote) {
+        # Local is ahead of remote — local commits not yet pushed; that's fine
+        Write-Information "Local branch is ahead of remote. Proceeding with local changes." -InformationAction Continue
+        return $true
+    }
+
+    # Local is behind (or diverged from) remote
+    $behind = & git -C $RepoRoot rev-list --count "$local..$remote" 2>$null
+    if ($mergeBase -eq $local) {
+        Write-Error "Local branch is behind remote by $behind commit(s). Pull or rebase before running tests."
+    } else {
+        Write-Error "Local branch has diverged from remote (behind by $behind commit(s)). Resolve before running tests."
+    }
+    return $false
 }
 
 # Returns the short git commit hash of HEAD.

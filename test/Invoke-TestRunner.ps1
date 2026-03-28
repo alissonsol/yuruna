@@ -110,6 +110,7 @@ if ($hasExtensions)  { $StepNames += @("CustomTests") }
 $VmStartTimeout = if ($Config.vmStartTimeoutSeconds) { [int]$Config.vmStartTimeoutSeconds } else { 120 }
 $VmBootDelay    = if ($Config.vmBootDelaySeconds)    { [int]$Config.vmBootDelaySeconds }    else { 15 }
 $CycleDelay     = if ($Config.cycleDelaySeconds)     { [int]$Config.cycleDelaySeconds }     else { $CycleDelaySeconds }
+$GetImageRefreshHours = if ($Config.getImageRefreshHours) { [int]$Config.getImageRefreshHours } else { 24 }
 
 # === Continuous test loop ===
 $CycleCount     = 0
@@ -133,15 +134,17 @@ while ($true) {
         if (-not (Invoke-GitPull -RepoRoot $RepoRoot)) {
             Write-Output ""
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-            Write-Output "  ERROR: git pull failed"
-            Write-Output "  Check network connectivity and repository access."
+            Write-Output "  ERROR: git sync check failed"
+            Write-Output "  Local branch is behind or diverged from remote."
+            Write-Output "  Pull/rebase manually, or check network connectivity."
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
             Write-Output ""
             $body = Format-FailureMessage `
                 -HostType     $HostType `
+                -Hostname     (hostname) `
                 -GuestKey     "(bootstrap)" `
                 -StepName     "GitPull" `
-                -ErrorMessage "git pull failed. Check network connectivity and repository access." `
+                -ErrorMessage "Local branch is behind or diverged from remote. Pull/rebase manually, or check network connectivity." `
                 -RunId        "(not yet assigned)" `
                 -GitCommit    (Get-CurrentGitCommit -RepoRoot $RepoRoot)
             Send-Notification -Config $Config `
@@ -168,13 +171,13 @@ while ($true) {
     Write-Output "Commit:  $GitCommit"
     Write-Output "Guests:  $($GuestList -join ', ')"
 
-    # --- Get-Image (every 24 hours) ---
+    # --- Get-Image (every N hours, configurable) ---
     $lastGetImage = Get-LastGetImageTime -StatusFilePath $StatusFile
-    $needGetImage = (-not $lastGetImage) -or ((Get-Date) - [datetime]$lastGetImage).TotalHours -ge 24
+    $needGetImage = (-not $lastGetImage) -or ((Get-Date) - [datetime]$lastGetImage).TotalHours -ge $GetImageRefreshHours
 
     if ($needGetImage) {
         Write-Output ""
-        Write-Output "--- Get-Image (24h refresh) ---"
+        Write-Output "--- Get-Image (${GetImageRefreshHours}h refresh) ---"
         foreach ($GuestKey in $GuestList) {
             Write-Output "Downloading image for $GuestKey..."
             $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
@@ -357,6 +360,7 @@ if (-not $OverallPassed -and $FailedGuest) {
 
     $body = Format-FailureMessage `
         -HostType     $HostType `
+        -Hostname     (hostname) `
         -GuestKey     $FailedGuest `
         -StepName     $FailedStep `
         -ErrorMessage $FailureMessage `

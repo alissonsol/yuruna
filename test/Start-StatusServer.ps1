@@ -51,13 +51,13 @@ if ($Port -eq 0) {
     if ($Port -eq 0) { $Port = 8080 }
 }
 
-# --- Stop any existing server ---
+# --- Check for an existing server ---
 if (Test-Path $PidFile) {
     $oldPid = (Get-Content $PidFile).Trim()
     if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
-        Write-Output "Stopping existing status server (PID $oldPid)..."
-        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
+        Write-Output "Status server is already running (PID $oldPid, port $Port)."
+        Write-Output "Stop with: .\Stop-StatusServer.ps1"
+        exit 0
     }
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
@@ -110,17 +110,15 @@ if ($IsWindows) {
     $proc = Start-Process -FilePath "pwsh" `
         -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-EncodedCommand", $encodedCommand `
         -PassThru
+    Set-Content -Path $PidFile -Value $proc.Id
 } else {
-    # On macOS/Linux, use nohup to detach from the parent session so the
-    # server survives when Invoke-TestRunner is stopped (Ctrl+C / SIGHUP).
+    # On macOS/Linux, launch via bash to fully detach from the parent session.
+    # The subshell (...) + & backgrounds the process in a new process group,
+    # and nohup prevents SIGHUP from killing it when the caller exits.
     $stdErr = Join-Path $StatusDir "server.err"
-    $proc = Start-Process -FilePath "nohup" `
-        -ArgumentList "pwsh", "-NoProfile", "-EncodedCommand", $encodedCommand `
-        -RedirectStandardOutput "/dev/null" -RedirectStandardError $stdErr `
-        -PassThru
+    & bash -c "nohup pwsh -NoProfile -EncodedCommand $encodedCommand > /dev/null 2>'$stdErr' & echo `$!"  | Set-Variable -Name bgPid
+    Set-Content -Path $PidFile -Value $bgPid
 }
-
-Set-Content -Path $PidFile -Value $proc.Id
 
 # --- Display connection info ---
 $machineName = (hostname).Trim()
@@ -131,7 +129,8 @@ $ip = try {
 } catch { $null }
 
 Write-Output ""
-Write-Output "Status server started (PID $($proc.Id), port $Port)."
+$serverPid = (Get-Content $PidFile).Trim()
+Write-Output "Status server started (PID $serverPid, port $Port)."
 Write-Output "  Local:  http://localhost:$Port/status/"
 if ($ip) {
     Write-Output "  Remote: http://${ip}:$Port/status/"

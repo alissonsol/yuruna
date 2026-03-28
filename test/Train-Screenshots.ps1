@@ -153,7 +153,7 @@ while ($true) {
             $schedule = [ordered]@{
                 guestKey    = $GuestKey
                 hostType    = $HostType
-                trainedAt   = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+                trainedAt   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 vmName      = $VMName
                 checkpoints = @($checkpoints)
             }

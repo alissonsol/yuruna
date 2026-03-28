@@ -74,9 +74,25 @@ switch ($HostType) {
                     $found = $true
                     Write-Output "  Stopping $vmName..."
                     & utmctl stop "$vmName" 2>&1 | Out-Null
-                    Start-Sleep -Seconds 2
+                    # Wait for the VM to fully stop before deleting
+                    $waited = 0
+                    while ($waited -lt 30) {
+                        Start-Sleep -Seconds 2
+                        $waited += 2
+                        $status = & utmctl status "$vmName" 2>&1
+                        if ($status -match "stopped|shutdown") { break }
+                    }
                     & utmctl delete "$vmName" 2>&1 | Out-Null
-                    Write-Output "    Removed from UTM."
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Warning "    utmctl delete failed for '$vmName'. Retrying after delay..."
+                        Start-Sleep -Seconds 3
+                        & utmctl delete "$vmName" 2>&1 | Out-Null
+                    }
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Output "    Removed from UTM."
+                    } else {
+                        Write-Warning "    Could not remove '$vmName' from UTM registry."
+                    }
                 }
             }
         }

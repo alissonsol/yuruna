@@ -18,6 +18,11 @@
 $script:Doc  = $null
 $script:File = $null
 
+# Returns the current UTC time as an ISO 8601 string with Z suffix.
+function Get-UtcTimestamp {
+    return (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+}
+
 # Initializes a fresh status document for a new run and writes status.json.
 # $StepNames controls which steps are tracked per guest (allows the caller
 # to add "Invoke-PoolTest" when extension scripts are present).
@@ -45,7 +50,7 @@ function Initialize-StatusDocument {
         } catch { }
     }
 
-    $runId = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    $runId = (Get-UtcTimestamp)
 
     $guests = foreach ($key in $GuestList) {
         $steps = foreach ($sn in $StepNames) {
@@ -107,7 +112,7 @@ function Set-StepStatus {
     $step = $g.steps | Where-Object { $_.name -eq $StepName }
     if (-not $step) { return }
 
-    $now = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    $now = (Get-UtcTimestamp)
     if ($Status -eq "running") {
         $step.startedAt = $now
     } else {
@@ -123,7 +128,7 @@ function Set-StepStatus {
 # Marks the run as finished, appends to history, and flushes status.json.
 function Complete-Run {
     param([string]$OverallStatus, [int]$MaxHistoryRuns = 30)
-    $script:Doc.finishedAt    = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    $script:Doc.finishedAt    = (Get-UtcTimestamp)
     $script:Doc.overallStatus = $OverallStatus
 
     $guestSummary = @{}
@@ -165,7 +170,7 @@ function Get-LastGetImageTime {
 
 # Records the current time as the last Get-Image timestamp and flushes status.json.
 function Set-LastGetImageTime {
-    $script:Doc.lastGetImageAt = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    $script:Doc.lastGetImageAt = (Get-UtcTimestamp)
     Write-StatusJson
 }
 

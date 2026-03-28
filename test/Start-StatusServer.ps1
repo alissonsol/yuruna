@@ -106,10 +106,18 @@ try {
 
 $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($serverScript))
 
-$startArgs = @("-NoProfile", "-EncodedCommand", $encodedCommand)
-if ($IsWindows) { $startArgs = @("-NoProfile", "-WindowStyle", "Hidden", "-EncodedCommand", $encodedCommand) }
-
-$proc = Start-Process -FilePath "pwsh" -ArgumentList $startArgs -PassThru
+if ($IsWindows) {
+    $proc = Start-Process -FilePath "pwsh" `
+        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-EncodedCommand", $encodedCommand `
+        -PassThru
+} else {
+    # On macOS/Linux, use nohup to detach from the parent session so the
+    # server survives when Invoke-TestRunner is stopped (Ctrl+C / SIGHUP).
+    $proc = Start-Process -FilePath "nohup" `
+        -ArgumentList "pwsh", "-NoProfile", "-EncodedCommand", $encodedCommand `
+        -RedirectStandardOutput "/dev/null" -RedirectStandardError "/dev/null" `
+        -PassThru
+}
 
 Set-Content -Path $PidFile -Value $proc.Id
 

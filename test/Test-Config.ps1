@@ -230,7 +230,7 @@ This is a test notification sent by Test-Config.ps1.
 
 If you received this, your notification settings in test-config.json are working correctly.
 
-Sent: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
 "@
 
         Write-Info "Sending test notification via Resend API..."

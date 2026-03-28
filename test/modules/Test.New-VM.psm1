@@ -101,10 +101,21 @@ function Remove-UtmTestVM {
     & utmctl stop "$VMName" 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Output "Stopped UTM VM: $VMName"
-        Start-Sleep -Seconds 2
+        # Wait for the VM to fully stop before deleting
+        $waited = 0
+        while ($waited -lt 30) {
+            Start-Sleep -Seconds 2
+            $waited += 2
+            $status = & utmctl status "$VMName" 2>&1
+            if ($status -match "stopped|shutdown") { break }
+        }
     }
     # Delete the VM from UTM's registry
     & utmctl delete "$VMName" 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Start-Sleep -Seconds 3
+        & utmctl delete "$VMName" 2>&1 | Out-Null
+    }
     if ($LASTEXITCODE -eq 0) {
         Write-Output "Deleted UTM VM from registry: $VMName"
     }

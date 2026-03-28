@@ -71,7 +71,7 @@ Step:     $StepName
 Error:    $ErrorMessage
 Run ID:   $RunId
 Commit:   $GitCommit
-Time:     $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
+Time:     $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')) UTC
 "@
 }
 

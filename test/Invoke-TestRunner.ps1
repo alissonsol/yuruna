@@ -176,7 +176,7 @@ while ($true) {
 
     # --- Get-Image (every N hours, configurable) ---
     $lastGetImage = Get-LastGetImageTime -StatusFilePath $StatusFile
-    $needGetImage = (-not $lastGetImage) -or ((Get-Date) - [datetime]$lastGetImage).TotalHours -ge $GetImageRefreshHours
+    $needGetImage = (-not $lastGetImage) -or ((Get-Date).ToUniversalTime() - [datetime]$lastGetImage).TotalHours -ge $GetImageRefreshHours
 
     if ($needGetImage) {
         Write-Output ""

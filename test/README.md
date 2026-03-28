@@ -10,10 +10,10 @@ The runner loops continuously (until a failure), executing this cycle:
 2. **Refresh images** (every 24 hours): downloads base images via `Get-Image.ps1`
 3. **Cleanup**: removes all previous test VMs in a block
 4. **For each guest** (`guest.amazon.linux`, `guest.ubuntu.desktop`, `guest.windows.11`):
-   - **NewVM** — creates a test VM via `New-VM.ps1`
-   - **StartVM** — starts the VM (UTM `utmctl` / Hyper-V `Start-VM`)
-   - **VerifyVM** — polls until the VM reaches running state
-   - **CustomTests** — runs extension scripts from `test/extensions/` (if any)
+   - **New-VM** — creates a test VM via `New-VM.ps1`
+   - **Start-VM** — starts the VM (UTM `utmctl` / Hyper-V `Start-VM`)
+   - **Verify-VM** — polls until the VM reaches running state
+   - **Invoke-PoolTest** — runs extension scripts from `test/extensions/` (if any)
 5. Logs the result and starts the next cycle
 6. On first failure: sends a notification and exits
 
@@ -138,28 +138,25 @@ http://localhost:8080/status/
 
 The page polls `status.json` every 30 seconds and shows:
 - Overall pass/fail banner
-- Per-guest status with step-level breakdown (NewVM, StartVM, VerifyVM, Screenshots, CustomTests)
+- Per-guest status with step-level breakdown (New-VM, Start-VM, Verify-VM, Screenshots, Invoke-PoolTest)
 - History of recent runs
 
 ### How the status page is served
 
-The runner starts a lightweight HTTP server as a PowerShell background job
-(`Test.StatusServer.psm1`). It uses `System.Net.HttpListener` bound to
-`http://localhost:<port>/` and serves files from the `test/status/` directory.
-The runner writes `status.json` atomically (write to `.tmp`, then rename) so
-the page always reads a complete document.
+The runner launches `Start-StatusServer.ps1`, which starts a detached `pwsh`
+process hosting a lightweight HTTP server (`System.Net.HttpListener` bound to
+`http://*:<port>/`). The server runs independently of the runner — stopping
+`Invoke-TestRunner.ps1` does not stop the status server.
 
-To serve the status page independently (after a run has written `status.json`):
+The server serves files from the `test/status/` directory. The runner writes
+`status.json` atomically (write to `.tmp`, then rename) so the page always
+reads a complete document.
 
-```bash
-# macOS / Linux
-cd test && python3 -m http.server 8080
+To stop the server manually:
 
-# Windows PowerShell
-cd test; python -m http.server 8080
+```powershell
+pwsh test/Stop-StatusServer.ps1
 ```
-
-Then open `http://localhost:8080/status/`.
 
 ## Extending with custom tests
 
@@ -175,7 +172,7 @@ param([string]$HostType, [string]$GuestKey, [string]$VMName)
 exit $LASTEXITCODE
 ```
 
-The runner discovers extension scripts automatically. The `CustomTests` step
+The runner discovers extension scripts automatically. The `Invoke-PoolTest` step
 appears in the status page when any extension exists.
 
 ## Screenshot-based testing
@@ -232,7 +229,7 @@ and how strict the comparison should be:
 ### How it works during test runs
 
 1. The runner starts one guest VM at a time (to avoid window overlap)
-2. After VerifyVM confirms the VM is running, the boot delay elapses
+2. After Verify-VM confirms the VM is running, the boot delay elapses
 3. For each checkpoint: wait `delaySeconds`, capture a screenshot, compare
 4. If similarity drops below threshold, the `Screenshots` step fails
 5. The VM is stopped before the next guest starts
@@ -245,17 +242,21 @@ Captures from each run are saved to `test/screenshots/<guestKey>/captures/`
 ```
 test/
   Invoke-TestRunner.ps1           # Entry point — continuous loop orchestrator
+  Start-StatusServer.ps1          # Launches detached HTTP status server
+  Stop-StatusServer.ps1           # Stops the detached status server
   Test-Config.ps1                 # Validates config and sends a test notification
+  Train-Screenshots.ps1           # Interactive screenshot training tool
+  Remove-TestVMFiles.ps1          # Stops and removes all test VMs and files
   test-config.json.template       # Configuration template (committed)
   test-config.json                # Your local configuration (git-ignored)
   modules/
     Test.Host.psm1                # Host detection, elevation, git operations
     Test.Status.psm1              # status.json document management
-    Test.StatusServer.psm1        # HTTP server for the status page
     Test.Notify.psm1              # Resend API email notifications
     Test.Get-Image.psm1           # Base image download and refresh
     Test.New-VM.psm1              # VM creation, verification, and cleanup
-    Test.Start-VM.psm1            # VM start, stop, boot verification, custom tests
+    Test.Start-VM.psm1            # VM start, stop, boot verification
+    Test.Invoke-PoolTest.psm1     # Extension test discovery and execution
     Test.Screenshot.psm1          # Screenshot capture, comparison, schedule
   extensions/
     README.md                                       # Extension API documentation
@@ -271,6 +272,7 @@ test/
     index.html                    # Status dashboard
     status.json.template          # Template for status data
     status.json                   # Written by the runner (auto-created, git-ignored)
+    server.pid                    # Status server PID (auto-created, git-ignored)
 ```
 
 ### Module responsibilities
@@ -279,11 +281,11 @@ test/
 |--------|---------|---------------|
 | `Test.Host` | Platform detection, elevation checks, git | `Get-HostType`, `Get-GuestList`, `Assert-Elevation`, `Invoke-GitPull` |
 | `Test.Status` | Status document lifecycle | `Initialize-StatusDocument`, `Set-StepStatus`, `Complete-Run` |
-| `Test.StatusServer` | HTTP server for status page | `Start-StatusServer`, `Stop-StatusServer` |
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |
 | `Test.Get-Image` | Base image download/refresh | `Get-ImagePath`, `Invoke-GetImage` |
 | `Test.New-VM` | VM create + verify creation + cleanup | `Invoke-NewVM`, `Confirm-VMCreated`, `Remove-TestVM` |
-| `Test.Start-VM` | VM start/stop + verify running + extensions | `Invoke-StartVM`, `Stop-TestVM`, `Confirm-VMStarted`, `Invoke-GuestTests` |
+| `Test.Start-VM` | VM start/stop + verify running | `Invoke-StartVM`, `Stop-TestVM`, `Confirm-VMStarted` |
+| `Test.Invoke-PoolTest` | Extension test discovery and execution | `Get-GuestTestScripts`, `Invoke-PoolTest` |
 | `Test.Screenshot` | Screenshot capture, comparison, schedules | `Get-VMScreenshot`, `Compare-Screenshots`, `Invoke-ScreenshotTests` |
 
 ## Exit codes

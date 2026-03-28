@@ -24,7 +24,7 @@ function Invoke-StartVM {
     switch ($HostType) {
         "host.macos.utm"       { return Start-UtmVM    -VMName $VMName }
         "host.windows.hyper-v" { return Start-HyperVVM -VMName $VMName }
-        default { return @{ success=$false; errorMessage="Unknown host type for StartVM: $HostType" } }
+        default { return @{ success=$false; errorMessage="Unknown host type for Start-VM: $HostType" } }
     }
 }
 
@@ -87,7 +87,7 @@ function Stop-TestVM {
             }
         }
         default {
-            Write-Warning "Unknown host type for StopVM: $HostType"
+            Write-Warning "Unknown host type for Stop-VM: $HostType"
             return $false
         }
     }
@@ -97,7 +97,7 @@ function Stop-TestVM {
 
 # Polls until the VM reaches a running state or the timeout expires.
 # After confirming the VM is running, waits an additional BootDelaySeconds
-# to allow the guest OS to initialise before any screenshot or test.
+# to allow the guest OS to initialize before any screenshot or test.
 # Returns $true on success.
 function Confirm-VMStarted {
     param(
@@ -112,7 +112,7 @@ function Confirm-VMStarted {
         default { Write-Error "Unknown host type for start verification: $HostType"; $false }
     }
     if ($running -and $BootDelaySeconds -gt 0) {
-        Write-Output "VM is running. Waiting ${BootDelaySeconds}s for guest OS to initialise..."
+        Write-Output "VM is running. Waiting ${BootDelaySeconds}s for guest OS to initialize..."
         Start-Sleep -Seconds $BootDelaySeconds
     }
     return $running

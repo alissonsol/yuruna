@@ -18,9 +18,9 @@
 $script:Doc  = $null
 $script:File = $null
 
-# Initialises a fresh status document for a new run and writes status.json.
+# Initializes a fresh status document for a new run and writes status.json.
 # $StepNames controls which steps are tracked per guest (allows the caller
-# to add "CustomTests" when extension scripts are present).
+# to add "Invoke-PoolTest" when extension scripts are present).
 # Returns the runId string.
 function Initialize-StatusDocument {
     param(

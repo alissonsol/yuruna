@@ -106,12 +106,12 @@ Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
 # Create VM
 Write-Output "--- Creating VM ---"
 $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName
-if (-not $r.success) { Write-Error "NewVM failed: $($r.errorMessage)"; exit 1 }
+if (-not $r.success) { Write-Error "New-VM failed: $($r.errorMessage)"; exit 1 }
 
 # Start VM
 Write-Output "--- Starting VM ---"
 $r = Invoke-StartVM -HostType $HostType -VMName $VMName
-if (-not $r.success) { Write-Error "StartVM failed: $($r.errorMessage)"; exit 1 }
+if (-not $r.success) { Write-Error "Start-VM failed: $($r.errorMessage)"; exit 1 }
 
 # Wait for VM to be running
 Write-Output "--- Waiting for VM to reach running state ---"

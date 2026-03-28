@@ -106,9 +106,10 @@ try {
 
 $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($serverScript))
 
-$proc = Start-Process -FilePath "pwsh" `
-    -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-EncodedCommand", $encodedCommand `
-    -PassThru
+$startArgs = @("-NoProfile", "-EncodedCommand", $encodedCommand)
+if ($IsWindows) { $startArgs = @("-NoProfile", "-WindowStyle", "Hidden", "-EncodedCommand", $encodedCommand) }
+
+$proc = Start-Process -FilePath "pwsh" -ArgumentList $startArgs -PassThru
 
 Set-Content -Path $PidFile -Value $proc.Id
 

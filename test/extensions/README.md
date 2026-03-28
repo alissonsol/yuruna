@@ -28,7 +28,7 @@ Test-Workload.guest.amazon.linux.run-workload.ps1
 ```
 
 Scripts execute in alphabetical order. All scripts matching a guest key must
-pass for the guest's `CustomTests` step to pass.
+pass for the guest's `Invoke-PoolTest` step to pass.
 
 ## Script interface
 

@@ -161,7 +161,7 @@ while ($true) {
     }
     $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
 
-    # --- Initialise status for this cycle ---
+    # --- Initialize status for this cycle ---
     $RunId = Initialize-StatusDocument `
         -StatusFilePath $StatusFile `
         -HostType       $HostType `

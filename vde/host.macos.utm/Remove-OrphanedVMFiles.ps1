@@ -222,6 +222,13 @@ if ($Force) {
 $errors = 0
 foreach ($item in $orphanedItems) {
     try {
+        # Remove from UTM registry first (by UUID if available, then by name)
+        $bundleUUID = Get-UTMBundleUUID -BundlePath $item.Path
+        if ($bundleUUID) {
+            & utmctl delete $bundleUUID 2>&1 | Out-Null
+        } else {
+            & utmctl delete $item.Name 2>&1 | Out-Null
+        }
         Remove-Item -Path $item.Path -Recurse -Force
         Write-Output "  Deleted: $($item.Path)"
     } catch {

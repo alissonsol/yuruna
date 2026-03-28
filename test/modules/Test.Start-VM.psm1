@@ -51,7 +51,7 @@ function Start-UtmVM {
 function Start-HyperVVM {
     param([string]$VMName)
     try {
-        Start-VM -Name $VMName -ErrorAction Stop
+        Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue
         return @{ success=$true; errorMessage=$null }
     } catch {
         return @{ success=$false; errorMessage="Start-VM failed for '$VMName': $_" }
@@ -78,7 +78,7 @@ function Stop-TestVM {
         }
         "host.windows.hyper-v" {
             try {
-                Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop
+                Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop -WarningAction SilentlyContinue
                 Write-Output "Stopped Hyper-V VM: $VMName"
                 return $true
             } catch {

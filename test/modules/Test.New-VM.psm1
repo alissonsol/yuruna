@@ -32,7 +32,7 @@ function Invoke-NewVM {
         return @{ success=$false; errorMessage="New-VM.ps1 not found at: $scriptPath" }
     }
     Write-Output "Running: $scriptPath -VMName $VMName"
-    & pwsh -NoProfile -File $scriptPath -VMName $VMName
+    & pwsh -NoProfile -Command "`$ProgressPreference='SilentlyContinue'; & '$scriptPath' -VMName '$VMName'; exit `$LASTEXITCODE"
     if ($LASTEXITCODE -ne 0) {
         return @{ success=$false; errorMessage="New-VM.ps1 exited with code $LASTEXITCODE" }
     }
@@ -113,19 +113,25 @@ function Remove-UtmTestVM {
 
 function Remove-HyperVTestVM {
     param([string]$VMName)
-    $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-    if ($vm) {
-        Stop-VM    -Name $VMName -Force -TurnOff -ErrorAction SilentlyContinue
-        Remove-VM  -Name $VMName -Force
-        Write-Output "Removed Hyper-V VM: $VMName"
-    }
-    $vhdPath = (Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
-    if ($vhdPath) {
-        $vmDir = Join-Path $vhdPath $VMName
-        if (Test-Path $vmDir) {
-            Remove-Item -Recurse -Force $vmDir
-            Write-Output "Removed VM disk directory: $vmDir"
+    $savedProgress = $global:ProgressPreference
+    $global:ProgressPreference = 'SilentlyContinue'
+    try {
+        $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+        if ($vm) {
+            Stop-VM    -Name $VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+            Remove-VM  -Name $VMName -Force
+            Write-Output "Removed Hyper-V VM: $VMName"
         }
+        $vhdPath = (Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+        if ($vhdPath) {
+            $vmDir = Join-Path $vhdPath $VMName
+            if (Test-Path $vmDir) {
+                Remove-Item -Recurse -Force $vmDir
+                Write-Output "Removed VM disk directory: $vmDir"
+            }
+        }
+    } finally {
+        $global:ProgressPreference = $savedProgress
     }
     return $true
 }

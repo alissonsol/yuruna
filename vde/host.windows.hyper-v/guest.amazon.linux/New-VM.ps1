@@ -29,6 +29,7 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 $global:InformationPreference = "Continue"
 $global:DebugPreference = "SilentlyContinue"
 $global:VerbosePreference = "SilentlyContinue"
+$global:ProgressPreference = "SilentlyContinue"
 
 $commonModulePath = Join-Path -Path $PSScriptRoot -ChildPath "VM.common.psm1"
 Import-Module -Name $commonModulePath -Force
@@ -60,7 +61,7 @@ if (!$service -or $service.Status -ne 'Running') {
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
 	Write-Output "VM '$VMName' exists. Deleting..."
-	Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue
+	Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 	Remove-VM -Name $VMName -Force
 	Write-Output "VM '$VMName' deleted."
 }

@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol
@@ -114,6 +114,10 @@ $GetImageRefreshHours = if ($Config.getImageRefreshHours) { [int]$Config.getImag
 
 # === Continuous test loop ===
 $CycleCount     = 0
+try {
+    $prevStatus = Get-Content -Raw $StatusFile | ConvertFrom-Json
+    if ($prevStatus.cycle) { $CycleCount = [int]$prevStatus.cycle }
+} catch { Write-Warning "Could not read previous cycle count from status file: $_" }
 $OverallPassed  = $true
 
 while ($true) {
@@ -202,24 +206,20 @@ while ($true) {
         break
     }
 
-    # --- Delete all previous VMs in block ---
-    Write-Output ""
-    Write-Output "--- Cleanup previous VMs ---"
+    # --- Test each guest sequentially (cleanup → create → start → verify → screenshots → custom → stop) ---
+    # Only one guest VM exists at a time, so failures don't leave other VMs active.
     foreach ($GuestKey in $GuestList) {
         $VMName = $VMNames[$GuestKey]
+        Write-Output ""
+        Write-Output "=== $GuestKey (VM: $VMName) ==="
+
+        # --- Cleanup previous VM ---
         $cleaned = Remove-TestVM -HostType $HostType -VMName $VMName
         if ($cleaned) {
-            Write-Output "  Removed: $VMName"
-        } else {
-            Write-Output "  Nothing to remove: $VMName"
+            Write-Output "  Removed previous: $VMName"
         }
-    }
 
-    # --- Create all VMs (NewVM step for each guest) ---
-    Write-Output ""
-    Write-Output "--- Create VMs ---"
-    foreach ($GuestKey in $GuestList) {
-        $VMName = $VMNames[$GuestKey]
+        # --- NewVM ---
         Set-GuestVMName -GuestKey $GuestKey -VMName $VMName
         Set-GuestStatus -GuestKey $GuestKey -Status "running"
 
@@ -235,19 +235,6 @@ while ($true) {
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "NewVM"; $FailureMessage = $r.errorMessage
             break
         }
-    }
-
-    if (-not $OverallPassed) {
-        Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
-        break
-    }
-
-    # --- Test each guest individually (start → verify → screenshots → custom → stop) ---
-    # Only one guest VM runs at a time so its window is in focus for screenshots.
-    foreach ($GuestKey in $GuestList) {
-        $VMName = $VMNames[$GuestKey]
-        Write-Output ""
-        Write-Output "=== $GuestKey (VM: $VMName) ==="
 
         # --- StartVM ---
         Set-StepStatus -GuestKey $GuestKey -StepName "StartVM" -Status "running"
@@ -274,6 +261,7 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "VerifyVM" -Status "fail" -ErrorMessage $err
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "VerifyVM"; $FailureMessage = $err
+            Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
             break
         }
 
@@ -291,7 +279,6 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Screenshots" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Screenshots"; $FailureMessage = $r.errorMessage
-                # Stop this guest before breaking
                 Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
                 break
             }
@@ -310,16 +297,16 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "CustomTests" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "CustomTests"; $FailureMessage = $r.errorMessage
-                # Stop this guest before breaking
                 Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
                 break
             }
         }
 
-        # --- Stop this guest VM before starting the next ---
+        # --- Stop and remove this guest VM before starting the next ---
         Set-GuestStatus -GuestKey $GuestKey -Status "pass"
         Write-Output "  ${GuestKey}: PASS"
         Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+        Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
     }
 
     # === Finalise cycle ===

@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456730
 .AUTHOR Alisson Sol
@@ -138,14 +138,14 @@ Write-Output ""
 
 while ($true) {
     $elapsed = [Math]::Round(((Get-Date) - $startTime).TotalSeconds)
-    $input = Read-Host "[$($elapsed)s elapsed] Enter command"
+    $userInput = Read-Host "[$($elapsed)s elapsed] Enter command"
 
-    if ($input -eq 'q') {
+    if ($userInput -eq 'q') {
         Write-Output "Quitting without saving."
         break
     }
 
-    if ($input -eq 'd') {
+    if ($userInput -eq 'd') {
         if ($checkpoints.Count -eq 0) {
             Write-Output "No checkpoints captured. Nothing to save."
         } else {
@@ -170,7 +170,7 @@ while ($true) {
         break
     }
 
-    if ($input -match '^c\s*(.*)$') {
+    if ($userInput -match '^c\s*(.*)$') {
         $cpIndex++
         $cpName = $Matches[1].Trim()
         if (-not $cpName) { $cpName = "checkpoint-$cpIndex" }

@@ -39,6 +39,9 @@ Write-Output ""
 Write-Output "Stopping VMs with prefix '$Prefix'..."
 Write-Output ""
 
+$savedProgress = $global:ProgressPreference
+$global:ProgressPreference = 'SilentlyContinue'
+
 switch ($HostType) {
     "host.windows.hyper-v" {
         $testVMs = Get-VM | Where-Object { $_.Name -like "${Prefix}*" }
@@ -48,7 +51,7 @@ switch ($HostType) {
         foreach ($vm in $testVMs) {
             Write-Output "  Stopping $($vm.Name) [$($vm.State)]..."
             if ($vm.State -ne 'Off') {
-                Stop-VM -Name $vm.Name -Force -TurnOff -ErrorAction SilentlyContinue
+                Stop-VM -Name $vm.Name -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
                 Write-Output "    Stopped."
             } else {
                 Write-Output "    Already off."
@@ -90,11 +93,13 @@ switch ($HostType) {
     }
 }
 
+$global:ProgressPreference = $savedProgress
+
 Write-Output ""
 
 # === Run Remove-OrphanedVMFiles.ps1 with -Force ===
 $vdeDir = Join-Path $RepoRoot "vde"
-$cleanupScript = Join-Path $vdeDir "$HostType" "Remove-OrphanedVMFiles.ps1"
+$cleanupScript = Join-Path -Path $vdeDir -ChildPath "$HostType" -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
 
 if (-not (Test-Path $cleanupScript)) {
     Write-Error "Cleanup script not found: $cleanupScript"

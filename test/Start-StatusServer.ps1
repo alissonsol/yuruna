@@ -113,9 +113,10 @@ if ($IsWindows) {
 } else {
     # On macOS/Linux, use nohup to detach from the parent session so the
     # server survives when Invoke-TestRunner is stopped (Ctrl+C / SIGHUP).
+    $stdErr = Join-Path $StatusDir "server.err"
     $proc = Start-Process -FilePath "nohup" `
         -ArgumentList "pwsh", "-NoProfile", "-EncodedCommand", $encodedCommand `
-        -RedirectStandardOutput "/dev/null" -RedirectStandardError "/dev/null" `
+        -RedirectStandardOutput "/dev/null" -RedirectStandardError $stdErr `
         -PassThru
 }
 

@@ -69,6 +69,8 @@ param(
     [string]$VMName
 )
 
+$InformationPreference = 'Continue'
+
 # === Keystroke sequence ===
 # Each step: DelaySeconds (seconds to wait before sending), Key, Description.
 # The autoinstall config handles the full installation unattended.
@@ -93,19 +95,19 @@ function Send-KeystrokeHyperV {
     $code = $keyMap[$Key]
     if (-not $code) { Write-Warning "Unknown key '$Key' for Hyper-V (scan code not mapped)"; return $false }
     try {
-        Write-Output "    [keystroke] Looking up VM '$VMName' via WMI..."
+        Write-Information "    [keystroke] Looking up VM '$VMName' via WMI..."
         $vmObj = Get-CimInstance -Namespace root\virtualization\v2 -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
         if (-not $vmObj) { Write-Warning "VM '$VMName' not found in WMI"; return $false }
-        Write-Output "    [keystroke] VM found (state: $($vmObj.EnabledState)). Getting keyboard device..."
+        Write-Information "    [keystroke] VM found (state: $($vmObj.EnabledState)). Getting keyboard device..."
         $kb = Get-CimAssociatedInstance -InputObject $vmObj -ResultClassName Msvm_Keyboard
         if (-not $kb) { Write-Warning "Keyboard device not found for '$VMName'"; return $false }
-        Write-Output "    [keystroke] Sending key '$Key' (scan code 0x$($code.ToString('X2'))): PressKey..."
+        Write-Information "    [keystroke] Sending key '$Key' (scan code 0x$($code.ToString('X2'))): PressKey..."
         $pressResult = Invoke-CimMethod -InputObject $kb -MethodName "PressKey" -Arguments @{keyCode=$code}
-        Write-Output "    [keystroke] PressKey returned: $($pressResult.ReturnValue)"
+        Write-Information "    [keystroke] PressKey returned: $($pressResult.ReturnValue)"
         Start-Sleep -Milliseconds 100
-        Write-Output "    [keystroke] ReleaseKey..."
+        Write-Information "    [keystroke] ReleaseKey..."
         $releaseResult = Invoke-CimMethod -InputObject $kb -MethodName "ReleaseKey" -Arguments @{keyCode=$code}
-        Write-Output "    [keystroke] ReleaseKey returned: $($releaseResult.ReturnValue)"
+        Write-Information "    [keystroke] ReleaseKey returned: $($releaseResult.ReturnValue)"
         return ($pressResult.ReturnValue -eq 0 -and $releaseResult.ReturnValue -eq 0)
     } catch {
         Write-Warning "Failed to send keystroke via Hyper-V WMI: $_"
@@ -122,6 +124,7 @@ function Send-KeystrokeUTM {
     }
     $code = $keyMap[$Key]
     if (-not $code) { Write-Warning "Unknown key '$Key' for UTM"; return $false }
+    Write-Information "    [keystroke] Sending key '$Key' (AppleScript key code $code) to UTM window '$VMName'..."
     $script = @"
 tell application "System Events"
     tell process "UTM"
@@ -139,6 +142,7 @@ end tell
 return "window_not_found"
 "@
     $result = & osascript -e $script 2>&1
+    Write-Information "    [keystroke] AppleScript result: $result"
     if ("$result" -eq "ok") { return $true }
     Write-Warning "UTM keystroke failed: $result"
     return $false

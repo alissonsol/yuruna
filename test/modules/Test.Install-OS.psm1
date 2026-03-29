@@ -57,7 +57,7 @@ function Invoke-StartTest {
     }
     foreach ($s in $scripts) {
         Write-Output "Running start test: $($s.Name)"
-        & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName
+        & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName 2>&1 | ForEach-Object { Write-Output "    $_" }
         if ($LASTEXITCODE -ne 0) {
             return @{ success=$false; skipped=$false; errorMessage="Start test '$($s.Name)' failed (exit code $LASTEXITCODE)" }
         }

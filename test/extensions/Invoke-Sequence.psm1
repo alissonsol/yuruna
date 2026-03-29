@@ -40,7 +40,7 @@ $InformationPreference = 'Continue'
 
 # ── Key code maps ────────────────────────────────────────────────────────────
 
-# macOS AppleScript key codes
+# macOS AppleScript key codes (special keys)
 $script:UTMKeyMap = @{
     "Enter"=36; "Tab"=48; "Space"=49; "Escape"=53
     "Up"=126; "Down"=125; "Left"=123; "Right"=124
@@ -48,6 +48,65 @@ $script:UTMKeyMap = @{
     "F6"=97; "F7"=98; "F8"=100; "F9"=101; "F10"=109
     "F11"=103; "F12"=111
 }
+
+# macOS character to virtual key code map (US keyboard layout).
+# Entries: [keyCode, needsShift]. Used by Send-TextUTM to send raw key codes
+# instead of AppleScript's keystroke command, which misinterprets certain
+# character sequences (e.g., "2-" becomes Enter).
+$script:MacCharKeyCodes = [System.Collections.Generic.Dictionary[string,object[]]]::new()
+# Lowercase letters
+$script:MacCharKeyCodes['a']=@(0,$false);  $script:MacCharKeyCodes['b']=@(11,$false)
+$script:MacCharKeyCodes['c']=@(8,$false);  $script:MacCharKeyCodes['d']=@(2,$false)
+$script:MacCharKeyCodes['e']=@(14,$false); $script:MacCharKeyCodes['f']=@(3,$false)
+$script:MacCharKeyCodes['g']=@(5,$false);  $script:MacCharKeyCodes['h']=@(4,$false)
+$script:MacCharKeyCodes['i']=@(34,$false); $script:MacCharKeyCodes['j']=@(38,$false)
+$script:MacCharKeyCodes['k']=@(40,$false); $script:MacCharKeyCodes['l']=@(37,$false)
+$script:MacCharKeyCodes['m']=@(46,$false); $script:MacCharKeyCodes['n']=@(45,$false)
+$script:MacCharKeyCodes['o']=@(31,$false); $script:MacCharKeyCodes['p']=@(35,$false)
+$script:MacCharKeyCodes['q']=@(12,$false); $script:MacCharKeyCodes['r']=@(15,$false)
+$script:MacCharKeyCodes['s']=@(1,$false);  $script:MacCharKeyCodes['t']=@(17,$false)
+$script:MacCharKeyCodes['u']=@(32,$false); $script:MacCharKeyCodes['v']=@(9,$false)
+$script:MacCharKeyCodes['w']=@(13,$false); $script:MacCharKeyCodes['x']=@(7,$false)
+$script:MacCharKeyCodes['y']=@(16,$false); $script:MacCharKeyCodes['z']=@(6,$false)
+# Uppercase letters (same key codes, shifted)
+$script:MacCharKeyCodes['A']=@(0,$true);  $script:MacCharKeyCodes['B']=@(11,$true)
+$script:MacCharKeyCodes['C']=@(8,$true);  $script:MacCharKeyCodes['D']=@(2,$true)
+$script:MacCharKeyCodes['E']=@(14,$true); $script:MacCharKeyCodes['F']=@(3,$true)
+$script:MacCharKeyCodes['G']=@(5,$true);  $script:MacCharKeyCodes['H']=@(4,$true)
+$script:MacCharKeyCodes['I']=@(34,$true); $script:MacCharKeyCodes['J']=@(38,$true)
+$script:MacCharKeyCodes['K']=@(40,$true); $script:MacCharKeyCodes['L']=@(37,$true)
+$script:MacCharKeyCodes['M']=@(46,$true); $script:MacCharKeyCodes['N']=@(45,$true)
+$script:MacCharKeyCodes['O']=@(31,$true); $script:MacCharKeyCodes['P']=@(35,$true)
+$script:MacCharKeyCodes['Q']=@(12,$true); $script:MacCharKeyCodes['R']=@(15,$true)
+$script:MacCharKeyCodes['S']=@(1,$true);  $script:MacCharKeyCodes['T']=@(17,$true)
+$script:MacCharKeyCodes['U']=@(32,$true); $script:MacCharKeyCodes['V']=@(9,$true)
+$script:MacCharKeyCodes['W']=@(13,$true); $script:MacCharKeyCodes['X']=@(7,$true)
+$script:MacCharKeyCodes['Y']=@(16,$true); $script:MacCharKeyCodes['Z']=@(6,$true)
+# Numbers
+$script:MacCharKeyCodes['1']=@(18,$false); $script:MacCharKeyCodes['2']=@(19,$false)
+$script:MacCharKeyCodes['3']=@(20,$false); $script:MacCharKeyCodes['4']=@(21,$false)
+$script:MacCharKeyCodes['5']=@(23,$false); $script:MacCharKeyCodes['6']=@(22,$false)
+$script:MacCharKeyCodes['7']=@(26,$false); $script:MacCharKeyCodes['8']=@(28,$false)
+$script:MacCharKeyCodes['9']=@(25,$false); $script:MacCharKeyCodes['0']=@(29,$false)
+# Punctuation (unshifted)
+$script:MacCharKeyCodes[' ']=@(49,$false);  $script:MacCharKeyCodes['-']=@(27,$false)
+$script:MacCharKeyCodes['=']=@(24,$false);  $script:MacCharKeyCodes['[']=@(33,$false)
+$script:MacCharKeyCodes[']']=@(30,$false);  $script:MacCharKeyCodes['\']=@(42,$false)
+$script:MacCharKeyCodes[';']=@(41,$false);  $script:MacCharKeyCodes["'"]=@(39,$false)
+$script:MacCharKeyCodes[',']=@(43,$false);  $script:MacCharKeyCodes['.']=@(47,$false)
+$script:MacCharKeyCodes['/']=@(44,$false);  $script:MacCharKeyCodes['`']=@(50,$false)
+# Punctuation (shifted)
+$script:MacCharKeyCodes['!']=@(18,$true);  $script:MacCharKeyCodes['@']=@(19,$true)
+$script:MacCharKeyCodes['#']=@(20,$true);  $script:MacCharKeyCodes['$']=@(21,$true)
+$script:MacCharKeyCodes['%']=@(23,$true);  $script:MacCharKeyCodes['^']=@(22,$true)
+$script:MacCharKeyCodes['&']=@(26,$true);  $script:MacCharKeyCodes['*']=@(28,$true)
+$script:MacCharKeyCodes['(']=@(25,$true);  $script:MacCharKeyCodes[')']=@(29,$true)
+$script:MacCharKeyCodes['_']=@(27,$true);  $script:MacCharKeyCodes['+']=@(24,$true)
+$script:MacCharKeyCodes['{']=@(33,$true);  $script:MacCharKeyCodes['}']=@(30,$true)
+$script:MacCharKeyCodes['|']=@(42,$true);  $script:MacCharKeyCodes[':']=@(41,$true)
+$script:MacCharKeyCodes['"']=@(39,$true);  $script:MacCharKeyCodes['<']=@(43,$true)
+$script:MacCharKeyCodes['>']=@(47,$true);  $script:MacCharKeyCodes['?']=@(44,$true)
+$script:MacCharKeyCodes['~']=@(50,$true)
 
 # ── Cached Hyper-V keyboard (reused across steps) ───────────────────────────
 
@@ -233,14 +292,25 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text)
-    # Send characters one at a time with a small delay between each.
-    # AppleScript's keystroke with a full string sends characters too fast
-    # for the VM's virtual keyboard — it drops characters and introduces
-    # phantom newlines (e.g., "ec2-user" becomes "ec\n-user").
+    # Use raw key codes instead of AppleScript's keystroke command.
+    # keystroke interprets certain character sequences (e.g., "2-")
+    # as modifier combinations, producing phantom newlines and dropped
+    # characters. key code sends raw virtual keycodes like the Hyper-V
+    # scan code path, avoiding any interpretation.
     $charLines = ""
     foreach ($ch in $Text.ToCharArray()) {
-        $escaped = "$ch" -replace '\\', '\\\\' -replace '"', '\\"'
-        $charLines += "                keystroke `"$escaped`"`n"
+        $entry = $script:MacCharKeyCodes["$ch"]
+        if (-not $entry) {
+            Write-Warning "No macOS key code for character '$ch'. Skipping."
+            continue
+        }
+        $kc = $entry[0]
+        $shifted = $entry[1]
+        if ($shifted) {
+            $charLines += "                key code $kc using shift down`n"
+        } else {
+            $charLines += "                key code $kc`n"
+        }
         $charLines += "                delay 0.05`n"
     }
     $appleScript = @"
@@ -310,14 +380,16 @@ function Get-ScreenText {
     $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $tempFile
     if (-not $captured) { return $null }
 
-    # Preprocess: trim empty regions and invert colors for OCR.
+    # Preprocess: trim empty regions, crop to recent lines, invert colors.
     # VM consoles show light text on dark backgrounds. Tesseract struggles
-    # with large dark regions surrounding sparse text. Trimming removes the
-    # empty background so tesseract only processes the area with actual text
-    # — this works whether text starts from the top (early boot) or fills
-    # the entire screen (later interaction).
+    # with full-screen OCR — it hits internal limits and produces truncated
+    # or garbled output. The pipeline: trim empty space → crop to the bottom
+    # half of the remaining text → invert colors → OCR. This focuses on the
+    # most recent lines regardless of whether text starts from the top
+    # (early boot) or fills the screen (later interaction).
     $processedFile = $tempFile
     $trimmedFile = $tempFile -replace '\.png$', '_trim.png'
+    $croppedFile = $tempFile -replace '\.png$', '_crop.png'
     $invertedFile = $tempFile -replace '\.png$', '_inv.png'
 
     if (-not $script:ImageToolChecked) {
@@ -328,25 +400,26 @@ function Get-ScreenText {
         }
     }
 
-    # Step 1: Trim empty (dark) regions around the text
     if ($script:MagickCmd) {
-        # -fuzz 15% treats near-black pixels as background; -trim removes them
+        # Step 1: Trim empty (dark) regions around the text
         & $script:MagickCmd.Source $tempFile -fuzz "15%" -trim +repage $trimmedFile 2>$null
         if ($LASTEXITCODE -eq 0 -and (Test-Path $trimmedFile)) { $processedFile = $trimmedFile }
-    }
 
-    # Step 2: Invert colors (dark text on light background for tesseract)
-    $sourceForInvert = $processedFile
-    if ($script:MagickCmd) {
-        & $script:MagickCmd.Source $sourceForInvert -negate -grayscale Rec709Luma $invertedFile 2>$null
+        # Step 2: Crop to bottom half of the trimmed image (most recent lines)
+        & $script:MagickCmd.Source $processedFile -gravity South -crop "100%x50%" +repage $croppedFile 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $croppedFile)) { $processedFile = $croppedFile }
+
+        # Step 3: Invert colors (dark text on light background for tesseract)
+        & $script:MagickCmd.Source $processedFile -negate -grayscale Rec709Luma $invertedFile 2>$null
         if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $processedFile = $invertedFile }
     } elseif (-not $IsWindows) {
-        Copy-Item $sourceForInvert $invertedFile -Force
+        # macOS without ImageMagick: invert only (sips has no trim/crop-from-bottom)
+        Copy-Item $processedFile $invertedFile -Force
         & sips -j "CIColorInvert" "$invertedFile" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $processedFile = $invertedFile }
     }
 
-    # Step 3: Run tesseract OCR (--psm 6 = single uniform block, ideal for cropped region)
+    # Step 4: Run tesseract OCR (--psm 6 = single uniform block, ideal for cropped region)
     try {
         $ocrOutput = & tesseract $processedFile stdout --psm 6 2>$null
         if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
@@ -362,6 +435,7 @@ function Get-ScreenText {
     } finally {
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
         Remove-Item $trimmedFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $croppedFile -Force -ErrorAction SilentlyContinue
         Remove-Item $invertedFile -Force -ErrorAction SilentlyContinue
     }
 }

@@ -50,31 +50,51 @@ function Get-VMScreenshot {
 
 function Get-UtmScreenshot {
     param([string]$VMName, [string]$OutputPath)
-    # Use screencapture with window selection by name
-    # First, find the UTM window for this VM
-    $script = @"
+
+    # Find the UTM window bounds for this VM.
+    # Searches any process whose name contains "UTM" to handle variants
+    # (UTM, UTM SE, etc.). Uses window bounds + screencapture -R instead
+    # of window ID, because screencapture -l expects a CGWindowID which
+    # may not match the AppleScript window id in SwiftUI apps like UTM.
+    $boundsScript = @"
 tell application "System Events"
-    set wmList to {}
-    tell process "UTM"
-        repeat with w in windows
+    repeat with proc in (every process whose name contains "UTM")
+        repeat with w in windows of proc
             if name of w contains "$VMName" then
-                set end of wmList to id of w
+                set {wx, wy} to position of w
+                set {ww, wh} to size of w
+                return ("" & wx & "," & wy & "," & ww & "," & wh)
             end if
         end repeat
-    end tell
+    end repeat
+    -- No match found; list actual window names for diagnostics.
+    set nameList to {}
+    repeat with proc in (every process whose name contains "UTM")
+        repeat with w in windows of proc
+            set end of nameList to (name of proc) & ": " & (name of w)
+        end repeat
+    end repeat
+    return "not_found|" & (nameList as text)
 end tell
-if (count of wmList) > 0 then
-    return item 1 of wmList
-else
-    return 0
-end if
 "@
-    $windowId = & osascript -e $script 2>&1
-    if ($LASTEXITCODE -ne 0 -or "$windowId" -eq "0") {
-        Write-Warning "Could not find UTM window for VM '$VMName'. Capturing full screen."
-        & screencapture -x "$OutputPath" 2>&1 | Out-Null
+    $boundsResult = & osascript -e $boundsScript 2>&1
+    if ($LASTEXITCODE -eq 0 -and "$boundsResult" -match '^\d+,\d+,\d+,\d+$') {
+        & screencapture -x -R "$boundsResult" "$OutputPath" 2>&1 | Out-Null
     } else {
-        & screencapture -x -l "$windowId" "$OutputPath" 2>&1 | Out-Null
+        # Parse diagnostic info from the AppleScript result
+        $diagInfo = "$boundsResult"
+        if ($diagInfo -match '^not_found\|(.*)$') {
+            $windowNames = $Matches[1]
+            if ($windowNames) {
+                Write-Warning "UTM window for '$VMName' not found. Available UTM windows: $windowNames"
+            } else {
+                Write-Warning "UTM window for '$VMName' not found. No UTM windows are visible."
+            }
+        } else {
+            Write-Warning "Could not query UTM windows for '$VMName': $diagInfo"
+        }
+        Write-Warning "Falling back to full-screen capture."
+        & screencapture -x "$OutputPath" 2>&1 | Out-Null
     }
     if (Test-Path $OutputPath) {
         Write-Output "Screenshot saved: $OutputPath"

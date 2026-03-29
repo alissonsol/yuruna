@@ -302,18 +302,47 @@ function Get-ScreenText {
     $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $tempFile
     if (-not $captured) { return $null }
 
-    # Run tesseract OCR
-    try {
-        $ocrOutput = & tesseract $tempFile stdout --psm 6 2>$null
-        if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
-            return ($ocrOutput -join "`n")
+    # Preprocess: invert colors so tesseract sees dark text on light background.
+    # VM consoles typically show light text on a dark background, which
+    # tesseract handles poorly. ImageMagick (convert/magick) and macOS sips
+    # can invert; fall back to the original image if neither is available.
+    $processedFile = $tempFile
+    if (-not $script:InvertToolChecked) {
+        $script:InvertToolChecked = $true
+        $script:MagickCmd = Get-Command "magick" -ErrorAction SilentlyContinue
+        if (-not $script:MagickCmd) {
+            $script:MagickCmd = Get-Command "convert" -ErrorAction SilentlyContinue
         }
+    }
+    if ($script:MagickCmd) {
+        $invertedFile = $tempFile -replace '\.png$', '_inv.png'
+        & $script:MagickCmd.Source $tempFile -negate -grayscale Rec709Luma $invertedFile 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $processedFile = $invertedFile }
+    } elseif (-not $IsWindows) {
+        # macOS: use sips to invert (creates a copy, apply filter)
+        $invertedFile = $tempFile -replace '\.png$', '_inv.png'
+        Copy-Item $tempFile $invertedFile -Force
+        & sips -j "CIColorInvert" "$invertedFile" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $processedFile = $invertedFile }
+    }
+
+    # Run tesseract OCR (--psm 3 = fully automatic page segmentation)
+    try {
+        $ocrOutput = & tesseract $processedFile stdout --psm 3 2>$null
+        if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
+            $text = ($ocrOutput -join "`n")
+            Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
+            return $text
+        }
+        Write-Information "      OCR returned no text (exit code: $LASTEXITCODE)"
         return $null
     } catch {
         Write-Warning "tesseract OCR failed: $_"
         return $null
     } finally {
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+        $invertedFile = $tempFile -replace '\.png$', '_inv.png'
+        Remove-Item $invertedFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -324,7 +353,7 @@ function Wait-ForText {
     $elapsed = 0
     while ($elapsed -lt $TimeoutSeconds) {
         $screenText = Get-ScreenText -HostType $HostType -VMName $VMName
-        if ($screenText -and $screenText -match [regex]::Escape($Pattern)) {
+        if ($screenText -and $screenText -imatch [regex]::Escape($Pattern)) {
             Write-Information "      Text detected: '$Pattern'"
             return $true
         }

@@ -233,7 +233,16 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text)
-    $escapedText = $Text -replace '\\', '\\\\' -replace '"', '\\"'
+    # Send characters one at a time with a small delay between each.
+    # AppleScript's keystroke with a full string sends characters too fast
+    # for the VM's virtual keyboard — it drops characters and introduces
+    # phantom newlines (e.g., "ec2-user" becomes "ec\n-user").
+    $charLines = ""
+    foreach ($ch in $Text.ToCharArray()) {
+        $escaped = "$ch" -replace '\\', '\\\\' -replace '"', '\\"'
+        $charLines += "                keystroke `"$escaped`"`n"
+        $charLines += "                delay 0.05`n"
+    }
     $appleScript = @"
 tell application "UTM" to activate
 delay 0.3
@@ -244,8 +253,7 @@ tell application "System Events"
             if name of w contains "$VMName" then
                 perform action "AXRaise" of w
                 delay 0.3
-                keystroke "$escapedText"
-                return "ok"
+$charLines                return "ok"
             end if
         end repeat
     end tell

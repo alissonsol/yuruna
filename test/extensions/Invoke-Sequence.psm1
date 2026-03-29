@@ -380,16 +380,17 @@ function Get-ScreenText {
     $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $tempFile
     if (-not $captured) { return $null }
 
-    # Preprocess: crop bottom of screen, then invert colors for OCR.
-    # VM consoles show light text on dark backgrounds. Tesseract hits
-    # internal limits on full-screen text and truncates output mid-line.
-    # Cropping the bottom 30% of the original screenshot captures the most
-    # recent lines (prompts, passwords) while keeping the image small enough
-    # for tesseract to process completely. During early boot when text starts
-    # from the top, the bottom 30% may be empty — so we try that first, and
-    # fall back to the full image if OCR returns no text.
+    # Preprocess: crop to recent lines, then invert for OCR.
+    # Tesseract truncates output when given a full console screen (too much
+    # text). We crop a small strip from the bottom of the screenshot so
+    # tesseract only sees the most recent lines. Uses sips (ships with
+    # macOS) or ImageMagick — no external dependencies beyond tesseract.
+    # Strategy: try bottom crop first; if OCR returns nothing (early boot
+    # with text at top), retry with a top crop; final fallback is the full
+    # image inverted.
     $croppedFile = $tempFile -replace '\.png$', '_crop.png'
     $invertedFile = $tempFile -replace '\.png$', '_inv.png'
+    $cropHeight = 400  # pixels — roughly 8-12 lines on standard, 4-6 on Retina
 
     if (-not $script:ImageToolChecked) {
         $script:ImageToolChecked = $true
@@ -399,24 +400,48 @@ function Get-ScreenText {
         }
     }
 
-    # Try bottom-crop first, fall back to full image if OCR gets nothing
-    $filesToOCR = @()
+    # Helper: crop and invert using sips (guaranteed on macOS).
+    # $edge = "bottom" crops from the bottom, "top" from the top.
+    function Invoke-SipsCropInvert {
+        param([string]$Source, [string]$Output, [int]$Height, [string]$Edge)
+        $info = & sips -g pixelHeight -g pixelWidth "$Source" 2>$null
+        $imgH = 0; $imgW = 0
+        foreach ($line in $info) {
+            if ($line -match 'pixelHeight:\s*(\d+)') { $imgH = [int]$Matches[1] }
+            if ($line -match 'pixelWidth:\s*(\d+)') { $imgW = [int]$Matches[1] }
+        }
+        if ($imgH -le 0 -or $imgW -le 0) { return $false }
+        $ch = [Math]::Min($Height, $imgH)
+        $offsetY = if ($Edge -eq "bottom") { $imgH - $ch } else { 0 }
+        Copy-Item $Source $Output -Force
+        & sips --cropOffset $offsetY 0 -c $ch $imgW "$Output" 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        & sips -j "CIColorInvert" "$Output" 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    }
+
+    # Build ordered list of images to try OCR on
+    $filesToOCR = [System.Collections.Generic.List[string]]::new()
+
     if ($script:MagickCmd) {
-        # Cropped version: bottom 30% of original, inverted
-        & $script:MagickCmd.Source $tempFile -gravity South -crop "100%x30%" +repage -negate -grayscale Rec709Luma $croppedFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $croppedFile)) { $filesToOCR += $croppedFile }
-        # Full image inverted as fallback (for early boot with text at top)
+        # Bottom crop, inverted (primary — catches prompts on a full screen)
+        & $script:MagickCmd.Source $tempFile -gravity South -crop "100%x${cropHeight}" +repage -negate -grayscale Rec709Luma $croppedFile 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $croppedFile)) { $filesToOCR.Add($croppedFile) }
+        # Full image inverted (fallback — early boot, or if crop missed)
         & $script:MagickCmd.Source $tempFile -negate -grayscale Rec709Luma $invertedFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $filesToOCR += $invertedFile }
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $filesToOCR.Add($invertedFile) }
     } elseif (-not $IsWindows) {
-        # macOS without ImageMagick: invert only
+        # macOS: sips for crop + invert (no ImageMagick needed)
+        $ok = Invoke-SipsCropInvert -Source $tempFile -Output $croppedFile -Height $cropHeight -Edge "bottom"
+        if ($ok -and (Test-Path $croppedFile)) { $filesToOCR.Add($croppedFile) }
+        # Full image inverted as fallback
         Copy-Item $tempFile $invertedFile -Force
         & sips -j "CIColorInvert" "$invertedFile" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $filesToOCR += $invertedFile }
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $filesToOCR.Add($invertedFile) }
     }
-    if ($filesToOCR.Count -eq 0) { $filesToOCR += $tempFile }
+    if ($filesToOCR.Count -eq 0) { $filesToOCR.Add($tempFile) }
 
-    # Run tesseract on each candidate, return the first that produces text
+    # Run tesseract on each candidate; return the first that produces text
     try {
         foreach ($ocrFile in $filesToOCR) {
             $ocrOutput = & tesseract $ocrFile stdout --psm 6 2>$null

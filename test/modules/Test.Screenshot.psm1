@@ -51,6 +51,32 @@ function Get-VMScreenshot {
 function Get-UtmScreenshot {
     param([string]$VMName, [string]$OutputPath)
 
+    # One-time check: verify screencapture works at all (Screen Recording permission).
+    if (-not $script:ScreencaptureChecked) {
+        $script:ScreencaptureChecked = $true
+        $testFile = Join-Path ([System.IO.Path]::GetTempPath()) "screencapture_test_$PID.png"
+        $testErr = & screencapture -x "$testFile" 2>&1
+        if (Test-Path $testFile) {
+            $fileSize = (Get-Item $testFile).Length
+            Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+            if ($fileSize -lt 100) {
+                Write-Warning "screencapture produces empty files. Grant Screen Recording permission to your terminal:"
+                Write-Warning "  System Settings > Privacy & Security > Screen Recording > enable your terminal app"
+                Write-Warning "  Then restart the terminal."
+                $script:ScreencaptureWorks = $false
+            } else {
+                $script:ScreencaptureWorks = $true
+            }
+        } else {
+            Write-Warning "screencapture failed: $testErr"
+            Write-Warning "Grant Screen Recording permission to your terminal:"
+            Write-Warning "  System Settings > Privacy & Security > Screen Recording > enable your terminal app"
+            Write-Warning "  Then restart the terminal."
+            $script:ScreencaptureWorks = $false
+        }
+    }
+    if ($script:ScreencaptureWorks -eq $false) { return $null }
+
     # Find the UTM window bounds for this VM.
     # Searches any process whose name contains "UTM" to handle variants
     # (UTM, UTM SE, etc.). Uses window bounds + screencapture -R instead
@@ -78,8 +104,15 @@ tell application "System Events"
 end tell
 "@
     $boundsResult = & osascript -e $boundsScript 2>&1
+    $captured = $false
     if ($LASTEXITCODE -eq 0 -and "$boundsResult" -match '^\d+,\d+,\d+,\d+$') {
-        & screencapture -x -R "$boundsResult" "$OutputPath" 2>&1 | Out-Null
+        $captureErr = & screencapture -x -R "$boundsResult" "$OutputPath" 2>&1
+        if (Test-Path $OutputPath) {
+            $captured = $true
+        } else {
+            Write-Warning "screencapture -R '$boundsResult' failed: $captureErr"
+            Write-Warning "Falling back to full-screen capture."
+        }
     } else {
         # Parse diagnostic info from the AppleScript result
         $diagInfo = "$boundsResult"
@@ -94,9 +127,16 @@ end tell
             Write-Warning "Could not query UTM windows for '$VMName': $diagInfo"
         }
         Write-Warning "Falling back to full-screen capture."
-        & screencapture -x "$OutputPath" 2>&1 | Out-Null
     }
-    if (Test-Path $OutputPath) {
+    if (-not $captured) {
+        $captureErr = & screencapture -x "$OutputPath" 2>&1
+        if (Test-Path $OutputPath) {
+            $captured = $true
+        } else {
+            Write-Warning "Full-screen screencapture also failed: $captureErr"
+        }
+    }
+    if ($captured) {
         Write-Output "Screenshot saved: $OutputPath"
         return $OutputPath
     }

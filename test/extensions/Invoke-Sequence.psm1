@@ -380,15 +380,14 @@ function Get-ScreenText {
     $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $tempFile
     if (-not $captured) { return $null }
 
-    # Preprocess: trim empty regions, crop to recent lines, invert colors.
-    # VM consoles show light text on dark backgrounds. Tesseract struggles
-    # with full-screen OCR — it hits internal limits and produces truncated
-    # or garbled output. The pipeline: trim empty space → crop to the bottom
-    # half of the remaining text → invert colors → OCR. This focuses on the
-    # most recent lines regardless of whether text starts from the top
-    # (early boot) or fills the screen (later interaction).
-    $processedFile = $tempFile
-    $trimmedFile = $tempFile -replace '\.png$', '_trim.png'
+    # Preprocess: crop bottom of screen, then invert colors for OCR.
+    # VM consoles show light text on dark backgrounds. Tesseract hits
+    # internal limits on full-screen text and truncates output mid-line.
+    # Cropping the bottom 30% of the original screenshot captures the most
+    # recent lines (prompts, passwords) while keeping the image small enough
+    # for tesseract to process completely. During early boot when text starts
+    # from the top, the bottom 30% may be empty — so we try that first, and
+    # fall back to the full image if OCR returns no text.
     $croppedFile = $tempFile -replace '\.png$', '_crop.png'
     $invertedFile = $tempFile -replace '\.png$', '_inv.png'
 
@@ -400,32 +399,32 @@ function Get-ScreenText {
         }
     }
 
+    # Try bottom-crop first, fall back to full image if OCR gets nothing
+    $filesToOCR = @()
     if ($script:MagickCmd) {
-        # Step 1: Trim empty (dark) regions around the text
-        & $script:MagickCmd.Source $tempFile -fuzz "15%" -trim +repage $trimmedFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $trimmedFile)) { $processedFile = $trimmedFile }
-
-        # Step 2: Crop to bottom half of the trimmed image (most recent lines)
-        & $script:MagickCmd.Source $processedFile -gravity South -crop "100%x50%" +repage $croppedFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $croppedFile)) { $processedFile = $croppedFile }
-
-        # Step 3: Invert colors (dark text on light background for tesseract)
-        & $script:MagickCmd.Source $processedFile -negate -grayscale Rec709Luma $invertedFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $processedFile = $invertedFile }
+        # Cropped version: bottom 30% of original, inverted
+        & $script:MagickCmd.Source $tempFile -gravity South -crop "100%x30%" +repage -negate -grayscale Rec709Luma $croppedFile 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $croppedFile)) { $filesToOCR += $croppedFile }
+        # Full image inverted as fallback (for early boot with text at top)
+        & $script:MagickCmd.Source $tempFile -negate -grayscale Rec709Luma $invertedFile 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $filesToOCR += $invertedFile }
     } elseif (-not $IsWindows) {
-        # macOS without ImageMagick: invert only (sips has no trim/crop-from-bottom)
-        Copy-Item $processedFile $invertedFile -Force
+        # macOS without ImageMagick: invert only
+        Copy-Item $tempFile $invertedFile -Force
         & sips -j "CIColorInvert" "$invertedFile" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $processedFile = $invertedFile }
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $filesToOCR += $invertedFile }
     }
+    if ($filesToOCR.Count -eq 0) { $filesToOCR += $tempFile }
 
-    # Step 4: Run tesseract OCR (--psm 6 = single uniform block, ideal for cropped region)
+    # Run tesseract on each candidate, return the first that produces text
     try {
-        $ocrOutput = & tesseract $processedFile stdout --psm 6 2>$null
-        if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
-            $text = ($ocrOutput -join "`n")
-            Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
-            return $text
+        foreach ($ocrFile in $filesToOCR) {
+            $ocrOutput = & tesseract $ocrFile stdout --psm 6 2>$null
+            if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
+                $text = ($ocrOutput -join "`n")
+                Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
+                return $text
+            }
         }
         Write-Information "      OCR returned no text (exit code: $LASTEXITCODE)"
         return $null
@@ -434,7 +433,6 @@ function Get-ScreenText {
         return $null
     } finally {
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $trimmedFile -Force -ErrorAction SilentlyContinue
         Remove-Item $croppedFile -Force -ErrorAction SilentlyContinue
         Remove-Item $invertedFile -Force -ErrorAction SilentlyContinue
     }

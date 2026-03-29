@@ -69,6 +69,7 @@ switch ($HostType) {
             if (-not $line -or $line -match '^-+$') { continue }
             $parts = $line -split '\s{2,}'
             if ($parts.Count -ge 2 -and $parts[0] -match '^[0-9A-Fa-f-]{36}$') {
+                $vmUuid = $parts[0].Trim()
                 $vmName = $parts[1].Trim()
                 if ($vmName -like "${Prefix}*") {
                     $found = $true
@@ -82,16 +83,28 @@ switch ($HostType) {
                         $status = & utmctl status "$vmName" 2>&1
                         if ($status -match "stopped|shutdown") { break }
                     }
-                    & utmctl delete "$vmName" 2>&1 | Out-Null
-                    if ($LASTEXITCODE -ne 0) {
-                        Write-Warning "    utmctl delete failed for '$vmName'. Retrying after delay..."
+                    # Delete by UUID (more reliable than by name)
+                    $deleted = $false
+                    & utmctl delete "$vmUuid" 2>&1 | Out-Null
+                    if ($LASTEXITCODE -eq 0) { $deleted = $true }
+                    if (-not $deleted) {
+                        Write-Warning "    utmctl delete by UUID failed for '$vmName'. Retrying by name..."
                         Start-Sleep -Seconds 3
                         & utmctl delete "$vmName" 2>&1 | Out-Null
+                        if ($LASTEXITCODE -eq 0) { $deleted = $true }
                     }
-                    if ($LASTEXITCODE -eq 0) {
+                    # Verify removal from UTM registry
+                    if ($deleted) {
+                        $verifyStatus = & utmctl status "$vmUuid" 2>&1
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Warning "    VM '$vmName' still present in UTM after delete."
+                            $deleted = $false
+                        }
+                    }
+                    if ($deleted) {
                         Write-Output "    Removed from UTM."
                     } else {
-                        Write-Warning "    Could not remove '$vmName' from UTM registry."
+                        Write-Warning "    Could not remove '$vmName' from UTM registry. Files will not be cleaned to avoid stale entries."
                     }
                 }
             }

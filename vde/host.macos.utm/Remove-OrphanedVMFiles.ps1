@@ -222,12 +222,27 @@ if ($Force) {
 $errors = 0
 foreach ($item in $orphanedItems) {
     try {
-        # Remove from UTM registry first (by UUID if available, then by name)
+        # Attempt to deregister from UTM first (by UUID if available, then by name)
         $bundleUUID = Get-UTMBundleUUID -BundlePath $item.Path
+        $deregistered = $false
         if ($bundleUUID) {
             & utmctl delete $bundleUUID 2>&1 | Out-Null
-        } else {
+            if ($LASTEXITCODE -eq 0) { $deregistered = $true }
+        }
+        if (-not $deregistered) {
             & utmctl delete $item.Name 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { $deregistered = $true }
+        }
+        # Verify the VM is no longer registered before removing files
+        $stillRegistered = $false
+        if ($bundleUUID) {
+            $null = & utmctl status $bundleUUID 2>&1
+            if ($LASTEXITCODE -eq 0) { $stillRegistered = $true }
+        }
+        if ($stillRegistered) {
+            Write-Warning "  Skipped: $($item.Path) — VM still registered in UTM. Remove it from UTM first."
+            $errors++
+            continue
         }
         Remove-Item -Path $item.Path -Recurse -Force
         Write-Output "  Deleted: $($item.Path)"

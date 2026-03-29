@@ -139,9 +139,11 @@ while ($true) {
         if (-not (Invoke-GitPull -RepoRoot $RepoRoot)) {
             Write-Output ""
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-            Write-Output "  ERROR: git sync check failed"
-            Write-Output "  Local branch is behind or diverged from remote."
-            Write-Output "  Pull/rebase manually, or check network connectivity."
+            Write-Output "  ERROR: git sync failed"
+            Write-Output "  Could not update from remote. Possible causes:"
+            Write-Output "  - Local branch has diverged (rebase/merge manually)"
+            Write-Output "  - Network connectivity issue"
+            Write-Output "  - Uncommitted local changes blocking fast-forward"
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
             Write-Output ""
             $body = Format-FailureMessage `
@@ -149,7 +151,7 @@ while ($true) {
                 -Hostname     (hostname) `
                 -GuestKey     "(bootstrap)" `
                 -StepName     "GitPull" `
-                -ErrorMessage "Local branch is behind or diverged from remote. Pull/rebase manually, or check network connectivity." `
+                -ErrorMessage "Git sync failed. Branch may have diverged, or network is unreachable." `
                 -RunId        "(not yet assigned)" `
                 -GitCommit    (Get-CurrentGitCommit -RepoRoot $RepoRoot)
             Send-Notification -Config $Config `

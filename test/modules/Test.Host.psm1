@@ -106,13 +106,23 @@ function Invoke-GitPull {
         return $true
     }
 
-    # Local is behind (or diverged from) remote
+    # Local is behind or diverged from remote
     $behind = & git -C $RepoRoot rev-list --count "$local..$remote" 2>$null
     if ($mergeBase -eq $local) {
-        Write-Error "Local branch is behind remote by $behind commit(s). Pull or rebase before running tests."
-    } else {
-        Write-Error "Local branch has diverged from remote (behind by $behind commit(s)). Resolve before running tests."
+        # Local is behind — safe to fast-forward pull
+        Write-Information "Local branch is behind remote by $behind commit(s). Pulling..." -InformationAction Continue
+        $pullOutput = & git -C $RepoRoot pull --ff-only 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Information "Pull succeeded: $pullOutput" -InformationAction Continue
+            return $true
+        }
+        Write-Error "git pull --ff-only failed (exit $LASTEXITCODE): $pullOutput"
+        return $false
     }
+
+    # Diverged — local has commits not on remote AND remote has commits not on local
+    $ahead = & git -C $RepoRoot rev-list --count "$remote..$local" 2>$null
+    Write-Error "Local branch has diverged from remote ($ahead ahead, $behind behind). Rebase or merge manually."
     return $false
 }
 

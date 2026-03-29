@@ -380,17 +380,17 @@ function Get-ScreenText {
     $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $tempFile
     if (-not $captured) { return $null }
 
-    # Preprocess: crop to recent lines, then invert for OCR.
-    # Tesseract truncates output when given a full console screen (too much
-    # text). We crop a small strip from the bottom of the screenshot so
-    # tesseract only sees the most recent lines. Uses sips (ships with
-    # macOS) or ImageMagick — no external dependencies beyond tesseract.
+    # Preprocess: crop to the bottom of the screenshot so tesseract only
+    # processes the most recent console lines. Tesseract truncates when
+    # given too much text, so a full-screen image never reaches the prompt
+    # at the bottom. We crop using sips (ships with macOS) or ImageMagick.
+    # Inversion (light-on-dark → dark-on-light) is done with ImageMagick
+    # if available; tesseract 4+ handles inverted text reasonably without it.
     # Strategy: try bottom crop first; if OCR returns nothing (early boot
-    # with text at top), retry with a top crop; final fallback is the full
-    # image inverted.
-    $croppedFile = $tempFile -replace '\.png$', '_crop.png'
-    $invertedFile = $tempFile -replace '\.png$', '_inv.png'
-    $cropHeight = 400  # pixels — roughly 8-12 lines on standard, 4-6 on Retina
+    # with text at the top only), fall back to the full image.
+    $bottomFile = $tempFile -replace '\.png$', '_bot.png'
+    $fullInvFile = $tempFile -replace '\.png$', '_inv.png'
+    $cropPixels = 600  # ~15 lines standard, ~8 lines Retina — enough for any prompt
 
     if (-not $script:ImageToolChecked) {
         $script:ImageToolChecked = $true
@@ -400,44 +400,36 @@ function Get-ScreenText {
         }
     }
 
-    # Helper: crop and invert using sips (guaranteed on macOS).
-    # $edge = "bottom" crops from the bottom, "top" from the top.
-    function Invoke-SipsCropInvert {
-        param([string]$Source, [string]$Output, [int]$Height, [string]$Edge)
-        $info = & sips -g pixelHeight -g pixelWidth "$Source" 2>$null
-        $imgH = 0; $imgW = 0
-        foreach ($line in $info) {
-            if ($line -match 'pixelHeight:\s*(\d+)') { $imgH = [int]$Matches[1] }
-            if ($line -match 'pixelWidth:\s*(\d+)') { $imgW = [int]$Matches[1] }
-        }
-        if ($imgH -le 0 -or $imgW -le 0) { return $false }
-        $ch = [Math]::Min($Height, $imgH)
-        $offsetY = if ($Edge -eq "bottom") { $imgH - $ch } else { 0 }
-        Copy-Item $Source $Output -Force
-        & sips --cropOffset $offsetY 0 -c $ch $imgW "$Output" 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { return $false }
-        & sips -j "CIColorInvert" "$Output" 2>$null | Out-Null
-        return ($LASTEXITCODE -eq 0)
-    }
-
     # Build ordered list of images to try OCR on
     $filesToOCR = [System.Collections.Generic.List[string]]::new()
 
     if ($script:MagickCmd) {
-        # Bottom crop, inverted (primary — catches prompts on a full screen)
-        & $script:MagickCmd.Source $tempFile -gravity South -crop "100%x${cropHeight}" +repage -negate -grayscale Rec709Luma $croppedFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $croppedFile)) { $filesToOCR.Add($croppedFile) }
-        # Full image inverted (fallback — early boot, or if crop missed)
-        & $script:MagickCmd.Source $tempFile -negate -grayscale Rec709Luma $invertedFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $filesToOCR.Add($invertedFile) }
+        # Bottom crop + invert (primary)
+        & $script:MagickCmd.Source $tempFile -gravity South -crop "x${cropPixels}+0+0" +repage -negate -grayscale Rec709Luma $bottomFile 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $bottomFile)) { $filesToOCR.Add($bottomFile) }
+        # Full image inverted (fallback for early boot)
+        & $script:MagickCmd.Source $tempFile -negate -grayscale Rec709Luma $fullInvFile 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $fullInvFile)) { $filesToOCR.Add($fullInvFile) }
     } elseif (-not $IsWindows) {
-        # macOS: sips for crop + invert (no ImageMagick needed)
-        $ok = Invoke-SipsCropInvert -Source $tempFile -Output $croppedFile -Height $cropHeight -Edge "bottom"
-        if ($ok -and (Test-Path $croppedFile)) { $filesToOCR.Add($croppedFile) }
-        # Full image inverted as fallback
-        Copy-Item $tempFile $invertedFile -Force
-        & sips -j "CIColorInvert" "$invertedFile" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $filesToOCR.Add($invertedFile) }
+        # macOS: use sips to crop bottom portion (sips ships with macOS)
+        $sipsInfo = & sips -g pixelHeight -g pixelWidth "$tempFile" 2>$null
+        $imgH = 0; $imgW = 0
+        foreach ($line in $sipsInfo) {
+            if ($line -match 'pixelHeight:\s*(\d+)') { $imgH = [int]$Matches[1] }
+            if ($line -match 'pixelWidth:\s*(\d+)') { $imgW = [int]$Matches[1] }
+        }
+        if ($imgH -gt 0 -and $imgW -gt 0) {
+            $ch = [Math]::Min($cropPixels, $imgH)
+            $offsetY = $imgH - $ch
+            Copy-Item $tempFile $bottomFile -Force
+            & sips --cropOffset $offsetY 0 -c $ch $imgW "$bottomFile" 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $bottomFile)) {
+                $filesToOCR.Add($bottomFile)
+                Write-Information "      Cropped to bottom ${ch}px of ${imgH}px image"
+            }
+        }
+        # Full image as fallback (no inversion without ImageMagick — tesseract 4+ copes)
+        $filesToOCR.Add($tempFile)
     }
     if ($filesToOCR.Count -eq 0) { $filesToOCR.Add($tempFile) }
 
@@ -458,8 +450,8 @@ function Get-ScreenText {
         return $null
     } finally {
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $croppedFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $invertedFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $bottomFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $fullInvFile -Force -ErrorAction SilentlyContinue
     }
 }
 

@@ -17,123 +17,112 @@
 
 <#
 .SYNOPSIS
-    Drives the Ubuntu Desktop guest through installation to a usable state.
+    Drives the Ubuntu Desktop guest through initial boot to start autoinstall.
 
 .DESCRIPTION
-    Ubuntu Desktop boots from an ISO with autoinstall (cloud-init user-data
-    on a cidata seed ISO). The autoinstall handles partitioning, user
-    creation, locale, and packages unattended.
+    Ubuntu Desktop boots from an ISO and may show a GRUB "Try or Install Ubuntu"
+    menu. This script sends Enter to dismiss it so autoinstall can proceed.
 
-    Some Ubuntu ISOs show a "Try or Install Ubuntu" GRUB menu before
-    autoinstall takes over. This script sends an Enter keystroke to
-    dismiss that menu if it appears.
+    == HOW TO CUSTOMIZE ==
 
-    == TRAINING GUIDE ==
+    Edit the $Steps array below. Each entry is a hashtable with:
+      DelaySeconds  — seconds to wait before sending the key
+      Key           — key name (see supported list below)
+      Description   — human-readable label shown in the runner output
 
-    To update the keystroke sequence for a new Ubuntu ISO version:
+    Supported key names: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12
 
-    1. Start the VM manually:
-         pwsh vde/host.windows.hyper-v/guest.ubuntu.desktop/New-VM.ps1
-       or on macOS:
-         pwsh vde/host.macos.utm/guest.ubuntu.desktop/New-VM.ps1
+    == CONTROL POINT DETECTION (advanced) ==
 
-    2. Watch the boot sequence and note:
-       - How many seconds after start the GRUB menu appears
-       - Whether a keystroke is needed to proceed (Enter, arrow keys, etc.)
-       - How many seconds until the installer finishes
-
-    3. Update the $Steps array below with your observations:
-         @{ DelaySeconds = <wait>; Key = "<key>"; Description = "<what it does>" }
-
-       Supported keys for Hyper-V (Msvm_Keyboard keyCode):
-         Enter=0x1C  Tab=0x0F  Space=0x39  Esc=0x01  Up=0x48  Down=0x50
-         F1-F12: 0x3B-0x46  a-z: see https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input
-
-       Supported keys for UTM (AppleScript key code):
-         Return=36  Tab=48  Space=49  Escape=53  UpArrow=126  DownArrow=125
-         See: https://eastmanreference.com/complete-list-of-applescript-key-codes
-
-    4. Test by running the full cycle:
-         pwsh test/Invoke-TestRunner.ps1 -NoGitPull
-
-    5. Capture a verification screenshot when the install is done:
-       Place it at: test/verify/guest.ubuntu.desktop/expected.png
+    Instead of fixed timing, you can detect VM state before sending keys:
+    - Screenshot comparison: use Compare-Screenshot from Test.Screenshot module
+    - Hyper-V heartbeat: (Get-VMIntegrationService -VMName $VMName -Name Heartbeat).PrimaryStatusDescription
+    - Network: Test-NetConnection -ComputerName $VMName -Port 22
 
 .NOTES
-    Exit 0 = OS installation started successfully, non-zero = failed.
+    Exit 0 = success, non-zero = failure (stops the runner).
 #>
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PARAMETERS — passed by the test runner, do not change
+# ─────────────────────────────────────────────────────────────────────────────
 param(
-    [string]$HostType,
-    [string]$GuestKey,
-    [string]$VMName
+    [string]$HostType,   # "host.windows.hyper-v" or "host.macos.utm"
+    [string]$GuestKey,   # "guest.ubuntu.desktop"
+    [string]$VMName      # e.g. "test-ubuntu-desktop01"
 )
 
-$InformationPreference = 'Continue'
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION — edit these to match your VM boot sequence
+# ─────────────────────────────────────────────────────────────────────────────
 
-# === Keystroke sequence ===
-# Each step: DelaySeconds (seconds to wait before sending), Key, Description.
-# The autoinstall config handles the full installation unattended.
-# This sequence dismisses the initial GRUB menu ("Try or Install Ubuntu").
-# GRUB typically appears 5-15 seconds after VM start on Hyper-V Gen 2 VMs.
-# We send Enter twice with a gap to cover timing variations: if the first
-# arrives before GRUB renders it's harmless, the second catches it.
+# GRUB "Try or Install Ubuntu" menu typically appears 5-15 seconds after boot.
+# We send Enter twice with a gap to cover timing variations.
 $Steps = @(
     @{ DelaySeconds = 8;  Key = "Enter"; Description = "Dismiss GRUB menu (first attempt)" }
     @{ DelaySeconds = 10; Key = "Enter"; Description = "Dismiss GRUB menu (retry if first was too early)" }
 )
 
-# === Keystroke delivery functions ===
+# ─────────────────────────────────────────────────────────────────────────────
+# KEYSTROKE FUNCTIONS — one per host platform
+# ─────────────────────────────────────────────────────────────────────────────
 
+# Hyper-V: sends keystrokes via WMI Msvm_Keyboard using virtual-key codes.
+# Reference: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
 function Send-KeystrokeHyperV {
     param([string]$VMName, [string]$Key)
     $keyMap = @{
-        "Enter"=0x1C; "Tab"=0x0F; "Space"=0x39; "Escape"=0x01
-        "Up"=0x48; "Down"=0x50; "Left"=0x4B; "Right"=0x4D
-        "F1"=0x3B; "F2"=0x3C; "F5"=0x3F; "F8"=0x42; "F12"=0x46
+        "Enter"=0x0D; "Tab"=0x09; "Space"=0x20; "Escape"=0x1B
+        "Up"=0x26; "Down"=0x28; "Left"=0x25; "Right"=0x27
+        "F1"=0x70; "F2"=0x71; "F3"=0x72; "F4"=0x73; "F5"=0x74
+        "F6"=0x75; "F7"=0x76; "F8"=0x77; "F9"=0x78; "F10"=0x79
+        "F11"=0x7A; "F12"=0x7B
     }
     $code = $keyMap[$Key]
-    if (-not $code) { Write-Warning "Unknown key '$Key' for Hyper-V (scan code not mapped)"; return $false }
+    if (-not $code) { Write-Warning "Unknown key '$Key' for Hyper-V"; return $false }
     try {
-        Write-Information "    [keystroke] Looking up VM '$VMName' via WMI..."
-        $vmObj = Get-CimInstance -Namespace root\virtualization\v2 -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
+        $vmObj = Get-CimInstance -Namespace root\virtualization\v2 `
+            -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
         if (-not $vmObj) { Write-Warning "VM '$VMName' not found in WMI"; return $false }
-        Write-Information "    [keystroke] VM found (state: $($vmObj.EnabledState)). Getting keyboard device..."
         $kb = Get-CimAssociatedInstance -InputObject $vmObj -ResultClassName Msvm_Keyboard
         if (-not $kb) { Write-Warning "Keyboard device not found for '$VMName'"; return $false }
-        Write-Information "    [keystroke] Sending key '$Key' (scan code 0x$($code.ToString('X2'))): PressKey..."
-        $pressResult = Invoke-CimMethod -InputObject $kb -MethodName "PressKey" -Arguments @{keyCode=$code}
-        Write-Information "    [keystroke] PressKey returned: $($pressResult.ReturnValue)"
+        $press = Invoke-CimMethod -InputObject $kb -MethodName "PressKey" -Arguments @{keyCode=$code}
         Start-Sleep -Milliseconds 100
-        Write-Information "    [keystroke] ReleaseKey..."
-        $releaseResult = Invoke-CimMethod -InputObject $kb -MethodName "ReleaseKey" -Arguments @{keyCode=$code}
-        Write-Information "    [keystroke] ReleaseKey returned: $($releaseResult.ReturnValue)"
-        return ($pressResult.ReturnValue -eq 0 -and $releaseResult.ReturnValue -eq 0)
+        $release = Invoke-CimMethod -InputObject $kb -MethodName "ReleaseKey" -Arguments @{keyCode=$code}
+        $script:lastKeystrokeLog = "PressKey=$($press.ReturnValue) ReleaseKey=$($release.ReturnValue) (0=success)"
+        return ($press.ReturnValue -eq 0 -and $release.ReturnValue -eq 0)
     } catch {
-        Write-Warning "Failed to send keystroke via Hyper-V WMI: $_"
+        Write-Warning "Hyper-V WMI keystroke failed: $_"
         return $false
     }
 }
 
+# UTM (macOS): sends keystrokes via AppleScript to the UTM VM window.
+# Requires Accessibility permissions for Terminal.
 function Send-KeystrokeUTM {
     param([string]$VMName, [string]$Key)
     $keyMap = @{
         "Enter"=36; "Tab"=48; "Space"=49; "Escape"=53
         "Up"=126; "Down"=125; "Left"=123; "Right"=124
-        "F1"=122; "F2"=120; "F5"=96; "F8"=100; "F12"=111
+        "F1"=122; "F2"=120; "F3"=99; "F4"=118; "F5"=96
+        "F6"=97; "F7"=98; "F8"=100; "F9"=101; "F10"=109
+        "F11"=103; "F12"=111
     }
     $code = $keyMap[$Key]
     if (-not $code) { Write-Warning "Unknown key '$Key' for UTM"; return $false }
-    Write-Information "    [keystroke] Sending key '$Key' (AppleScript key code $code) to UTM window '$VMName'..."
-    $script = @"
+    if ($Key -eq "Enter") { $keyAction = 'keystroke return' }
+    else                  { $keyAction = "key code $code" }
+    $appleScript = @"
+tell application "UTM" to activate
+delay 0.5
 tell application "System Events"
     tell process "UTM"
         set frontmost to true
         repeat with w in windows
             if name of w contains "$VMName" then
                 perform action "AXRaise" of w
-                delay 0.3
-                key code $code
+                delay 0.5
+                $keyAction
                 return "ok"
             end if
         end repeat
@@ -141,30 +130,43 @@ tell application "System Events"
 end tell
 return "window_not_found"
 "@
-    $result = & osascript -e $script 2>&1
-    Write-Information "    [keystroke] AppleScript result: $result"
+    $result = & osascript -e $appleScript 2>&1
+    $script:lastKeystrokeLog = "AppleScript result: $result"
     if ("$result" -eq "ok") { return $true }
     Write-Warning "UTM keystroke failed: $result"
     return $false
 }
 
-# === Execute steps ===
-Write-Output "[$GuestKey] Ubuntu Desktop autoinstall — sending initial keystrokes"
+# ─────────────────────────────────────────────────────────────────────────────
+# EXECUTION — runs each step and reports progress
+# ─────────────────────────────────────────────────────────────────────────────
+Write-Output "[$GuestKey] Ubuntu Desktop autoinstall on $HostType (VM: $VMName)"
 
 foreach ($step in $Steps) {
-    Write-Output "  Waiting $($step.DelaySeconds)s — $($step.Description)..."
+    Write-Output "    Step: $($step.Description)"
+    Write-Output "    Waiting $($step.DelaySeconds) seconds..."
     Start-Sleep -Seconds $step.DelaySeconds
+    Write-Output "    Sending '$($step.Key)' to VM '$VMName' via $HostType..."
 
-    $sent = switch ($HostType) {
-        "host.windows.hyper-v" { Send-KeystrokeHyperV -VMName $VMName -Key $step.Key }
-        "host.macos.utm"       { Send-KeystrokeUTM    -VMName $VMName -Key $step.Key }
-        default { Write-Warning "Unknown host type: $HostType"; $false }
-    }
-    if ($sent) {
-        Write-Output "  Sent '$($step.Key)' to $VMName"
+    $script:lastKeystrokeLog = $null
+    $sent = $false
+    if ($HostType -eq "host.windows.hyper-v") {
+        $sent = Send-KeystrokeHyperV -VMName $VMName -Key $step.Key
+    } elseif ($HostType -eq "host.macos.utm") {
+        $sent = Send-KeystrokeUTM -VMName $VMName -Key $step.Key
     } else {
-        Write-Warning "  Could not send '$($step.Key)' — install may require manual intervention"
+        Write-Warning "Unknown host type: $HostType"
     }
+
+    if ($script:lastKeystrokeLog) {
+        Write-Output "      $($script:lastKeystrokeLog)"
+    }
+    if ($sent -eq $true) {
+        Write-Output "    '$($step.Key)' sent successfully."
+    } else {
+        Write-Warning "    Could not send '$($step.Key)' — install may require manual intervention."
+    }
+    Write-Output ""
 }
 
 Write-Output "[$GuestKey] Keystroke sequence complete. Autoinstall is running unattended."

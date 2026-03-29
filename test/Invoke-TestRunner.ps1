@@ -19,6 +19,7 @@ param(
     [string]$ConfigPath        = $null,
     [switch]$NoGitPull,
     [switch]$NoServer,
+    [switch]$NoExtensionOutput,
     [int]$CycleDelaySeconds    = 30
 )
 
@@ -254,7 +255,8 @@ while ($true) {
 
         # --- Install-OS (run Test-Start scripts to drive OS installation) ---
         Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "running"
-        $r = Invoke-StartTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir
+        $showExtOutput = -not $NoExtensionOutput
+        $r = Invoke-StartTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir -ShowOutput $showExtOutput
         if ($r.skipped) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "skipped" -Skipped $true
         } elseif ($r.success) {
@@ -333,7 +335,7 @@ while ($true) {
         # --- Invoke-PoolTest (extension scripts) ---
         if ($hasExtensions) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "running"
-            $r = Invoke-PoolTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir
+            $r = Invoke-PoolTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir -ShowOutput $showExtOutput
             if ($r.skipped) {
                 Set-StepStatus -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "skipped" -Skipped $true
             } elseif ($r.success) {
@@ -352,11 +354,14 @@ while ($true) {
         # --- Stop and remove this guest VM before starting the next ---
         Set-GuestStatus -GuestKey $GuestKey -Status "pass"
         Write-Output "  ${GuestKey}: PASS"
+        Write-Output "  Stopping VM '$VMName'..."
         $savedProgress = $global:ProgressPreference
         $global:ProgressPreference = 'SilentlyContinue'
         Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+        Write-Output "  Removing VM '$VMName'..."
         Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
         $global:ProgressPreference = $savedProgress
+        Write-Output "  Cleanup complete for $GuestKey."
     }
 
     # === Finalise cycle ===

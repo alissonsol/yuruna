@@ -17,136 +17,112 @@
 
 <#
 .SYNOPSIS
-    Drives the Windows 11 guest through installation to a usable state.
+    Drives the Windows 11 guest through initial boot to start unattended installation.
 
 .DESCRIPTION
-    Windows 11 boots from an ISO with autounattend.xml on a seed ISO.
-    The unattended config handles partitioning, image selection, OOBE
-    bypass, user creation, and auto-logon.
+    Sends keystrokes to the VM to bypass the "Press any key to boot from CD or DVD..."
+    prompt so that autounattend.xml can drive the installation unattended.
 
-    However, the "Press any key to boot from CD or DVD..." prompt
-    requires an initial keystroke. On Hyper-V, New-VM.ps1 already
-    sends this keystroke via WMI during creation. On UTM (macOS),
-    this script sends it via AppleScript.
+    == HOW TO CUSTOMIZE ==
 
-    == TRAINING GUIDE ==
+    Edit the $Steps array below. Each entry is a hashtable with:
+      DelaySeconds  — seconds to wait before sending the key
+      Key           — key name (see supported list below)
+      Description   — human-readable label shown in the runner output
 
-    To update the keystroke sequence for a new Windows ISO or scenario:
+    Supported key names: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12
 
-    1. Start the VM manually and observe the full boot/install sequence.
+    == CONTROL POINT DETECTION (advanced) ==
 
-    2. Note each point where interaction is needed:
-       - Seconds after VM start when the prompt appears
-       - Which key to press (Enter, Tab, arrow keys, etc.)
-       - Any mouse clicks needed (rarely — autounattend handles most)
-
-    3. Update the $Steps array below. Each step is a hashtable:
-         @{
-             DelaySeconds = <seconds to wait before sending>
-             Key          = "<key name>"
-             Description  = "<what this step does>"
-         }
-
-       Supported keys for Hyper-V (Msvm_Keyboard scan codes):
-         Enter=0x1C  Tab=0x0F  Space=0x39  Esc=0x01
-         Up=0x48  Down=0x50  Left=0x4B  Right=0x4D
-         F1-F12: 0x3B-0x46
-         Full reference: https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input
-
-       Supported keys for UTM (AppleScript key codes):
-         Return=36  Tab=48  Space=49  Escape=53
-         UpArrow=126  DownArrow=125  LeftArrow=123  RightArrow=124
-         Full reference: https://eastmanreference.com/complete-list-of-applescript-key-codes
-
-    4. For advanced scenarios requiring mouse clicks or typed text,
-       consider using Appium (run Get-Appium.ps1 first):
-       - Windows: WinAppDriver targets the vmconnect window
-       - macOS: Mac2Driver targets the UTM window
-       See: https://appium.io/docs/en/latest/
-
-    5. Test your changes:
-         pwsh test/Invoke-TestRunner.ps1 -NoGitPull
-
-    6. Capture a verification screenshot of the expected post-install
-       desktop and place it at:
-         test/verify/guest.windows.11/expected.png
+    Instead of fixed timing, you can detect VM state before sending keys:
+    - Screenshot comparison: use Compare-Screenshot from Test.Screenshot module
+    - Hyper-V heartbeat: (Get-VMIntegrationService -VMName $VMName -Name Heartbeat).PrimaryStatusDescription
+    - Network: Test-NetConnection -ComputerName $VMName -Port 3389
 
 .NOTES
-    Exit 0 = OS installation started successfully, non-zero = failed.
+    Exit 0 = success, non-zero = failure (stops the runner).
 #>
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PARAMETERS — passed by the test runner, do not change
+# ─────────────────────────────────────────────────────────────────────────────
 param(
-    [string]$HostType,
-    [string]$GuestKey,
-    [string]$VMName
+    [string]$HostType,   # "host.windows.hyper-v" or "host.macos.utm"
+    [string]$GuestKey,   # "guest.windows.11"
+    [string]$VMName      # e.g. "test-windows11-01"
 )
 
-$InformationPreference = 'Continue'
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION — edit these to match your VM boot sequence
+# ─────────────────────────────────────────────────────────────────────────────
 
-# === Keystroke sequence ===
-# Each step: DelaySeconds (wait before sending), Key, Description.
-#
-# The "Press any key to boot from CD or DVD..." prompt appears shortly after
-# the VM starts. On Hyper-V, the test runner opens vmconnect (basic mode)
-# and this script sends Enter via WMI. On UTM, it sends Enter via AppleScript.
-# The "Press any key" prompt has a ~5-second window. We send Enter twice
-# to cover timing variations (UEFI firmware delay, vmconnect startup).
+# Keystroke sequence. The "Press any key" prompt appears ~3-5s after boot.
+# We send Enter twice to cover timing variations (UEFI firmware, vmconnect).
 $Steps = @(
     @{ DelaySeconds = 3;  Key = "Enter"; Description = "Boot from CD/DVD (first attempt)" }
     @{ DelaySeconds = 5;  Key = "Enter"; Description = "Boot from CD/DVD (retry)" }
 )
 
-# === Keystroke delivery functions ===
+# ─────────────────────────────────────────────────────────────────────────────
+# KEYSTROKE FUNCTIONS — one per host platform
+# ─────────────────────────────────────────────────────────────────────────────
 
+# Hyper-V: sends keystrokes via WMI Msvm_Keyboard using virtual-key codes.
+# Reference: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
 function Send-KeystrokeHyperV {
     param([string]$VMName, [string]$Key)
     $keyMap = @{
-        "Enter"=0x1C; "Tab"=0x0F; "Space"=0x39; "Escape"=0x01
-        "Up"=0x48; "Down"=0x50; "Left"=0x4B; "Right"=0x4D
-        "F1"=0x3B; "F2"=0x3C; "F5"=0x3F; "F8"=0x42; "F12"=0x46
+        "Enter"=0x0D; "Tab"=0x09; "Space"=0x20; "Escape"=0x1B
+        "Up"=0x26; "Down"=0x28; "Left"=0x25; "Right"=0x27
+        "F1"=0x70; "F2"=0x71; "F3"=0x72; "F4"=0x73; "F5"=0x74
+        "F6"=0x75; "F7"=0x76; "F8"=0x77; "F9"=0x78; "F10"=0x79
+        "F11"=0x7A; "F12"=0x7B
     }
     $code = $keyMap[$Key]
-    if (-not $code) { Write-Warning "Unknown key '$Key' for Hyper-V (scan code not mapped)"; return $false }
+    if (-not $code) { Write-Warning "Unknown key '$Key' for Hyper-V"; return $false }
     try {
-        Write-Information "    [keystroke] Looking up VM '$VMName' via WMI..."
-        $vmObj = Get-CimInstance -Namespace root\virtualization\v2 -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
+        $vmObj = Get-CimInstance -Namespace root\virtualization\v2 `
+            -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
         if (-not $vmObj) { Write-Warning "VM '$VMName' not found in WMI"; return $false }
-        Write-Information "    [keystroke] VM found (state: $($vmObj.EnabledState)). Getting keyboard device..."
         $kb = Get-CimAssociatedInstance -InputObject $vmObj -ResultClassName Msvm_Keyboard
         if (-not $kb) { Write-Warning "Keyboard device not found for '$VMName'"; return $false }
-        Write-Information "    [keystroke] Sending key '$Key' (scan code 0x$($code.ToString('X2'))): PressKey..."
-        $pressResult = Invoke-CimMethod -InputObject $kb -MethodName "PressKey" -Arguments @{keyCode=$code}
-        Write-Information "    [keystroke] PressKey returned: $($pressResult.ReturnValue)"
+        $press = Invoke-CimMethod -InputObject $kb -MethodName "PressKey" -Arguments @{keyCode=$code}
         Start-Sleep -Milliseconds 100
-        Write-Information "    [keystroke] ReleaseKey..."
-        $releaseResult = Invoke-CimMethod -InputObject $kb -MethodName "ReleaseKey" -Arguments @{keyCode=$code}
-        Write-Information "    [keystroke] ReleaseKey returned: $($releaseResult.ReturnValue)"
-        return ($pressResult.ReturnValue -eq 0 -and $releaseResult.ReturnValue -eq 0)
+        $release = Invoke-CimMethod -InputObject $kb -MethodName "ReleaseKey" -Arguments @{keyCode=$code}
+        $script:lastKeystrokeLog = "PressKey=$($press.ReturnValue) ReleaseKey=$($release.ReturnValue) (0=success)"
+        return ($press.ReturnValue -eq 0 -and $release.ReturnValue -eq 0)
     } catch {
-        Write-Warning "Failed to send keystroke via Hyper-V WMI: $_"
+        Write-Warning "Hyper-V WMI keystroke failed: $_"
         return $false
     }
 }
 
+# UTM (macOS): sends keystrokes via AppleScript to the UTM VM window.
+# Requires Accessibility permissions for Terminal.
 function Send-KeystrokeUTM {
     param([string]$VMName, [string]$Key)
     $keyMap = @{
         "Enter"=36; "Tab"=48; "Space"=49; "Escape"=53
         "Up"=126; "Down"=125; "Left"=123; "Right"=124
-        "F1"=122; "F2"=120; "F5"=96; "F8"=100; "F12"=111
+        "F1"=122; "F2"=120; "F3"=99; "F4"=118; "F5"=96
+        "F6"=97; "F7"=98; "F8"=100; "F9"=101; "F10"=109
+        "F11"=103; "F12"=111
     }
     $code = $keyMap[$Key]
     if (-not $code) { Write-Warning "Unknown key '$Key' for UTM"; return $false }
-    Write-Information "    [keystroke] Sending key '$Key' (AppleScript key code $code) to UTM window '$VMName'..."
-    $script = @"
+    if ($Key -eq "Enter") { $keyAction = 'keystroke return' }
+    else                  { $keyAction = "key code $code" }
+    $appleScript = @"
+tell application "UTM" to activate
+delay 0.5
 tell application "System Events"
     tell process "UTM"
         set frontmost to true
         repeat with w in windows
             if name of w contains "$VMName" then
                 perform action "AXRaise" of w
-                delay 0.3
-                key code $code
+                delay 0.5
+                $keyAction
                 return "ok"
             end if
         end repeat
@@ -154,30 +130,43 @@ tell application "System Events"
 end tell
 return "window_not_found"
 "@
-    $result = & osascript -e $script 2>&1
-    Write-Information "    [keystroke] AppleScript result: $result"
+    $result = & osascript -e $appleScript 2>&1
+    $script:lastKeystrokeLog = "AppleScript result: $result"
     if ("$result" -eq "ok") { return $true }
     Write-Warning "UTM keystroke failed: $result"
     return $false
 }
 
-# === Execute steps ===
-Write-Output "[$GuestKey] Windows 11 unattended install — sending initial keystrokes"
+# ─────────────────────────────────────────────────────────────────────────────
+# EXECUTION — runs each step and reports progress
+# ─────────────────────────────────────────────────────────────────────────────
+Write-Output "[$GuestKey] Windows 11 unattended install on $HostType (VM: $VMName)"
 
 foreach ($step in $Steps) {
-    Write-Output "  Waiting $($step.DelaySeconds)s — $($step.Description)..."
+    Write-Output "    Step: $($step.Description)"
+    Write-Output "    Waiting $($step.DelaySeconds) seconds..."
     Start-Sleep -Seconds $step.DelaySeconds
+    Write-Output "    Sending '$($step.Key)' to VM '$VMName' via $HostType..."
 
-    $sent = switch ($HostType) {
-        "host.windows.hyper-v" { Send-KeystrokeHyperV -VMName $VMName -Key $step.Key }
-        "host.macos.utm"       { Send-KeystrokeUTM    -VMName $VMName -Key $step.Key }
-        default { Write-Warning "Unknown host type: $HostType"; $false }
-    }
-    if ($sent) {
-        Write-Output "  Sent '$($step.Key)' to $VMName"
+    $script:lastKeystrokeLog = $null
+    $sent = $false
+    if ($HostType -eq "host.windows.hyper-v") {
+        $sent = Send-KeystrokeHyperV -VMName $VMName -Key $step.Key
+    } elseif ($HostType -eq "host.macos.utm") {
+        $sent = Send-KeystrokeUTM -VMName $VMName -Key $step.Key
     } else {
-        Write-Warning "  Could not send '$($step.Key)' — install may require manual intervention"
+        Write-Warning "Unknown host type: $HostType"
     }
+
+    if ($script:lastKeystrokeLog) {
+        Write-Output "      $($script:lastKeystrokeLog)"
+    }
+    if ($sent -eq $true) {
+        Write-Output "    '$($step.Key)' sent successfully."
+    } else {
+        Write-Warning "    Could not send '$($step.Key)' — install may require manual intervention."
+    }
+    Write-Output ""
 }
 
 Write-Output "[$GuestKey] Keystroke sequence complete. Autounattend.xml is driving the installation."

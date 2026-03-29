@@ -42,6 +42,8 @@ function Get-StartTestScript {
 .DESCRIPTION
     Each script is executed as a child process and receives:
     -HostType, -GuestKey, -VMName.
+    When ShowOutput is true, all child process output (stdout, stderr,
+    information) is streamed to the caller so progress is visible.
     Returns a hashtable: { success, skipped, errorMessage }
 #>
 function Invoke-StartTest {
@@ -49,19 +51,29 @@ function Invoke-StartTest {
         [string]$HostType,
         [string]$GuestKey,
         [string]$VMName,
-        [string]$ExtensionsDir
+        [string]$ExtensionsDir,
+        [bool]$ShowOutput = $true
     )
     $scripts = Get-StartTestScript -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir
     if ($scripts.Count -eq 0) {
         return @{ success=$true; skipped=$true; errorMessage=$null }
     }
     foreach ($s in $scripts) {
-        Write-Output "Running start test: $($s.Name)"
-        & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName 2>&1 | ForEach-Object { Write-Output "    $_" }
+        Write-Information "  Running: $($s.Name)" -InformationAction Continue
+        if ($ShowOutput) {
+            # Stream child output line-by-line to the console via Information stream.
+            # Information stream (6) is NOT captured by $r = Invoke-StartTest, so
+            # these lines appear in the runner output without polluting the return value.
+            & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName *>&1 | ForEach-Object {
+                Write-Information "    $_" -InformationAction Continue
+            }
+        } else {
+            & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName *>$null
+        }
         if ($LASTEXITCODE -ne 0) {
             return @{ success=$false; skipped=$false; errorMessage="Start test '$($s.Name)' failed (exit code $LASTEXITCODE)" }
         }
-        Write-Output "  $($s.Name): PASS"
+        Write-Information "  $($s.Name): PASS" -InformationAction Continue
     }
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }

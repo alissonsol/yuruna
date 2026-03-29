@@ -44,6 +44,8 @@ function Get-GuestTestScript {
 .DESCRIPTION
     Each script is executed as a child process and receives:
     -HostType, -GuestKey, -VMName.
+    When ShowOutput is true, all child process output is streamed
+    to the caller so progress is visible.
     Returns a hashtable: { success, skipped, errorMessage }
 #>
 function Invoke-PoolTest {
@@ -51,19 +53,26 @@ function Invoke-PoolTest {
         [string]$HostType,
         [string]$GuestKey,
         [string]$VMName,
-        [string]$ExtensionsDir
+        [string]$ExtensionsDir,
+        [bool]$ShowOutput = $true
     )
     $scripts = Get-GuestTestScript -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir
     if ($scripts.Count -eq 0) {
         return @{ success=$true; skipped=$true; errorMessage=$null }
     }
     foreach ($s in $scripts) {
-        Write-Output "Running test: $($s.Name)"
-        & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName
+        Write-Information "  Running: $($s.Name)" -InformationAction Continue
+        if ($ShowOutput) {
+            & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName *>&1 | ForEach-Object {
+                Write-Information "    $_" -InformationAction Continue
+            }
+        } else {
+            & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName *>$null
+        }
         if ($LASTEXITCODE -ne 0) {
             return @{ success=$false; skipped=$false; errorMessage="Test '$($s.Name)' failed (exit code $LASTEXITCODE)" }
         }
-        Write-Output "  $($s.Name): PASS"
+        Write-Information "  $($s.Name): PASS" -InformationAction Continue
     }
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }

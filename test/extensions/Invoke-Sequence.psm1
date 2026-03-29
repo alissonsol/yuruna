@@ -302,33 +302,45 @@ function Get-ScreenText {
     $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $tempFile
     if (-not $captured) { return $null }
 
-    # Preprocess: invert colors so tesseract sees dark text on light background.
-    # VM consoles typically show light text on a dark background, which
-    # tesseract handles poorly. ImageMagick (convert/magick) and macOS sips
-    # can invert; fall back to the original image if neither is available.
+    # Preprocess: trim empty regions and invert colors for OCR.
+    # VM consoles show light text on dark backgrounds. Tesseract struggles
+    # with large dark regions surrounding sparse text. Trimming removes the
+    # empty background so tesseract only processes the area with actual text
+    # — this works whether text starts from the top (early boot) or fills
+    # the entire screen (later interaction).
     $processedFile = $tempFile
-    if (-not $script:InvertToolChecked) {
-        $script:InvertToolChecked = $true
+    $trimmedFile = $tempFile -replace '\.png$', '_trim.png'
+    $invertedFile = $tempFile -replace '\.png$', '_inv.png'
+
+    if (-not $script:ImageToolChecked) {
+        $script:ImageToolChecked = $true
         $script:MagickCmd = Get-Command "magick" -ErrorAction SilentlyContinue
         if (-not $script:MagickCmd) {
             $script:MagickCmd = Get-Command "convert" -ErrorAction SilentlyContinue
         }
     }
+
+    # Step 1: Trim empty (dark) regions around the text
     if ($script:MagickCmd) {
-        $invertedFile = $tempFile -replace '\.png$', '_inv.png'
-        & $script:MagickCmd.Source $tempFile -negate -grayscale Rec709Luma $invertedFile 2>$null
+        # -fuzz 15% treats near-black pixels as background; -trim removes them
+        & $script:MagickCmd.Source $tempFile -fuzz "15%" -trim +repage $trimmedFile 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $trimmedFile)) { $processedFile = $trimmedFile }
+    }
+
+    # Step 2: Invert colors (dark text on light background for tesseract)
+    $sourceForInvert = $processedFile
+    if ($script:MagickCmd) {
+        & $script:MagickCmd.Source $sourceForInvert -negate -grayscale Rec709Luma $invertedFile 2>$null
         if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $processedFile = $invertedFile }
     } elseif (-not $IsWindows) {
-        # macOS: use sips to invert (creates a copy, apply filter)
-        $invertedFile = $tempFile -replace '\.png$', '_inv.png'
-        Copy-Item $tempFile $invertedFile -Force
+        Copy-Item $sourceForInvert $invertedFile -Force
         & sips -j "CIColorInvert" "$invertedFile" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0 -and (Test-Path $invertedFile)) { $processedFile = $invertedFile }
     }
 
-    # Run tesseract OCR (--psm 3 = fully automatic page segmentation)
+    # Step 3: Run tesseract OCR (--psm 6 = single uniform block, ideal for cropped region)
     try {
-        $ocrOutput = & tesseract $processedFile stdout --psm 3 2>$null
+        $ocrOutput = & tesseract $processedFile stdout --psm 6 2>$null
         if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
             $text = ($ocrOutput -join "`n")
             Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
@@ -341,7 +353,7 @@ function Get-ScreenText {
         return $null
     } finally {
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-        $invertedFile = $tempFile -replace '\.png$', '_inv.png'
+        Remove-Item $trimmedFile -Force -ErrorAction SilentlyContinue
         Remove-Item $invertedFile -Force -ErrorAction SilentlyContinue
     }
 }

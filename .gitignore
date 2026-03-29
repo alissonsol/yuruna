@@ -378,6 +378,9 @@ test/screenshots/*/captures/
 # Verify screenshots (actual captures are runtime, expected PNGs are committed)
 test/verify/actual/
 
+# Sequence debug screenshots (captured at runtime)
+test/extensions/sequences/captures/
+
 # Appium local config
 test/appium/
 

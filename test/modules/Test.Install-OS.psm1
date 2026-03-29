@@ -91,8 +91,11 @@ function Get-VerifyScreenshot {
     param([string]$HostType, [string]$GuestKey, [string]$VerifyDir)
     $fileName = "$HostType.$GuestKey.png"
     $expectedFile = Join-Path $VerifyDir "expected/$fileName"
-    if (Test-Path $expectedFile) { return $expectedFile }
-    return $null
+    if (-not (Test-Path $expectedFile)) { return $null }
+    # Skip placeholder files (1x1 pixel PNGs shipped as defaults)
+    $fileSize = (Get-Item $expectedFile).Length
+    if ($fileSize -lt 200) { return $null }
+    return $expectedFile
 }
 
 Export-ModuleMember -Function Get-StartTestScript, Invoke-StartTest, Get-VerifyScreenshot

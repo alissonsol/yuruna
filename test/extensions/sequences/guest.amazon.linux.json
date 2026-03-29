@@ -1,0 +1,127 @@
+{
+  "$schema": "Interaction sequence for driving VM installation.",
+  "$actions": {
+    "delay":            "Wait a fixed number of seconds. Parameters: seconds (number).",
+    "key":              "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
+    "type":             "Type a text string. Parameters: text (string), sensitive (boolean, masks output).",
+    "typeAndEnter":     "Type a text string followed by Enter. Parameters: text (string), sensitive (boolean, masks output).",
+    "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
+    "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number). Uses ${var} substitution.",
+    "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
+    "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
+    "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number)."
+  },
+  "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
+
+  "description": "Amazon Linux: login, change password, run update script, shut down.",
+  "variables": {
+    "username":    "ec2-user",
+    "password":    "amazonlinux",
+    "newPassword": "belohorizonte"
+  },
+  "steps": [
+    {
+      "action": "waitForText",
+      "pattern": "login:",
+      "timeoutSeconds": 180,
+      "pollSeconds": 10,
+      "description": "Wait for login prompt"
+    },
+    {
+      "action": "delay",
+      "seconds": 2,
+      "description": "Brief pause before typing username"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${username}",
+      "description": "Enter username"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Password:",
+      "timeoutSeconds": 30,
+      "pollSeconds": 3,
+      "description": "Wait for password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${password}",
+      "sensitive": true,
+      "description": "Enter current password"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Current password:",
+      "timeoutSeconds": 30,
+      "pollSeconds": 3,
+      "description": "Wait for password change prompt (current password)"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${password}",
+      "sensitive": true,
+      "description": "Re-enter current password for verification"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "New password:",
+      "timeoutSeconds": 30,
+      "pollSeconds": 3,
+      "description": "Wait for new password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "Enter new password"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Retype new password:",
+      "timeoutSeconds": 30,
+      "pollSeconds": 3,
+      "description": "Wait for password confirmation prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "Confirm new password"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "${username}@${vmName}",
+      "timeoutSeconds": 30,
+      "pollSeconds": 3,
+      "description": "Wait for login shell prompt"
+    },
+    {
+      "action": "delay",
+      "seconds": 2,
+      "description": "Brief pause before running update"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "sudo bash /amazon.linux.update.sh",
+      "description": "Run update script"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "${username}@${vmName}",
+      "timeoutSeconds": 600,
+      "pollSeconds": 15,
+      "description": "Wait for update script to complete (may take several minutes)"
+    },
+    {
+      "action": "delay",
+      "seconds": 2,
+      "description": "Brief pause before shutdown"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "sudo reboot now",
+      "description": "Reboot the VM, for the fun of it!"
+    }
+  ]
+}

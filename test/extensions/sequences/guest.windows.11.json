@@ -1,0 +1,18 @@
+{
+  "$schema": "Interaction sequence for driving VM installation.",
+  "$actions": {
+    "delay":      "Wait a fixed number of seconds. Parameters: seconds (number).",
+    "key":        "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
+    "type":       "Type a string of text. Parameters: text (string). Hyper-V only: uses Msvm_Keyboard.TypeText.",
+    "screenshot": "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
+    "waitForPort": "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
+    "waitForHeartbeat": "Wait until Hyper-V Integration Services heartbeat reports OK. Parameters: timeoutSeconds (number). Hyper-V only."
+  },
+  "description": "Windows 11: bypass 'Press any key to boot from CD/DVD' then let autounattend.xml drive the install.",
+  "steps": [
+    { "action": "delay",  "seconds": 3,  "description": "Wait for UEFI firmware and vmconnect to initialize" },
+    { "action": "key",    "name": "Enter", "description": "Boot from CD/DVD (first attempt)" },
+    { "action": "delay",  "seconds": 5,  "description": "Wait in case first Enter was too early" },
+    { "action": "key",    "name": "Enter", "description": "Boot from CD/DVD (retry)" }
+  ]
+}

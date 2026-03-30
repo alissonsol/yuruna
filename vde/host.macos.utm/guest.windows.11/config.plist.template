@@ -61,9 +61,17 @@
 		<key>UEFIBoot</key>
 		<true/>
 	</dict>
+	<!-- Display: 1920x1080 via virtio-ramfb-gl (QEMU).
+	     WARNING: The test harness OCR (tesseract) is calibrated for 1920x1080.
+	     Changing this resolution may break automated screen-text detection
+	     in waitForText sequence steps. -->
 	<key>Display</key>
 	<array>
 		<dict>
+			<key>WidthPixels</key>
+			<integer>1920</integer>
+			<key>HeightPixels</key>
+			<integer>1080</integer>
 			<key>DownscalingFilter</key>
 			<string>Linear</string>
 			<key>DynamicResolution</key>

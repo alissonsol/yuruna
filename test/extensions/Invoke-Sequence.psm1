@@ -504,14 +504,64 @@ function Invoke-TesseractOCR {
     return $null
 }
 
+# ── OCR-tolerant matching ────────────────────────────────────────────────────
+
+# Common OCR confusion groups: characters within each group are frequently
+# misrecognized as each other by tesseract on console/monospace text.
+# Sources: tesseract FAQ, UNLV OCR accuracy studies, observed errors.
+$script:OCRConfusionGroups = @(
+    'wuv'       # w↔u↔v — most common on console fonts
+    'mn'        # m↔n
+    'oO0'       # o↔O↔0
+    'lI1i'      # l↔I↔1↔i
+    'S5s'       # S↔5↔s
+    'B8'        # B↔8
+    'Z2z'       # Z↔2↔z
+    'gq9'       # g↔q↔9
+    'ce'        # c↔e — at small sizes
+)
+
+# Build lookup: char → character class string. Built once, cached.
+$script:OCRCharClass = @{}
+foreach ($group in $script:OCRConfusionGroups) {
+    $class = '[' + [regex]::Escape($group) + ']'
+    foreach ($ch in $group.ToCharArray()) {
+        $script:OCRCharClass["$ch"] = $class
+    }
+}
+
+<#
+.SYNOPSIS
+    Converts a literal search string into a regex that tolerates common OCR
+    character confusions. E.g., "password" → "pass[wuv][oO0]rd".
+.DESCRIPTION
+    Each character that belongs to a known OCR confusion group is replaced
+    with a character class matching all members of that group. Characters
+    not in any group are regex-escaped literally. The result is always
+    case-insensitive safe.
+#>
+function Get-OCRPattern {
+    param([string]$Text)
+    $sb = [System.Text.StringBuilder]::new($Text.Length * 2)
+    foreach ($ch in $Text.ToCharArray()) {
+        if ($script:OCRCharClass.ContainsKey("$ch")) {
+            [void]$sb.Append($script:OCRCharClass["$ch"])
+        } else {
+            [void]$sb.Append([regex]::Escape("$ch"))
+        }
+    }
+    return $sb.ToString()
+}
+
 # ── Action: waitForText ──────────────────────────────────────────────────────
 
 function Wait-ForText {
     param([string]$HostType, [string]$VMName, [string]$Pattern, [int]$TimeoutSeconds = 120, [int]$PollSeconds = 5)
+    $ocrPattern = Get-OCRPattern $Pattern
     $elapsed = 0
     while ($elapsed -lt $TimeoutSeconds) {
         $screenText = Get-ScreenText -HostType $HostType -VMName $VMName
-        if ($screenText -and $screenText -imatch [regex]::Escape($Pattern)) {
+        if ($screenText -and $screenText -imatch $ocrPattern) {
             Write-Information "      Text detected: '$Pattern'"
             return $true
         }

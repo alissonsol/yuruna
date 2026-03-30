@@ -128,6 +128,12 @@ $CoreCount = $Cores.Sum
 $vmCores = [math]::Floor($CoreCount / 2)
 Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 
+# Set display resolution to 1920x1080.
+# WARNING: The test harness OCR (tesseract) is calibrated for 1920x1080.
+# Changing this resolution may break automated screen-text detection
+# in waitForText sequence steps.
+Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
+
 # === Cleanup temporary folders ===
 Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
 

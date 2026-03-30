@@ -144,7 +144,13 @@ Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions 
 # Enable Guest Service Interface for file copy (Hyper-V Integration Services)
 Enable-VMIntegrationService -VMName $VMName -Name "Guest Service Interface"
 
-# Disable Enhanced Session so VMConnect uses basic mode (no resolution dialog, defaults to 1024x768)
+# Set display resolution to 1920x1080.
+# WARNING: The test harness OCR (tesseract) is calibrated for 1920x1080.
+# Changing this resolution may break automated screen-text detection
+# in waitForText sequence steps.
+Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
+
+# Disable Enhanced Session so VMConnect uses basic mode (no resolution dialog)
 # Note: EnhancedSessionTransportType only accepts VMBus or HvSocket; disable at host level instead.
 Set-VMHost -EnableEnhancedSessionMode $false
 

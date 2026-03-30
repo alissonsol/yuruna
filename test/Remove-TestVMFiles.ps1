@@ -95,7 +95,7 @@ switch ($HostType) {
                     }
                     # Verify removal from UTM registry
                     if ($deleted) {
-                        $verifyStatus = & utmctl status "$vmUuid" 2>&1
+                        $null = & utmctl status "$vmUuid" 2>&1
                         if ($LASTEXITCODE -eq 0) {
                             Write-Warning "    VM '$vmName' still present in UTM after delete."
                             $deleted = $false

@@ -294,18 +294,28 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text)
-    # Use clipboard paste instead of raw key codes. Sending individual
-    # key codes via AppleScript's accessibility API loses the shift
-    # modifier for many characters when targeting UTM's virtual keyboard
-    # (e.g., "$" arrives as "4", "(" as "9"). Clipboard paste is handled
-    # by UTM at the application level, converting text to keystrokes
-    # internally, which correctly preserves all characters.
-    $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) "utm_paste_$([guid]::NewGuid().ToString('N').Substring(0,8)).txt"
-    try {
-        [System.IO.File]::WriteAllText($tempFile, $Text)
-        & bash -c "pbcopy < '$tempFile'" 2>$null
-    } finally {
-        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+    # Send raw key codes character by character. Uses explicit key down/up
+    # for shift instead of "using shift down", which loses the modifier
+    # when targeting UTM's virtual keyboard (e.g., "$" arrives as "4").
+    $charLines = ""
+    foreach ($ch in $Text.ToCharArray()) {
+        $entry = $script:MacCharKeyCodes["$ch"]
+        if (-not $entry) {
+            Write-Warning "No macOS key code for character '$ch'. Skipping."
+            continue
+        }
+        $kc = $entry[0]
+        $shifted = $entry[1]
+        if ($shifted) {
+            $charLines += "                key down shift`n"
+            $charLines += "                delay 0.02`n"
+            $charLines += "                key code $kc`n"
+            $charLines += "                delay 0.02`n"
+            $charLines += "                key up shift`n"
+        } else {
+            $charLines += "                key code $kc`n"
+        }
+        $charLines += "                delay 0.05`n"
     }
     $appleScript = @"
 tell application "UTM" to activate
@@ -317,8 +327,7 @@ tell application "System Events"
             if name of w contains "$VMName" then
                 perform action "AXRaise" of w
                 delay 0.3
-                keystroke "v" using command down
-                return "ok"
+$charLines                return "ok"
             end if
         end repeat
     end tell

@@ -517,6 +517,10 @@ return "not_found"
 
     Write-Information "      Window: ${ww}x${wh} at ${wx},${wy}"
 
+    # Debug directory for inspecting captures
+    $debugDir = Join-Path $tempDir "yuruna"
+    if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
+
     $textParts = [System.Collections.Generic.List[string]]::new()
 
     try {
@@ -529,6 +533,7 @@ return "not_found"
         # package listings), this isolates just the last few terminal lines.
         & screencapture -x -R "$promptRegion" "$promptFile" 2>$null
         if (Test-Path $promptFile) {
+            Copy-Item -Path $promptFile -Destination (Join-Path $debugDir "utm_prompt.png") -Force
             $promptText = Invoke-TesseractOCR -ImagePath $promptFile -PSM 6 -Invert
             if ($promptText) { $textParts.Add($promptText) }
         }
@@ -538,6 +543,7 @@ return "not_found"
         # PSM 6 with -Invert for light-on-dark terminal text.
         & screencapture -x -R "$botRegion" "$bottomFile" 2>$null
         if (Test-Path $bottomFile) {
+            Copy-Item -Path $bottomFile -Destination (Join-Path $debugDir "utm_bottom.png") -Force
             $botText = Invoke-TesseractOCR -ImagePath $bottomFile -PSM 6 -Invert
             if ($botText) { $textParts.Add($botText) }
         }
@@ -549,9 +555,14 @@ return "not_found"
         # Catches early boot when text is at the top of the screen.
         & screencapture -x -R "$fullRegion" "$fullFile" 2>$null
         if (Test-Path $fullFile) {
+            Copy-Item -Path $fullFile -Destination (Join-Path $debugDir "utm_full.png") -Force
             $fullText = Invoke-TesseractOCR -ImagePath $fullFile -PSM 3
             if ($fullText) { $textParts.Add($fullText) }
         }
+
+        # Save region info for debugging
+        [System.IO.File]::WriteAllText((Join-Path $debugDir "utm_debug.txt"),
+            "bounds=$bounds`nfullRegion=$fullRegion`nbotRegion=$botRegion`npromptRegion=$promptRegion`nww=$ww wh=$wh")
 
         if ($textParts.Count -eq 0) {
             Write-Information "      OCR returned no text from UTM window"

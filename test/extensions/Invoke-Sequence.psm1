@@ -454,18 +454,23 @@ return "not_found"
     $textParts = [System.Collections.Generic.List[string]]::new()
 
     try {
-        # Capture 1: full window (catches early boot, text at top)
+        # Capture 1: full window with --psm 3 (auto page segmentation).
+        # PSM 3 enables tesseract's built-in inversion detection
+        # (tessedit_do_invert), which dramatically improves accuracy on
+        # light-on-dark console text (fixes "w"→"u" confusion).
+        # Catches early boot when text is at the top of the screen.
         & screencapture -x -R "$fullRegion" "$fullFile" 2>$null
         if (Test-Path $fullFile) {
-            $fullText = Invoke-TesseractOCR -ImagePath $fullFile
+            $fullText = Invoke-TesseractOCR -ImagePath $fullFile -PSM 3
             if ($fullText) { $textParts.Add($fullText) }
         }
 
-        # Capture 2: bottom strip (catches prompts on full screens that
-        # the full-window OCR truncates before reaching)
+        # Capture 2: bottom strip with --psm 6 (single uniform block).
+        # Catches prompts on full screens that full-window OCR truncates.
+        # PSM 6 is ideal for the small cropped region.
         & screencapture -x -R "$botRegion" "$bottomFile" 2>$null
         if (Test-Path $bottomFile) {
-            $botText = Invoke-TesseractOCR -ImagePath $bottomFile
+            $botText = Invoke-TesseractOCR -ImagePath $bottomFile -PSM 6
             if ($botText) { $textParts.Add($botText) }
         }
 
@@ -485,39 +490,18 @@ return "not_found"
     }
 }
 
-# Run tesseract on a single image file, return text or $null.
-# Scales the image 3x before OCR on macOS — small monospace console fonts at
-# native resolution cause character confusion (e.g., "w" → "u", "password" →
-# "passuord"). Larger characters produce dramatically better accuracy.
+# Run tesseract on an image file with the specified page segmentation mode.
+# PSM 3 (auto): enables tesseract 5's built-in inversion for dark backgrounds.
+# PSM 6 (single block): best for small cropped regions with uniform text.
+# No image preprocessing — Retina captures are already high-resolution and
+# tesseract 5's internal inversion handles light-on-dark natively.
 function Invoke-TesseractOCR {
-    param([string]$ImagePath)
-    $ocrFile = $ImagePath
-    $scaledFile = $ImagePath -replace '\.png$', '_3x.png'
-    if (-not $IsWindows) {
-        # Scale up 3x using sips (ships with macOS)
-        $sipsInfo = & sips -g pixelWidth "$ImagePath" 2>$null
-        $imgW = 0
-        foreach ($line in $sipsInfo) {
-            if ($line -match 'pixelWidth:\s*(\d+)') { $imgW = [int]$Matches[1] }
-        }
-        if ($imgW -gt 0) {
-            $newW = $imgW * 3
-            Copy-Item $ImagePath $scaledFile -Force
-            & sips --resampleWidth $newW "$scaledFile" 2>$null | Out-Null
-            if ($LASTEXITCODE -eq 0) { $ocrFile = $scaledFile }
-        }
+    param([string]$ImagePath, [int]$PSM = 6)
+    $ocrOutput = & tesseract $ImagePath stdout --psm $PSM 2>$null
+    if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
+        return ($ocrOutput -join "`n")
     }
-    try {
-        $ocrOutput = & tesseract $ocrFile stdout --dpi 72 --psm 6 2>$null
-        if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
-            return ($ocrOutput -join "`n")
-        }
-        return $null
-    } finally {
-        if ($scaledFile -ne $ImagePath) {
-            Remove-Item $scaledFile -Force -ErrorAction SilentlyContinue
-        }
-    }
+    return $null
 }
 
 # ── Action: waitForText ──────────────────────────────────────────────────────

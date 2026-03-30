@@ -61,7 +61,9 @@
 		<key>UEFIBoot</key>
 		<true/>
 	</dict>
-	<!-- Display: 1920x1080 via virtio-ramfb-gl (QEMU).
+	<!-- Display: Fixed 1920x1080 via virtio-ramfb-gl (QEMU).
+	     DynamicResolution is disabled so UTM does not scale to the host
+	     Retina display.
 	     WARNING: The test harness OCR (tesseract) is calibrated for 1920x1080.
 	     Changing this resolution may break automated screen-text detection
 	     in waitForText sequence steps. -->
@@ -75,7 +77,7 @@
 			<key>DownscalingFilter</key>
 			<string>Linear</string>
 			<key>DynamicResolution</key>
-			<true/>
+			<false/>
 			<key>Hardware</key>
 			<string>virtio-ramfb-gl</string>
 			<key>NativeResolution</key>

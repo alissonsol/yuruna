@@ -486,13 +486,38 @@ return "not_found"
 }
 
 # Run tesseract on a single image file, return text or $null.
+# Scales the image 3x before OCR on macOS — small monospace console fonts at
+# native resolution cause character confusion (e.g., "w" → "u", "password" →
+# "passuord"). Larger characters produce dramatically better accuracy.
 function Invoke-TesseractOCR {
     param([string]$ImagePath)
-    $ocrOutput = & tesseract $ImagePath stdout --dpi 72 --psm 6 2>$null
-    if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
-        return ($ocrOutput -join "`n")
+    $ocrFile = $ImagePath
+    $scaledFile = $ImagePath -replace '\.png$', '_3x.png'
+    if (-not $IsWindows) {
+        # Scale up 3x using sips (ships with macOS)
+        $sipsInfo = & sips -g pixelWidth "$ImagePath" 2>$null
+        $imgW = 0
+        foreach ($line in $sipsInfo) {
+            if ($line -match 'pixelWidth:\s*(\d+)') { $imgW = [int]$Matches[1] }
+        }
+        if ($imgW -gt 0) {
+            $newW = $imgW * 3
+            Copy-Item $ImagePath $scaledFile -Force
+            & sips --resampleWidth $newW "$scaledFile" 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ocrFile = $scaledFile }
+        }
     }
-    return $null
+    try {
+        $ocrOutput = & tesseract $ocrFile stdout --dpi 72 --psm 6 2>$null
+        if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
+            return ($ocrOutput -join "`n")
+        }
+        return $null
+    } finally {
+        if ($scaledFile -ne $ImagePath) {
+            Remove-Item $scaledFile -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # ── Action: waitForText ──────────────────────────────────────────────────────

@@ -403,17 +403,20 @@ function Get-ScreenText {
     }
 }
 
-# macOS UTM: capture directly via screencapture -R, targeting only the bottom
-# strip of the UTM window. This avoids all post-processing (sips, ImageMagick)
-# and gives tesseract a small, focused image that it processes completely.
-# Falls back to the full window if the bottom strip yields no text (early boot).
+# macOS UTM: capture the UTM window via screencapture -R and run tesseract.
+# Captures both the full window AND a bottom strip, then combines the OCR
+# results. The full-window capture catches text during early boot (text at
+# top, rest is black). The bottom-strip capture catches prompts when the
+# screen is full (tesseract truncates full-screen OCR mid-line). Combining
+# both means the pattern match in Wait-ForText succeeds regardless of where
+# the target text is on screen.
 function Get-ScreenTextUTM {
     param([string]$VMName)
 
     $tempDir = $env:TMPDIR
     if (-not $tempDir) { $tempDir = "/tmp" }
-    $bottomFile = Join-Path $tempDir "ocr_${VMName}_bot.png"
     $fullFile = Join-Path $tempDir "ocr_${VMName}_full.png"
+    $bottomFile = Join-Path $tempDir "ocr_${VMName}_bot.png"
 
     # Get UTM window bounds via AppleScript
     $boundsScript = @"
@@ -440,47 +443,54 @@ return "not_found"
     [int]$wx = $parts[0]; [int]$wy = $parts[1]
     [int]$ww = $parts[2]; [int]$wh = $parts[3]
 
-    # Capture bottom strip: ~6-8 text lines. Use a fraction of the window
-    # height so it scales with the actual window size.
+    # Bottom strip: 30% of window height, captures the most recent lines
     $cropH = [Math]::Max(150, [int]($wh * 0.30))
     $botY = $wy + $wh - $cropH
-    $botRegion = "$wx,$botY,$ww,$cropH"
     $fullRegion = "$wx,$wy,$ww,$wh"
+    $botRegion = "$wx,$botY,$ww,$cropH"
 
-    Write-Information "      Window: ${ww}x${wh} at ${wx},${wy} — capturing bottom ${cropH}px"
+    Write-Information "      Window: ${ww}x${wh} at ${wx},${wy}"
+
+    $textParts = [System.Collections.Generic.List[string]]::new()
 
     try {
-        # Primary: bottom strip only (most recent lines)
-        & screencapture -x -R "$botRegion" "$bottomFile" 2>$null
-        if (Test-Path $bottomFile) {
-            $text = Invoke-TesseractOnFile -ImagePath $bottomFile
-            if ($text) { return $text }
-            Write-Information "      Bottom crop returned no text, trying full window"
-        }
-
-        # Fallback: full window (early boot, text at top)
+        # Capture 1: full window (catches early boot, text at top)
         & screencapture -x -R "$fullRegion" "$fullFile" 2>$null
         if (Test-Path $fullFile) {
-            $text = Invoke-TesseractOnFile -ImagePath $fullFile
-            if ($text) { return $text }
+            $fullText = Invoke-TesseractOCR -ImagePath $fullFile
+            if ($fullText) { $textParts.Add($fullText) }
         }
 
-        Write-Information "      OCR returned no text from UTM window"
-        return $null
+        # Capture 2: bottom strip (catches prompts on full screens that
+        # the full-window OCR truncates before reaching)
+        & screencapture -x -R "$botRegion" "$bottomFile" 2>$null
+        if (Test-Path $bottomFile) {
+            $botText = Invoke-TesseractOCR -ImagePath $bottomFile
+            if ($botText) { $textParts.Add($botText) }
+        }
+
+        if ($textParts.Count -eq 0) {
+            Write-Information "      OCR returned no text from UTM window"
+            return $null
+        }
+
+        # Combine both OCR results separated by newline.
+        # Pattern matching in Wait-ForText will find the target in either part.
+        $combined = $textParts -join "`n"
+        Write-Information "      OCR text: $($combined.Substring(0, [Math]::Min($combined.Length, 300)))"
+        return $combined
     } finally {
-        Remove-Item $bottomFile -Force -ErrorAction SilentlyContinue
         Remove-Item $fullFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $bottomFile -Force -ErrorAction SilentlyContinue
     }
 }
 
 # Run tesseract on a single image file, return text or $null.
-function Invoke-TesseractOnFile {
+function Invoke-TesseractOCR {
     param([string]$ImagePath)
     $ocrOutput = & tesseract $ImagePath stdout --dpi 72 --psm 6 2>$null
     if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
-        $text = ($ocrOutput -join "`n")
-        Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
-        return $text
+        return ($ocrOutput -join "`n")
     }
     return $null
 }

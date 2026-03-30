@@ -364,8 +364,14 @@ function Get-ScreenText {
     }
     if (-not $script:TesseractCmd) { return $null }
 
-    # Capture VM window to temp file
-    $tempDir = if ($IsWindows) { $env:TEMP } else { $env:TMPDIR }
+    if ($HostType -eq "host.macos.utm") {
+        return Get-ScreenTextUTM -VMName $VMName
+    }
+
+    # Hyper-V path: capture via screenshot module, run tesseract directly.
+    # Hyper-V window captures are small enough that tesseract processes them
+    # fully without truncation.
+    $tempDir = $env:TEMP
     $tempFile = Join-Path $tempDir "ocr_$VMName.png"
 
     $screenshotMod = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Test.Screenshot.psm1"
@@ -380,68 +386,12 @@ function Get-ScreenText {
     $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $tempFile
     if (-not $captured) { return $null }
 
-    # Preprocess: crop to the bottom of the screenshot so tesseract only
-    # processes the most recent console lines. Tesseract truncates when
-    # given too much text, so a full-screen image never reaches the prompt
-    # at the bottom. We crop using sips (ships with macOS) or ImageMagick.
-    # Inversion (light-on-dark → dark-on-light) is done with ImageMagick
-    # if available; tesseract 4+ handles inverted text reasonably without it.
-    # Strategy: try bottom crop first; if OCR returns nothing (early boot
-    # with text at the top only), fall back to the full image.
-    $bottomFile = $tempFile -replace '\.png$', '_bot.png'
-    $fullInvFile = $tempFile -replace '\.png$', '_inv.png'
-    $cropPixels = 600  # ~15 lines standard, ~8 lines Retina — enough for any prompt
-
-    if (-not $script:ImageToolChecked) {
-        $script:ImageToolChecked = $true
-        $script:MagickCmd = Get-Command "magick" -ErrorAction SilentlyContinue
-        if (-not $script:MagickCmd) {
-            $script:MagickCmd = Get-Command "convert" -ErrorAction SilentlyContinue
-        }
-    }
-
-    # Build ordered list of images to try OCR on
-    $filesToOCR = [System.Collections.Generic.List[string]]::new()
-
-    if ($script:MagickCmd) {
-        # Bottom crop + invert (primary)
-        & $script:MagickCmd.Source $tempFile -gravity South -crop "x${cropPixels}+0+0" +repage -negate -grayscale Rec709Luma $bottomFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $bottomFile)) { $filesToOCR.Add($bottomFile) }
-        # Full image inverted (fallback for early boot)
-        & $script:MagickCmd.Source $tempFile -negate -grayscale Rec709Luma $fullInvFile 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $fullInvFile)) { $filesToOCR.Add($fullInvFile) }
-    } elseif (-not $IsWindows) {
-        # macOS: use sips to crop bottom portion (sips ships with macOS)
-        $sipsInfo = & sips -g pixelHeight -g pixelWidth "$tempFile" 2>$null
-        $imgH = 0; $imgW = 0
-        foreach ($line in $sipsInfo) {
-            if ($line -match 'pixelHeight:\s*(\d+)') { $imgH = [int]$Matches[1] }
-            if ($line -match 'pixelWidth:\s*(\d+)') { $imgW = [int]$Matches[1] }
-        }
-        if ($imgH -gt 0 -and $imgW -gt 0) {
-            $ch = [Math]::Min($cropPixels, $imgH)
-            $offsetY = $imgH - $ch
-            Copy-Item $tempFile $bottomFile -Force
-            & sips --cropOffset $offsetY 0 -c $ch $imgW "$bottomFile" 2>$null | Out-Null
-            if ($LASTEXITCODE -eq 0 -and (Test-Path $bottomFile)) {
-                $filesToOCR.Add($bottomFile)
-                Write-Information "      Cropped to bottom ${ch}px of ${imgH}px image"
-            }
-        }
-        # Full image as fallback (no inversion without ImageMagick — tesseract 4+ copes)
-        $filesToOCR.Add($tempFile)
-    }
-    if ($filesToOCR.Count -eq 0) { $filesToOCR.Add($tempFile) }
-
-    # Run tesseract on each candidate; return the first that produces text
     try {
-        foreach ($ocrFile in $filesToOCR) {
-            $ocrOutput = & tesseract $ocrFile stdout --psm 6 2>$null
-            if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
-                $text = ($ocrOutput -join "`n")
-                Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
-                return $text
-            }
+        $ocrOutput = & tesseract $tempFile stdout --dpi 72 --psm 6 2>$null
+        if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
+            $text = ($ocrOutput -join "`n")
+            Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
+            return $text
         }
         Write-Information "      OCR returned no text (exit code: $LASTEXITCODE)"
         return $null
@@ -450,9 +400,89 @@ function Get-ScreenText {
         return $null
     } finally {
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $bottomFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $fullInvFile -Force -ErrorAction SilentlyContinue
     }
+}
+
+# macOS UTM: capture directly via screencapture -R, targeting only the bottom
+# strip of the UTM window. This avoids all post-processing (sips, ImageMagick)
+# and gives tesseract a small, focused image that it processes completely.
+# Falls back to the full window if the bottom strip yields no text (early boot).
+function Get-ScreenTextUTM {
+    param([string]$VMName)
+
+    $tempDir = $env:TMPDIR
+    if (-not $tempDir) { $tempDir = "/tmp" }
+    $bottomFile = Join-Path $tempDir "ocr_${VMName}_bot.png"
+    $fullFile = Join-Path $tempDir "ocr_${VMName}_full.png"
+
+    # Get UTM window bounds via AppleScript
+    $boundsScript = @"
+tell application "System Events"
+    repeat with proc in (every process whose name contains "UTM")
+        repeat with w in windows of proc
+            if name of w contains "$VMName" then
+                set {wx, wy} to position of w
+                set {ww, wh} to size of w
+                return ("" & wx & "," & wy & "," & ww & "," & wh)
+            end if
+        end repeat
+    end repeat
+end tell
+return "not_found"
+"@
+    $bounds = & osascript -e $boundsScript 2>&1
+    if ("$bounds" -eq "not_found" -or "$bounds" -notmatch '^\d+,\d+,\d+,\d+$') {
+        Write-Warning "UTM window for '$VMName' not found for OCR"
+        return $null
+    }
+
+    $parts = "$bounds" -split ','
+    [int]$wx = $parts[0]; [int]$wy = $parts[1]
+    [int]$ww = $parts[2]; [int]$wh = $parts[3]
+
+    # Capture bottom strip: ~6-8 text lines. Use a fraction of the window
+    # height so it scales with the actual window size.
+    $cropH = [Math]::Max(150, [int]($wh * 0.30))
+    $botY = $wy + $wh - $cropH
+    $botRegion = "$wx,$botY,$ww,$cropH"
+    $fullRegion = "$wx,$wy,$ww,$wh"
+
+    Write-Information "      Window: ${ww}x${wh} at ${wx},${wy} — capturing bottom ${cropH}px"
+
+    try {
+        # Primary: bottom strip only (most recent lines)
+        & screencapture -x -R "$botRegion" "$bottomFile" 2>$null
+        if (Test-Path $bottomFile) {
+            $text = Invoke-TesseractOnFile -ImagePath $bottomFile
+            if ($text) { return $text }
+            Write-Information "      Bottom crop returned no text, trying full window"
+        }
+
+        # Fallback: full window (early boot, text at top)
+        & screencapture -x -R "$fullRegion" "$fullFile" 2>$null
+        if (Test-Path $fullFile) {
+            $text = Invoke-TesseractOnFile -ImagePath $fullFile
+            if ($text) { return $text }
+        }
+
+        Write-Information "      OCR returned no text from UTM window"
+        return $null
+    } finally {
+        Remove-Item $bottomFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $fullFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Run tesseract on a single image file, return text or $null.
+function Invoke-TesseractOnFile {
+    param([string]$ImagePath)
+    $ocrOutput = & tesseract $ImagePath stdout --dpi 72 --psm 6 2>$null
+    if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
+        $text = ($ocrOutput -join "`n")
+        Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
+        return $text
+    }
+    return $null
 }
 
 # ── Action: waitForText ──────────────────────────────────────────────────────

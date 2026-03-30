@@ -406,25 +406,27 @@ function Get-ScreenText {
     $textParts = [System.Collections.Generic.List[string]]::new()
 
     try {
-        # OCR 1: full image with --psm 3 (auto page segmentation).
-        # PSM 3 enables tesseract's built-in inversion detection. With a
-        # clean WMI capture (no chrome), this should read the entire screen.
+        # OCR 1: extract bottom 5 text lines using pixel-level line detection
+        # on the vmconnect window. This is the primary source for prompt text.
+        try {
+            $hWnd = [HyperVCapture]::FindWindow($VMName)
+            if ($hWnd -ne [IntPtr]::Zero) {
+                $ok = [HyperVCapture]::CaptureBottomLinesToFile($hWnd, $linesFile, 5)
+                if ($ok -and (Test-Path $linesFile)) {
+                    Copy-Item -Path $linesFile -Destination (Join-Path $debugDir "ocr_lines.png") -Force
+                    $linesText = Invoke-TesseractOCR -ImagePath $linesFile -PSM 6 -Invert
+                    if ($linesText) { $textParts.Add($linesText) }
+                }
+            }
+        } catch {
+            # HyperVCapture type may not be loaded (stale session); log and continue
+            [System.IO.File]::WriteAllText((Join-Path $debugDir "ocr_lines_error.txt"), "$_")
+        }
+
+        # OCR 2: full image with --psm 3 (auto page segmentation).
+        # Catches early boot (text at top) and provides full-screen coverage.
         $fullText = Invoke-TesseractOCR -ImagePath $fullFile -PSM 3
         if ($fullText) { $textParts.Add($fullText) }
-
-        # OCR 2: extract bottom 5 text lines using pixel-level line detection.
-        # Uses the vmconnect window (PrintWindow) as a separate capture source.
-        # Even though it may be truncated, it provides an additional OCR pass
-        # focused on the bottom of the visible area.
-        $hWnd = [HyperVCapture]::FindWindow($VMName)
-        if ($hWnd -ne [IntPtr]::Zero) {
-            $ok = [HyperVCapture]::CaptureBottomLinesToFile($hWnd, $linesFile, 5)
-            if ($ok -and (Test-Path $linesFile)) {
-                Copy-Item -Path $linesFile -Destination (Join-Path $debugDir "ocr_lines.png") -Force
-                $linesText = Invoke-TesseractOCR -ImagePath $linesFile -PSM 6 -Invert
-                if ($linesText) { $textParts.Add($linesText) }
-            }
-        }
 
         if ($textParts.Count -eq 0) {
             Write-Information "      OCR returned no text from Hyper-V window"
@@ -445,24 +447,17 @@ function Get-ScreenText {
 }
 
 # macOS UTM: capture the UTM window via screencapture -R and run tesseract.
-# Captures both the full window AND a bottom strip, then combines the OCR
-# results. The full-window capture catches text during early boot (text at
-# top, rest is black). The bottom-strip capture catches prompts when the
-# screen is full (tesseract truncates full-screen OCR mid-line). Combining
-# both means the pattern match in Wait-ForText succeeds regardless of where
-# the target text is on screen.
+# Strategy: single full-window capture, then use sips to crop the bottom
+# ~150px for a focused prompt-area OCR. The full image is also OCR'd for
+# early-boot screens where text is at the top.
 function Get-ScreenTextUTM {
     param([string]$VMName)
 
     $tempDir = $env:TMPDIR
     if (-not $tempDir) { $tempDir = "/tmp" }
     $fullFile = Join-Path $tempDir "ocr_${VMName}_full.png"
-    $bottomFile = Join-Path $tempDir "ocr_${VMName}_bot.png"
-    $promptFile = Join-Path $tempDir "ocr_${VMName}_prompt.png"
+    $cropFile = Join-Path $tempDir "ocr_${VMName}_crop.png"
 
-    # Activate UTM and raise the target window before capturing.
-    # screencapture -R captures a screen region, not a specific window,
-    # so the VM window must be frontmost to avoid capturing an overlapping window.
     # AppleScript to find UTM content area bounds (excludes title bar/toolbar).
     $boundsScript = @"
 tell application "UTM" to activate
@@ -501,84 +496,65 @@ return "not_found"
     $parts = "$bounds" -split ','
     [int]$wx = $parts[0]; [int]$wy = $parts[1]
     [int]$ww = $parts[2]; [int]$wh = $parts[3]
-
-    # Bottom strip: 30% of window height, captures the most recent lines
-    $cropH = [Math]::Max(150, [int]($wh * 0.30))
-    $botY = $wy + $wh - $cropH
-    # Prompt strip: narrow strip (~80pt) at the very bottom for the shell prompt.
-    # The 30% strip can still contain dense multi-column text (e.g., package
-    # listings) that confuses tesseract. The prompt strip isolates just the
-    # last 3-4 terminal lines where prompts appear.
-    $promptH = [Math]::Max(60, [int]($wh * 0.08))
-    $promptY = $wy + $wh - $promptH
     $fullRegion = "$wx,$wy,$ww,$wh"
-    $botRegion = "$wx,$botY,$ww,$cropH"
-    $promptRegion = "$wx,$promptY,$ww,$promptH"
 
-    Write-Information "      Window: ${ww}x${wh} at ${wx},${wy}"
-
-    # Debug directory for inspecting captures
+    # Debug directory
     $debugDir = Join-Path $tempDir "yuruna"
     if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
 
     $textParts = [System.Collections.Generic.List[string]]::new()
 
     try {
-        # Capture bottom-up: prompt strip first, then bottom strip, then full window.
-        # This ordering puts the most relevant text (bottom of screen where prompts
-        # appear) at the start of the combined string for both matching and logging.
-
-        # Capture 1: narrow prompt strip (~80pt) at the very bottom.
-        # When the screen is full of dense multi-column text (e.g., dnf
-        # package listings), this isolates just the last few terminal lines.
-        & screencapture -x -R "$promptRegion" "$promptFile" 2>$null
-        if (Test-Path $promptFile) {
-            Copy-Item -Path $promptFile -Destination (Join-Path $debugDir "utm_prompt.png") -Force
-            $promptText = Invoke-TesseractOCR -ImagePath $promptFile -PSM 6 -Invert
-            if ($promptText) { $textParts.Add($promptText) }
-        }
-
-        # Capture 2: bottom strip with --psm 6 (single uniform block).
-        # Catches prompts on full screens that full-window OCR truncates.
-        # PSM 6 with -Invert for light-on-dark terminal text.
-        & screencapture -x -R "$botRegion" "$bottomFile" 2>$null
-        if (Test-Path $bottomFile) {
-            Copy-Item -Path $bottomFile -Destination (Join-Path $debugDir "utm_bottom.png") -Force
-            $botText = Invoke-TesseractOCR -ImagePath $bottomFile -PSM 6 -Invert
-            if ($botText) { $textParts.Add($botText) }
-        }
-
-        # Capture 3: full window with --psm 3 (auto page segmentation).
-        # PSM 3 enables tesseract's built-in inversion detection
-        # (tessedit_do_invert), which dramatically improves accuracy on
-        # light-on-dark console text (fixes "w"→"u" confusion).
-        # Catches early boot when text is at the top of the screen.
+        # Single capture of the full window.
         & screencapture -x -R "$fullRegion" "$fullFile" 2>$null
-        if (Test-Path $fullFile) {
-            Copy-Item -Path $fullFile -Destination (Join-Path $debugDir "utm_full.png") -Force
-            $fullText = Invoke-TesseractOCR -ImagePath $fullFile -PSM 3
-            if ($fullText) { $textParts.Add($fullText) }
+        if (-not (Test-Path $fullFile)) {
+            Write-Information "      screencapture failed"
+            return $null
+        }
+        Copy-Item -Path $fullFile -Destination (Join-Path $debugDir "utm_full.png") -Force
+
+        # Get actual pixel dimensions (Retina = 2x logical points).
+        $imgInfo = & sips -g pixelHeight -g pixelWidth "$fullFile" 2>$null
+        $pixelH = 0; $pixelW = 0
+        foreach ($line in $imgInfo) {
+            if ($line -match 'pixelHeight:\s*(\d+)') { $pixelH = [int]$Matches[1] }
+            if ($line -match 'pixelWidth:\s*(\d+)')  { $pixelW = [int]$Matches[1] }
         }
 
-        # Save region info for debugging
+        # OCR 1: crop bottom ~300 pixels (~150pt at 2x Retina ≈ 5 terminal lines).
+        # This gives tesseract a small, focused image of just the prompt area.
+        if ($pixelH -gt 0 -and $pixelW -gt 0) {
+            $cropH = [Math]::Min($pixelH, 300)
+            $cropY = $pixelH - $cropH
+            & sips --cropOffset $cropY 0 --cropToHeightWidth $cropH $pixelW "$fullFile" -o "$cropFile" 2>$null | Out-Null
+            if (Test-Path $cropFile) {
+                Copy-Item -Path $cropFile -Destination (Join-Path $debugDir "utm_crop.png") -Force
+                $cropText = Invoke-TesseractOCR -ImagePath $cropFile -PSM 6 -Invert
+                if ($cropText) { $textParts.Add($cropText) }
+            }
+        }
+
+        # OCR 2: full window with --psm 3 (auto page segmentation).
+        # Catches early boot (text at top) and provides full-screen coverage.
+        $fullText = Invoke-TesseractOCR -ImagePath $fullFile -PSM 3
+        if ($fullText) { $textParts.Add($fullText) }
+
+        # Save debug info
         [System.IO.File]::WriteAllText((Join-Path $debugDir "utm_debug.txt"),
-            "bounds=$bounds`nfullRegion=$fullRegion`nbotRegion=$botRegion`npromptRegion=$promptRegion`nww=$ww wh=$wh")
+            "bounds=$bounds`nfullRegion=$fullRegion`npixelW=$pixelW pixelH=$pixelH`ncropH=$cropH")
 
         if ($textParts.Count -eq 0) {
             Write-Information "      OCR returned no text from UTM window"
             return $null
         }
 
-        # Combine OCR results: prompt strip, bottom strip, full window.
-        # Pattern matching in Wait-ForText will find the target in any part.
         $combined = $textParts -join "`n"
         $logSnippet = if ($combined.Length -le 300) { $combined } else { "..." + $combined.Substring($combined.Length - 300) }
         Write-Information "      OCR text: $logSnippet"
         return $combined
     } finally {
         Remove-Item $fullFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $bottomFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $cropFile -Force -ErrorAction SilentlyContinue
     }
 }
 

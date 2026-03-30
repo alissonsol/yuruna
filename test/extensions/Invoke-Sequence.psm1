@@ -445,6 +445,7 @@ function Get-ScreenTextUTM {
     if (-not $tempDir) { $tempDir = "/tmp" }
     $fullFile = Join-Path $tempDir "ocr_${VMName}_full.png"
     $bottomFile = Join-Path $tempDir "ocr_${VMName}_bot.png"
+    $promptFile = Join-Path $tempDir "ocr_${VMName}_prompt.png"
 
     # Activate UTM and raise the target window before capturing.
     # screencapture -R captures a screen region, not a specific window,
@@ -481,8 +482,15 @@ return "not_found"
     # Bottom strip: 30% of window height, captures the most recent lines
     $cropH = [Math]::Max(150, [int]($wh * 0.30))
     $botY = $wy + $wh - $cropH
+    # Prompt strip: narrow strip (~80pt) at the very bottom for the shell prompt.
+    # The 30% strip can still contain dense multi-column text (e.g., package
+    # listings) that confuses tesseract. The prompt strip isolates just the
+    # last 3-4 terminal lines where prompts appear.
+    $promptH = [Math]::Max(60, [int]($wh * 0.08))
+    $promptY = $wy + $wh - $promptH
     $fullRegion = "$wx,$wy,$ww,$wh"
     $botRegion = "$wx,$botY,$ww,$cropH"
+    $promptRegion = "$wx,$promptY,$ww,$promptH"
 
     Write-Information "      Window: ${ww}x${wh} at ${wx},${wy}"
 
@@ -509,6 +517,16 @@ return "not_found"
             if ($botText) { $textParts.Add($botText) }
         }
 
+        # Capture 3: narrow prompt strip (~80pt) at the very bottom.
+        # When the screen is full of dense multi-column text (e.g., dnf
+        # package listings), even the 30% bottom strip confuses tesseract.
+        # This narrow strip isolates just the last few terminal lines.
+        & screencapture -x -R "$promptRegion" "$promptFile" 2>$null
+        if (Test-Path $promptFile) {
+            $promptText = Invoke-TesseractOCR -ImagePath $promptFile -PSM 6
+            if ($promptText) { $textParts.Add($promptText) }
+        }
+
         if ($textParts.Count -eq 0) {
             Write-Information "      OCR returned no text from UTM window"
             return $null
@@ -522,6 +540,7 @@ return "not_found"
     } finally {
         Remove-Item $fullFile -Force -ErrorAction SilentlyContinue
         Remove-Item $bottomFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
     }
 }
 

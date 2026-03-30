@@ -85,6 +85,9 @@ function Get-UtmScreenshot {
     # Activates UTM and raises the target window first, since screencapture -R
     # captures a screen region (not a specific window) and would capture an
     # overlapping window otherwise.
+    # AppleScript to find UTM window bounds. Tries to get the VM display
+    # content area (first group inside the window) to exclude the title bar
+    # and toolbar. Falls back to the window frame with a title-bar offset.
     $boundsScript = @"
 tell application "UTM" to activate
 delay 0.3
@@ -95,9 +98,18 @@ tell application "System Events"
             if name of w contains "$VMName" then
                 perform action "AXRaise" of w
                 delay 0.3
+                -- Try to find the content area (first group) to exclude chrome.
+                try
+                    set contentArea to first group of w
+                    set {cx, cy} to position of contentArea
+                    set {cw, ch} to size of contentArea
+                    return ("" & cx & "," & cy & "," & cw & "," & ch)
+                end try
+                -- Fallback: use window bounds with title bar offset (28pt).
                 set {wx, wy} to position of w
                 set {ww, wh} to size of w
-                return ("" & wx & "," & wy & "," & ww & "," & wh)
+                set titleBarH to 28
+                return ("" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
             end if
         end repeat
     end tell
@@ -154,23 +166,26 @@ end tell
 
 function Get-HyperVScreenshot {
     param([string]$VMName, [string]$OutputPath)
+
+    # ── Load C# type (once per session) ────────────────────────────────────
     try {
-        # Find the vmconnect window and capture it to PNG using only Win32 APIs.
-        # Avoids System.Drawing which is not reliably available in PowerShell 7 / .NET Core.
-        if (-not ('WindowCapturePng' -as [type])) {
+        if (-not ('HyperVCapture' -as [type])) {
             Add-Type -TypeDefinition @"
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public class WindowCapturePng {
+public class HyperVCapture {
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
     [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
     [DllImport("gdi32.dll")]  public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
     [DllImport("gdi32.dll")]  public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int w, int h);
     [DllImport("gdi32.dll")]  public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
@@ -179,6 +194,7 @@ public class WindowCapturePng {
     [DllImport("gdi32.dll")]  public static extern int GetDIBits(IntPtr hdc, IntPtr hbmp, uint start, uint lines, byte[] bits, ref BITMAPINFO bi, uint usage);
     [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hdc);
+    static bool dpiAware = false;
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct BITMAPINFOHEADER {
         public uint biSize; public int biWidth; public int biHeight; public ushort biPlanes;
@@ -199,15 +215,34 @@ public class WindowCapturePng {
         return found;
     }
 
+    const uint PW_CLIENT_RENDER = 3; // PW_CLIENTONLY | PW_RENDERFULLCONTENT
+
+    // Ensure DPI awareness so GetClientRect returns physical pixels.
+    // Without this, on displays with >100% scale, GetClientRect returns
+    // logical pixels that are smaller than the actual rendered size,
+    // causing PrintWindow to capture a truncated image.
+    public static void EnsureDpiAware() {
+        if (!dpiAware) { SetProcessDPIAware(); dpiAware = true; }
+    }
+
+    // Get the client area size in physical pixels, accounting for DPI.
+    // After SetProcessDPIAware, GetClientRect already returns physical pixels,
+    // but as a safety net we also check GetDpiForWindow.
+    static bool GetClientSize(IntPtr hWnd, out int w, out int h) {
+        EnsureDpiAware();
+        RECT r; GetClientRect(hWnd, out r);
+        w = r.Right; h = r.Bottom;
+        return w > 0 && h > 0;
+    }
+
     public static bool CaptureToFile(IntPtr hWnd, string path) {
-        RECT r; GetWindowRect(hWnd, out r);
-        int w = r.Right - r.Left, h = r.Bottom - r.Top;
-        if (w <= 0 || h <= 0) return false;
+        int w, h;
+        if (!GetClientSize(hWnd, out w, out h)) return false;
         IntPtr screenDC = GetDC(IntPtr.Zero);
         IntPtr memDC = CreateCompatibleDC(screenDC);
         IntPtr hBmp = CreateCompatibleBitmap(screenDC, w, h);
         IntPtr old = SelectObject(memDC, hBmp);
-        PrintWindow(hWnd, memDC, 2); // PW_RENDERFULLCONTENT
+        PrintWindow(hWnd, memDC, PW_CLIENT_RENDER);
         // Get pixel data as BGRA
         var bi = new BITMAPINFO();
         bi.bmiHeader.biSize = 40; bi.bmiHeader.biWidth = w; bi.bmiHeader.biHeight = -h;
@@ -225,14 +260,13 @@ public class WindowCapturePng {
     // Capture only the bottom portion of the window (bottomFraction: 0.0-1.0).
     // Reuses the same PrintWindow capture but writes only the bottom rows to PNG.
     public static bool CaptureBottomToFile(IntPtr hWnd, string path, double bottomFraction) {
-        RECT r; GetWindowRect(hWnd, out r);
-        int w = r.Right - r.Left, h = r.Bottom - r.Top;
-        if (w <= 0 || h <= 0) return false;
+        int w, h;
+        if (!GetClientSize(hWnd, out w, out h)) return false;
         IntPtr screenDC = GetDC(IntPtr.Zero);
         IntPtr memDC = CreateCompatibleDC(screenDC);
         IntPtr hBmp = CreateCompatibleBitmap(screenDC, w, h);
         IntPtr old = SelectObject(memDC, hBmp);
-        PrintWindow(hWnd, memDC, 2);
+        PrintWindow(hWnd, memDC, PW_CLIENT_RENDER);
         var bi = new BITMAPINFO();
         bi.bmiHeader.biSize = 40; bi.bmiHeader.biWidth = w; bi.bmiHeader.biHeight = -h;
         bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
@@ -247,6 +281,148 @@ public class WindowCapturePng {
         Array.Copy(pixels, startRow * w * 4, cropPixels, 0, cropPixels.Length);
         using (var fs = new FileStream(path, FileMode.Create)) {
             WritePng(fs, w, cropH, cropPixels);
+        }
+        return true;
+    }
+
+    // Capture the bottom N text lines from the window as a single PNG.
+    // Scans pixel rows from the bottom upward to detect text-line boundaries
+    // using row brightness analysis, then exports the region containing those
+    // lines. Returns true if a non-empty region was found and saved.
+    //
+    // Algorithm:
+    // 1. Determine the background color from the majority of pixels in the
+    //    bottom-right corner (terminal background).
+    // 2. Scan rows from bottom up. A row is "text" if >2% of pixels differ
+    //    from the background. A "gap" row is all-background.
+    // 3. Group consecutive text rows into lines, separated by gap rows.
+    // 4. Take the bottom N lines (plus 2px padding) and write to PNG.
+    public static bool CaptureBottomLinesFromPixels(byte[] pixels, int w, int h, string path, int lineCount) {
+        if (pixels == null || w <= 0 || h <= 0) return false;
+
+        // Step 1: detect background color from a 20x20 sample in bottom-right.
+        // On a terminal the background fills most of the screen.
+        int sampleSize = 20;
+        int sr = Math.Max(0, h - sampleSize), sc = Math.Max(0, w - sampleSize);
+        long bgR = 0, bgG = 0, bgB = 0; int bgCount = 0;
+        for (int y = sr; y < h; y++) {
+            for (int x = sc; x < w; x++) {
+                int p = (y * w + x) * 4;
+                bgB += pixels[p]; bgG += pixels[p+1]; bgR += pixels[p+2];
+                bgCount++;
+            }
+        }
+        int bgRi = (int)(bgR / bgCount), bgGi = (int)(bgG / bgCount), bgBi = (int)(bgB / bgCount);
+
+        // Step 2: classify each row as text or gap, scanning from bottom up.
+        // A row is "text" if more than 2% of pixels differ significantly from bg.
+        int threshold = 30; // per-channel difference threshold
+        double minTextFraction = 0.02;
+        bool[] isTextRow = new bool[h];
+        for (int y = h - 1; y >= 0; y--) {
+            int diffCount = 0;
+            int rowOff = y * w * 4;
+            for (int x = 0; x < w; x++) {
+                int p = rowOff + x * 4;
+                int dr = Math.Abs(pixels[p+2] - bgRi);
+                int dg = Math.Abs(pixels[p+1] - bgGi);
+                int db = Math.Abs(pixels[p] - bgBi);
+                if (dr > threshold || dg > threshold || db > threshold) diffCount++;
+            }
+            isTextRow[y] = ((double)diffCount / w) >= minTextFraction;
+        }
+
+        // Step 3: from the bottom, group consecutive text rows into lines.
+        // Lines are separated by one or more gap (non-text) rows.
+        // We collect line boundaries as (topRow, bottomRow) pairs.
+        var lines = new System.Collections.Generic.List<int[]>(); // each: [topRow, bottomRow]
+        int row = h - 1;
+        // Skip trailing gap rows (empty space at very bottom)
+        while (row >= 0 && !isTextRow[row]) row--;
+        while (row >= 0 && lines.Count < lineCount) {
+            // We're on a text row — find the top of this text line
+            int lineBottom = row;
+            while (row >= 0 && isTextRow[row]) row--;
+            int lineTop = row + 1;
+            lines.Add(new int[] { lineTop, lineBottom });
+            // Skip gap rows between lines
+            while (row >= 0 && !isTextRow[row]) row--;
+        }
+
+        if (lines.Count == 0) return false;
+
+        // The region spans from the topmost line's top to the bottommost line's bottom
+        int regionTop = lines[lines.Count - 1][0]; // last added = topmost
+        int regionBottom = lines[0][1];             // first added = bottommost
+        // Add 2px padding
+        regionTop = Math.Max(0, regionTop - 2);
+        regionBottom = Math.Min(h - 1, regionBottom + 2);
+        int regionH = regionBottom - regionTop + 1;
+
+        byte[] cropPixels = new byte[w * regionH * 4];
+        Array.Copy(pixels, regionTop * w * 4, cropPixels, 0, cropPixels.Length);
+        using (var fs = new FileStream(path, FileMode.Create)) {
+            WritePng(fs, w, regionH, cropPixels);
+        }
+        return true;
+    }
+
+    // Convenience: capture window and extract bottom N lines in one call.
+    public static bool CaptureBottomLinesToFile(IntPtr hWnd, string path, int lineCount) {
+        int w, h;
+        if (!GetClientSize(hWnd, out w, out h)) return false;
+        IntPtr screenDC = GetDC(IntPtr.Zero);
+        IntPtr memDC = CreateCompatibleDC(screenDC);
+        IntPtr hBmp = CreateCompatibleBitmap(screenDC, w, h);
+        IntPtr old = SelectObject(memDC, hBmp);
+        PrintWindow(hWnd, memDC, PW_CLIENT_RENDER);
+        var bi = new BITMAPINFO();
+        bi.bmiHeader.biSize = 40; bi.bmiHeader.biWidth = w; bi.bmiHeader.biHeight = -h;
+        bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
+        byte[] pixels = new byte[w * h * 4];
+        GetDIBits(memDC, hBmp, 0, (uint)h, pixels, ref bi, 0);
+        SelectObject(memDC, old); DeleteObject(hBmp); DeleteDC(memDC); ReleaseDC(IntPtr.Zero, screenDC);
+        return CaptureBottomLinesFromPixels(pixels, w, h, path, lineCount);
+    }
+
+    // Convert raw image data (from WMI GetVirtualSystemThumbnailImage) to PNG.
+    // Auto-detects format from array length:
+    //   w*h*4 bytes → BGRA 32-bit (direct)
+    //   w*h*2 bytes → RGB565 16-bit (convert)
+    //   w*h*3 bytes → RGB 24-bit (convert)
+    public static bool SaveRawImageAsPng(byte[] imageData, int w, int h, string path) {
+        if (imageData == null || w <= 0 || h <= 0) return false;
+        int expected32 = w * h * 4;
+        int expected16 = w * h * 2;
+        int expected24 = w * h * 3;
+        byte[] bgra;
+        if (imageData.Length >= expected32) {
+            // BGRA 32-bit — use directly
+            bgra = imageData;
+        } else if (imageData.Length >= expected24) {
+            // RGB 24-bit — convert to BGRA
+            bgra = new byte[expected32];
+            for (int i = 0; i < w * h; i++) {
+                bgra[i*4]   = imageData[i*3+2]; // B
+                bgra[i*4+1] = imageData[i*3+1]; // G
+                bgra[i*4+2] = imageData[i*3];   // R
+                bgra[i*4+3] = 255;
+            }
+        } else if (imageData.Length >= expected16) {
+            // RGB565 16-bit — convert to BGRA
+            bgra = new byte[expected32];
+            for (int i = 0; i < w * h; i++) {
+                ushort pixel = (ushort)(imageData[i*2] | (imageData[i*2+1] << 8));
+                byte r = (byte)(((pixel >> 11) & 0x1F) << 3);
+                byte g = (byte)(((pixel >> 5) & 0x3F) << 2);
+                byte b = (byte)((pixel & 0x1F) << 3);
+                bgra[i*4] = b; bgra[i*4+1] = g; bgra[i*4+2] = r; bgra[i*4+3] = 255;
+            }
+        } else {
+            return false; // unknown format
+        }
+        using (var fs = new FileStream(path, FileMode.Create)) {
+            WritePng(fs, w, h, bgra);
         }
         return true;
     }
@@ -322,19 +498,81 @@ public class WindowCapturePng {
 }
 "@
         }
+    } catch {
+        Write-Warning "Failed to load HyperVCapture type: $_"
+    }
 
-        $hWnd = [WindowCapturePng]::FindWindow($VMName)
+    # Debug directory for inspecting captures
+    $debugDir = Join-Path $env:TEMP "yuruna"
+    if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
+
+    # ── Primary: WMI GetVirtualSystemThumbnailImage ─────────────────────────
+    # Gets the full VM display at native resolution, bypassing vmconnect
+    # entirely. No window chrome, no scaling, no zoom issues.
+    try {
+        $vmSettingData = Get-CimInstance -Namespace root/virtualization/v2 `
+            -ClassName Msvm_VirtualSystemSettingData `
+            -Filter "ElementName='$VMName'" |
+            Where-Object { $_.VirtualSystemType -eq 'Microsoft:Hyper-V:System:Realized' }
+        if ($vmSettingData) {
+            $vmms = Get-CimInstance -Namespace root/virtualization/v2 `
+                -ClassName Msvm_VirtualSystemManagementService
+            # Request screenshot at the configured VM resolution.
+            $vmVideo = Get-VMVideo -VMName $VMName -ErrorAction SilentlyContinue
+            $reqW = if ($vmVideo) { [uint16]$vmVideo.HorizontalResolution } else { [uint16]1920 }
+            $reqH = if ($vmVideo) { [uint16]$vmVideo.VerticalResolution } else { [uint16]1080 }
+
+            $result = Invoke-CimMethod -InputObject $vmms `
+                -MethodName GetVirtualSystemThumbnailImage `
+                -Arguments @{
+                    TargetSystem = $vmSettingData
+                    WidthPixels  = $reqW
+                    HeightPixels = $reqH
+                }
+            if ($result.ReturnValue -eq 0 -and $result.ImageData -and $result.ImageData.Length -gt 0) {
+                $ok = [HyperVCapture]::SaveRawImageAsPng(
+                    [byte[]]$result.ImageData, [int]$reqW, [int]$reqH, $OutputPath)
+                if ($ok -and (Test-Path $OutputPath)) {
+                    Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "wmi_full.png") -Force
+                    Write-Output "Screenshot saved (WMI ${reqW}x${reqH}): $OutputPath"
+                    return $OutputPath
+                }
+                # Save raw data length for debugging
+                [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"),
+                    "dataLen=$($result.ImageData.Length) expected16=$(${reqW}*${reqH}*2) expected24=$(${reqW}*${reqH}*3) expected32=$(${reqW}*${reqH}*4)")
+            } else {
+                $rc = if ($result) { $result.ReturnValue } else { "null" }
+                $len = if ($result -and $result.ImageData) { $result.ImageData.Length } else { 0 }
+                [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "rc=$rc dataLen=$len")
+            }
+        } else {
+            [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "vmSettingData not found")
+        }
+    } catch {
+        [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "exception: $_")
+    }
+
+    # ── Fallback: PrintWindow via vmconnect window ──────────────────────────
+    try {
+        [HyperVCapture]::EnsureDpiAware()
+        $hWnd = [HyperVCapture]::FindWindow($VMName)
         if ($hWnd -eq [IntPtr]::Zero) {
             Write-Warning "vmconnect window not found for '$VMName'."
             return $null
         }
-        $ok = [WindowCapturePng]::CaptureToFile($hWnd, $OutputPath)
+        # Log DPI and window dimensions for debugging
+        $dpi = [HyperVCapture]::GetDpiForWindow($hWnd)
+        $ok = [HyperVCapture]::CaptureToFile($hWnd, $OutputPath)
         if ($ok -and (Test-Path $OutputPath)) {
-            Write-Output "Screenshot saved: $OutputPath"
+            Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "printwindow_full.png") -Force
+            $imgSize = (Get-Item $OutputPath).Length
+            [System.IO.File]::WriteAllText((Join-Path $debugDir "printwindow_debug.txt"),
+                "dpi=$dpi fileSize=$imgSize")
+            Write-Output "Screenshot saved (PrintWindow): $OutputPath"
             return $OutputPath
         }
     } catch {
-        Write-Warning "Hyper-V screenshot failed: $_"
+        Write-Warning "PrintWindow screenshot failed: $_"
     }
     Write-Error "Screenshot capture failed for '$VMName'"
     return $null

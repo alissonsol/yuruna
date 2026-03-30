@@ -8,7 +8,16 @@ chpasswd:
     ec2-user:amazonlinux
 # In the above line, do not add any spaces after 'ec2-user:'.
 
+# --- System: denylist hv_balloon to prevent console messages ---
+write_files:
+  - path: /etc/modprobe.d/denylist-hv-balloon.conf
+    content: |
+      blacklist hv_balloon
+    permissions: '0644'
+
 runcmd:
+  # --- System: unload hv_balloon if already loaded ---
+  - rmmod hv_balloon 2>/dev/null || true
   # --- GNOME: auto-open terminal on login ---
   - mkdir -p /etc/xdg/autostart
   - |

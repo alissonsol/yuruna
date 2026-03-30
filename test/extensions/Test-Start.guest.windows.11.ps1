@@ -20,11 +20,11 @@
     Drives the Windows 11 guest through initial boot via a JSON sequence.
 
 .DESCRIPTION
-    Reads the interaction sequence from sequences/guest.windows.11.json
+    Reads the interaction sequence from sequences/Test-Start.guest.windows.11.json
     and executes each step (keystrokes, delays, waits) against the VM.
 
     To customize the boot automation, edit the JSON file — not this script.
-    See sequences/guest.windows.11.json for the available actions and format.
+    See sequences/Test-Start.guest.windows.11.json for the available actions and format.
 
 .NOTES
     Exit 0 = success, non-zero = failure (stops the runner).
@@ -43,7 +43,7 @@ param(
 # EXECUTION
 # ─────────────────────────────────────────────────────────────────────────────
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sequenceFile = Join-Path $ScriptDir "sequences/$GuestKey.json"
+$sequenceFile = Join-Path $ScriptDir "sequences/Test-Start.$GuestKey.json"
 $engineModule = Join-Path $ScriptDir "Invoke-Sequence.psm1"
 
 Import-Module $engineModule -Force

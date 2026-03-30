@@ -29,6 +29,8 @@ $InformationPreference = 'Continue'
 #   typeAndEnter     — Type a text string followed by Enter.
 #   screenshot       — Capture a screenshot for debugging.
 #   waitForText      — Capture + OCR the VM screen until pattern appears.
+#                       freshMatch: if true, captures a baseline, then waits for the screen
+#                       to change AND the pattern to appear in the last few lines.
 #   waitForPort      — Wait until a TCP port responds on the VM.
 #   waitForHeartbeat — Wait for Hyper-V heartbeat (Hyper-V only).
 #   waitForVMStop    — Wait until the VM reaches the Off/stopped state.
@@ -368,11 +370,13 @@ function Get-ScreenText {
         return Get-ScreenTextUTM -VMName $VMName
     }
 
-    # Hyper-V path: capture via screenshot module, run tesseract directly.
-    # Hyper-V window captures are small enough that tesseract processes them
-    # fully without truncation.
+    # Hyper-V path: dual-capture strategy (same as macOS UTM path).
+    # Full-window capture catches text during early boot (text at top).
+    # Bottom-strip capture catches prompts on full screens where
+    # tesseract truncates full-screen OCR mid-line.
     $tempDir = $env:TEMP
-    $tempFile = Join-Path $tempDir "ocr_$VMName.png"
+    $fullFile = Join-Path $tempDir "ocr_${VMName}_full.png"
+    $bottomFile = Join-Path $tempDir "ocr_${VMName}_bot.png"
 
     $screenshotMod = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Test.Screenshot.psm1"
     if (-not (Test-Path $screenshotMod)) {
@@ -383,23 +387,45 @@ function Get-ScreenText {
         return $null
     }
     Import-Module $screenshotMod -Force -ErrorAction SilentlyContinue
-    $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $tempFile
+
+    # Ensure WindowCapturePng type is loaded (Get-VMScreenshot loads it)
+    $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $fullFile
     if (-not $captured) { return $null }
 
+    $textParts = [System.Collections.Generic.List[string]]::new()
+
     try {
-        $ocrOutput = & tesseract $tempFile stdout --dpi 72 --psm 6 2>$null
-        if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
-            $text = ($ocrOutput -join "`n")
-            Write-Information "      OCR text: $($text.Substring(0, [Math]::Min($text.Length, 200)))"
-            return $text
+        # Capture 1: full window with --psm 3 (auto page segmentation).
+        # PSM 3 enables tesseract's built-in inversion detection, improving
+        # accuracy on light-on-dark console text. Catches early boot text.
+        $fullText = Invoke-TesseractOCR -ImagePath $fullFile -PSM 3
+        if ($fullText) { $textParts.Add($fullText) }
+
+        # Capture 2: bottom strip (30% of window height) with --psm 6.
+        # Catches prompts that full-window OCR truncates on busy screens.
+        $hWnd = [WindowCapturePng]::FindWindow($VMName)
+        if ($hWnd -ne [IntPtr]::Zero) {
+            $ok = [WindowCapturePng]::CaptureBottomToFile($hWnd, $bottomFile, 0.30)
+            if ($ok -and (Test-Path $bottomFile)) {
+                $botText = Invoke-TesseractOCR -ImagePath $bottomFile -PSM 6
+                if ($botText) { $textParts.Add($botText) }
+            }
         }
-        Write-Information "      OCR returned no text (exit code: $LASTEXITCODE)"
-        return $null
+
+        if ($textParts.Count -eq 0) {
+            Write-Information "      OCR returned no text from Hyper-V window"
+            return $null
+        }
+
+        $combined = $textParts -join "`n"
+        Write-Information "      OCR text: $($combined.Substring(0, [Math]::Min($combined.Length, 300)))"
+        return $combined
     } catch {
         Write-Warning "tesseract OCR failed: $_"
         return $null
     } finally {
-        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $fullFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $bottomFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -556,14 +582,36 @@ function Get-OCRPattern {
 # ── Action: waitForText ──────────────────────────────────────────────────────
 
 function Wait-ForText {
-    param([string]$HostType, [string]$VMName, [string]$Pattern, [int]$TimeoutSeconds = 120, [int]$PollSeconds = 5)
+    param([string]$HostType, [string]$VMName, [string]$Pattern, [int]$TimeoutSeconds = 120, [int]$PollSeconds = 5, [bool]$FreshMatch = $false)
     $ocrPattern = Get-OCRPattern $Pattern
     $elapsed = 0
+
+    # FreshMatch: capture baseline, then wait for screen to change AND pattern to appear at end
+    $baseline = $null
+    if ($FreshMatch) {
+        $baseline = Get-ScreenText -HostType $HostType -VMName $VMName
+        Write-Information "      Baseline captured — waiting for screen to change and pattern to appear at end..."
+    }
+
     while ($elapsed -lt $TimeoutSeconds) {
         $screenText = Get-ScreenText -HostType $HostType -VMName $VMName
-        if ($screenText -and $screenText -imatch $ocrPattern) {
-            Write-Information "      Text detected: '$Pattern'"
-            return $true
+        if ($screenText) {
+            if ($FreshMatch) {
+                # Require screen content to differ from baseline AND pattern in last 3 lines
+                if ($screenText -ne $baseline) {
+                    $lines = $screenText -split "`n"
+                    $tail = ($lines | Select-Object -Last 3) -join "`n"
+                    if ($tail -imatch $ocrPattern) {
+                        Write-Information "      Text detected at end of screen: '$Pattern'"
+                        return $true
+                    }
+                }
+            } else {
+                if ($screenText -imatch $ocrPattern) {
+                    Write-Information "      Text detected: '$Pattern'"
+                    return $true
+                }
+            }
         }
         $elapsed += $PollSeconds
         Write-Information "      Waiting for text '$Pattern'... (${elapsed}s / ${TimeoutSeconds}s)"
@@ -743,9 +791,10 @@ function Invoke-Sequence {
                 $pattern = Expand-Variable $step.pattern $vars
                 $timeout = if ($step.timeoutSeconds) { [int]$step.timeoutSeconds } else { 120 }
                 $poll = if ($step.pollSeconds) { [int]$step.pollSeconds } else { 5 }
-                Write-Information "      Watching screen for: '$pattern' (timeout: ${timeout}s)"
+                $fresh = if ($step.freshMatch -eq $true) { $true } else { $false }
+                Write-Information "      Watching screen for: '$pattern' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $pattern `
-                    -TimeoutSeconds $timeout -PollSeconds $poll
+                    -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh
             }
             "screenshot" {
                 $label = if ($step.label) { $step.label } else { "step$stepNum" }

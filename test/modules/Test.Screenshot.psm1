@@ -214,6 +214,35 @@ public class WindowCapturePng {
         return true;
     }
 
+    // Capture only the bottom portion of the window (bottomFraction: 0.0-1.0).
+    // Reuses the same PrintWindow capture but writes only the bottom rows to PNG.
+    public static bool CaptureBottomToFile(IntPtr hWnd, string path, double bottomFraction) {
+        RECT r; GetWindowRect(hWnd, out r);
+        int w = r.Right - r.Left, h = r.Bottom - r.Top;
+        if (w <= 0 || h <= 0) return false;
+        IntPtr screenDC = GetDC(IntPtr.Zero);
+        IntPtr memDC = CreateCompatibleDC(screenDC);
+        IntPtr hBmp = CreateCompatibleBitmap(screenDC, w, h);
+        IntPtr old = SelectObject(memDC, hBmp);
+        PrintWindow(hWnd, memDC, 2);
+        var bi = new BITMAPINFO();
+        bi.bmiHeader.biSize = 40; bi.bmiHeader.biWidth = w; bi.bmiHeader.biHeight = -h;
+        bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
+        byte[] pixels = new byte[w * h * 4];
+        GetDIBits(memDC, hBmp, 0, (uint)h, pixels, ref bi, 0);
+        SelectObject(memDC, old); DeleteObject(hBmp); DeleteDC(memDC); ReleaseDC(IntPtr.Zero, screenDC);
+        // Crop to bottom portion
+        int cropH = Math.Max(150, (int)(h * bottomFraction));
+        if (cropH > h) cropH = h;
+        int startRow = h - cropH;
+        byte[] cropPixels = new byte[w * cropH * 4];
+        Array.Copy(pixels, startRow * w * 4, cropPixels, 0, cropPixels.Length);
+        using (var fs = new FileStream(path, FileMode.Create)) {
+            WritePng(fs, w, cropH, cropPixels);
+        }
+        return true;
+    }
+
     static void WritePng(Stream s, int w, int h, byte[] bgra) {
         // PNG signature
         s.Write(new byte[]{137,80,78,71,13,10,26,10}, 0, 8);

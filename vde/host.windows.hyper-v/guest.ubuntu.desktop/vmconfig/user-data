@@ -54,6 +54,11 @@ autoinstall:
       enabled=true
       DCONF
     - curtin in-target --target=/target -- dconf update
+    # --- System: denylist hv_balloon to prevent console messages ---
+    - |
+      cat > /target/etc/modprobe.d/denylist-hv-balloon.conf << 'MODPROBE'
+      blacklist hv_balloon
+      MODPROBE
     # --- Network: download update script ---
     - wget --no-cache -O /target/ubuntu.desktop.update.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh"
     - curtin in-target --target=/target -- chmod +x /ubuntu.desktop.update.sh

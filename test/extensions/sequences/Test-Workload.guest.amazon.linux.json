@@ -1,5 +1,5 @@
 {
-  "$schema": "Interaction sequence for driving VM installation.",
+  "$schema": "Interaction sequence for driving VM workload testing.",
   "$actions": {
     "delay":            "Wait a fixed number of seconds. Parameters: seconds (number).",
     "key":              "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
@@ -13,7 +13,7 @@
   },
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
 
-  "description": "Amazon Linux: login, change password, run update script, shut down.",
+  "description": "Amazon Linux: log in with new password, install VS Code.",
   "variables": {
     "username":    "ec2-user",
     "password":    "amazonlinux",
@@ -46,48 +46,9 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "${password}",
-      "sensitive": true,
-      "description": "Enter current password"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "Current password:",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
-      "description": "Wait for password change prompt (current password)"
-    },
-    {
-      "action": "typeAndEnter",
-      "text": "${password}",
-      "sensitive": true,
-      "description": "Re-enter current password for verification"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "New password:",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
-      "description": "Wait for new password prompt"
-    },
-    {
-      "action": "typeAndEnter",
       "text": "${newPassword}",
       "sensitive": true,
-      "description": "Enter new password"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "Retype new password:",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
-      "description": "Wait for password confirmation prompt"
-    },
-    {
-      "action": "typeAndEnter",
-      "text": "${newPassword}",
-      "sensitive": true,
-      "description": "Confirm new password"
+      "description": "Enter password (changed during Test-Start)"
     },
     {
       "action": "waitForText",
@@ -99,30 +60,33 @@
     {
       "action": "delay",
       "seconds": 2,
-      "description": "Brief pause before running update"
+      "description": "Brief pause before running VS Code install"
     },
     {
       "action": "typeAndEnter",
-      "text": "sudo bash /amazon.linux.update.sh",
-      "description": "Run update script"
+      "text": "/bin/bash -c \"$(wget -qO- \"https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.sh?nocache=$(date +%s)\")\"",
+      "description": "Download and run VS Code install script"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "[sudo] password for ${username}:",
+      "timeoutSeconds": 30,
+      "pollSeconds": 3,
+      "description": "Wait for sudo prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "Enter password (changed during Test-Start)"
     },
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 600,
+      "timeoutSeconds": 300,
       "pollSeconds": 15,
       "freshMatch": true,
-      "description": "Wait for update script to complete (may take several minutes)"
-    },
-    {
-      "action": "delay",
-      "seconds": 2,
-      "description": "Brief pause before rebooting"
-    },
-    {
-      "action": "typeAndEnter",
-      "text": "sudo reboot now",
-      "description": "Reboot the VM, for the fun of it!"
+      "description": "Wait for install to complete (may take 3-5 minutes)"
     }
   ]
 }

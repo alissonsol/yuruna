@@ -82,17 +82,25 @@ function Get-UtmScreenshot {
     # (UTM, UTM SE, etc.). Uses window bounds + screencapture -R instead
     # of window ID, because screencapture -l expects a CGWindowID which
     # may not match the AppleScript window id in SwiftUI apps like UTM.
+    # Activates UTM and raises the target window first, since screencapture -R
+    # captures a screen region (not a specific window) and would capture an
+    # overlapping window otherwise.
     $boundsScript = @"
+tell application "UTM" to activate
+delay 0.3
 tell application "System Events"
-    repeat with proc in (every process whose name contains "UTM")
-        repeat with w in windows of proc
+    tell process "UTM"
+        set frontmost to true
+        repeat with w in windows
             if name of w contains "$VMName" then
+                perform action "AXRaise" of w
+                delay 0.3
                 set {wx, wy} to position of w
                 set {ww, wh} to size of w
                 return ("" & wx & "," & wy & "," & ww & "," & wh)
             end if
         end repeat
-    end repeat
+    end tell
     -- No match found; list actual window names for diagnostics.
     set nameList to {}
     repeat with proc in (every process whose name contains "UTM")

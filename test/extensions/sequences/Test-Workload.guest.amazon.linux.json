@@ -60,25 +60,12 @@
     {
       "action": "delay",
       "seconds": 2,
-      "description": "Brief pause before running VS Code install"
+      "description": "Brief pause before installing Desktop"
     },
     {
       "action": "typeAndEnter",
-      "text": "/bin/bash -c \"$(wget -qO- \"https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.sh?nocache=$(date +%s)\")\"",
-      "description": "Download and run VS Code install script"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "[sudo] password for ${username}:",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
-      "description": "Wait for sudo prompt"
-    },
-    {
-      "action": "typeAndEnter",
-      "text": "${newPassword}",
-      "sensitive": true,
-      "description": "Enter password (changed during Test-Start)"
+      "text": "sudo dnf groupinstall -y \"Desktop\"",
+      "description": "GUI install"
     },
     {
       "action": "waitForText",

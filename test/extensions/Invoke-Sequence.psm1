@@ -294,26 +294,18 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text)
-    # Use raw key codes instead of AppleScript's keystroke command.
-    # keystroke interprets certain character sequences (e.g., "2-")
-    # as modifier combinations, producing phantom newlines and dropped
-    # characters. key code sends raw virtual keycodes like the Hyper-V
-    # scan code path, avoiding any interpretation.
-    $charLines = ""
-    foreach ($ch in $Text.ToCharArray()) {
-        $entry = $script:MacCharKeyCodes["$ch"]
-        if (-not $entry) {
-            Write-Warning "No macOS key code for character '$ch'. Skipping."
-            continue
-        }
-        $kc = $entry[0]
-        $shifted = $entry[1]
-        if ($shifted) {
-            $charLines += "                key code $kc using shift down`n"
-        } else {
-            $charLines += "                key code $kc`n"
-        }
-        $charLines += "                delay 0.05`n"
+    # Use clipboard paste instead of raw key codes. Sending individual
+    # key codes via AppleScript's accessibility API loses the shift
+    # modifier for many characters when targeting UTM's virtual keyboard
+    # (e.g., "$" arrives as "4", "(" as "9"). Clipboard paste is handled
+    # by UTM at the application level, converting text to keystrokes
+    # internally, which correctly preserves all characters.
+    $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) "utm_paste_$([guid]::NewGuid().ToString('N').Substring(0,8)).txt"
+    try {
+        [System.IO.File]::WriteAllText($tempFile, $Text)
+        & bash -c "pbcopy < '$tempFile'" 2>$null
+    } finally {
+        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
     }
     $appleScript = @"
 tell application "UTM" to activate
@@ -325,7 +317,8 @@ tell application "System Events"
             if name of w contains "$VMName" then
                 perform action "AXRaise" of w
                 delay 0.3
-$charLines                return "ok"
+                keystroke "v" using command down
+                return "ok"
             end if
         end repeat
     end tell
@@ -444,18 +437,25 @@ function Get-ScreenTextUTM {
     $fullFile = Join-Path $tempDir "ocr_${VMName}_full.png"
     $bottomFile = Join-Path $tempDir "ocr_${VMName}_bot.png"
 
-    # Get UTM window bounds via AppleScript
+    # Activate UTM and raise the target window before capturing.
+    # screencapture -R captures a screen region, not a specific window,
+    # so the VM window must be frontmost to avoid capturing an overlapping window.
     $boundsScript = @"
+tell application "UTM" to activate
+delay 0.3
 tell application "System Events"
-    repeat with proc in (every process whose name contains "UTM")
-        repeat with w in windows of proc
+    tell process "UTM"
+        set frontmost to true
+        repeat with w in windows
             if name of w contains "$VMName" then
+                perform action "AXRaise" of w
+                delay 0.3
                 set {wx, wy} to position of w
                 set {ww, wh} to size of w
                 return ("" & wx & "," & wy & "," & ww & "," & wh)
             end if
         end repeat
-    end repeat
+    end tell
 end tell
 return "not_found"
 "@

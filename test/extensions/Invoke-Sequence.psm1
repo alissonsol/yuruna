@@ -637,10 +637,15 @@ function Get-OCRNormalized {
     in the text.  At least 70% of the normalized pattern characters must appear
     in order within a single line.
 
-    This handles:
+    Two matching strategies are tried (either passing is sufficient):
+    1. Positional (sliding window): handles arbitrary single-character
+       substitutions not covered by confusion groups (e.g. R→K).
+    2. Subsequence with span limit: handles dropped characters
+       (e.g. "Password" OCR'd as "assuord").
+
+    Also handles:
     - Character confusion (w↔u↔v, o↔O↔0, etc.)
     - Spurious spaces from courier/monospace OCR
-    - Dropped characters (e.g. "Password" OCR'd as "assuord")
 #>
 function Test-OCRMatch {
     param([string]$Text, [string]$Pattern)
@@ -659,13 +664,29 @@ function Test-OCRMatch {
         $normLine = Get-OCRNormalized $line
         if ($normLine.Length -eq 0) { continue }
 
-        # Try the subsequence match from each text position that contains any
-        # pattern character.  A single greedy pass can latch onto an early
-        # occurrence (e.g. the 'l' in "Iinux") and stretch the span past the
-        # limit even though the real match ("login:") starts later and is compact.
-        # Starting from any pattern char (not just the first) also handles the
-        # case where the first pattern char was dropped by OCR (e.g. "Password"
-        # read as "assuord" — the leading P is gone).
+        # --- Strategy 1: Positional (sliding window) comparison ---
+        # Slide the pattern across the text and count character matches at each
+        # aligned position.  This naturally handles arbitrary single-character
+        # substitutions (e.g. R→K in "Retype"→"Ketype") that are not covered
+        # by confusion groups and that break the subsequence algorithm.
+        $patLen = $normPattern.Length
+        if ($normLine.Length -ge $patLen) {
+            for ($offset = 0; $offset -le ($normLine.Length - $patLen); $offset++) {
+                $posMatched = 0
+                for ($i = 0; $i -lt $patLen; $i++) {
+                    if ($normLine[$offset + $i] -eq $patternChars[$i]) { $posMatched++ }
+                }
+                if ($posMatched -ge $threshold) { return $true }
+            }
+        }
+
+        # --- Strategy 2: Subsequence match (handles dropped characters) ---
+        # Try from each text position that contains any pattern character.
+        # A single greedy pass can latch onto an early occurrence (e.g. the 'l'
+        # in "Iinux") and stretch the span past the limit even though the real
+        # match ("login:") starts later and is compact.  Starting from any
+        # pattern char (not just the first) also handles the case where the
+        # first pattern char was dropped by OCR (e.g. "Password" → "assuord").
         $patternCharSet = [System.Collections.Generic.HashSet[char]]::new([char[]]$patternChars)
         for ($startIdx = 0; $startIdx -lt $normLine.Length; $startIdx++) {
             if (-not $patternCharSet.Contains($normLine[$startIdx])) { continue }

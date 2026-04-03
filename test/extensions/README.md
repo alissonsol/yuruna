@@ -1,8 +1,11 @@
 # Test Extensions
 
-Extension scripts run custom tests against each guest VM after it has been
-created, started, and verified running. They validate that workloads,
-configurations, and features work correctly on each guest.
+Extension scripts run custom tests against each guest VM. There are two phases:
+
+- **Test-Start** scripts drive OS installation via JSON sequences
+  (`Invoke-Sequence.psm1`) immediately after the VM is created and started.
+- **Test-Workload** scripts validate workloads, configurations, and features
+  after the OS is installed and the VM is verified running.
 
 ## Quick start
 
@@ -12,13 +15,16 @@ configurations, and features work correctly on each guest.
 
 ## File naming
 
-Scripts must be named `Test-Workload.<guest-key>.ps1`:
+Scripts are named `Test-Start.<guest-key>.ps1` or `Test-Workload.<guest-key>.ps1`:
 
 | File | Runs for |
 |------|----------|
-| `Test-Workload.guest.amazon.linux.ps1` | Amazon Linux guest |
-| `Test-Workload.guest.ubuntu.desktop.ps1` | Ubuntu Desktop guest |
-| `Test-Workload.guest.windows.11.ps1` | Windows 11 guest |
+| `Test-Start.guest.amazon.linux.ps1` | Amazon Linux OS install |
+| `Test-Start.guest.ubuntu.desktop.ps1` | Ubuntu Desktop OS install |
+| `Test-Start.guest.windows.11.ps1` | Windows 11 OS install |
+| `Test-Workload.guest.amazon.linux.ps1` | Amazon Linux workload test |
+| `Test-Workload.guest.ubuntu.desktop.ps1` | Ubuntu Desktop workload test |
+| `Test-Workload.guest.windows.11.ps1` | Windows 11 workload test |
 
 To run **multiple tests** for a guest, add a suffix after the guest key:
 

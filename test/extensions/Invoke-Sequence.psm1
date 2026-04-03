@@ -346,242 +346,12 @@ function Send-Text {
     else { Write-Warning "Unknown host: $HostType"; return $false }
 }
 
-# ── OCR: extract text from VM screen ────────────────────────────────────────
-
-# Get-ScreenText captures the VM window and runs OCR via tesseract.
-# tesseract is cross-platform and works identically on Windows and macOS:
-#   Windows: winget install UB-Mannheim.TesseractOCR
-#   macOS:   brew install tesseract
-# The Get-Tesseract.ps1 setup script installs it automatically.
-function Get-ScreenText {
-    param([string]$HostType, [string]$VMName)
-
-    # Check tesseract availability (once)
-    if (-not $script:TesseractChecked) {
-        $script:TesseractCmd = Get-Command "tesseract" -ErrorAction SilentlyContinue
-        if (-not $script:TesseractCmd) {
-            Write-Warning "tesseract not found in PATH. Run test/Get-Tesseract.ps1 to install it."
-            Write-Warning "  Windows: winget install UB-Mannheim.TesseractOCR"
-            Write-Warning "  macOS:   brew install tesseract"
-        }
-        $script:TesseractChecked = $true
-    }
-    if (-not $script:TesseractCmd) { return $null }
-
-    if ($HostType -eq "host.macos.utm") {
-        return Get-ScreenTextUTM -VMName $VMName
-    }
-
-    # Hyper-V path: bottom-lines strategy.
-    # PrintWindow captures the vmconnect window, then we analyze the pixel
-    # data to find the bottom N text lines (skipping empty space), crop just
-    # those lines, and OCR the small strip. This gives tesseract a clean,
-    # focused image instead of the full busy screen that it truncates.
-    # A separate full-window OCR (PSM 3) is also run for early-boot screens
-    # where text is at the top.
-    $tempDir = $env:TEMP
-    $fullFile = Join-Path $tempDir "ocr_${VMName}_full.png"
-    $linesFile = Join-Path $tempDir "ocr_${VMName}_lines.png"
-
-    $screenshotMod = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Test.Screenshot.psm1"
-    if (-not (Test-Path $screenshotMod)) {
-        $screenshotMod = Join-Path $PSScriptRoot "../modules/Test.Screenshot.psm1"
-    }
-    if (-not (Test-Path $screenshotMod)) {
-        Write-Warning "Screenshot module not found"
-        return $null
-    }
-    Import-Module $screenshotMod -Force -ErrorAction SilentlyContinue
-
-    # Capture the full VM screen. WMI gives clean full-resolution output
-    # (no chrome); PrintWindow fallback may include toolbar.
-    $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $fullFile
-    if (-not $captured) { return $null }
-
-    # Save debug copies to %TEMP%\yuruna (overwritten each poll cycle).
-    $debugDir = Join-Path $tempDir "yuruna"
-    if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
-    Copy-Item -Path $fullFile -Destination (Join-Path $debugDir "ocr_full.png") -Force
-
-    $textParts = [System.Collections.Generic.List[string]]::new()
-
-    try {
-        # OCR 1: extract bottom 5 text lines using pixel-level line detection
-        # on the vmconnect window. This is the primary source for prompt text.
-        try {
-            $hWnd = [HyperVCapture]::FindWindow($VMName)
-            if ($hWnd -ne [IntPtr]::Zero) {
-                $ok = [HyperVCapture]::CaptureBottomLinesToFile($hWnd, $linesFile, 5)
-                if ($ok -and (Test-Path $linesFile)) {
-                    Copy-Item -Path $linesFile -Destination (Join-Path $debugDir "ocr_lines.png") -Force
-                    $linesText = Invoke-TesseractOCR -ImagePath $linesFile -PSM 6 -Invert
-                    if ($linesText) { $textParts.Add($linesText) }
-                }
-            }
-        } catch {
-            # HyperVCapture type may not be loaded (stale session); log and continue
-            [System.IO.File]::WriteAllText((Join-Path $debugDir "ocr_lines_error.txt"), "$_")
-        }
-
-        # OCR 2: full image with --psm 3 (auto page segmentation).
-        # Catches early boot (text at top) and provides full-screen coverage.
-        $fullText = Invoke-TesseractOCR -ImagePath $fullFile -PSM 3
-        if ($fullText) { $textParts.Add($fullText) }
-
-        if ($textParts.Count -eq 0) {
-            Write-Information "      OCR returned no text from Hyper-V window"
-            return $null
-        }
-
-        $combined = $textParts -join "`n"
-        $logSnippet = if ($combined.Length -le 300) { $combined } else { "..." + $combined.Substring($combined.Length - 300) }
-        Write-Information "      OCR text: $logSnippet"
-        return $combined
-    } catch {
-        Write-Warning "tesseract OCR failed: $_"
-        return $null
-    } finally {
-        Remove-Item $fullFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $linesFile -Force -ErrorAction SilentlyContinue
-    }
-}
-
-# macOS UTM: capture the UTM window via screencapture -R and run tesseract.
-# Strategy: single full-window capture, then use sips to crop the bottom
-# ~150px for a focused prompt-area OCR. The full image is also OCR'd for
-# early-boot screens where text is at the top.
-function Get-ScreenTextUTM {
-    param([string]$VMName)
-
-    $tempDir = $env:TMPDIR
-    if (-not $tempDir) { $tempDir = "/tmp" }
-    $fullFile = Join-Path $tempDir "ocr_${VMName}_full.png"
-    $cropFile = Join-Path $tempDir "ocr_${VMName}_crop.png"
-
-    # AppleScript to find UTM content area bounds (excludes title bar/toolbar).
-    $boundsScript = @"
-tell application "UTM" to activate
-delay 0.3
-tell application "System Events"
-    tell process "UTM"
-        set frontmost to true
-        repeat with w in windows
-            if name of w contains "$VMName" then
-                perform action "AXRaise" of w
-                delay 0.3
-                -- Try to find the content area (first group) to exclude chrome.
-                try
-                    set contentArea to first group of w
-                    set {cx, cy} to position of contentArea
-                    set {cw, ch} to size of contentArea
-                    return ("" & cx & "," & cy & "," & cw & "," & ch)
-                end try
-                -- Fallback: use window bounds with title bar offset (28pt).
-                set {wx, wy} to position of w
-                set {ww, wh} to size of w
-                set titleBarH to 28
-                return ("" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
-            end if
-        end repeat
-    end tell
-end tell
-return "not_found"
-"@
-    $bounds = & osascript -e $boundsScript 2>&1
-    if ("$bounds" -eq "not_found" -or "$bounds" -notmatch '^\d+,\d+,\d+,\d+$') {
-        Write-Warning "UTM window for '$VMName' not found for OCR"
-        return $null
-    }
-
-    $parts = "$bounds" -split ','
-    [int]$wx = $parts[0]; [int]$wy = $parts[1]
-    [int]$ww = $parts[2]; [int]$wh = $parts[3]
-    $fullRegion = "$wx,$wy,$ww,$wh"
-
-    # Debug directory
-    $debugDir = Join-Path $tempDir "yuruna"
-    if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
-
-    $textParts = [System.Collections.Generic.List[string]]::new()
-
-    try {
-        # Single capture of the full window.
-        & screencapture -x -R "$fullRegion" "$fullFile" 2>$null
-        if (-not (Test-Path $fullFile)) {
-            Write-Information "      screencapture failed"
-            return $null
-        }
-        Copy-Item -Path $fullFile -Destination (Join-Path $debugDir "utm_full.png") -Force
-
-        # Get actual pixel dimensions (Retina = 2x logical points).
-        $imgInfo = & sips -g pixelHeight -g pixelWidth "$fullFile" 2>$null
-        $pixelH = 0; $pixelW = 0
-        foreach ($line in $imgInfo) {
-            if ($line -match 'pixelHeight:\s*(\d+)') { $pixelH = [int]$Matches[1] }
-            if ($line -match 'pixelWidth:\s*(\d+)')  { $pixelW = [int]$Matches[1] }
-        }
-
-        # OCR 1: crop bottom ~300 pixels (~150pt at 2x Retina ≈ 5 terminal lines).
-        # This gives tesseract a small, focused image of just the prompt area.
-        if ($pixelH -gt 0 -and $pixelW -gt 0) {
-            $cropH = [Math]::Min($pixelH, 300)
-            $cropY = $pixelH - $cropH
-            & sips --cropOffset $cropY 0 --cropToHeightWidth $cropH $pixelW "$fullFile" -o "$cropFile" 2>$null | Out-Null
-            if (Test-Path $cropFile) {
-                Copy-Item -Path $cropFile -Destination (Join-Path $debugDir "utm_crop.png") -Force
-                $cropText = Invoke-TesseractOCR -ImagePath $cropFile -PSM 6 -Invert
-                if ($cropText) { $textParts.Add($cropText) }
-            }
-        }
-
-        # OCR 2: full window with --psm 3 (auto page segmentation).
-        # Catches early boot (text at top) and provides full-screen coverage.
-        $fullText = Invoke-TesseractOCR -ImagePath $fullFile -PSM 3
-        if ($fullText) { $textParts.Add($fullText) }
-
-        # Save debug info
-        [System.IO.File]::WriteAllText((Join-Path $debugDir "utm_debug.txt"),
-            "bounds=$bounds`nfullRegion=$fullRegion`npixelW=$pixelW pixelH=$pixelH`ncropH=$cropH")
-
-        if ($textParts.Count -eq 0) {
-            Write-Information "      OCR returned no text from UTM window"
-            return $null
-        }
-
-        $combined = $textParts -join "`n"
-        $logSnippet = if ($combined.Length -le 300) { $combined } else { "..." + $combined.Substring($combined.Length - 300) }
-        Write-Information "      OCR text: $logSnippet"
-        return $combined
-    } finally {
-        Remove-Item $fullFile -Force -ErrorAction SilentlyContinue
-        Remove-Item $cropFile -Force -ErrorAction SilentlyContinue
-    }
-}
-
-# Run tesseract on an image file with the specified page segmentation mode.
-# PSM 3 (auto): enables tesseract 5's built-in inversion for dark backgrounds.
-# PSM 6 (single block): best for small cropped regions with uniform text.
-# Inversion: tesseract 5's tessedit_do_invert is only auto-enabled for PSM 3.
-# For PSM 6, pass -Invert to explicitly enable it — critical for light-on-dark
-# terminal text in bottom-crop images.
-function Invoke-TesseractOCR {
-    param([string]$ImagePath, [int]$PSM = 6, [switch]$Invert)
-    if ($Invert) {
-        $ocrOutput = & tesseract $ImagePath stdout --psm $PSM -c tessedit_do_invert=1 2>$null
-    } else {
-        $ocrOutput = & tesseract $ImagePath stdout --psm $PSM 2>$null
-    }
-    if ($LASTEXITCODE -eq 0 -and $ocrOutput) {
-        return ($ocrOutput -join "`n")
-    }
-    return $null
-}
 
 # ── OCR-tolerant matching ────────────────────────────────────────────────────
 
 # Common OCR confusion groups: characters within each group are frequently
 # misrecognized as each other on console/monospace text.
-# Sources: tesseract FAQ, WinRT/Vision observed errors, UNLV OCR accuracy studies.
+# Sources: WinRT/Vision observed errors, UNLV OCR accuracy studies.
 $script:OCRConfusionGroups = @(
     'wuv'       # w↔u↔v — most common on console fonts
     'mn'        # m↔n
@@ -592,6 +362,7 @@ $script:OCRConfusionGroups = @(
     'Z2z'       # Z↔2↔z
     'gq9'       # g↔q↔9
     'ce'        # c↔e — at small sizes
+    ':;.'       # :↔;↔. — punctuation frequently mangled on terminal fonts
 )
 
 # Build canonical lookup: char → canonical lowercase representative of its group.
@@ -651,10 +422,12 @@ function Test-OCRMatch {
     param([string]$Text, [string]$Pattern)
     $normPattern = Get-OCRNormalized $Pattern
     if ($normPattern.Length -eq 0) { return $true }
-    # Require at least 85% of normalized pattern chars to appear in order.
-    # This allows ~1 dropped char per 7 pattern chars (e.g. "Password:" → "assuord:")
-    # while rejecting scattered coincidental matches in long log lines.
-    $threshold = [int][Math]::Ceiling($normPattern.Length * 0.85)
+    # Require at least 70% of normalized pattern chars to appear in order for
+    # short patterns (≤12 chars), scaling up to 85% for longer ones.  Short
+    # patterns like "Password:" (9 chars) are hit hard by just 2 OCR errors
+    # (e.g. P→r and :→.), dropping them below a flat 85% threshold.
+    $pctRequired = if ($normPattern.Length -le 12) { 0.70 } else { 0.85 }
+    $threshold = [int][Math]::Ceiling($normPattern.Length * $pctRequired)
     $patternChars = $normPattern.ToCharArray()
     # Matched chars in the text must span at most 2× the pattern length to
     # prevent hits where common chars are scattered across a long line.

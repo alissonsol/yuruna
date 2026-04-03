@@ -64,7 +64,7 @@
 	<!-- Display: Fixed 1920x1080 via virtio-ramfb-gl (QEMU).
 	     DynamicResolution is disabled so UTM does not scale to the host
 	     Retina display.
-	     WARNING: The test harness OCR (tesseract) is calibrated for 1920x1080.
+	     WARNING: The test harness OCR is calibrated for 1920x1080.
 	     Changing this resolution may break automated screen-text detection
 	     in waitForText sequence steps. -->
 	<key>Display</key>

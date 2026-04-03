@@ -145,7 +145,7 @@ Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions 
 Enable-VMIntegrationService -VMName $VMName -Name "Guest Service Interface"
 
 # Set display resolution to 1920x1080.
-# WARNING: The test harness OCR (tesseract) is calibrated for 1920x1080.
+# WARNING: The test harness OCR is calibrated for 1920x1080.
 # Changing this resolution may break automated screen-text detection
 # in waitForText sequence steps.
 Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single

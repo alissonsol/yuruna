@@ -1,6 +1,6 @@
 ﻿# Get-NewText.psm1
 # VERSION: 0.1
-# Pure C# image processing (no System.Drawing, ImageMagick, or Tesseract dependencies).
+# Pure C# image processing (no System.Drawing dependencies).
 # Requires PowerShell 7+ (.NET 10+).
 
 # --- Tracing ---
@@ -740,7 +740,7 @@ function Get-NewTextContent {
         for text extraction.
 
         All image processing is done in compiled C# with a built-in PNG codec,
-        requiring no external image libraries (no System.Drawing, ImageMagick, etc.).
+        requiring no external image libraries (no System.Drawing, etc.).
 
         Uses platform-native OCR for best accuracy:
         - Windows: Windows.Media.Ocr (WinRT, same engine as Snipping Tool)

@@ -250,24 +250,29 @@ test/
   test-config.json.template       # Configuration template (committed)
   test-config.json                # Your local configuration (git-ignored)
   modules/
+    Get-NewText.psm1              # Diff-based OCR text extraction (pure C#)
     Test.Host.psm1                # Host detection, elevation, git operations
     Test.Status.psm1              # status.json document management
+    Test.StatusServer.psm1        # HTTP status server start/stop
     Test.Notify.psm1              # Resend API email notifications
     Test.Get-Image.psm1           # Base image download and refresh
     Test.New-VM.psm1              # VM creation, verification, and cleanup
+    Test.Install-OS.psm1          # OS installation sequence orchestration
     Test.Start-VM.psm1            # VM start, stop, boot verification
     Test.Invoke-PoolTest.psm1     # Extension test discovery and execution
     Test.Screenshot.psm1          # Screenshot capture, comparison, schedule
   extensions/
     README.md                                       # Extension API documentation
-    Test-Workload.guest.amazon.linux.ps1             # Amazon Linux workload test
-    Test-Workload.guest.ubuntu.desktop.ps1           # Ubuntu Desktop workload test
-    Test-Workload.guest.windows.11.ps1               # Windows 11 workload test
-  screenshots/
-    guest.amazon.linux/
-      schedule.json               # Checkpoint timing and thresholds
-      reference/                  # Trained reference PNGs (committed)
-      captures/                   # Runtime captures (git-ignored)
+    Invoke-Sequence.psm1                            # JSON sequence interpreter
+    Test-Start.guest.amazon.linux.ps1               # Amazon Linux OS install
+    Test-Start.guest.ubuntu.desktop.ps1             # Ubuntu Desktop OS install
+    Test-Start.guest.windows.11.ps1                 # Windows 11 OS install
+    Test-Workload.guest.amazon.linux.ps1            # Amazon Linux workload test
+    Test-Workload.guest.ubuntu.desktop.ps1          # Ubuntu Desktop workload test
+    Test-Workload.guest.windows.11.ps1              # Windows 11 workload test
+  verify/
+    expected/                     # Reference PNGs (committed)
+    actual/                       # Runtime captures (git-ignored)
   status/
     index.html                    # Status dashboard
     status.json.template          # Template for status data
@@ -279,11 +284,14 @@ test/
 
 | Module | Purpose | Key functions |
 |--------|---------|---------------|
+| `Get-NewText` | Diff-based OCR text extraction (pure C#) | `Get-NewTextContent` |
 | `Test.Host` | Platform detection, elevation checks, git | `Get-HostType`, `Get-GuestList`, `Assert-Elevation`, `Invoke-GitPull` |
 | `Test.Status` | Status document lifecycle | `Initialize-StatusDocument`, `Set-StepStatus`, `Complete-Run` |
+| `Test.StatusServer` | HTTP status server management | `Start-StatusServer`, `Stop-StatusServer` |
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |
 | `Test.Get-Image` | Base image download/refresh | `Get-ImagePath`, `Invoke-GetImage` |
 | `Test.New-VM` | VM create + verify creation + cleanup | `Invoke-NewVM`, `Confirm-VMCreated`, `Remove-TestVM` |
+| `Test.Install-OS` | OS installation sequence orchestration | `Get-StartTestScript`, `Invoke-StartTest`, `Get-VerifyScreenshot` |
 | `Test.Start-VM` | VM start/stop + verify running | `Invoke-StartVM`, `Stop-TestVM`, `Confirm-VMStarted` |
 | `Test.Invoke-PoolTest` | Extension test discovery and execution | `Get-GuestTestScript`, `Invoke-PoolTest` |
 | `Test.Screenshot` | Screenshot capture, comparison, schedules | `Get-VMScreenshot`, `Compare-Screenshot`, `Invoke-ScreenshotTest` |

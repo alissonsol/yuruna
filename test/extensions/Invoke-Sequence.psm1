@@ -630,42 +630,93 @@ function Get-OCRPattern {
 
 function Wait-ForText {
     param([string]$HostType, [string]$VMName, [string]$Pattern, [int]$TimeoutSeconds = 120, [int]$PollSeconds = 5, [bool]$FreshMatch = $false)
-    $ocrPattern = Get-OCRPattern $Pattern
+    # Strip spaces from pattern before building OCR-tolerant regex — OCR on
+    # monospace/courier fonts often inserts spurious spaces between characters.
+    $ocrPattern = Get-OCRPattern ($Pattern -replace ' ', '')
     $elapsed = 0
 
-    # FreshMatch: capture baseline, then wait for screen to change AND pattern to appear at end
-    $baseline = $null
-    if ($FreshMatch) {
-        $baseline = Get-ScreenText -HostType $HostType -VMName $VMName
-        Write-Information "      Baseline captured — waiting for screen to change and pattern to appear at end..."
-    }
+    # Import required modules (Screenshot for capture, Get-NewText for diff-based OCR)
+    $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+    Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "Get-NewText.psm1") -Force -ErrorAction SilentlyContinue
 
-    while ($elapsed -lt $TimeoutSeconds) {
-        $screenText = Get-ScreenText -HostType $HostType -VMName $VMName
-        if ($screenText) {
-            if ($FreshMatch) {
-                # Require screen content to differ from baseline AND pattern in last 3 lines
-                if ($screenText -ne $baseline) {
-                    $lines = $screenText -split "`n"
-                    $tail = ($lines | Select-Object -Last 3) -join "`n"
-                    if ($tail -imatch $ocrPattern) {
-                        Write-Information "      Text detected at end of screen: '$Pattern'"
+    # Rolling screenshot window: current and previous screen paths
+    $tempRoot = if ($env:TEMP) { $env:TEMP } elseif ($env:TMPDIR) { $env:TMPDIR } else { '/tmp' }
+    $currentScreenPath  = Join-Path $tempRoot "waittext_${VMName}_current.png"
+    $previousScreenPath = Join-Path $tempRoot "waittext_${VMName}_previous.png"
+
+    # Clean up any stale files from a prior run
+    Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
+    Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
+
+    # Accumulate all seen text for non-FreshMatch mode
+    $allText = ''
+
+    try {
+        while ($elapsed -lt $TimeoutSeconds) {
+            # Capture the VM screen — this becomes the "current screen"
+            $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $currentScreenPath
+            if (-not $captured -or -not (Test-Path $currentScreenPath)) {
+                $elapsed += $PollSeconds
+                Write-Information "      Waiting for text '$Pattern'... (${elapsed}s / ${TimeoutSeconds}s)"
+                Start-Sleep -Seconds $PollSeconds
+                continue
+            }
+
+            # Get new text by diffing current vs previous screenshot
+            try {
+                $prevArg = if (Test-Path $previousScreenPath) { $previousScreenPath } else { $null }
+                $newText = Get-NewTextContent -CurrentScreenPath $currentScreenPath -PreviousScreenPath $prevArg
+            } catch {
+                Write-Verbose "Get-NewTextContent failed (dimension mismatch?): $_"
+                # Reset rolling window on error (e.g. VM resize)
+                Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
+                $newText = $null
+            }
+
+            if ($newText) {
+                $logSnippet = if ($newText.Length -le 200) { $newText } else { "..." + $newText.Substring($newText.Length - 200) }
+                Write-Information "      New OCR text: $logSnippet"
+
+                if ($FreshMatch) {
+                    # FreshMatch: only match on NEW text (skip first capture which has no previous)
+                    if ($prevArg) {
+                        $lines = $newText -split "`n"
+                        $tail = ($lines | Select-Object -Last 3) -join "`n"
+                        # Strip spaces from OCR text — courier fonts cause spurious spaces
+                        if (($tail -replace ' ', '') -imatch $ocrPattern) {
+                            Write-Information "      Text detected at end of screen: '$Pattern'"
+                            return $true
+                        }
+                    } else {
+                        Write-Information "      Baseline captured — waiting for screen to change and pattern to appear at end..."
+                    }
+                } else {
+                    # Non-FreshMatch: accumulate all text and check for pattern
+                    $allText = ($allText + "`n" + $newText).Trim()
+                    # Strip spaces from each line — courier fonts cause spurious spaces
+                    $spaceless = (($allText -split "`n") | ForEach-Object { $_ -replace ' ', '' }) -join "`n"
+                    if ($spaceless -imatch $ocrPattern) {
+                        Write-Information "      Text detected: '$Pattern'"
                         return $true
                     }
                 }
-            } else {
-                if ($screenText -imatch $ocrPattern) {
-                    Write-Information "      Text detected: '$Pattern'"
-                    return $true
-                }
             }
+
+            # Rolling window: move current → previous for next iteration
+            Move-Item -Path $currentScreenPath -Destination $previousScreenPath -Force
+
+            $elapsed += $PollSeconds
+            Write-Information "      Waiting for text '$Pattern'... (${elapsed}s / ${TimeoutSeconds}s)"
+            Start-Sleep -Seconds $PollSeconds
         }
-        $elapsed += $PollSeconds
-        Write-Information "      Waiting for text '$Pattern'... (${elapsed}s / ${TimeoutSeconds}s)"
-        Start-Sleep -Seconds $PollSeconds
+        Write-Warning "Text '$Pattern' not found within ${TimeoutSeconds}s"
+        return $false
+    } finally {
+        # Clean up temp screenshot files
+        Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
+        Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
     }
-    Write-Warning "Text '$Pattern' not found within ${TimeoutSeconds}s"
-    return $false
 }
 
 # ── Action: waitForPort ──────────────────────────────────────────────────────

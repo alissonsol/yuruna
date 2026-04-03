@@ -580,8 +580,8 @@ function Invoke-TesseractOCR {
 # ── OCR-tolerant matching ────────────────────────────────────────────────────
 
 # Common OCR confusion groups: characters within each group are frequently
-# misrecognized as each other by tesseract on console/monospace text.
-# Sources: tesseract FAQ, UNLV OCR accuracy studies, observed errors.
+# misrecognized as each other on console/monospace text.
+# Sources: tesseract FAQ, WinRT/Vision observed errors, UNLV OCR accuracy studies.
 $script:OCRConfusionGroups = @(
     'wuv'       # w↔u↔v — most common on console fonts
     'mn'        # m↔n
@@ -594,45 +594,124 @@ $script:OCRConfusionGroups = @(
     'ce'        # c↔e — at small sizes
 )
 
-# Build lookup: char → character class string. Built once, cached.
-$script:OCRCharClass = @{}
+# Build canonical lookup: char → canonical lowercase representative of its group.
+# Used by Test-OCRMatch to normalize both pattern and text before comparison.
+$script:OCRCanonical = @{}
 foreach ($group in $script:OCRConfusionGroups) {
-    $class = '[' + [regex]::Escape($group) + ']'
+    $canonical = [char]::ToLowerInvariant($group[0])
     foreach ($ch in $group.ToCharArray()) {
-        $script:OCRCharClass["$ch"] = $class
+        $script:OCRCanonical[[char]::ToLowerInvariant($ch)] = $canonical
     }
 }
 
 <#
 .SYNOPSIS
-    Converts a literal search string into a regex that tolerates common OCR
-    character confusions. E.g., "password" → "pass[wuv][oO0]rd".
+    Normalizes a string for OCR comparison: lowercase, strip spaces, map confusion groups.
 .DESCRIPTION
-    Each character that belongs to a known OCR confusion group is replaced
-    with a character class matching all members of that group. Characters
-    not in any group are regex-escaped literally. The result is always
-    case-insensitive safe.
+    Each character is lowercased and mapped to the canonical representative of its
+    OCR confusion group.  Spaces are stripped entirely (OCR on courier/monospace
+    fonts inserts spurious spaces between characters).
 #>
-function Get-OCRPattern {
+function Get-OCRNormalized {
     param([string]$Text)
-    $sb = [System.Text.StringBuilder]::new($Text.Length * 2)
+    $sb = [System.Text.StringBuilder]::new($Text.Length)
     foreach ($ch in $Text.ToCharArray()) {
-        if ($script:OCRCharClass.ContainsKey("$ch")) {
-            [void]$sb.Append($script:OCRCharClass["$ch"])
+        if ($ch -eq ' ') { continue }
+        $lower = [char]::ToLowerInvariant($ch)
+        if ($script:OCRCanonical.ContainsKey($lower)) {
+            [void]$sb.Append($script:OCRCanonical[$lower])
         } else {
-            [void]$sb.Append([regex]::Escape("$ch"))
+            [void]$sb.Append($lower)
         }
     }
     return $sb.ToString()
 }
 
+<#
+.SYNOPSIS
+    Tests if OCR text matches a pattern with tolerance for character confusion,
+    spurious spaces, and dropped characters.
+.DESCRIPTION
+    Normalizes both strings (lowercase, space-stripped, confusion-group-mapped)
+    and checks if the pattern appears as an approximate subsequence of any line
+    in the text.  At least 70% of the normalized pattern characters must appear
+    in order within a single line.
+
+    This handles:
+    - Character confusion (w↔u↔v, o↔O↔0, etc.)
+    - Spurious spaces from courier/monospace OCR
+    - Dropped characters (e.g. "Password" OCR'd as "assuord")
+#>
+function Test-OCRMatch {
+    param([string]$Text, [string]$Pattern)
+    $normPattern = Get-OCRNormalized $Pattern
+    if ($normPattern.Length -eq 0) { return $true }
+    # Require at least 85% of normalized pattern chars to appear in order.
+    # This allows ~1 dropped char per 7 pattern chars (e.g. "Password:" → "assuord:")
+    # while rejecting scattered coincidental matches in long log lines.
+    $threshold = [int][Math]::Ceiling($normPattern.Length * 0.85)
+    $patternChars = $normPattern.ToCharArray()
+    # Matched chars in the text must span at most 2× the pattern length to
+    # prevent hits where common chars are scattered across a long line.
+    $maxSpan = $normPattern.Length * 2
+
+    foreach ($line in ($Text -split "`n")) {
+        $normLine = Get-OCRNormalized $line
+        if ($normLine.Length -eq 0) { continue }
+
+        # Try the subsequence match from each text position that contains any
+        # pattern character.  A single greedy pass can latch onto an early
+        # occurrence (e.g. the 'l' in "Iinux") and stretch the span past the
+        # limit even though the real match ("login:") starts later and is compact.
+        # Starting from any pattern char (not just the first) also handles the
+        # case where the first pattern char was dropped by OCR (e.g. "Password"
+        # read as "assuord" — the leading P is gone).
+        $patternCharSet = [System.Collections.Generic.HashSet[char]]::new([char[]]$patternChars)
+        for ($startIdx = 0; $startIdx -lt $normLine.Length; $startIdx++) {
+            if (-not $patternCharSet.Contains($normLine[$startIdx])) { continue }
+
+            $ti = $startIdx
+            $matched = 0
+            $firstMatchPos = -1
+            $lastMatchPos  = -1
+            foreach ($pc in $patternChars) {
+                $savedTi = $ti
+                $found = $false
+                while ($ti -lt $normLine.Length) {
+                    if ($normLine[$ti] -eq $pc) {
+                        $matched++
+                        if ($firstMatchPos -lt 0) { $firstMatchPos = $ti }
+                        $lastMatchPos = $ti
+                        $ti++
+                        $found = $true
+                        break
+                    }
+                    $ti++
+                }
+                if (-not $found) { $ti = $savedTi }
+            }
+
+            if ($matched -ge $threshold) {
+                $span = $lastMatchPos - $firstMatchPos + 1
+                if ($span -le $maxSpan) { return $true }
+            }
+        }
+    }
+    return $false
+}
+
 # ── Action: waitForText ──────────────────────────────────────────────────────
 
 function Wait-ForText {
-    param([string]$HostType, [string]$VMName, [string]$Pattern, [int]$TimeoutSeconds = 120, [int]$PollSeconds = 5, [bool]$FreshMatch = $false)
-    # Strip spaces from pattern before building OCR-tolerant regex — OCR on
-    # monospace/courier fonts often inserts spurious spaces between characters.
-    $ocrPattern = Get-OCRPattern ($Pattern -replace ' ', '')
+    param(
+        [string]$HostType,
+        [string]$VMName,
+        [string]$Pattern,
+        [int]$TimeoutSeconds = 120,
+        [int]$PollSeconds = 5,
+        [bool]$FreshMatch = $false,
+        [int]$ResetAfterMisses = 3
+    )
     $elapsed = 0
 
     # Import required modules (Screenshot for capture, Get-NewText for diff-based OCR)
@@ -649,8 +728,17 @@ function Wait-ForText {
     Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
     Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
 
+    # Start with a blank previous screen (black background) so the first diff
+    # treats the entire current frame as new content.  The blank is a 1x1 black
+    # PNG — Get-NewTextContent will detect the dimension mismatch on the first
+    # real capture and fall back to treating the whole image as new, which is
+    # exactly the desired behavior.  We delete it so $prevArg is $null on the
+    # first iteration, letting Get-NewTextContent handle the "no previous" path.
+    # (Previous screen intentionally absent → all pixels are new.)
+
     # Accumulate all seen text for non-FreshMatch mode
     $allText = ''
+    $consecutiveMisses = 0
 
     try {
         while ($elapsed -lt $TimeoutSeconds) {
@@ -663,7 +751,8 @@ function Wait-ForText {
                 continue
             }
 
-            # Get new text by diffing current vs previous screenshot
+            # Get new text by diffing current vs previous screenshot.
+            # When no previous screen exists the module treats the entire image as new.
             try {
                 $prevArg = if (Test-Path $previousScreenPath) { $previousScreenPath } else { $null }
                 $newText = Get-NewTextContent -CurrentScreenPath $currentScreenPath -PreviousScreenPath $prevArg
@@ -675,6 +764,7 @@ function Wait-ForText {
             }
 
             if ($newText) {
+                $consecutiveMisses = 0
                 $logSnippet = if ($newText.Length -le 200) { $newText } else { "..." + $newText.Substring($newText.Length - 200) }
                 Write-Information "      New OCR text: $logSnippet"
 
@@ -683,8 +773,7 @@ function Wait-ForText {
                     if ($prevArg) {
                         $lines = $newText -split "`n"
                         $tail = ($lines | Select-Object -Last 3) -join "`n"
-                        # Strip spaces from OCR text — courier fonts cause spurious spaces
-                        if (($tail -replace ' ', '') -imatch $ocrPattern) {
+                        if (Test-OCRMatch -Text $tail -Pattern $Pattern) {
                             Write-Information "      Text detected at end of screen: '$Pattern'"
                             return $true
                         }
@@ -694,12 +783,20 @@ function Wait-ForText {
                 } else {
                     # Non-FreshMatch: accumulate all text and check for pattern
                     $allText = ($allText + "`n" + $newText).Trim()
-                    # Strip spaces from each line — courier fonts cause spurious spaces
-                    $spaceless = (($allText -split "`n") | ForEach-Object { $_ -replace ' ', '' }) -join "`n"
-                    if ($spaceless -imatch $ocrPattern) {
+                    if (Test-OCRMatch -Text $allText -Pattern $Pattern) {
                         Write-Information "      Text detected: '$Pattern'"
                         return $true
                     }
+                }
+            } else {
+                $consecutiveMisses++
+                if ($consecutiveMisses -ge $ResetAfterMisses) {
+                    # Too many consecutive polls returned no new text — the previous
+                    # screen may be identical to the current screen (timing issue).
+                    # Reset the rolling window so the next diff sees all pixels as new.
+                    Write-Information "      No new text for $consecutiveMisses polls — resetting previous screen"
+                    Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
+                    $consecutiveMisses = 0
                 }
             }
 
@@ -890,9 +987,11 @@ function Invoke-Sequence {
                 $timeout = if ($step.timeoutSeconds) { [int]$step.timeoutSeconds } else { 120 }
                 $poll = if ($step.pollSeconds) { [int]$step.pollSeconds } else { 5 }
                 $fresh = if ($step.freshMatch -eq $true) { $true } else { $false }
+                $resetMisses = if ($step.resetAfterMisses) { [int]$step.resetAfterMisses } else { 3 }
                 Write-Information "      Watching screen for: '$pattern' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $pattern `
-                    -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh
+                    -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
+                    -ResetAfterMisses $resetMisses
             }
             "screenshot" {
                 $label = if ($step.label) { $step.label } else { "step$stepNum" }

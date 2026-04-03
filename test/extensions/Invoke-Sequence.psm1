@@ -817,12 +817,15 @@ function Wait-ForText {
                     # Reset the rolling window so the next diff sees all pixels as new.
                     Write-Information "      No new text for $consecutiveMisses polls — resetting previous screen"
                     Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
+                    Remove-Item $currentScreenPath -Force -ErrorAction SilentlyContinue
                     $consecutiveMisses = 0
                 }
             }
 
             # Rolling window: move current → previous for next iteration
-            Move-Item -Path $currentScreenPath -Destination $previousScreenPath -Force
+            if (Test-Path $currentScreenPath) {
+                Move-Item -Path $currentScreenPath -Destination $previousScreenPath -Force
+            }
 
             $elapsed += $PollSeconds
             Write-Information "      Waiting for text '$Pattern'... (${elapsed}s / ${TimeoutSeconds}s)"

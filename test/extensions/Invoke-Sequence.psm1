@@ -355,14 +355,23 @@ function Send-Text {
 $script:OCRConfusionGroups = @(
     'wuv'       # w↔u↔v — most common on console fonts
     'mn'        # m↔n
-    'oO0'       # o↔O↔0
-    'lI1i'      # l↔I↔1↔i
+    'oO0@'      # o↔O↔0↔@ — @ misread as O on terminal fonts
+    'lI1i[]'    # l↔I↔1↔i↔[↔] — brackets misread as l/1/i
     'S5s'       # S↔5↔s
     'B8'        # B↔8
     'Z2z'       # Z↔2↔z
     'gq9'       # g↔q↔9
     'ce'        # c↔e — at small sizes
     ':;.'       # :↔;↔. — punctuation frequently mangled on terminal fonts
+)
+
+# Characters that are stripped entirely during normalization.
+# OCR engines frequently insert em/en dashes, smart quotes, or other
+# Unicode substitutions for ASCII punctuation on terminal screens.
+# Stripping these (along with their ASCII equivalents) prevents
+# mismatches when the pattern uses plain ASCII.
+$script:OCRStripChars = [System.Collections.Generic.HashSet[char]]::new(
+    [char[]]@('-', [char]0x2014, [char]0x2013, [char]0x2012)  # -, —, –, ‒
 )
 
 # Build canonical lookup: char → canonical lowercase representative of its group.
@@ -377,17 +386,19 @@ foreach ($group in $script:OCRConfusionGroups) {
 
 <#
 .SYNOPSIS
-    Normalizes a string for OCR comparison: lowercase, strip spaces, map confusion groups.
+    Normalizes a string for OCR comparison: lowercase, strip spaces/dashes, map confusion groups.
 .DESCRIPTION
     Each character is lowercased and mapped to the canonical representative of its
-    OCR confusion group.  Spaces are stripped entirely (OCR on courier/monospace
-    fonts inserts spurious spaces between characters).
+    OCR confusion group.  Spaces and dash-like characters (hyphens, em/en dashes)
+    are stripped entirely because OCR on courier/monospace fonts inserts spurious
+    spaces and frequently substitutes Unicode dashes for ASCII hyphens.
 #>
 function Get-OCRNormalized {
     param([string]$Text)
     $sb = [System.Text.StringBuilder]::new($Text.Length)
     foreach ($ch in $Text.ToCharArray()) {
         if ($ch -eq ' ') { continue }
+        if ($script:OCRStripChars.Contains($ch)) { continue }
         $lower = [char]::ToLowerInvariant($ch)
         if ($script:OCRCanonical.ContainsKey($lower)) {
             [void]$sb.Append($script:OCRCanonical[$lower])
@@ -403,10 +414,9 @@ function Get-OCRNormalized {
     Tests if OCR text matches a pattern with tolerance for character confusion,
     spurious spaces, and dropped characters.
 .DESCRIPTION
-    Normalizes both strings (lowercase, space-stripped, confusion-group-mapped)
-    and checks if the pattern appears as an approximate subsequence of any line
-    in the text.  At least 70% of the normalized pattern characters must appear
-    in order within a single line.
+    Normalizes both strings (lowercase, space/dash-stripped, confusion-group-mapped)
+    and checks if the pattern appears as an approximate match in any line
+    of the text.  At least 85% of the normalized pattern characters must match.
 
     Two matching strategies are tried (either passing is sufficient):
     1. Positional (sliding window): handles arbitrary single-character
@@ -415,19 +425,21 @@ function Get-OCRNormalized {
        (e.g. "Password" OCR'd as "assuord").
 
     Also handles:
-    - Character confusion (w↔u↔v, o↔O↔0, etc.)
+    - Character confusion (w↔u↔v, o↔O↔0↔@, l↔I↔1↔i↔[↔], etc.)
+    - Punctuation confusion (:↔;↔.)
+    - Dash normalization (-, —, –, ‒ all stripped)
     - Spurious spaces from courier/monospace OCR
 #>
 function Test-OCRMatch {
     param([string]$Text, [string]$Pattern)
     $normPattern = Get-OCRNormalized $Pattern
     if ($normPattern.Length -eq 0) { return $true }
-    # Require at least 70% of normalized pattern chars to appear in order for
-    # short patterns (≤12 chars), scaling up to 85% for longer ones.  Short
-    # patterns like "Password:" (9 chars) are hit hard by just 2 OCR errors
-    # (e.g. P→r and :→.), dropping them below a flat 85% threshold.
-    $pctRequired = if ($normPattern.Length -le 12) { 0.70 } else { 0.85 }
-    $threshold = [int][Math]::Ceiling($normPattern.Length * $pctRequired)
+    # Require at least 85% of normalized pattern chars to appear in order.
+    # This allows ~1 dropped char per 7 pattern chars (e.g. "Password:" → "assuord:")
+    # while rejecting scattered coincidental matches in long log lines.
+    # The :;. confusion group handles punctuation substitution (e.g. "rassword."
+    # matches "Password:" via the sliding window at 8/9 = 89%).
+    $threshold = [int][Math]::Ceiling($normPattern.Length * 0.85)
     $patternChars = $normPattern.ToCharArray()
     # Matched chars in the text must span at most 2× the pattern length to
     # prevent hits where common chars are scattered across a long line.

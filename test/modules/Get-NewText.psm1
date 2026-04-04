@@ -570,6 +570,7 @@ $imagePath = $args[0]
 $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) ([Windows.Storage.StorageFile])
 $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
 $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+
 $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
 
 $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
@@ -626,14 +627,31 @@ let imagePath = CommandLine.arguments[1]
 guard let image = NSImage(contentsOfFile: imagePath),
       let tiff = image.tiffRepresentation,
       let bitmap = NSBitmapImageRep(data: tiff),
-      let cgImage = bitmap.cgImage else {
+      let originalCGImage = bitmap.cgImage else {
     fputs("Failed to load image: \(imagePath)\n", stderr)
     exit(1)
+}
+
+// Upscale 2x for better OCR of small terminal text.
+let w = originalCGImage.width * 2
+let h = originalCGImage.height * 2
+let cgImage: CGImage
+if let ctx = CGContext(data: nil, width: w, height: h,
+                       bitsPerComponent: originalCGImage.bitsPerComponent,
+                       bytesPerRow: 0,
+                       space: originalCGImage.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                       bitmapInfo: originalCGImage.bitmapInfo.rawValue) {
+    ctx.interpolationQuality = .high
+    ctx.draw(originalCGImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+    cgImage = ctx.makeImage() ?? originalCGImage
+} else {
+    cgImage = originalCGImage
 }
 
 let request = VNRecognizeTextRequest()
 request.recognitionLevel = .accurate
 request.usesLanguageCorrection = true
+request.recognitionLanguages = ["en-US"]
 
 let handler = VNImageRequestHandler(cgImage: cgImage)
 try handler.perform([request])

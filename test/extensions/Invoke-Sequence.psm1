@@ -319,27 +319,20 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    # Send key codes character by character. Keystrokes are sent at the
-    # System Events level (not inside "tell process") so that keyboard
-    # modifiers like shift actually reach UTM's virtual keyboard. The
-    # process block is only used to find and raise the correct VM window.
-    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
-    $charLines = ""
-    foreach ($ch in $Text.ToCharArray()) {
-        $entry = $script:MacCharKeyCodes["$ch"]
-        if (-not $entry) {
-            Write-Warning "No macOS key code for character '$ch'. Skipping."
-            continue
-        }
-        $kc = $entry[0]
-        $shifted = $entry[1]
-        if ($shifted) {
-            $charLines += "    key code $kc using shift down`n"
-        } else {
-            $charLines += "    key code $kc`n"
-        }
-        $charLines += "    delay $delaySec`n"
+    # AppleScript keyboard modifiers (shift, command, etc.) are silently
+    # dropped by UTM's virtual keyboard. Use clipboard + menu-click paste
+    # instead: pbcopy sets the macOS clipboard, then we programmatically
+    # click UTM's Edit > Paste menu item (no keyboard modifiers needed).
+    # UTM types clipboard content into the VM character by character.
+
+    # Step 1: Set macOS clipboard via pbcopy
+    $pbResult = $Text | & pbcopy 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "pbcopy failed: $pbResult"
+        return $false
     }
+
+    # Step 2: Activate UTM window, then click Edit > Paste menu
     $appleScript = @"
 tell application "UTM" to activate
 delay 0.3
@@ -355,9 +348,9 @@ tell application "System Events"
             end if
         end repeat
         if not found then return "window_not_found"
+        delay 0.3
+        click menu item "Paste" of menu 1 of menu bar item "Edit" of menu bar 1
     end tell
-    delay 0.3
-$charLines
 end tell
 return "ok"
 "@

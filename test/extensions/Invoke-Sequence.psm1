@@ -516,7 +516,7 @@ function Wait-ForText {
         [int]$TimeoutSeconds = 120,
         [int]$PollSeconds = 5,
         [bool]$FreshMatch = $false,
-        [int]$ResetAfterMisses = 3
+        [int]$ResetAfterMisses = 2
     )
     $elapsed = 0
 

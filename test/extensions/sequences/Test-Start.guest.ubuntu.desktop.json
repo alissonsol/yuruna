@@ -1,18 +1,143 @@
 {
   "$schema": "Interaction sequence for driving VM installation.",
   "$actions": {
-    "delay":      "Wait a fixed number of seconds. Parameters: seconds (number).",
-    "key":        "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
-    "type":       "Type a string of text. Parameters: text (string). Hyper-V only: uses Msvm_Keyboard.TypeText.",
-    "screenshot": "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
-    "waitForPort": "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
-    "waitForHeartbeat": "Wait until Hyper-V Integration Services heartbeat reports OK. Parameters: timeoutSeconds (number). Hyper-V only."
+    "delay":            "Wait a fixed number of seconds. Parameters: seconds (number).",
+    "key":              "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
+    "type":             "Type a text string. Parameters: text (string), sensitive (boolean, masks output).",
+    "typeAndEnter":     "Type a text string followed by Enter. Parameters: text (string), sensitive (boolean, masks output).",
+    "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
+    "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
+    "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
+    "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
+    "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number)."
   },
+  "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
+
   "description": "Ubuntu Desktop: dismiss GRUB 'Try or Install' menu then let autoinstall run unattended.",
+  "variables": {
+    "username":    "ubuntu",
+    "password":    "password",
+    "newPassword": "belohorizonte"
+  },
   "steps": [
-    { "action": "delay",  "seconds": 8,   "description": "Wait for GRUB menu to appear" },
-    { "action": "key",    "name": "Enter", "description": "Dismiss GRUB menu (first attempt)" },
-    { "action": "delay",  "seconds": 10,  "description": "Wait in case first Enter was too early" },
-    { "action": "key",    "name": "Enter", "description": "Dismiss GRUB menu (retry)" }
+    {
+      "action": "waitForText",
+      "pattern": "Try or Install Ubuntu",
+      "timeoutSeconds": 180,
+      "pollSeconds": 5,
+      "description": "Wait for login prompt"
+    },
+    {
+      "action": "delay",
+      "seconds": 1,
+      "description": "Brief pause before GRUB dismissal"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "",
+      "description": "Dismiss GRUB menu"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Not listed?",
+      "timeoutSeconds": 600,
+      "pollSeconds": 10,
+      "description": "Login after install"
+    },
+    {
+      "action": "delay",
+      "seconds": 1,
+      "description": "Delay"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "",
+      "description": "Bring up password field"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Password",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Wait for password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${password}",
+      "sensitive": true,
+      "description": "Enter current password"
+    },
+    {
+      "action": "delay",
+      "seconds": 1,
+      "description": "Delay"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${password}",
+      "sensitive": true,
+      "description": "Re-enter current password for verification"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "New password:",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Wait for new password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "Enter new password"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Retype new password:",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Wait for password confirmation prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "Confirm new password"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "${username}@${vmName}",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Wait for login shell prompt"
+    },
+    {
+      "action": "delay",
+      "seconds": 1,
+      "description": "Brief pause before running update"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "sudo bash /ubuntu.desktop.update.sh",
+      "description": "Run update script"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "${username}@${vmName}",
+      "timeoutSeconds": 600,
+      "pollSeconds": 15,
+      "freshMatch": true,
+      "description": "Wait for update script to complete (may take several minutes)"
+    },
+    {
+      "action": "delay",
+      "seconds": 1,
+      "description": "Brief pause before rebooting"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "sudo reboot now",
+      "description": "Reboot the VM, for the fun of it!"
+    }
   ]
 }

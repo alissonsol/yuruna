@@ -112,8 +112,9 @@ try {
             throw "BITS ended in state: $($bitsJob.JobState)"
         }
     } catch {
-        Write-Output "  BITS unavailable or failed. Downloading with Invoke-WebRequest..."
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -UseBasicParsing
+        Write-Output "  BITS unavailable or failed. Downloading with curl..."
+        & curl.exe -L --progress-bar -o $downloadFile $downloadUrl
+        if ($LASTEXITCODE -ne 0) { throw "Download failed (curl exit code $LASTEXITCODE)" }
     }
 
     if (-not (Test-Path $downloadFile)) {

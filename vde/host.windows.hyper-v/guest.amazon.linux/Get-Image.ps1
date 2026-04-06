@@ -44,7 +44,8 @@ $downloadUrl = $sourceUrl + $zipLink
 $downloadFile = Join-Path $downloadDir "downloaded.zip"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $downloadUrl to $downloadFile"
-Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile
+& curl.exe -L --progress-bar -o $downloadFile $downloadUrl
+if ($LASTEXITCODE -ne 0) { Write-Error "Download failed (curl exit code $LASTEXITCODE)"; exit 1 }
 
 # Verify download integrity using SHA256 checksum
 $checksumLink = ($html.Links | Where-Object { $_.href -match "\.zip\.sha256$" })

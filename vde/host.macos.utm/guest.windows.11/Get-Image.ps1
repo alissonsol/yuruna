@@ -121,8 +121,9 @@ if (-not $windowsOk) {
                 throw "BITS ended in state: $($bitsJob.JobState)"
             }
         } catch {
-            Write-Output "  BITS unavailable or failed. Downloading with Invoke-WebRequest..."
-            Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -UseBasicParsing
+            Write-Output "  BITS unavailable or failed. Downloading with curl..."
+            & curl -L --progress-bar -o $downloadFile $downloadUrl
+            if ($LASTEXITCODE -ne 0) { throw "Download failed (curl exit code $LASTEXITCODE)" }
         }
 
         if (-not (Test-Path $downloadFile)) {
@@ -177,7 +178,8 @@ if (Test-Path -Path $spiceImageFile) {
     $spiceDownloadFile = Join-Path $downloadDir "utm-guest-tools-download.iso"
     Remove-Item $spiceDownloadFile -Force -ErrorAction SilentlyContinue
     try {
-        Invoke-WebRequest -Uri $spiceDownloadUrl -OutFile $spiceDownloadFile -UseBasicParsing -ErrorAction Stop
+        & curl -L --progress-bar -o $spiceDownloadFile $spiceDownloadUrl
+        if ($LASTEXITCODE -ne 0) { throw "Download failed (curl exit code $LASTEXITCODE)" }
         if (-not (Test-Path $spiceDownloadFile)) {
             throw "Download failed: file not found."
         }

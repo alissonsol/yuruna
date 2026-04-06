@@ -62,7 +62,8 @@ if (!(Test-Path -Path $downloadDir)) {
 $downloadFile = Join-Path $downloadDir "downloaded.iso"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceUrl to $downloadFile"
-Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile
+& curl.exe -L --progress-bar -o $downloadFile $sourceUrl
+if ($LASTEXITCODE -ne 0) { Write-Error "Download failed (curl exit code $LASTEXITCODE)"; exit 1 }
 
 # Verify download integrity using SHA256 checksum
 Write-Output "Verifying download integrity..."

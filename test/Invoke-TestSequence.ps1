@@ -36,6 +36,11 @@
     The 1-based step number at which to begin execution. Steps before this number
     are skipped. Defaults to 1 (run from the beginning).
 
+.PARAMETER StopStep
+    The 1-based step number at which to stop execution (inclusive). Steps after
+    this number are skipped and the VM is left running for inspection. Must be
+    greater than or equal to StartStep. If not specified, runs to the end.
+
 .PARAMETER ConfigPath
     Path to the test config JSON file. Defaults to test/test-config.json.
 
@@ -46,6 +51,9 @@
     pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 5
 
 .EXAMPLE
+    pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 3 -StopStep 7
+
+.EXAMPLE
     pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux"
 #>
 
@@ -54,6 +62,8 @@ param(
     [string]$SequenceName,
 
     [int]$StartStep = 1,
+
+    [int]$StopStep = 0,
 
     [string]$ConfigPath = $null,
 
@@ -69,6 +79,9 @@ $ExtensionsDir  = Join-Path $TestRoot "extensions"
 $SequencesDir   = Join-Path $ExtensionsDir "sequences"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
+
+# === Enable tracing by default for development debugging ===
+if (-not $env:NEWTEXT_TRACE) { $env:NEWTEXT_TRACE = '1' }
 
 # === Import modules ===
 foreach ($mod in @("Test.Host", "Test.New-VM", "Test.Start-VM")) {
@@ -176,10 +189,25 @@ if ($StartStep -lt 1 -or $StartStep -gt $totalSteps) {
     exit 1
 }
 
+if ($StopStep -ne 0) {
+    if ($StopStep -lt $StartStep) {
+        Write-Warning "StopStep ($StopStep) must be greater than or equal to StartStep ($StartStep). Stopping."
+        exit 1
+    }
+    if ($StopStep -gt $totalSteps) {
+        Write-Warning "StopStep $StopStep exceeds total steps ($totalSteps). Clamping to $totalSteps."
+        $StopStep = $totalSteps
+    }
+}
+
+$effectiveStop = if ($StopStep -ne 0) { $StopStep } else { $totalSteps }
+
+$stopLabel = if ($StopStep -ne 0) { ", stopping after step $effectiveStop" } else { "" }
+
 Write-Output ""
 Write-Output "============================================="
 Write-Output "  Sequence: $SequenceName"
-Write-Output "  Steps:    $totalSteps total, starting at step $StartStep"
+Write-Output "  Steps:    $totalSteps total, starting at step $StartStep$stopLabel"
 Write-Output "  VM:       $VMName"
 Write-Output "  Guest:    $GuestKey"
 Write-Output "============================================="
@@ -190,14 +218,14 @@ Write-Output "Step list:"
 $stepIdx = 0
 foreach ($step in $sequence.steps) {
     $stepIdx++
-    $marker = if ($stepIdx -ge $StartStep) { ">>" } else { "  " }
+    $marker = if ($stepIdx -ge $StartStep -and $stepIdx -le $effectiveStop) { ">>" } else { "  " }
     $desc = if ($step.description) { $step.description } else { $step.action }
     Write-Output "  $marker [$stepIdx] $($step.action): $desc"
 }
 Write-Output ""
 
 # === Build a trimmed sequence and write to a temp file ===
-$trimmedSteps = @($sequence.steps)[$($StartStep - 1)..($totalSteps - 1)]
+$trimmedSteps = @($sequence.steps)[$($StartStep - 1)..($effectiveStop - 1)]
 
 $trimmedSequence = [ordered]@{}
 # Copy all properties except steps
@@ -212,17 +240,21 @@ $tempFile = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
 $trimmedSequence | ConvertTo-Json -Depth 10 | Set-Content -Path $tempFile -Encoding UTF8
 
 try {
-    Write-Output "Running steps $StartStep to $totalSteps..."
+    Write-Output "Running steps $StartStep to $effectiveStop..."
     Write-Output ""
 
-    $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $tempFile
+    $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $tempFile -ShowSensitive
     if ($ok -eq $false) {
         Write-Warning "Sequence failed."
         exit 1
     }
 
     Write-Output ""
-    Write-Output "Sequence completed successfully."
+    if ($StopStep -ne 0 -and $effectiveStop -lt $totalSteps) {
+        Write-Output "Sequence stopped after step $effectiveStop of $totalSteps. VM '$VMName' left running for inspection."
+    } else {
+        Write-Output "Sequence completed successfully."
+    }
     exit 0
 } finally {
     Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue

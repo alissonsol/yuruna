@@ -3,8 +3,8 @@
   "$actions": {
     "delay":            "Wait a fixed number of seconds. Parameters: seconds (number).",
     "key":              "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
-    "type":             "Type a text string. Parameters: text (string), sensitive (boolean, masks output).",
-    "typeAndEnter":     "Type a text string followed by Enter. Parameters: text (string), sensitive (boolean, masks output).",
+    "type":             "Type a text string. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, delay between chars in ms, default 50).",
+    "typeAndEnter":     "Type a text string, wait, then press Enter. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, default 50), delaySeconds (number, default 2).",
     "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
     "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
     "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",

@@ -19,14 +19,26 @@
 # This is set at module scope so it applies to all functions.
 $InformationPreference = 'Continue'
 
+# ── Load global defaults from test-config.json ──────────────────────────────
+# The config file lives one level up from this module (test/test-config.json).
+$script:DefaultCharDelayMs = 50
+$_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test-config.json"
+if (Test-Path $_configPath) {
+    try {
+        $_cfg = Get-Content -Raw $_configPath | ConvertFrom-Json
+        if ($_cfg.charDelayMs) { $script:DefaultCharDelayMs = [int]$_cfg.charDelayMs }
+    } catch { <# ignore parse errors — use built-in default #> }
+}
+Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared engine for executing interaction sequences from JSON files.
 #
 # Supported actions (defined in $actions in each JSON):
 #   delay            — Wait N seconds.
 #   key              — Send a single keystroke.
-#   type             — Type a text string into the VM.
-#   typeAndEnter     — Type a text string followed by Enter.
+#   type             — Type a text string into the VM (charDelayMs configurable, default from test-config.json, fallback 50ms).
+#   typeAndEnter     — Type a text string, wait, then press Enter (charDelayMs/delaySeconds configurable).
 #   screenshot       — Capture a screenshot for debugging.
 #   waitForText      — Capture + OCR the VM screen until pattern appears.
 #                       freshMatch: if true, captures a baseline, then waits for the screen
@@ -262,13 +274,14 @@ function Send-Key {
 # ── Action: type / typeAndEnter ──────────────────────────────────────────────
 
 function Send-TextHyperV {
-    param([string]$VMName, [string]$Text)
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
     $kb = Get-HyperVKeyboard -VMName $VMName
     if (-not $kb) { return $false }
     try {
-        # Convert each character to PS/2 scan codes and send as a batch.
+        # Send each character individually with a delay between them
+        # to avoid overwhelming the VM's keyboard buffer.
         # For shifted characters: LShift-down, char-down, char-up, LShift-up.
-        $codeList = [System.Collections.Generic.List[byte]]::new()
+        $charCount = 0
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:CharScanCodes["$ch"]
             if (-not $entry) {
@@ -277,15 +290,21 @@ function Send-TextHyperV {
             }
             $scan = [byte]$entry[0]
             $shifted = $entry[1]
+            $codeList = [System.Collections.Generic.List[byte]]::new()
             if ($shifted) { $codeList.Add(0x2A) }            # LShift make
             $codeList.Add($scan)                              # char make
             $codeList.Add([byte]($scan -bor 0x80))            # char break
             if ($shifted) { $codeList.Add(0xAA) }            # LShift break
+            $ok = Send-ScanCode -Keyboard $kb -Codes ([byte[]]$codeList.ToArray())
+            if (-not $ok) {
+                Write-Warning "Hyper-V TypeScancodes failed at char '$ch'"
+                return $false
+            }
+            $charCount++
+            if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
         }
-        if ($codeList.Count -eq 0) { return $true }
-        $ok = Send-ScanCode -Keyboard $kb -Codes ([byte[]]$codeList.ToArray())
-        Write-Information "      TypeScancodes: $($Text.Length) chars, $($codeList.Count) codes, ok=$ok"
-        return $ok
+        Write-Information "      TypeScancodes: $charCount chars sent (${CharDelayMs}ms delay between chars)"
+        return $true
     } catch {
         Write-Warning "Hyper-V TypeScancodes (text) failed: $_"
         return $false
@@ -293,10 +312,11 @@ function Send-TextHyperV {
 }
 
 function Send-TextUTM {
-    param([string]$VMName, [string]$Text)
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
     # Send raw key codes character by character. Uses explicit key down/up
     # for shift instead of "using shift down", which loses the modifier
     # when targeting UTM's virtual keyboard (e.g., "$" arrives as "4").
+    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
     $charLines = ""
     foreach ($ch in $Text.ToCharArray()) {
         $entry = $script:MacCharKeyCodes["$ch"]
@@ -315,7 +335,7 @@ function Send-TextUTM {
         } else {
             $charLines += "                key code $kc`n"
         }
-        $charLines += "                delay 0.05`n"
+        $charLines += "                delay $delaySec`n"
     }
     $appleScript = @"
 tell application "UTM" to activate
@@ -340,9 +360,9 @@ return "window_not_found"
 }
 
 function Send-Text {
-    param([string]$HostType, [string]$VMName, [string]$Text)
-    if ($HostType -eq "host.windows.hyper-v") { return Send-TextHyperV -VMName $VMName -Text $Text }
-    elseif ($HostType -eq "host.macos.utm")   { return Send-TextUTM    -VMName $VMName -Text $Text }
+    param([string]$HostType, [string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    if ($HostType -eq "host.windows.hyper-v") { return Send-TextHyperV -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs }
+    elseif ($HostType -eq "host.macos.utm")   { return Send-TextUTM    -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs }
     else { Write-Warning "Unknown host: $HostType"; return $false }
 }
 
@@ -584,6 +604,13 @@ function Wait-ForText {
                             return $true
                         }
                     } else {
+                        # Baseline capture — check if the pattern is already at the end of screen
+                        $lines = $newText -split "`n"
+                        $tail = ($lines | Select-Object -Last 3) -join "`n"
+                        if (Test-OCRMatch -Text $tail -Pattern $Pattern) {
+                            Write-Information "      Pattern already at end of baseline — match: '$Pattern'"
+                            return $true
+                        }
                         Write-Information "      Baseline captured — waiting for screen to change and pattern to appear at end..."
                     }
                 } else {
@@ -731,7 +758,8 @@ function Invoke-Sequence {
         [string]$HostType,
         [string]$GuestKey,
         [string]$VMName,
-        [string]$SequencePath
+        [string]$SequencePath,
+        [switch]$ShowSensitive
     )
 
     if (-not (Test-Path $SequencePath)) {
@@ -777,17 +805,20 @@ function Invoke-Sequence {
             }
             "type" {
                 $text = Expand-Variable $step.text $vars
-                $masked = if ($step.sensitive) { "***" } else { $text }
-                Write-Information "      Typing: '$masked'"
-                $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text
+                $masked = if ($step.sensitive -and -not $ShowSensitive) { "***" } else { $text }
+                $charDelay = if ($step.charDelayMs) { [int]$step.charDelayMs } else { $script:DefaultCharDelayMs }
+                Write-Information "      Typing: '$masked' (charDelay=${charDelay}ms)"
+                $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
             }
             "typeAndEnter" {
                 $text = Expand-Variable $step.text $vars
-                $masked = if ($step.sensitive) { "***" } else { $text }
-                Write-Information "      Typing: '$masked' + Enter"
-                $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text
+                $masked = if ($step.sensitive -and -not $ShowSensitive) { "***" } else { $text }
+                $delaySeconds = if ($step.delaySeconds) { [double]$step.delaySeconds } else { 2 }
+                $charDelay = if ($step.charDelayMs) { [int]$step.charDelayMs } else { $script:DefaultCharDelayMs }
+                Write-Information "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
+                $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                 if ($ok -ne $false) {
-                    Start-Sleep -Milliseconds 200
+                    Start-Sleep -Seconds $delaySeconds
                     $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                 }
             }

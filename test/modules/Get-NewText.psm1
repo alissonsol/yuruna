@@ -525,6 +525,31 @@ public static class ScreenDelta
         }
         return blanked;
     }
+
+    /// <summary>
+    /// Converts an image to grayscale in-place using luminance weights.
+    /// Improves OCR accuracy on colored text (e.g. green-on-red prompts).
+    /// </summary>
+    public static void ToGrayscale(RawImage img)
+    {
+        byte[] px = img.Pixels;
+        int len = img.Width * img.Height;
+        int stride = img.Stride;
+        for (int y = 0; y < img.Height; y++)
+        {
+            int rowOff = y * stride;
+            for (int x = 0; x < img.Width; x++)
+            {
+                int i = rowOff + (x << 2);
+                // ITU-R BT.601 luminance: 0.299R + 0.587G + 0.114B
+                byte gray = (byte)((px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8);
+                px[i] = gray;
+                px[i + 1] = gray;
+                px[i + 2] = gray;
+                // alpha unchanged
+            }
+        }
+    }
 }
 '@
 
@@ -873,6 +898,10 @@ function Get-NewTextContent {
         $croppedImg = [ScreenDelta]::PadIfNeeded($croppedImg, $bgR, $bgG, $bgB, $bgA, $minOcrHeight)
         Write-Trace "Pad check (now $($croppedImg.Width)x$($croppedImg.Height))" $totalSw
 
+        # Convert to grayscale for better OCR on colored text
+        [ScreenDelta]::ToGrayscale($croppedImg)
+        Write-Trace "Grayscale conversion" $totalSw
+
         # Save for OCR
         $ocrInputPath = Join-Path $debugDir 'ocr_input.png'
         [PngCodec]::Save($croppedImg, $ocrInputPath)
@@ -895,6 +924,7 @@ function Get-NewTextContent {
         $prevCropPath = Join-Path $debugDir 'ocr_prev_crop.png'
         $prevCropImg = [ScreenDelta]::Crop($previousImg, $delta.MinY, $delta.MaxY)
         $prevCropImg = [ScreenDelta]::PadIfNeeded($prevCropImg, $bgR, $bgG, $bgB, $bgA, $minOcrHeight)
+        [ScreenDelta]::ToGrayscale($prevCropImg)
         [PngCodec]::Save($prevCropImg, $prevCropPath)
 
         $prevText = (Invoke-PlatformOcr -ImagePath $prevCropPath).Trim()

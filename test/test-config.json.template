@@ -17,5 +17,6 @@
     "enabled": true
   },
   "maxHistoryRuns": 30,
+  "charDelayMs": 50,
   "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"]
 }

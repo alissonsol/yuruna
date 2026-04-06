@@ -320,29 +320,39 @@ function Send-TextHyperV {
 function Send-TextUTM {
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
     # AppleScript System Events keyboard modifiers are silently dropped by
-    # UTM. Instead, use Core Graphics events via JXA (JavaScript for
-    # Automation). CGEvents are posted at the Quartz/HID level, bypassing
-    # System Events entirely. Window activation still uses System Events.
+    # UTM. Use Core Graphics events via JXA (JavaScript for Automation).
+    # CGEvents are posted at the Quartz/HID level, bypassing System Events.
+    # Diagnostic tracing is emitted to help debug shift-modifier issues.
     $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
 
-    # Build sendKey calls for each character
+    # Log the character map being sent
+    Write-Information "      UTM text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
+    $charIndex = 0
     $keyCalls = [System.Text.StringBuilder]::new()
     foreach ($ch in $Text.ToCharArray()) {
         $entry = $script:MacCharKeyCodes["$ch"]
         if (-not $entry) {
-            Write-Warning "No macOS key code for character '$ch'. Skipping."
+            Write-Warning "No macOS key code for character '$ch' (index $charIndex). Skipping."
+            $charIndex++
             continue
         }
         $kc = $entry[0]
         $shifted = if ($entry[1]) { "true" } else { "false" }
-        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
+        # Log every shifted character for diagnostics
+        if ($entry[1]) {
+            Write-Information "      [char $charIndex] '$ch' -> keyCode=$kc SHIFT"
+        }
+        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted, $charIndex);")
+        $charIndex++
     }
 
-    # JXA script: activate window via System Events, type via CGEvent
+    # JXA script with diagnostic output.
     # Uses __VMNAME__, __DELAY__, __KEYCALLS__ placeholders to avoid
     # PowerShell $ expansion conflicts with JXA's ObjC bridge ($.xxx).
     $jxaTemplate = @'
 ObjC.import('CoreGraphics');
+
+var log = [];
 
 var se = Application('System Events');
 var utm = Application('UTM');
@@ -353,23 +363,34 @@ proc.frontmost = true;
 var wins = proc.windows();
 var found = false;
 for (var i = 0; i < wins.length; i++) {
-    if (wins[i].name().indexOf('__VMNAME__') >= 0) {
+    var wname = wins[i].name();
+    log.push('window[' + i + ']: ' + wname);
+    if (wname.indexOf('__VMNAME__') >= 0) {
         wins[i].actions['AXRaise'].perform();
         found = true;
+        log.push('raised: ' + wname);
         break;
     }
 }
 if (!found) {
-    'window_not_found';
+    JSON.stringify({status: 'window_not_found', log: log});
 } else {
     delay(0.3);
     var kShift = 0x00020000;
-    function sendKey(keyCode, shift) {
+    var shiftIssues = [];
+
+    function sendKey(keyCode, shift, idx) {
         var down = $.CGEventCreateKeyboardEvent(null, keyCode, true);
         var up   = $.CGEventCreateKeyboardEvent(null, keyCode, false);
         if (shift) {
             $.CGEventSetFlags(down, kShift);
             $.CGEventSetFlags(up,   kShift);
+            // Read back flags to verify they were set
+            var flagsDown = $.CGEventGetFlags(down);
+            var flagsUp   = $.CGEventGetFlags(up);
+            if (flagsDown !== kShift) {
+                shiftIssues.push('idx=' + idx + ' kc=' + keyCode + ' flagsDown=0x' + flagsDown.toString(16) + ' expected=0x' + kShift.toString(16));
+            }
         }
         $.CGEventPost(0, down);
         delay(0.01);
@@ -377,7 +398,7 @@ if (!found) {
         delay(__DELAY__);
     }
 __KEYCALLS__
-    'ok';
+    JSON.stringify({status: 'ok', shiftIssues: shiftIssues, shiftIssueCount: shiftIssues.length, log: log});
 }
 '@
     $jxaScript = $jxaTemplate -replace '__VMNAME__', ($VMName -replace "'", "\'") `
@@ -387,11 +408,31 @@ __KEYCALLS__
     $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).js")
     try {
         [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
+        Write-Information "      JXA script: $tmpFile"
         $result = & osascript -l JavaScript $tmpFile 2>&1
     } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+        # Keep the script file for manual inspection
+        Write-Information "      JXA temp file kept: $tmpFile"
     }
-    Write-Information "      JXA CGEvent: $result"
+    # Parse and display diagnostics
+    Write-Information "      JXA raw result: $result"
+    try {
+        $diag = $result | ConvertFrom-Json -ErrorAction Stop
+        Write-Information "      JXA status: $($diag.status)"
+        Write-Information "      JXA shift issues: $($diag.shiftIssueCount)"
+        if ($diag.shiftIssueCount -gt 0) {
+            foreach ($issue in $diag.shiftIssues) {
+                Write-Information "        SHIFT MISMATCH: $issue"
+            }
+        }
+        foreach ($l in $diag.log) {
+            Write-Information "        $l"
+        }
+        return ($diag.status -eq "ok")
+    } catch {
+        Write-Information "      JXA result (not JSON): $result"
+        return ("$result" -match "ok")
+    }
     return ("$result" -eq "ok")
 }
 

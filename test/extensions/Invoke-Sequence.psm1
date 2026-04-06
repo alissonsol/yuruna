@@ -319,33 +319,60 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    # Send raw key codes character by character. Uses explicit key down/up
-    # for shift instead of "using shift down", which loses the modifier
-    # when targeting UTM's virtual keyboard (e.g., "$" arrives as "4").
-    # Script is written to a temp file to avoid PowerShell-to-osascript
-    # argument escaping issues with long/complex scripts.
-    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
-    $charLines = ""
-    foreach ($ch in $Text.ToCharArray()) {
-        $entry = $script:MacCharKeyCodes["$ch"]
-        if (-not $entry) {
-            Write-Warning "No macOS key code for character '$ch'. Skipping."
-            continue
+    # Use clipboard paste via pbcopy + Cmd+V. UTM's Cmd+V types the
+    # clipboard content into the VM's virtual keyboard, bypassing all
+    # AppleScript key code / shift modifier issues.
+    # Fallback: character-by-character key codes (for environments where
+    # clipboard paste doesn't work).
+    $useClipboard = $true
+    if ($useClipboard) {
+        $result = $Text | & pbcopy 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "pbcopy failed: $result"
+            return $false
         }
-        $kc = $entry[0]
-        $shifted = $entry[1]
-        if ($shifted) {
-            $charLines += "                key down shift`n"
-            $charLines += "                delay 0.08`n"
-            $charLines += "                key code $kc`n"
-            $charLines += "                delay 0.08`n"
-            $charLines += "                key up shift`n"
-        } else {
-            $charLines += "                key code $kc`n"
+        $appleScript = @"
+tell application "UTM" to activate
+delay 0.3
+tell application "System Events"
+    tell process "UTM"
+        set frontmost to true
+        repeat with w in windows
+            if name of w contains "$VMName" then
+                perform action "AXRaise" of w
+                delay 0.3
+                keystroke "v" using command down
+                return "ok"
+            end if
+        end repeat
+    end tell
+end tell
+return "window_not_found"
+"@
+    } else {
+        # Character-by-character fallback using raw key codes
+        $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
+        $charLines = ""
+        foreach ($ch in $Text.ToCharArray()) {
+            $entry = $script:MacCharKeyCodes["$ch"]
+            if (-not $entry) {
+                Write-Warning "No macOS key code for character '$ch'. Skipping."
+                continue
+            }
+            $kc = $entry[0]
+            $shifted = $entry[1]
+            if ($shifted) {
+                $charLines += "                key down shift`n"
+                $charLines += "                delay 0.08`n"
+                $charLines += "                key code $kc`n"
+                $charLines += "                delay 0.08`n"
+                $charLines += "                key up shift`n"
+            } else {
+                $charLines += "                key code $kc`n"
+            }
+            $charLines += "                delay $delaySec`n"
         }
-        $charLines += "                delay $delaySec`n"
-    }
-    $appleScript = @"
+        $appleScript = @"
 tell application "UTM" to activate
 delay 0.3
 tell application "System Events"
@@ -362,6 +389,7 @@ $charLines                return "ok"
 end tell
 return "window_not_found"
 "@
+    }
     $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).applescript")
     try {
         [System.IO.File]::WriteAllText($tmpFile, $appleScript)

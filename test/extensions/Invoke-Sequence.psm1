@@ -319,77 +319,48 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    # Use clipboard paste via pbcopy + Cmd+V. UTM's Cmd+V types the
-    # clipboard content into the VM's virtual keyboard, bypassing all
-    # AppleScript key code / shift modifier issues.
-    # Fallback: character-by-character key codes (for environments where
-    # clipboard paste doesn't work).
-    $useClipboard = $true
-    if ($useClipboard) {
-        $result = $Text | & pbcopy 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "pbcopy failed: $result"
-            return $false
+    # Send key codes character by character. Keystrokes are sent at the
+    # System Events level (not inside "tell process") so that keyboard
+    # modifiers like shift actually reach UTM's virtual keyboard. The
+    # process block is only used to find and raise the correct VM window.
+    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
+    $charLines = ""
+    foreach ($ch in $Text.ToCharArray()) {
+        $entry = $script:MacCharKeyCodes["$ch"]
+        if (-not $entry) {
+            Write-Warning "No macOS key code for character '$ch'. Skipping."
+            continue
         }
-        $appleScript = @"
-tell application "UTM" to activate
-delay 0.3
-tell application "System Events"
-    tell process "UTM"
-        set frontmost to true
-        repeat with w in windows
-            if name of w contains "$VMName" then
-                perform action "AXRaise" of w
-                delay 0.3
-                keystroke "v" using command down
-                return "ok"
-            end if
-        end repeat
-    end tell
-end tell
-return "window_not_found"
-"@
-    } else {
-        # Character-by-character fallback using raw key codes
-        $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
-        $charLines = ""
-        foreach ($ch in $Text.ToCharArray()) {
-            $entry = $script:MacCharKeyCodes["$ch"]
-            if (-not $entry) {
-                Write-Warning "No macOS key code for character '$ch'. Skipping."
-                continue
-            }
-            $kc = $entry[0]
-            $shifted = $entry[1]
-            if ($shifted) {
-                $charLines += "                key down shift`n"
-                $charLines += "                delay 0.08`n"
-                $charLines += "                key code $kc`n"
-                $charLines += "                delay 0.08`n"
-                $charLines += "                key up shift`n"
-            } else {
-                $charLines += "                key code $kc`n"
-            }
-            $charLines += "                delay $delaySec`n"
+        $kc = $entry[0]
+        $shifted = $entry[1]
+        if ($shifted) {
+            $charLines += "    key code $kc using shift down`n"
+        } else {
+            $charLines += "    key code $kc`n"
         }
-        $appleScript = @"
-tell application "UTM" to activate
-delay 0.3
-tell application "System Events"
-    tell process "UTM"
-        set frontmost to true
-        repeat with w in windows
-            if name of w contains "$VMName" then
-                perform action "AXRaise" of w
-                delay 0.3
-$charLines                return "ok"
-            end if
-        end repeat
-    end tell
-end tell
-return "window_not_found"
-"@
+        $charLines += "    delay $delaySec`n"
     }
+    $appleScript = @"
+tell application "UTM" to activate
+delay 0.3
+tell application "System Events"
+    tell process "UTM"
+        set frontmost to true
+        set found to false
+        repeat with w in windows
+            if name of w contains "$VMName" then
+                perform action "AXRaise" of w
+                set found to true
+                exit repeat
+            end if
+        end repeat
+        if not found then return "window_not_found"
+    end tell
+    delay 0.3
+$charLines
+end tell
+return "ok"
+"@
     $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).applescript")
     try {
         [System.IO.File]::WriteAllText($tmpFile, $appleScript)

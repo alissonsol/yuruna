@@ -31,7 +31,6 @@ The same prerequisites as the VDE scripts apply — see `vde/host.*/README.md` f
 - **Run as Administrator**
 - Hyper-V enabled, PowerShell 7+
 - Windows ADK Deployment Tools (Oscdimg.exe)
-- For `guest.windows.11`: run `vde/host.windows.hyper-v/Get-Selenium.ps1` first
 
 ## Configuration
 

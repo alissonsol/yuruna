@@ -71,15 +71,7 @@ if ($Config.statusServer.enabled -and -not $NoServer) {
     & $startScript -Port $serverPort
 }
 
-# Selenium prerequisite (one-time check for Hyper-V + Windows 11)
 $GuestList = Get-GuestList
-if ($GuestList -contains "guest.windows.11" -and $HostType -eq "host.windows.hyper-v") {
-    if (-not (Test-SeleniumPrerequisite -RepoRoot $RepoRoot)) {
-        Write-Error "chromedriver.exe not found. Run test/Get-Selenium.ps1 as Administrator first."
-        exit 1
-    }
-}
-
 $Prefix = if ($Config.testVmNamePrefix) { $Config.testVmNamePrefix } else { "test-" }
 
 # Build VM name map

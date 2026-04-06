@@ -137,16 +137,4 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
-function Test-SeleniumPrerequisite {
-    <#
-    .SYNOPSIS
-    Checks that chromedriver exists for the Selenium prerequisite (Windows 11 image download).
-    #>
-    param([string]$RepoRoot)
-    $seleniumDir = Join-Path $RepoRoot "test/selenium"
-    $driverName  = if ($IsWindows) { "chromedriver.exe" } else { "chromedriver" }
-    $driverExe   = Join-Path $seleniumDir $driverName
-    return (Test-Path $driverExe)
-}
-
-Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Invoke-GitPull, Get-CurrentGitCommit, Test-SeleniumPrerequisite
+Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Invoke-GitPull, Get-CurrentGitCommit

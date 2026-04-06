@@ -1,7 +1,11 @@
-﻿# Get-NewText.psm1
-# VERSION: 0.1
-# Pure C# image processing (no System.Drawing dependencies).
-# Requires PowerShell 7+ (.NET 10+).
+﻿<#PSScriptInfo
+.VERSION 0.1
+.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456717
+.AUTHOR Alisson Sol
+.COMPANYNAME None
+.COPYRIGHT Copyright (c) 2019-2026 by Alisson Sol et al.
+.DESCRIPTION Diff-based OCR text extraction. Pure C# image processing (no System.Drawing dependencies). Requires PowerShell 7+ (.NET 10+).
+#>
 
 # --- Tracing ---
 # Set $env:NEWTEXT_TRACE = '1' to enable timing output, or call Enable-NewTextTrace / Disable-NewTextTrace.

@@ -358,12 +358,6 @@ kubeconfig_*
 # Crash log files
 crash.log
 
-# Selenium WebDriver (downloaded by test/Get-Selenium.ps1)
-**/selenium/msedgedriver.exe
-**/selenium/msedgedriver
-**/selenium/chromedriver.exe
-**/selenium/chromedriver
-
 # Test configuration (contains credentials)
 test/test-config.json
 
@@ -372,7 +366,7 @@ test/status/status.json
 test/status/server.pid
 test/status/server.err
 
-# Test screenshots (captured at runtime)
+# Training screenshots (captures are runtime, reference PNGs are committed)
 test/screenshots/*/captures/
 
 # Verify screenshots (actual captures are runtime, expected PNGs are committed)
@@ -380,9 +374,6 @@ test/verify/actual/
 
 # Sequence debug screenshots (captured at runtime)
 test/extensions/sequences/captures/
-
-# Appium local config
-test/appium/
 
 # yuruna
 **/.yuruna/*

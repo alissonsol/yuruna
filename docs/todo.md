@@ -4,9 +4,7 @@
 
 ### P0, P1
 
-- buildx: install Mac, Ubuntu and make changes to build scripts
 - Need something like: loop: _number(001-003)
-- curl vs wget?
 - How to "pack and move" to another machine
 - Before "cloud-based" scripts execute, validate session
 - Validation: repeated resource names and other duplications like context names
@@ -28,18 +26,15 @@
 - Create Visual Studio Code extension to start projects, run commands, etc.
   - Visual Studio Code: [Your First Extension](https://code.visualstudio.com/api/get-started/your-first-extension)
 - Graph from YML: Python [graphviz 0.15](https://pypi.org/project/graphviz/)
+- Decide on copying all code during component setup (`automation/yuruna-components.psm1`)
+- Generic registry login approach (`automation/yuruna-components.psm1`)
 
 ### P3+
 
 - Confirm use only of [Approved Verbs for PowerShell Commands](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/approved-verbs-for-windows-powershell-commands?view=powershell-7.1)
 - Non-repro or hard to repro issues
-  - Cert-manager: workloads in Azure
-    - DEBUG: helm install cert-manager jetstack/cert-manager --namespace cert-manager --version v1.1.0 --set installCRDs=true --set nodeSelector."beta\.kubernetes\.io/os"=linux --debug
-  - install.go:172: [debug] Original chart version: "v1.1.0"
-    - Error: read tcp dev-machine-IP:62410->IP(charts.jetstack.io):443: wsarecv: An existing connection was forcibly closed by the remote host.
-    - helm.go:81: [debug] read tcp dev-machine-IP:62410->IP(charts.jetstack.io):443: wsarecv: An existing connection was forcibly closed by the remote host.
+  - Cert-manager: workloads in Azure — transient connection errors to charts.jetstack.io
   - NGINX: workloads in Azure: 2nd time+: Error: cannot re-use a name that is still in use
-  - Error: Internal error occurred: failed calling webhook "webhook.cert-manager.io": Post "https://cert-manager-webhook.cert-manager.svc:443/mutate?timeout=10s": dial tcp 10.x.y.z:443: connect: connection refused
 
 ## AWS
 
@@ -63,5 +58,10 @@
 - Fix the cluster.min_master_version: creating with v1.19+ failed
   - Consequence: hack to deploy the ingress, since today it depends on v1.19+ syntax
 - IP load balancer not working.
+
+## VDE
+
+- Create scripts to configure host and guest settings for Windows 11 (`vde/guest.windows.11/README.md`)
+- Document Hyper-V Amazon Linux nested virtualization setup (`vde/host.windows.hyper-v/guest.amazon.linux/read.more.md`)
 
 Back to [[Yuruna](../README.md)]

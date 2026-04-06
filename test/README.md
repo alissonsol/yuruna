@@ -9,7 +9,7 @@ The runner loops continuously (until a failure), executing this cycle:
 1. Pulls the latest repo (`git pull`)
 2. **Refresh images** (every 24 hours): downloads base images via `Get-Image.ps1`
 3. **Cleanup**: removes all previous test VMs in a block
-4. **For each guest** (`guest.amazon.linux`, `guest.ubuntu.desktop`, `guest.windows.11`):
+4. **For each guest** (configurable via `guestOrder` — defaults to all three):
    - **New-VM** — creates a test VM via `New-VM.ps1`
    - **Start-VM** — starts the VM (UTM `utmctl` / Hyper-V `Start-VM`)
    - **Verify-VM** — polls until the VM reaches running state
@@ -60,7 +60,8 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
     "port": 8080,
     "enabled": true
   },
-  "maxHistoryRuns": 30
+  "maxHistoryRuns": 30,
+  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"]
 }
 ```
 
@@ -75,8 +76,36 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `alwaysRedownloadImages` | `false` | Force re-download even if image exists |
 | `getImageRefreshHours` | `24` | Hours between automatic image re-downloads |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
+| `guestOrder` | all three | Array of guest keys to test, in execution order (see below) |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
 | `statusServer.port` | `8080` | Port for the status server |
+
+### Guest ordering and skipping
+
+The `guestOrder` array in `test-config.json` controls which guests are tested and
+in what order. When omitted, all three guests run in the default order:
+`guest.amazon.linux`, `guest.ubuntu.desktop`, `guest.windows.11`.
+
+To change the order (e.g. test Ubuntu Desktop before Amazon Linux):
+
+```json
+"guestOrder": ["guest.ubuntu.desktop", "guest.amazon.linux", "guest.windows.11"]
+```
+
+To skip a guest, omit it from the array:
+
+```json
+"guestOrder": ["guest.ubuntu.desktop", "guest.amazon.linux"]
+```
+
+To run only a single guest:
+
+```json
+"guestOrder": ["guest.windows.11"]
+```
+
+Unknown guest keys in the array are warned about and ignored. To restore the
+default behavior, remove the `guestOrder` key entirely.
 
 ### Setting up notifications
 
@@ -126,6 +155,41 @@ pwsh test/Invoke-TestRunner.ps1 -NoServer
 # Custom cycle delay
 pwsh test/Invoke-TestRunner.ps1 -CycleDelaySeconds 60
 ```
+
+## Developing test sequences
+
+The `Invoke-TestSequence.ps1` script helps iterate on sequence JSON files during
+development. Unlike `Invoke-TestRunner.ps1`, it:
+
+- Does **not** download images
+- **Reuses** an existing VM if one is already created (only creates if needed)
+- Runs a **single** named sequence (no continuous loop)
+- Can **start at any step** within the sequence
+
+### Usage
+
+```powershell
+# Run a workload sequence from the beginning
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop"
+
+# Resume from step 5 (useful when iterating on later steps)
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 5
+
+# Run an OS install sequence from step 3
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux" -StartStep 3
+```
+
+The script prints a numbered step list before execution, marking which steps will
+run. If the sequence file is not found, it lists all available sequences.
+
+### Parameters
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `-SequenceName` | Yes | — | Base name of the sequence (e.g. `Test-Workload.guest.ubuntu.desktop`) |
+| `-StartStep` | No | `1` | 1-based step number to start from |
+| `-ConfigPath` | No | `test/test-config.json` | Path to config file |
+| `-NoExtensionOutput` | No | off | Suppress extension output |
 
 ## Status page
 
@@ -241,6 +305,7 @@ Captures from each run are saved to `test/screenshots/<guestKey>/captures/`
 ```
 test/
   Invoke-TestRunner.ps1           # Entry point — continuous loop orchestrator
+  Invoke-TestSequence.ps1          # Dev helper — run a single sequence from any step
   Start-StatusServer.ps1          # Launches detached HTTP status server
   Stop-StatusServer.ps1           # Stops the detached status server
   Test-Config.ps1                 # Validates config and sends a test notification

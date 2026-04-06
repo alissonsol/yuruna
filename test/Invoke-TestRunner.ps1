@@ -71,7 +71,7 @@ if ($Config.statusServer.enabled -and -not $NoServer) {
     & $startScript -Port $serverPort
 }
 
-$GuestList = Get-GuestList
+$GuestList = Get-GuestList -Config $Config
 $Prefix = if ($Config.testVmNamePrefix) { $Config.testVmNamePrefix } else { "test-" }
 
 # Build VM name map

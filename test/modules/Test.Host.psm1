@@ -41,8 +41,23 @@ function Get-GuestList {
     <#
     .SYNOPSIS
     Returns the ordered list of guest keys to test.
+    If the config hashtable contains a "guestOrder" array, that list is used
+    (controlling both order and which guests to include).
+    Otherwise the full default list is returned.
     #>
-    return @("guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11")
+    param([hashtable]$Config = @{})
+
+    $default = @("guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11")
+
+    if ($Config.guestOrder -and $Config.guestOrder.Count -gt 0) {
+        $invalid = $Config.guestOrder | Where-Object { $_ -notin $default }
+        if ($invalid) {
+            Write-Warning "Unknown guest keys in guestOrder will be ignored: $($invalid -join ', ')"
+        }
+        return @($Config.guestOrder | Where-Object { $_ -in $default })
+    }
+
+    return $default
 }
 
 function Test-ElevationRequired {

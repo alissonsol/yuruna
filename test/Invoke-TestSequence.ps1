@@ -1,0 +1,229 @@
+<#PSScriptInfo
+.VERSION 0.1
+.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
+.AUTHOR Alisson Sol
+.COMPANYNAME None
+.COPYRIGHT (c) 2026 Alisson Sol et al.
+.TAGS
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+<#
+.SYNOPSIS
+    Development helper to run a single test sequence starting at a specific step.
+
+.DESCRIPTION
+    Runs a named test sequence (e.g. "Test-Workload.guest.ubuntu.desktop") from a
+    given step number. Unlike Invoke-TestRunner.ps1:
+    - Does NOT download images.
+    - Reuses an existing VM if one is already created; only creates a new VM if needed.
+    - Runs a single pass (no continuous loop).
+
+    This is intended for iterating on sequence JSON files during development.
+
+.PARAMETER SequenceName
+    The base name of the sequence to run, without the .json extension.
+    Examples: "Test-Start.guest.ubuntu.desktop", "Test-Workload.guest.amazon.linux"
+
+.PARAMETER StartStep
+    The 1-based step number at which to begin execution. Steps before this number
+    are skipped. Defaults to 1 (run from the beginning).
+
+.PARAMETER ConfigPath
+    Path to the test config JSON file. Defaults to test/test-config.json.
+
+.PARAMETER NoExtensionOutput
+    Suppress extension script output.
+
+.EXAMPLE
+    pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 5
+
+.EXAMPLE
+    pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux"
+#>
+
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$SequenceName,
+
+    [int]$StartStep = 1,
+
+    [string]$ConfigPath = $null,
+
+    [switch]$NoExtensionOutput
+)
+
+# === Resolve paths ===
+$TestRoot       = $PSScriptRoot
+$RepoRoot       = Split-Path -Parent $TestRoot
+$VdeRoot        = Join-Path $RepoRoot "vde"
+$ModulesDir     = Join-Path $TestRoot "modules"
+$ExtensionsDir  = Join-Path $TestRoot "extensions"
+$SequencesDir   = Join-Path $ExtensionsDir "sequences"
+
+if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
+
+# === Import modules ===
+foreach ($mod in @("Test.Host", "Test.New-VM", "Test.Start-VM")) {
+    $modPath = Join-Path $ModulesDir "$mod.psm1"
+    if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
+    Import-Module -Name $modPath -Force
+}
+
+$engineModule = Join-Path $ExtensionsDir "Invoke-Sequence.psm1"
+if (-not (Test-Path $engineModule)) { Write-Error "Invoke-Sequence module not found: $engineModule"; exit 1 }
+Import-Module -Name $engineModule -Force
+
+# === Read config ===
+if (-not (Test-Path $ConfigPath)) { Write-Error "Config not found: $ConfigPath"; exit 1 }
+$Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+
+# === Resolve sequence file ===
+$SequencePath = Join-Path $SequencesDir "$SequenceName.json"
+if (-not (Test-Path $SequencePath)) {
+    Write-Error "Sequence file not found: $SequencePath"
+    Write-Output ""
+    Write-Output "Available sequences:"
+    Get-ChildItem -Path $SequencesDir -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Output "  $($_.BaseName)"
+    }
+    exit 1
+}
+
+# === Detect host ===
+$HostType = Get-HostType
+if (-not $HostType) { exit 1 }
+Write-Output "Host type: $HostType"
+
+if (-not (Assert-Elevation -HostType $HostType)) { exit 1 }
+
+# === Derive GuestKey from sequence name ===
+# Sequence names follow the pattern: Test-<Phase>.<guestKey>
+# e.g. "Test-Workload.guest.ubuntu.desktop" -> "guest.ubuntu.desktop"
+# e.g. "Test-Start.guest.amazon.linux" -> "guest.amazon.linux"
+$parts = $SequenceName -split '\.', 2
+if ($parts.Count -lt 2) {
+    Write-Error "Cannot derive guest key from sequence name '$SequenceName'. Expected format: Test-<Phase>.<guestKey>"
+    exit 1
+}
+$GuestKey = $parts[1]
+
+# Validate guest key
+$knownGuests = @("guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11")
+if ($GuestKey -notin $knownGuests) {
+    Write-Warning "Guest key '$GuestKey' is not in the known list: $($knownGuests -join ', ')"
+}
+
+# === Derive VM name ===
+$Prefix = if ($Config.testVmNamePrefix) { $Config.testVmNamePrefix } else { "test-" }
+$VMName = switch ($GuestKey) {
+    "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
+    "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
+    "guest.windows.11"     { "${Prefix}windows11-01"     }
+    default                { "${Prefix}vm01"             }
+}
+
+# === Ensure VM exists (reuse or create) ===
+$vmExists = Confirm-VMCreated -HostType $HostType -VMName $VMName
+if ($vmExists) {
+    Write-Output "VM '$VMName' already exists. Reusing."
+} else {
+    Write-Output "VM '$VMName' not found. Creating..."
+    $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName
+    if (-not $r.success) {
+        Write-Error "New-VM failed: $($r.errorMessage)"
+        exit 1
+    }
+    Write-Output "VM '$VMName' created."
+}
+
+# === Ensure VM is running ===
+$VmStartTimeout = if ($Config.vmStartTimeoutSeconds) { [int]$Config.vmStartTimeoutSeconds } else { 120 }
+$VmBootDelay    = if ($Config.vmBootDelaySeconds)    { [int]$Config.vmBootDelaySeconds }    else { 15 }
+
+$isRunning = Confirm-VMStarted -HostType $HostType -VMName $VMName -TimeoutSeconds 5 -BootDelaySeconds 0
+if ($isRunning) {
+    Write-Output "VM '$VMName' is already running."
+} else {
+    Write-Output "Starting VM '$VMName'..."
+    $r = Invoke-StartVM -HostType $HostType -VMName $VMName
+    if (-not $r.success) {
+        Write-Error "Start-VM failed: $($r.errorMessage)"
+        exit 1
+    }
+    $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName `
+        -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
+    if (-not $ok) {
+        Write-Error "VM '$VMName' did not reach running state within ${VmStartTimeout}s."
+        exit 1
+    }
+    Write-Output "VM '$VMName' is running."
+}
+
+# === Load and slice the sequence ===
+$sequence = Get-Content -Raw $SequencePath | ConvertFrom-Json
+$totalSteps = @($sequence.steps).Count
+
+if ($StartStep -lt 1 -or $StartStep -gt $totalSteps) {
+    Write-Error "StartStep $StartStep is out of range. The sequence has $totalSteps steps (1-$totalSteps)."
+    exit 1
+}
+
+Write-Output ""
+Write-Output "============================================="
+Write-Output "  Sequence: $SequenceName"
+Write-Output "  Steps:    $totalSteps total, starting at step $StartStep"
+Write-Output "  VM:       $VMName"
+Write-Output "  Guest:    $GuestKey"
+Write-Output "============================================="
+
+# List all steps with their descriptions
+Write-Output ""
+Write-Output "Step list:"
+$stepIdx = 0
+foreach ($step in $sequence.steps) {
+    $stepIdx++
+    $marker = if ($stepIdx -ge $StartStep) { ">>" } else { "  " }
+    $desc = if ($step.description) { $step.description } else { $step.action }
+    Write-Output "  $marker [$stepIdx] $($step.action): $desc"
+}
+Write-Output ""
+
+# === Build a trimmed sequence and write to a temp file ===
+$trimmedSteps = @($sequence.steps)[$($StartStep - 1)..($totalSteps - 1)]
+
+$trimmedSequence = [ordered]@{}
+# Copy all properties except steps
+foreach ($prop in $sequence.PSObject.Properties) {
+    if ($prop.Name -ne "steps") {
+        $trimmedSequence[$prop.Name] = $prop.Value
+    }
+}
+$trimmedSequence["steps"] = $trimmedSteps
+
+$tempFile = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
+$trimmedSequence | ConvertTo-Json -Depth 10 | Set-Content -Path $tempFile -Encoding UTF8
+
+try {
+    Write-Output "Running steps $StartStep to $totalSteps..."
+    Write-Output ""
+
+    $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $tempFile
+    if ($ok -eq $false) {
+        Write-Warning "Sequence failed."
+        exit 1
+    }
+
+    Write-Output ""
+    Write-Output "Sequence completed successfully."
+    exit 0
+} finally {
+    Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
+}

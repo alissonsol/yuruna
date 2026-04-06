@@ -45,11 +45,6 @@
       "description": "Login after install"
     },
     {
-      "action": "delay",
-      "seconds": 1,
-      "description": "Delay"
-    },
-    {
       "action": "typeAndEnter",
       "text": "",
       "description": "Bring up password field"
@@ -68,41 +63,48 @@
       "description": "Enter current password"
     },
     {
-      "action": "delay",
-      "seconds": 1,
-      "description": "Delay"
+      "action": "waitForText",
+      "pattern": "Current password",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Confirm password before change"
     },
     {
       "action": "typeAndEnter",
       "text": "${password}",
       "sensitive": true,
-      "description": "Re-enter current password for verification"
+      "description": "Enter current password"
+    },
+    {
+      "action": "delay",
+      "seconds": 10,
+      "description": "TODO: Why is this delay needed? The is detected but disappears?"
     },
     {
       "action": "waitForText",
-      "pattern": "New password:",
+      "pattern": "New password",
       "timeoutSeconds": 30,
       "pollSeconds": 1,
-      "description": "Wait for new password prompt"
+      "description": "Wait for password prompt"
     },
     {
       "action": "typeAndEnter",
       "text": "${newPassword}",
       "sensitive": true,
-      "description": "Enter new password"
+      "description": "The new passowrd: ${newPassword}"
     },
     {
       "action": "waitForText",
-      "pattern": "Retype new password:",
+      "pattern": "Retype new password",
       "timeoutSeconds": 30,
       "pollSeconds": 1,
-      "description": "Wait for password confirmation prompt"
+      "description": "Wait for password prompt"
     },
     {
       "action": "typeAndEnter",
       "text": "${newPassword}",
       "sensitive": true,
-      "description": "Confirm new password"
+      "description": "New password"
     },
     {
       "action": "waitForText",
@@ -112,14 +114,22 @@
       "description": "Wait for login shell prompt"
     },
     {
-      "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before running update"
-    },
-    {
       "action": "typeAndEnter",
       "text": "sudo bash /ubuntu.desktop.update.sh",
       "description": "Run update script"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "[sudo] password for ${username}",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Wait for password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "New password"
     },
     {
       "action": "waitForText",

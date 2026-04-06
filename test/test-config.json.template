@@ -16,5 +16,6 @@
     "port": 8080,
     "enabled": true
   },
-  "maxHistoryRuns": 30
+  "maxHistoryRuns": 30,
+  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"]
 }

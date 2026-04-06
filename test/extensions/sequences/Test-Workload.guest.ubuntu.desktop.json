@@ -1,5 +1,92 @@
 {
-  "description": "Ubuntu Desktop: workload test sequence (placeholder).",
-  "variables": {},
-  "steps": []
+  "$schema": "Interaction sequence for driving VM workload testing.",
+  "$actions": {
+    "delay":            "Wait a fixed number of seconds. Parameters: seconds (number).",
+    "key":              "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
+    "type":             "Type a text string. Parameters: text (string), sensitive (boolean, masks output).",
+    "typeAndEnter":     "Type a text string followed by Enter. Parameters: text (string), sensitive (boolean, masks output).",
+    "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
+    "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
+    "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
+    "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
+    "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number)."
+  },
+  "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
+
+  "description": "Ubuntu Desktop: log in with new password, install VS Code.",
+  "variables": {
+    "username":    "ubuntu",
+    "password":    "password",
+    "newPassword": "belohorizonte"
+  },
+  "steps": [
+    {
+      "action": "waitForText",
+      "pattern": "Not listed?",
+      "timeoutSeconds": 600,
+      "pollSeconds": 10,
+      "description": "Login after install"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "",
+      "description": "Bring up password field"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Password",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Wait for password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "Enter new password"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "${username}@${vmName}",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Wait for login shell prompt"
+    },
+    {
+      "action": "delay",
+      "seconds": 1,
+      "description": "Brief pause before installing Desktop"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "/bin/bash -c \"$(wget -qO- \"https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh?nocache=$(date +%s)\")\"",
+      "description": "Code install script"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "[sudo] password for ${username}",
+      "timeoutSeconds": 30,
+      "pollSeconds": 1,
+      "description": "Wait for password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "New password"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "${username}@${vmName}",
+      "timeoutSeconds": 300,
+      "pollSeconds": 15,
+      "freshMatch": true,
+      "description": "Wait for install to complete (may take 3-5 minutes)"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "sudo shutdown now",
+      "description": "Shutdown the VM"
+    }
+  ]
 }

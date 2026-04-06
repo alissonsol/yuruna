@@ -319,49 +319,79 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    # AppleScript keyboard modifiers (shift, command, etc.) are silently
-    # dropped by UTM's virtual keyboard. Use clipboard + menu-click paste
-    # instead: pbcopy sets the macOS clipboard, then we programmatically
-    # click UTM's Edit > Paste menu item (no keyboard modifiers needed).
-    # UTM types clipboard content into the VM character by character.
+    # AppleScript System Events keyboard modifiers are silently dropped by
+    # UTM. Instead, use Core Graphics events via JXA (JavaScript for
+    # Automation). CGEvents are posted at the Quartz/HID level, bypassing
+    # System Events entirely. Window activation still uses System Events.
+    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
 
-    # Step 1: Set macOS clipboard via pbcopy
-    $pbResult = $Text | & pbcopy 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "pbcopy failed: $pbResult"
-        return $false
+    # Build sendKey calls for each character
+    $keyCalls = [System.Text.StringBuilder]::new()
+    foreach ($ch in $Text.ToCharArray()) {
+        $entry = $script:MacCharKeyCodes["$ch"]
+        if (-not $entry) {
+            Write-Warning "No macOS key code for character '$ch'. Skipping."
+            continue
+        }
+        $kc = $entry[0]
+        $shifted = if ($entry[1]) { "true" } else { "false" }
+        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
     }
 
-    # Step 2: Activate UTM window, then click Edit > Paste menu
-    $appleScript = @"
-tell application "UTM" to activate
-delay 0.3
-tell application "System Events"
-    tell process "UTM"
-        set frontmost to true
-        set found to false
-        repeat with w in windows
-            if name of w contains "$VMName" then
-                perform action "AXRaise" of w
-                set found to true
-                exit repeat
-            end if
-        end repeat
-        if not found then return "window_not_found"
-        delay 0.3
-        click menu item "Paste" of menu 1 of menu bar item "Edit" of menu bar 1
-    end tell
-end tell
-return "ok"
-"@
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).applescript")
+    # JXA script: activate window via System Events, type via CGEvent
+    # Uses __VMNAME__, __DELAY__, __KEYCALLS__ placeholders to avoid
+    # PowerShell $ expansion conflicts with JXA's ObjC bridge ($.xxx).
+    $jxaTemplate = @'
+ObjC.import('CoreGraphics');
+
+var se = Application('System Events');
+var utm = Application('UTM');
+utm.activate();
+delay(0.3);
+var proc = se.processes['UTM'];
+proc.frontmost = true;
+var wins = proc.windows();
+var found = false;
+for (var i = 0; i < wins.length; i++) {
+    if (wins[i].name().indexOf('__VMNAME__') >= 0) {
+        wins[i].actions['AXRaise'].perform();
+        found = true;
+        break;
+    }
+}
+if (!found) {
+    'window_not_found';
+} else {
+    delay(0.3);
+    var kShift = 0x00020000;
+    function sendKey(keyCode, shift) {
+        var down = $.CGEventCreateKeyboardEvent(null, keyCode, true);
+        var up   = $.CGEventCreateKeyboardEvent(null, keyCode, false);
+        if (shift) {
+            $.CGEventSetFlags(down, kShift);
+            $.CGEventSetFlags(up,   kShift);
+        }
+        $.CGEventPost(0, down);
+        delay(0.01);
+        $.CGEventPost(0, up);
+        delay(__DELAY__);
+    }
+__KEYCALLS__
+    'ok';
+}
+'@
+    $jxaScript = $jxaTemplate -replace '__VMNAME__', ($VMName -replace "'", "\'") `
+                              -replace '__DELAY__', $delaySec `
+                              -replace '__KEYCALLS__', $keyCalls.ToString()
+
+    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).js")
     try {
-        [System.IO.File]::WriteAllText($tmpFile, $appleScript)
-        $result = & osascript $tmpFile 2>&1
+        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
+        $result = & osascript -l JavaScript $tmpFile 2>&1
     } finally {
         Remove-Item $tmpFile -ErrorAction SilentlyContinue
     }
-    Write-Information "      AppleScript: $result"
+    Write-Information "      JXA CGEvent: $result"
     return ("$result" -eq "ok")
 }
 

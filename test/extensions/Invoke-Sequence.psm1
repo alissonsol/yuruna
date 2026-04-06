@@ -259,7 +259,13 @@ tell application "System Events"
 end tell
 return "window_not_found"
 "@
-    $result = & osascript -e $appleScript 2>&1
+    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).applescript")
+    try {
+        [System.IO.File]::WriteAllText($tmpFile, $appleScript)
+        $result = & osascript $tmpFile 2>&1
+    } finally {
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+    }
     Write-Information "      AppleScript: $result"
     return ("$result" -eq "ok")
 }
@@ -316,6 +322,8 @@ function Send-TextUTM {
     # Send raw key codes character by character. Uses explicit key down/up
     # for shift instead of "using shift down", which loses the modifier
     # when targeting UTM's virtual keyboard (e.g., "$" arrives as "4").
+    # Script is written to a temp file to avoid PowerShell-to-osascript
+    # argument escaping issues with long/complex scripts.
     $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
     $charLines = ""
     foreach ($ch in $Text.ToCharArray()) {
@@ -328,9 +336,9 @@ function Send-TextUTM {
         $shifted = $entry[1]
         if ($shifted) {
             $charLines += "                key down shift`n"
-            $charLines += "                delay 0.02`n"
+            $charLines += "                delay 0.08`n"
             $charLines += "                key code $kc`n"
-            $charLines += "                delay 0.02`n"
+            $charLines += "                delay 0.08`n"
             $charLines += "                key up shift`n"
         } else {
             $charLines += "                key code $kc`n"
@@ -354,7 +362,13 @@ $charLines                return "ok"
 end tell
 return "window_not_found"
 "@
-    $result = & osascript -e $appleScript 2>&1
+    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).applescript")
+    try {
+        [System.IO.File]::WriteAllText($tmpFile, $appleScript)
+        $result = & osascript $tmpFile 2>&1
+    } finally {
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+    }
     Write-Information "      AppleScript: $result"
     return ("$result" -eq "ok")
 }

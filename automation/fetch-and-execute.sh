@@ -13,3 +13,4 @@ fi
 # Construct and execute
 FULL_URL="${BASE_URL}${FILE_PATH}${QUERY_PARAMS}"
 /bin/bash -c "$(wget -qO- "$FULL_URL")"
+clear

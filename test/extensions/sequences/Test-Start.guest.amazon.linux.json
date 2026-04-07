@@ -90,6 +90,12 @@
       "description": "Confirm new password"
     },
     {
+      "action": "typeAndEnter",
+      "text": "clear",
+      "sensitive": true,
+      "description": "Clear screen, due to the the balloon memory noise"
+    },
+    {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
@@ -103,7 +109,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "sudo bash /amazon.linux.update.sh",
+      "text": "sudo bash /automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.update.sh",
       "description": "Run update script"
     },
     {

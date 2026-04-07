@@ -630,52 +630,9 @@ if (-not ([System.Management.Automation.PSTypeName]'PngCodec').Type) {
 
 # --- OCR engines ---
 
-# Windows: prefer WinAIOcr (Windows App SDK TextRecognizer) for high-quality OCR.
-# Falls back to legacy WinRT Windows.Media.Ocr via powershell.exe (PS 5.1).
-
-# Build WinAIOcr tool if not already built. Requires .NET SDK. Windows only.
-$script:WinAIOcrExe = $null
-$winAIOcrProject = Join-Path $PSScriptRoot '..\tools\WinAIOcr\WinAIOcr.csproj'
-if ($IsWindows -and (Test-Path $winAIOcrProject)) {
-    # Look for existing build output
-    $buildOutput = Join-Path $PSScriptRoot '..\tools\WinAIOcr\bin\Release'
-    $exeCandidate = Get-ChildItem -Path $buildOutput -Filter 'WinAIOcr.exe' -Recurse -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if (-not $exeCandidate) {
-        # Try debug build
-        $buildOutput = Join-Path $PSScriptRoot '..\tools\WinAIOcr\bin\Debug'
-        $exeCandidate = Get-ChildItem -Path $buildOutput -Filter 'WinAIOcr.exe' -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-    }
-    if (-not $exeCandidate) {
-        # Attempt to build
-        $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
-        if ($dotnet) {
-            Write-Host "[Get-NewText] Building WinAIOcr tool..." -ForegroundColor Cyan
-            $buildResult = & dotnet build $winAIOcrProject -c Release --nologo -v q 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                $buildOutput = Join-Path $PSScriptRoot '..\tools\WinAIOcr\bin\Release'
-                $exeCandidate = Get-ChildItem -Path $buildOutput -Filter 'WinAIOcr.exe' -Recurse -ErrorAction SilentlyContinue |
-                    Select-Object -First 1
-            } else {
-                Write-Warning "[Get-NewText] WinAIOcr build failed. Falling back to legacy OCR.`n$($buildResult -join "`n")"
-            }
-        }
-    }
-    if ($exeCandidate) {
-        # Verify it can run (exit code 1 = usage error = tool works)
-        & $exeCandidate.FullName 2>$null | Out-Null
-        if ($LASTEXITCODE -le 1) {
-            $script:WinAIOcrExe = $exeCandidate.FullName
-            Write-Host "[Get-NewText] Using WinAIOcr: $($script:WinAIOcrExe)" -ForegroundColor Cyan
-        }
-    }
-}
-if ($IsWindows -and -not $script:WinAIOcrExe) {
-    Write-Host "[Get-NewText] WinAIOcr not available. Using legacy Windows.Media.Ocr (lower accuracy on terminal text)." -ForegroundColor Yellow
-}
-
-# Legacy fallback: WinRT Windows.Media.Ocr via PowerShell 5.1
+# Windows: WinRT Windows.Media.Ocr via PowerShell 5.1 (has native WinRT support).
+# Images are preprocessed (grayscale, invert, scale 2x) before OCR to improve
+# accuracy on terminal screenshots (light text on dark background).
 $script:WinRtOcrScript = @'
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
@@ -811,25 +768,6 @@ function Invoke-PlatformOcr {
 
     if ($IsWindows) {
         $absPath = (Resolve-Path $ImagePath).Path
-
-        # Try WinAIOcr (Windows App SDK TextRecognizer) first
-        if ($script:WinAIOcrExe) {
-            $output = & $script:WinAIOcrExe $absPath 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                return ($output | Where-Object { $_ -is [string] }) -join "`n"
-            }
-            if ($LASTEXITCODE -eq 2) {
-                # TextRecognizer not available on this hardware — fall back permanently
-                $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
-                Write-Warning "[Get-NewText] WinAIOcr: TextRecognizer not available. Falling back to legacy OCR. $errMsg"
-                $script:WinAIOcrExe = $null
-            } else {
-                $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
-                Write-Warning "[Get-NewText] WinAIOcr failed (exit $LASTEXITCODE): $errMsg. Falling back to legacy OCR."
-            }
-        }
-
-        # Legacy fallback: WinRT OCR via PowerShell 5.1
         $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) 'WinRtOcr.ps1'
         $script:WinRtOcrScript | Set-Content -Path $scriptFile -Encoding UTF8
         try {

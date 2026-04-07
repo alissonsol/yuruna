@@ -438,7 +438,7 @@ $script:OCRConfusionGroups = @(
     'wuv'       # w↔u↔v — most common on console fonts
     'mn'        # m↔n
     'oO0@'      # o↔O↔0↔@ — @ misread as O on terminal fonts
-    'lI1i[]'    # l↔I↔1↔i↔[↔] — brackets misread as l/1/i
+    "lI1i[]$([char]0x0131)"  # l↔I↔1↔i↔[↔]↔ı — brackets misread as l/1/i, ı (dotless i) from Vision OCR
     'S5s'       # S↔5↔s
     'B8'        # B↔8
     'Z2z'       # Z↔2↔z

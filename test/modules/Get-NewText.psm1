@@ -573,6 +573,98 @@ public static class ScreenDelta
     }
 
     /// <summary>
+    /// Stretches contrast in-place so the darkest pixel maps to 0 and the
+    /// brightest maps to 255.  Operates on grayscale images (R=G=B).
+    /// </summary>
+    public static void StretchContrast(RawImage img)
+    {
+        byte[] px = img.Pixels;
+        int stride = img.Stride;
+        byte min = 255, max = 0;
+        for (int y = 0; y < img.Height; y++)
+        {
+            int rowOff = y * stride;
+            for (int x = 0; x < img.Width; x++)
+            {
+                byte v = px[rowOff + (x << 2)];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+        }
+        if (max <= min) return;
+        int range = max - min;
+        for (int y = 0; y < img.Height; y++)
+        {
+            int rowOff = y * stride;
+            for (int x = 0; x < img.Width; x++)
+            {
+                int i = rowOff + (x << 2);
+                byte v = (byte)((px[i] - min) * 255 / range);
+                px[i] = v; px[i + 1] = v; px[i + 2] = v;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Converts a grayscale image to pure black and white in-place using
+    /// Otsu's threshold method.  Pixels above the threshold become 255 (white),
+    /// pixels at or below become 0 (black).  Produces crisp edges for OCR.
+    /// </summary>
+    public static void ThresholdBW(RawImage img)
+    {
+        byte[] px = img.Pixels;
+        int stride = img.Stride;
+        int total = img.Width * img.Height;
+
+        // Build histogram
+        int[] hist = new int[256];
+        for (int y = 0; y < img.Height; y++)
+        {
+            int rowOff = y * stride;
+            for (int x = 0; x < img.Width; x++)
+                hist[px[rowOff + (x << 2)]]++;
+        }
+
+        // Otsu's method: find threshold that maximises between-class variance
+        long sumAll = 0;
+        for (int i = 0; i < 256; i++) sumAll += (long)i * hist[i];
+
+        long sumBg = 0;
+        int wBg = 0;
+        double bestVariance = 0;
+        int bestThreshold = 0;
+        for (int t = 0; t < 256; t++)
+        {
+            wBg += hist[t];
+            if (wBg == 0) continue;
+            int wFg = total - wBg;
+            if (wFg == 0) break;
+            sumBg += (long)t * hist[t];
+            double meanBg = (double)sumBg / wBg;
+            double meanFg = (double)(sumAll - sumBg) / wFg;
+            double diff = meanBg - meanFg;
+            double variance = diff * diff * wBg * wFg;
+            if (variance > bestVariance)
+            {
+                bestVariance = variance;
+                bestThreshold = t;
+            }
+        }
+
+        // Apply threshold
+        for (int y = 0; y < img.Height; y++)
+        {
+            int rowOff = y * stride;
+            for (int x = 0; x < img.Width; x++)
+            {
+                int i = rowOff + (x << 2);
+                byte v = px[i] > bestThreshold ? (byte)255 : (byte)0;
+                px[i] = v; px[i + 1] = v; px[i + 2] = v;
+            }
+        }
+    }
+
+    /// <summary>
     /// Scales an image by 2x using nearest-neighbour interpolation.
     /// More pixels give OCR engines more detail to work with.
     /// </summary>
@@ -872,61 +964,29 @@ function Get-NewTextContent {
         $width = $currentImg.Width
         $height = $currentImg.Height
 
-        # Load or create previous screen
-        if ([string]::IsNullOrEmpty($PreviousScreenPath)) {
-            Write-Debug "No previous screen provided; treating entire image as new."
-            # Preprocess for OCR: grayscale → invert (dark-on-light) → scale 2x
-            $ocrImg = [RawImage]::new($width, $height, [byte[]]$currentImg.Pixels.Clone())
-            [ScreenDelta]::ToGrayscale($ocrImg)
-            [ScreenDelta]::InvertColors($ocrImg)
-            $ocrImg = [ScreenDelta]::Scale2x($ocrImg)
-            Write-Trace "Preprocess for OCR ($($ocrImg.Width)x$($ocrImg.Height))" $totalSw
-            $ocrInputPath = Join-Path $debugDir 'ocr_input.png'
-            [PngCodec]::Save($ocrImg, $ocrInputPath)
-            Write-Trace "No-diff: save preprocessed image for OCR" $totalSw
+        # Detect whether the screen changed (used to return early if nothing new)
+        $hasChanges = $true
+        if (-not [string]::IsNullOrEmpty($PreviousScreenPath)) {
+            $previousImg = [PngCodec]::Load((Resolve-Path $PreviousScreenPath).Path)
+            Write-Trace "Load previous ($($previousImg.Width)x$($previousImg.Height))" $totalSw
 
-            # Save debug artifacts: current screen, a blank previous screen, and processed text screen
-            if ($script:Trace) {
-                [PngCodec]::Save($currentImg, (Join-Path $debugDir 'CurrentScreen.png'))
-                $blankImg = [RawImage]::new($width, $height)
-                $blankImg.Fill($bgR, $bgG, $bgB, $bgA)
-                [PngCodec]::Save($blankImg, (Join-Path $debugDir 'PreviousScreen.png'))
-                [PngCodec]::Save($currentImg, (Join-Path $debugDir 'ProcessedTextScreen.png'))
-                Write-Trace "Debug artifacts saved (no previous)" $totalSw
+            if ($currentImg.Width -eq $previousImg.Width -and $currentImg.Height -eq $previousImg.Height) {
+                # Remove thin vertical lines (e.g. cursors) before comparing
+                $vlineThreshold = [int]($height * $script:VLinePercent / 100)
+                $blankedCols = [ScreenDelta]::RemoveVerticalLines($currentImg, $previousImg,
+                    $bgR, $bgG, $bgB, $bgA, $vlineThreshold)
+                Write-Trace "Remove vertical lines (blanked=$blankedCols cols)" $totalSw
+
+                $textImg = [RawImage]::new($width, $height)
+                $delta = [ScreenDelta]::ProcessDelta($currentImg, $previousImg, $textImg,
+                    $bgR, $bgG, $bgB, $bgA)
+                $hasChanges = $delta.HasChanges
+                Write-Trace "Pixel delta (hasChanges=$hasChanges)" $totalSw
             }
-
-            $ocrText = (Invoke-PlatformOcr -ImagePath $ocrInputPath).Trim()
-            Write-Trace "OCR ($($ocrText.Length) chars)" $totalSw
-
-            if (Test-Path $ocrInputPath) { Remove-Item $ocrInputPath -Force }
-            $ocrText | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
-            Write-Trace "Total Get-NewTextContent" $totalSw
-            return $ocrText
         }
 
-        $previousImg = [PngCodec]::Load((Resolve-Path $PreviousScreenPath).Path)
-        Write-Trace "Load previous ($($previousImg.Width)x$($previousImg.Height))" $totalSw
-
-        if ($currentImg.Width -ne $previousImg.Width -or $currentImg.Height -ne $previousImg.Height) {
-            throw "Image dimensions do not match. Current: ${width}x${height}, Previous: $($previousImg.Width)x$($previousImg.Height)."
-        }
-
-        # Pre-processing: remove thin vertical lines (e.g. cursors) from BOTH images
-        # before computing the delta, so they never affect row-change detection.
-        $vlineThreshold = [int]($height * $script:VLinePercent / 100)
-        $blankedCols = [ScreenDelta]::RemoveVerticalLines($currentImg, $previousImg,
-            $bgR, $bgG, $bgB, $bgA, $vlineThreshold)
-        Write-Trace "Remove vertical lines (threshold=${vlineThreshold}px=$($script:VLinePercent)% of ${height}, blanked=$blankedCols cols)" $totalSw
-
-        # Compute pixel delta
-        $textImg = [RawImage]::new($width, $height)
-        $delta = [ScreenDelta]::ProcessDelta($currentImg, $previousImg, $textImg,
-            $bgR, $bgG, $bgB, $bgA)
-        Write-Trace "Pixel delta" $totalSw
-
-        if (-not $delta.HasChanges) {
+        if (-not $hasChanges) {
             Write-Debug "No pixel changes detected between frames."
-            # Save debug artifacts so the user can inspect why no changes were detected
             if ($script:Trace) {
                 [PngCodec]::Save($currentImg, (Join-Path $debugDir 'CurrentScreen.png'))
                 [PngCodec]::Save($previousImg, (Join-Path $debugDir 'PreviousScreen.png'))
@@ -937,72 +997,38 @@ function Get-NewTextContent {
             return ''
         }
 
-        Write-Debug "Changes detected in rows $($delta.MinY)..$($delta.MaxY) of $height"
-
-        # Crop current image to bounding box of changed rows
-        $croppedImg = [ScreenDelta]::Crop($currentImg, $delta.MinY, $delta.MaxY)
-        Write-Trace "Crop to $($croppedImg.Width)x$($croppedImg.Height)" $totalSw
-
-        # Pad if too short for OCR
-        $minOcrHeight = 80
-        $croppedImg = [ScreenDelta]::PadIfNeeded($croppedImg, $bgR, $bgG, $bgB, $bgA, $minOcrHeight)
-        Write-Trace "Pad check (now $($croppedImg.Width)x$($croppedImg.Height))" $totalSw
-
-        # Preprocess for OCR: grayscale → invert (dark-on-light) → scale 2x
-        [ScreenDelta]::ToGrayscale($croppedImg)
-        [ScreenDelta]::InvertColors($croppedImg)
-        $ocrImg = [ScreenDelta]::Scale2x($croppedImg)
+        # Preprocess full current image for OCR: grayscale → invert → contrast stretch → scale 2x
+        $ocrImg = [RawImage]::new($width, $height, [byte[]]$currentImg.Pixels.Clone())
+        [ScreenDelta]::ToGrayscale($ocrImg)
+        [ScreenDelta]::InvertColors($ocrImg)
+        [ScreenDelta]::StretchContrast($ocrImg)
+        $ocrImg = [ScreenDelta]::Scale2x($ocrImg)
         Write-Trace "Preprocess for OCR ($($ocrImg.Width)x$($ocrImg.Height))" $totalSw
 
-        # Save for OCR
-        $ocrInputPath = Join-Path $debugDir 'ocr_input.png'
-        [PngCodec]::Save($ocrImg, $ocrInputPath)
-        Write-Trace "Save OCR input" $totalSw
+        # Save ProcessedTextScreen — this is the exact image sent to OCR
+        $processedPath = Join-Path $debugDir 'ProcessedTextScreen.png'
+        [PngCodec]::Save($ocrImg, $processedPath)
+        Write-Trace "Save ProcessedTextScreen" $totalSw
 
-        # Save debug artifacts only when tracing (PNG encoding is expensive)
+        # Save other debug artifacts when tracing
         if ($script:Trace) {
             [PngCodec]::Save($currentImg, (Join-Path $debugDir 'CurrentScreen.png'))
-            [PngCodec]::Save($previousImg, (Join-Path $debugDir 'PreviousScreen.png'))
-            [PngCodec]::Save($croppedImg, (Join-Path $debugDir 'ProcessedTextScreen.png'))
+            if ($previousImg) {
+                [PngCodec]::Save($previousImg, (Join-Path $debugDir 'PreviousScreen.png'))
+            } else {
+                $blankImg = [RawImage]::new($width, $height)
+                $blankImg.Fill($bgR, $bgG, $bgB, $bgA)
+                [PngCodec]::Save($blankImg, (Join-Path $debugDir 'PreviousScreen.png'))
+            }
             Write-Trace "Debug artifacts saved" $totalSw
         }
 
-        # OCR the cropped current image
-        $currentText = (Invoke-PlatformOcr -ImagePath $ocrInputPath).Trim()
-        Write-Trace "OCR current ($($currentText.Length) chars)" $totalSw
+        # OCR the full preprocessed image
+        $ocrText = (Invoke-PlatformOcr -ImagePath $processedPath).Trim()
+        Write-Trace "OCR ($($ocrText.Length) chars)" $totalSw
 
-        # Log raw OCR output before any processing
-        $currentText | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
-
-        # Text-level diff: OCR the same region from previous, keep only new lines
-        $ocrText = $currentText
-        $prevCropPath = Join-Path $debugDir 'ocr_prev_crop.png'
-        $prevCropImg = [ScreenDelta]::Crop($previousImg, $delta.MinY, $delta.MaxY)
-        $prevCropImg = [ScreenDelta]::PadIfNeeded($prevCropImg, $bgR, $bgG, $bgB, $bgA, $minOcrHeight)
-        [ScreenDelta]::ToGrayscale($prevCropImg)
-        [ScreenDelta]::InvertColors($prevCropImg)
-        $prevOcrImg = [ScreenDelta]::Scale2x($prevCropImg)
-        [PngCodec]::Save($prevOcrImg, $prevCropPath)
-
-        $prevText = (Invoke-PlatformOcr -ImagePath $prevCropPath).Trim()
-        Write-Trace "OCR previous ($($prevText.Length) chars)" $totalSw
-
-        $prevLines = [System.Collections.Generic.HashSet[string]]::new(
-            [string[]]($prevText -split "`n"), [System.StringComparer]::Ordinal)
-        $newLines = @()
-        foreach ($line in ($currentText -split "`n")) {
-            if (-not $prevLines.Contains($line)) {
-                $newLines += $line
-            }
-        }
-        $ocrText = ($newLines -join "`n").Trim()
-        Write-Trace "Text diff: $($newLines.Count) new lines" $totalSw
-
-        Remove-Item $prevCropPath -Force -ErrorAction SilentlyContinue
-
-        # Clean up
-        if (Test-Path $ocrInputPath) { Remove-Item $ocrInputPath -Force }
-
+        # Save OCR output
+        $ocrText | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
         Write-Trace "Total Get-NewTextContent" $totalSw
 
         return $ocrText

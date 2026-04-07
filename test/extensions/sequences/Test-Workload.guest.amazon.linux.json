@@ -41,7 +41,7 @@
       "action": "waitForText",
       "pattern": "Password:",
       "timeoutSeconds": 30,
-      "pollSeconds": 1,
+      "pollSeconds": 5,
       "description": "Wait for password prompt"
     },
     {

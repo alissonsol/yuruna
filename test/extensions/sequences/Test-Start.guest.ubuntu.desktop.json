@@ -53,7 +53,7 @@
       "action": "waitForText",
       "pattern": "Password",
       "timeoutSeconds": 30,
-      "pollSeconds": 1,
+      "pollSeconds": 5,
       "description": "Wait for password prompt"
     },
     {
@@ -66,7 +66,7 @@
       "action": "waitForText",
       "pattern": "Current password",
       "timeoutSeconds": 30,
-      "pollSeconds": 1,
+      "pollSeconds": 5,
       "description": "Confirm password before change"
     },
     {
@@ -92,7 +92,7 @@
       "action": "waitForText",
       "pattern": "Retype new password",
       "timeoutSeconds": 30,
-      "pollSeconds": 1,
+      "pollSeconds": 5,
       "description": "Wait for password prompt"
     },
     {
@@ -105,7 +105,7 @@
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
-      "pollSeconds": 1,
+      "pollSeconds": 5,
       "description": "Wait for login shell prompt"
     },
     {
@@ -117,7 +117,7 @@
       "action": "waitForText",
       "pattern": "[sudo] password for ${username}",
       "timeoutSeconds": 30,
-      "pollSeconds": 1,
+      "pollSeconds": 5,
       "description": "Wait for password prompt"
     },
     {

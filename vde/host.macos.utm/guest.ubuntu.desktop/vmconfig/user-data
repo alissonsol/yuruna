@@ -59,9 +59,10 @@ autoinstall:
       cat > /target/etc/modprobe.d/denylist-hv-balloon.conf << 'MODPROBE'
       blacklist hv_balloon
       MODPROBE
-    # --- Network: download update script ---
-    - wget --no-cache -O /target/ubuntu.desktop.update.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh"
-    - curtin in-target --target=/target -- chmod +x /ubuntu.desktop.update.sh
+    # --- Network: download fetch-and-execute utility ---
+    - mkdir -p /target/automation
+    - wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
+    - curtin in-target --target=/target -- chmod +x /automation/fetch-and-execute.sh
     # --- Network: timezone detection via IP geolocation and NTP ---
     - curtin in-target --target=/target -- timedatectl set-ntp true
     - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'

@@ -16,7 +16,7 @@ After your base VM is running, use these instructions to install workloads. Open
 ### Update
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.update.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.update.sh
 ```
 
 ### Available workloads
@@ -24,25 +24,25 @@ After your base VM is running, use these instructions to install workloads. Open
 - [Code](../docs/code.md) - Java (JDK), .NET SDK, Git, and Visual Studio Code
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.code.sh
 ```
 
 - [n8n](../docs/n8n.md) - n8n workflow automation
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.n8n.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.n8n.sh
 ```
 
 - [OpenClaw](../docs/openclaw.md) - Git, Node.js, and the OpenClaw AI agent
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.openclaw.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.openclaw.sh
 ```
 
 - [PostgreSQL](../docs/postgresql.md) - PostgreSQL database from the official PGDG repository
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.postgresql.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.postgresql.sh
 ```
 
 ## Troubleshooting

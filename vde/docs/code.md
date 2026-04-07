@@ -13,7 +13,7 @@ Installs Java (JDK), .NET SDK, Git, [Visual Studio Code](https://code.visualstud
 Open a terminal and run the following command.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.code.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.code.sh
 ```
 
 **Ubuntu Desktop**
@@ -21,7 +21,7 @@ Open a terminal and run the following command.
 Open a terminal and run the following command.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh
 ```
 
 **Windows 11**

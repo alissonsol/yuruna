@@ -29,9 +29,10 @@ runcmd:
     X-GNOME-Autostart-enabled=true
     NoDisplay=true
     DESKTOP
-  # --- Network: download update script ---
-  - wget --no-cache -O amazon.linux.update.sh https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.update.sh
-  - chmod +x amazon.linux.update.sh
+  # --- Network: download fetch-and-execute utility ---
+  - mkdir -p /automation
+  - wget --no-cache -O /automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
+  - chmod +x /automation/fetch-and-execute.sh
   # --- Network: timezone detection via IP geolocation and NTP ---
   - timedatectl set-ntp true
   - bash -c 'command -v curl >/dev/null 2>&1 && TZ=$(curl -s --max-time 5 http://ip-api.com/line?fields=timezone) && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check curl, network, or API)" >&2'

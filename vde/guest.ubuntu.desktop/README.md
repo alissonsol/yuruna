@@ -16,7 +16,7 @@ After your base VM is running, use these instructions to install workloads. Open
 ### Update
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh
 ```
 
 ### Available workloads
@@ -24,37 +24,37 @@ After your base VM is running, use these instructions to install workloads. Open
 - [Code](../docs/code.md) - Java (JDK), .NET SDK, Git, and Visual Studio Code
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh
 ```
 
 - [LM Studio](../docs/lmstudio.md) - LM Studio for local AI
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.lmstudio.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.lmstudio.sh
 ```
 
 - [n8n](../docs/n8n.md) - n8n workflow automation
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.n8n.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.n8n.sh
 ```
 
 - [OpenClaw](../docs/openclaw.md) - Git, Node.js, and the OpenClaw AI agent
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.openclaw.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.openclaw.sh
 ```
 
 - [PostgreSQL](../docs/postgresql.md) - PostgreSQL database from the official PGDG repository
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.postgresql.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.postgresql.sh
 ```
 
 - [k8s](../docs/k8s.md) - All Kubernetes requirements (Docker, Kubernetes, Helm, OpenTofu, Cloud CLIs, and more)
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh
 ```
 
 ## Troubleshooting

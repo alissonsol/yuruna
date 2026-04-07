@@ -14,7 +14,7 @@ See the full list of [requirements](../../docs/requirements.md) for more details
 Open a terminal and run the following command.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh
 ```
 
 **Optional steps after the script completes (Ubuntu Desktop)**

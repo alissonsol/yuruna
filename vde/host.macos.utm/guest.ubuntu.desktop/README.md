@@ -41,7 +41,7 @@ You should be prompted to change the password on first login. You can change the
 Open a terminal and run the following command.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh
 ```
 
 Confirm all installations finished correctly, and then reboot.

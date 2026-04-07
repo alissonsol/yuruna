@@ -59,7 +59,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "/bin/bash -c \"$(wget -qO- \"https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh?nocache=$(date +%s)\")\"",
+      "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
       "description": "Code install script"
     },
     {

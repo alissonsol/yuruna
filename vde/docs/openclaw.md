@@ -12,7 +12,7 @@ Installs Git, Node.js, and [OpenClaw](https://docs.openclaw.ai/start/getting-sta
 Open a terminal and run the following command.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.amazon.linux/amazon.linux.openclaw.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.openclaw.sh
 ```
 
 **Ubuntu Desktop**
@@ -20,7 +20,7 @@ Open a terminal and run the following command.
 Open a terminal and run the following command.
 
 ```bash
-/bin/bash -c "$(wget -qO- "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.openclaw.sh?nocache=$(date +%s)")"
+/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.openclaw.sh
 ```
 
 **After reboot, configure OpenClaw**

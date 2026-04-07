@@ -1,5 +1,29 @@
 # Yuruna Contributing Guidance
 
+## Guide: development and testing workflow
+
+1. **Set up local configuration.** Copy `test/test-config.json.template` to `test/test-config.json` (the latter is gitignored). Open a [Resend](https://resend.com) account, create an API key, and fill in the `notification` section of `test-config.json` so that failure alerts can be delivered.
+
+2. **Create a branch and make code changes.** If you modify files that guest VMs retrieve via the "fetch and execute" pattern, you may need to push the branch before testing so the VM can download the updated scripts. In that case, temporarily change the base URL used for the fetch process to point to your branch (see [Testing script changes from a branch](#testing-script-changes-from-a-branch) below).
+
+3. **Run the full test loop.** Execute `test/Invoke-TestRunner.ps1` to run the continuous test cycle. It will print a `Log folder:` line at startup showing where debug artifacts (OCR screenshots, diff images, etc.) are written.
+
+   ```powershell
+   pwsh test/Invoke-TestRunner.ps1
+   ```
+
+4. **Debug a specific sequence step.** If a test fails, use `test/Invoke-TestSequence.ps1` to re-run a single sequence starting from (or stopping at) a specific step. This avoids recreating VMs from scratch on every iteration.
+
+   ```powershell
+   # Run from step 5 onward
+   pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.ubuntu.desktop" -StartStep 5
+
+   # Run only steps 3 through 7
+   pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.ubuntu.desktop" -StartStep 3 -StopStep 7
+   ```
+
+   The script reuses an existing VM if one is already created, lists all steps with markers showing which ones will execute, and leaves the VM running when `-StopStep` is specified so you can inspect its state.
+
 ## Overview
 
 - The connection between the YAML configuration files and the actions taken by each command is explained in a presentation available in [PowerPoint](yuruna.pptx) and [PDF](yuruna.pdf) formats.

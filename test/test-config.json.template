@@ -18,5 +18,5 @@
   },
   "maxHistoryRuns": 30,
   "charDelayMs": 50,
-  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"]
+  "guestOrder": ["guest.ubuntu.desktop", "guest.amazon.linux", "guest.windows.11"]
 }

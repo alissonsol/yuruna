@@ -437,7 +437,7 @@ function Send-Text {
 $script:OCRConfusionGroups = @(
     'wuv'       # w↔u↔v — most common on console fonts
     'mn'        # m↔n
-    'oO0@'      # o↔O↔0↔@ — @ misread as O on terminal fonts
+    'oO0'       # o↔O↔0
     "lI1i[]$([char]0x0131)"  # l↔I↔1↔i↔[↔]↔ı — brackets misread as l/1/i, ı (dotless i) from Vision OCR
     'S5s'       # S↔5↔s
     'B8'        # B↔8
@@ -453,7 +453,10 @@ $script:OCRConfusionGroups = @(
 # Stripping these (along with their ASCII equivalents) prevents
 # mismatches when the pattern uses plain ASCII.
 $script:OCRStripChars = [System.Collections.Generic.HashSet[char]]::new(
-    [char[]]@('-', [char]0x2014, [char]0x2013, [char]0x2012)  # -, —, –, ‒
+    [char[]]@(
+        '-', [char]0x2014, [char]0x2013, [char]0x2012,  # -, —, –, ‒
+        '@', '[', ']', '$', '~', '"', '`'               # terminal prompt chars frequently dropped by OCR
+    )
 )
 
 # Build canonical lookup: char → canonical lowercase representative of its group.
@@ -585,6 +588,29 @@ function Test-OCRMatch {
             }
         }
     }
+
+    # --- Strategy 3: Segment match (handles OCR word reordering) ---
+    # OCR may reorder parts of a line (e.g. "[ec2-user@test-amazon-linux01 ~]$"
+    # becomes "test-amazon-I inux01 login: ecZ-user").  Split the original pattern
+    # on characters that are stripped during normalization (@, -, etc.) to get
+    # meaningful segments, normalize each, and check that every segment appears
+    # somewhere in the full normalized text (across all lines).
+    $normFull = Get-OCRNormalized $Text
+    # Split on strip chars and spaces to get pattern segments
+    $splitPattern = [regex]::Split($Pattern, '[\s@\-\[\]$~"''`]+') | Where-Object { $_.Length -gt 0 }
+    if ($splitPattern.Count -gt 1) {
+        $allFound = $true
+        foreach ($seg in $splitPattern) {
+            $normSeg = Get-OCRNormalized $seg
+            if ($normSeg.Length -eq 0) { continue }
+            if (-not $normFull.Contains($normSeg)) {
+                $allFound = $false
+                break
+            }
+        }
+        if ($allFound) { return $true }
+    }
+
     return $false
 }
 

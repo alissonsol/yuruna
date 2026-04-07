@@ -65,6 +65,10 @@ Write-Output "Host type: $HostType"
 
 if (-not (Assert-Elevation -HostType $HostType)) { exit 1 }
 
+Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
+$YurunaLogDir = Get-YurunaLogDir
+Write-Output "Log folder: $YurunaLogDir"
+
 if ($Config.statusServer.enabled -and -not $NoServer) {
     $startScript = Join-Path $TestRoot "Start-StatusServer.ps1"
     $serverPort  = if ($Config.statusServer.port) { [int]$Config.statusServer.port } else { 8080 }

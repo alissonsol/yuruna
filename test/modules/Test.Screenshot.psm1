@@ -503,7 +503,8 @@ public class HyperVCapture {
     }
 
     # Debug directory for inspecting captures
-    $debugDir = Join-Path $env:TEMP "yuruna"
+    Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    $debugDir = Join-Path (Get-YurunaLogDir) "Screenshot"
     if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
 
     # ── Primary: WMI GetVirtualSystemThumbnailImage ─────────────────────────

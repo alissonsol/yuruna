@@ -40,7 +40,7 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 #   type             — Type a text string into the VM (charDelayMs configurable, default from test-config.json, fallback 50ms).
 #   typeAndEnter     — Type a text string, wait, then press Enter (charDelayMs/delaySeconds configurable).
 #   screenshot       — Capture a screenshot for debugging.
-#   waitForText      — Capture + OCR the VM screen until pattern appears.
+#   waitForText      — Capture + OCR the VM screen until pattern appears (supports array of alternate patterns).
 #                       freshMatch: if true, captures a baseline, then waits for the screen
 #                       to change AND the pattern to appear in the last few lines.
 #   waitForPort      — Wait until a TCP port responds on the VM.
@@ -620,12 +620,14 @@ function Wait-ForText {
     param(
         [string]$HostType,
         [string]$VMName,
-        [string]$Pattern,
+        [string[]]$Pattern,
         [int]$TimeoutSeconds = 120,
         [int]$PollSeconds = 5,
         [bool]$FreshMatch = $false,
         [int]$ResetAfterMisses = 2
     )
+    # Display label uses first pattern for log messages
+    $patternLabel = $Pattern[0]
     $elapsed = 0
 
     # Import required modules (Screenshot for capture, Get-NewText for diff-based OCR)
@@ -634,9 +636,10 @@ function Wait-ForText {
     Import-Module (Join-Path $modulesDir "Get-NewText.psm1") -Force -ErrorAction SilentlyContinue
 
     # Rolling screenshot window: current and previous screen paths
-    $tempRoot = if ($env:TEMP) { $env:TEMP } elseif ($env:TMPDIR) { $env:TMPDIR } else { '/tmp' }
-    $currentScreenPath  = Join-Path $tempRoot "waittext_${VMName}_current.png"
-    $previousScreenPath = Join-Path $tempRoot "waittext_${VMName}_previous.png"
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    $logDir = Get-YurunaLogDir
+    $currentScreenPath  = Join-Path $logDir "waittext_${VMName}_current.png"
+    $previousScreenPath = Join-Path $logDir "waittext_${VMName}_previous.png"
 
     # Clean up any stale files from a prior run
     Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
@@ -660,7 +663,7 @@ function Wait-ForText {
             $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $currentScreenPath
             if (-not $captured -or -not (Test-Path $currentScreenPath)) {
                 $elapsed += $PollSeconds
-                Write-Information "      Waiting for text '$Pattern'... (${elapsed}s / ${TimeoutSeconds}s)"
+                Write-Information "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
                 Start-Sleep -Seconds $PollSeconds
                 continue
             }
@@ -687,26 +690,32 @@ function Wait-ForText {
                     if ($prevArg) {
                         $lines = $newText -split "`n"
                         $tail = ($lines | Select-Object -Last 3) -join "`n"
-                        if (Test-OCRMatch -Text $tail -Pattern $Pattern) {
-                            Write-Information "      Text detected at end of screen: '$Pattern'"
-                            return $true
+                        foreach ($p in $Pattern) {
+                            if (Test-OCRMatch -Text $tail -Pattern $p) {
+                                Write-Information "      Text detected at end of screen: '$p'"
+                                return $true
+                            }
                         }
                     } else {
                         # Baseline capture — check if the pattern is already at the end of screen
                         $lines = $newText -split "`n"
                         $tail = ($lines | Select-Object -Last 3) -join "`n"
-                        if (Test-OCRMatch -Text $tail -Pattern $Pattern) {
-                            Write-Information "      Pattern already at end of baseline — match: '$Pattern'"
-                            return $true
+                        foreach ($p in $Pattern) {
+                            if (Test-OCRMatch -Text $tail -Pattern $p) {
+                                Write-Information "      Pattern already at end of baseline — match: '$p'"
+                                return $true
+                            }
                         }
                         Write-Information "      Baseline captured — waiting for screen to change and pattern to appear at end..."
                     }
                 } else {
                     # Non-FreshMatch: accumulate all text and check for pattern
                     $allText = ($allText + "`n" + $newText).Trim()
-                    if (Test-OCRMatch -Text $allText -Pattern $Pattern) {
-                        Write-Information "      Text detected: '$Pattern'"
-                        return $true
+                    foreach ($p in $Pattern) {
+                        if (Test-OCRMatch -Text $allText -Pattern $p) {
+                            Write-Information "      Text detected: '$p'"
+                            return $true
+                        }
                     }
                 }
             } else {
@@ -728,10 +737,10 @@ function Wait-ForText {
             }
 
             $elapsed += $PollSeconds
-            Write-Information "      Waiting for text '$Pattern'... (${elapsed}s / ${TimeoutSeconds}s)"
+            Write-Information "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
             Start-Sleep -Seconds $PollSeconds
         }
-        Write-Warning "Text '$Pattern' not found within ${TimeoutSeconds}s"
+        Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s"
         return $false
     } finally {
         # Clean up temp screenshot files
@@ -911,13 +920,20 @@ function Invoke-Sequence {
                 }
             }
             "waitForText" {
-                $pattern = Expand-Variable $step.pattern $vars
+                # Support both string and array of strings for pattern
+                $rawPatterns = $step.pattern
+                if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
+                    [string[]]$patterns = $rawPatterns | ForEach-Object { Expand-Variable $_ $vars }
+                } else {
+                    [string[]]$patterns = @(Expand-Variable $rawPatterns $vars)
+                }
                 $timeout = if ($step.timeoutSeconds) { [int]$step.timeoutSeconds } else { 120 }
                 $poll = if ($step.pollSeconds) { [int]$step.pollSeconds } else { 5 }
                 $fresh = if ($step.freshMatch -eq $true) { $true } else { $false }
                 $resetMisses = if ($step.resetAfterMisses) { [int]$step.resetAfterMisses } else { 3 }
-                Write-Information "      Watching screen for: '$pattern' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
-                $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $pattern `
+                $patternDisplay = $patterns -join "' | '"
+                Write-Information "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
+                $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
                     -ResetAfterMisses $resetMisses
             }

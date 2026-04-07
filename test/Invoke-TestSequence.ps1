@@ -117,6 +117,10 @@ Write-Output "Host type: $HostType"
 
 if (-not (Assert-Elevation -HostType $HostType)) { exit 1 }
 
+Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
+$YurunaLogDir = Get-YurunaLogDir
+Write-Output "Log folder: $YurunaLogDir"
+
 # === Derive GuestKey from sequence name ===
 # Sequence names follow the pattern: Test-<Phase>.<guestKey>
 # e.g. "Test-Workload.guest.ubuntu.desktop" -> "guest.ubuntu.desktop"

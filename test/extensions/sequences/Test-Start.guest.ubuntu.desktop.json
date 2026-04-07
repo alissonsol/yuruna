@@ -64,7 +64,7 @@
     },
     {
       "action": "waitForText",
-      "pattern": "Current password",
+      "pattern": ["Current password", "unrent password"],
       "timeoutSeconds": 30,
       "pollSeconds": 5,
       "description": "Confirm password before change"

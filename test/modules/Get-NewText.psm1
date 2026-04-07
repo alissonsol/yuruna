@@ -949,9 +949,9 @@ function Get-NewTextContent {
     # Background color (RGBA)
     $bgR = [byte]0; $bgG = [byte]0; $bgB = [byte]0; $bgA = [byte]255  # Black
 
-    # Cross-platform temp directory
-    $tempRoot = if ($env:TEMP) { $env:TEMP } elseif ($env:TMPDIR) { $env:TMPDIR } else { '/tmp' }
-    $debugDir = Join-Path $tempRoot 'NewText'
+    # Use global YurunaLog directory for debug artifacts
+    Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    $debugDir = Join-Path (Get-YurunaLogDir) 'NewText'
     if (-not (Test-Path $debugDir)) {
         New-Item -ItemType Directory -Path $debugDir -Force | Out-Null
     }

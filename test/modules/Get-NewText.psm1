@@ -633,10 +633,10 @@ if (-not ([System.Management.Automation.PSTypeName]'PngCodec').Type) {
 # Windows: prefer WinAIOcr (Windows App SDK TextRecognizer) for high-quality OCR.
 # Falls back to legacy WinRT Windows.Media.Ocr via powershell.exe (PS 5.1).
 
-# Build WinAIOcr tool if not already built. Requires .NET SDK.
+# Build WinAIOcr tool if not already built. Requires .NET SDK. Windows only.
 $script:WinAIOcrExe = $null
 $winAIOcrProject = Join-Path $PSScriptRoot '..\tools\WinAIOcr\WinAIOcr.csproj'
-if (Test-Path $winAIOcrProject) {
+if ($IsWindows -and (Test-Path $winAIOcrProject)) {
     # Look for existing build output
     $buildOutput = Join-Path $PSScriptRoot '..\tools\WinAIOcr\bin\Release'
     $exeCandidate = Get-ChildItem -Path $buildOutput -Filter 'WinAIOcr.exe' -Recurse -ErrorAction SilentlyContinue |
@@ -671,7 +671,7 @@ if (Test-Path $winAIOcrProject) {
         }
     }
 }
-if (-not $script:WinAIOcrExe) {
+if ($IsWindows -and -not $script:WinAIOcrExe) {
     Write-Host "[Get-NewText] WinAIOcr not available. Using legacy Windows.Media.Ocr (lower accuracy on terminal text)." -ForegroundColor Yellow
 }
 

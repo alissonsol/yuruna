@@ -33,6 +33,7 @@ class Program
             return 1;
         }
 
+        // Initialize the Windows App SDK bootstrapper (required for unpackaged apps)
         try
         {
             Bootstrap.Initialize(0x00010008);
@@ -46,39 +47,22 @@ class Program
 
         try
         {
-            var readyState = TextRecognizer.GetReadyState();
-            if (readyState != Microsoft.Windows.AI.AIFeatureReadyState.Ready)
-            {
-                try
-                {
-                    await TextRecognizer.EnsureReadyAsync();
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"TextRecognizer could not be made ready: {ex.GetType().Name}: {ex.Message}");
-                    Console.Error.WriteLine("Requirements: Windows 11 with Windows App SDK 1.8+ and compatible AI hardware.");
-                    return 2;
-                }
-
-                readyState = TextRecognizer.GetReadyState();
-                if (readyState != Microsoft.Windows.AI.AIFeatureReadyState.Ready)
-                {
-                    Console.Error.WriteLine($"TextRecognizer not ready (state: {readyState}).");
-                    return 2;
-                }
-            }
-
+            // Load image as SoftwareBitmap
             var file = await StorageFile.GetFileFromPathAsync(imagePath);
             using var stream = await file.OpenAsync(Windows.Storage.FileAccessMode.Read);
             var decoder = await BitmapDecoder.CreateAsync(stream);
             var bitmap = await decoder.GetSoftwareBitmapAsync(
                 BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
 
+            // Convert SoftwareBitmap to ImageBuffer (required by TextRecognizer)
             var imageBuffer = ImageBuffer.CreateForSoftwareBitmap(bitmap);
 
+            // Ensure the AI model is downloaded/ready, then create the recognizer
+            await TextRecognizer.EnsureReadyAsync();
             using var recognizer = await TextRecognizer.CreateAsync();
             var result = recognizer.RecognizeTextFromImage(imageBuffer);
 
+            // Output recognized lines
             var sb = new StringBuilder();
             foreach (var line in result.Lines)
             {
@@ -91,14 +75,16 @@ class Program
         }
         catch (UnauthorizedAccessException ex)
         {
-            Console.Error.WriteLine($"TextRecognizer not available on this hardware: {ex.Message}");
-            Console.Error.WriteLine("This feature requires a Copilot+ PC with NPU (40+ TOPS).");
+            Console.Error.WriteLine($"TextRecognizer not available: {ex.Message}");
+            Console.Error.WriteLine("Requirements: Windows 11 with Windows App SDK 1.8+ and AI features enabled.");
             Bootstrap.Shutdown();
             return 2;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"OCR failed: {ex.GetType().Name}: {ex.Message}");
+            if (ex.InnerException != null)
+                Console.Error.WriteLine($"  Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
             Bootstrap.Shutdown();
             return 1;
         }

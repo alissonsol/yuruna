@@ -13,5 +13,5 @@ fi
 # Construct and execute
 FULL_URL="${BASE_URL}${FILE_PATH}${QUERY_PARAMS}"
 /bin/bash -c "$(wget -qO- "$FULL_URL")"
-# Clean screen, so detection of the prompt is more reliable
+# TODO: Remove the hack below. It is improving reliability to find the "prompt", but shouldn't be needed.
 clear

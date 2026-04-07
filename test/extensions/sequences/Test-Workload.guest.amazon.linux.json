@@ -54,7 +54,7 @@
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
-      "pollSeconds": 1,
+      "pollSeconds": 15,
       "description": "Wait for login shell prompt"
     },
     {

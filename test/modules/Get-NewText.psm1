@@ -550,6 +550,63 @@ public static class ScreenDelta
             }
         }
     }
+
+    /// <summary>
+    /// Inverts RGB channels in-place (255 - value). Converts light-on-dark terminal
+    /// screenshots to dark-on-light, which OCR engines handle much better.
+    /// </summary>
+    public static void InvertColors(RawImage img)
+    {
+        byte[] px = img.Pixels;
+        int stride = img.Stride;
+        for (int y = 0; y < img.Height; y++)
+        {
+            int rowOff = y * stride;
+            for (int x = 0; x < img.Width; x++)
+            {
+                int i = rowOff + (x << 2);
+                px[i]     = (byte)(255 - px[i]);
+                px[i + 1] = (byte)(255 - px[i + 1]);
+                px[i + 2] = (byte)(255 - px[i + 2]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Scales an image by 2x using nearest-neighbour interpolation.
+    /// More pixels give OCR engines more detail to work with.
+    /// </summary>
+    public static RawImage Scale2x(RawImage src)
+    {
+        int dstW = src.Width * 2;
+        int dstH = src.Height * 2;
+        var dst = new RawImage(dstW, dstH);
+        byte[] sp = src.Pixels, dp = dst.Pixels;
+        int srcStride = src.Stride, dstStride = dst.Stride;
+
+        for (int y = 0; y < src.Height; y++)
+        {
+            int srcRow = y * srcStride;
+            int dstRow0 = (y * 2) * dstStride;
+            int dstRow1 = dstRow0 + dstStride;
+            for (int x = 0; x < src.Width; x++)
+            {
+                int si = srcRow + (x << 2);
+                int di0 = dstRow0 + (x << 3); // x*2*4
+                int di1 = dstRow1 + (x << 3);
+                byte r = sp[si], g = sp[si + 1], b = sp[si + 2], a = sp[si + 3];
+                // Top-left
+                dp[di0] = r; dp[di0 + 1] = g; dp[di0 + 2] = b; dp[di0 + 3] = a;
+                // Top-right
+                dp[di0 + 4] = r; dp[di0 + 5] = g; dp[di0 + 6] = b; dp[di0 + 7] = a;
+                // Bottom-left
+                dp[di1] = r; dp[di1 + 1] = g; dp[di1 + 2] = b; dp[di1 + 3] = a;
+                // Bottom-right
+                dp[di1 + 4] = r; dp[di1 + 5] = g; dp[di1 + 6] = b; dp[di1 + 7] = a;
+            }
+        }
+        return dst;
+    }
 }
 '@
 
@@ -573,10 +630,52 @@ if (-not ([System.Management.Automation.PSTypeName]'PngCodec').Type) {
 
 # --- OCR engines ---
 
-# Windows: use WinRT Windows.Media.Ocr (same engine as Snipping Tool).
-# Runs via powershell.exe (Windows PowerShell 5.1) which has native WinRT support.
-# The OCR engine may detect columns and return fragments out of reading order,
-# so we reconstruct lines by grouping words by Y position and sorting by X.
+# Windows: prefer WinAIOcr (Windows App SDK TextRecognizer) for high-quality OCR.
+# Falls back to legacy WinRT Windows.Media.Ocr via powershell.exe (PS 5.1).
+
+# Build WinAIOcr tool if not already built. Requires .NET SDK.
+$script:WinAIOcrExe = $null
+$winAIOcrProject = Join-Path $PSScriptRoot '..\tools\WinAIOcr\WinAIOcr.csproj'
+if (Test-Path $winAIOcrProject) {
+    # Look for existing build output
+    $buildOutput = Join-Path $PSScriptRoot '..\tools\WinAIOcr\bin\Release'
+    $exeCandidate = Get-ChildItem -Path $buildOutput -Filter 'WinAIOcr.exe' -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $exeCandidate) {
+        # Try debug build
+        $buildOutput = Join-Path $PSScriptRoot '..\tools\WinAIOcr\bin\Debug'
+        $exeCandidate = Get-ChildItem -Path $buildOutput -Filter 'WinAIOcr.exe' -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    }
+    if (-not $exeCandidate) {
+        # Attempt to build
+        $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+        if ($dotnet) {
+            Write-Host "[Get-NewText] Building WinAIOcr tool..." -ForegroundColor Cyan
+            $buildResult = & dotnet build $winAIOcrProject -c Release --nologo -v q 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $buildOutput = Join-Path $PSScriptRoot '..\tools\WinAIOcr\bin\Release'
+                $exeCandidate = Get-ChildItem -Path $buildOutput -Filter 'WinAIOcr.exe' -Recurse -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+            } else {
+                Write-Warning "[Get-NewText] WinAIOcr build failed. Falling back to legacy OCR.`n$($buildResult -join "`n")"
+            }
+        }
+    }
+    if ($exeCandidate) {
+        # Verify it can run (exit code 1 = usage error = tool works)
+        & $exeCandidate.FullName 2>$null | Out-Null
+        if ($LASTEXITCODE -le 1) {
+            $script:WinAIOcrExe = $exeCandidate.FullName
+            Write-Host "[Get-NewText] Using WinAIOcr: $($script:WinAIOcrExe)" -ForegroundColor Cyan
+        }
+    }
+}
+if (-not $script:WinAIOcrExe) {
+    Write-Host "[Get-NewText] WinAIOcr not available. Using legacy Windows.Media.Ocr (lower accuracy on terminal text)." -ForegroundColor Yellow
+}
+
+# Legacy fallback: WinRT Windows.Media.Ocr via PowerShell 5.1
 $script:WinRtOcrScript = @'
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
@@ -600,47 +699,20 @@ $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) 
 $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
 $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
 
-$bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+# Convert to Bgra8/Premultiplied — the format OcrEngine expects
+[Windows.Graphics.Imaging.SoftwareBitmap, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
+$rawBitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$bitmap = [Windows.Graphics.Imaging.SoftwareBitmap]::Convert(
+    $rawBitmap,
+    [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
+    [Windows.Graphics.Imaging.BitmapAlphaMode]::Premultiplied)
 
 $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
 if (-not $ocrEngine) { throw 'WinRT OcrEngine not available' }
 $ocrResult = Await ($ocrEngine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
 
-# Collect all words with their bounding rectangles
-$allWords = @()
 foreach ($line in $ocrResult.Lines) {
-    foreach ($word in $line.Words) {
-        $r = $word.BoundingRect
-        $allWords += [PSCustomObject]@{ Text = $word.Text; X = $r.X; Y = $r.Y; H = $r.Height }
-    }
-}
-
-if ($allWords.Count -eq 0) { return }
-
-# Group words into rows by Y position (tolerance = half the median word height)
-$sortedByY = $allWords | Sort-Object Y
-$medianH = ($allWords | Sort-Object H)[[int]($allWords.Count / 2)].H
-$tolerance = [Math]::Max($medianH * 0.5, 3)
-
-$rows = @()
-$currentRow = @($sortedByY[0])
-$currentY = $sortedByY[0].Y
-
-for ($i = 1; $i -lt $sortedByY.Count; $i++) {
-    $w = $sortedByY[$i]
-    if ([Math]::Abs($w.Y - $currentY) -le $tolerance) {
-        $currentRow += $w
-    } else {
-        $rows += ,($currentRow | Sort-Object X)
-        $currentRow = @($w)
-        $currentY = $w.Y
-    }
-}
-$rows += ,($currentRow | Sort-Object X)
-
-# Output one line per row, words joined with spaces
-foreach ($row in $rows) {
-    ($row | ForEach-Object { $_.Text }) -join ' '
+    $line.Text
 }
 '@
 
@@ -738,8 +810,26 @@ function Invoke-PlatformOcr {
     param([string]$ImagePath)
 
     if ($IsWindows) {
-        # WinRT OCR via Windows PowerShell 5.1 (has native WinRT support).
         $absPath = (Resolve-Path $ImagePath).Path
+
+        # Try WinAIOcr (Windows App SDK TextRecognizer) first
+        if ($script:WinAIOcrExe) {
+            $output = & $script:WinAIOcrExe $absPath 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                return ($output | Where-Object { $_ -is [string] }) -join "`n"
+            }
+            if ($LASTEXITCODE -eq 2) {
+                # TextRecognizer not available on this hardware — fall back permanently
+                $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
+                Write-Warning "[Get-NewText] WinAIOcr: TextRecognizer not available. Falling back to legacy OCR. $errMsg"
+                $script:WinAIOcrExe = $null
+            } else {
+                $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
+                Write-Warning "[Get-NewText] WinAIOcr failed (exit $LASTEXITCODE): $errMsg. Falling back to legacy OCR."
+            }
+        }
+
+        # Legacy fallback: WinRT OCR via PowerShell 5.1
         $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) 'WinRtOcr.ps1'
         $script:WinRtOcrScript | Set-Content -Path $scriptFile -Encoding UTF8
         try {
@@ -847,9 +937,25 @@ function Get-NewTextContent {
         # Load or create previous screen
         if ([string]::IsNullOrEmpty($PreviousScreenPath)) {
             Write-Debug "No previous screen provided; treating entire image as new."
+            # Preprocess for OCR: grayscale → invert (dark-on-light) → scale 2x
+            $ocrImg = [RawImage]::new($width, $height, [byte[]]$currentImg.Pixels.Clone())
+            [ScreenDelta]::ToGrayscale($ocrImg)
+            [ScreenDelta]::InvertColors($ocrImg)
+            $ocrImg = [ScreenDelta]::Scale2x($ocrImg)
+            Write-Trace "Preprocess for OCR ($($ocrImg.Width)x$($ocrImg.Height))" $totalSw
             $ocrInputPath = Join-Path $debugDir 'ocr_input.png'
-            [PngCodec]::Save($currentImg, $ocrInputPath)
-            Write-Trace "No-diff: save full image for OCR" $totalSw
+            [PngCodec]::Save($ocrImg, $ocrInputPath)
+            Write-Trace "No-diff: save preprocessed image for OCR" $totalSw
+
+            # Save debug artifacts: current screen, a blank previous screen, and processed text screen
+            if ($script:Trace) {
+                [PngCodec]::Save($currentImg, (Join-Path $debugDir 'CurrentScreen.png'))
+                $blankImg = [RawImage]::new($width, $height)
+                $blankImg.Fill($bgR, $bgG, $bgB, $bgA)
+                [PngCodec]::Save($blankImg, (Join-Path $debugDir 'PreviousScreen.png'))
+                [PngCodec]::Save($currentImg, (Join-Path $debugDir 'ProcessedTextScreen.png'))
+                Write-Trace "Debug artifacts saved (no previous)" $totalSw
+            }
 
             $ocrText = (Invoke-PlatformOcr -ImagePath $ocrInputPath).Trim()
             Write-Trace "OCR ($($ocrText.Length) chars)" $totalSw
@@ -882,6 +988,12 @@ function Get-NewTextContent {
 
         if (-not $delta.HasChanges) {
             Write-Debug "No pixel changes detected between frames."
+            # Save debug artifacts so the user can inspect why no changes were detected
+            if ($script:Trace) {
+                [PngCodec]::Save($currentImg, (Join-Path $debugDir 'CurrentScreen.png'))
+                [PngCodec]::Save($previousImg, (Join-Path $debugDir 'PreviousScreen.png'))
+                Write-Trace "Debug artifacts saved (no changes)" $totalSw
+            }
             '' | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
             Write-Trace "Total Get-NewTextContent (no changes)" $totalSw
             return ''
@@ -898,13 +1010,15 @@ function Get-NewTextContent {
         $croppedImg = [ScreenDelta]::PadIfNeeded($croppedImg, $bgR, $bgG, $bgB, $bgA, $minOcrHeight)
         Write-Trace "Pad check (now $($croppedImg.Width)x$($croppedImg.Height))" $totalSw
 
-        # Convert to grayscale for better OCR on colored text
+        # Preprocess for OCR: grayscale → invert (dark-on-light) → scale 2x
         [ScreenDelta]::ToGrayscale($croppedImg)
-        Write-Trace "Grayscale conversion" $totalSw
+        [ScreenDelta]::InvertColors($croppedImg)
+        $ocrImg = [ScreenDelta]::Scale2x($croppedImg)
+        Write-Trace "Preprocess for OCR ($($ocrImg.Width)x$($ocrImg.Height))" $totalSw
 
         # Save for OCR
         $ocrInputPath = Join-Path $debugDir 'ocr_input.png'
-        [PngCodec]::Save($croppedImg, $ocrInputPath)
+        [PngCodec]::Save($ocrImg, $ocrInputPath)
         Write-Trace "Save OCR input" $totalSw
 
         # Save debug artifacts only when tracing (PNG encoding is expensive)
@@ -919,13 +1033,18 @@ function Get-NewTextContent {
         $currentText = (Invoke-PlatformOcr -ImagePath $ocrInputPath).Trim()
         Write-Trace "OCR current ($($currentText.Length) chars)" $totalSw
 
+        # Log raw OCR output before any processing
+        $currentText | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
+
         # Text-level diff: OCR the same region from previous, keep only new lines
         $ocrText = $currentText
         $prevCropPath = Join-Path $debugDir 'ocr_prev_crop.png'
         $prevCropImg = [ScreenDelta]::Crop($previousImg, $delta.MinY, $delta.MaxY)
         $prevCropImg = [ScreenDelta]::PadIfNeeded($prevCropImg, $bgR, $bgG, $bgB, $bgA, $minOcrHeight)
         [ScreenDelta]::ToGrayscale($prevCropImg)
-        [PngCodec]::Save($prevCropImg, $prevCropPath)
+        [ScreenDelta]::InvertColors($prevCropImg)
+        $prevOcrImg = [ScreenDelta]::Scale2x($prevCropImg)
+        [PngCodec]::Save($prevOcrImg, $prevCropPath)
 
         $prevText = (Invoke-PlatformOcr -ImagePath $prevCropPath).Trim()
         Write-Trace "OCR previous ($($prevText.Length) chars)" $totalSw
@@ -945,7 +1064,6 @@ function Get-NewTextContent {
 
         # Clean up
         if (Test-Path $ocrInputPath) { Remove-Item $ocrInputPath -Force }
-        $ocrText | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
 
         Write-Trace "Total Get-NewTextContent" $totalSw
 

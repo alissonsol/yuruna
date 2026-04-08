@@ -25,7 +25,7 @@
       "pattern": "login:",
       "timeoutSeconds": 180,
       "pollSeconds": 5,
-      "description": "Wait for login prompt"
+      "description": "login:"
     },
     {
       "action": "delay",
@@ -42,7 +42,7 @@
       "pattern": "Password:",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password prompt"
+      "description": "Password:"
     },
     {
       "action": "typeAndEnter",
@@ -55,7 +55,7 @@
       "pattern": ["Current password:", "unrent password"],
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password change prompt (current password)"
+      "description": "Current password:"
     },
     {
       "action": "typeAndEnter",
@@ -68,7 +68,7 @@
       "pattern": "New password:",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for new password prompt"
+      "description": "New password:"
     },
     {
       "action": "typeAndEnter",
@@ -81,7 +81,7 @@
       "pattern": "Retype new password:",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password confirmation prompt"
+      "description": "Retype new password:"
     },
     {
       "action": "typeAndEnter",
@@ -100,7 +100,7 @@
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for login shell prompt"
+      "description": "Login shell prompt: ${username}@${vmName}"
     },
     {
       "action": "delay",

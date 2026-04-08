@@ -25,7 +25,7 @@
       "pattern": "login:",
       "timeoutSeconds": 180,
       "pollSeconds": 10,
-      "description": "Wait for login prompt"
+      "description": "login:"
     },
     {
       "action": "delay",
@@ -42,7 +42,7 @@
       "pattern": "Password:",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password prompt"
+      "description": "Password:"
     },
     {
       "action": "typeAndEnter",
@@ -55,7 +55,7 @@
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
       "pollSeconds": 15,
-      "description": "Wait for login shell prompt"
+      "description": "Login shell prompt: ${username}@${vmName}"
     },
     {
       "action": "delay",
@@ -78,7 +78,7 @@
       "timeoutSeconds": 300,
       "pollSeconds": 15,
       "freshMatch": true,
-      "description": "Wait for install to complete (may take 3-5 minutes)"
+      "description": "${username}@${vmName} (may take several minutes)"
     },
     {
       "action": "typeAndEnter",

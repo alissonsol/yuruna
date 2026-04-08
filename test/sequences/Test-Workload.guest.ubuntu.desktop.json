@@ -37,7 +37,7 @@
       "pattern": "Password",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password prompt"
+      "description": "Password"
     },
     {
       "action": "typeAndEnter",

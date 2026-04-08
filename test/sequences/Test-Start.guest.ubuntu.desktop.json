@@ -25,7 +25,7 @@
       "pattern": "Try or Install Ubuntu",
       "timeoutSeconds": 180,
       "pollSeconds": 5,
-      "description": "Wait for login prompt"
+      "description": "Try or Install Ubuntu"
     },
     {
       "action": "delay",
@@ -64,7 +64,7 @@
       "pattern": "Password",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password prompt"
+      "description": "Password"
     },
     {
       "action": "typeAndEnter",
@@ -77,7 +77,7 @@
       "pattern": ["Current password", "unrent password"],
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Confirm password before change"
+      "description": "Current password"
     },
     {
       "action": "typeAndEnter",
@@ -90,33 +90,33 @@
       "pattern": "New password",
       "timeoutSeconds": 60,
       "pollSeconds": 2,
-      "description": "Wait for password prompt"
+      "description": "New password"
     },
     {
       "action": "typeAndEnter",
       "text": "${newPassword}",
       "sensitive": true,
-      "description": "The new password: ${newPassword}"
+      "description": "The new password"
     },
     {
       "action": "waitForText",
       "pattern": "Retype new password",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password prompt"
+      "description": "Retype new password"
     },
     {
       "action": "typeAndEnter",
       "text": "${newPassword}",
       "sensitive": true,
-      "description": "The new password: ${newPassword}"
+      "description": "The new password"
     },
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for login shell prompt. CAREFUL: Look at the top of the shell window in Ubuntu!"
+      "description": "Login shell prompt. CAREFUL: Look at the top of the shell window in Ubuntu!"
     },
     {
       "action": "typeAndEnter",
@@ -128,7 +128,7 @@
       "pattern": "[sudo] password for ${username}",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password prompt"
+      "description": "[sudo] password prompt"
     },
     {
       "action": "typeAndEnter",

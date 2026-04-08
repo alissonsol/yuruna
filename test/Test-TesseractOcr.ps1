@@ -41,38 +41,12 @@ if (-not (Test-Path $ImagePath)) {
 }
 $absPath = (Resolve-Path $ImagePath).Path
 
-# --- Locate tesseract ---
-# Common install locations on Windows (winget / Chocolatey / manual)
-$searchPaths = @(
-    "C:\Program Files\Tesseract-OCR"
-    "C:\Program Files (x86)\Tesseract-OCR"
-    "$env:LOCALAPPDATA\Programs\Tesseract-OCR"
-)
+# --- Import shared Tesseract module ---
+Import-Module (Join-Path $PSScriptRoot "modules" "Test.Tesseract.psm1") -Force
 
-$tesseractCmd = Get-Command tesseract -ErrorAction SilentlyContinue
-if (-not $tesseractCmd) {
-    foreach ($dir in $searchPaths) {
-        $candidate = Join-Path $dir "tesseract.exe"
-        if (Test-Path $candidate) {
-            $tesseractCmd = $candidate
-            break
-        }
-    }
-}
+if (-not (Assert-TesseractInstalled)) { exit 1 }
 
-if (-not $tesseractCmd) {
-    Write-Output "Tesseract not found in PATH or common install locations."
-    Write-Output ""
-    Write-Output "Install via one of:"
-    Write-Output "  winget install UB-Mannheim.TesseractOCR"
-    Write-Output "  choco install tesseract"
-    Write-Output "  scoop install tesseract"
-    Write-Output "  brew install tesseract          (macOS)"
-    Write-Output "  sudo apt install tesseract-ocr  (Linux)"
-    exit 1
-}
-
-$tesseractExe = if ($tesseractCmd -is [string]) { $tesseractCmd } else { $tesseractCmd.Source }
+$tesseractExe = Find-Tesseract
 Write-Output "Tesseract: $tesseractExe"
 
 # Print version
@@ -82,17 +56,12 @@ Write-Output "Image:     $absPath"
 Write-Output ""
 
 # --- Run OCR ---
-# tesseract outputs to a file by default; use "stdout" as output base to get text on stdout.
-$output = & $tesseractExe $absPath stdout 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Output "Tesseract failed with exit code $LASTEXITCODE."
-    # Show stderr on failure
-    $errOutput = & $tesseractExe $absPath stdout 2>&1 | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
-    foreach ($line in $errOutput) { Write-Output "  $line" }
+try {
+    $text = Invoke-TesseractOcr -ImagePath $absPath
+} catch {
+    Write-Output "Tesseract failed: $_"
     exit 1
 }
-
-$text = ($output | Where-Object { $_ -is [string] }) -join "`n"
 
 if ([string]::IsNullOrWhiteSpace($text)) {
     Write-Output "(no text recognized)"

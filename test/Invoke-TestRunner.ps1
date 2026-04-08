@@ -69,6 +69,9 @@ Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
 $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
+Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
+if (-not (Assert-TesseractInstalled)) { exit 1 }
+
 if ($Config.statusServer.enabled -and -not $NoServer) {
     $startScript = Join-Path $TestRoot "Start-StatusServer.ps1"
     $serverPort  = if ($Config.statusServer.port) { [int]$Config.statusServer.port } else { 8080 }

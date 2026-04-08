@@ -720,177 +720,13 @@ if (-not ([System.Management.Automation.PSTypeName]'PngCodec').Type) {
     Add-Type -Language CSharp -TypeDefinition $csharpSource -ReferencedAssemblies $referencedAssemblies
 }
 
-# --- OCR engines ---
+# --- OCR engine (Tesseract) ---
 
-# Windows: WinRT Windows.Media.Ocr via PowerShell 5.1 (has native WinRT support).
-# Images are preprocessed (grayscale, invert, scale 2x) before OCR to improve
-# accuracy on terminal screenshots (light text on dark background).
-$script:WinRtOcrScript = @'
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-
-$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
-    Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
-                   $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
-
-function Await($WinRtTask, $ResultType) {
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
-    $netTask.Result
-}
-
-[Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
-[Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-
-$imagePath = $args[0]
-$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) ([Windows.Storage.StorageFile])
-$stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
-$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-
-# Convert to Bgra8/Premultiplied — the format OcrEngine expects
-[Windows.Graphics.Imaging.SoftwareBitmap, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-$rawBitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$bitmap = [Windows.Graphics.Imaging.SoftwareBitmap]::Convert(
-    $rawBitmap,
-    [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
-    [Windows.Graphics.Imaging.BitmapAlphaMode]::Premultiplied)
-
-$ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if (-not $ocrEngine) { throw 'WinRT OcrEngine not available' }
-$ocrResult = Await ($ocrEngine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-
-foreach ($line in $ocrResult.Lines) {
-    $line.Text
-}
-'@
-
-# macOS: use Apple Vision framework via swift.
-# Vision returns observations sorted by confidence; we re-sort by Y (top-to-bottom)
-# then by X (left-to-right) within each row to get proper reading order.
-$script:VisionOcrSwift = @'
-import Vision
-import AppKit
-
-guard CommandLine.arguments.count > 1 else { exit(1) }
-let imagePath = CommandLine.arguments[1]
-guard let image = NSImage(contentsOfFile: imagePath),
-      let tiff = image.tiffRepresentation,
-      let bitmap = NSBitmapImageRep(data: tiff),
-      let originalCGImage = bitmap.cgImage else {
-    fputs("Failed to load image: \(imagePath)\n", stderr)
-    exit(1)
-}
-
-// Upscale 2x for better OCR of small terminal text.
-let w = originalCGImage.width * 2
-let h = originalCGImage.height * 2
-let cgImage: CGImage
-if let ctx = CGContext(data: nil, width: w, height: h,
-                       bitsPerComponent: originalCGImage.bitsPerComponent,
-                       bytesPerRow: 0,
-                       space: originalCGImage.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-                       bitmapInfo: originalCGImage.bitmapInfo.rawValue) {
-    ctx.interpolationQuality = .high
-    ctx.draw(originalCGImage, in: CGRect(x: 0, y: 0, width: w, height: h))
-    cgImage = ctx.makeImage() ?? originalCGImage
-} else {
-    cgImage = originalCGImage
-}
-
-let request = VNRecognizeTextRequest()
-request.recognitionLevel = .accurate
-request.usesLanguageCorrection = true
-request.recognitionLanguages = ["en-US"]
-
-let handler = VNImageRequestHandler(cgImage: cgImage)
-try handler.perform([request])
-
-guard let observations = request.results, !observations.isEmpty else { exit(0) }
-
-// Vision uses bottom-left origin; sort by Y descending (top-to-bottom),
-// then group into rows and sort left-to-right within each row.
-struct TextFragment {
-    let text: String
-    let x: CGFloat  // left edge (0..1)
-    let y: CGFloat  // top edge as 1-topY (higher = lower on screen)
-    let h: CGFloat  // height
-}
-
-var fragments: [TextFragment] = []
-for obs in observations {
-    guard let candidate = obs.topCandidates(1).first else { continue }
-    let box = obs.boundingBox
-    let topY = 1.0 - box.origin.y - box.size.height
-    fragments.append(TextFragment(text: candidate.string, x: box.origin.x, y: topY, h: box.size.height))
-}
-
-fragments.sort { $0.y < $1.y }
-
-// Group into rows (tolerance = half median height)
-let heights = fragments.map { $0.h }.sorted()
-let medianH = heights[heights.count / 2]
-let tolerance = max(medianH * 0.5, 0.005)
-
-var rows: [[TextFragment]] = []
-var currentRow: [TextFragment] = [fragments[0]]
-var currentY = fragments[0].y
-
-for i in 1..<fragments.count {
-    let f = fragments[i]
-    if abs(f.y - currentY) <= tolerance {
-        currentRow.append(f)
-    } else {
-        rows.append(currentRow.sorted { $0.x < $1.x })
-        currentRow = [f]
-        currentY = f.y
-    }
-}
-rows.append(currentRow.sorted { $0.x < $1.x })
-
-for row in rows {
-    print(row.map { $0.text }.joined(separator: " "))
-}
-'@
-
-# --- OCR dispatch ---
+Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force
 
 function Invoke-PlatformOcr {
     param([string]$ImagePath)
-
-    if ($IsWindows) {
-        $absPath = (Resolve-Path $ImagePath).Path
-        $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) 'WinRtOcr.ps1'
-        $script:WinRtOcrScript | Set-Content -Path $scriptFile -Encoding UTF8
-        try {
-            $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptFile $absPath 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
-                throw "WinRT OCR failed: $errMsg"
-            }
-            return ($output | Where-Object { $_ -is [string] }) -join "`n"
-        } finally {
-            if (Test-Path $scriptFile) { Remove-Item $scriptFile -Force }
-        }
-    }
-    elseif ($IsMacOS) {
-        # Apple Vision framework via swift
-        $swiftFile = [System.IO.Path]::GetTempFileName() + '.swift'
-        try {
-            $script:VisionOcrSwift | Set-Content -Path $swiftFile -Encoding UTF8
-            $output = & swift $swiftFile $ImagePath 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
-                throw "Vision OCR failed: $errMsg"
-            }
-            return ($output | Where-Object { $_ -is [string] }) -join "`n"
-        } finally {
-            if (Test-Path $swiftFile) { Remove-Item $swiftFile -Force }
-        }
-    }
-    else {
-        throw 'No built-in OCR engine available on Linux. This module supports Windows (WinRT) and macOS (Vision).'
-    }
+    return Invoke-TesseractOcr -ImagePath $ImagePath
 }
 
 # --- Public function ---
@@ -909,9 +745,9 @@ function Get-NewTextContent {
         All image processing is done in compiled C# with a built-in PNG codec,
         requiring no external image libraries (no System.Drawing, etc.).
 
-        Uses platform-native OCR for best accuracy:
-        - Windows: Windows.Media.Ocr (WinRT, same engine as Snipping Tool)
-        - macOS: Apple Vision framework (VNRecognizeTextRequest)
+        Uses Tesseract OCR (open-source, cross-platform) for text recognition.
+        Tesseract must be installed separately — see Assert-TesseractInstalled
+        in Test.Tesseract.psm1 for installation guidance.
 
         Requires PowerShell 7+ (.NET 10+).
 

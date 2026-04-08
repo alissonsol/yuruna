@@ -121,6 +121,9 @@ Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
 $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
+Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
+if (-not (Assert-TesseractInstalled)) { exit 1 }
+
 # === Derive GuestKey from sequence name ===
 # Sequence names follow the pattern: Test-<Phase>.<guestKey>
 # e.g. "Test-Workload.guest.ubuntu.desktop" -> "guest.ubuntu.desktop"

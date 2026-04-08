@@ -68,6 +68,11 @@
       "description": "GUI install"
     },
     {
+      "action": "delay",
+      "seconds": 10,
+      "description": "HACK: Brief pause so that the install starts and the previous login shell prompt rolls out of the screen"
+    },
+    {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 300,

@@ -38,6 +38,16 @@
       "description": "Dismiss GRUB menu"
     },
     {
+      "action": "delay",
+      "seconds": 10,
+      "description": "HACK: In Windows, at times the Ubuntu install waits for... nobody knows what!"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "",
+      "description": "HACK: Focus and enter continues the installation. No side-effects since there is a reboot after the installation."
+    },
+    {
       "action": "waitForText",
       "pattern": "Not listed?",
       "timeoutSeconds": 900,

@@ -199,7 +199,27 @@ while ($true) {
             Write-Output "Get-Image complete. Timestamp updated."
         }
     } else {
-        Write-Output "Get-Image: skipped (last run: $lastGetImage)"
+        # Timer not expired, but verify each image file actually exists.
+        # Re-download any that are missing (e.g. manually deleted or first run after a clean).
+        $missingAny = $false
+        foreach ($GuestKey in $GuestList) {
+            $imagePath = Get-ImagePath -HostType $HostType -GuestKey $GuestKey
+            if (-not $imagePath -or -not (Test-Path $imagePath)) {
+                $label = if ($imagePath) { $imagePath } else { "$HostType/$GuestKey" }
+                Write-Output "Image file missing: $label — re-downloading..."
+                $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
+                if (-not $r.success) {
+                    Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
+                    $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage
+                    $missingAny = $true
+                    break
+                }
+                Write-Output "  $GuestKey image: OK (re-downloaded)"
+            }
+        }
+        if (-not $missingAny) {
+            Write-Output "Get-Image: skipped (last run: $lastGetImage, all images present)"
+        }
     }
 
     # --- Abort cycle early if Get-Image failed ---

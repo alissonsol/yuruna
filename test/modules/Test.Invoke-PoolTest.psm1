@@ -64,7 +64,8 @@ function Invoke-PoolTest {
         return @{ success=$true; skipped=$true; errorMessage=$null }
     }
     foreach ($s in $scripts) {
-        Write-Information "  Running: $($s.Name)" -InformationAction Continue
+        $displayName = [System.IO.Path]::GetFileNameWithoutExtension($s.Name)
+        Write-Information "  Running: $displayName" -InformationAction Continue
         if ($ShowOutput) {
             & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName *>&1 | ForEach-Object {
                 Write-Information "    $_" -InformationAction Continue
@@ -87,7 +88,7 @@ function Invoke-PoolTest {
             }
             return @{ success=$false; skipped=$false; errorMessage=$errMsg }
         }
-        Write-Information "  $($s.Name): PASS" -InformationAction Continue
+        Write-Information "  ${displayName}: PASS" -InformationAction Continue
     }
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }

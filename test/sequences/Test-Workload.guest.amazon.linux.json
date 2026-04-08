@@ -70,7 +70,7 @@
     {
       "action": "delay",
       "seconds": 10,
-      "description": "HACK: Pause for install and login shell prompt rolls out of the screen"
+      "description": "HACK: Pause during install — login prompt is scrolling off-screen."
     },
     {
       "action": "waitForText",

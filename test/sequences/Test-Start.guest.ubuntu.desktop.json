@@ -52,7 +52,7 @@
       "pattern": "Not listed?",
       "timeoutSeconds": 900,
       "pollSeconds": 15,
-      "description": "Login after install"
+      "description": "Not listed?"
     },
     {
       "action": "typeAndEnter",
@@ -139,7 +139,7 @@
     {
       "action": "delay",
       "seconds": 10,
-      "description": "HACK: Brief pause so that the install starts and the previous login shell prompt rolls out of the screen"
+      "description": "HACK: Pause during install — login prompt is scrolling off-screen"
     },
     {
       "action": "waitForText",

@@ -25,7 +25,7 @@
       "pattern": "Not listed?",
       "timeoutSeconds": 600,
       "pollSeconds": 10,
-      "description": "Login after install"
+      "description": "Not listed?"
     },
     {
       "action": "typeAndEnter",
@@ -67,7 +67,7 @@
       "pattern": "[sudo] password for ${username}",
       "timeoutSeconds": 30,
       "pollSeconds": 5,
-      "description": "Wait for password prompt"
+      "description": "[sudo] password prompt"
     },
     {
       "action": "typeAndEnter",

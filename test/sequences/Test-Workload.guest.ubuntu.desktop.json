@@ -77,7 +77,7 @@
     },
     {
       "action": "waitForText",
-      "pattern": "Fetch and execute completed: vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
+      "pattern": "Fetched and executed: vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
       "timeoutSeconds": 300,
       "pollSeconds": 15,
       "freshMatch": true,

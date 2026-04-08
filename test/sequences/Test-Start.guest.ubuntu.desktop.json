@@ -133,7 +133,7 @@
     },
     {
       "action": "waitForText",
-      "pattern": "<<< System packages update complete.",
+      "pattern": "Fetched and executed: vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
       "timeoutSeconds": 600,
       "pollSeconds": 15,
       "freshMatch": true,

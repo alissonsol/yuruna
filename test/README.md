@@ -184,8 +184,17 @@ pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desk
 # Resume from step 5 (useful when iterating on later steps)
 pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 5
 
+# Run only steps 3 through 7 (VM is left running for inspection)
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 3 -StopStep 7
+
 # Run an OS install sequence from step 3
 pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux" -StartStep 3
+
+# Enable debug output (internal step details, OCR engine results)
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux" -debug_mode $true
+
+# Enable verbose output (additional diagnostic messages)
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux" -verbose_mode $true
 ```
 
 The script prints a numbered step list before execution, marking which steps will
@@ -197,8 +206,10 @@ run. If the sequence file is not found, it lists all available sequences.
 |-----------|----------|---------|-------------|
 | `-SequenceName` | Yes | — | Base name of the sequence (e.g. `Test-Workload.guest.ubuntu.desktop`) |
 | `-StartStep` | No | `1` | 1-based step number to start from |
+| `-StopStep` | No | — | 1-based step number to stop at (inclusive); VM is left running |
 | `-ConfigPath` | No | `test/test-config.json` | Path to config file |
-| `-NoExtensionOutput` | No | off | Suppress extension output |
+| `-debug_mode` | No | `$false` | Show debug messages (internal step details, OCR engine results) |
+| `-verbose_mode` | No | `$false` | Show verbose messages (additional diagnostics) |
 
 ## Status page
 

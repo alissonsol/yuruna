@@ -45,6 +45,12 @@
 .PARAMETER ConfigPath
     Path to the test config JSON file. Defaults to test/test-config.json.
 
+.PARAMETER debug_mode
+    Set to $true to see debug messages.
+
+.PARAMETER verbose_mode
+    Set to $true to see verbose messages.
+
 .EXAMPLE
     pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 5
 
@@ -63,8 +69,23 @@ param(
 
     [int]$StopStep = 0,
 
-    [string]$ConfigPath = $null
+    [string]$ConfigPath = $null,
+
+    [bool]$debug_mode   = $false,
+
+    [bool]$verbose_mode = $false
 )
+
+$global:InformationPreference = "Continue"
+
+$global:DebugPreference = "SilentlyContinue"
+$global:VerbosePreference = "SilentlyContinue"
+if ($true -eq $debug_mode) {
+    $global:DebugPreference = "Continue"
+}
+if ($true -eq $verbose_mode) {
+    $global:VerbosePreference = "Continue"
+}
 
 # === Resolve paths ===
 $TestRoot       = $PSScriptRoot

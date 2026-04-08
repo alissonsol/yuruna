@@ -16,3 +16,7 @@ clear
 # Construct and execute
 FULL_URL="${BASE_URL}${FILE_PATH}${QUERY_PARAMS}"
 /bin/bash -c "$(wget -qO- "$FULL_URL")"
+
+# End tag
+echo "Fetch and execute completed: $1"
+echo ""

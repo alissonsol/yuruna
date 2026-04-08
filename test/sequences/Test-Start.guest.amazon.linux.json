@@ -114,7 +114,7 @@
     },
     {
       "action": "waitForText",
-      "pattern": "${username}@${vmName}",
+      "pattern": "FETCHED AND EXECUTED:",
       "timeoutSeconds": 600,
       "pollSeconds": 15,
       "freshMatch": true,

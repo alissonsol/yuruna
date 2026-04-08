@@ -18,5 +18,5 @@ FULL_URL="${BASE_URL}${FILE_PATH}${QUERY_PARAMS}"
 /bin/bash -c "$(wget -qO- "$FULL_URL")"
 
 # End tag
-printf "\n    FETCHED AND EXECUTED:\n    $1"
+printf "\n    FETCHED AND EXECUTED:\n    $1\n"
 echo ""

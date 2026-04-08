@@ -42,7 +42,8 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 #   screenshot       — Capture a screenshot for debugging.
 #   waitForText      — Capture + OCR the VM screen until pattern appears (supports array of alternate patterns).
 #                       freshMatch: if true, captures a baseline, then waits for the screen
-#                       to change AND the pattern to appear in the last few lines.
+#                       to change AND the pattern to appear in the last N lines.
+#                       freshMatchTailLines: number of trailing OCR lines to check (default 12).
 #   waitForPort      — Wait until a TCP port responds on the VM.
 #   waitForHeartbeat — Wait for Hyper-V heartbeat (Hyper-V only).
 #   waitForVMStop    — Wait until the VM reaches the Off/stopped state.
@@ -660,8 +661,9 @@ function Test-CombinedOcrMatch {
     .PARAMETER Pattern
         One or more patterns to match (any pattern matching counts for that engine).
 
-    .PARAMETER FreshMatchTail
-        If set, only the last 3 lines of each engine's OCR text are tested.
+    .PARAMETER FreshMatchTailLines
+        When greater than 0, only the last N lines of each engine's OCR text are
+        tested. Defaults to 0 (test all lines). Typically set to 12 for freshMatch.
 
     .OUTPUTS
         A hashtable with:
@@ -672,7 +674,7 @@ function Test-CombinedOcrMatch {
     param(
         [Parameter(Mandatory)] [string]$ProcessedImagePath,
         [Parameter(Mandatory)] [string[]]$Pattern,
-        [switch]$FreshMatchTail
+        [int]$FreshMatchTailLines = 0
     )
 
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
@@ -696,9 +698,9 @@ function Test-CombinedOcrMatch {
             $engineText = ''
         }
 
-        $textForMatch = if ($FreshMatchTail -and $engineText) {
+        $textForMatch = if ($FreshMatchTailLines -gt 0 -and $engineText) {
             $lines = $engineText -split "`n"
-            ($lines | Select-Object -Last 3) -join "`n"
+            ($lines | Select-Object -Last $FreshMatchTailLines) -join "`n"
         } else {
             $engineText
         }
@@ -764,6 +766,7 @@ function Wait-ForText {
         [int]$TimeoutSeconds = 120,
         [int]$PollSeconds = 5,
         [bool]$FreshMatch = $false,
+        [int]$FreshMatchTailLines = 12,
         [int]$ResetAfterMisses = 2
     )
     # Display label uses first pattern for log messages
@@ -826,8 +829,8 @@ function Wait-ForText {
                 if ($FreshMatch) {
                     # ── FreshMatch mode ──
                     if ($prevArg) {
-                        # Run all engines on the processed image, test last 3 lines only
-                        $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern -FreshMatchTail
+                        # Run all engines on the processed image, test last N lines only
+                        $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines
 
                         # Log per-engine results
                         foreach ($eName in $result.EngineResults.Keys) {
@@ -1117,12 +1120,13 @@ function Invoke-Sequence {
                 $timeout = if ($step.timeoutSeconds) { [int]$step.timeoutSeconds } else { 120 }
                 $poll = if ($step.pollSeconds) { [int]$step.pollSeconds } else { 5 }
                 $fresh = if ($step.freshMatch -eq $true) { $true } else { $false }
+                $tailLines = if ($step.freshMatchTailLines) { [int]$step.freshMatchTailLines } else { 12 }
                 $resetMisses = if ($step.resetAfterMisses) { [int]$step.resetAfterMisses } else { 3 }
                 $patternDisplay = $patterns -join "' | '"
                 Write-Information "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
-                    -ResetAfterMisses $resetMisses
+                    -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses
             }
             "screenshot" {
                 $label = if ($step.label) { $step.label } else { "step$stepNum" }

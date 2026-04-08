@@ -697,12 +697,12 @@ function Wait-ForText {
                             }
                         }
                     } else {
-                        # Baseline capture — check if the pattern is already at the end of screen
-                        $lines = $newText -split "`n"
-                        $tail = ($lines | Select-Object -Last 3) -join "`n"
+                        # Baseline capture — check if the pattern is already anywhere on screen.
+                        # The pattern may not be at the bottom (e.g. after a reset, output scrolled
+                        # the prompt above the last 3 lines).
                         foreach ($p in $Pattern) {
-                            if (Test-OCRMatch -Text $tail -Pattern $p) {
-                                Write-Information "      Pattern already at end of baseline — match: '$p'"
+                            if (Test-OCRMatch -Text $newText -Pattern $p) {
+                                Write-Information "      Pattern already present in baseline — match: '$p'"
                                 return $true
                             }
                         }
@@ -728,6 +728,11 @@ function Wait-ForText {
                     Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
                     Remove-Item $currentScreenPath -Force -ErrorAction SilentlyContinue
                     $consecutiveMisses = 0
+                    # Skip the rolling-window move so the next iteration has no previous screen
+                    $elapsed += $PollSeconds
+                    Write-Information "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
+                    Start-Sleep -Seconds $PollSeconds
+                    continue
                 }
             }
 

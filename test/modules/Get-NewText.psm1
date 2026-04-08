@@ -720,55 +720,47 @@ if (-not ([System.Management.Automation.PSTypeName]'PngCodec').Type) {
     Add-Type -Language CSharp -TypeDefinition $csharpSource -ReferencedAssemblies $referencedAssemblies
 }
 
-# --- OCR engine (Tesseract) ---
+# --- OCR engine (pluggable via Test.OcrEngine) ---
 
-Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Test.OcrEngine.psm1") -Force
 
 function Invoke-PlatformOcr {
-    param([string]$ImagePath)
-    return Invoke-TesseractOcr -ImagePath $ImagePath
-}
-
-# --- Public function ---
-
-function Get-NewTextContent {
     <#
     .SYNOPSIS
-        Extracts new text from a screen capture by diffing against a previous frame and running OCR.
+        Runs the first enabled OCR provider on the given image.
+        Kept for backward compatibility; new code should use Invoke-AllEnabledOcr.
+    #>
+    param([string]$ImagePath)
+    $enabled = Get-EnabledOcrProviders
+    if ($enabled.Count -eq 0) { throw "No OCR providers are available." }
+    return Invoke-OcrProvider -Name $enabled[0] -ImagePath $ImagePath
+}
+
+# --- Public functions ---
+
+function Get-ProcessedScreenImage {
+    <#
+    .SYNOPSIS
+        Diffs current vs previous screen capture and produces a preprocessed image
+        ready for OCR. Does NOT run OCR itself.
 
     .DESCRIPTION
-        Compares two bitmap images pixel-by-pixel to isolate newly appeared content.
-        Unchanged pixels are replaced with the background color, and the result is
-        cropped to the bounding box of changed rows before being passed to OCR
-        for text extraction.
+        Performs the same image processing pipeline as Get-NewTextContent (pixel diff,
+        vertical line removal, grayscale, invert, contrast stretch, 2x scale) but
+        returns the path to the processed image instead of running OCR.
 
-        All image processing is done in compiled C# with a built-in PNG codec,
-        requiring no external image libraries (no System.Drawing, etc.).
-
-        Uses Tesseract OCR (open-source, cross-platform) for text recognition.
-        Tesseract must be installed separately — see Assert-TesseractInstalled
-        in Test.Tesseract.psm1 for installation guidance.
-
-        Requires PowerShell 7+ (.NET 10+).
-
-        Set $env:NEWTEXT_TRACE = '1' before importing, or call Enable-NewTextTrace,
-        to enable timing output that shows where time is spent.
+        This is the entry point for multi-engine OCR: call this once to get the
+        processed image, then run each OCR provider on it via Invoke-AllEnabledOcr.
 
     .PARAMETER CurrentScreenPath
         Path to the current screen capture PNG file.
 
     .PARAMETER PreviousScreenPath
-        Optional path to the previous screen capture PNG file. If omitted, a blank
-        background image is used as the reference, treating all content as new.
+        Optional path to the previous screen capture PNG file.
 
     .OUTPUTS
-        System.String. The text extracted by OCR from the processed image.
-
-    .EXAMPLE
-        Get-NewTextContent -CurrentScreenPath '.\screenshots\0002.png' -PreviousScreenPath '.\screenshots\0001.png'
-
-    .EXAMPLE
-        Get-NewTextContent -CurrentScreenPath '.\screenshots\0001.png'
+        System.String. Path to the processed image ready for OCR, or empty string
+        if no pixel changes were detected between frames.
     #>
     [CmdletBinding()]
     [OutputType([System.String])]
@@ -829,7 +821,7 @@ function Get-NewTextContent {
                 Write-Trace "Debug artifacts saved (no changes)" $totalSw
             }
             '' | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
-            Write-Trace "Total Get-NewTextContent (no changes)" $totalSw
+            Write-Trace "Total Get-ProcessedScreenImage (no changes)" $totalSw
             return ''
         }
 
@@ -865,20 +857,65 @@ function Get-NewTextContent {
             Write-Trace "Debug artifacts saved" $totalSw
         }
 
-        # OCR the image
-        $ocrText = (Invoke-PlatformOcr -ImagePath $processedPath).Trim()
-        Write-Trace "OCR ($($ocrText.Length) chars)" $totalSw
-
-        # Save OCR output
-        $ocrText | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
-        Write-Trace "Total Get-NewTextContent" $totalSw
-
-        return $ocrText
+        Write-Trace "Total Get-ProcessedScreenImage" $totalSw
+        return $processedPath
     }
     catch {
-        Write-Error "Get-NewTextContent failed: $_"
+        Write-Error "Get-ProcessedScreenImage failed: $_"
         throw
     }
 }
 
-Export-ModuleMember -Function Get-NewTextContent, Enable-NewTextTrace, Disable-NewTextTrace
+function Get-NewTextContent {
+    <#
+    .SYNOPSIS
+        Extracts new text from a screen capture by diffing against a previous frame and running OCR.
+
+    .DESCRIPTION
+        Convenience wrapper: calls Get-ProcessedScreenImage to produce the preprocessed
+        image, then runs OCR on it using the first enabled provider.
+
+        For multi-engine OCR, call Get-ProcessedScreenImage directly, then use
+        Invoke-AllEnabledOcr from Test.OcrEngine.psm1.
+
+    .PARAMETER CurrentScreenPath
+        Path to the current screen capture PNG file.
+
+    .PARAMETER PreviousScreenPath
+        Optional path to the previous screen capture PNG file. If omitted, a blank
+        background image is used as the reference, treating all content as new.
+
+    .OUTPUTS
+        System.String. The text extracted by OCR from the processed image.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$CurrentScreenPath,
+
+        [Parameter(Mandatory=$false)]
+        [string]$PreviousScreenPath
+    )
+
+    $totalSw = [System.Diagnostics.Stopwatch]::StartNew()
+
+    $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $CurrentScreenPath -PreviousScreenPath $PreviousScreenPath
+    if (-not $processedPath) { return '' }
+
+    # Use global YurunaLog directory for debug artifacts
+    Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    $debugDir = Join-Path (Get-YurunaLogDir) 'NewText'
+
+    # OCR the image using the first enabled provider (backward-compatible)
+    $ocrText = (Invoke-PlatformOcr -ImagePath $processedPath).Trim()
+    Write-Trace "OCR ($($ocrText.Length) chars)" $totalSw
+
+    # Save OCR output
+    $ocrText | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
+    Write-Trace "Total Get-NewTextContent" $totalSw
+
+    return $ocrText
+}
+
+Export-ModuleMember -Function Get-ProcessedScreenImage, Get-NewTextContent, Enable-NewTextTrace, Disable-NewTextTrace

@@ -614,6 +614,124 @@ function Test-OCRMatch {
     return $false
 }
 
+# ── Multi-engine OCR combine logic ──────────────────────────────────────────
+
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ COMBINE MODE: controls how per-engine detection booleans are merged.   │
+# │                                                                        │
+# │  'Or'  — pattern detected by ANY engine → match  (default, resilient)  │
+# │  'And' — pattern detected by ALL engines → match  (strict, fewer FPs)  │
+# │                                                                        │
+# │ To switch: change the value below, or set $env:YURUNA_OCR_COMBINE.    │
+# └─────────────────────────────────────────────────────────────────────────┘
+function Get-OcrCombineMode {
+    $envVal = $env:YURUNA_OCR_COMBINE
+    if ($envVal -eq 'And') { return 'And' }
+    return 'Or'   # ← default
+}
+
+function Test-CombinedOcrMatch {
+    <#
+    .SYNOPSIS
+        Runs all enabled OCR engines on a processed image, tests each engine's text
+        against every pattern, and returns $true/$false based on the combine mode.
+
+    .DESCRIPTION
+        For each enabled OCR engine:
+          1. Run OCR on ProcessedImagePath → engine text
+          2. For each pattern, test engine text → boolean
+        Collect a boolean per engine (true if ANY pattern matched that engine's text).
+
+        Combine mode (Or/And) controls how the per-engine booleans are merged:
+          Or  → $true if at least one engine detected any pattern
+          And → $true only if every engine detected at least one pattern
+
+    .PARAMETER ProcessedImagePath
+        Path to the preprocessed image (output of Get-ProcessedScreenImage).
+
+    .PARAMETER TextToTest
+        The text to test patterns against. For multi-engine mode this is ignored
+        in favor of per-engine OCR results. When only one engine is enabled this
+        can be used as a shortcut (pass the already-extracted text).
+
+    .PARAMETER Pattern
+        One or more patterns to match (any pattern matching counts for that engine).
+
+    .PARAMETER FreshMatchTail
+        If set, only the last 3 lines of each engine's OCR text are tested.
+
+    .OUTPUTS
+        A hashtable with:
+          .Match       — [bool] combined result
+          .EngineResults — [ordered] engine-name → @{ Text; Matched; MatchedPattern }
+          .AnyText     — [string] concatenation of all engine texts (for accumulation)
+    #>
+    param(
+        [Parameter(Mandatory)] [string]$ProcessedImagePath,
+        [Parameter(Mandatory)] [string[]]$Pattern,
+        [switch]$FreshMatchTail
+    )
+
+    $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue
+
+    # Run all enabled OCR engines on the same processed image
+    $ocrResults = Invoke-AllEnabledOcr -ImagePath $ProcessedImagePath
+
+    $combineMode = Get-OcrCombineMode
+    $engineResults = [ordered]@{}
+    $engineDetections = @()   # array of booleans, one per engine
+
+    foreach ($engineName in $ocrResults.Keys) {
+        $engineText = ($ocrResults[$engineName] ?? '').Trim()
+        $textForMatch = if ($FreshMatchTail -and $engineText) {
+            $lines = $engineText -split "`n"
+            ($lines | Select-Object -Last 3) -join "`n"
+        } else {
+            $engineText
+        }
+
+        $matched = $false
+        $matchedPattern = $null
+        if ($textForMatch) {
+            foreach ($p in $Pattern) {
+                if (Test-OCRMatch -Text $textForMatch -Pattern $p) {
+                    $matched = $true
+                    $matchedPattern = $p
+                    break
+                }
+            }
+        }
+
+        $engineResults[$engineName] = @{
+            Text           = $engineText
+            Matched        = $matched
+            MatchedPattern = $matchedPattern
+        }
+        $engineDetections += $matched
+    }
+
+    # Combine per-engine booleans
+    $combinedMatch = if ($engineDetections.Count -eq 0) {
+        $false
+    } elseif ($combineMode -eq 'And') {
+        # AND: all engines must detect the pattern
+        ($engineDetections | Where-Object { -not $_ }).Count -eq 0
+    } else {
+        # OR (default): at least one engine detected the pattern
+        ($engineDetections | Where-Object { $_ }).Count -gt 0
+    }
+
+    # Concatenate all engine texts for accumulation in non-FreshMatch mode
+    $allEngineText = ($ocrResults.Values | Where-Object { $_ } | ForEach-Object { $_.Trim() }) -join "`n"
+
+    return @{
+        Match         = $combinedMatch
+        EngineResults = $engineResults
+        AnyText       = $allEngineText
+    }
+}
+
 # ── Action: waitForText ──────────────────────────────────────────────────────
 
 function Wait-ForText {
@@ -630,10 +748,16 @@ function Wait-ForText {
     $patternLabel = $Pattern[0]
     $elapsed = 0
 
-    # Import required modules (Screenshot for capture, Get-NewText for diff-based OCR)
+    # Import required modules (Screenshot for capture, Get-NewText for diff-based OCR, OcrEngine for multi-engine)
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue
     Import-Module (Join-Path $modulesDir "Get-NewText.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue
+
+    # Log which OCR engines are active for this wait
+    $enabledEngines = Get-EnabledOcrProviders
+    $combineMode = Get-OcrCombineMode
+    Write-Information "      OCR engines: $($enabledEngines -join ', ') | combine: $combineMode"
 
     # Rolling screenshot window: current and previous screen paths
     Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
@@ -645,15 +769,9 @@ function Wait-ForText {
     Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
     Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
 
-    # Start with a blank previous screen (black background) so the first diff
-    # treats the entire current frame as new content.  The blank is a 1x1 black
-    # PNG — Get-NewTextContent will detect the dimension mismatch on the first
-    # real capture and fall back to treating the whole image as new, which is
-    # exactly the desired behavior.  We delete it so $prevArg is $null on the
-    # first iteration, letting Get-NewTextContent handle the "no previous" path.
-    # (Previous screen intentionally absent → all pixels are new.)
+    # Previous screen intentionally absent on first iteration → all pixels are new.
 
-    # Accumulate all seen text for non-FreshMatch mode
+    # Accumulate all seen text for non-FreshMatch mode (per-engine text merged)
     $allText = ''
     $consecutiveMisses = 0
 
@@ -668,54 +786,96 @@ function Wait-ForText {
                 continue
             }
 
-            # Get new text by diffing current vs previous screenshot.
-            # When no previous screen exists the module treats the entire image as new.
+            # Process the image (diff current vs previous, preprocess for OCR).
+            # Returns the path to the preprocessed image, or empty string if no changes.
             try {
                 $prevArg = if (Test-Path $previousScreenPath) { $previousScreenPath } else { $null }
-                $newText = Get-NewTextContent -CurrentScreenPath $currentScreenPath -PreviousScreenPath $prevArg
+                $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $currentScreenPath -PreviousScreenPath $prevArg
             } catch {
-                Write-Verbose "Get-NewTextContent failed (dimension mismatch?): $_"
+                Write-Verbose "Get-ProcessedScreenImage failed (dimension mismatch?): $_"
                 # Reset rolling window on error (e.g. VM resize)
                 Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
-                $newText = $null
+                $processedPath = $null
             }
 
-            if ($newText) {
+            if ($processedPath) {
                 $consecutiveMisses = 0
-                $logSnippet = if ($newText.Length -le 200) { $newText } else { "..." + $newText.Substring($newText.Length - 200) }
-                Write-Information "      New OCR text: $logSnippet"
 
                 if ($FreshMatch) {
-                    # FreshMatch: only match on NEW text (skip first capture which has no previous)
+                    # ── FreshMatch mode ──
                     if ($prevArg) {
-                        $lines = $newText -split "`n"
-                        $tail = ($lines | Select-Object -Last 3) -join "`n"
-                        foreach ($p in $Pattern) {
-                            if (Test-OCRMatch -Text $tail -Pattern $p) {
-                                Write-Information "      Text detected at end of screen: '$p'"
-                                return $true
-                            }
+                        # Run all engines on the processed image, test last 3 lines only
+                        $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern -FreshMatchTail
+
+                        # Log per-engine results
+                        foreach ($eName in $result.EngineResults.Keys) {
+                            $er = $result.EngineResults[$eName]
+                            $snippet = if ($er.Text.Length -le 120) { $er.Text } else { "..." + $er.Text.Substring($er.Text.Length - 120) }
+                            $status = if ($er.Matched) { "MATCH '$($er.MatchedPattern)'" } else { "no match" }
+                            Write-Information "      [$eName] $status | $snippet"
+                        }
+
+                        if ($result.Match) {
+                            Write-Information "      Text detected at end of screen (combine=$combineMode)"
+                            return $true
                         }
                     } else {
-                        # Baseline capture — check if the pattern is already anywhere on screen.
-                        # The pattern may not be at the bottom (e.g. after a reset, output scrolled
-                        # the prompt above the last 3 lines).
-                        foreach ($p in $Pattern) {
-                            if (Test-OCRMatch -Text $newText -Pattern $p) {
-                                Write-Information "      Pattern already present in baseline — match: '$p'"
-                                return $true
+                        # Baseline capture — run all engines, check full text
+                        $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern
+
+                        foreach ($eName in $result.EngineResults.Keys) {
+                            $er = $result.EngineResults[$eName]
+                            if ($er.Matched) {
+                                Write-Information "      [$eName] Pattern already present in baseline — match: '$($er.MatchedPattern)'"
                             }
+                        }
+
+                        if ($result.Match) {
+                            Write-Information "      Pattern already present in baseline (combine=$combineMode)"
+                            return $true
                         }
                         Write-Information "      Baseline captured — waiting for screen to change and pattern to appear at end..."
                     }
                 } else {
-                    # Non-FreshMatch: accumulate all text and check for pattern
-                    $allText = ($allText + "`n" + $newText).Trim()
-                    foreach ($p in $Pattern) {
-                        if (Test-OCRMatch -Text $allText -Pattern $p) {
-                            Write-Information "      Text detected: '$p'"
-                            return $true
+                    # ── Non-FreshMatch mode: accumulate text, check for pattern ──
+                    $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern
+
+                    # Log per-engine results
+                    foreach ($eName in $result.EngineResults.Keys) {
+                        $er = $result.EngineResults[$eName]
+                        $snippet = if ($er.Text.Length -le 120) { $er.Text } else { "..." + $er.Text.Substring($er.Text.Length - 120) }
+                        $status = if ($er.Matched) { "MATCH '$($er.MatchedPattern)'" } else { "no match" }
+                        Write-Information "      [$eName] $status | $snippet"
+                    }
+
+                    # Also test accumulated text from all previous iterations
+                    if ($result.AnyText) {
+                        $allText = ($allText + "`n" + $result.AnyText).Trim()
+                    }
+
+                    if ($result.Match) {
+                        Write-Information "      Text detected (combine=$combineMode)"
+                        return $true
+                    }
+
+                    # Fallback: test accumulated text across all iterations against each engine's
+                    # accumulated view (using the same combine logic). This handles patterns that
+                    # span multiple poll cycles.
+                    $accumulatedDetections = @()
+                    foreach ($eName in $result.EngineResults.Keys) {
+                        $found = $false
+                        foreach ($p in $Pattern) {
+                            if (Test-OCRMatch -Text $allText -Pattern $p) {
+                                $found = $true
+                                Write-Information "      Text detected in accumulated text: '$p'"
+                                break
+                            }
                         }
+                        $accumulatedDetections += $found
+                    }
+                    # If any accumulated detection matched, return true (accumulation is inherently OR across time)
+                    if (($accumulatedDetections | Where-Object { $_ }).Count -gt 0) {
+                        return $true
                     }
                 }
             } else {

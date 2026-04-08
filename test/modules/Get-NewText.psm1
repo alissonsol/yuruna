@@ -833,20 +833,26 @@ function Get-NewTextContent {
             return ''
         }
 
-        # Preprocess full current image for OCR: grayscale → invert → contrast stretch → scale 2x
-        $ocrImg = [RawImage]::new($width, $height, [byte[]]$currentImg.Pixels.Clone())
-        [ScreenDelta]::ToGrayscale($ocrImg)
-        [ScreenDelta]::InvertColors($ocrImg)
-        [ScreenDelta]::StretchContrast($ocrImg)
-        $ocrImg = [ScreenDelta]::Scale2x($ocrImg)
-        Write-Trace "Preprocess for OCR ($($ocrImg.Width)x$($ocrImg.Height))" $totalSw
+        if (-not [string]::IsNullOrEmpty($PreviousScreenPath)) {
+            # Preprocess for OCR: grayscale -> invert -> contrast stretch -> scale 2x
+            $ocrImg = [RawImage]::new($width, $height, [byte[]]$currentImg.Pixels.Clone())
+            [ScreenDelta]::ToGrayscale($ocrImg)
+            [ScreenDelta]::InvertColors($ocrImg)
+            [ScreenDelta]::StretchContrast($ocrImg)
+            $ocrImg = [ScreenDelta]::Scale2x($ocrImg)
+            Write-Trace "Preprocess for OCR ($($ocrImg.Width)x$($ocrImg.Height))" $totalSw
 
-        # Save ProcessedTextScreen — this is the exact image sent to OCR
-        $processedPath = Join-Path $debugDir 'ProcessedTextScreen.png'
-        [PngCodec]::Save($ocrImg, $processedPath)
-        Write-Trace "Save ProcessedTextScreen" $totalSw
+            # Save ProcessedTextScreen — this is the exact image sent to OCR
+            $processedPath = Join-Path $debugDir 'ProcessedTextScreen.png'
+            [PngCodec]::Save($ocrImg, $processedPath)
+            Write-Trace "Save ProcessedTextScreen" $totalSw
+        } else {
+            # No previous screen — send current image directly to OCR without preprocessing
+            $processedPath = (Resolve-Path $CurrentScreenPath).Path
+            Write-Trace "No previous screen, using current image as-is" $totalSw
+        }
 
-        # Save other debug artifacts when tracing
+        # Save debug artifacts when tracing
         if ($script:Trace) {
             [PngCodec]::Save($currentImg, (Join-Path $debugDir 'CurrentScreen.png'))
             if ($previousImg) {
@@ -859,7 +865,7 @@ function Get-NewTextContent {
             Write-Trace "Debug artifacts saved" $totalSw
         }
 
-        # OCR the full preprocessed image
+        # OCR the image
         $ocrText = (Invoke-PlatformOcr -ImagePath $processedPath).Trim()
         Write-Trace "OCR ($($ocrText.Length) chars)" $totalSw
 

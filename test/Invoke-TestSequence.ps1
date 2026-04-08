@@ -76,7 +76,7 @@ $RepoRoot       = Split-Path -Parent $TestRoot
 $VdeRoot        = Join-Path $RepoRoot "vde"
 $ModulesDir     = Join-Path $TestRoot "modules"
 $ExtensionsDir  = Join-Path $TestRoot "extensions"
-$SequencesDir   = Join-Path $ExtensionsDir "sequences"
+$SequencesDir   = Join-Path $TestRoot "sequences"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 

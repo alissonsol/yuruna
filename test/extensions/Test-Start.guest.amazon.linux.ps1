@@ -20,7 +20,7 @@
     Drives the Amazon Linux guest through first boot via a JSON sequence.
 
 .DESCRIPTION
-    Reads the interaction sequence from sequences/Test-Start.guest.amazon.linux.json.
+    Reads the interaction sequence from ../sequences/Test-Start.guest.amazon.linux.json.
     Amazon Linux boots from a pre-built image with cloud-init, so the
     default sequence has no steps. Add steps to the JSON file if a future
     image requires interaction.
@@ -42,7 +42,7 @@ param(
 # EXECUTION
 # ─────────────────────────────────────────────────────────────────────────────
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sequenceFile = Join-Path $ScriptDir "sequences/Test-Start.$GuestKey.json"
+$sequenceFile = Join-Path (Split-Path -Parent $ScriptDir) "sequences/Test-Start.$GuestKey.json"
 $engineModule = Join-Path $ScriptDir "Invoke-Sequence.psm1"
 
 Import-Module $engineModule -Force

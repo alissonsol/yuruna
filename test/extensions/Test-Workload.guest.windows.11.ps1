@@ -20,7 +20,7 @@
     Workload test for the Windows 11 guest via a JSON sequence.
 
 .DESCRIPTION
-    Reads the interaction sequence from sequences/Test-Workload.guest.windows.11.json
+    Reads the interaction sequence from ../sequences/Test-Workload.guest.windows.11.json
     and executes each step against the VM.
 
     To customize the workload test, edit the JSON file — not this script.
@@ -42,7 +42,7 @@ param(
 # EXECUTION
 # ─────────────────────────────────────────────────────────────────────────────
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sequenceFile = Join-Path $ScriptDir "sequences/Test-Workload.$GuestKey.json"
+$sequenceFile = Join-Path (Split-Path -Parent $ScriptDir) "sequences/Test-Workload.$GuestKey.json"
 $engineModule = Join-Path $ScriptDir "Invoke-Sequence.psm1"
 
 Import-Module $engineModule -Force

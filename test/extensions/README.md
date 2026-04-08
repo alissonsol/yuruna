@@ -2,7 +2,7 @@
 
 Extension scripts run custom tests against each guest VM. There are two phases:
 
-- **Test-Start** scripts drive OS installation via JSON sequences
+- **Test-Start** scripts drive OS installation via JSON sequences (in `../sequences/`)
   (`Invoke-Sequence.psm1`) immediately after the VM is created and started.
 - **Test-Workload** scripts validate workloads, configurations, and features
   after the OS is installed and the VM is verified running.

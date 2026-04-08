@@ -373,7 +373,7 @@ test/screenshots/*/captures/
 test/verify/actual/
 
 # Sequence debug screenshots (captured at runtime)
-test/extensions/sequences/captures/
+test/sequences/captures/
 
 # yuruna
 **/.yuruna/*

@@ -21,8 +21,21 @@ param(
     [switch]$NoGitPull,
     [switch]$NoServer,
     [switch]$NoExtensionOutput,
-    [int]$CycleDelaySeconds    = 30
+    [int]$CycleDelaySeconds    = 30,
+    [bool]$debug_mode          = $false,
+    [bool]$verbose_mode        = $false
 )
+
+$global:InformationPreference = "Continue"
+
+$global:DebugPreference = "SilentlyContinue"
+$global:VerbosePreference = "SilentlyContinue"
+if ($true -eq $debug_mode) {
+    $global:DebugPreference = "Continue"
+}
+if ($true -eq $verbose_mode) {
+    $global:VerbosePreference = "Continue"
+}
 
 # === Resolve paths ===
 $TestRoot       = $PSScriptRoot
@@ -73,7 +86,7 @@ Write-Output "Log folder: $YurunaLogDir"
 Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
-Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
+Write-Debug "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
 
 Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
 if (-not (Assert-TesseractInstalled)) { exit 1 }
@@ -195,6 +208,7 @@ while ($true) {
             $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
             if (-not $r.success) {
                 Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
+                Write-Output "  Log folder: $YurunaLogDir"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage
                 break
             }
@@ -216,6 +230,7 @@ while ($true) {
                 $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
                 if (-not $r.success) {
                     Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
+                    Write-Output "  Log folder: $YurunaLogDir"
                     $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage
                     $missingAny = $true
                     break
@@ -258,6 +273,7 @@ while ($true) {
             Write-Output "  $GuestKey New-VM: PASS"
         } else {
             Write-Warning "  ERROR [$GuestKey / New-VM]: $($r.errorMessage)"
+            Write-Output "  Log folder: $YurunaLogDir"
             Set-StepStatus  -GuestKey $GuestKey -StepName "New-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "New-VM"; $FailureMessage = $r.errorMessage
@@ -272,6 +288,7 @@ while ($true) {
             Write-Output "  $GuestKey Start-VM: PASS"
         } else {
             Write-Warning "  ERROR [$GuestKey / Start-VM]: $($r.errorMessage)"
+            Write-Output "  Log folder: $YurunaLogDir"
             Set-StepStatus  -GuestKey $GuestKey -StepName "Start-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Start-VM"; $FailureMessage = $r.errorMessage
@@ -289,6 +306,7 @@ while ($true) {
             Write-Output "  $GuestKey Install-OS: PASS"
         } else {
             Write-Warning "  ERROR [$GuestKey / Install-OS]: $($r.errorMessage)"
+            Write-Output "  Log folder: $YurunaLogDir"
             Set-StepStatus  -GuestKey $GuestKey -StepName "Install-OS" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Install-OS"; $FailureMessage = $r.errorMessage
@@ -303,6 +321,7 @@ while ($true) {
         if (-not $ok) {
             $err = "VM '$VMName' did not reach running state after start."
             Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
+            Write-Output "  Log folder: $YurunaLogDir"
             Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
@@ -323,6 +342,7 @@ while ($true) {
                 if (-not $cmp.match) {
                     $err = "Verify screenshot mismatch: similarity=$($cmp.similarity) threshold=$threshold"
                     Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
+                    Write-Output "  Log folder: $YurunaLogDir"
                     Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
                     Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                     $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
@@ -349,6 +369,7 @@ while ($true) {
                 Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "pass"
             } else {
                 Write-Warning "  ERROR [$GuestKey / Screenshots]: $($r.errorMessage)"
+                Write-Output "  Log folder: $YurunaLogDir"
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Screenshots" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Screenshots"; $FailureMessage = $r.errorMessage
@@ -368,6 +389,7 @@ while ($true) {
                 Write-Output "  $GuestKey Invoke-PoolTest: PASS"
             } else {
                 Write-Warning "  ERROR [$GuestKey / Invoke-PoolTest]: $($r.errorMessage)"
+                Write-Output "  Log folder: $YurunaLogDir"
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Invoke-PoolTest"; $FailureMessage = $r.errorMessage

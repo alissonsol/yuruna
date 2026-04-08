@@ -45,7 +45,7 @@
     {
       "action": "typeAndEnter",
       "text": "",
-      "description": "HACK: Focus and enter continues the installation. No side-effects since there is a reboot after the installation."
+      "description": "HACK: Focus and enter continues the installation."
     },
     {
       "action": "waitForText",
@@ -147,7 +147,7 @@
       "timeoutSeconds": 600,
       "pollSeconds": 15,
       "freshMatch": true,
-      "description": "Wait for update script to complete (may take several minutes)"
+      "description": "Wait for FETCHED AND EXECUTED: update script to complete (may take several minutes)"
     },
     {
       "action": "delay",

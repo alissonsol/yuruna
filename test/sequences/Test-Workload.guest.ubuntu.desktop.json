@@ -81,7 +81,7 @@
       "timeoutSeconds": 300,
       "pollSeconds": 15,
       "freshMatch": true,
-      "description": "Wait for install to complete (may take 3-5 minutes)"
+      "description": "Wait for FETCHED AND EXECUTED: Code install script to complete (may take several minutes)"
     },
     {
       "action": "typeAndEnter",

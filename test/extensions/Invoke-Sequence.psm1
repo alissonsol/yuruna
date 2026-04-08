@@ -234,7 +234,7 @@ function Send-KeyHyperV {
         # Send make + break (press + release) as raw PS/2 scan codes
         [byte[]]$codes = @([byte]$scanCode, [byte]($scanCode -bor 0x80))
         $ok = Send-ScanCode -Keyboard $kb -Codes $codes
-        Write-Information "      TypeScancodes key='$KeyName' scan=0x$($scanCode.ToString('X2')) ok=$ok"
+        Write-Debug "      TypeScancodes key='$KeyName' scan=0x$($scanCode.ToString('X2')) ok=$ok"
         return $ok
     } catch {
         Write-Warning "Hyper-V TypeScancodes failed: $_"
@@ -273,7 +273,7 @@ return "window_not_found"
     } finally {
         Remove-Item $tmpFile -ErrorAction SilentlyContinue
     }
-    Write-Information "      AppleScript: $result"
+    Write-Debug "      AppleScript: $result"
     return ("$result" -eq "ok")
 }
 
@@ -316,7 +316,7 @@ function Send-TextHyperV {
             $charCount++
             if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
         }
-        Write-Information "      TypeScancodes: $charCount chars sent (${CharDelayMs}ms delay between chars)"
+        Write-Debug "      TypeScancodes: $charCount chars sent (${CharDelayMs}ms delay between chars)"
         return $true
     } catch {
         Write-Warning "Hyper-V TypeScancodes (text) failed: $_"
@@ -332,7 +332,7 @@ function Send-TextUTM {
     # around each shifted character, simulating physical shift press.
     $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
 
-    Write-Information "      UTM text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
+    Write-Debug "      UTM text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
     $charIndex = 0
     $shiftedCount = 0
     $keyCalls = [System.Text.StringBuilder]::new()
@@ -349,7 +349,7 @@ function Send-TextUTM {
         [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
         $charIndex++
     }
-    Write-Information "      UTM chars: $charIndex total, $shiftedCount shifted"
+    Write-Debug "      UTM chars: $charIndex total, $shiftedCount shifted"
 
     # JXA script: physical shift key simulation via CGEvent.
     # Key code 56 = Left Shift on macOS. We press it down, send the char,
@@ -424,7 +424,7 @@ __KEYCALLS__
     } finally {
         Remove-Item $tmpFile -ErrorAction SilentlyContinue
     }
-    Write-Information "      JXA CGEvent: $result"
+    Write-Debug "      JXA CGEvent: $result"
     return ("$result" -eq "ok")
 }
 
@@ -733,15 +733,15 @@ function Test-CombinedOcrMatch {
         # Log each engine's result as it runs (before possible short-circuit)
         $snippet = $engineText.Length -le 120 ? $engineText : ("..." + $engineText.Substring($engineText.Length - 120))
         $status = $matched ? "MATCH '$matchedPattern'" : "no match"
-        Write-Information "      [$engineName] $status | $snippet"
+        Write-Debug "      [$engineName] $status | $snippet"
 
         # Short-circuit: Or returns early on first match, And on first non-match
         if ($combineMode -eq 'Or' -and $matched) {
-            Write-Information "      Short-circuit ($combineMode): skipping remaining engines"
+            Write-Debug "      Short-circuit ($combineMode): skipping remaining engines"
             $combinedMatch = $true
             break
         } elseif ($combineMode -eq 'And' -and -not $matched) {
-            Write-Information "      Short-circuit ($combineMode): skipping remaining engines"
+            Write-Debug "      Short-circuit ($combineMode): skipping remaining engines"
             $combinedMatch = $false
             break
         }
@@ -788,7 +788,7 @@ function Wait-ForText {
     # Log which OCR engines are active for this wait
     $enabledEngines = Get-EnabledOcrProvider
     $combineMode = Get-OcrCombineMode
-    Write-Information "      OCR engines: $($enabledEngines -join ', ') | combine: $combineMode"
+    Write-Debug "      OCR engines: $($enabledEngines -join ', ') | combine: $combineMode"
 
     # Rolling screenshot window: current and previous screen paths
     Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
@@ -813,7 +813,7 @@ function Wait-ForText {
             $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $currentScreenPath
             if (-not $captured -or -not (Test-Path $currentScreenPath)) {
                 $elapsed += $PollSeconds
-                Write-Information "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
+                Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
                 Start-Sleep -Seconds $PollSeconds
                 continue
             }
@@ -844,14 +844,14 @@ function Wait-ForText {
                             $er = $result.EngineResults[$eName]
                             $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                             $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
-                            Write-Information "      [$eName] $status | $snippet"
+                            Write-Debug "      [$eName] $status | $snippet"
                         }
 
                         # Track last OCR text for failure diagnostics
                         if ($result.AnyText) { $lastOcrText = $result.AnyText }
 
                         if ($result.Match) {
-                            Write-Information "      Text detected at end of screen (combine=$combineMode)"
+                            Write-Debug "      Text detected at end of screen (combine=$combineMode)"
                             return $true
                         }
                     } else {
@@ -861,7 +861,7 @@ function Wait-ForText {
                         foreach ($eName in $result.EngineResults.Keys) {
                             $er = $result.EngineResults[$eName]
                             if ($er.Matched) {
-                                Write-Information "      [$eName] Pattern already present in baseline — match: '$($er.MatchedPattern)'"
+                                Write-Debug "      [$eName] Pattern already present in baseline — match: '$($er.MatchedPattern)'"
                             }
                         }
 
@@ -869,10 +869,10 @@ function Wait-ForText {
                         if ($result.AnyText) { $lastOcrText = $result.AnyText }
 
                         if ($result.Match) {
-                            Write-Information "      Pattern already present in baseline (combine=$combineMode)"
+                            Write-Debug "      Pattern already present in baseline (combine=$combineMode)"
                             return $true
                         }
-                        Write-Information "      Baseline captured — waiting for screen to change and pattern to appear at end..."
+                        Write-Debug "      Baseline captured — waiting for screen to change and pattern to appear at end..."
                     }
                 } else {
                     # ── Non-FreshMatch mode: accumulate text, check for pattern ──
@@ -883,7 +883,7 @@ function Wait-ForText {
                         $er = $result.EngineResults[$eName]
                         $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                         $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
-                        Write-Information "      [$eName] $status | $snippet"
+                        Write-Debug "      [$eName] $status | $snippet"
                     }
 
                     # Accumulate text and track last OCR output for failure diagnostics
@@ -893,7 +893,7 @@ function Wait-ForText {
                     }
 
                     if ($result.Match) {
-                        Write-Information "      Text detected (combine=$combineMode)"
+                        Write-Debug "      Text detected (combine=$combineMode)"
                         return $true
                     }
 
@@ -906,7 +906,7 @@ function Wait-ForText {
                         foreach ($p in $Pattern) {
                             if (Test-OCRMatch -Text $allText -Pattern $p) {
                                 $found = $true
-                                Write-Information "      Text detected in accumulated text: '$p'"
+                                Write-Debug "      Text detected in accumulated text: '$p'"
                                 break
                             }
                         }
@@ -923,13 +923,13 @@ function Wait-ForText {
                     # Too many consecutive polls returned no new text — the previous
                     # screen may be identical to the current screen (timing issue).
                     # Reset the rolling window so the next diff sees all pixels as new.
-                    Write-Information "      No new text for $consecutiveMisses polls — resetting previous screen"
+                    Write-Debug "      No new text for $consecutiveMisses polls — resetting previous screen"
                     Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
                     Remove-Item $currentScreenPath -Force -ErrorAction SilentlyContinue
                     $consecutiveMisses = 0
                     # Skip the rolling-window move so the next iteration has no previous screen
                     $elapsed += $PollSeconds
-                    Write-Information "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
+                    Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
                     Start-Sleep -Seconds $PollSeconds
                     continue
                 }
@@ -941,7 +941,7 @@ function Wait-ForText {
             }
 
             $elapsed += $PollSeconds
-            Write-Information "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
+            Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
             Start-Sleep -Seconds $PollSeconds
         }
         # Timeout — preserve last screenshot and OCR text for diagnostics
@@ -979,12 +979,12 @@ function Wait-ForPort {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect($VMName, $Port, $null, $null)
             $wait = $async.AsyncWaitHandle.WaitOne(2000, $false)
-            if ($wait -and $tcp.Connected) { $tcp.Close(); Write-Information "      Port $Port responding"; return $true }
+            if ($wait -and $tcp.Connected) { $tcp.Close(); Write-Debug "      Port $Port responding"; return $true }
             $tcp.Close()
         } catch { Write-Verbose "Port $Port connection attempt failed: $_" }
         Start-Sleep -Seconds 5
         $elapsed += 5
-        Write-Information "      Waiting for port $Port... (${elapsed}s / ${TimeoutSeconds}s)"
+        Write-Debug "      Waiting for port $Port... (${elapsed}s / ${TimeoutSeconds}s)"
     }
     Write-Warning "Port $Port did not respond within ${TimeoutSeconds}s"
     return $false
@@ -999,12 +999,12 @@ function Wait-ForHeartbeat {
         try {
             $hb = Get-VMIntegrationService -VMName $VMName -Name "Heartbeat" -ErrorAction SilentlyContinue
             if ($hb -and $hb.PrimaryStatusDescription -eq "OK") {
-                Write-Information "      Heartbeat OK"; return $true
+                Write-Debug "      Heartbeat OK"; return $true
             }
         } catch { Write-Verbose "Heartbeat check failed: $_" }
         Start-Sleep -Seconds 5
         $elapsed += 5
-        Write-Information "      Waiting for heartbeat... (${elapsed}s / ${TimeoutSeconds}s)"
+        Write-Debug "      Waiting for heartbeat... (${elapsed}s / ${TimeoutSeconds}s)"
     }
     Write-Warning "Heartbeat not OK within ${TimeoutSeconds}s"
     return $false
@@ -1018,14 +1018,14 @@ function Wait-ForVMStop {
     while ($elapsed -lt $TimeoutSeconds) {
         if ($HostType -eq "host.windows.hyper-v") {
             $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-            if ($vm -and $vm.State -eq 'Off') { Write-Information "      VM is Off"; return $true }
+            if ($vm -and $vm.State -eq 'Off') { Write-Debug "      VM is Off"; return $true }
         } elseif ($HostType -eq "host.macos.utm") {
             $status = & utmctl status "$VMName" 2>&1
-            if ($status -match "stopped|shutdown") { Write-Information "      VM is stopped"; return $true }
+            if ($status -match "stopped|shutdown") { Write-Debug "      VM is stopped"; return $true }
         }
         Start-Sleep -Seconds 5
         $elapsed += 5
-        Write-Information "      Waiting for VM to stop... (${elapsed}s / ${TimeoutSeconds}s)"
+        Write-Debug "      Waiting for VM to stop... (${elapsed}s / ${TimeoutSeconds}s)"
     }
     Write-Warning "VM did not stop within ${TimeoutSeconds}s"
     return $false
@@ -1043,7 +1043,7 @@ function Save-DebugScreenshot {
     if (Test-Path $screenshotMod) {
         Import-Module $screenshotMod -Force -ErrorAction SilentlyContinue
         $result = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $outputPath
-        if ($result) { Write-Information "      Screenshot: $outputPath"; return $true }
+        if ($result) { Write-Debug "      Screenshot: $outputPath"; return $true }
     }
     Write-Warning "Screenshot capture not available"
     return $false
@@ -1118,19 +1118,19 @@ function Invoke-Sequence {
         switch ($step.action) {
             "delay" {
                 $secs = [int]$step.seconds
-                Write-Information "      Waiting $secs seconds..."
+                Write-Debug "      Waiting $secs seconds..."
                 Start-Sleep -Seconds $secs
             }
             "key" {
                 $keyName = $step.name
-                Write-Information "      Sending key '$keyName'..."
+                Write-Debug "      Sending key '$keyName'..."
                 $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName $keyName
             }
             "type" {
                 $text = Expand-Variable $step.text $vars
                 $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
                 $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
-                Write-Information "      Typing: '$masked' (charDelay=${charDelay}ms)"
+                Write-Debug "      Typing: '$masked' (charDelay=${charDelay}ms)"
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
             }
             "typeAndEnter" {
@@ -1138,7 +1138,7 @@ function Invoke-Sequence {
                 $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
                 $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2
                 $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
-                Write-Information "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
+                Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                 if ($ok -ne $false) {
                     Start-Sleep -Seconds $delaySeconds
@@ -1159,7 +1159,7 @@ function Invoke-Sequence {
                 $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
                 $resetMisses = $step.resetAfterMisses ? [int]$step.resetAfterMisses : 3
                 $patternDisplay = $patterns -join "' | '"
-                Write-Information "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
+                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
                     -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses
@@ -1174,7 +1174,7 @@ function Invoke-Sequence {
             }
             "waitForHeartbeat" {
                 if ($HostType -ne "host.windows.hyper-v") {
-                    Write-Information "      waitForHeartbeat is Hyper-V only. Skipping."
+                    Write-Debug "      waitForHeartbeat is Hyper-V only. Skipping."
                 } else {
                     $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 300
                     $ok = Wait-ForHeartbeat -VMName $VMName -TimeoutSeconds $timeout

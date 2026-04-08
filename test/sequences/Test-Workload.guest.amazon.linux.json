@@ -70,7 +70,7 @@
     {
       "action": "delay",
       "seconds": 10,
-      "description": "HACK: Brief pause so that the install starts and the previous login shell prompt rolls out of the screen"
+      "description": "HACK: Pause for install and login shell prompt rolls out of the screen"
     },
     {
       "action": "waitForText",
@@ -84,6 +84,11 @@
       "action": "typeAndEnter",
       "text": "dnf list installed | grep desktop",
       "description": "Show installed desktop packages"
+    },
+    {
+      "action": "delay",
+      "seconds": 10,
+      "description": "Pause to see output."
     }
   ]
 }

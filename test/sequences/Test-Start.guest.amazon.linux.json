@@ -118,7 +118,7 @@
       "timeoutSeconds": 600,
       "pollSeconds": 15,
       "freshMatch": true,
-      "description": "Wait for update script to complete (may take several minutes)"
+      "description": "Wait for FETCHED AND EXECUTED: update script (may take several minutes)"
     },
     {
       "action": "delay",

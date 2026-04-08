@@ -152,8 +152,17 @@ pwsh test/Invoke-TestRunner.ps1 -NoGitPull
 # Skip the HTTP server (run headless)
 pwsh test/Invoke-TestRunner.ps1 -NoServer
 
+# Suppress extension script output
+pwsh test/Invoke-TestRunner.ps1 -NoExtensionOutput
+
 # Custom cycle delay
 pwsh test/Invoke-TestRunner.ps1 -CycleDelaySeconds 60
+
+# Enable debug output (internal step details, OCR engine results)
+pwsh test/Invoke-TestRunner.ps1 -debug_mode $true
+
+# Enable verbose output (additional diagnostic messages)
+pwsh test/Invoke-TestRunner.ps1 -verbose_mode $true
 ```
 
 ## Developing test sequences

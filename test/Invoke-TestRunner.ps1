@@ -69,6 +69,11 @@ Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
 $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
+Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
+$activeEngines = Get-EnabledOcrProviders
+$combineMode = if ($env:YURUNA_OCR_COMBINE -eq 'And') { 'And' } else { 'Or' }
+Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
+
 Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
 if (-not (Assert-TesseractInstalled)) { exit 1 }
 

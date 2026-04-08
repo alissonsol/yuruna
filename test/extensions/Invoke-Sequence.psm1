@@ -722,11 +722,18 @@ function Test-CombinedOcrMatch {
         }
         if ($engineText) { $allTexts += $engineText }
 
+        # Log each engine's result as it runs (before possible short-circuit)
+        $snippet = if ($engineText.Length -le 120) { $engineText } else { "..." + $engineText.Substring($engineText.Length - 120) }
+        $status = if ($matched) { "MATCH '$matchedPattern'" } else { "no match" }
+        Write-Information "      [$engineName] $status | $snippet"
+
         # Short-circuit: Or returns early on first match, And on first non-match
         if ($combineMode -eq 'Or' -and $matched) {
+            Write-Information "      Short-circuit ($combineMode): skipping remaining engines"
             $combinedMatch = $true
             break
         } elseif ($combineMode -eq 'And' -and -not $matched) {
+            Write-Information "      Short-circuit ($combineMode): skipping remaining engines"
             $combinedMatch = $false
             break
         }

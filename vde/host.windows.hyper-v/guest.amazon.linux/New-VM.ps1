@@ -32,7 +32,7 @@ $global:DebugPreference = "SilentlyContinue"
 $global:VerbosePreference = "SilentlyContinue"
 $global:ProgressPreference = "SilentlyContinue"
 
-$commonModulePath = Join-Path -Path $PSScriptRoot -ChildPath "VM.common.psm1"
+$commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "VM.common.psm1"
 Import-Module -Name $commonModulePath -Force
 
 # Inform and check for elevation

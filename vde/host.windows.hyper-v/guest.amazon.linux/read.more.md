@@ -26,7 +26,7 @@ Major  Minor  Patch  PreReleaseLabel BuildLabel
 
 One-time steps per host machine:
 - Download and install the latest [Windows Assessment and Deployment Kit (Windows ADK)](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install). During installation, select only "Deployment Tools" (provides `oscdimg.exe`).
-- Confirm the path to `oscdimg.exe` is correct at the top of `VM.common.psm1`.
+- Confirm the path to `oscdimg.exe` is correct at the top of `../VM.common.psm1`.
 - Run `Get-Image.ps1` at least once.
 
 For each VM:

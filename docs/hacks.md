@@ -42,14 +42,14 @@ See also [kubernetes/ingress-nginx](https://github.com/kubernetes/ingress-nginx/
 
 Usually, the Docker functionality to `Reset to factory defaults` is the best path to a solution. It is under the "Troubleshoot" menu (which somehow looks like a question mark, and more like a help button!).
 
-Afterward, remove the `~/.kube` folder and enable Kubernetes again (this loses at least some configuration, and possibly data).
+Afterward, remove the `~/.kube` folder and enable Kubernetes again (this loses at least some configuration and possibly data).
 
 For the error
 ```shell
 docker-credential-desktop executable file not found in $PATH
 ```
 
-In ~/.docker/config.json, change `credsStore` to `credStore`. This switches from the desktop credential store to file-based credential storage.
+In `~/.docker/config.json`, change `credsStore` to `credStore`. This switches from the desktop credential store to file-based credential storage.
 
 You can either remove the `credsStore` entry to store credentials directly in the config file or install a suitable credential helper (like osxkeychain or wincred) and update the `credsStore` value accordingly.
 

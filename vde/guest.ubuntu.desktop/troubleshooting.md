@@ -3,10 +3,10 @@
 ## Boot issues
 
 - Check the logs under `/var/log/installer`. Usually, `installer-journal.txt` has good hints toward the problem.
-- If you see a waiting "Install Ubuntu" screen:
-  - Press Ctrl + Alt + F2 (or F3) to switch to a TTY terminal.
-  - Check the logs at /var/log/installer/ or /var/log/cloud-init.log.
-  - Look for "Error" or "Failed to load" messages—they will usually tell you exactly which line of your config file it didn't like.
+- If the "Install Ubuntu" screen appears stuck:
+  - Press `Ctrl+Alt+F2` (or `F3`) to switch to a TTY terminal.
+  - Check the logs at `/var/log/installer` or `/var/log/cloud-init.log`.
+  - Look for `Error` or `Failed to load` messages—they will usually tell you exactly which line of your config file it didn't like.
 
 ## GUI Locks and Does Not Accept the Password
 
@@ -32,7 +32,7 @@ sudo apt update && sudo apt install --reinstall -y gnome-control-center
 ## Time Zone Incorrect
 
 - The time zone is auto-detected during installation via IP geolocation and GNOME's "Automatic Time Zone" is enabled via dconf defaults.
-- If the timezone is still incorrect after boot, GNOME's geolocation service may not be working (e.g., no network or geolocation API unavailable). To fix manually:
+- If the time zone is still incorrect after boot, GNOME's geolocation service may not be working (e.g., no network or geolocation API unavailable). To fix manually:
   - Bring up the Settings control center.
     - An easy way is to right-click on any open area on the desktop and select "Display Settings".
   - Navigate to "System" (you may need to scroll down in the left pane) and then select "Date & Time".

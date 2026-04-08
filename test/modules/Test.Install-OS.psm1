@@ -82,7 +82,9 @@ function Invoke-StartTest {
                 try {
                     $failInfo = Get-Content -Raw $failFile | ConvertFrom-Json
                     $errMsg = "Step [$($failInfo.stepNumber)/$($failInfo.totalSteps)] $($failInfo.action) — $($failInfo.description) (test: $($s.Name))"
-                } catch { }
+                } catch {
+                    Write-Verbose "Could not parse failure details: $_"
+                }
             }
             return @{ success=$false; skipped=$false; errorMessage=$errMsg }
         }

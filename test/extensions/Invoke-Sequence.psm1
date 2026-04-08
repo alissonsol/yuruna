@@ -35,7 +35,7 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared engine for executing interaction sequences from JSON files.
 #
-# Supported actions (defined in $actions in each JSON):
+# Supported actions (defined in the "steps" array in each JSON):
 #   delay            — Wait N seconds.
 #   key              — Send a single keystroke.
 #   type             — Type a text string into the VM (charDelayMs configurable, default from test-config.json, fallback 50ms).
@@ -50,8 +50,13 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 #   waitForVMStop    — Wait until the VM reaches the Off/stopped state.
 #
 # Variables defined in the JSON "variables" block are substituted into
-# action parameters using ${variableName} syntax. The built-in variable
-# ${vmName} is always available.
+# action parameters using ${variableName} syntax. Built-in variables:
+# ${vmName}, ${hostType}, ${guestKey}.
+#
+# On step failure, diagnostics are written to the YurunaLog directory:
+#   last_failure.json              — failed step details (read by the parent runner)
+#   failure_screenshot_<VM>.png    — last VM screenshot at time of failure
+#   failure_ocr_<VM>.txt           — last OCR text (waitForText failures only)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Key code maps ────────────────────────────────────────────────────────────
@@ -860,6 +865,9 @@ function Wait-ForText {
                             }
                         }
 
+                        # Track last OCR text for failure diagnostics
+                        if ($result.AnyText) { $lastOcrText = $result.AnyText }
+
                         if ($result.Match) {
                             Write-Information "      Pattern already present in baseline (combine=$combineMode)"
                             return $true
@@ -878,11 +886,9 @@ function Wait-ForText {
                         Write-Information "      [$eName] $status | $snippet"
                     }
 
-                    # Track last OCR text for failure diagnostics
-                    if ($result.AnyText) { $lastOcrText = $result.AnyText }
-
-                    # Also test accumulated text from all previous iterations
+                    # Accumulate text and track last OCR output for failure diagnostics
                     if ($result.AnyText) {
+                        $lastOcrText = $result.AnyText
                         $allText = ($allText + "`n" + $result.AnyText).Trim()
                     }
 
@@ -939,19 +945,19 @@ function Wait-ForText {
             Start-Sleep -Seconds $PollSeconds
         }
         # Timeout — preserve last screenshot and OCR text for diagnostics
-        $failScreenDest = Join-Path $logDir "failure_screenshot_${VMName}.png"
-        $failOcrDest    = Join-Path $logDir "failure_ocr_${VMName}.txt"
+        $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
+        $failOcrPath    = Join-Path $logDir "failure_ocr_${VMName}.txt"
         # Copy whichever screenshot file still exists (current first, then previous)
-        $srcScreen = if (Test-Path $currentScreenPath) { $currentScreenPath }
-                     elseif (Test-Path $previousScreenPath) { $previousScreenPath }
-                     else { $null }
-        if ($srcScreen) {
-            Copy-Item -Path $srcScreen -Destination $failScreenDest -Force -ErrorAction SilentlyContinue
-            Write-Information "      Failure screenshot saved: $failScreenDest"
+        $lastScreenPath = if (Test-Path $currentScreenPath) { $currentScreenPath }
+                          elseif (Test-Path $previousScreenPath) { $previousScreenPath }
+                          else { $null }
+        if ($lastScreenPath) {
+            Copy-Item -Path $lastScreenPath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
+            Write-Information "      Failure screenshot saved: $failScreenPath"
         }
         if ($lastOcrText) {
-            Set-Content -Path $failOcrDest -Value $lastOcrText -Force -ErrorAction SilentlyContinue
-            Write-Information "      Failure OCR text saved: $failOcrDest"
+            Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
+            Write-Information "      Failure OCR text saved: $failOcrPath"
         }
 
         Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s"
@@ -1080,6 +1086,12 @@ function Invoke-Sequence {
 
     $sequence = Get-Content -Raw $SequencePath | ConvertFrom-Json
 
+    # Clean up stale failure artifacts from any prior run
+    $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    $logDir = Get-YurunaLogDir
+    Remove-Item (Join-Path $logDir "last_failure.json") -Force -ErrorAction SilentlyContinue
+
     # Build variables table: built-ins + JSON-defined
     $vars = @{ "vmName" = $VMName; "hostType" = $HostType; "guestKey" = $GuestKey }
     if ($sequence.variables) {
@@ -1181,21 +1193,19 @@ function Invoke-Sequence {
             Write-Warning "    Step [$stepNum] failed: $desc"
 
             # Write failure details to YurunaLog for the parent runner to pick up
-            $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-            Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
-            $logDir = Get-YurunaLogDir
+            # ($modulesDir and $logDir already set at function start)
 
             # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"')
             $actionLabel = $step.action
             switch ($step.action) {
                 "waitForText" {
-                    $rawP = $step.pattern
-                    if ($rawP -is [System.Collections.IEnumerable] -and $rawP -isnot [string]) {
-                        $patDisp = ($rawP | ForEach-Object { Expand-Variable $_ $vars }) -join "' | '"
+                    $rawPatterns = $step.pattern
+                    if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
+                        $patternDisplay = ($rawPatterns | ForEach-Object { Expand-Variable $_ $vars }) -join "' | '"
                     } else {
-                        $patDisp = Expand-Variable $rawP $vars
+                        $patternDisplay = Expand-Variable $rawPatterns $vars
                     }
-                    $actionLabel = "waitForText: `"$patDisp`""
+                    $actionLabel = "waitForText: `"$patternDisplay`""
                 }
                 "waitForPort"      { $actionLabel = "waitForPort: $($step.port)" }
                 "waitForHeartbeat" { $actionLabel = "waitForHeartbeat" }
@@ -1220,10 +1230,10 @@ function Invoke-Sequence {
             # For non-waitForText failures, capture a screenshot now (waitForText already saves one)
             if ($step.action -ne "waitForText") {
                 Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue
-                $failScreen = Join-Path $logDir "failure_screenshot_${VMName}.png"
-                $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $failScreen
+                $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
+                $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $failScreenPath
                 if ($captured) {
-                    Write-Information "      Failure screenshot saved: $failScreen"
+                    Write-Information "      Failure screenshot saved: $failScreenPath"
                 }
             }
 

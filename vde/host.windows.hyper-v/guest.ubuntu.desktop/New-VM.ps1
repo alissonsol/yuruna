@@ -28,7 +28,7 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 $ProgressPreference = 'SilentlyContinue'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonModulePath = Join-Path -Path $ScriptDir -ChildPath "VM.common.psm1"
+$commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "VM.common.psm1"
 Import-Module -Name $commonModulePath -Force
 
 # Inform and check for elevation

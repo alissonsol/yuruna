@@ -1,4 +1,4 @@
-# Yuruna TO DO List
+# Yuruna TODO List
 
 ## Global
 

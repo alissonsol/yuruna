@@ -8,14 +8,14 @@ The runner loops continuously (until a failure), executing this cycle:
 
 1. Pulls the latest repo (`git pull`)
 2. **Refresh images** (every 24 hours): downloads base images via `Get-Image.ps1`
-3. **Cleanup**: removes all previous test VMs in a block
-4. **For each guest** (configurable via `guestOrder` — defaults to all three):
+3. **For each guest** (configurable via `guestOrder` — defaults to all three):
+   - **Cleanup** — removes the previous test VM for this guest (if any)
    - **New-VM** — creates a test VM via `New-VM.ps1`
    - **Start-VM** — starts the VM (UTM `utmctl` / Hyper-V `Start-VM`)
    - **Verify-VM** — polls until the VM reaches running state
    - **Invoke-PoolTest** — runs extension scripts from `test/extensions/` (if any)
-5. Logs the result and starts the next cycle
-6. On first failure: sends a notification and exits
+4. Logs the result and starts the next cycle
+5. On first failure: sends a notification and exits
 
 ## Prerequisites
 
@@ -320,11 +320,14 @@ test/
     Test.StatusServer.psm1        # HTTP status server start/stop
     Test.Notify.psm1              # Resend API email notifications
     Test.Get-Image.psm1           # Base image download and refresh
+    Test.LogDir.psm1              # YurunaLog directory path management
     Test.New-VM.psm1              # VM creation, verification, and cleanup
     Test.Install-OS.psm1          # OS installation sequence orchestration
     Test.Start-VM.psm1            # VM start, stop, boot verification
     Test.Invoke-PoolTest.psm1     # Extension test discovery and execution
     Test.Screenshot.psm1          # Screenshot capture, comparison, schedule
+    Test.OcrEngine.psm1           # Pluggable OCR engine registry
+    Test.Tesseract.psm1           # Tesseract OCR utilities
   extensions/
     README.md                                       # Extension API documentation
     Invoke-Sequence.psm1                            # JSON sequence interpreter
@@ -348,17 +351,20 @@ test/
 
 | Module | Purpose | Key functions |
 |--------|---------|---------------|
-| `Get-NewText` | Diff-based OCR text extraction (pure C#) | `Get-NewTextContent` |
+| `Get-NewText` | Diff-based OCR text extraction (pure C#) | `Get-NewTextContent`, `Get-ProcessedScreenImage` |
 | `Test.Host` | Platform detection, elevation checks, git | `Get-HostType`, `Get-GuestList`, `Assert-Elevation`, `Invoke-GitPull` |
 | `Test.Status` | Status document lifecycle | `Initialize-StatusDocument`, `Set-StepStatus`, `Complete-Run` |
 | `Test.StatusServer` | HTTP status server management | `Start-StatusServer`, `Stop-StatusServer` |
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |
 | `Test.Get-Image` | Base image download/refresh | `Get-ImagePath`, `Invoke-GetImage` |
+| `Test.LogDir` | YurunaLog directory path management | `Get-YurunaLogDir` |
 | `Test.New-VM` | VM create + verify creation + cleanup | `Invoke-NewVM`, `Confirm-VMCreated`, `Remove-TestVM` |
 | `Test.Install-OS` | OS installation sequence orchestration | `Get-StartTestScript`, `Invoke-StartTest`, `Get-VerifyScreenshot` |
 | `Test.Start-VM` | VM start/stop + verify running | `Invoke-StartVM`, `Stop-TestVM`, `Confirm-VMStarted` |
 | `Test.Invoke-PoolTest` | Extension test discovery and execution | `Get-GuestTestScript`, `Invoke-PoolTest` |
 | `Test.Screenshot` | Screenshot capture, comparison, schedules | `Get-VMScreenshot`, `Compare-Screenshot`, `Invoke-ScreenshotTest` |
+| `Test.OcrEngine` | Pluggable OCR engine registry | `Register-OcrProvider`, `Get-EnabledOcrProvider`, `Invoke-WinRtOcr` |
+| `Test.Tesseract` | Tesseract OCR utilities | `Find-Tesseract`, `Assert-TesseractInstalled`, `Invoke-TesseractOcr` |
 
 ## Exit codes
 

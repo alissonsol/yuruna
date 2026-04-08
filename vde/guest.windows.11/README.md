@@ -35,10 +35,10 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/gue
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.k8s.ps1?nocache=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" | iex
 ```
 
-<mark>Please read</mark>: While installing all the Kubernetes requirements for Windows will succeed, starting Docker will demand a coordinated change of virtualization settings for both the host (Hyper-V or mac UTM) and the guest. Those instructions are too long and unreliable to be automated at this time. For now, ask your favorite AI assistant using the prompts below:
+**Please read:** While installing all the Kubernetes requirements for Windows will succeed, starting Docker will demand a coordinated change of virtualization settings for both the host (Hyper-V or mac UTM) and the guest. Those instructions are too long and unreliable to be automated at this time. For now, ask your favorite AI assistant using the prompts below:
 
-- <strong>macOS UTM</strong>: _Provide detailed instructions on how to configure a macOS UTM and a Windows 11 guest so that Docker can be started in the guest environment using ARM64 host CPUs._
-- <strong>Windows Hyper-V</strong>: _Provide detailed instructions on how to configure a Windows Hyper-V host and a Windows 11 guest so that Docker can be started in the guest environment._
+- **macOS UTM**: _Provide detailed instructions on how to configure a macOS UTM and a Windows 11 guest so that Docker can be started in the guest environment using ARM64 host CPUs._
+- **Windows Hyper-V**: _Provide detailed instructions on how to configure a Windows Hyper-V host and a Windows 11 guest so that Docker can be started in the guest environment._
 
 TODO: Create scripts that will configure the settings for both the host and the guest, after instructions become more reliable.
 

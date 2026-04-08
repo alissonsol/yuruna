@@ -34,25 +34,20 @@ function Get-ImagePath {
         "host.macos.utm/guest.windows.11" {
             return "$HOME/virtual/windows.env/host.macos.utm.guest.windows.11.iso"
         }
-        "host.windows.hyper-v/guest.amazon.linux" {
+        default {
+            # Hyper-V guests: image files live under the default virtual hard disk path
+            $fileNames = @{
+                "host.windows.hyper-v/guest.amazon.linux"    = "host.windows.hyper-v.guest.amazon.linux.vhdx"
+                "host.windows.hyper-v/guest.ubuntu.desktop"  = "host.windows.hyper-v.guest.ubuntu.desktop.iso"
+                "host.windows.hyper-v/guest.windows.11"      = "host.windows.hyper-v.guest.windows.11.iso"
+            }
+            $fileName = $fileNames["$HostType/$GuestKey"]
+            if (-not $fileName) { return $null }
             try {
                 $vhdPath = (Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
-                return Join-Path $vhdPath "host.windows.hyper-v.guest.amazon.linux.vhdx"
+                return Join-Path $vhdPath $fileName
             } catch { return $null }
         }
-        "host.windows.hyper-v/guest.ubuntu.desktop" {
-            try {
-                $vhdPath = (Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
-                return Join-Path $vhdPath "host.windows.hyper-v.guest.ubuntu.desktop.iso"
-            } catch { return $null }
-        }
-        "host.windows.hyper-v/guest.windows.11" {
-            try {
-                $vhdPath = (Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
-                return Join-Path $vhdPath "host.windows.hyper-v.guest.windows.11.iso"
-            } catch { return $null }
-        }
-        default { return $null }
     }
 }
 

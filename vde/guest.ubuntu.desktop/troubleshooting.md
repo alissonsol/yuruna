@@ -3,6 +3,10 @@
 ## Boot issues
 
 - Check the logs under `/var/log/installer`. Usually, `installer-journal.txt` has good hints toward the problem.
+- If you see a waiting "Install Ubuntu" screen:
+  - Press Ctrl + Alt + F2 (or F3) to switch to a TTY terminal.
+  - Check the logs at /var/log/installer/ or /var/log/cloud-init.log.
+  - Look for "Error" or "Failed to load" messages—they will usually tell you exactly which line of your config file it didn't like.
 
 ## GUI Locks and Does Not Accept the Password
 

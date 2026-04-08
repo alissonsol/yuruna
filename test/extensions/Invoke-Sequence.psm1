@@ -800,6 +800,7 @@ function Wait-ForText {
     # Accumulate all seen text for non-FreshMatch mode (per-engine text merged)
     $allText = ''
     $consecutiveMisses = 0
+    $lastOcrText = ''
 
     try {
         while ($elapsed -lt $TimeoutSeconds) {
@@ -841,6 +842,9 @@ function Wait-ForText {
                             Write-Information "      [$eName] $status | $snippet"
                         }
 
+                        # Track last OCR text for failure diagnostics
+                        if ($result.AnyText) { $lastOcrText = $result.AnyText }
+
                         if ($result.Match) {
                             Write-Information "      Text detected at end of screen (combine=$combineMode)"
                             return $true
@@ -873,6 +877,9 @@ function Wait-ForText {
                         $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
                         Write-Information "      [$eName] $status | $snippet"
                     }
+
+                    # Track last OCR text for failure diagnostics
+                    if ($result.AnyText) { $lastOcrText = $result.AnyText }
 
                     # Also test accumulated text from all previous iterations
                     if ($result.AnyText) {
@@ -931,10 +938,26 @@ function Wait-ForText {
             Write-Information "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
             Start-Sleep -Seconds $PollSeconds
         }
+        # Timeout — preserve last screenshot and OCR text for diagnostics
+        $failScreenDest = Join-Path $logDir "failure_screenshot_${VMName}.png"
+        $failOcrDest    = Join-Path $logDir "failure_ocr_${VMName}.txt"
+        # Copy whichever screenshot file still exists (current first, then previous)
+        $srcScreen = if (Test-Path $currentScreenPath) { $currentScreenPath }
+                     elseif (Test-Path $previousScreenPath) { $previousScreenPath }
+                     else { $null }
+        if ($srcScreen) {
+            Copy-Item -Path $srcScreen -Destination $failScreenDest -Force -ErrorAction SilentlyContinue
+            Write-Information "      Failure screenshot saved: $failScreenDest"
+        }
+        if ($lastOcrText) {
+            Set-Content -Path $failOcrDest -Value $lastOcrText -Force -ErrorAction SilentlyContinue
+            Write-Information "      Failure OCR text saved: $failOcrDest"
+        }
+
         Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s"
         return $false
     } finally {
-        # Clean up temp screenshot files
+        # Clean up temp screenshot files (failure copies already saved above)
         Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
         Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
     }
@@ -1156,6 +1179,54 @@ function Invoke-Sequence {
 
         if ($ok -eq $false) {
             Write-Warning "    Step [$stepNum] failed: $desc"
+
+            # Write failure details to YurunaLog for the parent runner to pick up
+            $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+            Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+            $logDir = Get-YurunaLogDir
+
+            # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"')
+            $actionLabel = $step.action
+            switch ($step.action) {
+                "waitForText" {
+                    $rawP = $step.pattern
+                    if ($rawP -is [System.Collections.IEnumerable] -and $rawP -isnot [string]) {
+                        $patDisp = ($rawP | ForEach-Object { Expand-Variable $_ $vars }) -join "' | '"
+                    } else {
+                        $patDisp = Expand-Variable $rawP $vars
+                    }
+                    $actionLabel = "waitForText: `"$patDisp`""
+                }
+                "waitForPort"      { $actionLabel = "waitForPort: $($step.port)" }
+                "waitForHeartbeat" { $actionLabel = "waitForHeartbeat" }
+                "waitForVMStop"    { $actionLabel = "waitForVMStop" }
+                "key"              { $actionLabel = "key: $($step.name)" }
+                "type"             { $actionLabel = "type" }
+                "typeAndEnter"     { $actionLabel = "typeAndEnter" }
+            }
+
+            $failureInfo = @{
+                stepNumber  = $stepNum
+                totalSteps  = $steps.Count
+                action      = $actionLabel
+                description = $desc
+                vmName      = $VMName
+                guestKey    = $GuestKey
+                timestamp   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+            } | ConvertTo-Json
+            $failureFile = Join-Path $logDir "last_failure.json"
+            Set-Content -Path $failureFile -Value $failureInfo -Force -ErrorAction SilentlyContinue
+
+            # For non-waitForText failures, capture a screenshot now (waitForText already saves one)
+            if ($step.action -ne "waitForText") {
+                Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue
+                $failScreen = Join-Path $logDir "failure_screenshot_${VMName}.png"
+                $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $failScreen
+                if ($captured) {
+                    Write-Information "      Failure screenshot saved: $failScreen"
+                }
+            }
+
             return $false
         }
     }

@@ -16,6 +16,8 @@
 
 #requires -version 7
 
+Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+
 # ── Test-Start extension discovery ───────────────────────────────────────────
 
 <#
@@ -72,7 +74,17 @@ function Invoke-StartTest {
             & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName *>$null
         }
         if ($LASTEXITCODE -ne 0) {
-            return @{ success=$false; skipped=$false; errorMessage="Start test '$($s.Name)' failed (exit code $LASTEXITCODE)" }
+            $errMsg = "Start test '$($s.Name)' failed (exit code $LASTEXITCODE)"
+            # Read failure details written by Invoke-Sequence (if available)
+            $logDir = Get-YurunaLogDir
+            $failFile = Join-Path $logDir "last_failure.json"
+            if (Test-Path $failFile) {
+                try {
+                    $failInfo = Get-Content -Raw $failFile | ConvertFrom-Json
+                    $errMsg = "Step [$($failInfo.stepNumber)/$($failInfo.totalSteps)] $($failInfo.action) — $($failInfo.description) (test: $($s.Name))"
+                } catch { }
+            }
+            return @{ success=$false; skipped=$false; errorMessage=$errMsg }
         }
         Write-Information "  $($s.Name): PASS" -InformationAction Continue
     }

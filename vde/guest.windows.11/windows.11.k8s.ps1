@@ -1,8 +1,7 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -26,121 +25,121 @@
 
 # ===== Ensure running as Administrator =====
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Host ""
-    Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║  This script requires elevation (Run as Administrator)    ║" -ForegroundColor Cyan
-    Write-Host "║  Right-click PowerShell and select 'Run as Administrator' ║" -ForegroundColor Cyan
-    Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
+    Write-Output ""
+    Write-Output "╔════════════════════════════════════════════════════════════╗"
+    Write-Output "║  This script requires elevation (Run as Administrator)    ║"
+    Write-Output "║  Right-click PowerShell and select 'Run as Administrator' ║"
+    Write-Output "╚════════════════════════════════════════════════════════════╝"
+    Write-Output ""
     exit 1
 }
 
-Write-Host "=== Installing Kubernetes requirements for Windows 11 ==="
+Write-Output "=== Installing Kubernetes requirements for Windows 11 ==="
 
 # ===== Basic Tools =====
-Write-Host ""
-Write-Host ">>> Installing Basic Tools (Git, OpenSSH)..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing Basic Tools (Git, OpenSSH)..."
 winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
 # Enable built-in OpenSSH server
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
 Start-Service sshd -ErrorAction SilentlyContinue
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
-Write-Host "<<< Basic Tools installation complete." -ForegroundColor Green
+Write-Output "<<< Basic Tools installation complete."
 
 # ===== PowerShell 7 (check) =====
-Write-Host ""
-Write-Host ">>> Checking for PowerShell 7..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Checking for PowerShell 7..."
 $pwshPath = Get-Command pwsh -ErrorAction SilentlyContinue
 if (-not $pwshPath) {
-    Write-Host ""
-    Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
-    Write-Host "║  PowerShell 7 is required but not installed.              ║" -ForegroundColor Yellow
-    Write-Host "║  Run windows.11.update.ps1 first to install it.          ║" -ForegroundColor Yellow
-    Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
-    Write-Host ""
+    Write-Output ""
+    Write-Output "╔════════════════════════════════════════════════════════════╗"
+    Write-Output "║  PowerShell 7 is required but not installed.              ║"
+    Write-Output "║  Run windows.11.update.ps1 first to install it.          ║"
+    Write-Output "╚════════════════════════════════════════════════════════════╝"
+    Write-Output ""
     exit 1
 }
-Write-Host "PowerShell 7 found at $($pwshPath.Source)" -ForegroundColor Green
+Write-Output "PowerShell 7 found at $($pwshPath.Source)"
 
 # Install powershell-yaml module
-Write-Host ""
-Write-Host ">>> Installing PowerShell module: powershell-yaml..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing PowerShell module: powershell-yaml..."
 pwsh -NoProfile -Command "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false" 2>$null
-if ($LASTEXITCODE -ne 0) { Write-Host "Note: powershell-yaml module installation attempted" }
-Write-Host "<<< PowerShell module: powershell-yaml installation complete." -ForegroundColor Green
+if ($LASTEXITCODE -ne 0) { Write-Output "Note: powershell-yaml module installation attempted" }
+Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # ===== Cloud CLIs =====
 
 # Azure CLI
-Write-Host ""
-Write-Host ">>> Installing Azure CLI..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing Azure CLI..."
 winget install --id Microsoft.AzureCLI --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< Azure CLI installation complete." -ForegroundColor Green
+Write-Output "<<< Azure CLI installation complete."
 
 # AWS CLI
-Write-Host ""
-Write-Host ">>> Installing AWS CLI..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing AWS CLI..."
 winget install --id Amazon.AWSCLI --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< AWS CLI installation complete." -ForegroundColor Green
+Write-Output "<<< AWS CLI installation complete."
 
 # Google Cloud SDK
-Write-Host ""
-Write-Host ">>> Installing Google Cloud SDK..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing Google Cloud SDK..."
 winget install --id Google.CloudSDK --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< Google Cloud SDK installation complete." -ForegroundColor Green
+Write-Output "<<< Google Cloud SDK installation complete."
 
 # ===== Docker Desktop =====
-Write-Host ""
-Write-Host ">>> Installing Docker Desktop..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing Docker Desktop..."
 winget install --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< Docker Desktop installation complete." -ForegroundColor Green
+Write-Output "<<< Docker Desktop installation complete."
 
-Write-Host ""
-Write-Host "NOTE: Docker Desktop requires a restart to complete setup." -ForegroundColor Yellow
-Write-Host "After restart, enable Kubernetes in Docker Desktop Settings > Kubernetes > Enable Kubernetes." -ForegroundColor Yellow
+Write-Output ""
+Write-Output "NOTE: Docker Desktop requires a restart to complete setup."
+Write-Output "After restart, enable Kubernetes in Docker Desktop Settings > Kubernetes > Enable Kubernetes."
 
 # ===== Kubernetes CLI (kubectl) =====
-Write-Host ""
-Write-Host ">>> Installing kubectl..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing kubectl..."
 winget install --id Kubernetes.kubectl --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< kubectl installation complete." -ForegroundColor Green
+Write-Output "<<< kubectl installation complete."
 
 # ===== Helm =====
-Write-Host ""
-Write-Host ">>> Installing Helm..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing Helm..."
 winget install --id Helm.Helm --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< Helm installation complete." -ForegroundColor Green
+Write-Output "<<< Helm installation complete."
 
 # ===== OpenTofu =====
-Write-Host ""
-Write-Host ">>> Installing OpenTofu..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing OpenTofu..."
 winget install --id OpenTofu.Tofu --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< OpenTofu installation complete." -ForegroundColor Green
+Write-Output "<<< OpenTofu installation complete."
 
 # ===== Graphviz =====
-Write-Host ""
-Write-Host ">>> Installing Graphviz..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing Graphviz..."
 winget install --id Graphviz.Graphviz --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< Graphviz installation complete." -ForegroundColor Green
+Write-Output "<<< Graphviz installation complete."
 
 # ===== GitHub CLI =====
-Write-Host ""
-Write-Host ">>> Installing GitHub CLI..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing GitHub CLI..."
 winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements --silent
-Write-Host "<<< GitHub CLI installation complete." -ForegroundColor Green
+Write-Output "<<< GitHub CLI installation complete."
 
 # ===== mkcert and HTTPS Development Certificate =====
 # mkcert is installed last because its root CA installation may require user interaction.
-Write-Host ""
-Write-Host ">>> Installing mkcert..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing mkcert..."
 winget install --id FiloSottile.mkcert --accept-source-agreements --accept-package-agreements --silent
 # Refresh PATH so the newly installed mkcert is discoverable
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
 # Generate the HTTPS development certificate first. This auto-creates the mkcert root CA
 # (rootCA.pem) on first run without triggering any dialog — only 'mkcert -install' does that.
-Write-Host ""
-Write-Host ">>> Creating HTTPS development certificate..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Creating HTTPS development certificate..."
 $pfxDir = Join-Path $env:USERPROFILE ".aspnet\https"
 New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null
 $certKey = Join-Path $pfxDir "aspnetapp.key"
@@ -157,49 +156,49 @@ if (Test-Path $certKey) {
     "
     if (Test-Path $pfxFile) {
         Remove-Item -Path $certKey, $certFile -Force -ErrorAction SilentlyContinue
-        Write-Host "HTTPS development certificate created at $pfxFile" -ForegroundColor Green
+        Write-Output "HTTPS development certificate created at $pfxFile"
     } else {
-        Write-Host "Note: PFX conversion failed. Certificate PEM files remain at $pfxDir" -ForegroundColor Yellow
+        Write-Output "Note: PFX conversion failed. Certificate PEM files remain at $pfxDir"
     }
 } else {
-    Write-Host "Note: mkcert certificate generation failed. Run 'mkcert -install' manually and retry." -ForegroundColor Yellow
+    Write-Output "Note: mkcert certificate generation failed. Run 'mkcert -install' manually and retry."
 }
-Write-Host "<<< HTTPS development certificate complete." -ForegroundColor Green
+Write-Output "<<< HTTPS development certificate complete."
 
 # Install the mkcert root CA silently into the LocalMachine trusted root store.
 # We avoid 'mkcert -install' because it shows an unavoidable Windows Security Warning dialog.
 # Import-Certificate into LocalMachine\Root is silent when running as Administrator.
-Write-Host ""
-Write-Host ">>> Installing mkcert root CA into trusted store..." -ForegroundColor Cyan
+Write-Output ""
+Write-Output ">>> Installing mkcert root CA into trusted store..."
 $caRoot = & mkcert -CAROOT 2>$null
 $rootCert = Join-Path $caRoot "rootCA.pem"
 if (Test-Path $rootCert) {
     Import-Certificate -FilePath $rootCert -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction SilentlyContinue | Out-Null
-    Write-Host "mkcert root CA installed silently into LocalMachine\Root store." -ForegroundColor Green
+    Write-Output "mkcert root CA installed silently into LocalMachine\Root store."
 } else {
-    Write-Host "Note: mkcert root CA not found at '$rootCert'. Run 'mkcert -install' manually if needed." -ForegroundColor Yellow
+    Write-Output "Note: mkcert root CA not found at '$rootCert'. Run 'mkcert -install' manually if needed."
 }
-Write-Host "<<< mkcert installation complete." -ForegroundColor Green
+Write-Output "<<< mkcert installation complete."
 
 # ===== Refresh PATH =====
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
 # ===== Version Check =====
-Write-Host ""
-Write-Host "=== Installation Summary ===" -ForegroundColor Yellow
-try { git --version } catch { Write-Host "Git: restart terminal to verify" }
-try { docker --version } catch { Write-Host "Docker: restart required" }
-try { kubectl version --client 2>$null } catch { Write-Host "kubectl: restart terminal to verify" }
-try { pwsh --version } catch { Write-Host "PowerShell 7: restart terminal to verify" }
-try { helm version --short 2>$null } catch { Write-Host "Helm: restart terminal to verify" }
-try { tofu version 2>$null | Select-Object -First 1 } catch { Write-Host "OpenTofu: restart terminal to verify" }
-try { mkcert --version 2>$null } catch { Write-Host "mkcert: restart terminal to verify" }
-try { az --version 2>$null | Select-Object -First 1 } catch { Write-Host "Azure CLI: restart terminal to verify" }
-try { aws --version 2>$null } catch { Write-Host "AWS CLI: restart terminal to verify" }
-try { gcloud --version 2>$null | Select-Object -First 1 } catch { Write-Host "Google Cloud SDK: restart terminal to verify" }
+Write-Output ""
+Write-Output "=== Installation Summary ==="
+try { git --version } catch { Write-Output "Git: restart terminal to verify" }
+try { docker --version } catch { Write-Output "Docker: restart required" }
+try { kubectl version --client 2>$null } catch { Write-Output "kubectl: restart terminal to verify" }
+try { pwsh --version } catch { Write-Output "PowerShell 7: restart terminal to verify" }
+try { helm version --short 2>$null } catch { Write-Output "Helm: restart terminal to verify" }
+try { tofu version 2>$null | Select-Object -First 1 } catch { Write-Output "OpenTofu: restart terminal to verify" }
+try { mkcert --version 2>$null } catch { Write-Output "mkcert: restart terminal to verify" }
+try { az --version 2>$null | Select-Object -First 1 } catch { Write-Output "Azure CLI: restart terminal to verify" }
+try { aws --version 2>$null } catch { Write-Output "AWS CLI: restart terminal to verify" }
+try { gcloud --version 2>$null | Select-Object -First 1 } catch { Write-Output "Google Cloud SDK: restart terminal to verify" }
 
-Write-Host ""
-Write-Host "=== Optional Steps ===" -ForegroundColor Yellow
-Write-Host "1. Restart the computer to complete Docker Desktop setup"
-Write-Host "2. Enable Kubernetes in Docker Desktop Settings"
-Write-Host "3. Terminal restart may be needed for PATH changes to take effect"
+Write-Output ""
+Write-Output "=== Optional Steps ==="
+Write-Output "1. Restart the computer to complete Docker Desktop setup"
+Write-Output "2. Enable Kubernetes in Docker Desktop Settings"
+Write-Output "3. Terminal restart may be needed for PATH changes to take effect"

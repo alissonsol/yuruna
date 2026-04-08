@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42aa1b2c-3d4e-4f56-a789-0b1c2d3e4f56
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # yuruna helper: copy context
 # As a result, this code creates copies of those entries with the same name of the destinationContext
@@ -69,7 +70,7 @@ Add-Content -Path $tempFile.FullName -Value $(ConvertTo-Yaml $yaml)
 $kubeConfig = "${currentConfig}:${tempFile}"
 if ($IsWindows) { $kubeConfig = "${currentConfig};${tempFile}"; }
 Write-Verbose "KUBECONFIG: $kubeConfig"
-$originalKubeConfig = if (Test-Path Env:KUBECONFIG) { $env:KUBECONFIG } else { $null }
+$originalKubeConfig = (Test-Path Env:KUBECONFIG) ? $env:KUBECONFIG : $null
 Set-Item -Path Env:KUBECONFIG -Value $kubeConfig
 $combinedConfig = "${HOME}/.kube/config.yuruna"
 Remove-Item -Path $combinedConfig -Force -ErrorAction SilentlyContinue

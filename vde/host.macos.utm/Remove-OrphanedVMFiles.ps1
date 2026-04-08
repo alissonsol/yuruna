@@ -1,8 +1,7 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 param(
     [switch]$Force
@@ -74,7 +75,7 @@ foreach ($line in $utmOutput) {
     if ($parts.Count -ge 2 -and $parts[0] -match '^[0-9A-Fa-f-]{36}$') {
         $vmUuid = $parts[0].Trim()
         $vmName = $parts[1].Trim()
-        $vmStatus = if ($parts.Count -ge 3) { $parts[2].Trim() } else { "unknown" }
+        $vmStatus = $parts.Count -ge 3 ? $parts[2].Trim() : "unknown"
         $registeredVMs[$vmName] = $vmStatus
         $registeredUUIDs[$vmUuid] = $vmName
     }
@@ -96,7 +97,7 @@ function Get-UTMBundleUUID {
                 if ($val -match '^[0-9A-Fa-f-]{36}$') { return $val }
             }
         }
-    } catch {}
+    } catch { Write-Verbose "Failed to extract UUID: $_" }
     return $null
 }
 
@@ -154,7 +155,7 @@ foreach ($vmName in $bundleMap.Keys) {
 
     $bundleSize = (Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
         Measure-Object -Property Length -Sum).Sum
-    $itemSize = if ($bundleSize) { $bundleSize } else { 0 }
+    $itemSize = $bundleSize ?? 0
 
     # Check if this bundle name matches a base image name
     $isBaseImage = $false

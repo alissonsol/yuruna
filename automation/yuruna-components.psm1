@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS yuruna-components
 .LICENSEURI http://www.yuruna.com
@@ -15,9 +14,12 @@
 .PRIVATEDATA
 #>
 
+#requires -version 7
+
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/yuruna-validation"
 Import-Module -Name $validationModulePath
+Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 
 function Publish-ComponentList {
@@ -175,7 +177,7 @@ function Publish-ComponentList {
         if (-Not ([string]::IsNullOrEmpty($preProcessor))) {
             $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($preProcessor)
             Write-Information "preProcessor: $executionCommand"
-            Invoke-Expression $executionCommand
+            Invoke-DynamicExpression -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for preProcessor: $executionCommand"
                 return ($ErrorActionPreference -eq "Continue");
@@ -185,7 +187,7 @@ function Publish-ComponentList {
         # build
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($buildCommand)
         Write-Debug "Build: $executionCommand"
-        Invoke-Expression $executionCommand
+        Invoke-DynamicExpression -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Build: $executionCommand"
             return ($ErrorActionPreference -eq "Continue");
@@ -197,7 +199,7 @@ function Publish-ComponentList {
         if (-Not ([string]::IsNullOrEmpty($postProcessor))) {
             $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($postProcessor)
             Write-Information "postProcessor: $executionCommand"
-            Invoke-Expression $executionCommand
+            Invoke-DynamicExpression -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for postProcessor: $executionCommand"
                 return ($ErrorActionPreference -eq "Continue");
@@ -214,7 +216,7 @@ function Publish-ComponentList {
         if ([string]::IsNullOrEmpty($pushCommand)) { Write-Information "pushCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($tagCommand)
         Write-Debug "Tag: $executionCommand"
-        Invoke-Expression $executionCommand
+        Invoke-DynamicExpression -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Tag: $executionCommand"
             return ($ErrorActionPreference -eq "Continue");
@@ -224,7 +226,7 @@ function Publish-ComponentList {
         $registryLocation = $([Environment]::GetEnvironmentVariable("${env:registryName}.registryLocation"))
         if ($registryLocation -like '*azurecr.io*') {
             $executionCommand = $ExecutionContext.InvokeCommand.ExpandString("az acr login -n $registryLocation *>&1")
-            Invoke-Expression $executionCommand *>&1 | Write-Verbose
+            Invoke-DynamicExpression -Command $executionCommand *>&1 | Write-Verbose
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for: $executionCommand"
                 return ($ErrorActionPreference -eq "Continue");
@@ -233,7 +235,7 @@ function Publish-ComponentList {
 
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($pushCommand)
         Write-Debug "Push: $executionCommand"
-        Invoke-Expression $executionCommand
+        Invoke-DynamicExpression -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Push: $executionCommand"
             return ($ErrorActionPreference -eq "Continue");

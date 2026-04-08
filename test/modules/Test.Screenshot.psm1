@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456714
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # ── Screenshot capture ───────────────────────────────────────────────────────
 
@@ -520,8 +521,8 @@ public class HyperVCapture {
                 -ClassName Msvm_VirtualSystemManagementService
             # Request screenshot at the configured VM resolution.
             $vmVideo = Get-VMVideo -VMName $VMName -ErrorAction SilentlyContinue
-            $reqW = if ($vmVideo) { [uint16]$vmVideo.HorizontalResolution } else { [uint16]1920 }
-            $reqH = if ($vmVideo) { [uint16]$vmVideo.VerticalResolution } else { [uint16]1080 }
+            $reqW = $vmVideo ? [uint16]$vmVideo.HorizontalResolution : [uint16]1920
+            $reqH = $vmVideo ? [uint16]$vmVideo.VerticalResolution : [uint16]1080
 
             $result = Invoke-CimMethod -InputObject $vmms `
                 -MethodName GetVirtualSystemThumbnailImage `
@@ -542,8 +543,8 @@ public class HyperVCapture {
                 [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"),
                     "dataLen=$($result.ImageData.Length) expected16=$(${reqW}*${reqH}*2) expected24=$(${reqW}*${reqH}*3) expected32=$(${reqW}*${reqH}*4)")
             } else {
-                $rc = if ($result) { $result.ReturnValue } else { "null" }
-                $len = if ($result -and $result.ImageData) { $result.ImageData.Length } else { 0 }
+                $rc = $result ? $result.ReturnValue : "null"
+                $len = ($result -and $result.ImageData) ? $result.ImageData.Length : 0
                 [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "rc=$rc dataLen=$len")
             }
         } else {
@@ -632,7 +633,7 @@ function Compare-Screenshot {
             }
         }
 
-        $similarity = if ($sampled -gt 0) { [Math]::Round($matchingPixels / $sampled, 4) } else { 0.0 }
+        $similarity = $sampled -gt 0 ? [Math]::Round($matchingPixels / $sampled, 4) : 0.0
 
         $ref.Dispose()
         $act.Dispose()
@@ -694,7 +695,7 @@ function Invoke-ScreenshotTest {
     foreach ($cp in $schedule) {
         $cpName    = $cp.name
         $delay     = [int]$cp.delaySeconds
-        $threshold = if ($cp.threshold) { [double]$cp.threshold } else { 0.85 }
+        $threshold = $cp.threshold ? [double]$cp.threshold : 0.85
         $refFile   = Join-Path $guestDir "reference/$cpName.png"
 
         if (-not (Test-Path $refFile)) {

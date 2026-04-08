@@ -31,7 +31,7 @@
 ## PowerShell
 
 - Ensure modifications and additions to PowerShell code don't add new issues as pointed out by the [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer)
-  - `Invoke-ScriptAnalyzer -Path .`
+  - `Invoke-ScriptAnalyzer -Path . -Recurse`
 
 ## Resources
 

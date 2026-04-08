@@ -1,3 +1,21 @@
+﻿<#PSScriptInfo
+.VERSION 0.1
+.GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
+.AUTHOR Alisson Sol
+.COPYRIGHT (c) 2019-2026 Alisson Sol et al.
+.TAGS Test.OcrEngine
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
 <#
 .SYNOPSIS
     Pluggable OCR engine registry. Enables running multiple OCR providers on the
@@ -45,7 +63,7 @@ function Register-OcrProvider {
     }
 }
 
-function Get-OcrProviderNames {
+function Get-OcrProviderName {
     <#
     .SYNOPSIS
         Returns the names of all registered OCR providers.
@@ -78,7 +96,7 @@ function Invoke-OcrProvider {
     return (& $provider.Invoke $ImagePath)
 }
 
-function Get-EnabledOcrProviders {
+function Get-EnabledOcrProvider {
     <#
     .SYNOPSIS
         Returns the list of OCR provider names that are enabled via configuration
@@ -121,7 +139,7 @@ function Invoke-AllEnabledOcr {
     param([Parameter(Mandatory)] [string]$ImagePath)
 
     $results = [ordered]@{}
-    foreach ($name in (Get-EnabledOcrProviders)) {
+    foreach ($name in (Get-EnabledOcrProvider)) {
         try {
             $results[$name] = Invoke-OcrProvider -Name $name -ImagePath $ImagePath
         } catch {
@@ -356,10 +374,10 @@ Register-OcrProvider -Name 'macos-vision' `
 
 Export-ModuleMember -Function @(
     'Register-OcrProvider'
-    'Get-OcrProviderNames'
+    'Get-OcrProviderName'
     'Test-OcrProviderAvailable'
     'Invoke-OcrProvider'
-    'Get-EnabledOcrProviders'
+    'Get-EnabledOcrProvider'
     'Invoke-AllEnabledOcr'
     'Invoke-WinRtOcr'
     'Invoke-MacVisionOcr'

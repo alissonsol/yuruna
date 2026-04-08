@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 param(
     [string]$ConfigPath        = $null,
@@ -70,8 +71,8 @@ $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
 Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
-$activeEngines = Get-EnabledOcrProviders
-$combineMode = if ($env:YURUNA_OCR_COMBINE -eq 'And') { 'And' } else { 'Or' }
+$activeEngines = Get-EnabledOcrProvider
+$combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
 
 Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
@@ -79,12 +80,12 @@ if (-not (Assert-TesseractInstalled)) { exit 1 }
 
 if ($Config.statusServer.enabled -and -not $NoServer) {
     $startScript = Join-Path $TestRoot "Start-StatusServer.ps1"
-    $serverPort  = if ($Config.statusServer.port) { [int]$Config.statusServer.port } else { 8080 }
+    $serverPort  = $Config.statusServer.port ? [int]$Config.statusServer.port : 8080
     & $startScript -Port $serverPort
 }
 
 $GuestList = Get-GuestList -Config $Config
-$Prefix = if ($Config.testVmNamePrefix) { $Config.testVmNamePrefix } else { "test-" }
+$Prefix = $Config.testVmNamePrefix ?? "test-"
 
 # Build VM name map
 $VMNames = @{}
@@ -113,10 +114,10 @@ $StepNames = $BaseSteps
 if ($hasScreenshots) { $StepNames += @("Screenshots") }
 if ($hasExtensions)  { $StepNames += @("Invoke-PoolTest") }
 
-$VmStartTimeout = if ($Config.vmStartTimeoutSeconds) { [int]$Config.vmStartTimeoutSeconds } else { 120 }
-$VmBootDelay    = if ($Config.vmBootDelaySeconds)    { [int]$Config.vmBootDelaySeconds }    else { 15 }
-$CycleDelay     = if ($Config.cycleDelaySeconds)     { [int]$Config.cycleDelaySeconds }     else { $CycleDelaySeconds }
-$GetImageRefreshHours = if ($Config.getImageRefreshHours) { [int]$Config.getImageRefreshHours } else { 24 }
+$VmStartTimeout = $Config.vmStartTimeoutSeconds ? [int]$Config.vmStartTimeoutSeconds : 120
+$VmBootDelay    = $Config.vmBootDelaySeconds    ? [int]$Config.vmBootDelaySeconds    : 15
+$CycleDelay     = $Config.cycleDelaySeconds     ? [int]$Config.cycleDelaySeconds     : $CycleDelaySeconds
+$GetImageRefreshHours = $Config.getImageRefreshHours ? [int]$Config.getImageRefreshHours : 24
 
 # === Continuous test loop ===
 $CycleCount     = 0
@@ -210,7 +211,7 @@ while ($true) {
         foreach ($GuestKey in $GuestList) {
             $imagePath = Get-ImagePath -HostType $HostType -GuestKey $GuestKey
             if (-not $imagePath -or -not (Test-Path $imagePath)) {
-                $label = if ($imagePath) { $imagePath } else { "$HostType/$GuestKey" }
+                $label = $imagePath ?? "$HostType/$GuestKey"
                 Write-Output "Image file missing: $label — re-downloading..."
                 $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
                 if (-not $r.success) {
@@ -317,7 +318,7 @@ while ($true) {
             if (-not (Test-Path $actualDir)) { New-Item -ItemType Directory -Force -Path $actualDir | Out-Null }
             $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $verifyCapture
             if ($captured) {
-                $threshold = if ($Config.verifyScreenshotThreshold) { [double]$Config.verifyScreenshotThreshold } else { 0.85 }
+                $threshold = $Config.verifyScreenshotThreshold ? [double]$Config.verifyScreenshotThreshold : 0.85
                 $cmp = Compare-Screenshot -ReferencePath $verifyRef -ActualPath $verifyCapture -Threshold $threshold
                 if (-not $cmp.match) {
                     $err = "Verify screenshot mismatch: similarity=$($cmp.similarity) threshold=$threshold"
@@ -389,7 +390,7 @@ while ($true) {
     }
 
     # === Finalise cycle ===
-    $FinalStatus = if ($OverallPassed) { "pass" } else { "fail" }
+    $FinalStatus = $OverallPassed ? "pass" : "fail"
     Complete-Run -OverallStatus $FinalStatus -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
 
     Write-Output ""
@@ -437,4 +438,4 @@ if (-not $OverallPassed -and $FailedGuest) {
         -Body    $body
 }
 
-exit $(if ($OverallPassed) { 0 } else { 1 })
+exit ($OverallPassed ? 0 : 1)

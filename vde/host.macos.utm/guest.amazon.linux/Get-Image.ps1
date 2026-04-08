@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42d8e9f0-a1b2-4c34-d567-8e9f0a1b2c34
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # === Configuration ===
 $sourceUrl = "https://cdn.amazonlinux.com/al2023/os-images/latest/kvm-arm64/"

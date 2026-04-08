@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c45
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 param(
     [string]$VMName = "ubuntu-desktop01"

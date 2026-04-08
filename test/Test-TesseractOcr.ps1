@@ -1,3 +1,21 @@
+<#PSScriptInfo
+.VERSION 0.1
+.GUID 42f6a7b8-c9d0-4e12-f3a4-5b6c7d8e9f0a
+.AUTHOR Alisson Sol
+.COPYRIGHT (c) 2019-2026 Alisson Sol et al.
+.TAGS Test-TesseractOcr
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
 <#
 .SYNOPSIS
     Alternative OCR option using Tesseract (open-source), independent of WinRT.
@@ -42,7 +60,7 @@ if (-not (Test-Path $ImagePath)) {
 $absPath = (Resolve-Path $ImagePath).Path
 
 # --- Import shared Tesseract module ---
-Import-Module (Join-Path $PSScriptRoot "modules" "Test.Tesseract.psm1") -Force
+Import-Module (Join-Path -Path $PSScriptRoot -ChildPath "modules" | Join-Path -ChildPath "Test.Tesseract.psm1") -Force
 
 if (-not (Assert-TesseractInstalled)) { exit 1 }
 

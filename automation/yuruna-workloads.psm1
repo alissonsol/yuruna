@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS yuruna-workloads
 .LICENSEURI http://www.yuruna.com
@@ -15,9 +14,12 @@
 .PRIVATEDATA
 #>
 
+#requires -version 7
+
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/yuruna-validation"
 Import-Module -Name $validationModulePath
+Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 
 function Publish-WorkloadList {
     param (
@@ -257,10 +259,10 @@ function Publish-WorkloadList {
                 Write-Debug "$expression"
                 # Shell could be used to Write-Information back to user
                 if ($isShell) {
-                    $result = Invoke-Expression $expression *>&1 | Write-Information
+                    $result = Invoke-DynamicExpression -Command $expression *>&1 | Write-Information
                 }
                 else {
-                    $result = Invoke-Expression $expression *>&1 | Write-Verbose
+                    $result = Invoke-DynamicExpression -Command $expression *>&1 | Write-Verbose
                 }
                 if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
                 if (-Not (0 -eq $LASTEXITCODE)) {

@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # Ensure all Write-Information calls are visible in the console.
 # This is set at module scope so it applies to all functions.
@@ -27,7 +28,7 @@ if (Test-Path $_configPath) {
     try {
         $_cfg = Get-Content -Raw $_configPath | ConvertFrom-Json
         if ($_cfg.charDelayMs) { $script:DefaultCharDelayMs = [int]$_cfg.charDelayMs }
-    } catch { <# ignore parse errors — use built-in default #> }
+    } catch { Write-Verbose "Config parse error — using built-in default: $_" }
 }
 Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 
@@ -338,7 +339,7 @@ function Send-TextUTM {
             continue
         }
         $kc = $entry[0]
-        $shifted = if ($entry[1]) { "true" } else { "false" }
+        $shifted = $entry[1] ? "true" : "false"
         if ($entry[1]) { $shiftedCount++ }
         [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
         $charIndex++
@@ -681,7 +682,7 @@ function Test-CombinedOcrMatch {
     Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue
 
     $combineMode = Get-OcrCombineMode
-    $enabledProviders = Get-EnabledOcrProviders
+    $enabledProviders = Get-EnabledOcrProvider
     $engineResults = [ordered]@{}
     $combinedMatch = $false
     $allTexts = @()
@@ -725,8 +726,8 @@ function Test-CombinedOcrMatch {
         if ($engineText) { $allTexts += $engineText }
 
         # Log each engine's result as it runs (before possible short-circuit)
-        $snippet = if ($engineText.Length -le 120) { $engineText } else { "..." + $engineText.Substring($engineText.Length - 120) }
-        $status = if ($matched) { "MATCH '$matchedPattern'" } else { "no match" }
+        $snippet = $engineText.Length -le 120 ? $engineText : ("..." + $engineText.Substring($engineText.Length - 120))
+        $status = $matched ? "MATCH '$matchedPattern'" : "no match"
         Write-Information "      [$engineName] $status | $snippet"
 
         # Short-circuit: Or returns early on first match, And on first non-match
@@ -780,7 +781,7 @@ function Wait-ForText {
     Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue
 
     # Log which OCR engines are active for this wait
-    $enabledEngines = Get-EnabledOcrProviders
+    $enabledEngines = Get-EnabledOcrProvider
     $combineMode = Get-OcrCombineMode
     Write-Information "      OCR engines: $($enabledEngines -join ', ') | combine: $combineMode"
 
@@ -814,7 +815,7 @@ function Wait-ForText {
             # Process the image (diff current vs previous, preprocess for OCR).
             # Returns the path to the preprocessed image, or empty string if no changes.
             try {
-                $prevArg = if (Test-Path $previousScreenPath) { $previousScreenPath } else { $null }
+                $prevArg = (Test-Path $previousScreenPath) ? $previousScreenPath : $null
                 $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $currentScreenPath -PreviousScreenPath $prevArg
             } catch {
                 Write-Verbose "Get-ProcessedScreenImage failed (dimension mismatch?): $_"
@@ -835,8 +836,8 @@ function Wait-ForText {
                         # Log per-engine results
                         foreach ($eName in $result.EngineResults.Keys) {
                             $er = $result.EngineResults[$eName]
-                            $snippet = if ($er.Text.Length -le 120) { $er.Text } else { "..." + $er.Text.Substring($er.Text.Length - 120) }
-                            $status = if ($er.Matched) { "MATCH '$($er.MatchedPattern)'" } else { "no match" }
+                            $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
+                            $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
                             Write-Information "      [$eName] $status | $snippet"
                         }
 
@@ -868,8 +869,8 @@ function Wait-ForText {
                     # Log per-engine results
                     foreach ($eName in $result.EngineResults.Keys) {
                         $er = $result.EngineResults[$eName]
-                        $snippet = if ($er.Text.Length -le 120) { $er.Text } else { "..." + $er.Text.Substring($er.Text.Length - 120) }
-                        $status = if ($er.Matched) { "MATCH '$($er.MatchedPattern)'" } else { "no match" }
+                        $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
+                        $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
                         Write-Information "      [$eName] $status | $snippet"
                     }
 
@@ -1075,7 +1076,7 @@ function Invoke-Sequence {
 
     foreach ($step in $steps) {
         $stepNum++
-        $desc = if ($step.description) { Expand-Variable $step.description $vars } else { $step.action }
+        $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
         Write-Information "    [$stepNum/$($steps.Count)] $($step.action): $desc"
 
         $ok = $true
@@ -1092,16 +1093,16 @@ function Invoke-Sequence {
             }
             "type" {
                 $text = Expand-Variable $step.text $vars
-                $masked = if ($step.sensitive -and -not $ShowSensitive) { "***" } else { $text }
-                $charDelay = if ($step.charDelayMs) { [int]$step.charDelayMs } else { $script:DefaultCharDelayMs }
+                $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
+                $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
                 Write-Information "      Typing: '$masked' (charDelay=${charDelay}ms)"
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
             }
             "typeAndEnter" {
                 $text = Expand-Variable $step.text $vars
-                $masked = if ($step.sensitive -and -not $ShowSensitive) { "***" } else { $text }
-                $delaySeconds = if ($step.delaySeconds) { [double]$step.delaySeconds } else { 2 }
-                $charDelay = if ($step.charDelayMs) { [int]$step.charDelayMs } else { $script:DefaultCharDelayMs }
+                $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
+                $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2
+                $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
                 Write-Information "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                 if ($ok -ne $false) {
@@ -1117,11 +1118,11 @@ function Invoke-Sequence {
                 } else {
                     [string[]]$patterns = @(Expand-Variable $rawPatterns $vars)
                 }
-                $timeout = if ($step.timeoutSeconds) { [int]$step.timeoutSeconds } else { 120 }
-                $poll = if ($step.pollSeconds) { [int]$step.pollSeconds } else { 5 }
-                $fresh = if ($step.freshMatch -eq $true) { $true } else { $false }
-                $tailLines = if ($step.freshMatchTailLines) { [int]$step.freshMatchTailLines } else { 12 }
-                $resetMisses = if ($step.resetAfterMisses) { [int]$step.resetAfterMisses } else { 3 }
+                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 120
+                $poll = $step.pollSeconds ? [int]$step.pollSeconds : 5
+                $fresh = $step.freshMatch -eq $true
+                $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
+                $resetMisses = $step.resetAfterMisses ? [int]$step.resetAfterMisses : 3
                 $patternDisplay = $patterns -join "' | '"
                 Write-Information "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
@@ -1129,23 +1130,23 @@ function Invoke-Sequence {
                     -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses
             }
             "screenshot" {
-                $label = if ($step.label) { $step.label } else { "step$stepNum" }
+                $label = $step.label ?? "step$stepNum"
                 Save-DebugScreenshot -HostType $HostType -VMName $VMName -Label $label -OutputDir $screenshotDir | Out-Null
             }
             "waitForPort" {
-                $timeout = if ($step.timeoutSeconds) { [int]$step.timeoutSeconds } else { 120 }
+                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 120
                 $ok = Wait-ForPort -VMName $VMName -Port ([int]$step.port) -TimeoutSeconds $timeout
             }
             "waitForHeartbeat" {
                 if ($HostType -ne "host.windows.hyper-v") {
                     Write-Information "      waitForHeartbeat is Hyper-V only. Skipping."
                 } else {
-                    $timeout = if ($step.timeoutSeconds) { [int]$step.timeoutSeconds } else { 300 }
+                    $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 300
                     $ok = Wait-ForHeartbeat -VMName $VMName -TimeoutSeconds $timeout
                 }
             }
             "waitForVMStop" {
-                $timeout = if ($step.timeoutSeconds) { [int]$step.timeoutSeconds } else { 300 }
+                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 300
                 $ok = Wait-ForVMStop -HostType $HostType -VMName $VMName -TimeoutSeconds $timeout
             }
             default {

@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # ── Create ────────────────────────────────────────────────────────────────────
 
@@ -69,7 +70,7 @@ function Confirm-VMCreated {
 
 function Confirm-UtmVMCreated {
     param([string]$VMName)
-    $hostname    = if ($IsMacOS) { (& hostname -s 2>$null).Trim() } else { (& hostname).Trim() }
+    $hostname    = $IsMacOS ? (& hostname -s 2>$null).Trim() : (& hostname).Trim()
     $configPlist = "$HOME/Desktop/Yuruna.VDE/$hostname.nosync/$VMName.utm/config.plist"
     if (Test-Path $configPlist) {
         Write-Output "Verified: $configPlist"
@@ -138,7 +139,7 @@ function Remove-UtmTestVM {
             Write-Output "Deleted UTM VM from registry: $VMName"
         }
         # Remove the bundle directory from disk
-        $hostname  = if ($IsMacOS) { (& hostname -s 2>$null).Trim() } else { (& hostname).Trim() }
+        $hostname  = $IsMacOS ? (& hostname -s 2>$null).Trim() : (& hostname).Trim()
         $utmBundle = "$HOME/Desktop/Yuruna.VDE/$hostname.nosync/$VMName.utm"
         if (Test-Path $utmBundle) {
             Remove-Item -Recurse -Force $utmBundle

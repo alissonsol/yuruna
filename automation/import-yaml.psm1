@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42e8bceb-f7aa-4ae8-a633-1fc36173d278
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS import-yaml
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 function ConvertFrom-Content {
     param (

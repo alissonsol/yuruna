@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42f4b6c7-d8e9-4012-3456-7f8091021324
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS yuruna-requirements
 .LICENSEURI http://www.yuruna.com
@@ -15,9 +14,12 @@
 .PRIVATEDATA
 #>
 
+#requires -version 7
+
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/import-yaml"
 Import-Module -Name $modulePath
+Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 
 function Confirm-RequirementList {
 
@@ -34,7 +36,7 @@ function Confirm-RequirementList {
             $toolName = $tool['tool']
             $toolCommand = $tool['command']
             $toolVersion = $tool['version']
-            $toolFound = Invoke-Expression $toolCommand *>&1
+            $toolFound = Invoke-DynamicExpression -Command $toolCommand *>&1
             $toolReleases = $tool['releases']
             $output = "{0,20}" -f $toolName + "{0,16}" -f $toolVersion + "  {0}" -f $toolFound
             Write-Information $output

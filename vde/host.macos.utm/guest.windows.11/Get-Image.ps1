@@ -1,8 +1,7 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42b9c0d1-e2f3-4a56-b789-0c1d2e3f4a57
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # === Configuration (change these to customize the download) ===
 $downloadDir = "$HOME/virtual/windows.env"
@@ -97,7 +98,6 @@ if (-not $windowsOk) {
         Write-Output "  This may take a while depending on your connection speed..."
 
         # Use BITS for progress, fall back to Invoke-WebRequest
-        $bitsOk = $false
         try {
             Import-Module BitsTransfer -ErrorAction Stop
             $bitsJob = Start-BitsTransfer -Source $downloadUrl -Destination $downloadFile -Asynchronous -DisplayName "Windows 11 ARM64 ISO"
@@ -115,7 +115,6 @@ if (-not $windowsOk) {
             Write-Progress -Activity "Downloading Windows 11 ARM64 ISO" -Completed
             if ($bitsJob.JobState -eq "Transferred") {
                 Complete-BitsTransfer -BitsJob $bitsJob
-                $bitsOk = $true
             } else {
                 Remove-BitsTransfer -BitsJob $bitsJob -ErrorAction SilentlyContinue
                 throw "BITS ended in state: $($bitsJob.JobState)"

@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42c7d8e9-f0a1-4b23-c456-7d8e9f0a1b23
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 param(
     [switch]$stable
@@ -38,12 +39,12 @@ if ($stable) {
     Write-Output "Discovering latest stable release from $releaseBaseUrl ..."
     $releasePage = (Invoke-WebRequest -Uri "$releaseBaseUrl/").Content
     $isoPattern = 'ubuntu-[\d.]+-desktop-amd64\.iso'
-    $matches = [regex]::Matches($releasePage, $isoPattern)
-    if ($matches.Count -eq 0) {
+    $isoMatches = [regex]::Matches($releasePage, $isoPattern)
+    if ($isoMatches.Count -eq 0) {
         Write-Error "Could not find a stable desktop amd64 ISO at $releaseBaseUrl"
         exit 1
     }
-    $isoFileName = ($matches | Sort-Object Value -Descending | Select-Object -First 1).Value
+    $isoFileName = ($isoMatches | Sort-Object Value -Descending | Select-Object -First 1).Value
     $sourceUrl = "$releaseBaseUrl/$isoFileName"
     $checksumUrl = "$releaseBaseUrl/SHA256SUMS"
 } else {

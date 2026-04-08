@@ -1,3 +1,21 @@
+<#PSScriptInfo
+.VERSION 0.1
+.GUID 42e5f6a7-b8c9-4d01-e2f3-4a5b6c7d8e9f
+.AUTHOR Alisson Sol
+.COPYRIGHT (c) 2019-2026 Alisson Sol et al.
+.TAGS Test-WinRtOcr
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
 <#
 .SYNOPSIS
     Demonstrates the "closed access" problem with Microsoft AI/OCR on modern PowerShell.

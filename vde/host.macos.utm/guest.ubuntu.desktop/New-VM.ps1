@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a01
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 param(
     [string]$VMName = "ubuntu-desktop01"
@@ -67,7 +68,7 @@ $utmVersion = (& /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" 
 if ($utmVersion) {
     $utmParts = $utmVersion -split '\.'
     $utmMajor = [int]$utmParts[0]
-    $utmMinor = if ($utmParts.Count -gt 1) { [int]$utmParts[1] } else { 0 }
+    $utmMinor = $utmParts.Count -gt 1 ? [int]$utmParts[1] : 0
     if ($utmMajor -lt 4 -or ($utmMajor -eq 4 -and $utmMinor -lt 6)) {
         Write-Error "UTM v4.6.0 or later is required for nested virtualization (found v$utmVersion)."
         Write-Error "Update with: brew upgrade --cask utm"

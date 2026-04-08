@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 <#
 .SYNOPSIS
@@ -44,9 +45,6 @@
 .PARAMETER ConfigPath
     Path to the test config JSON file. Defaults to test/test-config.json.
 
-.PARAMETER NoExtensionOutput
-    Suppress extension script output.
-
 .EXAMPLE
     pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 5
 
@@ -65,9 +63,7 @@ param(
 
     [int]$StopStep = 0,
 
-    [string]$ConfigPath = $null,
-
-    [switch]$NoExtensionOutput
+    [string]$ConfigPath = $null
 )
 
 # === Resolve paths ===
@@ -122,8 +118,8 @@ $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
 Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
-$activeEngines = Get-EnabledOcrProviders
-$combineMode = if ($env:YURUNA_OCR_COMBINE -eq 'And') { 'And' } else { 'Or' }
+$activeEngines = Get-EnabledOcrProvider
+$combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
 
 Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
@@ -147,7 +143,7 @@ if ($GuestKey -notin $knownGuests) {
 }
 
 # === Derive VM name ===
-$Prefix = if ($Config.testVmNamePrefix) { $Config.testVmNamePrefix } else { "test-" }
+$Prefix = $Config.testVmNamePrefix ?? "test-"
 $VMName = switch ($GuestKey) {
     "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
     "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
@@ -170,8 +166,8 @@ if ($vmExists) {
 }
 
 # === Ensure VM is running ===
-$VmStartTimeout = if ($Config.vmStartTimeoutSeconds) { [int]$Config.vmStartTimeoutSeconds } else { 120 }
-$VmBootDelay    = if ($Config.vmBootDelaySeconds)    { [int]$Config.vmBootDelaySeconds }    else { 15 }
+$VmStartTimeout = $Config.vmStartTimeoutSeconds ? [int]$Config.vmStartTimeoutSeconds : 120
+$VmBootDelay    = $Config.vmBootDelaySeconds    ? [int]$Config.vmBootDelaySeconds    : 15
 
 $isRunning = Confirm-VMStarted -HostType $HostType -VMName $VMName -TimeoutSeconds 5 -BootDelaySeconds 0
 if ($isRunning) {
@@ -212,9 +208,9 @@ if ($StopStep -ne 0) {
     }
 }
 
-$effectiveStop = if ($StopStep -ne 0) { $StopStep } else { $totalSteps }
+$effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
 
-$stopLabel = if ($StopStep -ne 0) { ", stopping after step $effectiveStop" } else { "" }
+$stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
 Write-Output ""
 Write-Output "============================================="
@@ -230,8 +226,8 @@ Write-Output "Step list:"
 $stepIdx = 0
 foreach ($step in $sequence.steps) {
     $stepIdx++
-    $marker = if ($stepIdx -ge $StartStep -and $stepIdx -le $effectiveStop) { ">>" } else { "  " }
-    $desc = if ($step.description) { $step.description } else { $step.action }
+    $marker = ($stepIdx -ge $StartStep -and $stepIdx -le $effectiveStop) ? ">>" : "  "
+    $desc = $step.description ?? $step.action
     Write-Output "  $marker [$stepIdx] $($step.action): $desc"
 }
 Write-Output ""

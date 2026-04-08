@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42c0ffee-b1df-4f20-a3c4-d5e6f7a8b9c1
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # --- Define Oscdimg Path (adjust '10' for your ADK version if necessary) ---
 $OscdimgPath = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\Oscdimg.exe"

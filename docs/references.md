@@ -45,7 +45,7 @@
 
 - PSScriptAnalyzer [code](https://github.com/PowerShell/PSScriptAnalyzer)
   - If not yet installed: `Install-Module -Name PSScriptAnalyzer`
-  - `Invoke-ScriptAnalyzer -Path .`
+  - `Invoke-ScriptAnalyzer -Path . -Recurse`
 - [Quickstart: Configure Terraform using Azure PowerShell](https://learn.microsoft.com/en-us/azure/developer/terraform/get-started-powershell) (applicable to OpenTofu)
 
 ### Ubuntu

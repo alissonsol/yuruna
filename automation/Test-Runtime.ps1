@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a7b8c9-d0e1-4f23-4567-8a9b0c112435
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com

@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42dd4e5f-6071-4289-8012-3e4f50678901
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 $resourceRegion= ${env:RESOURCE_REGION}
 $clusterName = ${env:CLUSTER_NAME}

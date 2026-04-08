@@ -2,10 +2,11 @@
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456717
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT Copyright (c) 2019-2026 by Alisson Sol et al.
 .DESCRIPTION Diff-based OCR text extraction. Pure C# image processing (no System.Drawing dependencies). Requires PowerShell 7+ (.NET 10+).
 #>
+
+#requires -version 7
 
 # --- Tracing ---
 # Set $env:NEWTEXT_TRACE = '1' to enable timing output, or call Enable-NewTextTrace / Disable-NewTextTrace.
@@ -14,16 +15,28 @@ $script:Trace = ($env:NEWTEXT_TRACE -eq '1')
 # --- Vertical line removal ---
 # Percentage of full screen height: vertical runs longer than this are considered UI borders.
 # Override via $env:NEWTEXT_VLINE_PCT (default: 10).
-$script:VLinePercent = if ($env:NEWTEXT_VLINE_PCT) { [int]$env:NEWTEXT_VLINE_PCT } else { 10 }
+$script:VLinePercent = $env:NEWTEXT_VLINE_PCT ? [int]$env:NEWTEXT_VLINE_PCT : 10
 
-function Enable-NewTextTrace  { $script:Trace = $true  }
-function Disable-NewTextTrace { $script:Trace = $false }
+function Enable-NewTextTrace {
+    <#
+    .SYNOPSIS
+        Enables trace output for Get-NewText operations.
+    #>
+    $script:Trace = $true
+}
+function Disable-NewTextTrace {
+    <#
+    .SYNOPSIS
+        Disables trace output for Get-NewText operations.
+    #>
+    $script:Trace = $false
+}
 
 function Write-Trace {
     param([string]$Message, [System.Diagnostics.Stopwatch]$Stopwatch)
     if ($script:Trace) {
-        $elapsed = if ($Stopwatch) { " [{0:N0}ms]" -f $Stopwatch.Elapsed.TotalMilliseconds } else { '' }
-        Write-Host "[TRACE]$elapsed $Message" -ForegroundColor DarkGray
+        $elapsed = $Stopwatch ? (" [{0:N0}ms]" -f $Stopwatch.Elapsed.TotalMilliseconds) : ''
+        Write-Information "[TRACE]$elapsed $Message"
     }
 }
 
@@ -731,7 +744,7 @@ function Invoke-PlatformOcr {
         Kept for backward compatibility; new code should use Invoke-AllEnabledOcr.
     #>
     param([string]$ImagePath)
-    $enabled = Get-EnabledOcrProviders
+    $enabled = Get-EnabledOcrProvider
     if ($enabled.Count -eq 0) { throw "No OCR providers are available." }
     return Invoke-OcrProvider -Name $enabled[0] -ImagePath $ImagePath
 }

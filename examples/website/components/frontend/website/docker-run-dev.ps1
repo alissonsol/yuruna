@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42cc3d4e-5f60-4178-c901-2d3e4f506789
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 Push-Location $PSScriptRoot
 

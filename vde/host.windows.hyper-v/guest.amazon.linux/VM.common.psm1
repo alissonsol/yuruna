@@ -2,18 +2,19 @@
 .VERSION 0.1
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7a8b9
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
 .PROJECTURI http://www.yuruna.com
 .ICONURI
-.EXTERNALMODULEDEPENDENCIES powershell-yaml
+.EXTERNALMODULEDEPENDENCIES
 .REQUIREDSCRIPTS
 .EXTERNALSCRIPTDEPENDENCIES
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # --- Define Oscdimg Path (adjust '10' for your ADK version if necessary) ---
 $OscdimgPath = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\Oscdimg.exe"

@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2019-2026 Alisson Sol et al.
 .TAGS yuruna-resources
 .LICENSEURI http://www.yuruna.com
@@ -15,9 +14,12 @@
 .PRIVATEDATA
 #>
 
+#requires -version 7
+
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/yuruna-validation"
 Import-Module -Name $validationModulePath
+Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 
 $globalVariables = [ordered]@{}
 
@@ -134,7 +136,7 @@ function Publish-ResourceListHelper {
             $result = $(tofu init *>&1 | Write-Verbose)
             if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
             Write-Debug "Executing tofu command from $workFolder"
-            $result = $($(Invoke-Expression $executionCommand) *>&1 | Write-Verbose)
+            $result = $($(Invoke-DynamicExpression -Command $executionCommand) *>&1 | Write-Verbose)
             if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
             # resource.output file processing
             if (-Not $isInitialization) {

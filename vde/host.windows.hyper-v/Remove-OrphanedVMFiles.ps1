@@ -1,8 +1,7 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 param(
     [switch]$Force
@@ -99,7 +100,7 @@ if ($allFiles.Count -eq 0) {
 $allVMs = Get-VM
 $claimedFiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
-function Claim-FilesUnderDir {
+function Add-ClaimedFilesUnderDir {
     param([string]$DirPath)
     if (-not $DirPath) { return }
     $normalizedDir = $DirPath.TrimEnd('\', '/')
@@ -123,7 +124,7 @@ foreach ($vm in $allVMs) {
 
     foreach ($dir in @($vm.Path, $vm.ConfigurationLocation, $vm.SnapshotFileLocation)) {
         if ($dir) {
-            Claim-FilesUnderDir $dir
+            Add-ClaimedFilesUnderDir $dir
             $normalizedDir = $dir.TrimEnd('\', '/')
             foreach ($f in $allFiles) {
                 if ($f.StartsWith($normalizedDir + '\', [System.StringComparison]::OrdinalIgnoreCase) -and
@@ -150,10 +151,10 @@ foreach ($vm in $allVMs) {
         }
     }
 
-    $checkpoints = Get-VMCheckpoint -VMName $vm.Name -ErrorAction SilentlyContinue
+    $checkpoints = Get-VMSnapshot -VMName $vm.Name -ErrorAction SilentlyContinue
     foreach ($cp in $checkpoints) {
         if ($cp.Path) {
-            Claim-FilesUnderDir $cp.Path
+            Add-ClaimedFilesUnderDir $cp.Path
             $normalizedDir = $cp.Path.TrimEnd('\', '/')
             foreach ($f in $allFiles) {
                 if ($f.StartsWith($normalizedDir + '\', [System.StringComparison]::OrdinalIgnoreCase) -and

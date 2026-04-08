@@ -1,3 +1,21 @@
+<#PSScriptInfo
+.VERSION 0.1
+.GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
+.AUTHOR Alisson Sol
+.COPYRIGHT (c) 2019-2026 Alisson Sol et al.
+.TAGS Test.Tesseract
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
 <#
 .SYNOPSIS
     Common Tesseract OCR utilities: locate the executable, guide installation, and run OCR.

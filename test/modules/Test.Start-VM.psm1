@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456713
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # ── Start VM ─────────────────────────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ function Start-UtmVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param([string]$VMName)
-    $hostname = if ($IsMacOS) { (& hostname -s 2>$null).Trim() } else { (& hostname).Trim() }
+    $hostname = $IsMacOS ? (& hostname -s 2>$null).Trim() : (& hostname).Trim()
     $utmBundle = "$HOME/Desktop/Yuruna.VDE/$hostname.nosync/$VMName.utm"
     if (-not (Test-Path $utmBundle)) {
         return @{ success=$false; errorMessage="UTM bundle not found: $utmBundle" }

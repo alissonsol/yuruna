@@ -2,7 +2,6 @@
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 <#
 .SYNOPSIS
@@ -251,4 +252,4 @@ Write-Output "──────────────────────
 Write-Output ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:PassCount, $script:WarnCount, $script:FailCount)
 Write-Output "─────────────────────────────────────────"
 
-exit $(if ($script:FailCount -gt 0) { 1 } else { 0 })
+exit ($script:FailCount -gt 0 ? 1 : 0)

@@ -1,8 +1,7 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol
-.COMPANYNAME None
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
 .LICENSEURI http://www.yuruna.com
@@ -14,6 +13,8 @@
 .RELEASENOTES
 .PRIVATEDATA
 #>
+
+#requires -version 7
 
 # Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
@@ -88,7 +89,6 @@ try {
     Write-Output "  This may take a while depending on your connection speed..."
 
     # Use BITS for progress, fall back to Invoke-WebRequest
-    $bitsOk = $false
     try {
         Import-Module BitsTransfer -ErrorAction Stop
         $bitsJob = Start-BitsTransfer -Source $downloadUrl -Destination $downloadFile -Asynchronous -DisplayName "Windows 11 ISO"
@@ -106,7 +106,6 @@ try {
         Write-Progress -Activity "Downloading Windows 11 ISO" -Completed
         if ($bitsJob.JobState -eq "Transferred") {
             Complete-BitsTransfer -BitsJob $bitsJob
-            $bitsOk = $true
         } else {
             Remove-BitsTransfer -BitsJob $bitsJob -ErrorAction SilentlyContinue
             throw "BITS ended in state: $($bitsJob.JobState)"

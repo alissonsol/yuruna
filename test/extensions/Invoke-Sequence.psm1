@@ -626,6 +626,9 @@ function Test-OCRMatch {
 # └─────────────────────────────────────────────────────────────────────────┘
 function Get-OcrCombineMode {
     $envVal = $env:YURUNA_OCR_COMBINE
+    if ($envVal -and $envVal -notin @('Or', 'And')) {
+        throw "Invalid YURUNA_OCR_COMBINE value '$envVal'. Only 'Or' and 'And' are allowed."
+    }
     if ($envVal -eq 'And') { return 'And' }
     return 'Or'   # ← default
 }
@@ -675,15 +678,24 @@ function Test-CombinedOcrMatch {
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue
 
-    # Run all enabled OCR engines on the same processed image
-    $ocrResults = Invoke-AllEnabledOcr -ImagePath $ProcessedImagePath
-
     $combineMode = Get-OcrCombineMode
+    $enabledProviders = Get-EnabledOcrProviders
     $engineResults = [ordered]@{}
-    $engineDetections = @()   # array of booleans, one per engine
+    $combinedMatch = $false
+    $allTexts = @()
 
-    foreach ($engineName in $ocrResults.Keys) {
-        $engineText = ($ocrResults[$engineName] ?? '').Trim()
+    # Run OCR engines sequentially, short-circuiting based on combine mode:
+    #   Or  — stop on first detection (true)
+    #   And — stop on first non-detection (false)
+    foreach ($engineName in $enabledProviders) {
+        try {
+            $engineText = (Invoke-OcrProvider -Name $engineName -ImagePath $ProcessedImagePath) ?? ''
+            $engineText = $engineText.Trim()
+        } catch {
+            Write-Warning "OCR provider '$engineName' failed: $_"
+            $engineText = ''
+        }
+
         $textForMatch = if ($FreshMatchTail -and $engineText) {
             $lines = $engineText -split "`n"
             ($lines | Select-Object -Last 3) -join "`n"
@@ -708,22 +720,25 @@ function Test-CombinedOcrMatch {
             Matched        = $matched
             MatchedPattern = $matchedPattern
         }
-        $engineDetections += $matched
+        if ($engineText) { $allTexts += $engineText }
+
+        # Short-circuit: Or returns early on first match, And on first non-match
+        if ($combineMode -eq 'Or' -and $matched) {
+            $combinedMatch = $true
+            break
+        } elseif ($combineMode -eq 'And' -and -not $matched) {
+            $combinedMatch = $false
+            break
+        }
+
+        # If we reach here without breaking, track the last engine's result
+        $combinedMatch = $matched
     }
 
-    # Combine per-engine booleans
-    $combinedMatch = if ($engineDetections.Count -eq 0) {
-        $false
-    } elseif ($combineMode -eq 'And') {
-        # AND: all engines must detect the pattern
-        ($engineDetections | Where-Object { -not $_ }).Count -eq 0
-    } else {
-        # OR (default): at least one engine detected the pattern
-        ($engineDetections | Where-Object { $_ }).Count -gt 0
-    }
+    if ($enabledProviders.Count -eq 0) { $combinedMatch = $false }
 
     # Concatenate all engine texts for accumulation in non-FreshMatch mode
-    $allEngineText = ($ocrResults.Values | Where-Object { $_ } | ForEach-Object { $_.Trim() }) -join "`n"
+    $allEngineText = ($allTexts | Where-Object { $_ }) -join "`n"
 
     return @{
         Match         = $combinedMatch

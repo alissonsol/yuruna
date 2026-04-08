@@ -91,7 +91,7 @@ function Get-EnabledOcrProviders {
     $requested = if ($envVal) {
         $envVal -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     } else {
-        @('tesseract')
+        @('tesseract,winrt,macos-vision')  # default order of preference
     }
 
     $available = @()

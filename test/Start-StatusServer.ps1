@@ -29,10 +29,15 @@
 .PARAMETER Port
     TCP port to listen on. Defaults to the value in test-config.json,
     or 8080 if not configured.
+
+.PARAMETER Restart
+    Stop any existing server before starting a new one. Use this after
+    a git pull or config change to ensure the server picks up new files.
 #>
 
 param(
-    [int]$Port = 0
+    [int]$Port = 0,
+    [switch]$Restart
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,6 +55,20 @@ if ($Port -eq 0) {
         } catch { Write-Warning "Could not read port from config: $_" }
     }
     if ($Port -eq 0) { $Port = 8080 }
+}
+
+# --- Stop existing server if -Restart was requested ---
+if ($Restart -and (Test-Path $PidFile)) {
+    $oldPid = (Get-Content $PidFile).Trim()
+    if ($oldPid) {
+        $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
+        if ($proc -and $proc.ProcessName -match 'pwsh|PowerShell') {
+            Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+            Write-Output "Stopped existing status server (PID $oldPid)."
+            Start-Sleep -Seconds 1
+        }
+    }
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
 # --- Check for an existing server ---

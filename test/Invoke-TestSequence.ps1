@@ -128,6 +128,13 @@ if (-not $env:NEWTEXT_TRACE) { $env:NEWTEXT_TRACE = '1' }
 if (-not (Test-Path $ConfigPath)) { Write-Error "Config not found: $ConfigPath"; exit 1 }
 $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
 
+# === Ensure status server is running (restart to pick up any changes) ===
+$startScript = Join-Path $TestRoot "Start-StatusServer.ps1"
+if ($Config.statusServer.enabled) {
+    $serverPort = $Config.statusServer.port ? [int]$Config.statusServer.port : 8080
+    & $startScript -Port $serverPort -Restart
+}
+
 # === Resolve sequence file ===
 $SequencePath = Join-Path $SequencesDir "$SequenceName.json"
 if (-not (Test-Path $SequencePath)) {

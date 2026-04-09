@@ -7,15 +7,16 @@ Automated continuous test cycle for Virtual Development Environment guest creati
 The runner loops continuously (until a failure), executing this cycle:
 
 1. Pulls the latest repo (`git pull`)
-2. **Refresh images** (every 24 hours): downloads base images via `Get-Image.ps1`
-3. **For each guest** (configurable via `guestOrder` — defaults to all three):
+2. **Re-reads configuration** (`test-config.json` — picks up changes from git pull or local edits)
+3. **Refresh images** (every 24 hours): downloads base images via `Get-Image.ps1`
+4. **For each guest** (configurable via `guestOrder` — defaults to all three):
    - **Cleanup** — removes the previous test VM for this guest (if any)
    - **New-VM** — creates a test VM via `New-VM.ps1`
    - **Start-VM** — starts the VM (UTM `utmctl` / Hyper-V `Start-VM`)
    - **Verify-VM** — polls until the VM reaches running state
    - **Invoke-PoolTest** — runs extension scripts from `test/extensions/` (if any)
-4. Logs the result and starts the next cycle
-5. On first failure: sends a notification and exits
+5. Logs the result and starts the next cycle
+6. On first failure: leaves the VM running for investigation, sends a notification, and exits
 
 ## Prerequisites
 
@@ -211,6 +212,15 @@ run. If the sequence file is not found, it lists all available sequences.
 | `-debug_mode` | No | `$false` | Show debug messages (internal step details, OCR engine results) |
 | `-verbose_mode` | No | `$false` | Show verbose messages (additional diagnostics) |
 
+## Logging
+
+Every test cycle writes a transcript log to `test/status/log/`. The log file
+captures all console output (Write-Output, Write-Debug, Write-Information) —
+the `debug_mode` and `verbose_mode` flags control how much detail appears.
+
+Log files are named `{runId}.{hostname}.{gitCommit}.txt` and are git-ignored.
+The status page links each Run ID to its log file for easy inspection.
+
 ## Status page
 
 While the runner is active, open:
@@ -223,17 +233,20 @@ The page polls `status.json` every 30 seconds and shows:
 - Overall pass/fail banner
 - Per-guest status with step-level breakdown (New-VM, Start-VM, Verify-VM, Screenshots, Invoke-PoolTest)
 - History of recent runs
+- Clickable Run ID links to the corresponding log file
 
 ### How the status page is served
 
 The runner launches `Start-StatusServer.ps1`, which starts a detached `pwsh`
 process hosting a lightweight HTTP server (`System.Net.HttpListener` bound to
 `http://*:<port>/`). The server runs independently of the runner — stopping
-`Invoke-TestRunner.ps1` does not stop the status server.
+`Invoke-TestRunner.ps1` does not stop the status server. The runner checks at
+the start of each cycle whether the server is still alive and restarts it if
+needed.
 
-The server serves files from the `test/status/` directory. The runner writes
-`status.json` atomically (write to `.tmp`, then rename) so the page always
-reads a complete document.
+The server serves files from the `test/status/` directory (including
+`log/*.txt` transcript files). The runner writes `status.json` atomically
+(write to `.tmp`, then rename) so the page always reads a complete document.
 
 To stop the server manually:
 
@@ -340,6 +353,7 @@ test/
     Test.StatusServer.psm1        # HTTP status server start/stop
     Test.Notify.psm1              # Resend API email notifications
     Test.Get-Image.psm1           # Base image download and refresh
+    Test.Log.psm1                 # Transcript logging to test/status/log/
     Test.LogDir.psm1              # YurunaLog directory path management
     Test.New-VM.psm1              # VM creation, verification, and cleanup
     Test.Install-OS.psm1          # OS installation sequence orchestration
@@ -365,6 +379,7 @@ test/
     status.json.template          # Template for status data
     status.json                   # Written by the runner (auto-created, git-ignored)
     server.pid                    # Status server PID (auto-created, git-ignored)
+    log/                          # Transcript logs per run (git-ignored .txt files)
 ```
 
 ### Module responsibilities
@@ -377,6 +392,7 @@ test/
 | `Test.StatusServer` | HTTP status server management | `Start-StatusServer`, `Stop-StatusServer` |
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |
 | `Test.Get-Image` | Base image download/refresh | `Get-ImagePath`, `Invoke-GetImage` |
+| `Test.Log` | Transcript logging to `test/status/log/` | `Start-LogFile`, `Stop-LogFile` |
 | `Test.LogDir` | YurunaLog directory path management | `Get-YurunaLogDir` |
 | `Test.New-VM` | VM create + verify creation + cleanup | `Invoke-NewVM`, `Confirm-VMCreated`, `Remove-TestVM` |
 | `Test.Install-OS` | OS installation sequence orchestration | `Get-StartTestScript`, `Invoke-StartTest`, `Get-VerifyScreenshot` |

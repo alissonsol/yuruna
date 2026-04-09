@@ -459,7 +459,11 @@ if (-not $OverallPassed -and $FailedGuest) {
     Write-Output "  Error:   $FailureMessage"
     Write-Output "  Run ID:  $RunId"
     Write-Output "  Commit:  $GitCommit"
+    Write-Output "  Log:     $LogFile"
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    Write-Output ""
+    Write-Output "To reproduce with full diagnostics:"
+    Write-Output "  pwsh test/Invoke-TestRunner.ps1 -NoGitPull -debug_mode `$true -verbose_mode `$true"
 
     $body = Format-FailureMessage `
         -HostType     $HostType `

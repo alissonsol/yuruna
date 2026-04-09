@@ -281,6 +281,9 @@ try {
     $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $tempFile -ShowSensitive
     if ($ok -eq $false) {
         Write-Warning "Sequence failed."
+        Write-Output ""
+        Write-Output "To reproduce with full diagnostics:"
+        Write-Output "  pwsh test/Invoke-TestSequence.ps1 -SequenceName `"$SequenceName`" -StartStep $StartStep -debug_mode `$true -verbose_mode `$true"
         exit 1
     }
 

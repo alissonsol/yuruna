@@ -43,11 +43,6 @@
       "description": "HACK: In Windows, at times the Ubuntu install waits for... nobody knows what!"
     },
     {
-      "action": "typeAndEnter",
-      "text": "",
-      "description": "HACK: Focus and enter continues the installation."
-    },
-    {
       "action": "waitForText",
       "pattern": "Not listed?",
       "timeoutSeconds": 900,

@@ -11,12 +11,13 @@
   "testVmNamePrefix": "test-",
   "cycleDelaySeconds": 30,
   "vmStartTimeoutSeconds": 120,
-  "vmBootDelaySeconds": 10,
+  "vmBootDelaySeconds": 15,
   "statusServer": {
     "port": 8080,
     "enabled": true
   },
   "maxHistoryRuns": 30,
   "charDelayMs": 20,
-  "guestOrder": ["guest.ubuntu.desktop", "guest.amazon.linux", "guest.windows.11"]
+  "verifyScreenshotThreshold": 0.85,
+  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"]
 }

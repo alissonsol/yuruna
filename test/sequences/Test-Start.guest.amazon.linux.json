@@ -52,7 +52,7 @@
     },
     {
       "action": "waitForText",
-      "pattern": ["Current password:", "unrent password"],
+      "pattern": ["Current password:", "urrent password"],
       "timeoutSeconds": 30,
       "pollSeconds": 3,
       "description": "Current password:"
@@ -93,7 +93,7 @@
       "action": "typeAndEnter",
       "text": "clear",
       "sensitive": true,
-      "description": "Clear screen, due to the the balloon memory noise"
+      "description": "Clear screen, due to the balloon memory noise"
     },
     {
       "action": "waitForText",

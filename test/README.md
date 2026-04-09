@@ -77,6 +77,8 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `alwaysRedownloadImages` | `false` | Force re-download even if image exists |
 | `getImageRefreshHours` | `24` | Hours between automatic image re-downloads |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
+| `charDelayMs` | `20` | Default delay in ms between keystrokes in `type`/`typeAndEnter` actions |
+| `verifyScreenshotThreshold` | `0.85` | Similarity threshold (0–1) for verify-screenshot comparison |
 | `guestOrder` | all three | Array of guest keys to test, in execution order (see below) |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
 | `statusServer.port` | `8080` | Port for the status server |

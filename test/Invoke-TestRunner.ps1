@@ -259,6 +259,7 @@ while ($true) {
     # --- Abort cycle early if Get-Image failed ---
     if (-not $OverallPassed) {
         Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
+        Stop-LogFile
         break
     }
 

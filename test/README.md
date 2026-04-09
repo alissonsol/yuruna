@@ -193,6 +193,9 @@ pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desk
 # Run an OS install sequence from step 3
 pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux" -StartStep 3
 
+# Target a VM with a custom name (e.g. one created outside the test runner)
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -VMName "private-ubuntu"
+
 # Enable debug output (internal step details, OCR engine results)
 pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux" -debug_mode $true
 
@@ -211,6 +214,7 @@ run. If the sequence file is not found, it lists all available sequences.
 | `-StartStep` | No | `1` | 1-based step number to start from |
 | `-StopStep` | No | — | 1-based step number to stop at (inclusive); VM is left running |
 | `-ConfigPath` | No | `test/test-config.json` | Path to config file |
+| `-VMName` | No | derived from guest key | Override the VM name (e.g. `"private-ubuntu"`) |
 | `-debug_mode` | No | `$false` | Show debug messages (internal step details, OCR engine results) |
 | `-verbose_mode` | No | `$false` | Show verbose messages (additional diagnostics) |
 

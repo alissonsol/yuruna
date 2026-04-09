@@ -45,6 +45,11 @@
 .PARAMETER ConfigPath
     Path to the test config JSON file. Defaults to test/test-config.json.
 
+.PARAMETER VMName
+    Override the VM name instead of deriving it from the guest key. Useful
+    when targeting a VM that was created outside the test runner (e.g.
+    "private-ubuntu").
+
 .PARAMETER debug_mode
     Set to $true to see debug messages.
 
@@ -59,6 +64,9 @@
 
 .EXAMPLE
     pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux"
+
+.EXAMPLE
+    pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -VMName "private-ubuntu"
 #>
 
 param(
@@ -70,6 +78,8 @@ param(
     [int]$StopStep = 0,
 
     [string]$ConfigPath = $null,
+
+    [string]$VMName = $null,
 
     [bool]$debug_mode   = $false,
 
@@ -186,13 +196,15 @@ if ($GuestKey -notin $knownGuests) {
     Write-Warning "Guest key '$GuestKey' is not in the known list: $($knownGuests -join ', ')"
 }
 
-# === Derive VM name ===
-$Prefix = $Config.testVmNamePrefix ?? "test-"
-$VMName = switch ($GuestKey) {
-    "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
-    "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
-    "guest.windows.11"     { "${Prefix}windows11-01"     }
-    default                { "${Prefix}vm01"             }
+# === Derive VM name (use -VMName override if provided) ===
+if (-not $VMName) {
+    $Prefix = $Config.testVmNamePrefix ?? "test-"
+    $VMName = switch ($GuestKey) {
+        "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
+        "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
+        "guest.windows.11"     { "${Prefix}windows11-01"     }
+        default                { "${Prefix}vm01"             }
+    }
 }
 
 # === Ensure VM exists (reuse or create) ===

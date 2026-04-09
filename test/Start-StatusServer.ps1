@@ -87,37 +87,41 @@ $serverScript = @"
 try {
     `$listener.Start()
     while (`$listener.IsListening) {
-        `$ctx  = `$listener.GetContext()
-        `$req  = `$ctx.Request
-        `$res  = `$ctx.Response
-        `$res.Headers.Add('Access-Control-Allow-Origin', '*')
-        `$path = `$req.Url.LocalPath.TrimStart('/')
-        if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
-        `$path = `$path -replace '^status[/\\]', ''
-        `$file = Join-Path '$($StatusDir -replace "'","''")' `$path
-        if (Test-Path `$file -PathType Leaf) {
-            `$ext = [System.IO.Path]::GetExtension(`$file)
-            `$res.ContentType = switch (`$ext) {
-                '.html' { 'text/html; charset=utf-8' }
-                '.json' { 'application/json; charset=utf-8' }
-                '.css'  { 'text/css; charset=utf-8' }
-                '.js'   { 'application/javascript; charset=utf-8' }
-                '.log'  { 'text/plain; charset=utf-8' }
-                default { 'application/octet-stream' }
+        `$ctx = `$listener.GetContext()
+        try {
+            `$req  = `$ctx.Request
+            `$res  = `$ctx.Response
+            `$res.Headers.Add('Access-Control-Allow-Origin', '*')
+            `$path = `$req.Url.LocalPath.TrimStart('/')
+            if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
+            `$path = `$path -replace '^status[/\\]', ''
+            `$file = Join-Path '$($StatusDir -replace "'","''")' `$path
+            if (Test-Path `$file -PathType Leaf) {
+                `$ext = [System.IO.Path]::GetExtension(`$file)
+                `$res.ContentType = switch (`$ext) {
+                    '.html' { 'text/html; charset=utf-8' }
+                    '.json' { 'application/json; charset=utf-8' }
+                    '.css'  { 'text/css; charset=utf-8' }
+                    '.js'   { 'application/javascript; charset=utf-8' }
+                    '.txt'  { 'text/plain; charset=utf-8' }
+                    default { 'application/octet-stream' }
+                }
+                if (`$ext -eq '.json') {
+                    `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
+                    `$res.Headers.Add('Pragma', 'no-cache')
+                }
+                `$bytes = [System.IO.File]::ReadAllBytes(`$file)
+                `$res.ContentLength64 = `$bytes.Length
+                `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+            } else {
+                `$res.StatusCode = 404
+                `$body = [System.Text.Encoding]::UTF8.GetBytes('Not Found')
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
             }
-            if (`$ext -eq '.json') {
-                `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
-                `$res.Headers.Add('Pragma', 'no-cache')
-            }
-            `$bytes = [System.IO.File]::ReadAllBytes(`$file)
-            `$res.ContentLength64 = `$bytes.Length
-            `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
-        } else {
-            `$res.StatusCode = 404
-            `$body = [System.Text.Encoding]::UTF8.GetBytes('Not Found')
-            `$res.OutputStream.Write(`$body, 0, `$body.Length)
+            `$res.OutputStream.Close()
+        } catch {
+            try { `$ctx.Response.Abort() } catch { }
         }
-        `$res.OutputStream.Close()
     }
 } finally { `$listener.Stop() }
 "@

@@ -51,7 +51,7 @@ function Start-LogFile {
     $logDir = Get-LogDir -TestRoot $TestRoot
     # Sanitize RunId for use as a filename (replace colons from ISO timestamps)
     $safeRunId = $RunId -replace ':', '-'
-    $logFile = Join-Path $logDir "${safeRunId}.${Hostname}.${GitCommit}.log"
+    $logFile = Join-Path $logDir "${safeRunId}.${Hostname}.${GitCommit}.txt"
     if ($PSCmdlet.ShouldProcess($logFile, 'Start transcript')) {
         Start-Transcript -Path $logFile -Append | Out-Null
     }

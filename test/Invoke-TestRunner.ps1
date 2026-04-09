@@ -91,8 +91,8 @@ Write-Debug "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
 Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
 if (-not (Assert-TesseractInstalled)) { exit 1 }
 
+$startScript = Join-Path $TestRoot "Start-StatusServer.ps1"
 if ($Config.statusServer.enabled -and -not $NoServer) {
-    $startScript = Join-Path $TestRoot "Start-StatusServer.ps1"
     $serverPort  = $Config.statusServer.port ? [int]$Config.statusServer.port : 8080
     & $startScript -Port $serverPort
 }
@@ -150,6 +150,12 @@ while ($true) {
 
     # --- Re-read config (may have changed via git pull) ---
     $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+
+    # --- Ensure status server is running (restarts if crashed) ---
+    if ($Config.statusServer.enabled -and -not $NoServer) {
+        $serverPort = $Config.statusServer.port ? [int]$Config.statusServer.port : 8080
+        & $startScript -Port $serverPort
+    }
 
     $GuestList = Get-GuestList -Config $Config
     $Prefix = $Config.testVmNamePrefix ?? "test-"

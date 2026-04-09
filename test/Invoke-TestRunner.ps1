@@ -97,41 +97,6 @@ if ($Config.statusServer.enabled -and -not $NoServer) {
     & $startScript -Port $serverPort
 }
 
-$GuestList = Get-GuestList -Config $Config
-$Prefix = $Config.testVmNamePrefix ?? "test-"
-
-# Build VM name map
-$VMNames = @{}
-foreach ($GuestKey in $GuestList) {
-    $VMNames[$GuestKey] = switch ($GuestKey) {
-        "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
-        "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
-        "guest.windows.11"     { "${Prefix}windows11-01"     }
-        default                { "${Prefix}vm01"             }
-    }
-}
-
-# Determine step list based on available extensions and screenshot schedules
-$BaseSteps = @("New-VM", "Start-VM", "Install-OS", "Verify-VM")
-$hasExtensions  = $false
-$hasScreenshots = $false
-foreach ($GuestKey in $GuestList) {
-    if ((Get-GuestTestScript -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir).Count -gt 0) {
-        $hasExtensions = $true
-    }
-    if ((Get-ScreenshotSchedule -GuestKey $GuestKey -ScreenshotsDir $ScreenshotsDir).Count -gt 0) {
-        $hasScreenshots = $true
-    }
-}
-$StepNames = $BaseSteps
-if ($hasScreenshots) { $StepNames += @("Screenshots") }
-if ($hasExtensions)  { $StepNames += @("Invoke-PoolTest") }
-
-$VmStartTimeout = $Config.vmStartTimeoutSeconds ? [int]$Config.vmStartTimeoutSeconds : 120
-$VmBootDelay    = $Config.vmBootDelaySeconds    ? [int]$Config.vmBootDelaySeconds    : 15
-$CycleDelay     = $Config.cycleDelaySeconds     ? [int]$Config.cycleDelaySeconds     : $CycleDelaySeconds
-$GetImageRefreshHours = $Config.getImageRefreshHours ? [int]$Config.getImageRefreshHours : 24
-
 # === Continuous test loop ===
 $CycleCount     = 0
 try {
@@ -182,6 +147,44 @@ while ($true) {
         $Warnings.Add("Git pull was skipped (-NoGitPull).")
     }
     $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
+
+    # --- Re-read config (may have changed via git pull) ---
+    $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+
+    $GuestList = Get-GuestList -Config $Config
+    $Prefix = $Config.testVmNamePrefix ?? "test-"
+
+    # Build VM name map
+    $VMNames = @{}
+    foreach ($GuestKey in $GuestList) {
+        $VMNames[$GuestKey] = switch ($GuestKey) {
+            "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
+            "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
+            "guest.windows.11"     { "${Prefix}windows11-01"     }
+            default                { "${Prefix}vm01"             }
+        }
+    }
+
+    # Determine step list based on available extensions and screenshot schedules
+    $BaseSteps = @("New-VM", "Start-VM", "Install-OS", "Verify-VM")
+    $hasExtensions  = $false
+    $hasScreenshots = $false
+    foreach ($GuestKey in $GuestList) {
+        if ((Get-GuestTestScript -GuestKey $GuestKey -ExtensionsDir $ExtensionsDir).Count -gt 0) {
+            $hasExtensions = $true
+        }
+        if ((Get-ScreenshotSchedule -GuestKey $GuestKey -ScreenshotsDir $ScreenshotsDir).Count -gt 0) {
+            $hasScreenshots = $true
+        }
+    }
+    $StepNames = $BaseSteps
+    if ($hasScreenshots) { $StepNames += @("Screenshots") }
+    if ($hasExtensions)  { $StepNames += @("Invoke-PoolTest") }
+
+    $VmStartTimeout = $Config.vmStartTimeoutSeconds ? [int]$Config.vmStartTimeoutSeconds : 120
+    $VmBootDelay    = $Config.vmBootDelaySeconds    ? [int]$Config.vmBootDelaySeconds    : 15
+    $CycleDelay     = $Config.cycleDelaySeconds     ? [int]$Config.cycleDelaySeconds     : $CycleDelaySeconds
+    $GetImageRefreshHours = $Config.getImageRefreshHours ? [int]$Config.getImageRefreshHours : 24
 
     # --- Initialize status for this cycle ---
     $RunId = Initialize-StatusDocument `

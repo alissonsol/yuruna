@@ -22,7 +22,7 @@ $InformationPreference = 'Continue'
 
 # ── Load global defaults from test-config.json ──────────────────────────────
 # The config file lives one level up from this module (test/test-config.json).
-$script:DefaultCharDelayMs = 50
+$script:DefaultCharDelayMs = 20
 $_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test-config.json"
 if (Test-Path $_configPath) {
     try {

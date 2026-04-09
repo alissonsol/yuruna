@@ -226,6 +226,12 @@
     return `<span class="step-pill ${c}"${err}>${step.name}${skip}</span>`;
   }
 
+  function logFileUrl(runId, hostname, gitCommit) {
+    if (!runId || !hostname || !gitCommit) return null;
+    const safeRunId = runId.replace(/:/g, '-');
+    return 'log/' + safeRunId + '.' + hostname + '.' + gitCommit + '.log';
+  }
+
   function fmtDate(iso) {
     if (!iso) return '—';
     return new Date(iso).toLocaleString(undefined, { dateStyle:'short', timeStyle:'short' });
@@ -271,7 +277,13 @@
       document.getElementById('sec-meta').style.display = '';
       document.getElementById('m-commit').textContent   = (data.gitCommit || '—').slice(0, 12);
       document.getElementById('m-cycle').textContent    = data.cycle    || '—';
-      document.getElementById('m-runid').textContent    = (data.runId || '—').slice(0, 19);
+      const runIdLabel = (data.runId || '—').slice(0, 19);
+      const runLogUrl  = logFileUrl(data.runId, data.hostname, data.gitCommit);
+      if (runLogUrl) {
+        document.getElementById('m-runid').innerHTML = `<a href="${runLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${runIdLabel}</a>`;
+      } else {
+        document.getElementById('m-runid').textContent = runIdLabel;
+      }
       document.getElementById('m-started').textContent  = fmtDate(data.startedAt);
       document.getElementById('m-finished').textContent = data.finishedAt ? fmtDate(data.finishedAt) : (status === 'running' ? '(in progress)' : '—');
       document.getElementById('m-getimage').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';
@@ -307,8 +319,13 @@
         const guestPills = Object.entries(gs).map(([k, v]) =>
           `<span class="badge ${cls(v)}" style="font-size:.625rem;padding:.15rem .4rem">${k.replace('guest.','')}</span>`
         ).join(' ');
+        const hLogUrl = logFileUrl(h.runId, h.hostname, h.gitCommit);
+        const hRunLabel = (h.runId||'—').slice(0,19);
+        const hRunCell = hLogUrl
+          ? `<a href="${hLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${hRunLabel}</a>`
+          : hRunLabel;
         return `<tr>
-          <td class="mono">${(h.runId||'—').slice(0,19)}</td>
+          <td class="mono">${hRunCell}</td>
           <td>${h.host||'—'}</td>
           <td class="mono">${(h.gitCommit||'—').slice(0,8)}</td>
           <td>${badge(h.overallStatus)}</td>

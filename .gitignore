@@ -366,6 +366,10 @@ test/status/status.json
 test/status/server.pid
 test/status/server.err
 
+# Test run logs (generated at runtime)
+test/status/log/*
+!test/status/log/.gitkeep
+
 # Training screenshots (captures are runtime, reference PNGs are committed)
 test/screenshots/*/captures/
 

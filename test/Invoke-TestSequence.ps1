@@ -101,7 +101,7 @@ if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 if (-not $env:NEWTEXT_TRACE) { $env:NEWTEXT_TRACE = '1' }
 
 # === Import modules ===
-foreach ($mod in @("Test.Host", "Test.New-VM", "Test.Start-VM")) {
+foreach ($mod in @("Test.Host", "Test.New-VM", "Test.Start-VM", "Test.Log")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -233,6 +233,14 @@ $effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
 
 $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
+# --- Start log file (transcript captures all console output) ---
+if ($debug_mode -or $verbose_mode) {
+    $SeqRunId   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $GitCommit  = Get-CurrentGitCommit -RepoRoot $RepoRoot
+    $LogFile    = Start-LogFile -TestRoot $TestRoot -RunId $SeqRunId -Hostname (hostname) -GitCommit $GitCommit
+    Write-Output "Log file: $LogFile"
+}
+
 Write-Output ""
 Write-Output "============================================="
 Write-Output "  Sequence: $SequenceName"
@@ -287,4 +295,5 @@ try {
     exit 0
 } finally {
     Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
+    if ($debug_mode -or $verbose_mode) { Stop-LogFile }
 }

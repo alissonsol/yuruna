@@ -169,6 +169,7 @@ function Complete-Run {
         overallStatus = $OverallStatus
         gitCommit     = $script:Doc.gitCommit
         host          = $script:Doc.host
+        hostname      = $script:Doc.hostname
         guestSummary  = $guestSummary
     }
     $script:Doc.history = @($entry) + @($script:Doc.history) | Select-Object -First $MaxHistoryRuns

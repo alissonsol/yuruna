@@ -24,7 +24,7 @@
       "action": "waitForText",
       "pattern": "login:",
       "timeoutSeconds": 180,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "login:"
     },
     {
@@ -41,7 +41,7 @@
       "action": "waitForText",
       "pattern": "Password:",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Password:"
     },
     {
@@ -54,7 +54,7 @@
       "action": "waitForText",
       "pattern": ["Current password:", "unrent password"],
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Current password:"
     },
     {
@@ -67,7 +67,7 @@
       "action": "waitForText",
       "pattern": "New password:",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "New password:"
     },
     {
@@ -80,7 +80,7 @@
       "action": "waitForText",
       "pattern": "Retype new password:",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Retype new password:"
     },
     {
@@ -99,7 +99,7 @@
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Login shell prompt: ${username}@${vmName}"
     },
     {
@@ -116,7 +116,7 @@
       "action": "waitForText",
       "pattern": "FETCHED AND EXECUTED:",
       "timeoutSeconds": 600,
-      "pollSeconds": 15,
+      "pollSeconds": 6,
       "freshMatch": true,
       "description": "FETCHED AND EXECUTED: update script (may take several minutes)"
     },

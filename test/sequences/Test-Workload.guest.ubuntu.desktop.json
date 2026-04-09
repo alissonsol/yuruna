@@ -24,7 +24,7 @@
       "action": "waitForText",
       "pattern": "Not listed?",
       "timeoutSeconds": 600,
-      "pollSeconds": 10,
+      "pollSeconds": 6,
       "description": "Not listed?"
     },
     {
@@ -36,7 +36,7 @@
       "action": "waitForText",
       "pattern": "Password",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Password"
     },
     {
@@ -49,7 +49,7 @@
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Wait for login shell prompt"
     },
     {
@@ -66,7 +66,7 @@
       "action": "waitForText",
       "pattern": "[sudo] password for ${username}",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "[sudo] password prompt"
     },
     {
@@ -79,7 +79,7 @@
       "action": "waitForText",
       "pattern": "FETCHED AND EXECUTED:",
       "timeoutSeconds": 300,
-      "pollSeconds": 15,
+      "pollSeconds": 6,
       "freshMatch": true,
       "description": "FETCHED AND EXECUTED: Code install script to complete (may take several minutes)"
     },

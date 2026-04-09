@@ -24,7 +24,7 @@
       "action": "waitForText",
       "pattern": "Try or Install Ubuntu",
       "timeoutSeconds": 180,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Try or Install Ubuntu"
     },
     {
@@ -51,7 +51,7 @@
       "action": "waitForText",
       "pattern": "Not listed?",
       "timeoutSeconds": 900,
-      "pollSeconds": 15,
+      "pollSeconds": 6,
       "description": "Not listed?"
     },
     {
@@ -63,7 +63,7 @@
       "action": "waitForText",
       "pattern": "Password",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Password"
     },
     {
@@ -76,7 +76,7 @@
       "action": "waitForText",
       "pattern": ["Current password", "unrent password"],
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Current password"
     },
     {
@@ -89,7 +89,7 @@
       "action": "waitForText",
       "pattern": "New password",
       "timeoutSeconds": 60,
-      "pollSeconds": 2,
+      "pollSeconds": 3,
       "description": "New password"
     },
     {
@@ -102,7 +102,7 @@
       "action": "waitForText",
       "pattern": "Retype new password",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Retype new password"
     },
     {
@@ -115,7 +115,7 @@
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "Login shell prompt. CAREFUL: Look at the top of the shell window in Ubuntu!"
     },
     {
@@ -127,7 +127,7 @@
       "action": "waitForText",
       "pattern": "[sudo] password for ${username}",
       "timeoutSeconds": 30,
-      "pollSeconds": 5,
+      "pollSeconds": 3,
       "description": "[sudo] password prompt"
     },
     {
@@ -145,7 +145,7 @@
       "action": "waitForText",
       "pattern": "FETCHED AND EXECUTED:",
       "timeoutSeconds": 600,
-      "pollSeconds": 15,
+      "pollSeconds": 6,
       "freshMatch": true,
       "description": "FETCHED AND EXECUTED: update script to complete (may take several minutes)"
     },

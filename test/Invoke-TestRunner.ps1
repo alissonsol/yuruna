@@ -62,7 +62,7 @@ if (-not (Test-Path $StatusFile)) {
 }
 
 # === Import modules ===
-foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest")) {
+foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -191,6 +191,12 @@ while ($true) {
         -GitCommit      $GitCommit `
         -GuestList      $GuestList `
         -StepNames      $StepNames
+
+    # --- Start log file (transcript captures all console output) ---
+    if ($debug_mode -or $verbose_mode) {
+        $LogFile = Start-LogFile -TestRoot $TestRoot -RunId $RunId -Hostname (hostname) -GitCommit $GitCommit
+        Write-Output "Log file: $LogFile"
+    }
 
     Write-Output "Run ID:  $RunId"
     Write-Output "Commit:  $GitCommit"
@@ -414,6 +420,7 @@ while ($true) {
     # === Finalise cycle ===
     $FinalStatus = $OverallPassed ? "pass" : "fail"
     Complete-Run -OverallStatus $FinalStatus -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
+    if ($debug_mode -or $verbose_mode) { Stop-LogFile }
 
     Write-Output ""
     Write-Output "=== Cycle $CycleCount complete: $FinalStatus ==="

@@ -193,10 +193,8 @@ while ($true) {
         -StepNames      $StepNames
 
     # --- Start log file (transcript captures all console output) ---
-    if ($debug_mode -or $verbose_mode) {
-        $LogFile = Start-LogFile -TestRoot $TestRoot -RunId $RunId -Hostname (hostname) -GitCommit $GitCommit
-        Write-Output "Log file: $LogFile"
-    }
+    $LogFile = Start-LogFile -TestRoot $TestRoot -RunId $RunId -Hostname (hostname) -GitCommit $GitCommit
+    Write-Output "Log file: $LogFile"
 
     Write-Output "Run ID:  $RunId"
     Write-Output "Commit:  $GitCommit"
@@ -316,7 +314,7 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "Install-OS" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Install-OS"; $FailureMessage = $r.errorMessage
-            Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+            Write-Output "  VM '$VMName' left running for investigation."
             break
         }
 
@@ -331,7 +329,7 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
-            Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+            Write-Output "  VM '$VMName' left running for investigation."
             break
         }
         # Check verification screenshot if one exists for this host+guest
@@ -352,7 +350,7 @@ while ($true) {
                     Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
                     Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                     $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
-                    Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                    Write-Output "  VM '$VMName' left running for investigation."
                     break
                 }
                 Write-Output "  $GuestKey Verify-VM: PASS (screenshot similarity=$($cmp.similarity))"
@@ -379,7 +377,7 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Screenshots" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Screenshots"; $FailureMessage = $r.errorMessage
-                Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                Write-Output "  VM '$VMName' left running for investigation."
                 break
             }
         }
@@ -399,7 +397,7 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Invoke-PoolTest"; $FailureMessage = $r.errorMessage
-                Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                Write-Output "  VM '$VMName' left running for investigation."
                 break
             }
         }
@@ -420,7 +418,7 @@ while ($true) {
     # === Finalise cycle ===
     $FinalStatus = $OverallPassed ? "pass" : "fail"
     Complete-Run -OverallStatus $FinalStatus -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
-    if ($debug_mode -or $verbose_mode) { Stop-LogFile }
+    Stop-LogFile
 
     Write-Output ""
     Write-Output "=== Cycle $CycleCount complete: $FinalStatus ==="

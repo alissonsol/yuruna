@@ -234,12 +234,10 @@ $effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
 $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
 # --- Start log file (transcript captures all console output) ---
-if ($debug_mode -or $verbose_mode) {
-    $SeqRunId   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    $GitCommit  = Get-CurrentGitCommit -RepoRoot $RepoRoot
-    $LogFile    = Start-LogFile -TestRoot $TestRoot -RunId $SeqRunId -Hostname (hostname) -GitCommit $GitCommit
-    Write-Output "Log file: $LogFile"
-}
+$SeqRunId   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$GitCommit  = Get-CurrentGitCommit -RepoRoot $RepoRoot
+$LogFile    = Start-LogFile -TestRoot $TestRoot -RunId $SeqRunId -Hostname (hostname) -GitCommit $GitCommit
+Write-Output "Log file: $LogFile"
 
 Write-Output ""
 Write-Output "============================================="
@@ -295,5 +293,5 @@ try {
     exit 0
 } finally {
     Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
-    if ($debug_mode -or $verbose_mode) { Stop-LogFile }
+    Stop-LogFile
 }

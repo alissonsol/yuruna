@@ -7,6 +7,9 @@ autoinstall:
   locale: en_US.UTF-8
   keyboard:
     layout: us
+  packages:
+    - console-setup
+    - keyboard-configuration
   identity:
     hostname: HOSTNAME_PLACEHOLDER
     username: ubuntu

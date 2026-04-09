@@ -62,7 +62,7 @@ if (Test-Path $PidFile) {
         if ($proc -and $proc.ProcessName -match 'pwsh|PowerShell') {
             # Confirm the port is actually responding
             try {
-                $null = Invoke-WebRequest -Uri "http://localhost:$Port/status.json" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+                $null = Invoke-WebRequest -Uri "http://localhost:$Port/status.json" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
                 $serverAlive = $true
             } catch {
                 Write-Output "PID $oldPid exists but port $Port is not responding. Replacing server."
@@ -147,7 +147,7 @@ $serverReady = $false
 for ($i = 0; $i -lt 5; $i++) {
     Start-Sleep -Seconds 1
     try {
-        $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+        $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
         $serverReady = $true
         break
     } catch { Write-Output "  Waiting for server... ($($i + 1)/5)" }

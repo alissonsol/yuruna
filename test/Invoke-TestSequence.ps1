@@ -80,10 +80,10 @@ $global:InformationPreference = "Continue"
 
 $global:DebugPreference = "SilentlyContinue"
 $global:VerbosePreference = "SilentlyContinue"
-if ($true -eq $debug_mode) {
+if ($debug_mode) {
     $global:DebugPreference = "Continue"
 }
-if ($true -eq $verbose_mode) {
+if ($verbose_mode) {
     $global:VerbosePreference = "Continue"
 }
 
@@ -97,10 +97,19 @@ $SequencesDir   = Join-Path $TestRoot "sequences"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 
-# === Enable tracing by default for development debugging ===
-if (-not $env:NEWTEXT_TRACE) { $env:NEWTEXT_TRACE = '1' }
+# === Publish debug/verbose preferences as env vars so child processes inherit them ===
+$env:YURUNA_DEBUG   = $debug_mode   ? '1' : '0'
+$env:YURUNA_VERBOSE = $verbose_mode ? '1' : '0'
 
-# === Import modules ===
+# === Import all modules (suppress engine verbose noise during imports) ===
+$savedVerbose = $global:VerbosePreference
+$global:VerbosePreference = "SilentlyContinue"
+
+$yurunaLogModule = Join-Path -Path $RepoRoot -ChildPath "automation" -AdditionalChildPath "yuruna-log.psm1"
+if (Test-Path $yurunaLogModule) {
+    Import-Module $yurunaLogModule -Global -Force
+}
+
 foreach ($mod in @("Test.Host", "Test.New-VM", "Test.Start-VM", "Test.Log")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
@@ -110,6 +119,10 @@ foreach ($mod in @("Test.Host", "Test.New-VM", "Test.Start-VM", "Test.Log")) {
 $engineModule = Join-Path $ExtensionsDir "Invoke-Sequence.psm1"
 if (-not (Test-Path $engineModule)) { Write-Error "Invoke-Sequence module not found: $engineModule"; exit 1 }
 Import-Module -Name $engineModule -Force
+$global:VerbosePreference = $savedVerbose
+
+# === Enable tracing by default for development debugging ===
+if (-not $env:NEWTEXT_TRACE) { $env:NEWTEXT_TRACE = '1' }
 
 # === Read config ===
 if (-not (Test-Path $ConfigPath)) { Write-Error "Config not found: $ConfigPath"; exit 1 }
@@ -134,16 +147,19 @@ Write-Output "Host type: $HostType"
 
 if (-not (Assert-Elevation -HostType $HostType)) { exit 1 }
 
+$savedVerbose = $global:VerbosePreference
+$global:VerbosePreference = "SilentlyContinue"
 Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
+Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
+Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
+$global:VerbosePreference = $savedVerbose
+
 $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
-Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
-
-Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
 if (-not (Assert-TesseractInstalled)) { exit 1 }
 
 # === Derive GuestKey from sequence name ===

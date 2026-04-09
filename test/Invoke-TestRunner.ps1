@@ -30,10 +30,10 @@ $global:InformationPreference = "Continue"
 
 $global:DebugPreference = "SilentlyContinue"
 $global:VerbosePreference = "SilentlyContinue"
-if ($true -eq $debug_mode) {
+if ($debug_mode) {
     $global:DebugPreference = "Continue"
 }
-if ($true -eq $verbose_mode) {
+if ($verbose_mode) {
     $global:VerbosePreference = "Continue"
 }
 
@@ -51,6 +51,27 @@ $VerifyDir      = Join-Path $TestRoot "verify"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 
+# === Publish debug/verbose preferences as env vars so child processes inherit them ===
+$env:YURUNA_DEBUG   = $debug_mode   ? '1' : '0'
+$env:YURUNA_VERBOSE = $verbose_mode ? '1' : '0'
+
+# === Import all modules (suppress engine verbose noise during imports) ===
+$savedVerbose = $global:VerbosePreference
+$global:VerbosePreference = "SilentlyContinue"
+
+$yurunaLogModule = Join-Path -Path $RepoRoot -ChildPath "automation" -AdditionalChildPath "yuruna-log.psm1"
+if (Test-Path $yurunaLogModule) {
+    Import-Module $yurunaLogModule -Global -Force
+}
+
+foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log")) {
+    $modPath = Join-Path $ModulesDir "$mod.psm1"
+    if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
+    Import-Module -Name $modPath -Force
+}
+
+$global:VerbosePreference = $savedVerbose
+
 # === Bootstrap status.json from template if missing ===
 if (-not (Test-Path $StatusFile)) {
     if (Test-Path $StatusTmpl) {
@@ -59,13 +80,6 @@ if (-not (Test-Path $StatusFile)) {
     } else {
         Write-Error "Status template not found: $StatusTmpl"; exit 1
     }
-}
-
-# === Import modules ===
-foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log")) {
-    $modPath = Join-Path $ModulesDir "$mod.psm1"
-    if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
-    Import-Module -Name $modPath -Force
 }
 
 # === Read config ===
@@ -79,16 +93,21 @@ Write-Output "Host type: $HostType"
 
 if (-not (Assert-Elevation -HostType $HostType)) { exit 1 }
 
+$savedVerbose = $global:VerbosePreference
+$global:VerbosePreference = "SilentlyContinue"
 Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
+$global:VerbosePreference = $savedVerbose
 $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
+$savedVerbose = $global:VerbosePreference
+$global:VerbosePreference = "SilentlyContinue"
 Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
+Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
+$global:VerbosePreference = $savedVerbose
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Debug "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
-
-Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
 if (-not (Assert-TesseractInstalled)) { exit 1 }
 
 $startScript = Join-Path $TestRoot "Start-StatusServer.ps1"

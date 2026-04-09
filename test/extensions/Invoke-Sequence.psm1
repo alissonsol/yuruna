@@ -20,6 +20,12 @@
 # This is set at module scope so it applies to all functions.
 $InformationPreference = 'Continue'
 
+# Inherit debug/verbose preferences from the parent process via env vars.
+# Child pwsh processes don't inherit PowerShell preference variables, so
+# the runner publishes them as YURUNA_DEBUG / YURUNA_VERBOSE.
+if ($env:YURUNA_DEBUG -eq '1')   { $global:DebugPreference   = 'Continue' }
+if ($env:YURUNA_VERBOSE -eq '1') { $global:VerbosePreference = 'Continue' }
+
 # ── Load global defaults from test-config.json ──────────────────────────────
 # The config file lives one level up from this module (test/test-config.json).
 $script:DefaultCharDelayMs = 20
@@ -684,7 +690,7 @@ function Test-CombinedOcrMatch {
     )
 
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 
     $combineMode = Get-OcrCombineMode
     $enabledProviders = Get-EnabledOcrProvider
@@ -781,9 +787,9 @@ function Wait-ForText {
 
     # Import required modules (Screenshot for capture, Get-NewText for diff-based OCR, OcrEngine for multi-engine)
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue
-    Import-Module (Join-Path $modulesDir "Get-NewText.psm1") -Force -ErrorAction SilentlyContinue
-    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Get-NewText.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 
     # Log which OCR engines are active for this wait
     $enabledEngines = Get-EnabledOcrProvider
@@ -791,7 +797,7 @@ function Wait-ForText {
     Write-Debug "      OCR engines: $($enabledEngines -join ', ') | combine: $combineMode"
 
     # Rolling screenshot window: current and previous screen paths
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     $logDir = Get-YurunaLogDir
     $currentScreenPath  = Join-Path $logDir "waittext_${VMName}_current.png"
     $previousScreenPath = Join-Path $logDir "waittext_${VMName}_previous.png"
@@ -1041,7 +1047,7 @@ function Save-DebugScreenshot {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     $screenshotMod = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Test.Screenshot.psm1"
     if (Test-Path $screenshotMod) {
-        Import-Module $screenshotMod -Force -ErrorAction SilentlyContinue
+        Import-Module $screenshotMod -Force -ErrorAction SilentlyContinue -Verbose:$false
         $result = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $outputPath
         if ($result) { Write-Debug "      Screenshot: $outputPath"; return $true }
     }
@@ -1088,7 +1094,7 @@ function Invoke-Sequence {
 
     # Clean up stale failure artifacts from any prior run
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     $logDir = Get-YurunaLogDir
     Remove-Item (Join-Path $logDir "last_failure.json") -Force -ErrorAction SilentlyContinue
 
@@ -1229,7 +1235,7 @@ function Invoke-Sequence {
 
             # For non-waitForText failures, capture a screenshot now (waitForText already saves one)
             if ($step.action -ne "waitForText") {
-                Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue
+                Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
                 $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
                 $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $failScreenPath
                 if ($captured) {

@@ -735,7 +735,7 @@ if (-not ([System.Management.Automation.PSTypeName]'PngCodec').Type) {
 
 # --- OCR engine (pluggable via Test.OcrEngine) ---
 
-Import-Module (Join-Path $PSScriptRoot "Test.OcrEngine.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Test.OcrEngine.psm1") -Force -Verbose:$false
 
 function Invoke-PlatformOcr {
     <#
@@ -791,7 +791,7 @@ function Get-ProcessedScreenImage {
     $bgR = [byte]0; $bgG = [byte]0; $bgB = [byte]0; $bgA = [byte]255  # Black
 
     # Use global YurunaLog directory for debug artifacts
-    Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     $debugDir = Join-Path (Get-YurunaLogDir) 'NewText'
     if (-not (Test-Path $debugDir)) {
         New-Item -ItemType Directory -Path $debugDir -Force | Out-Null
@@ -917,7 +917,7 @@ function Get-NewTextContent {
     if (-not $processedPath) { return '' }
 
     # Use global YurunaLog directory for debug artifacts
-    Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     $debugDir = Join-Path (Get-YurunaLogDir) 'NewText'
 
     # OCR the image using the first enabled provider (backward-compatible)

@@ -214,9 +214,12 @@ run. If the sequence file is not found, it lists all available sequences.
 
 ## Logging
 
-Every test cycle writes a transcript log to `test/status/log/`. The log file
-captures all console output (Write-Output, Write-Debug, Write-Information) —
-the `debug_mode` and `verbose_mode` flags control how much detail appears.
+Every test cycle writes a log to `test/status/log/`. The `yuruna-log` proxy
+module (`automation/yuruna-log.psm1`) overrides the built-in `Write-Output`,
+`Write-Error`, `Write-Warning`, `Write-Debug`, `Write-Verbose`, and
+`Write-Information` cmdlets so that all output is appended to the log file
+in addition to appearing on the console. The `debug_mode` and `verbose_mode`
+flags control how much detail appears on screen and in the log.
 
 Log files are named `{runId}.{hostname}.{gitCommit}.txt` and are git-ignored.
 The status page links each Run ID to its log file for easy inspection.

@@ -46,7 +46,7 @@ $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sequenceFile = Join-Path (Split-Path -Parent $ScriptDir) "sequences/Test-Start.$GuestKey.json"
 $engineModule = Join-Path $ScriptDir "Invoke-Sequence.psm1"
 
-Import-Module $engineModule -Force
+Import-Module $engineModule -Force -Verbose:$false
 
 Write-Output "[$GuestKey] Install-OS on $HostType (VM: $VMName)"
 Write-Output "    Sequence file: $sequenceFile"

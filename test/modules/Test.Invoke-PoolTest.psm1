@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue
+Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 
 # ── Pool test extensions ─────────────────────────────────────────────────────
 

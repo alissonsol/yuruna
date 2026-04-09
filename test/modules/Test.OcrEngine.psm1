@@ -152,7 +152,7 @@ function Invoke-AllEnabledOcr {
 
 # ── Built-in provider: Tesseract ────────────────────────────────────────────
 
-Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force -Verbose:$false
 
 Register-OcrProvider -Name 'tesseract' `
     -Invoke {

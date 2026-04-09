@@ -16,6 +16,11 @@
 
 #requires -version 7
 
+# The global variable is the cross-module communication channel with yuruna-log.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '')]
+param()
+
 function Get-LogDir {
     <#
     .SYNOPSIS
@@ -32,12 +37,14 @@ function Get-LogDir {
 function Start-LogFile {
     <#
     .SYNOPSIS
-        Starts a PowerShell transcript that captures all console output to a log file.
+        Starts logging all Write-* output to a log file.
     .DESCRIPTION
-        Uses Start-Transcript to tee Write-Output, Write-Debug, and Write-Information
-        to a file under test/status/log named ${runId}.${hostname}.${gitCommit}.log.
-        The transcript captures everything displayed on screen, so the existing
-        debug_mode and verbose_mode preferences control what appears in the log.
+        Sets $global:__YurunaLogFile so the yuruna-log proxy module
+        (automation/yuruna-log.psm1) begins appending all Write-* output
+        to the log file. The proxy module should be imported early by the
+        calling script; this function just activates file logging by
+        setting the path. If the proxy is not yet loaded, it will be
+        imported here as a fallback.
     .OUTPUTS
         The full path to the log file.
     #>
@@ -52,8 +59,16 @@ function Start-LogFile {
     # Sanitize RunId for use as a filename (replace colons from ISO timestamps)
     $safeRunId = $RunId -replace ':', '-'
     $logFile = Join-Path $logDir "${safeRunId}.${Hostname}.${GitCommit}.txt"
-    if ($PSCmdlet.ShouldProcess($logFile, 'Start transcript')) {
-        Start-Transcript -Path $logFile -Append | Out-Null
+    if ($PSCmdlet.ShouldProcess($logFile, 'Start log file')) {
+        $global:__YurunaLogFile = $logFile
+        # Fallback: import the proxy module if not already loaded
+        if (-not (Get-Module yuruna-log)) {
+            $repoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
+            $logModule = Join-Path -Path $repoRoot -ChildPath "automation" -AdditionalChildPath "yuruna-log.psm1"
+            if (Test-Path $logModule) {
+                Import-Module $logModule -Global -Force -Verbose:$false
+            }
+        }
     }
     return $logFile
 }
@@ -61,16 +76,16 @@ function Start-LogFile {
 function Stop-LogFile {
     <#
     .SYNOPSIS
-        Stops the active transcript started by Start-LogFile.
+        Stops file logging by clearing the log file path.
+    .DESCRIPTION
+        Clears $global:__YurunaLogFile so the yuruna-log proxy stops
+        appending to the log file. The proxy module remains loaded so
+        it can be reactivated by the next Start-LogFile call.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    if ($PSCmdlet.ShouldProcess('transcript', 'Stop transcript')) {
-        try {
-            Stop-Transcript | Out-Null
-        } catch {
-            Write-Debug "No active transcript to stop: $_"
-        }
+    if ($PSCmdlet.ShouldProcess('log file', 'Stop logging')) {
+        $global:__YurunaLogFile = $null
     }
 }
 

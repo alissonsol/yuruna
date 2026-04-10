@@ -438,11 +438,11 @@ function Send-TextVNC {
 }
 
 # ── AXUIElement keystroke transport (Accessibility API) ─────────────────────
-# Posts keyboard events directly to UTM's process via AXUIElementPostKeyboardEvent.
-# Unlike CGEventPost (which targets the frontmost app), this targets UTM by PID,
-# so it works even when UTM is not the focused application.
-# Works for both QEMU and Apple Virtualization Framework backends.
-# Requires Accessibility permission for the terminal running the test harness.
+# NOT USED in the dispatcher chain. Kept for reference/future use.
+# AXUIElementPostKeyboardEvent targets UTM by PID and reports success, but
+# UTM's SwiftUI VM display view does not route Accessibility keyboard events
+# to the virtual machine's keyboard — keys silently vanish.
+# If a future UTM version fixes this, re-enable in Send-Key/Send-Text.
 # Uses the same macOS virtual key codes as the AppleScript/CGEvent functions.
 
 function Send-KeyAXUI {
@@ -601,12 +601,13 @@ function Send-Key {
     param([string]$HostType, [string]$VMName, [string]$KeyName)
     if ($HostType -eq "host.windows.hyper-v") { return Send-KeyHyperV -VMName $VMName -KeyName $KeyName }
     elseif ($HostType -eq "host.macos.utm") {
-        # Try VNC first (QEMU VMs), then AXUI (focus-independent), then AppleScript (legacy)
+        # Try VNC first (QEMU VMs with built-in VNC server), then AppleScript/CGEvent.
+        # Note: AXUIElementPostKeyboardEvent was tested but UTM's SwiftUI VM display
+        # does not route Accessibility keyboard events to the virtual machine — it
+        # reports success but the keys never reach the guest OS.
         $vncOk = Send-KeyVNC -VMName $VMName -KeyName $KeyName
         if ($vncOk) { return $true }
-        $axuiOk = Send-KeyAXUI -VMName $VMName -KeyName $KeyName
-        if ($axuiOk) { return $true }
-        Write-Debug "      VNC and AXUI unavailable for key, falling back to AppleScript"
+        Write-Debug "      VNC unavailable for key, falling back to AppleScript"
         return Send-KeyUTM -VMName $VMName -KeyName $KeyName
     }
     else { Write-Warning "Unknown host: $HostType"; return $false }
@@ -761,12 +762,10 @@ function Send-Text {
     param([string]$HostType, [string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
     if ($HostType -eq "host.windows.hyper-v") { return Send-TextHyperV -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs }
     elseif ($HostType -eq "host.macos.utm") {
-        # Try VNC first (QEMU VMs), then AXUI (focus-independent), then JXA/CGEvent (legacy)
+        # Try VNC first (QEMU VMs with built-in VNC server), then JXA/CGEvent.
         $vncOk = Send-TextVNC -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs
         if ($vncOk) { return $true }
-        $axuiOk = Send-TextAXUI -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs
-        if ($axuiOk) { return $true }
-        Write-Debug "      VNC and AXUI unavailable for text, falling back to JXA/CGEvent"
+        Write-Debug "      VNC unavailable for text, falling back to JXA/CGEvent"
         return Send-TextUTM -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs
     }
     else { Write-Warning "Unknown host: $HostType"; return $false }

@@ -9,7 +9,8 @@
     "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
     "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
     "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
-    "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number)."
+    "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number).",
+    "fetchAndExecute":  "Type a command + Enter, optionally handle a password prompt, then wait for a completion pattern (freshMatch). Parameters: text (string), description (string), passwordPattern (string, default empty), passwordTimeoutSeconds (number, default 30), passwordPollSeconds (number, default 5), passwordText (string), waitPattern (string), waitTimeoutSeconds (number, default 900), waitPollSeconds (number, default 9)."
   },
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
 
@@ -58,35 +59,21 @@
       "description": "Brief pause before installing Desktop"
     },
     {
-      "action": "typeAndEnter",
+      "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
-      "description": "Code install script"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "[sudo] password for ${username}",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
-      "description": "[sudo] password prompt"
-    },
-    {
-      "action": "typeAndEnter",
-      "text": "${newPassword}",
-      "sensitive": true,
-      "description": "New password"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "FETCHED AND EXECUTED:",
-      "timeoutSeconds": 300,
-      "pollSeconds": 6,
-      "freshMatch": true,
-      "description": "FETCHED AND EXECUTED: Code install script to complete (may take several minutes)"
+      "description": "Code install script",
+      "passwordPattern": "[sudo] password for ${username}",
+      "passwordTimeoutSeconds": 30,
+      "passwordPollSeconds": 3,
+      "passwordText": "${newPassword}",
+      "waitPattern": "FETCHED AND EXECUTED:",
+      "waitTimeoutSeconds": 300,
+      "waitPollSeconds": 6
     },
     {
       "action": "typeAndEnter",
-      "text": "sudo shutdown now",
-      "description": "Shutdown the VM"
+      "text": "sudo reboot now",
+      "description": "Reboot the VM"
     }
   ]
 }

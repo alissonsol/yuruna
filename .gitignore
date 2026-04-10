@@ -389,6 +389,7 @@ test/sequences/captures/
 **/website-tls.key
 **/resources.output.local.yml
 **/resources.output.copy.yml
+Fido.ps1
 
 # Rust/Cargo
 **/target/

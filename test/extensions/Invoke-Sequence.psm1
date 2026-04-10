@@ -1195,6 +1195,50 @@ function Invoke-Sequence {
                 $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 300
                 $ok = Wait-ForVMStop -HostType $HostType -VMName $VMName -TimeoutSeconds $timeout
             }
+            "fetchAndExecute" {
+                # Composite action: typeAndEnter command, optionally handle password prompt, then wait for completion
+                $text = Expand-Variable $step.text $vars
+                $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2
+                $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
+                Write-Debug "      fetchAndExecute: typing '$text' + Enter"
+                $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
+                if ($ok -ne $false) {
+                    Start-Sleep -Seconds $delaySeconds
+                    $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
+                }
+
+                # Optional password handling
+                $passwordPattern = $step.passwordPattern ? (Expand-Variable $step.passwordPattern $vars) : ""
+                if ($ok -ne $false -and $passwordPattern -ne "") {
+                    $pwTimeout = $step.passwordTimeoutSeconds ? [int]$step.passwordTimeoutSeconds : 30
+                    $pwPoll = $step.passwordPollSeconds ? [int]$step.passwordPollSeconds : 5
+                    Write-Debug "      fetchAndExecute: waiting for password prompt '$passwordPattern'"
+                    $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern @($passwordPattern) `
+                        -TimeoutSeconds $pwTimeout -PollSeconds $pwPoll -FreshMatch $false `
+                        -FreshMatchTailLines 12 -ResetAfterMisses 3
+                    if ($ok -ne $false) {
+                        $pwText = Expand-Variable $step.passwordText $vars
+                        $pwMasked = $ShowSensitive ? $pwText : "***"
+                        Write-Debug "      fetchAndExecute: typing password '$pwMasked' + Enter"
+                        $ok = Send-Text -HostType $HostType -VMName $VMName -Text $pwText -CharDelayMs $charDelay
+                        if ($ok -ne $false) {
+                            Start-Sleep -Seconds $delaySeconds
+                            $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
+                        }
+                    }
+                }
+
+                # Wait for completion pattern
+                if ($ok -ne $false) {
+                    $waitPattern = Expand-Variable $step.waitPattern $vars
+                    $waitTimeout = $step.waitTimeoutSeconds ? [int]$step.waitTimeoutSeconds : 900
+                    $waitPoll = $step.waitPollSeconds ? [int]$step.waitPollSeconds : 9
+                    Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${waitTimeout}s, freshMatch)"
+                    $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern @($waitPattern) `
+                        -TimeoutSeconds $waitTimeout -PollSeconds $waitPoll -FreshMatch $true `
+                        -FreshMatchTailLines 12 -ResetAfterMisses 3
+                }
+            }
             default {
                 Write-Warning "Unknown action: $($step.action)"
             }
@@ -1224,6 +1268,7 @@ function Invoke-Sequence {
                 "key"              { $actionLabel = "key: $($step.name)" }
                 "type"             { $actionLabel = "type" }
                 "typeAndEnter"     { $actionLabel = "typeAndEnter" }
+                "fetchAndExecute"  { $actionLabel = "fetchAndExecute: `"$(Expand-Variable $step.text $vars)`"" }
             }
 
             $failureInfo = @{
@@ -1239,7 +1284,7 @@ function Invoke-Sequence {
             Set-Content -Path $failureFile -Value $failureInfo -Force -ErrorAction SilentlyContinue
 
             # For non-waitForText failures, capture a screenshot now (waitForText already saves one)
-            if ($step.action -ne "waitForText") {
+            if ($step.action -ne "waitForText" -and $step.action -ne "fetchAndExecute") {
                 Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
                 $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
                 $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $failScreenPath

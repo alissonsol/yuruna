@@ -7,6 +7,7 @@
     "typeAndEnter":     "Type a text string, wait, then press Enter. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, default 50), delaySeconds (number, default 2).",
     "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
     "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
+    "waitForAndEnter":  "Wait for text pattern on screen via OCR, then type a string and press Enter. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean), text (string), sensitive (boolean), charDelayMs (number, default 50), delaySeconds (number, default 2).",
     "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
     "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
     "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number).",
@@ -39,56 +40,40 @@
       "description": "Enter username"
     },
     {
-      "action": "waitForText",
+      "action": "waitForAndEnter",
       "pattern": "Password:",
       "timeoutSeconds": 30,
       "pollSeconds": 3,
+      "text": "${password}",
+      "sensitive": true,
       "description": "Password:"
     },
     {
-      "action": "typeAndEnter",
-      "text": "${password}",
-      "sensitive": true,
-      "description": "Enter current password"
-    },
-    {
-      "action": "waitForText",
+      "action": "waitForAndEnter",
       "pattern": ["Current password:", "urrent password"],
       "timeoutSeconds": 30,
       "pollSeconds": 3,
+      "text": "${password}",
+      "sensitive": true,
       "description": "Current password:"
     },
     {
-      "action": "typeAndEnter",
-      "text": "${password}",
-      "sensitive": true,
-      "description": "Re-enter current password for verification"
-    },
-    {
-      "action": "waitForText",
+      "action": "waitForAndEnter",
       "pattern": "New password:",
       "timeoutSeconds": 30,
       "pollSeconds": 3,
+      "text": "${newPassword}",
+      "sensitive": true,
       "description": "New password:"
     },
     {
-      "action": "typeAndEnter",
-      "text": "${newPassword}",
-      "sensitive": true,
-      "description": "Enter new password"
-    },
-    {
-      "action": "waitForText",
+      "action": "waitForAndEnter",
       "pattern": "Retype new password:",
       "timeoutSeconds": 30,
       "pollSeconds": 3,
-      "description": "Retype new password:"
-    },
-    {
-      "action": "typeAndEnter",
       "text": "${newPassword}",
       "sensitive": true,
-      "description": "Confirm new password"
+      "description": "Retype new password:"
     },
     {
       "action": "typeAndEnter",

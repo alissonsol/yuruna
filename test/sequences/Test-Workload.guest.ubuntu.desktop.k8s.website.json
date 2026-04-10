@@ -7,6 +7,7 @@
     "typeAndEnter":     "Type a text string, wait, then press Enter. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, default 50), delaySeconds (number, default 2).",
     "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
     "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
+    "waitForAndEnter":  "Wait for text pattern on screen via OCR, then type a string and press Enter. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean), text (string), sensitive (boolean), charDelayMs (number, default 50), delaySeconds (number, default 2).",
     "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
     "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
     "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number).",
@@ -22,29 +23,21 @@
   },
   "steps": [
     {
-      "action": "waitForText",
+      "action": "waitForAndEnter",
       "pattern": "Not listed?",
       "timeoutSeconds": 600,
       "pollSeconds": 6,
+      "text": "",
       "description": "Wait for login screen"
     },
     {
-      "action": "typeAndEnter",
-      "text": "",
-      "description": "Bring up password field"
-    },
-    {
-      "action": "waitForText",
+      "action": "waitForAndEnter",
       "pattern": "Password",
       "timeoutSeconds": 30,
       "pollSeconds": 3,
-      "description": "Wait for password prompt"
-    },
-    {
-      "action": "typeAndEnter",
       "text": "${newPassword}",
       "sensitive": true,
-      "description": "Enter password"
+      "description": "Wait for password prompt"
     },
     {
       "action": "delay",
@@ -97,8 +90,8 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.website.sh",
-      "description": "Fetch and execute: vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.website.sh",
+      "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
+      "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.website.sh",
       "passwordPattern": "[sudo] password for ${username}",
       "passwordTimeoutSeconds": 30,
       "passwordPollSeconds": 3,

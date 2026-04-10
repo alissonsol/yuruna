@@ -51,6 +51,8 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 #                       freshMatch: if true, captures a baseline, then waits for the screen
 #                       to change AND the pattern to appear in the last N lines.
 #                       freshMatchTailLines: number of trailing OCR lines to check (default 12).
+#   waitForAndEnter  — Wait for text pattern on screen via OCR, then type a string and press Enter.
+#                       Combines waitForText + typeAndEnter into a single step.
 #   waitForPort      — Wait until a TCP port responds on the VM.
 #   waitForHeartbeat — Wait for Hyper-V heartbeat (Hyper-V only).
 #   waitForVMStop    — Wait until the VM reaches the Off/stopped state.
@@ -1175,6 +1177,37 @@ function Invoke-Sequence {
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
                     -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses
             }
+            "waitForAndEnter" {
+                # Composite: waitForText then typeAndEnter
+                $rawPatterns = $step.pattern
+                if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
+                    [string[]]$patterns = $rawPatterns | ForEach-Object { Expand-Variable $_ $vars }
+                } else {
+                    [string[]]$patterns = @(Expand-Variable $rawPatterns $vars)
+                }
+                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 120
+                $poll = $step.pollSeconds ? [int]$step.pollSeconds : 5
+                $fresh = $step.freshMatch -eq $true
+                $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
+                $resetMisses = $step.resetAfterMisses ? [int]$step.resetAfterMisses : 3
+                $patternDisplay = $patterns -join "' | '"
+                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
+                $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
+                    -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
+                    -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses
+                if ($ok -ne $false) {
+                    $text = Expand-Variable $step.text $vars
+                    $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
+                    $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2
+                    $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
+                    Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
+                    $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
+                    if ($ok -ne $false) {
+                        Start-Sleep -Seconds $delaySeconds
+                        $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
+                    }
+                }
+            }
             "screenshot" {
                 $label = $step.label ?? "step$stepNum"
                 Save-DebugScreenshot -HostType $HostType -VMName $VMName -Label $label -OutputDir $screenshotDir | Out-Null
@@ -1268,6 +1301,15 @@ function Invoke-Sequence {
                 "key"              { $actionLabel = "key: $($step.name)" }
                 "type"             { $actionLabel = "type" }
                 "typeAndEnter"     { $actionLabel = "typeAndEnter" }
+                "waitForAndEnter" {
+                    $rawPatterns = $step.pattern
+                    if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
+                        $patternDisplay = ($rawPatterns | ForEach-Object { Expand-Variable $_ $vars }) -join "' | '"
+                    } else {
+                        $patternDisplay = Expand-Variable $rawPatterns $vars
+                    }
+                    $actionLabel = "waitForAndEnter: `"$patternDisplay`""
+                }
                 "fetchAndExecute"  { $actionLabel = "fetchAndExecute: `"$(Expand-Variable $step.text $vars)`"" }
             }
 
@@ -1284,7 +1326,7 @@ function Invoke-Sequence {
             Set-Content -Path $failureFile -Value $failureInfo -Force -ErrorAction SilentlyContinue
 
             # For non-waitForText failures, capture a screenshot now (waitForText already saves one)
-            if ($step.action -ne "waitForText" -and $step.action -ne "fetchAndExecute") {
+            if ($step.action -ne "waitForText" -and $step.action -ne "waitForAndEnter" -and $step.action -ne "fetchAndExecute") {
                 Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
                 $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
                 $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $failScreenPath

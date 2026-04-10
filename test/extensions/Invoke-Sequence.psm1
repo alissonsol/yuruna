@@ -29,11 +29,13 @@ if ($env:YURUNA_VERBOSE -eq '1') { $global:VerbosePreference = 'Continue' }
 # ── Load global defaults from test-config.json ──────────────────────────────
 # The config file lives one level up from this module (test/test-config.json).
 $script:DefaultCharDelayMs = 20
+$script:DefaultVncPort     = 5900
 $_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test-config.json"
 if (Test-Path $_configPath) {
     try {
         $_cfg = Get-Content -Raw $_configPath | ConvertFrom-Json
         if ($_cfg.charDelayMs) { $script:DefaultCharDelayMs = [int]$_cfg.charDelayMs }
+        if ($_cfg.vncPort)     { $script:DefaultVncPort     = [int]$_cfg.vncPort }
     } catch { Write-Verbose "Config parse error — using built-in default: $_" }
 }
 Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
@@ -224,6 +226,313 @@ $script:CharScanCodes['"']=@(0x28,$true); $script:CharScanCodes['<']=@(0x33,$tru
 $script:CharScanCodes['>']=@(0x34,$true); $script:CharScanCodes['?']=@(0x35,$true)
 $script:CharScanCodes['~']=@(0x29,$true)
 
+# ── VNC (RFB) keystroke transport ────────────────────────────────────────────
+# Sends keystrokes directly to the VM's virtual display via the VNC/RFB
+# protocol, bypassing the macOS GUI entirely — no window focus required.
+# Used for QEMU-backend UTM VMs with a built-in VNC server enabled
+# (via AdditionalArguments: -vnc localhost:0 in the plist).
+# Apple Virtualization Framework VMs (Linux guests) fall back to
+# AppleScript/CGEvent since they have no built-in VNC server.
+
+# X11 keysym map for special keys (RFB key events use X11 keysyms)
+$script:X11KeySyms = @{
+    "Enter"=0xFF0D; "Tab"=0xFF09; "Space"=0x0020; "Escape"=0xFF1B; "Backspace"=0xFF08
+    "Up"=0xFF52; "Down"=0xFF54; "Left"=0xFF51; "Right"=0xFF53
+    "F1"=0xFFBE; "F2"=0xFFBF; "F3"=0xFFC0; "F4"=0xFFC1; "F5"=0xFFC2
+    "F6"=0xFFC3; "F7"=0xFFC4; "F8"=0xFFC5; "F9"=0xFFC6; "F10"=0xFFC7
+    "F11"=0xFFC8; "F12"=0xFFC9
+    "LShift"=0xFFE1; "RShift"=0xFFE2
+}
+
+# X11 keysyms for printable ASCII characters.
+# For standard ASCII, the keysym equals the Unicode/ASCII code point.
+# Entries: [keysym, needsShift].
+$script:X11CharKeySyms = [System.Collections.Generic.Dictionary[string,object[]]]::new()
+# Lowercase letters
+foreach ($c in 97..122) { $script:X11CharKeySyms[[string][char]$c] = @($c, $false) }
+# Uppercase letters
+foreach ($c in 65..90)  { $script:X11CharKeySyms[[string][char]$c] = @($c, $true) }
+# Digits
+foreach ($c in 48..57)  { $script:X11CharKeySyms[[string][char]$c] = @($c, $false) }
+# Unshifted punctuation
+' ','-','=','[',']','\',';',"'",',','.','/','`' | ForEach-Object {
+    $script:X11CharKeySyms[$_] = @([int][char]$_, $false)
+}
+# Shifted punctuation
+'!','@','#','$','%','^','&','*','(',')','_','+','{','}','|',':','"','<','>','?','~' | ForEach-Object {
+    $script:X11CharKeySyms[$_] = @([int][char]$_, $true)
+}
+
+# ── Cached VNC connection (reused across steps within a sequence) ────────────
+
+$script:CachedVnc   = $null
+$script:CachedVncVM = $null
+
+function Read-VncBytes {
+    param([System.IO.Stream]$Stream, [int]$Count)
+    $buf = [byte[]]::new($Count)
+    $offset = 0
+    while ($offset -lt $Count) {
+        $n = $Stream.Read($buf, $offset, $Count - $offset)
+        if ($n -eq 0) { throw "VNC connection closed during read" }
+        $offset += $n
+    }
+    return $buf
+}
+
+function Connect-VNC {
+    param([string]$VMName, [int]$Port = $script:DefaultVncPort)
+    # Return cached connection if still alive
+    if ($script:CachedVncVM -eq $VMName -and $script:CachedVnc -and $script:CachedVnc.Connected) {
+        return $script:CachedVnc
+    }
+    Disconnect-VNC
+    try {
+        $tcp = [System.Net.Sockets.TcpClient]::new()
+        $tcp.ReceiveTimeout = 5000
+        $tcp.SendTimeout    = 5000
+        $tcp.Connect("127.0.0.1", $Port)
+        $stream = $tcp.GetStream()
+
+        # ── RFB 3.8 handshake ──────────────────────────────────────────
+        # Server sends protocol version (12 bytes): "RFB 003.008\n"
+        $verBytes = Read-VncBytes -Stream $stream -Count 12
+        $serverVersion = [System.Text.Encoding]::ASCII.GetString($verBytes).Trim()
+        Write-Debug "      VNC server version: $serverVersion"
+
+        # Client responds with RFB 003.008
+        $clientVer = [System.Text.Encoding]::ASCII.GetBytes("RFB 003.008`n")
+        $stream.Write($clientVer, 0, 12)
+
+        # Server sends security types: [1 byte count] [count × 1 byte type]
+        $countBuf = Read-VncBytes -Stream $stream -Count 1
+        $numTypes = [int]$countBuf[0]
+        if ($numTypes -eq 0) {
+            # Server sent an error — read the reason string
+            $reasonLenBuf = Read-VncBytes -Stream $stream -Count 4
+            [Array]::Reverse($reasonLenBuf)
+            $reasonLen = [BitConverter]::ToInt32($reasonLenBuf, 0)
+            $reasonBuf = Read-VncBytes -Stream $stream -Count $reasonLen
+            $reason = [System.Text.Encoding]::ASCII.GetString($reasonBuf)
+            Write-Warning "VNC connection refused: $reason"
+            $tcp.Dispose()
+            return $null
+        }
+        $typesBuf = Read-VncBytes -Stream $stream -Count $numTypes
+
+        # Select security type 1 (None) — safe for localhost-only VNC
+        if ($typesBuf -notcontains 1) {
+            Write-Warning "VNC server does not offer 'None' auth. Available: $($typesBuf -join ', ')"
+            $tcp.Dispose()
+            return $null
+        }
+        $stream.WriteByte(1)
+
+        # RFB 3.8: read SecurityResult (4 bytes big-endian, 0 = OK)
+        $resultBuf = Read-VncBytes -Stream $stream -Count 4
+        [Array]::Reverse($resultBuf)
+        $secResult = [BitConverter]::ToInt32($resultBuf, 0)
+        if ($secResult -ne 0) {
+            Write-Warning "VNC security handshake failed (result=$secResult)"
+            $tcp.Dispose()
+            return $null
+        }
+
+        # ClientInit: shared flag = 1 (allow other clients)
+        $stream.WriteByte(1)
+
+        # ServerInit: 2 (width) + 2 (height) + 16 (pixel format) + 4 (name len) = 24 fixed bytes
+        $initBuf = Read-VncBytes -Stream $stream -Count 24
+        $nameLenBytes = $initBuf[20..23]
+        [Array]::Reverse($nameLenBytes)
+        $nameLen = [BitConverter]::ToInt32($nameLenBytes, 0)
+        if ($nameLen -gt 0) {
+            $nameBuf = Read-VncBytes -Stream $stream -Count $nameLen
+            Write-Debug "      VNC desktop: $([System.Text.Encoding]::UTF8.GetString($nameBuf))"
+        }
+
+        Write-Debug "      VNC connected to $VMName on port $Port"
+        $script:CachedVnc   = $tcp
+        $script:CachedVncVM = $VMName
+        return $tcp
+    } catch {
+        Write-Debug "      VNC connection to port $Port failed: $_"
+        if ($tcp) { try { $tcp.Dispose() } catch {} }
+        return $null
+    }
+}
+
+function Disconnect-VNC {
+    if ($script:CachedVnc) {
+        try { $script:CachedVnc.Dispose() } catch {}
+        $script:CachedVnc   = $null
+        $script:CachedVncVM = $null
+    }
+}
+
+function Send-VncKeyEvent {
+    param([System.Net.Sockets.TcpClient]$Client, [int]$KeySym, [bool]$Down)
+    # RFB KeyEvent message (8 bytes):
+    # [1: type=4] [1: down-flag] [2: padding] [4: X11 keysym big-endian]
+    $msg = [byte[]]::new(8)
+    $msg[0] = 4
+    $msg[1] = if ($Down) { 1 } else { 0 }
+    $msg[4] = [byte](($KeySym -shr 24) -band 0xFF)
+    $msg[5] = [byte](($KeySym -shr 16) -band 0xFF)
+    $msg[6] = [byte](($KeySym -shr 8)  -band 0xFF)
+    $msg[7] = [byte]($KeySym -band 0xFF)
+    $Client.GetStream().Write($msg, 0, 8)
+}
+
+function Send-KeyVNC {
+    param([string]$VMName, [string]$KeyName, [int]$Port = $script:DefaultVncPort)
+    $keySym = $script:X11KeySyms[$KeyName]
+    if (-not $keySym) { Write-Warning "Unknown VNC key '$KeyName'"; return $false }
+    $tcp = Connect-VNC -VMName $VMName -Port $Port
+    if (-not $tcp) { return $false }
+    try {
+        Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
+        Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+        Write-Debug "      VNC key='$KeyName' sym=0x$($keySym.ToString('X4'))"
+        return $true
+    } catch {
+        Write-Warning "VNC key send failed: $_"
+        Disconnect-VNC
+        return $false
+    }
+}
+
+function Send-TextVNC {
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs,
+          [int]$Port = $script:DefaultVncPort)
+    $tcp = Connect-VNC -VMName $VMName -Port $Port
+    if (-not $tcp) { return $false }
+    Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
+    try {
+        $shiftSym = $script:X11KeySyms["LShift"]
+        foreach ($ch in $Text.ToCharArray()) {
+            $entry = $script:X11CharKeySyms["$ch"]
+            if (-not $entry) {
+                Write-Warning "No VNC keysym for character '$ch'. Skipping."
+                continue
+            }
+            $keySym  = $entry[0]
+            $shifted = $entry[1]
+            if ($shifted) {
+                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $true
+            }
+            Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
+            Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+            if ($shifted) {
+                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false
+            }
+            if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
+        }
+        Write-Debug "      VNC text send complete"
+        return $true
+    } catch {
+        Write-Warning "VNC text send failed: $_"
+        Disconnect-VNC
+        return $false
+    }
+}
+
+# ── AXUIElement keystroke transport (Accessibility API) ─────────────────────
+# Posts keyboard events directly to UTM's process via AXUIElementPostKeyboardEvent.
+# Unlike CGEventPost (which targets the frontmost app), this targets UTM by PID,
+# so it works even when UTM is not the focused application.
+# Works for both QEMU and Apple Virtualization Framework backends.
+# Requires Accessibility permission for the terminal running the test harness.
+# Uses the same macOS virtual key codes as the AppleScript/CGEvent functions.
+
+function Send-KeyAXUI {
+    param([string]$VMName, [string]$KeyName)
+    $code = $script:UTMKeyMap[$KeyName]
+    if (-not $code) { Write-Warning "Unknown key '$KeyName' for AXUI"; return $false }
+
+    $jxaScript = @"
+ObjC.import('ApplicationServices');
+var utm = Application('UTM');
+var pid = utm.id();
+var axApp = $.AXUIElementCreateApplication(pid);
+var err1 = $.AXUIElementPostKeyboardEvent(axApp, 0, $code, true);
+delay(0.01);
+var err2 = $.AXUIElementPostKeyboardEvent(axApp, 0, $code, false);
+(err1 === 0 && err2 === 0) ? 'ok' : 'axui_error:' + err1 + ',' + err2;
+"@
+
+    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_axui_$([System.IO.Path]::GetRandomFileName()).js")
+    try {
+        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
+        $result = & osascript -l JavaScript $tmpFile 2>&1
+    } finally {
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+    }
+    Write-Debug "      AXUI key='$KeyName' code=$code result=$result"
+    return ("$result" -eq "ok")
+}
+
+function Send-TextAXUI {
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
+
+    Write-Debug "      AXUI text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
+    $charIndex = 0
+    $keyCalls = [System.Text.StringBuilder]::new()
+    foreach ($ch in $Text.ToCharArray()) {
+        $entry = $script:MacCharKeyCodes["$ch"]
+        if (-not $entry) {
+            Write-Warning "No macOS key code for character '$ch' (index $charIndex). Skipping."
+            $charIndex++
+            continue
+        }
+        $kc = $entry[0]
+        $shifted = $entry[1] ? "true" : "false"
+        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
+        $charIndex++
+    }
+
+    $jxaTemplate = @'
+ObjC.import('ApplicationServices');
+var utm = Application('UTM');
+var pid = utm.id();
+var axApp = $.AXUIElementCreateApplication(pid);
+var kShiftKeyCode = 56;
+
+function sendKey(keyCode, shift) {
+    if (shift) {
+        $.AXUIElementPostKeyboardEvent(axApp, 0, kShiftKeyCode, true);
+        delay(0.02);
+    }
+    $.AXUIElementPostKeyboardEvent(axApp, 0, keyCode, true);
+    delay(0.01);
+    $.AXUIElementPostKeyboardEvent(axApp, 0, keyCode, false);
+    if (shift) {
+        delay(0.02);
+        $.AXUIElementPostKeyboardEvent(axApp, 0, kShiftKeyCode, false);
+    }
+    delay(__DELAY__);
+}
+__KEYCALLS__
+'ok';
+'@
+
+    $jxaScript = $jxaTemplate -replace '__DELAY__', $delaySec `
+                              -replace '__KEYCALLS__', $keyCalls.ToString()
+
+    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_axui_$([System.IO.Path]::GetRandomFileName()).js")
+    try {
+        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
+        $result = & osascript -l JavaScript $tmpFile 2>&1
+    } finally {
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+    }
+    Write-Debug "      AXUI text: $result"
+    return ("$result" -eq "ok")
+}
+
+# ── Hyper-V scan code helper ────────────────────────────────────────────────
+
 function Send-ScanCode {
     param($Keyboard, [byte[]]$Codes)
     $r = Invoke-CimMethod -InputObject $Keyboard -MethodName "TypeScancodes" -Arguments @{Scancodes=$Codes}
@@ -289,7 +598,15 @@ return "window_not_found"
 function Send-Key {
     param([string]$HostType, [string]$VMName, [string]$KeyName)
     if ($HostType -eq "host.windows.hyper-v") { return Send-KeyHyperV -VMName $VMName -KeyName $KeyName }
-    elseif ($HostType -eq "host.macos.utm")   { return Send-KeyUTM    -VMName $VMName -KeyName $KeyName }
+    elseif ($HostType -eq "host.macos.utm") {
+        # Try VNC first (QEMU VMs), then AXUI (focus-independent), then AppleScript (legacy)
+        $vncOk = Send-KeyVNC -VMName $VMName -KeyName $KeyName
+        if ($vncOk) { return $true }
+        $axuiOk = Send-KeyAXUI -VMName $VMName -KeyName $KeyName
+        if ($axuiOk) { return $true }
+        Write-Debug "      VNC and AXUI unavailable for key, falling back to AppleScript"
+        return Send-KeyUTM -VMName $VMName -KeyName $KeyName
+    }
     else { Write-Warning "Unknown host: $HostType"; return $false }
 }
 
@@ -441,7 +758,15 @@ __KEYCALLS__
 function Send-Text {
     param([string]$HostType, [string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
     if ($HostType -eq "host.windows.hyper-v") { return Send-TextHyperV -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs }
-    elseif ($HostType -eq "host.macos.utm")   { return Send-TextUTM    -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs }
+    elseif ($HostType -eq "host.macos.utm") {
+        # Try VNC first (QEMU VMs), then AXUI (focus-independent), then JXA/CGEvent (legacy)
+        $vncOk = Send-TextVNC -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs
+        if ($vncOk) { return $true }
+        $axuiOk = Send-TextAXUI -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs
+        if ($axuiOk) { return $true }
+        Write-Debug "      VNC and AXUI unavailable for text, falling back to JXA/CGEvent"
+        return Send-TextUTM -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs
+    }
     else { Write-Warning "Unknown host: $HostType"; return $false }
 }
 

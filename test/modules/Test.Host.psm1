@@ -85,6 +85,44 @@ function Assert-Elevation {
     return $true
 }
 
+function Assert-Accessibility {
+    <#
+    .SYNOPSIS
+    On macOS, checks that the terminal has Accessibility permission (required for
+    AXUIElementPostKeyboardEvent). Returns $true if granted or not on macOS.
+    Prints setup instructions and returns $false if the permission is missing.
+    #>
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+
+    # AXIsProcessTrusted() returns true when the calling process has Accessibility access.
+    try {
+        $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
+        $result = & osascript -l JavaScript -e $jxa 2>&1
+        if ("$result" -eq "true") { return $true }
+    } catch {
+        Write-Debug "Accessibility check failed: $_"
+    }
+
+    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning " Accessibility permission is NOT granted for this terminal."
+    Write-Warning ""
+    Write-Warning " The test harness needs Accessibility access to send keystrokes"
+    Write-Warning " to UTM VMs without requiring window focus."
+    Write-Warning ""
+    Write-Warning " To fix:"
+    Write-Warning "   1. Open System Settings > Privacy & Security > Accessibility"
+    Write-Warning "   2. Click the + button and add your terminal app"
+    Write-Warning "      (Terminal.app, iTerm2, or whichever you use)"
+    Write-Warning "   3. Ensure the toggle is ON"
+    Write-Warning "   4. Restart the terminal and re-run the test"
+    Write-Warning ""
+    Write-Warning " Without this permission, keystrokes require UTM to stay focused"
+    Write-Warning " and any window change will cause missed input."
+    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    return $false
+}
+
 function Invoke-GitPull {
     <#
     .SYNOPSIS
@@ -153,4 +191,4 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
-Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Invoke-GitPull, Get-CurrentGitCommit
+Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Assert-Accessibility, Invoke-GitPull, Get-CurrentGitCommit

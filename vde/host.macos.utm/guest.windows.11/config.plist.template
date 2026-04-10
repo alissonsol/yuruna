@@ -41,7 +41,20 @@
 	<key>QEMU</key>
 	<dict>
 		<key>AdditionalArguments</key>
-		<array/>
+		<array>
+			<!-- VNC server on localhost:5900 for focus-independent keystroke input.
+			     The test harness sends RFB key events over TCP instead of relying
+			     on macOS GUI focus (AppleScript/CGEvent). Listening on localhost
+			     only — not exposed to the network. -->
+			<dict>
+				<key>string</key>
+				<string>-vnc</string>
+			</dict>
+			<dict>
+				<key>string</key>
+				<string>localhost:0</string>
+			</dict>
+		</array>
 		<key>BalloonDevice</key>
 		<false/>
 		<key>DebugLog</key>

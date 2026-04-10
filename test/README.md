@@ -84,6 +84,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `stopOnFailure` | `false` | When `true`, stop tests on first failure and preserve VM for investigation. When `false`, clean up the failed VM and continue to the next guest. Failure artifacts are always copied to `status/log/` for remote inspection |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
 | `charDelayMs` | `20` | Default delay in ms between keystrokes in `type`/`typeAndEnter` actions |
+| `vncPort` | `5900` | VNC port for QEMU-backend UTM VMs (display `:0` = 5900). Used by the focus-independent VNC keystroke transport |
 | `verifyScreenshotThreshold` | `0.85` | Similarity threshold (0–1) for verify-screenshot comparison |
 | `guestOrder` | all three | Array of guest keys to test, in execution order (see below) |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
@@ -402,7 +403,7 @@ test/
 | Module | Purpose | Key functions |
 |--------|---------|---------------|
 | `Get-NewText` | Diff-based OCR text extraction (pure C#) | `Get-NewTextContent`, `Get-ProcessedScreenImage` |
-| `Test.Host` | Platform detection, elevation checks, git | `Get-HostType`, `Get-GuestList`, `Assert-Elevation`, `Invoke-GitPull` |
+| `Test.Host` | Platform detection, elevation/accessibility checks, git | `Get-HostType`, `Get-GuestList`, `Assert-Elevation`, `Assert-Accessibility`, `Invoke-GitPull` |
 | `Test.Status` | Status document lifecycle | `Initialize-StatusDocument`, `Set-StepStatus`, `Complete-Run` |
 | `Test.StatusServer` | HTTP status server management | `Start-StatusServer`, `Stop-StatusServer` |
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |

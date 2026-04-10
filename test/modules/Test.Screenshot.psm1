@@ -87,20 +87,21 @@ function Get-UtmScreenshot {
     $jxaScript = @"
 ObjC.import('CoreGraphics');
 ObjC.import('CoreFoundation');
-// Get all on-screen windows
+// kCGWindowListOptionOnScreenOnly = 1, kCGNullWindowID = 0
+// Named constants may not resolve in the JXA ObjC bridge, so use numeric values.
 var winList = ObjC.deepUnwrap(
-    $.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)
+    $.CGWindowListCopyWindowInfo(1, 0)
 );
 var found = null;
 var utmWindows = [];
 for (var i = 0; i < winList.length; i++) {
     var w = winList[i];
-    var owner = w.kCGWindowOwnerName || '';
-    var name  = w.kCGWindowName || '';
+    var owner = w['kCGWindowOwnerName'] || '';
+    var name  = w['kCGWindowName'] || '';
     if (owner.indexOf('UTM') >= 0) {
-        utmWindows.push(owner + ': ' + name);
+        utmWindows.push(owner + ': ' + name + ' (#' + w['kCGWindowNumber'] + ')');
         if (name.indexOf('$safeVMName') >= 0 && !found) {
-            found = w.kCGWindowNumber;
+            found = w['kCGWindowNumber'];
         }
     }
 }

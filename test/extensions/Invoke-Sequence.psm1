@@ -710,25 +710,29 @@ if (!found) {
 
     function sendKey(keyCode, shift) {
         if (shift) {
-            // Press physical Left Shift key down
+            // Press physical Left Shift key down.
+            // Apple Virtualization Framework ignores CGEvent modifier flags and
+            // only sees physical key state, so we must wait long enough for VF
+            // to register the shift before sending the character key.
             var shiftDn = $.CGEventCreateKeyboardEvent(null, kShiftKeyCode, true);
             $.CGEventSetFlags(shiftDn, kShiftFlag);
             $.CGEventPost(0, shiftDn);
-            delay(0.04);
+            delay(0.08);
 
             // Press character key (with shift flag set on the event too)
             var down = $.CGEventCreateKeyboardEvent(null, keyCode, true);
             $.CGEventSetFlags(down, kShiftFlag);
             $.CGEventPost(0, down);
-            delay(0.01);
+            delay(0.02);
             var up = $.CGEventCreateKeyboardEvent(null, keyCode, false);
             $.CGEventSetFlags(up, kShiftFlag);
             $.CGEventPost(0, up);
-            delay(0.04);
+            delay(0.06);
 
             // Release physical Left Shift key
             var shiftUp = $.CGEventCreateKeyboardEvent(null, kShiftKeyCode, false);
             $.CGEventPost(0, shiftUp);
+            delay(0.02);
         } else {
             var down = $.CGEventCreateKeyboardEvent(null, keyCode, true);
             $.CGEventPost(0, down);

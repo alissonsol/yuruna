@@ -104,7 +104,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "clear; curl -k -sI http://localhost | head -n 1 | cut -d ' ' -f 2",
+      "text": "clear; bash /home/ubuntu/yuruna/test/test-localhost.sh",
       "description": "Test website is responding"
     },
     {

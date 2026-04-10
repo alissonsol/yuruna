@@ -89,29 +89,39 @@ ObjC.import('CoreGraphics');
 ObjC.import('CoreFoundation');
 // kCGWindowListOptionOnScreenOnly = 1, kCGNullWindowID = 0
 // Named constants may not resolve in the JXA ObjC bridge, so use numeric values.
-var winList = ObjC.deepUnwrap(
-    $.CGWindowListCopyWindowInfo(1, 0)
-);
-var found = null;
-var utmWindows = [];
-for (var i = 0; i < winList.length; i++) {
-    var w = winList[i];
-    var owner = w['kCGWindowOwnerName'] || '';
-    var name  = w['kCGWindowName'] || '';
-    if (owner.indexOf('UTM') >= 0) {
-        utmWindows.push(owner + ': ' + name + ' (#' + w['kCGWindowNumber'] + ')');
-        if (name.indexOf('$safeVMName') >= 0 && !found) {
-            found = w['kCGWindowNumber'];
+var ref = $.CGWindowListCopyWindowInfo(1, 0);
+if (!ref) { 'error|CGWindowListCopyWindowInfo returned null'; }
+else {
+    var winList = ObjC.deepUnwrap(ref);
+    var found = null;
+    var utmWindows = [];
+    for (var i = 0; i < winList.length; i++) {
+        var w = winList[i];
+        var owner = w['kCGWindowOwnerName'] || '';
+        var name  = w['kCGWindowName'] || '';
+        if (owner.indexOf('UTM') >= 0) {
+            utmWindows.push(owner + ': ' + name + ' (#' + w['kCGWindowNumber'] + ')');
+            if (name.indexOf('$safeVMName') >= 0 && !found) {
+                found = w['kCGWindowNumber'];
+            }
         }
     }
-}
-if (found) {
-    '' + found;
-} else {
-    'not_found|' + utmWindows.join(', ');
+    if (found) {
+        '' + found;
+    } else {
+        'not_found|' + utmWindows.join(', ');
+    }
 }
 "@
-    $windowIdResult = & osascript -l JavaScript -e $jxaScript 2>&1
+    # Write to temp file — multi-line JXA is unreliable via osascript -e
+    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_cgwin_$([System.IO.Path]::GetRandomFileName()).js")
+    try {
+        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
+        $windowIdResult = & osascript -l JavaScript $tmpFile 2>&1
+    } finally {
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+    }
+    Write-Debug "      CGWindowList result: $windowIdResult"
     $captured = $false
     if ($LASTEXITCODE -eq 0 -and "$windowIdResult" -match '^\d+$') {
         $cgWindowId = "$windowIdResult"
@@ -124,7 +134,9 @@ if (found) {
         }
     } else {
         $diagInfo = "$windowIdResult"
-        if ($diagInfo -match '^not_found\|(.*)$') {
+        if ($diagInfo -match '^error\|(.*)$') {
+            Write-Warning "CGWindowList query failed: $($Matches[1])"
+        } elseif ($diagInfo -match '^not_found\|(.*)$') {
             $windowNames = $Matches[1]
             if ($windowNames) {
                 Write-Warning "UTM window for '$VMName' not found. Available UTM windows: $windowNames"

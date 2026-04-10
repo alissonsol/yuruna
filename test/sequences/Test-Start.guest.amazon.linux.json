@@ -108,7 +108,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "sudo reboot now",
+      "text": "clear; sudo reboot now",
       "description": "Reboot the VM, for the fun of it!"
     }
   ]

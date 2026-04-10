@@ -64,8 +64,13 @@
       "waitPollSeconds": 30
     },
     {
+      "action": "delay",
+      "seconds": 3,
+      "description": "HACK: Wait a bit before sending the kubectl command"
+    },
+    {
       "action": "typeAndEnter",
-      "text": "kubectl get nodes",
+      "text": "clear; kubectl get nodes",
       "description": "Check node status"
     },
     {
@@ -90,7 +95,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "newgrp docker",
+      "text": "clear; newgrp docker",
       "description": "Activate docker group for this current session"
     },
     {
@@ -112,7 +117,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "curl -k -s -o /dev/null -w \"%{http_code}\" http://localhost",
+      "text": "clear; curl -k -s -o /dev/null -w '%{http_code}' http://localhost",
       "description": "Test website is responding"
     },
     {
@@ -124,7 +129,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "sudo reboot now",
+      "text": "clear; sudo reboot now",
       "description": "Reboot the VM"
     }
   ]

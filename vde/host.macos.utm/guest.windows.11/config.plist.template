@@ -40,21 +40,14 @@
 	</dict>
 	<key>QEMU</key>
 	<dict>
+		<!-- To enable focus-independent VNC keystroke input, add QEMU args
+		     for a localhost-only VNC server. The test harness will auto-detect
+		     it and send RFB key events over TCP instead of using AppleScript.
+		     The correct AdditionalArguments format must be verified in UTM's
+		     UI: open VM Settings > QEMU > Additional Arguments, add
+		     -vnc localhost:0, then copy the resulting plist entry here. -->
 		<key>AdditionalArguments</key>
-		<array>
-			<!-- VNC server on localhost:5900 for focus-independent keystroke input.
-			     The test harness sends RFB key events over TCP instead of relying
-			     on macOS GUI focus (AppleScript/CGEvent). Listening on localhost
-			     only — not exposed to the network. -->
-			<dict>
-				<key>string</key>
-				<string>-vnc</string>
-			</dict>
-			<dict>
-				<key>string</key>
-				<string>localhost:0</string>
-			</dict>
-		</array>
+		<array/>
 		<key>BalloonDevice</key>
 		<false/>
 		<key>DebugLog</key>

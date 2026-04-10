@@ -65,7 +65,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "sudo reboot now",
+      "text": "clear; sudo reboot now",
       "description": "Reboot the VM"
     }
   ]

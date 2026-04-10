@@ -8,6 +8,7 @@
   },
   "alwaysRedownloadImages": false,
   "getImageRefreshHours": 24,
+  "repoUrl": "https://github.com/alissonsol/yuruna",
   "testVmNamePrefix": "test-",
   "cycleDelaySeconds": 30,
   "vmStartTimeoutSeconds": 120,

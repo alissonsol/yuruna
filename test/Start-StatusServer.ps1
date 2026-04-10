@@ -103,21 +103,31 @@ $StatusFile = Join-Path $StatusDir "status.json"
 if (Test-Path $StatusFile) {
     try {
         $statusDoc = Get-Content -Raw $StatusFile | ConvertFrom-Json
-        if (-not $statusDoc.repoUrl) {
+        $configPath = Join-Path $TestRoot "test-config.json"
+        $config = $null
+        if (Test-Path $configPath) {
+            try { $config = Get-Content -Raw $configPath | ConvertFrom-Json } catch { }
+        }
+        $repoUrl = $null
+        if ($config -and $config.repoUrl) { $repoUrl = $config.repoUrl }
+        if (-not $repoUrl -and $statusDoc.repoUrl) { $repoUrl = $statusDoc.repoUrl }
+        if (-not $repoUrl) {
             $RepoRoot = Split-Path -Parent $TestRoot
             $remote = & git -C $RepoRoot remote get-url origin 2>&1
             if ($LASTEXITCODE -eq 0 -and $remote) {
                 $repoUrl = ($remote -replace '\.git$', '')
-                if ($statusDoc.PSObject.Properties['repoUrl']) {
-                    $statusDoc.repoUrl = $repoUrl
-                } else {
-                    $statusDoc | Add-Member -NotePropertyName 'repoUrl' -NotePropertyValue $repoUrl
-                }
-                $statusDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $StatusFile -Encoding utf8
-                Write-Output "Set repoUrl in status.json: $repoUrl"
             } else {
                 Write-Warning "Could not derive repoUrl from git remote: $remote"
             }
+        }
+        if ($repoUrl -and (-not $statusDoc.repoUrl -or $statusDoc.repoUrl -ne $repoUrl)) {
+            if ($statusDoc.PSObject.Properties['repoUrl']) {
+                $statusDoc.repoUrl = $repoUrl
+            } else {
+                $statusDoc | Add-Member -NotePropertyName 'repoUrl' -NotePropertyValue $repoUrl
+            }
+            $statusDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $StatusFile -Encoding utf8
+            Write-Output "Set repoUrl in status.json: $repoUrl"
         }
     } catch {
         Write-Warning "Could not update repoUrl in status.json: $_"

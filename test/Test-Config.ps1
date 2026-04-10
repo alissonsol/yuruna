@@ -137,6 +137,12 @@ if ($Config.ContainsKey("statusServer")) {
     Write-Warn "'statusServer' not set — status HTTP server will be disabled."
 }
 
+if ($Config.ContainsKey("repoUrl")) {
+    Write-Pass "'repoUrl' = '$($Config.repoUrl)'"
+} else {
+    Write-Warn "'repoUrl' not set — status page commit links may not work."
+}
+
 # Abort here if notification block is missing; nothing more to check.
 if (-not $Config.ContainsKey("notification")) { exit 1 }
 

@@ -217,6 +217,7 @@ while ($true) {
         -HostType       $HostType `
         -Hostname       (hostname) `
         -GitCommit      $GitCommit `
+        -RepoUrl        $Config.repoUrl `
         -GuestList      $GuestList `
         -StepNames      $StepNames
 

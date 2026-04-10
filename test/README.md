@@ -54,6 +54,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
   },
   "alwaysRedownloadImages": false,
   "getImageRefreshHours": 24,
+  "repoUrl": "https://github.com/alissonsol/yuruna",
   "testVmNamePrefix": "test-",
   "cycleDelaySeconds": 30,
   "vmStartTimeoutSeconds": 120,
@@ -76,6 +77,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `vmBootDelaySeconds` | `15` | Extra wait after VM is running, before screenshots/tests |
 | `alwaysRedownloadImages` | `false` | Force re-download even if image exists |
 | `getImageRefreshHours` | `24` | Hours between automatic image re-downloads |
+| `repoUrl` | `https://github.com/alissonsol/yuruna` | Repository URL used by the status page for commit links |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
 | `charDelayMs` | `20` | Default delay in ms between keystrokes in `type`/`typeAndEnter` actions |
 | `verifyScreenshotThreshold` | `0.85` | Similarity threshold (0–1) for verify-screenshot comparison |

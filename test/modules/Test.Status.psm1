@@ -40,6 +40,7 @@ function Initialize-StatusDocument {
         [string]   $HostType,
         [string]   $Hostname,
         [string]   $GitCommit,
+        [string]   $RepoUrl    = $null,
         [string[]] $GuestList,
         [string[]] $StepNames = @("New-VM", "Start-VM", "Verify-VM")
     )
@@ -47,7 +48,7 @@ function Initialize-StatusDocument {
 
     $history = @()
     $lastGetImageAt = $null
-    $repoUrl = $null
+    $repoUrl = $RepoUrl
     $cycle = 0
     if (Test-Path $StatusFilePath) {
         try {
@@ -55,7 +56,7 @@ function Initialize-StatusDocument {
             if ($prev.history) { $history = @($prev.history) }
             if ($prev.lastGetImageAt) { $lastGetImageAt = $prev.lastGetImageAt }
             if ($prev.cycle) { $cycle = [int]$prev.cycle }
-            if ($prev.repoUrl) { $repoUrl = $prev.repoUrl }
+            if (-not $repoUrl -and $prev.repoUrl) { $repoUrl = $prev.repoUrl }
         } catch { Write-Warning "Could not read previous status: $_" }
     }
 

@@ -117,7 +117,7 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "clear; curl -k -s -o /dev/null -w '%{http_code}' http://localhost",
+      "text": "clear; curl -k -sI http://localhost | head -n 1 | cut -d ' ' -f 2",
       "description": "Test website is responding"
     },
     {

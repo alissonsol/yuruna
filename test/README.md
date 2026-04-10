@@ -233,7 +233,7 @@ module (`automation/yuruna-log.psm1`) overrides the built-in `Write-Output`,
 in addition to appearing on the console. The `debug_mode` and `verbose_mode`
 flags control how much detail appears on screen and in the log.
 
-Log files are named `{runId}.{hostname}.{gitCommit}.txt` and are git-ignored.
+Log files are named `{runId}.{hostname}.{gitCommit}.html` and are git-ignored.
 The status page links each Run ID to its log file for easy inspection.
 
 ## Status page
@@ -260,7 +260,7 @@ the start of each cycle whether the server is still alive and restarts it if
 needed.
 
 The server serves files from the `test/status/` directory (including
-`log/*.txt` transcript files). The runner writes `status.json` atomically
+`log/*.html` transcript files). The runner writes `status.json` atomically
 (write to `.tmp`, then rename) so the page always reads a complete document.
 
 To stop the server manually:
@@ -394,7 +394,7 @@ test/
     status.json.template          # Template for status data
     status.json                   # Written by the runner (auto-created, git-ignored)
     server.pid                    # Status server PID (auto-created, git-ignored)
-    log/                          # Transcript logs per run (git-ignored .txt files)
+    log/                          # Transcript logs per run (git-ignored .html files)
 ```
 
 ### Module responsibilities

@@ -229,7 +229,7 @@
   function logFileUrl(runId, hostname, gitCommit) {
     if (!runId || !hostname || !gitCommit) return null;
     const safeRunId = runId.replace(/:/g, '-');
-    return 'log/' + safeRunId + '.' + hostname + '.' + gitCommit + '.txt';
+    return 'log/' + safeRunId + '.' + hostname + '.' + gitCommit + '.html';
   }
 
   function fmtDate(iso) {

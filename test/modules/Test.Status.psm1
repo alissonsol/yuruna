@@ -30,13 +30,13 @@ function Get-UtcTimestamp {
 <#
 .SYNOPSIS
     Initializes a fresh status document for a new run and writes status.json.
-    
+
 .DESCRIPTION
     Creates a new status document with the provided parameters. StepNames controls
     which steps are tracked per guest (allows the caller to add Invoke-PoolTest when
     extension scripts are present). Preserves history, cycle count, and lastGetImageAt
     from the previous status file if present. Returns the runId string.
-    
+
 .PARAMETER RepoUrl
     Repository URL (typically from test-config.json) used by the status page for
     commit links. If not provided, attempts to read from previous status.json.

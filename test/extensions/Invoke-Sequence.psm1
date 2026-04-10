@@ -254,6 +254,7 @@ function Send-KeyUTM {
     if (-not $code) { Write-Warning "Unknown key '$KeyName' for UTM"; return $false }
     if ($KeyName -eq "Enter") { $keyAction = 'keystroke return' }
     else                      { $keyAction = "key code $code" }
+    $safeVMName = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
     $appleScript = @"
 tell application "UTM" to activate
 delay 0.5
@@ -261,7 +262,7 @@ tell application "System Events"
     tell process "UTM"
         set frontmost to true
         repeat with w in windows
-            if name of w contains "$VMName" then
+            if name of w contains "$safeVMName" then
                 perform action "AXRaise" of w
                 delay 0.5
                 $keyAction
@@ -419,7 +420,8 @@ __KEYCALLS__
     'ok';
 }
 '@
-    $jxaScript = $jxaTemplate -replace '__VMNAME__', ($VMName -replace "'", "\'") `
+    $safeJxaVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'"
+    $jxaScript = $jxaTemplate -replace '__VMNAME__', $safeJxaVMName `
                               -replace '__DELAY__', $delaySec `
                               -replace '__KEYCALLS__', $keyCalls.ToString()
 
@@ -1090,12 +1092,15 @@ function Invoke-Sequence {
         return $true
     }
 
-    $sequence = Get-Content -Raw $SequencePath | ConvertFrom-Json
-
-    # Clean up stale failure artifacts from any prior run
+    # Initialize logDir early so the catch block can write diagnostics
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     $logDir = Get-YurunaLogDir
+
+  try {
+    $sequence = Get-Content -Raw $SequencePath | ConvertFrom-Json
+
+    # Clean up stale failure artifacts from any prior run
     Remove-Item (Join-Path $logDir "last_failure.json") -Force -ErrorAction SilentlyContinue
 
     # Build variables table: built-ins + JSON-defined
@@ -1249,6 +1254,22 @@ function Invoke-Sequence {
 
     Write-Information "    All $($steps.Count) steps completed."
     return $true
+
+  } catch {
+    Write-Warning "    Invoke-Sequence unhandled error: $_"
+    # Preserve diagnostics for the crash
+    try {
+        $crashInfo = @{
+            error     = "$_"
+            vmName    = $VMName
+            guestKey  = $GuestKey
+            sequence  = $SequencePath
+            timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+        } | ConvertTo-Json
+        Set-Content -Path (Join-Path $logDir "last_failure.json") -Value $crashInfo -Force -ErrorAction SilentlyContinue
+    } catch { Write-Verbose "Could not write last_failure.json: $_" }
+    return $false
+  }
 }
 
 Export-ModuleMember -Function Invoke-Sequence

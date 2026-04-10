@@ -402,3 +402,4 @@ test/sequences/captures/
 .bazelrc.user
 MODULE.bazel.lock
 .bazel-cache
+test/status/server.heartbeat

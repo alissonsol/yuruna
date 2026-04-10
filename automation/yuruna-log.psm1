@@ -54,7 +54,9 @@ function Write-Output {
     )
     process {
         if ($global:__YurunaLogFile) {
-            $InputObject | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            foreach ($item in $InputObject) {
+                [System.Net.WebUtility]::HtmlEncode("$item") | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            }
         }
         Microsoft.PowerShell.Utility\Write-Output -InputObject $InputObject -NoEnumerate:$NoEnumerate
     }
@@ -105,7 +107,7 @@ function Write-Error {
     process {
         if ($global:__YurunaLogFile) {
             $text = if ($Message) { $Message } elseif ($Exception) { $Exception.Message } else { '' }
-            "ERROR: $text" | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            [System.Net.WebUtility]::HtmlEncode("ERROR: $text") | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
         }
         $PSBoundParameters.Remove('InputObject') | Out-Null
         Microsoft.PowerShell.Utility\Write-Error @PSBoundParameters
@@ -127,7 +129,7 @@ function Write-Warning {
     )
     process {
         if ($global:__YurunaLogFile) {
-            "WARNING: $Message" | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            [System.Net.WebUtility]::HtmlEncode("WARNING: $Message") | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
         }
         Microsoft.PowerShell.Utility\Write-Warning -Message $Message
     }
@@ -148,7 +150,7 @@ function Write-Debug {
     )
     process {
         if ($global:__YurunaLogFile) {
-            "DEBUG: $Message" | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            [System.Net.WebUtility]::HtmlEncode("DEBUG: $Message") | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
         }
         Microsoft.PowerShell.Utility\Write-Debug -Message $Message
     }
@@ -169,7 +171,7 @@ function Write-Verbose {
     )
     process {
         if ($global:__YurunaLogFile) {
-            "VERBOSE: $Message" | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            [System.Net.WebUtility]::HtmlEncode("VERBOSE: $Message") | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
         }
         Microsoft.PowerShell.Utility\Write-Verbose -Message $Message
     }
@@ -193,7 +195,7 @@ function Write-Information {
     )
     process {
         if ($global:__YurunaLogFile) {
-            "INFO: $MessageData" | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            [System.Net.WebUtility]::HtmlEncode("INFO: $MessageData") | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
         }
         $params = @{ MessageData = $MessageData }
         if ($Tags) { $params['Tags'] = $Tags }

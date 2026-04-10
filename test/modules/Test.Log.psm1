@@ -58,8 +58,10 @@ function Start-LogFile {
     $logDir = Get-LogDir -TestRoot $TestRoot
     # Sanitize RunId for use as a filename (replace colons from ISO timestamps)
     $safeRunId = $RunId -replace ':', '-'
-    $logFile = Join-Path $logDir "${safeRunId}.${Hostname}.${GitCommit}.txt"
+    $logFile = Join-Path $logDir "${safeRunId}.${Hostname}.${GitCommit}.html"
     if ($PSCmdlet.ShouldProcess($logFile, 'Start log file')) {
+        # Write HTML preamble
+        "<html><body><pre>" | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
         $global:__YurunaLogFile = $logFile
         # Fallback: import the proxy module if not already loaded
         if (-not (Get-Module yuruna-log)) {
@@ -85,6 +87,9 @@ function Stop-LogFile {
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if ($PSCmdlet.ShouldProcess('log file', 'Stop logging')) {
+        if ($global:__YurunaLogFile) {
+            "</pre></body></html>" | Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
+        }
         $global:__YurunaLogFile = $null
     }
 }

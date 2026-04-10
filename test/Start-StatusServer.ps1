@@ -106,7 +106,7 @@ if (Test-Path $StatusFile) {
         $configPath = Join-Path $TestRoot "test-config.json"
         $config = $null
         if (Test-Path $configPath) {
-            try { $config = Get-Content -Raw $configPath | ConvertFrom-Json } catch { }
+            try { $config = Get-Content -Raw $configPath | ConvertFrom-Json } catch { Write-Verbose "Could not parse test-config.json: $_" }
         }
         $repoUrl = $null
         if ($config -and $config.repoUrl) { $repoUrl = $config.repoUrl }
@@ -114,8 +114,10 @@ if (Test-Path $StatusFile) {
         if (-not $repoUrl) {
             $RepoRoot = Split-Path -Parent $TestRoot
             $remote = & git -C $RepoRoot remote get-url origin 2>&1
-            if ($LASTEXITCODE -eq 0 -and $remote) {
+            if ($LASTEXITCODE -eq 0 -and $remote -and $remote -match '^(https?://|git@)') {
                 $repoUrl = ($remote -replace '\.git$', '')
+            } elseif ($LASTEXITCODE -eq 0 -and $remote) {
+                Write-Warning "Git remote URL has unexpected format, skipping: $remote"
             } else {
                 Write-Warning "Could not derive repoUrl from git remote: $remote"
             }
@@ -139,10 +141,24 @@ $serverScript = @"
 `$ErrorActionPreference = 'Stop'
 `$listener = [System.Net.HttpListener]::new()
 `$listener.Prefixes.Add('http://*:$Port/')
+`$heartbeatFile = Join-Path '$($StatusDir -replace "'","''")' 'server.heartbeat'
+`$heartbeatTimeoutMinutes = 30
 try {
     `$listener.Start()
     while (`$listener.IsListening) {
-        `$ctx = `$listener.GetContext()
+        # Use async GetContext with timeout so we can check the heartbeat periodically
+        `$asyncResult = `$listener.BeginGetContext(`$null, `$null)
+        while (-not `$asyncResult.AsyncWaitHandle.WaitOne(10000)) {
+            # Every 10s, check if the heartbeat file is stale
+            if (Test-Path `$heartbeatFile) {
+                `$age = (Get-Date) - (Get-Item `$heartbeatFile).LastWriteTime
+                if (`$age.TotalMinutes -gt `$heartbeatTimeoutMinutes) {
+                    `$listener.Stop()
+                    exit 0
+                }
+            }
+        }
+        `$ctx = `$listener.EndGetContext(`$asyncResult)
         try {
             `$req  = `$ctx.Request
             `$res  = `$ctx.Response
@@ -173,6 +189,14 @@ try {
                 if (`$ext -eq '.json') {
                     `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
                     `$res.Headers.Add('Pragma', 'no-cache')
+                }
+                `$fileInfo = [System.IO.FileInfo]::new(`$file)
+                if (`$fileInfo.Length -gt 50MB) {
+                    `$res.StatusCode = 413
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('File too large')
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
                 }
                 `$bytes = [System.IO.File]::ReadAllBytes(`$file)
                 `$res.ContentLength64 = `$bytes.Length

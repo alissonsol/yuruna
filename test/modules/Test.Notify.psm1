@@ -50,7 +50,7 @@ function Send-Notification {
         html    = "<pre>$([System.Net.WebUtility]::HtmlEncode($Body))</pre>"
     } | ConvertTo-Json
 
-    Invoke-RestMethod -Uri "https://api.resend.com/emails" -Method Post -Headers $headers -Body $emailBody | Out-Null
+    Invoke-RestMethod -Uri "https://api.resend.com/emails" -Method Post -Headers $headers -Body $emailBody -Verbose:$false -Debug:$false | Out-Null
     Write-Information "Notification sent via Resend API to: $($notif.toAddress)" -InformationAction Continue
 }
 

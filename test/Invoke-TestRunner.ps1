@@ -16,6 +16,8 @@
 
 #requires -version 7
 
+# The global variable is the cross-module communication channel with yuruna-log.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '')]
 param(
     [string]$ConfigPath        = $null,
     [switch]$NoGitPull,
@@ -126,37 +128,79 @@ function Copy-FailureArtifactsToStatusLog {
 
         $srcScreen = Join-Path $YurunaLogDir "failure_screenshot_${VMName}.png"
         if (Test-Path $srcScreen) {
-            $dest = Join-Path $statusLogDir "$logId.failure-screenshot.png"
+            $destName = "$logId.failure-screenshot.png"
+            $dest = Join-Path $statusLogDir $destName
             Copy-Item -Path $srcScreen -Destination $dest -Force
-            Write-Output "  Failure screenshot saved: ./status/log/$logId.failure-screenshot.png"
+            Write-Output "  Failure screenshot saved: ./status/log/$destName"
+            # Write clickable HTML link directly to log file (bypasses proxy encoding)
+            if ($global:__YurunaLogFile) {
+                "  <a href=""$destName"">Failure screenshot: $destName</a>" |
+                    Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            }
         }
 
         $srcOcr = Join-Path $YurunaLogDir "failure_ocr_${VMName}.txt"
         if (Test-Path $srcOcr) {
-            $dest = Join-Path $statusLogDir "$logId.failure-ocr.txt"
+            $destName = "$logId.failure-ocr.txt"
+            $dest = Join-Path $statusLogDir $destName
             Copy-Item -Path $srcOcr -Destination $dest -Force
-            Write-Output "  Failure OCR text saved: ./status/log/$logId.failure-ocr.txt"
+            Write-Output "  Failure OCR text saved: ./status/log/$destName"
+            if ($global:__YurunaLogFile) {
+                "  <a href=""$destName"">Failure OCR text: $destName</a>" |
+                    Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            }
         }
     } catch {
         Write-Warning "  Could not copy failure artifacts to status/log: $_"
     }
 }
 
+# === Graceful shutdown support ===
+$script:ShutdownRequested = $false
+$script:ActiveVMName      = $null
+$script:CycleFinalized    = $true    # tracks whether Complete-Run/Stop-LogFile have been called
+
+try {
+    [Console]::CancelKeyPress += {
+        param($eventSender, $e)
+        $null = $eventSender  # required by .NET event signature
+        $e.Cancel = $true
+        $script:ShutdownRequested = $true
+        Write-Warning "Shutdown requested (Ctrl+C). Will clean up after current operation..."
+    }
+} catch {
+    Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $_"
+}
+
 # === Continuous test loop ===
+$HeartbeatFile = Join-Path $StatusDir "server.heartbeat"
 $CycleCount     = 0
 try {
     $prevStatus = Get-Content -Raw $StatusFile | ConvertFrom-Json
     if ($prevStatus.cycle) { $CycleCount = [int]$prevStatus.cycle }
 } catch { Write-Warning "Could not read previous cycle count from status file: $_" }
-$OverallPassed  = $true
+$OverallPassed       = $true
+$ConsecutiveCrashes  = 0
+$MaxConsecutiveCrashes = 3
 
 while ($true) {
+    if ($script:ShutdownRequested) {
+        Write-Output "Shutdown requested. Exiting cycle loop."
+        break
+    }
+
     $CycleCount++
     $OverallPassed  = $true
     $FailedGuest    = $null
     $FailedStep     = $null
     $FailureMessage = $null
+    $script:CycleFinalized = $false
     $Warnings = [System.Collections.Generic.List[string]]::new()
+
+  try {
+
+    # Touch heartbeat so the status server knows the runner is alive
+    Set-Content -Path $HeartbeatFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
 
     Write-Output ""
     Write-Output "============================================="
@@ -194,7 +238,11 @@ while ($true) {
     $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
 
     # --- Re-read config (may have changed via git pull) ---
-    $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+    try {
+        $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+    } catch {
+        Write-Warning "Could not reload config after git pull, using previous config: $_"
+    }
 
     # --- Restart status server to pick up any file/config changes ---
     if ($Config.statusServer.enabled -and -not $NoServer) {
@@ -313,7 +361,13 @@ while ($true) {
     # --- Test each guest sequentially (cleanup → create → start → verify → screenshots → pool test → stop) ---
     # Only one guest VM exists at a time, so failures don't leave other VMs active.
     foreach ($GuestKey in $GuestList) {
+        if ($script:ShutdownRequested) {
+            Write-Output "Shutdown requested. Skipping remaining guests."
+            $OverallPassed = $false; $FailedStep = "shutdown"
+            break
+        }
         $VMName = $VMNames[$GuestKey]
+        $script:ActiveVMName = $VMName
         Write-Output ""
         Write-Output "=== $GuestKey (VM: $VMName) ==="
 
@@ -524,15 +578,19 @@ while ($true) {
         Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
         $global:ProgressPreference = $savedProgress
         Write-Output "  Cleanup complete for $GuestKey."
+        $script:ActiveVMName = $null
     }
 
     # === Finalise cycle ===
     $FinalStatus = $OverallPassed ? "pass" : "fail"
     Complete-Run -OverallStatus $FinalStatus -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
     Stop-LogFile
+    $script:CycleFinalized = $true
 
     Write-Output ""
     Write-Output "=== Cycle $CycleCount complete: $FinalStatus ==="
+
+    if ($OverallPassed) { $ConsecutiveCrashes = 0 }
 
     if (-not $OverallPassed) {
         if ($StopOnFailure) {
@@ -570,8 +628,53 @@ while ($true) {
         }
     }
 
-    Write-Output "Next cycle in $CycleDelay seconds..."
-    Start-Sleep -Seconds $CycleDelay
+  } catch {
+    # --- Unhandled exception in cycle — emergency cleanup ---
+    $ConsecutiveCrashes++
+    Write-Output ""
+    Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    Write-Output "  UNHANDLED ERROR in cycle $CycleCount"
+    Write-Output "  $_"
+    Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+
+    # Stop/remove the active VM if one was in progress
+    if ($script:ActiveVMName) {
+        try {
+            Write-Output "  Emergency cleanup: stopping VM '$($script:ActiveVMName)'..."
+            $savedProgress = $global:ProgressPreference
+            $global:ProgressPreference = 'SilentlyContinue'
+            Stop-TestVM -HostType $HostType -VMName $script:ActiveVMName -ErrorAction SilentlyContinue | Out-Null
+            Remove-TestVM -HostType $HostType -VMName $script:ActiveVMName -ErrorAction SilentlyContinue | Out-Null
+            $global:ProgressPreference = $savedProgress
+        } catch { Write-Warning "  Emergency VM cleanup failed: $_" }
+        $script:ActiveVMName = $null
+    }
+
+    # Finalize the cycle if not already done
+    if (-not $script:CycleFinalized) {
+        try {
+            Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns) -ErrorAction SilentlyContinue
+            Stop-LogFile -ErrorAction SilentlyContinue
+        } catch { Write-Warning "  Emergency cycle finalization failed: $_" }
+        $script:CycleFinalized = $true
+    }
+
+    if ($ConsecutiveCrashes -ge $MaxConsecutiveCrashes) {
+        Write-Output "  $ConsecutiveCrashes consecutive unhandled errors — aborting."
+        $OverallPassed = $false
+        break
+    }
+    Write-Output "  Will retry next cycle ($ConsecutiveCrashes/$MaxConsecutiveCrashes consecutive errors)."
+  }
+
+    if ($script:ShutdownRequested) {
+        Write-Output "Shutdown requested. Exiting cycle loop."
+        break
+    }
+
+    $delay = if ($CycleDelay) { $CycleDelay } else { $CycleDelaySeconds }
+    Write-Output "Next cycle in $delay seconds..."
+    Start-Sleep -Seconds $delay
 }
 
 # === Failure notification (only reached when stopOnFailure breaks the loop) ===

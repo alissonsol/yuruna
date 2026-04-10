@@ -78,30 +78,30 @@ function Get-UtmScreenshot {
     }
     if ($script:ScreencaptureWorks -eq $false) { return $null }
 
-    # Query the UTM window via System Events (Accessibility API) WITHOUT
-    # activating UTM or raising the window. Returns the window ID and content
-    # bounds so we can try screencapture -l (by ID, no focus needed) first,
-    # then screencapture -R (by bounds, may include overlapping windows) as
-    # a fallback. Format: "id|x,y,w,h" or "not_found|window names".
+    # Query the UTM window bounds via System Events (Accessibility API)
+    # WITHOUT activating UTM or raising the window. Uses screencapture -R
+    # to capture the screen region at the window's position.
+    # Note: UTM's SwiftUI windows do not expose an `id` property, so we
+    # cannot use screencapture -l. However, -R works without activation
+    # as long as the UTM window is not obscured by another window.
     $safeVMName = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
     $boundsScript = @"
 tell application "System Events"
     tell process "UTM"
         repeat with w in windows
             if name of w contains "$safeVMName" then
-                set wId to id of w
                 -- Try content area (first group) to exclude title bar and toolbar.
                 try
                     set contentArea to first group of w
                     set {cx, cy} to position of contentArea
                     set {cw, ch} to size of contentArea
-                    return ("" & wId & "|" & cx & "," & cy & "," & cw & "," & ch)
+                    return ("" & cx & "," & cy & "," & cw & "," & ch)
                 end try
                 -- Fallback: window frame with title-bar offset (28pt).
                 set {wx, wy} to position of w
                 set {ww, wh} to size of w
                 set titleBarH to 28
-                return ("" & wId & "|" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
+                return ("" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
             end if
         end repeat
     end tell
@@ -119,34 +119,12 @@ end tell
     Write-Debug "      Window query result: $boundsResult"
     $captured = $false
 
-    if ($LASTEXITCODE -eq 0 -and "$boundsResult" -match '^(\d+)\|(\d+,\d+,\d+,\d+)$') {
-        $windowId = $Matches[1]
-        $bounds   = $Matches[2]
-
-        # Try screencapture -l (captures specific window, no focus needed).
-        # May fail in SwiftUI apps where AppleScript window ID != CGWindowID.
-        $captureErr = & screencapture -x -l $windowId "$OutputPath" 2>&1
+    if ($LASTEXITCODE -eq 0 -and "$boundsResult" -match '^\d+,\d+,\d+,\d+$') {
+        $captureErr = & screencapture -x -R "$boundsResult" "$OutputPath" 2>&1
         if (Test-Path $OutputPath) {
-            $fileSize = (Get-Item $OutputPath).Length
-            if ($fileSize -gt 100) {
-                $captured = $true
-                Write-Debug "      Captured via screencapture -l $windowId"
-            } else {
-                Remove-Item $OutputPath -Force -ErrorAction SilentlyContinue
-                Write-Debug "      screencapture -l produced empty file, trying -R"
-            }
-        }
-
-        # Fallback: screencapture -R (captures screen region at window bounds).
-        # Works without activation if the window is not obscured.
-        if (-not $captured) {
-            $captureErr = & screencapture -x -R "$bounds" "$OutputPath" 2>&1
-            if (Test-Path $OutputPath) {
-                $captured = $true
-                Write-Debug "      Captured via screencapture -R $bounds"
-            } else {
-                Write-Warning "screencapture -R '$bounds' failed: $captureErr"
-            }
+            $captured = $true
+        } else {
+            Write-Warning "screencapture -R '$boundsResult' failed: $captureErr"
         }
     } else {
         $diagInfo = "$boundsResult"

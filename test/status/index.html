@@ -177,8 +177,8 @@
       <table>
         <thead>
           <tr>
-            <th>Run ID (UTC)</th><th>Host</th><th>Commit</th><th>Status</th>
-            <th>Guests</th><th>Started</th><th>Duration</th>
+            <th>Run ID (UTC)</th><th>Duration</th>
+            <th>Commit</th><th>Guests</th>
           </tr>
         </thead>
         <tbody id="history-body"></tbody>
@@ -324,14 +324,14 @@
         const hRunCell = hLogUrl
           ? `<a href="${hLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${hRunLabel}</a>`
           : hRunLabel;
+        const statusCls = cls(h.overallStatus);
         return `<tr>
-          <td class="mono">${hRunCell}</td>
-          <td>${h.host||'—'}</td>
-          <td class="mono">${(h.gitCommit||'—').slice(0,8)}</td>
-          <td>${badge(h.overallStatus)}</td>
-          <td>${guestPills}</td>
-          <td>${fmtDate(h.startedAt)}</td>
+          <td class="mono"><span class="badge ${statusCls}">${hRunCell}</span></td>
           <td>${fmtDuration(h.startedAt, h.finishedAt)}</td>
+          <td class="mono">${h.gitCommit && data.repoUrl
+            ? `<a href="${data.repoUrl}/commit/${h.gitCommit}" target="_blank" style="color:inherit;text-decoration:underline dotted">${h.gitCommit.slice(0,8)}</a>`
+            : (h.gitCommit||'—').slice(0,8)}</td>
+          <td>${guestPills}</td>
         </tr>`;
       }).join('');
     }

@@ -98,6 +98,32 @@ if (Test-Path $PidFile) {
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
+# --- Ensure repoUrl is set in status.json ---
+$StatusFile = Join-Path $StatusDir "status.json"
+if (Test-Path $StatusFile) {
+    try {
+        $statusDoc = Get-Content -Raw $StatusFile | ConvertFrom-Json
+        if (-not $statusDoc.repoUrl) {
+            $RepoRoot = Split-Path -Parent $TestRoot
+            $remote = & git -C $RepoRoot remote get-url origin 2>&1
+            if ($LASTEXITCODE -eq 0 -and $remote) {
+                $repoUrl = ($remote -replace '\.git$', '')
+                if ($statusDoc.PSObject.Properties['repoUrl']) {
+                    $statusDoc.repoUrl = $repoUrl
+                } else {
+                    $statusDoc | Add-Member -NotePropertyName 'repoUrl' -NotePropertyValue $repoUrl
+                }
+                $statusDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $StatusFile -Encoding utf8
+                Write-Output "Set repoUrl in status.json: $repoUrl"
+            } else {
+                Write-Warning "Could not derive repoUrl from git remote: $remote"
+            }
+        }
+    } catch {
+        Write-Warning "Could not update repoUrl in status.json: $_"
+    }
+}
+
 # --- Launch the server as a detached process ---
 $serverScript = @"
 `$ErrorActionPreference = 'Stop'

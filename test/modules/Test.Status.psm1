@@ -47,6 +47,7 @@ function Initialize-StatusDocument {
 
     $history = @()
     $lastGetImageAt = $null
+    $repoUrl = $null
     $cycle = 0
     if (Test-Path $StatusFilePath) {
         try {
@@ -54,6 +55,7 @@ function Initialize-StatusDocument {
             if ($prev.history) { $history = @($prev.history) }
             if ($prev.lastGetImageAt) { $lastGetImageAt = $prev.lastGetImageAt }
             if ($prev.cycle) { $cycle = [int]$prev.cycle }
+            if ($prev.repoUrl) { $repoUrl = $prev.repoUrl }
         } catch { Write-Warning "Could not read previous status: $_" }
     }
 
@@ -80,6 +82,7 @@ function Initialize-StatusDocument {
         finishedAt     = $null
         overallStatus  = "running"
         gitCommit      = $GitCommit
+        repoUrl        = $repoUrl
         lastGetImageAt = $lastGetImageAt
         cycle          = $cycle + 1
         guests         = @($guests)

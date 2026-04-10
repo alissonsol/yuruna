@@ -1,5 +1,9 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
+# Non-interactive mode for all installations
+export DEBIAN_FRONTEND=noninteractive
+export NONINTERACTIVE=1
 
 # ===== Ensure sudo credentials are cached =====
 if [[ $EUID -ne 0 ]]; then

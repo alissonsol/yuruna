@@ -111,7 +111,7 @@
     {
       "action": "fetchAndExecute",
       "text": "sudo bash /automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.update.sh",
-      "description": "Run update script",
+      "description": "vde/guest.amazon.linux/amazon.linux.update.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
       "waitPollSeconds": 6

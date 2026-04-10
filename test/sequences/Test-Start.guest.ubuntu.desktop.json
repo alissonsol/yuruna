@@ -117,7 +117,7 @@
     {
       "action": "fetchAndExecute",
       "text": "sudo bash /automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
-      "description": "Run update script",
+      "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
       "passwordPattern": "[sudo] password for ${username}",
       "passwordTimeoutSeconds": 30,
       "passwordPollSeconds": 3,

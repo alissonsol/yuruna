@@ -78,65 +78,79 @@ function Get-UtmScreenshot {
     }
     if ($script:ScreencaptureWorks -eq $false) { return $null }
 
-    # Find the UTM VM window's CGWindowID via CoreGraphics and capture it
-    # with screencapture -l. Unlike the previous screencapture -R approach,
-    # this captures a specific window without requiring UTM to be frontmost.
-    # CGWindowListCopyWindowInfo gives the real CGWindowID (not the
-    # AppleScript window id, which differs in SwiftUI apps like UTM).
-    $safeVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'"
-    $jxaScript = @"
-ObjC.import('CoreGraphics');
-ObjC.import('CoreFoundation');
-// kCGWindowListOptionOnScreenOnly = 1, kCGNullWindowID = 0
-// Named constants may not resolve in the JXA ObjC bridge, so use numeric values.
-var ref = $.CGWindowListCopyWindowInfo(1, 0);
-if (!ref) { 'error|CGWindowListCopyWindowInfo returned null'; }
-else {
-    var winList = ObjC.deepUnwrap(ref);
-    var found = null;
-    var utmWindows = [];
-    for (var i = 0; i < winList.length; i++) {
-        var w = winList[i];
-        var owner = w['kCGWindowOwnerName'] || '';
-        var name  = w['kCGWindowName'] || '';
-        if (owner.indexOf('UTM') >= 0) {
-            utmWindows.push(owner + ': ' + name + ' (#' + w['kCGWindowNumber'] + ')');
-            if (name.indexOf('$safeVMName') >= 0 && !found) {
-                found = w['kCGWindowNumber'];
+    # Query the UTM window via System Events (Accessibility API) WITHOUT
+    # activating UTM or raising the window. Returns the window ID and content
+    # bounds so we can try screencapture -l (by ID, no focus needed) first,
+    # then screencapture -R (by bounds, may include overlapping windows) as
+    # a fallback. Format: "id|x,y,w,h" or "not_found|window names".
+    $safeVMName = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
+    $boundsScript = @"
+tell application "System Events"
+    tell process "UTM"
+        repeat with w in windows
+            if name of w contains "$safeVMName" then
+                set wId to id of w
+                -- Try content area (first group) to exclude title bar and toolbar.
+                try
+                    set contentArea to first group of w
+                    set {cx, cy} to position of contentArea
+                    set {cw, ch} to size of contentArea
+                    return ("" & wId & "|" & cx & "," & cy & "," & cw & "," & ch)
+                end try
+                -- Fallback: window frame with title-bar offset (28pt).
+                set {wx, wy} to position of w
+                set {ww, wh} to size of w
+                set titleBarH to 28
+                return ("" & wId & "|" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
+            end if
+        end repeat
+    end tell
+    -- No match; list actual window names for diagnostics.
+    set nameList to {}
+    repeat with proc in (every process whose name contains "UTM")
+        repeat with w in windows of proc
+            set end of nameList to (name of proc) & ": " & (name of w)
+        end repeat
+    end repeat
+    return "not_found|" & (nameList as text)
+end tell
+"@
+    $boundsResult = & osascript -e $boundsScript 2>&1
+    Write-Debug "      Window query result: $boundsResult"
+    $captured = $false
+
+    if ($LASTEXITCODE -eq 0 -and "$boundsResult" -match '^(\d+)\|(\d+,\d+,\d+,\d+)$') {
+        $windowId = $Matches[1]
+        $bounds   = $Matches[2]
+
+        # Try screencapture -l (captures specific window, no focus needed).
+        # May fail in SwiftUI apps where AppleScript window ID != CGWindowID.
+        $captureErr = & screencapture -x -l $windowId "$OutputPath" 2>&1
+        if (Test-Path $OutputPath) {
+            $fileSize = (Get-Item $OutputPath).Length
+            if ($fileSize -gt 100) {
+                $captured = $true
+                Write-Debug "      Captured via screencapture -l $windowId"
+            } else {
+                Remove-Item $OutputPath -Force -ErrorAction SilentlyContinue
+                Write-Debug "      screencapture -l produced empty file, trying -R"
             }
         }
-    }
-    if (found) {
-        '' + found;
-    } else {
-        'not_found|' + utmWindows.join(', ');
-    }
-}
-"@
-    # Write to temp file — multi-line JXA is unreliable via osascript -e
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_cgwin_$([System.IO.Path]::GetRandomFileName()).js")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
-        $windowIdResult = & osascript -l JavaScript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
-    Write-Debug "      CGWindowList result: $windowIdResult"
-    $captured = $false
-    if ($LASTEXITCODE -eq 0 -and "$windowIdResult" -match '^\d+$') {
-        $cgWindowId = "$windowIdResult"
-        $captureErr = & screencapture -x -l $cgWindowId "$OutputPath" 2>&1
-        if (Test-Path $OutputPath) {
-            $captured = $true
-        } else {
-            Write-Warning "screencapture -l $cgWindowId failed: $captureErr"
-            Write-Warning "Falling back to full-screen capture."
+
+        # Fallback: screencapture -R (captures screen region at window bounds).
+        # Works without activation if the window is not obscured.
+        if (-not $captured) {
+            $captureErr = & screencapture -x -R "$bounds" "$OutputPath" 2>&1
+            if (Test-Path $OutputPath) {
+                $captured = $true
+                Write-Debug "      Captured via screencapture -R $bounds"
+            } else {
+                Write-Warning "screencapture -R '$bounds' failed: $captureErr"
+            }
         }
     } else {
-        $diagInfo = "$windowIdResult"
-        if ($diagInfo -match '^error\|(.*)$') {
-            Write-Warning "CGWindowList query failed: $($Matches[1])"
-        } elseif ($diagInfo -match '^not_found\|(.*)$') {
+        $diagInfo = "$boundsResult"
+        if ($diagInfo -match '^not_found\|(.*)$') {
             $windowNames = $Matches[1]
             if ($windowNames) {
                 Write-Warning "UTM window for '$VMName' not found. Available UTM windows: $windowNames"
@@ -146,9 +160,11 @@ else {
         } else {
             Write-Warning "Could not query UTM windows for '$VMName': $diagInfo"
         }
-        Write-Warning "Falling back to full-screen capture."
     }
+
+    # Last resort: full-screen capture
     if (-not $captured) {
+        Write-Warning "Falling back to full-screen capture."
         $captureErr = & screencapture -x "$OutputPath" 2>&1
         if (Test-Path $OutputPath) {
             $captured = $true

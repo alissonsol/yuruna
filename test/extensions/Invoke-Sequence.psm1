@@ -268,7 +268,7 @@ foreach ($c in 48..57)  { $script:X11CharKeySyms[[string][char]$c] = @($c, $fals
 $script:CachedVnc   = $null
 $script:CachedVncVM = $null
 
-function Read-VncBytes {
+function Read-VncBuffer {
     param([System.IO.Stream]$Stream, [int]$Count)
     $buf = [byte[]]::new($Count)
     $offset = 0
@@ -296,7 +296,7 @@ function Connect-VNC {
 
         # ── RFB 3.8 handshake ──────────────────────────────────────────
         # Server sends protocol version (12 bytes): "RFB 003.008\n"
-        $verBytes = Read-VncBytes -Stream $stream -Count 12
+        $verBytes = Read-VncBuffer -Stream $stream -Count 12
         $serverVersion = [System.Text.Encoding]::ASCII.GetString($verBytes).Trim()
         Write-Debug "      VNC server version: $serverVersion"
 
@@ -305,20 +305,20 @@ function Connect-VNC {
         $stream.Write($clientVer, 0, 12)
 
         # Server sends security types: [1 byte count] [count × 1 byte type]
-        $countBuf = Read-VncBytes -Stream $stream -Count 1
+        $countBuf = Read-VncBuffer -Stream $stream -Count 1
         $numTypes = [int]$countBuf[0]
         if ($numTypes -eq 0) {
             # Server sent an error — read the reason string
-            $reasonLenBuf = Read-VncBytes -Stream $stream -Count 4
+            $reasonLenBuf = Read-VncBuffer -Stream $stream -Count 4
             [Array]::Reverse($reasonLenBuf)
             $reasonLen = [BitConverter]::ToInt32($reasonLenBuf, 0)
-            $reasonBuf = Read-VncBytes -Stream $stream -Count $reasonLen
+            $reasonBuf = Read-VncBuffer -Stream $stream -Count $reasonLen
             $reason = [System.Text.Encoding]::ASCII.GetString($reasonBuf)
             Write-Warning "VNC connection refused: $reason"
             $tcp.Dispose()
             return $null
         }
-        $typesBuf = Read-VncBytes -Stream $stream -Count $numTypes
+        $typesBuf = Read-VncBuffer -Stream $stream -Count $numTypes
 
         # Select security type 1 (None) — safe for localhost-only VNC
         if ($typesBuf -notcontains 1) {
@@ -329,7 +329,7 @@ function Connect-VNC {
         $stream.WriteByte(1)
 
         # RFB 3.8: read SecurityResult (4 bytes big-endian, 0 = OK)
-        $resultBuf = Read-VncBytes -Stream $stream -Count 4
+        $resultBuf = Read-VncBuffer -Stream $stream -Count 4
         [Array]::Reverse($resultBuf)
         $secResult = [BitConverter]::ToInt32($resultBuf, 0)
         if ($secResult -ne 0) {
@@ -342,12 +342,12 @@ function Connect-VNC {
         $stream.WriteByte(1)
 
         # ServerInit: 2 (width) + 2 (height) + 16 (pixel format) + 4 (name len) = 24 fixed bytes
-        $initBuf = Read-VncBytes -Stream $stream -Count 24
+        $initBuf = Read-VncBuffer -Stream $stream -Count 24
         $nameLenBytes = $initBuf[20..23]
         [Array]::Reverse($nameLenBytes)
         $nameLen = [BitConverter]::ToInt32($nameLenBytes, 0)
         if ($nameLen -gt 0) {
-            $nameBuf = Read-VncBytes -Stream $stream -Count $nameLen
+            $nameBuf = Read-VncBuffer -Stream $stream -Count $nameLen
             Write-Debug "      VNC desktop: $([System.Text.Encoding]::UTF8.GetString($nameBuf))"
         }
 
@@ -357,14 +357,14 @@ function Connect-VNC {
         return $tcp
     } catch {
         Write-Debug "      VNC connection to port $Port failed: $_"
-        if ($tcp) { try { $tcp.Dispose() } catch {} }
+        if ($tcp) { try { $tcp.Dispose() } catch { Write-Debug "      VNC dispose error: $_" } }
         return $null
     }
 }
 
 function Disconnect-VNC {
     if ($script:CachedVnc) {
-        try { $script:CachedVnc.Dispose() } catch {}
+        try { $script:CachedVnc.Dispose() } catch { Write-Debug "      VNC disconnect error: $_" }
         $script:CachedVnc   = $null
         $script:CachedVncVM = $null
     }
@@ -446,6 +446,7 @@ function Send-TextVNC {
 # Uses the same macOS virtual key codes as the AppleScript/CGEvent functions.
 
 function Send-KeyAXUI {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'VMName', Justification = 'Consistent API with Send-KeyHyperV/Send-KeyUTM')]
     param([string]$VMName, [string]$KeyName)
     $code = $script:UTMKeyMap[$KeyName]
     if (-not $code) { Write-Warning "Unknown key '$KeyName' for AXUI"; return $false }
@@ -473,6 +474,7 @@ var err2 = $.AXUIElementPostKeyboardEvent(axApp, 0, $code, false);
 }
 
 function Send-TextAXUI {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'VMName', Justification = 'Consistent API with Send-TextHyperV/Send-TextUTM')]
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
     $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
 

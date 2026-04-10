@@ -541,7 +541,7 @@ while ($true) {
     Start-Sleep -Seconds $CycleDelay
 }
 
-# === Failure notification (only reached on break) ===
+# === Failure notification (only reached when stopOnFailure breaks the loop) ===
 if (-not $OverallPassed -and $FailedGuest) {
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"

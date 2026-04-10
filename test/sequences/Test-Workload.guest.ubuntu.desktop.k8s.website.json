@@ -89,6 +89,11 @@
       "description": "Wait for git clone to complete"
     },
     {
+      "action": "typeAndEnter",
+      "text": "newgrp docker",
+      "description": "Activate docker group for this current session"
+    },
+    {
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
       "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.website.sh",

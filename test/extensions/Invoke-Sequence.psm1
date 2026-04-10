@@ -38,6 +38,21 @@ if (Test-Path $_configPath) {
 }
 Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 
+# ── Helper: copy failure artifact to status/log for remote inspection ──────
+function Copy-FailureArtifactToStatusLog {
+    param(
+        [string]$SourcePath,
+        [string]$Suffix   # e.g. "failure-screenshot.png" or "failure-ocr.txt"
+    )
+    if (-not $global:__YurunaLogFile) { return $null }
+    if (-not (Test-Path $SourcePath)) { return $null }
+    $logId = [System.IO.Path]::GetFileNameWithoutExtension($global:__YurunaLogFile)
+    $statusLogDir = [System.IO.Path]::GetDirectoryName($global:__YurunaLogFile)
+    $destPath = Join-Path $statusLogDir "$logId.$Suffix"
+    Copy-Item -Path $SourcePath -Destination $destPath -Force -ErrorAction SilentlyContinue
+    return "./status/log/$logId.$Suffix"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared engine for executing interaction sequences from JSON files.
 #
@@ -959,11 +974,21 @@ function Wait-ForText {
                           else { $null }
         if ($lastScreenPath) {
             Copy-Item -Path $lastScreenPath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-            Write-Information "      Failure screenshot saved: $failScreenPath"
+            $statusScreenRef = Copy-FailureArtifactToStatusLog -SourcePath $failScreenPath -Suffix "failure-screenshot.png"
+            if ($statusScreenRef) {
+                Write-Information "      Failure screenshot saved: $statusScreenRef"
+            } else {
+                Write-Information "      Failure screenshot saved: $failScreenPath"
+            }
         }
         if ($lastOcrText) {
             Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
-            Write-Information "      Failure OCR text saved: $failOcrPath"
+            $statusOcrRef = Copy-FailureArtifactToStatusLog -SourcePath $failOcrPath -Suffix "failure-ocr.txt"
+            if ($statusOcrRef) {
+                Write-Information "      Failure OCR text saved: $statusOcrRef"
+            } else {
+                Write-Information "      Failure OCR text saved: $failOcrPath"
+            }
         }
 
         Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s"
@@ -1239,7 +1264,12 @@ function Invoke-Sequence {
                 $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
                 $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $failScreenPath
                 if ($captured) {
-                    Write-Information "      Failure screenshot saved: $failScreenPath"
+                    $statusScreenRef = Copy-FailureArtifactToStatusLog -SourcePath $failScreenPath -Suffix "failure-screenshot.png"
+                    if ($statusScreenRef) {
+                        Write-Information "      Failure screenshot saved: $statusScreenRef"
+                    } else {
+                        Write-Information "      Failure screenshot saved: $failScreenPath"
+                    }
                 }
             }
 

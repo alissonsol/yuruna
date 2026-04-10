@@ -210,6 +210,7 @@ while ($true) {
     $VmBootDelay    = $Config.vmBootDelaySeconds    ? [int]$Config.vmBootDelaySeconds    : 15
     $CycleDelay     = $Config.cycleDelaySeconds     ? [int]$Config.cycleDelaySeconds     : $CycleDelaySeconds
     $GetImageRefreshHours = $Config.getImageRefreshHours ? [int]$Config.getImageRefreshHours : 24
+    $StopOnFailure  = if ($Config.PSObject.Properties['stopOnFailure']) { [bool]$Config.stopOnFailure } else { $false }
 
     # --- Initialize status for this cycle ---
     $RunId = Initialize-StatusDocument `
@@ -311,7 +312,8 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "New-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "New-VM"; $FailureMessage = $r.errorMessage
-            break
+            if ($StopOnFailure) { break }
+            continue
         }
 
         # --- Start-VM ---
@@ -326,7 +328,8 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "Start-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Start-VM"; $FailureMessage = $r.errorMessage
-            break
+            if ($StopOnFailure) { break }
+            continue
         }
 
         # --- Install-OS (run Test-Start scripts to drive OS installation) ---
@@ -344,8 +347,17 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "Install-OS" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Install-OS"; $FailureMessage = $r.errorMessage
-            Write-Output "  VM '$VMName' left running for investigation."
-            break
+            if ($StopOnFailure) {
+                Write-Output "  VM '$VMName' left running for investigation."
+                break
+            }
+            Write-Output "  Cleaning up VM '$VMName' after failure..."
+            $savedProgress = $global:ProgressPreference
+            $global:ProgressPreference = 'SilentlyContinue'
+            Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+            Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
+            $global:ProgressPreference = $savedProgress
+            continue
         }
 
         # --- Verify-VM (poll until running, wait boot delay, then verify screenshot) ---
@@ -359,8 +371,17 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
-            Write-Output "  VM '$VMName' left running for investigation."
-            break
+            if ($StopOnFailure) {
+                Write-Output "  VM '$VMName' left running for investigation."
+                break
+            }
+            Write-Output "  Cleaning up VM '$VMName' after failure..."
+            $savedProgress = $global:ProgressPreference
+            $global:ProgressPreference = 'SilentlyContinue'
+            Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+            Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
+            $global:ProgressPreference = $savedProgress
+            continue
         }
         # Check verification screenshot if one exists for this host+guest
         $verifyRef = Get-VerifyScreenshot -HostType $HostType -GuestKey $GuestKey -VerifyDir $VerifyDir
@@ -380,8 +401,17 @@ while ($true) {
                     Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
                     Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                     $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
-                    Write-Output "  VM '$VMName' left running for investigation."
-                    break
+                    if ($StopOnFailure) {
+                        Write-Output "  VM '$VMName' left running for investigation."
+                        break
+                    }
+                    Write-Output "  Cleaning up VM '$VMName' after failure..."
+                    $savedProgress = $global:ProgressPreference
+                    $global:ProgressPreference = 'SilentlyContinue'
+                    Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                    Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                    $global:ProgressPreference = $savedProgress
+                    continue
                 }
                 Write-Output "  $GuestKey Verify-VM: PASS (screenshot similarity=$($cmp.similarity))"
             } else {
@@ -407,8 +437,17 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Screenshots" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Screenshots"; $FailureMessage = $r.errorMessage
-                Write-Output "  VM '$VMName' left running for investigation."
-                break
+                if ($StopOnFailure) {
+                    Write-Output "  VM '$VMName' left running for investigation."
+                    break
+                }
+                Write-Output "  Cleaning up VM '$VMName' after failure..."
+                $savedProgress = $global:ProgressPreference
+                $global:ProgressPreference = 'SilentlyContinue'
+                Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                $global:ProgressPreference = $savedProgress
+                continue
             }
         }
 
@@ -427,8 +466,17 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Invoke-PoolTest"; $FailureMessage = $r.errorMessage
-                Write-Output "  VM '$VMName' left running for investigation."
-                break
+                if ($StopOnFailure) {
+                    Write-Output "  VM '$VMName' left running for investigation."
+                    break
+                }
+                Write-Output "  Cleaning up VM '$VMName' after failure..."
+                $savedProgress = $global:ProgressPreference
+                $global:ProgressPreference = 'SilentlyContinue'
+                Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
+                $global:ProgressPreference = $savedProgress
+                continue
             }
         }
 
@@ -454,7 +502,31 @@ while ($true) {
     Write-Output "=== Cycle $CycleCount complete: $FinalStatus ==="
 
     if (-not $OverallPassed) {
-        break
+        if ($StopOnFailure) {
+            break
+        }
+        # Send notification but continue to next cycle
+        if ($FailedGuest) {
+            Write-Output ""
+            Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+            Write-Output "  FAILURE in cycle $CycleCount (continuing)"
+            Write-Output "  Guest:   $FailedGuest"
+            Write-Output "  Step:    $FailedStep"
+            Write-Output "  Error:   $FailureMessage"
+            Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+
+            $body = Format-FailureMessage `
+                -HostType     $HostType `
+                -Hostname     (hostname) `
+                -GuestKey     $FailedGuest `
+                -StepName     $FailedStep `
+                -ErrorMessage $FailureMessage `
+                -RunId        $RunId `
+                -GitCommit    $GitCommit
+            Send-Notification -Config $Config `
+                -Subject "Yuruna VDE Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
+                -Body    $body
+        }
     }
 
     if ($Warnings.Count -gt 0) {

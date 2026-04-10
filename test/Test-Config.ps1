@@ -143,6 +143,12 @@ if ($Config.ContainsKey("repoUrl")) {
     Write-Warn "'repoUrl' not set — status page commit links may not work."
 }
 
+if ($Config.ContainsKey("stopOnFailure")) {
+    Write-Pass "'stopOnFailure' = $($Config.stopOnFailure)"
+} else {
+    Write-Warn "'stopOnFailure' not set — defaults to false (continues on failure)."
+}
+
 # Abort here if notification block is missing; nothing more to check.
 if (-not $Config.ContainsKey("notification")) { exit 1 }
 

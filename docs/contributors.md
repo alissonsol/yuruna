@@ -9,6 +9,7 @@ Thanks to everyone who has contributed to developing, testing, and improving yur
 - [Markus Kuppe](https://github.com/lemmy)
 - [Paulo Haimann Pinto](https://github.com/PSergioHP)
 - [Ross Savage](https://github.com/Ross-GH)
+- [Sanket Kamble](https://github.com/akrine)
 - [Seth Eliot](https://github.com/setheliot)
 
 Back to [[Yuruna](../README.md)]

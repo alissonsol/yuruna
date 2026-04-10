@@ -1485,6 +1485,11 @@ function Invoke-Sequence {
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                 if ($ok -ne $false) {
                     Start-Sleep -Seconds $delaySeconds
+                    # Brief pause to let the VM's keyboard buffer drain before Enter.
+                    # On macOS UTM, Send-Text (CGEvent/JXA) and Send-Key (AppleScript)
+                    # run as separate OS processes; without this gap the Enter can be
+                    # lost during UTM's second window activation.
+                    Start-Sleep -Milliseconds 500
                     $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                 }
             }
@@ -1534,6 +1539,7 @@ function Invoke-Sequence {
                     $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                     if ($ok -ne $false) {
                         Start-Sleep -Seconds $delaySeconds
+                        Start-Sleep -Milliseconds 500
                         $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                     }
                 }
@@ -1567,6 +1573,7 @@ function Invoke-Sequence {
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                 if ($ok -ne $false) {
                     Start-Sleep -Seconds $delaySeconds
+                    Start-Sleep -Milliseconds 500
                     $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                 }
 
@@ -1586,6 +1593,7 @@ function Invoke-Sequence {
                         $ok = Send-Text -HostType $HostType -VMName $VMName -Text $pwText -CharDelayMs $charDelay
                         if ($ok -ne $false) {
                             Start-Sleep -Seconds $delaySeconds
+                            Start-Sleep -Milliseconds 500
                             $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                         }
                     }

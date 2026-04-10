@@ -1,0 +1,151 @@
+{
+  "$schema": "Interaction sequence for driving VM workload testing.",
+  "$actions": {
+    "delay":            "Wait a fixed number of seconds. Parameters: seconds (number).",
+    "key":              "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
+    "type":             "Type a text string. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, delay between chars in ms, default 50).",
+    "typeAndEnter":     "Type a text string, wait, then press Enter. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, default 50), delaySeconds (number, default 2).",
+    "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
+    "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
+    "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
+    "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
+    "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number)."
+  },
+  "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
+
+  "description": "Ubuntu Desktop: log in, install Kubernetes, deploy website to localhost cluster, verify HTTP 200.",
+  "variables": {
+    "username":    "ubuntu",
+    "password":    "password",
+    "newPassword": "belohorizonte"
+  },
+  "steps": [
+    {
+      "action": "waitForText",
+      "pattern": "Not listed?",
+      "timeoutSeconds": 600,
+      "pollSeconds": 6,
+      "description": "Wait for login screen"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "",
+      "description": "Bring up password field"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Password",
+      "timeoutSeconds": 30,
+      "pollSeconds": 3,
+      "description": "Wait for password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "Enter password"
+    },
+    {
+      "action": "delay",
+      "seconds": 30,
+      "description": "Wait for Ubuntu desktop to fully load after login"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "${username}@${vmName}",
+      "timeoutSeconds": 120,
+      "pollSeconds": 6,
+      "description": "Wait for shell prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "sudo bash /automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
+      "description": "Run k8s install script"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "[sudo] password for ${username}",
+      "timeoutSeconds": 30,
+      "pollSeconds": 3,
+      "description": "Wait for sudo password prompt"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "${newPassword}",
+      "sensitive": true,
+      "description": "Enter sudo password"
+    },
+    {
+      "action": "delay",
+      "seconds": 10,
+      "description": "Brief pause so install starts and prompt scrolls off screen"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "FETCHED AND EXECUTED:",
+      "timeoutSeconds": 1800,
+      "pollSeconds": 30,
+      "freshMatch": true,
+      "description": "Wait for k8s install to complete (may take 20-30 minutes)"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "kubectl get nodes",
+      "description": "Check node status"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Ready",
+      "timeoutSeconds": 60,
+      "pollSeconds": 5,
+      "description": "Wait for node to be Ready"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "git clone https://github.com/alissonsol/yuruna.git /home/ubuntu/yuruna",
+      "description": "Clone yuruna repo"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "${username}@${vmName}",
+      "timeoutSeconds": 120,
+      "pollSeconds": 6,
+      "freshMatch": true,
+      "description": "Wait for git clone to complete"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "sudo bash /automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
+      "description": "Run full workload deployment script"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "Enpoint:",
+      "timeoutSeconds": 1800,
+      "pollSeconds": 30,
+      "description": "Wait for Set-Workload to complete"
+    },
+    {
+      "action": "delay",
+      "seconds": 30,
+      "description": "Wait for pods to start"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "curl -k -s -o /dev/null -w \"%{http_code}\" http://localhost",
+      "description": "Test website is responding"
+    },
+    {
+      "action": "waitForText",
+      "pattern": "200",
+      "timeoutSeconds": 120,
+      "pollSeconds": 6,
+      "description": "Verify HTTP 200 response"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "sudo shutdown now",
+      "description": "Shutdown the VM"
+    }
+  ]
+}

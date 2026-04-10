@@ -82,19 +82,6 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "git clone https://github.com/alissonsol/yuruna.git /home/ubuntu/yuruna",
-      "description": "Clone yuruna repo"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 120,
-      "pollSeconds": 6,
-      "freshMatch": true,
-      "description": "Wait for git clone to complete"
-    },
-    {
-      "action": "typeAndEnter",
       "text": "clear; newgrp docker",
       "description": "Activate docker group for this current session"
     },

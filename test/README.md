@@ -81,7 +81,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `alwaysRedownloadImages` | `false` | Force re-download even if image exists |
 | `getImageRefreshHours` | `24` | Hours between automatic image re-downloads |
 | `repoUrl` | `https://github.com/alissonsol/yuruna` | Repository URL used by the status page for commit links |
-| `stopOnFailure` | `false` | When `true`, stop tests on first failure and preserve VM for investigation. When `false`, remove the failed VM and continue to the next cycle (notification still sent) |
+| `stopOnFailure` | `false` | When `true`, stop tests on first failure and preserve VM for investigation. When `false`, clean up the failed VM and continue to the next guest. Failure artifacts are always copied to `status/log/` for remote inspection |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
 | `charDelayMs` | `20` | Default delay in ms between keystrokes in `type`/`typeAndEnter` actions |
 | `verifyScreenshotThreshold` | `0.85` | Similarity threshold (0–1) for verify-screenshot comparison |

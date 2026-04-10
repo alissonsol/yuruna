@@ -151,6 +151,14 @@ try {
             if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
             `$path = `$path -replace '^status[/\\]', ''
             `$file = Join-Path '$($StatusDir -replace "'","''")' `$path
+            `$file = [System.IO.Path]::GetFullPath(`$file)
+            if (-not `$file.StartsWith('$($StatusDir -replace "'","''")')) {
+                `$res.StatusCode = 403
+                `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden')
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
             if (Test-Path `$file -PathType Leaf) {
                 `$ext = [System.IO.Path]::GetExtension(`$file)
                 `$res.ContentType = switch (`$ext) {
@@ -159,6 +167,7 @@ try {
                     '.css'  { 'text/css; charset=utf-8' }
                     '.js'   { 'application/javascript; charset=utf-8' }
                     '.txt'  { 'text/plain; charset=utf-8' }
+                    '.png'  { 'image/png' }
                     default { 'application/octet-stream' }
                 }
                 if (`$ext -eq '.json') {

@@ -116,6 +116,32 @@ if ($Config.statusServer.enabled -and -not $NoServer) {
     & $startScript -Port $serverPort -Restart
 }
 
+# === Helper: copy failure artifacts to status/log for remote inspection ===
+function Copy-FailureArtifactsToStatusLog {
+    param([string]$VMName)
+    try {
+        if (-not $LogFile) { return }
+        $logId = [System.IO.Path]::GetFileNameWithoutExtension($LogFile)
+        $statusLogDir = [System.IO.Path]::GetDirectoryName($LogFile)
+
+        $srcScreen = Join-Path $YurunaLogDir "failure_screenshot_${VMName}.png"
+        if (Test-Path $srcScreen) {
+            $dest = Join-Path $statusLogDir "$logId.failure-screenshot.png"
+            Copy-Item -Path $srcScreen -Destination $dest -Force
+            Write-Output "  Failure screenshot saved: ./status/log/$logId.failure-screenshot.png"
+        }
+
+        $srcOcr = Join-Path $YurunaLogDir "failure_ocr_${VMName}.txt"
+        if (Test-Path $srcOcr) {
+            $dest = Join-Path $statusLogDir "$logId.failure-ocr.txt"
+            Copy-Item -Path $srcOcr -Destination $dest -Force
+            Write-Output "  Failure OCR text saved: ./status/log/$logId.failure-ocr.txt"
+        }
+    } catch {
+        Write-Warning "  Could not copy failure artifacts to status/log: $_"
+    }
+}
+
 # === Continuous test loop ===
 $CycleCount     = 0
 try {
@@ -210,7 +236,7 @@ while ($true) {
     $VmBootDelay    = $Config.vmBootDelaySeconds    ? [int]$Config.vmBootDelaySeconds    : 15
     $CycleDelay     = $Config.cycleDelaySeconds     ? [int]$Config.cycleDelaySeconds     : $CycleDelaySeconds
     $GetImageRefreshHours = $Config.getImageRefreshHours ? [int]$Config.getImageRefreshHours : 24
-    $StopOnFailure  = if ($Config.PSObject.Properties['stopOnFailure']) { [bool]$Config.stopOnFailure } else { $false }
+    $StopOnFailure  = if ($Config.ContainsKey('stopOnFailure')) { [bool]$Config.stopOnFailure } else { $false }
 
     # --- Initialize status for this cycle ---
     $RunId = Initialize-StatusDocument `
@@ -313,6 +339,7 @@ while ($true) {
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "New-VM"; $FailureMessage = $r.errorMessage
             if ($StopOnFailure) { break }
+            Copy-FailureArtifactsToStatusLog -VMName $VMName
             continue
         }
 
@@ -329,6 +356,7 @@ while ($true) {
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Start-VM"; $FailureMessage = $r.errorMessage
             if ($StopOnFailure) { break }
+            Copy-FailureArtifactsToStatusLog -VMName $VMName
             continue
         }
 
@@ -351,6 +379,7 @@ while ($true) {
                 Write-Output "  VM '$VMName' left running for investigation."
                 break
             }
+            Copy-FailureArtifactsToStatusLog -VMName $VMName
             Write-Output "  Cleaning up VM '$VMName' after failure..."
             $savedProgress = $global:ProgressPreference
             $global:ProgressPreference = 'SilentlyContinue'
@@ -375,6 +404,7 @@ while ($true) {
                 Write-Output "  VM '$VMName' left running for investigation."
                 break
             }
+            Copy-FailureArtifactsToStatusLog -VMName $VMName
             Write-Output "  Cleaning up VM '$VMName' after failure..."
             $savedProgress = $global:ProgressPreference
             $global:ProgressPreference = 'SilentlyContinue'
@@ -405,6 +435,7 @@ while ($true) {
                         Write-Output "  VM '$VMName' left running for investigation."
                         break
                     }
+                    Copy-FailureArtifactsToStatusLog -VMName $VMName
                     Write-Output "  Cleaning up VM '$VMName' after failure..."
                     $savedProgress = $global:ProgressPreference
                     $global:ProgressPreference = 'SilentlyContinue'
@@ -441,6 +472,7 @@ while ($true) {
                     Write-Output "  VM '$VMName' left running for investigation."
                     break
                 }
+                Copy-FailureArtifactsToStatusLog -VMName $VMName
                 Write-Output "  Cleaning up VM '$VMName' after failure..."
                 $savedProgress = $global:ProgressPreference
                 $global:ProgressPreference = 'SilentlyContinue'
@@ -470,6 +502,7 @@ while ($true) {
                     Write-Output "  VM '$VMName' left running for investigation."
                     break
                 }
+                Copy-FailureArtifactsToStatusLog -VMName $VMName
                 Write-Output "  Cleaning up VM '$VMName' after failure..."
                 $savedProgress = $global:ProgressPreference
                 $global:ProgressPreference = 'SilentlyContinue'

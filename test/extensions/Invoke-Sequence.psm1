@@ -1449,6 +1449,12 @@ function Invoke-Sequence {
     }
     Write-Information "    Steps: $($steps.Count)"
 
+    # HACK: Force vmconnect to repaint by reconnecting.
+    # After a host reboot the Hyper-V console window may render blank;
+    # closing and reopening it forces a full framebuffer refresh.
+    Import-Module (Join-Path $modulesDir "Test.Start-VM.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Restart-VMConnect -HostType $HostType -VMName $VMName
+
     $stepNum = 0
     $screenshotDir = Join-Path (Split-Path -Parent $SequencePath) "captures"
 

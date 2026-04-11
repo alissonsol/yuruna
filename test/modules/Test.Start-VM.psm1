@@ -187,4 +187,33 @@ function Confirm-HyperVVMStarted {
     return $false
 }
 
-Export-ModuleMember -Function Invoke-StartVM, Stop-TestVM, Confirm-VMStarted
+# ── Reconnect vmconnect ──────────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Closes and reopens the vmconnect window for a Hyper-V VM.
+    After a host reboot the console window sometimes fails to repaint;
+    reconnecting forces a full framebuffer refresh.
+    No-op on non-Hyper-V hosts.
+#>
+function Restart-VMConnect {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$HostType, [string]$VMName)
+    if ($HostType -ne "host.windows.hyper-v") { return }
+    $vmconnect = "$env:SystemRoot\System32\vmconnect.exe"
+    if (-not (Test-Path $vmconnect)) { return }
+
+    if ($PSCmdlet.ShouldProcess($VMName, 'Reconnect vmconnect')) {
+        # Close any existing vmconnect window for this VM
+        Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+        # Reopen the console
+        Start-Process -FilePath $vmconnect -ArgumentList "localhost", $VMName
+        Start-Sleep -Seconds 2
+        Write-Information "    Reconnected vmconnect for '$VMName'"
+    }
+}
+
+Export-ModuleMember -Function Invoke-StartVM, Stop-TestVM, Confirm-VMStarted, Restart-VMConnect

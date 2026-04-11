@@ -33,16 +33,11 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Password",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "Wait for password prompt"
-    },
-    {
-      "action": "delay",
-      "seconds": 10,
-      "description": "Wait for Ubuntu desktop to fully load after login"
     },
     {
       "action": "waitForText",
@@ -56,17 +51,12 @@
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
       "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
       "passwordPattern": "[sudo] password for ${username}",
-      "passwordTimeoutSeconds": 30,
-      "passwordPollSeconds": 3,
+      "passwordTimeoutSeconds": 60,
+      "passwordPollSeconds": 6,
       "passwordText": "${newPassword}",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 1800,
-      "waitPollSeconds": 30
-    },
-    {
-      "action": "delay",
-      "seconds": 3,
-      "description": "HACK: Wait a bit before sending the kubectl command"
+      "waitPollSeconds": 9
     },
     {
       "action": "typeAndEnter",
@@ -77,7 +67,7 @@
       "action": "waitForText",
       "pattern": "Ready",
       "timeoutSeconds": 60,
-      "pollSeconds": 5,
+      "pollSeconds": 9,
       "description": "Wait for node to be Ready"
     },
     {
@@ -95,7 +85,7 @@
       "passwordText": "${newPassword}",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 1800,
-      "waitPollSeconds": 30
+      "waitPollSeconds": 9
     },
     {
       "action": "delay",
@@ -105,7 +95,7 @@
     {
       "action": "typeAndEnter",
       "text": "clear; bash /home/ubuntu/yuruna/test/test-localhost.sh",
-      "description": "Test website is responding"
+      "description": "Check website return code"
     },
     {
       "action": "waitForText",

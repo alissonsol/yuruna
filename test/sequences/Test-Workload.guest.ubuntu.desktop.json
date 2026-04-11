@@ -33,8 +33,8 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Password",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "Password"
@@ -42,26 +42,26 @@
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "description": "Wait for login shell prompt"
     },
     {
       "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before installing Desktop"
+      "seconds": 9,
+      "description": "Pause before installing Desktop"
     },
     {
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
       "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
       "passwordPattern": "[sudo] password for ${username}",
-      "passwordTimeoutSeconds": 30,
-      "passwordPollSeconds": 3,
+      "passwordTimeoutSeconds": 60,
+      "passwordPollSeconds": 6,
       "passwordText": "${newPassword}",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 300,
-      "waitPollSeconds": 6
+      "waitPollSeconds": 9
     },
     {
       "action": "typeAndEnter",

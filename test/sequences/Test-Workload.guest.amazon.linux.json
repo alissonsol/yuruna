@@ -25,13 +25,8 @@
       "action": "waitForText",
       "pattern": "login:",
       "timeoutSeconds": 180,
-      "pollSeconds": 6,
+      "pollSeconds": 9,
       "description": "login:"
-    },
-    {
-      "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before typing username"
     },
     {
       "action": "typeAndEnter",
@@ -56,8 +51,8 @@
     },
     {
       "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before installing Desktop"
+      "seconds": 9,
+      "description": "Pause before installing Desktop"
     },
     {
       "action": "typeAndEnter",
@@ -66,8 +61,8 @@
     },
     {
       "action": "delay",
-      "seconds": 10,
-      "description": "HACK: Pause during install — login prompt is scrolling off-screen."
+      "seconds": 15,
+      "description": "HACK: Wait for login prompt to scroll off-screen."
     },
     {
       "action": "waitForText",

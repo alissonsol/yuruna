@@ -26,13 +26,8 @@
       "action": "waitForText",
       "pattern": "login:",
       "timeoutSeconds": 180,
-      "pollSeconds": 3,
+      "pollSeconds": 9,
       "description": "login:"
-    },
-    {
-      "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before typing username"
     },
     {
       "action": "typeAndEnter",
@@ -42,8 +37,8 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Password:",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${password}",
       "sensitive": true,
       "description": "Password:"
@@ -51,8 +46,8 @@
     {
       "action": "waitForAndEnter",
       "pattern": ["Current password:", "urrent password"],
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${password}",
       "sensitive": true,
       "description": "Current password:"
@@ -60,8 +55,8 @@
     {
       "action": "waitForAndEnter",
       "pattern": "New password:",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "New password:"
@@ -69,8 +64,8 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Retype new password:",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "Retype new password:"
@@ -84,14 +79,14 @@
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "description": "Login shell prompt: ${username}@${vmName}"
     },
     {
       "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before running update"
+      "seconds": 9,
+      "description": "Pause before running update"
     },
     {
       "action": "fetchAndExecute",
@@ -99,12 +94,12 @@
       "description": "vde/guest.amazon.linux/amazon.linux.update.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
-      "waitPollSeconds": 6
+      "waitPollSeconds": 9
     },
     {
       "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before rebooting"
+      "seconds": 9,
+      "description": "Pause before rebooting"
     },
     {
       "action": "typeAndEnter",

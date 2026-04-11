@@ -23,40 +23,26 @@
   },
   "steps": [
     {
-      "action": "waitForText",
+      "action": "waitForAndEnter",
       "pattern": "Try or Install Ubuntu",
       "timeoutSeconds": 180,
-      "pollSeconds": 3,
-      "description": "Try or Install Ubuntu"
-    },
-    {
-      "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before GRUB dismissal"
-    },
-    {
-      "action": "typeAndEnter",
+      "pollSeconds": 9,
       "text": "",
       "description": "Dismiss GRUB menu"
-    },
-    {
-      "action": "delay",
-      "seconds": 10,
-      "description": "HACK: In Windows, at times the Ubuntu install waits for... nobody knows what!"
-    },
+    },    
     {
       "action": "waitForAndEnter",
       "pattern": "Not listed?",
       "timeoutSeconds": 900,
-      "pollSeconds": 6,
+      "pollSeconds": 9,
       "text": "",
       "description": "Not listed?"
     },
     {
       "action": "waitForAndEnter",
       "pattern": "Password",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${password}",
       "sensitive": true,
       "description": "Password"
@@ -64,8 +50,8 @@
     {
       "action": "waitForAndEnter",
       "pattern": ["Current password", "urrent password"],
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${password}",
       "sensitive": true,
       "description": "Current password"
@@ -74,7 +60,7 @@
       "action": "waitForAndEnter",
       "pattern": "New password",
       "timeoutSeconds": 60,
-      "pollSeconds": 3,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "New password"
@@ -82,8 +68,8 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Retype new password",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "Retype new password"
@@ -91,26 +77,21 @@
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 30,
-      "pollSeconds": 3,
-      "description": "Login shell prompt. CAREFUL: Look at the top of the shell window in Ubuntu!"
+      "timeoutSeconds": 60,
+      "pollSeconds": 6,
+      "description": "CAREFUL: Shell prompt is also window title for Ubuntu!"
     },
     {
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
       "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
       "passwordPattern": "[sudo] password for ${username}",
-      "passwordTimeoutSeconds": 30,
-      "passwordPollSeconds": 3,
+      "passwordTimeoutSeconds": 60,
+      "passwordPollSeconds": 6,
       "passwordText": "${newPassword}",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
-      "waitPollSeconds": 6
-    },
-    {
-      "action": "delay",
-      "seconds": 1,
-      "description": "Brief pause before rebooting"
+      "waitPollSeconds": 9
     },
     {
       "action": "typeAndEnter",

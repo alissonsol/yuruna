@@ -47,11 +47,6 @@
       "description": "Wait for login shell prompt"
     },
     {
-      "action": "delay",
-      "seconds": 9,
-      "description": "Pause before installing Desktop"
-    },
-    {
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
       "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",

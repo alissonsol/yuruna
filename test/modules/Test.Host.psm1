@@ -145,7 +145,7 @@ function Assert-ScreenLock {
     Write-Warning " image and OCR-based waitForText steps will time out."
     Write-Warning ""
     Write-Warning " Quick fix — run from PowerShell:"
-    Write-Warning "   Set-MacHostConditions"
+    Write-Warning "   Set-MacHostConditionSet"
     Write-Warning ""
     Write-Warning " Or manually in System Settings:"
     Write-Warning "   1. Displays > Advanced > Prevent automatic sleeping when"
@@ -159,7 +159,7 @@ function Assert-ScreenLock {
     return $false
 }
 
-function Set-MacHostConditions {
+function Set-MacHostConditionSet {
     <#
     .SYNOPSIS
     Configures macOS host settings needed for unattended VM testing:
@@ -167,14 +167,14 @@ function Set-MacHostConditions {
     Also triggers the Accessibility permission prompt if not already granted.
     Requires sudo for pmset. Idempotent — safe to run multiple times.
     .EXAMPLE
-    Set-MacHostConditions          # apply all settings
-    Set-MacHostConditions -WhatIf  # show what would change without applying
+    Set-MacHostConditionSet          # apply all settings
+    Set-MacHostConditionSet -WhatIf  # show what would change without applying
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
 
     if (-not $IsMacOS) {
-        Write-Warning "Set-MacHostConditions is only supported on macOS."
+        Write-Warning "Set-MacHostConditionSet is only supported on macOS."
         return
     }
 
@@ -369,4 +369,4 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
-Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Assert-ScreenLock, Assert-Accessibility, Set-MacHostConditions, Invoke-GitPull, Get-CurrentGitCommit
+Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Assert-ScreenLock, Assert-Accessibility, Set-MacHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit

@@ -93,9 +93,7 @@ $HostType = Get-HostType
 if (-not $HostType) { exit 1 }
 Write-Output "Host type: $HostType"
 
-if (-not (Assert-Elevation -HostType $HostType)) { exit 1 }
-if (-not (Assert-Accessibility -HostType $HostType)) { exit 1 }
-if (-not (Assert-ScreenLock -HostType $HostType)) { exit 1 }
+if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
 
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
@@ -190,6 +188,13 @@ $MaxConsecutiveCrashes = 3
 while ($true) {
     if ($script:ShutdownRequested) {
         Write-Output "Shutdown requested. Exiting cycle loop."
+        break
+    }
+
+    # Re-check all host conditions before each cycle — settings can revert
+    # (e.g. after a system update or user change) between long-running cycles.
+    if (-not (Assert-HostConditionSet -HostType $HostType)) {
+        Write-Warning "Host conditions failed. Fix the reported issues and restart."
         break
     }
 

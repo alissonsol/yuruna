@@ -403,7 +403,7 @@ test/
 | Module | Purpose | Key functions |
 |--------|---------|---------------|
 | `Get-NewText` | Diff-based OCR text extraction (pure C#) | `Get-NewTextContent`, `Get-ProcessedScreenImage` |
-| `Test.Host` | Platform detection, elevation/accessibility/screen-lock checks, git | `Get-HostType`, `Get-GuestList`, `Assert-Elevation`, `Assert-ScreenLock`, `Assert-Accessibility`, `Set-MacHostConditionSet`, `Invoke-GitPull` |
+| `Test.Host` | Platform detection, host-condition checks, git | `Get-HostType`, `Get-GuestList`, `Assert-HostConditionSet`, `Set-MacHostConditionSet`, `Invoke-GitPull` |
 | `Test.Status` | Status document lifecycle | `Initialize-StatusDocument`, `Set-StepStatus`, `Complete-Run` |
 | `Test.StatusServer` | HTTP status server management | `Start-StatusServer`, `Stop-StatusServer` |
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |

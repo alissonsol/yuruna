@@ -258,8 +258,8 @@ $.AXIsProcessTrustedWithOptions(opts);
 
     if ($changed) {
         Write-Output ""
-        Write-Output "Settings updated. Re-run Assert-ScreenLock to verify:"
-        Write-Output "  Assert-ScreenLock -HostType 'host.macos.utm'"
+        Write-Output "Settings updated. Re-run Assert-MacHostConditionSet to verify:"
+        Write-Output "  Assert-MacHostConditionSet -HostType 'host.macos.utm'"
     }
 }
 
@@ -299,6 +299,119 @@ function Assert-Accessibility {
     Write-Warning " and any window change will cause missed input."
     Write-Warning "═══════════════════════════════════════════════════════════════════"
     return $false
+}
+
+function Assert-MacHostConditionSet {
+    <#
+    .SYNOPSIS
+    Single gate for all macOS host prerequisites: Accessibility permission and
+    screen lock / display sleep settings.  Returns $true on non-macOS hosts or
+    when all conditions pass.  Returns $false and prints diagnostics on failure.
+    Callers should invoke this once at startup and again before each test cycle.
+    #>
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+
+    if (-not (Assert-Accessibility -HostType $HostType)) { return $false }
+    if (-not (Assert-ScreenLock    -HostType $HostType)) { return $false }
+
+    return $true
+}
+
+function Assert-WindowsHostConditionSet {
+    <#
+    .SYNOPSIS
+    Single gate for all Windows host prerequisites: Administrator elevation and
+    Hyper-V service availability.  Returns $true on non-Windows hosts or when all
+    conditions pass.  Returns $false and prints diagnostics on failure.
+    #>
+    param([string]$HostType)
+    if ($HostType -ne "host.windows.hyper-v") { return $true }
+
+    # 1. Administrator elevation
+    if (-not (Assert-Elevation -HostType $HostType)) { return $false }
+
+    # 2. Hyper-V management service must be running
+    $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
+    if (-not $svc -or $svc.Status -ne 'Running') {
+        Write-Warning "═══════════════════════════════════════════════════════════════════"
+        Write-Warning " Hyper-V Virtual Machine Management service (vmms) is not running."
+        Write-Warning ""
+        Write-Warning " To fix:"
+        Write-Warning "   1. Open an elevated PowerShell and run:"
+        Write-Warning "        Start-Service vmms"
+        Write-Warning "   2. If Hyper-V is not installed, enable it:"
+        Write-Warning "        Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
+        Write-Warning "      then reboot."
+        Write-Warning "═══════════════════════════════════════════════════════════════════"
+        return $false
+    }
+
+    # 3. Screen lock / display timeout — warn if display will turn off
+    try {
+        $acTimeout = (powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null |
+            Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
+            Select-Object -First 1)
+        if ($acTimeout) {
+            $seconds = [Convert]::ToInt32($acTimeout.Matches[0].Groups[1].Value, 16)
+            if ($seconds -ne 0) {
+                $minutes = [math]::Round($seconds / 60)
+                Write-Warning "═══════════════════════════════════════════════════════════════════"
+                Write-Warning " Display timeout is set to $minutes minute(s) on AC power."
+                Write-Warning " The screen will blank during long test runs, which may cause"
+                Write-Warning " Hyper-V Enhanced Session screen captures to fail."
+                Write-Warning ""
+                Write-Warning " To fix (elevated PowerShell):"
+                Write-Warning "   powercfg /change monitor-timeout-ac 0"
+                Write-Warning "   powercfg /change monitor-timeout-dc 0"
+                Write-Warning "═══════════════════════════════════════════════════════════════════"
+                return $false
+            }
+        }
+    } catch {
+        Write-Debug "Display timeout check failed: $_"
+    }
+
+    # 4. Lock screen timeout — warn if machine will lock
+    try {
+        $lockTimeout = Get-ItemPropertyValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
+            -Name 'InactivityTimeoutSecs' -ErrorAction SilentlyContinue
+        if ($lockTimeout -and $lockTimeout -gt 0) {
+            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            Write-Warning " Machine inactivity lock is set to $lockTimeout second(s)."
+            Write-Warning " The lock screen will activate during long test runs."
+            Write-Warning ""
+            Write-Warning " To fix (elevated PowerShell):"
+            Write-Warning "   Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' \"
+            Write-Warning "       -Name 'InactivityTimeoutSecs' -Value 0"
+            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            return $false
+        }
+    } catch {
+        Write-Debug "Lock screen timeout check failed: $_"
+    }
+
+    return $true
+}
+
+function Assert-HostConditionSet {
+    <#
+    .SYNOPSIS
+    Platform dispatcher: calls Assert-WindowsHostConditionSet or
+    Assert-MacHostConditionSet based on the detected host type.
+    Returns $true when all platform-specific prerequisites are met.
+    #>
+    param([string]$HostType)
+
+    if ($HostType -eq "host.windows.hyper-v") {
+        return Assert-WindowsHostConditionSet -HostType $HostType
+    }
+    if ($HostType -eq "host.macos.utm") {
+        return Assert-MacHostConditionSet -HostType $HostType
+    }
+
+    Write-Warning "Unknown host type '$HostType' — skipping condition checks."
+    return $true
 }
 
 function Invoke-GitPull {
@@ -369,4 +482,4 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
-Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Assert-ScreenLock, Assert-Accessibility, Set-MacHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit
+Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-HostConditionSet, Set-MacHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit

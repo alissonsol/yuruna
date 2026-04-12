@@ -85,6 +85,184 @@ function Assert-Elevation {
     return $true
 }
 
+function Assert-ScreenLock {
+    <#
+    .SYNOPSIS
+    On macOS, checks that screen saver lock and display sleep are configured so
+    they won't blank the screen during long-running VM tests.  Returns $true if
+    settings are acceptable or not on macOS.  Prints instructions and returns
+    $false if the screen will lock/blank.
+    #>
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+
+    $issues = @()
+
+    # 1. Display sleep idle time (pmset -g custom → displaysleep value)
+    #    0 = never sleep (good).  Anything > 0 means the display will blank.
+    try {
+        $pmsetLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
+        if ($pmsetLine -and $pmsetLine.Matches[0].Groups[1].Value -ne "0") {
+            $sleepMin = $pmsetLine.Matches[0].Groups[1].Value
+            $issues += "Display sleep is set to $sleepMin minute(s)."
+        }
+    } catch {
+        Write-Debug "pmset check failed: $_"
+    }
+
+    # 2. Screen saver idle time (defaults read com.apple.screensaver idleTime)
+    #    0 = disabled (good).  Missing key also means disabled.
+    try {
+        $idleTime = & defaults read com.apple.screensaver idleTime 2>$null
+        if ($LASTEXITCODE -eq 0 -and "$idleTime".Trim() -ne "0") {
+            $issues += "Screen saver activates after $($idleTime.Trim()) second(s)."
+        }
+    } catch {
+        Write-Debug "Screen saver check failed: $_"
+    }
+
+    # 3. Screen lock on sleep / screen saver (macOS Ventura+: sysadminctl)
+    #    Fallback: defaults read com.apple.screensaver askForPassword
+    try {
+        $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
+        if ($LASTEXITCODE -eq 0 -and "$askPw".Trim() -eq "1") {
+            $issues += "Screen lock (password after screen saver) is enabled."
+        }
+    } catch {
+        Write-Debug "Screen lock password check failed: $_"
+    }
+
+    if ($issues.Count -eq 0) { return $true }
+
+    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning " Screen lock / display sleep settings will blank the VM display."
+    Write-Warning ""
+    foreach ($issue in $issues) {
+        Write-Warning "  • $issue"
+    }
+    Write-Warning ""
+    Write-Warning " When the display blanks, UTM screen captures return a black"
+    Write-Warning " image and OCR-based waitForText steps will time out."
+    Write-Warning ""
+    Write-Warning " Quick fix — run from PowerShell:"
+    Write-Warning "   Set-MacHostConditions"
+    Write-Warning ""
+    Write-Warning " Or manually in System Settings:"
+    Write-Warning "   1. Displays > Advanced > Prevent automatic sleeping when"
+    Write-Warning "      the display is off  → ON"
+    Write-Warning "   2. Lock Screen > Start Screen Saver when inactive → Never"
+    Write-Warning "   3. Lock Screen > Require password after screen saver → OFF"
+    Write-Warning "   4. Energy > Turn display off → Never  (or run:"
+    Write-Warning "        sudo pmset -c displaysleep 0"
+    Write-Warning "        sudo pmset -b displaysleep 0 )"
+    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    return $false
+}
+
+function Set-MacHostConditions {
+    <#
+    .SYNOPSIS
+    Configures macOS host settings needed for unattended VM testing:
+    disables display sleep, screen saver idle, and screen lock password.
+    Also triggers the Accessibility permission prompt if not already granted.
+    Requires sudo for pmset. Idempotent — safe to run multiple times.
+    .EXAMPLE
+    Set-MacHostConditions          # apply all settings
+    Set-MacHostConditions -WhatIf  # show what would change without applying
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    if (-not $IsMacOS) {
+        Write-Warning "Set-MacHostConditions is only supported on macOS."
+        return
+    }
+
+    # ── 1. Display sleep → Never (requires sudo) ─────────────────────────
+    $changed = $false
+    foreach ($source in @("-c", "-b")) {   # -c = charger, -b = battery
+        $pmLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
+        # Re-read per source is overkill, but pmset -g custom shows the active profile.
+        # We just set both unconditionally — it's harmless if -b doesn't exist.
+    }
+    # Read current AC value
+    $currentSleep = "unknown"
+    $pmLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
+    if ($pmLine) { $currentSleep = $pmLine.Matches[0].Groups[1].Value }
+
+    if ($currentSleep -ne "0") {
+        if ($PSCmdlet.ShouldProcess("Display sleep (currently $currentSleep min)", "Set to 0 (Never) via sudo pmset")) {
+            Write-Output "Setting display sleep to Never (AC and battery)..."
+            & sudo pmset -c displaysleep 0
+            & sudo pmset -b displaysleep 0
+            $changed = $true
+        }
+    } else {
+        Write-Output "Display sleep is already set to Never."
+    }
+
+    # ── 2. Screen saver idle time → 0 (disabled) ─────────────────────────
+    $ssIdle = & defaults read com.apple.screensaver idleTime 2>$null
+    $ssIsActive = ($LASTEXITCODE -eq 0 -and "$ssIdle".Trim() -ne "0")
+
+    if ($ssIsActive) {
+        if ($PSCmdlet.ShouldProcess("Screen saver idle time (currently $($ssIdle.Trim())s)", "Set to 0 (disabled)")) {
+            Write-Output "Disabling screen saver idle activation..."
+            & defaults write com.apple.screensaver idleTime -int 0
+            $changed = $true
+        }
+    } else {
+        Write-Output "Screen saver idle activation is already disabled."
+    }
+
+    # ── 3. Screen lock (password after screen saver) → OFF ───────────────
+    $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
+    $lockOn = ($LASTEXITCODE -eq 0 -and "$askPw".Trim() -eq "1")
+
+    if ($lockOn) {
+        if ($PSCmdlet.ShouldProcess("Screen lock password", "Disable (askForPassword → 0)")) {
+            Write-Output "Disabling screen lock password requirement..."
+            & defaults write com.apple.screensaver askForPassword -int 0
+            $changed = $true
+        }
+    } else {
+        Write-Output "Screen lock password is already disabled."
+    }
+
+    # ── 4. Accessibility — trigger the system prompt if not granted ───────
+    try {
+        $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
+        $axResult = & osascript -l JavaScript -e $jxa 2>&1
+        if ("$axResult" -eq "true") {
+            Write-Output "Accessibility permission is already granted."
+        } else {
+            Write-Output "Requesting Accessibility permission (a system dialog should appear)..."
+            # AXIsProcessTrustedWithOptions with kAXTrustedCheckOptionPrompt = true
+            # triggers the macOS consent dialog.
+            $jxaPrompt = @"
+ObjC.import('CoreFoundation');
+ObjC.import('ApplicationServices');
+var opts = $.CFDictionaryCreateMutable(null, 1,
+    $.kCFTypeDictionaryKeyCallBacks, $.kCFTypeDictionaryValueCallBacks);
+var key = $.CFStringCreateWithCString(null, 'AXTrustedCheckOptionPrompt', 0);
+$.CFDictionarySetValue(opts, key, $.kCFBooleanTrue);
+$.AXIsProcessTrustedWithOptions(opts);
+"@
+            & osascript -l JavaScript -e $jxaPrompt 2>&1 | Out-Null
+            Write-Output "  → Grant access in the dialog, then re-run the test."
+        }
+    } catch {
+        Write-Debug "Accessibility prompt failed: $_"
+        Write-Warning "Could not check Accessibility status. Grant it manually in System Settings."
+    }
+
+    if ($changed) {
+        Write-Output ""
+        Write-Output "Settings updated. Re-run Assert-ScreenLock to verify:"
+        Write-Output "  Assert-ScreenLock -HostType 'host.macos.utm'"
+    }
+}
+
 function Assert-Accessibility {
     <#
     .SYNOPSIS
@@ -191,4 +369,4 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
-Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Assert-Accessibility, Invoke-GitPull, Get-CurrentGitCommit
+Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-Elevation, Assert-ScreenLock, Assert-Accessibility, Set-MacHostConditions, Invoke-GitPull, Get-CurrentGitCommit

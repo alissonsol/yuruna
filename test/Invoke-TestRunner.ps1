@@ -95,6 +95,7 @@ Write-Output "Host type: $HostType"
 
 if (-not (Assert-Elevation -HostType $HostType)) { exit 1 }
 if (-not (Assert-Accessibility -HostType $HostType)) { exit 1 }
+if (-not (Assert-ScreenLock -HostType $HostType)) { exit 1 }
 
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"

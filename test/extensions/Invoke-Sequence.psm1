@@ -743,6 +743,10 @@ if (!found) {
         delay(__DELAY__);
     }
 __KEYCALLS__
+    // Final drain: give the macOS event queue time to deliver the last
+    // CGEvent(s) to Apple Virtualization Framework before osascript exits.
+    // Without this, the last character(s) can be lost on long commands.
+    delay(0.3);
     'ok';
 }
 '@
@@ -1495,7 +1499,7 @@ function Invoke-Sequence {
                     # On macOS UTM, Send-Text (CGEvent/JXA) and Send-Key (AppleScript)
                     # run as separate OS processes; without this gap the Enter can be
                     # lost during UTM's second window activation.
-                    Start-Sleep -Milliseconds 500
+                    Start-Sleep -Milliseconds 800
                     $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                 }
             }
@@ -1545,7 +1549,7 @@ function Invoke-Sequence {
                     $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                     if ($ok -ne $false) {
                         Start-Sleep -Seconds $delaySeconds
-                        Start-Sleep -Milliseconds 500
+                        Start-Sleep -Milliseconds 800
                         $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                     }
                 }
@@ -1579,7 +1583,7 @@ function Invoke-Sequence {
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                 if ($ok -ne $false) {
                     Start-Sleep -Seconds $delaySeconds
-                    Start-Sleep -Milliseconds 500
+                    Start-Sleep -Milliseconds 800
                     $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                 }
 
@@ -1599,7 +1603,7 @@ function Invoke-Sequence {
                         $ok = Send-Text -HostType $HostType -VMName $VMName -Text $pwText -CharDelayMs $charDelay
                         if ($ok -ne $false) {
                             Start-Sleep -Seconds $delaySeconds
-                            Start-Sleep -Milliseconds 500
+                            Start-Sleep -Milliseconds 800
                             $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                         }
                     }

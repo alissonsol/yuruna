@@ -675,9 +675,15 @@ while ($true) {
         break
     }
 
+    # Clean up all test VMs and files before the inter-cycle wait
+    & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
+
     $delay = if ($CycleDelay) { $CycleDelay } else { $CycleDelaySeconds }
     Write-Output "Next cycle in $delay seconds..."
     Start-Sleep -Seconds $delay
+
+    # Clean up all test VMs and files after the inter-cycle wait
+    & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 }
 
 # === Failure notification (only reached when stopOnFailure breaks the loop) ===

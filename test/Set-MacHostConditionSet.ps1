@@ -44,7 +44,7 @@ $TestRoot = $PSScriptRoot
 
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
-Import-Module (Join-Path $TestRoot "modules" "Test.Host.psm1") -Force
+Import-Module (Join-Path -Path $TestRoot -ChildPath "modules" -AdditionalChildPath "Test.Host.psm1") -Force
 $global:VerbosePreference = $savedVerbose
 
 Set-MacHostConditionSet @PSBoundParameters

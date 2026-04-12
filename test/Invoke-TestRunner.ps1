@@ -685,8 +685,12 @@ while ($true) {
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 
     $delay = if ($CycleDelay) { $CycleDelay } else { $CycleDelaySeconds }
-    Write-Output "Next cycle in $delay seconds..."
-    Start-Sleep -Seconds $delay
+    for ($remaining = $delay; $remaining -gt 0; $remaining--) {
+        $pct = [math]::Round((($delay - $remaining) / $delay) * 100)
+        Write-Progress -Activity "Next cycle" -Status "in $remaining seconds..." -PercentComplete $pct
+        Start-Sleep -Seconds 1
+    }
+    Write-Progress -Activity "Next cycle" -Completed
 
     # Clean up all test VMs and files after the inter-cycle wait
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix

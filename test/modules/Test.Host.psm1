@@ -330,7 +330,9 @@ function Set-WindowsHostConditionSet {
     $lockTimeout = $null
     try {
         $lockTimeout = Get-ItemPropertyValue -Path $regPath -Name 'InactivityTimeoutSecs' -ErrorAction SilentlyContinue
-    } catch { }
+    } catch {
+        Write-Debug "InactivityTimeoutSecs read failed: $_"
+    }
 
     if ($lockTimeout -and $lockTimeout -gt 0) {
         if ($PSCmdlet.ShouldProcess("Inactivity lock timeout (currently ${lockTimeout}s)", "Set to 0 (disabled)")) {
@@ -343,14 +345,7 @@ function Set-WindowsHostConditionSet {
     }
 
     # ── 4. Lock screen on resume → disabled ──────────────────────────────
-    $lockOnResume = $null
-    try {
-        $csRegPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
-        if (Test-Path $csRegPath) {
-            $lockOnResume = Get-ItemPropertyValue -Path $csRegPath -Name 'NoLockScreen' -ErrorAction SilentlyContinue
-        }
-    } catch { }
-    # Also check the user-level setting via powercfg (consolelock)
+    # Check the power-plan consolelock setting via powercfg
     $consoleLock = powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null |
         Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
         Select-Object -First 1

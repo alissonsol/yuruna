@@ -263,6 +263,118 @@ $.AXIsProcessTrustedWithOptions(opts);
     }
 }
 
+function Set-WindowsHostConditionSet {
+    <#
+    .SYNOPSIS
+    Configures Windows host settings needed for unattended VM testing:
+    starts the Hyper-V service, disables display timeout, and disables the
+    inactivity lock screen.  Requires Administrator elevation.  Idempotent.
+    .EXAMPLE
+    Set-WindowsHostConditionSet          # apply all settings
+    Set-WindowsHostConditionSet -WhatIf  # show what would change without applying
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    if (-not $IsWindows) {
+        Write-Warning "Set-WindowsHostConditionSet is only supported on Windows."
+        return
+    }
+
+    # ── 0. Elevation check ───────────────────────────────────────────────
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]"Administrator")
+    if (-not $isAdmin) {
+        Write-Error "This script must be run as Administrator. Right-click PowerShell → Run as Administrator."
+        return
+    }
+
+    $changed = $false
+
+    # ── 1. Hyper-V service ───────────────────────────────────────────────
+    $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        Write-Warning "Hyper-V service (vmms) is not installed."
+        Write-Warning "  Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
+        Write-Warning "Then reboot and re-run this script."
+    } elseif ($svc.Status -ne 'Running') {
+        if ($PSCmdlet.ShouldProcess("Hyper-V service (vmms)", "Start")) {
+            Write-Output "Starting Hyper-V Virtual Machine Management service..."
+            Start-Service vmms
+            $changed = $true
+        }
+    } else {
+        Write-Output "Hyper-V service (vmms) is already running."
+    }
+
+    # ── 2. Display timeout → Never ───────────────────────────────────────
+    $acTimeout = powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null |
+        Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
+        Select-Object -First 1
+    $currentAc = if ($acTimeout) { [Convert]::ToInt32($acTimeout.Matches[0].Groups[1].Value, 16) } else { 0 }
+
+    if ($currentAc -ne 0) {
+        $minutes = [math]::Round($currentAc / 60)
+        if ($PSCmdlet.ShouldProcess("Display timeout AC (currently $minutes min)", "Set to 0 (Never)")) {
+            Write-Output "Setting display timeout to Never (AC and DC)..."
+            & powercfg /change monitor-timeout-ac 0
+            & powercfg /change monitor-timeout-dc 0
+            $changed = $true
+        }
+    } else {
+        Write-Output "Display timeout (AC) is already set to Never."
+    }
+
+    # ── 3. Machine inactivity lock → disabled ────────────────────────────
+    $regPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+    $lockTimeout = $null
+    try {
+        $lockTimeout = Get-ItemPropertyValue -Path $regPath -Name 'InactivityTimeoutSecs' -ErrorAction SilentlyContinue
+    } catch { }
+
+    if ($lockTimeout -and $lockTimeout -gt 0) {
+        if ($PSCmdlet.ShouldProcess("Inactivity lock timeout (currently ${lockTimeout}s)", "Set to 0 (disabled)")) {
+            Write-Output "Disabling machine inactivity lock..."
+            Set-ItemProperty -Path $regPath -Name 'InactivityTimeoutSecs' -Value 0
+            $changed = $true
+        }
+    } else {
+        Write-Output "Machine inactivity lock is already disabled."
+    }
+
+    # ── 4. Lock screen on resume → disabled ──────────────────────────────
+    $lockOnResume = $null
+    try {
+        $csRegPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
+        if (Test-Path $csRegPath) {
+            $lockOnResume = Get-ItemPropertyValue -Path $csRegPath -Name 'NoLockScreen' -ErrorAction SilentlyContinue
+        }
+    } catch { }
+    # Also check the user-level setting via powercfg (consolelock)
+    $consoleLock = powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null |
+        Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
+        Select-Object -First 1
+    $consoleLockVal = if ($consoleLock) { [Convert]::ToInt32($consoleLock.Matches[0].Groups[1].Value, 16) } else { $null }
+
+    if ($consoleLockVal -and $consoleLockVal -ne 0) {
+        if ($PSCmdlet.ShouldProcess("Console lock on resume (currently enabled)", "Disable")) {
+            Write-Output "Disabling lock screen on resume from sleep..."
+            & powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_NONE CONSOLELOCK 0
+            & powercfg /SETDCVALUEINDEX SCHEME_CURRENT SUB_NONE CONSOLELOCK 0
+            & powercfg /SETACTIVE SCHEME_CURRENT
+            $changed = $true
+        }
+    } else {
+        Write-Output "Lock screen on resume is already disabled (or not applicable)."
+    }
+
+    if ($changed) {
+        Write-Output ""
+        Write-Output "Settings updated. Re-run Assert-HostConditionSet to verify:"
+        Write-Output "  Assert-HostConditionSet -HostType 'host.windows.hyper-v'"
+    }
+}
+
 function Assert-Accessibility {
     <#
     .SYNOPSIS
@@ -337,12 +449,12 @@ function Assert-WindowsHostConditionSet {
         Write-Warning "═══════════════════════════════════════════════════════════════════"
         Write-Warning " Hyper-V Virtual Machine Management service (vmms) is not running."
         Write-Warning ""
-        Write-Warning " To fix:"
-        Write-Warning "   1. Open an elevated PowerShell and run:"
-        Write-Warning "        Start-Service vmms"
-        Write-Warning "   2. If Hyper-V is not installed, enable it:"
-        Write-Warning "        Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
-        Write-Warning "      then reboot."
+        Write-Warning " Quick fix — run from an elevated PowerShell in the test/ directory:"
+        Write-Warning "   ./Set-WindowsHostConditionSet.ps1"
+        Write-Warning ""
+        Write-Warning " If Hyper-V is not installed, enable it first:"
+        Write-Warning "   Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
+        Write-Warning " then reboot."
         Write-Warning "═══════════════════════════════════════════════════════════════════"
         return $false
     }
@@ -361,9 +473,8 @@ function Assert-WindowsHostConditionSet {
                 Write-Warning " The screen will blank during long test runs, which may cause"
                 Write-Warning " Hyper-V Enhanced Session screen captures to fail."
                 Write-Warning ""
-                Write-Warning " To fix (elevated PowerShell):"
-                Write-Warning "   powercfg /change monitor-timeout-ac 0"
-                Write-Warning "   powercfg /change monitor-timeout-dc 0"
+                Write-Warning " Quick fix — run from an elevated PowerShell in the test/ directory:"
+                Write-Warning "   ./Set-WindowsHostConditionSet.ps1"
                 Write-Warning "═══════════════════════════════════════════════════════════════════"
                 return $false
             }
@@ -381,9 +492,8 @@ function Assert-WindowsHostConditionSet {
             Write-Warning " Machine inactivity lock is set to $lockTimeout second(s)."
             Write-Warning " The lock screen will activate during long test runs."
             Write-Warning ""
-            Write-Warning " To fix (elevated PowerShell):"
-            Write-Warning "   Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' \"
-            Write-Warning "       -Name 'InactivityTimeoutSecs' -Value 0"
+            Write-Warning " Quick fix — run from an elevated PowerShell in the test/ directory:"
+            Write-Warning "   ./Set-WindowsHostConditionSet.ps1"
             Write-Warning "═══════════════════════════════════════════════════════════════════"
             return $false
         }
@@ -482,4 +592,4 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
-Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-HostConditionSet, Set-MacHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit
+Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-HostConditionSet, Set-MacHostConditionSet, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit

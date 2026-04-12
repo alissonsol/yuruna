@@ -26,7 +26,7 @@
       "action": "waitForText",
       "pattern": "login:",
       "timeoutSeconds": 180,
-      "pollSeconds": 9,
+      "pollSeconds": 6,
       "description": "login:"
     },
     {
@@ -38,7 +38,7 @@
       "action": "waitForAndEnter",
       "pattern": "Password:",
       "timeoutSeconds": 60,
-      "pollSeconds": 6,
+      "pollSeconds": 3,
       "text": "${password}",
       "sensitive": true,
       "description": "Password:"
@@ -47,7 +47,7 @@
       "action": "waitForAndEnter",
       "pattern": ["Current password:", "urrent password"],
       "timeoutSeconds": 60,
-      "pollSeconds": 6,
+      "pollSeconds": 3,
       "text": "${password}",
       "sensitive": true,
       "description": "Current password:"
@@ -56,7 +56,7 @@
       "action": "waitForAndEnter",
       "pattern": "New password:",
       "timeoutSeconds": 60,
-      "pollSeconds": 6,
+      "pollSeconds": 3,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "New password:"
@@ -65,7 +65,7 @@
       "action": "waitForAndEnter",
       "pattern": "Retype new password:",
       "timeoutSeconds": 60,
-      "pollSeconds": 6,
+      "pollSeconds": 3,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "Retype new password:"

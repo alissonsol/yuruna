@@ -34,7 +34,7 @@
       "action": "waitForAndEnter",
       "pattern": "Password",
       "timeoutSeconds": 60,
-      "pollSeconds": 6,
+      "pollSeconds": 3,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "Password"

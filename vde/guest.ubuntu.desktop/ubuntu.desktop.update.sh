@@ -39,6 +39,17 @@ case "$ARCH" in
     ;;
 esac
 
+# ===== Disable screen lock and idle timeout =====
+# Hypervisor-injected keystrokes don't reset the GNOME idle timer,
+# so long-running tests can trigger the lock screen.
+REAL_USER="${SUDO_USER:-$USER}"
+echo "Disabling screen lock and idle timeout for user $REAL_USER..."
+sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
+    gsettings set org.gnome.desktop.screensaver lock-enabled false
+sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
+    gsettings set org.gnome.desktop.session idle-delay 0
+echo "Screen lock disabled, idle timeout set to 0 (never)."
+
 echo ""
 echo -e "\e[1;36m>>> Updating system packages...\e[0m"
 sudo apt-get update;

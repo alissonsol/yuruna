@@ -126,10 +126,12 @@ function Copy-FailureArtifactsToStatusLog {
         if (-not $LogFile) { return }
         $logId = [System.IO.Path]::GetFileNameWithoutExtension($LogFile)
         $statusLogDir = [System.IO.Path]::GetDirectoryName($LogFile)
+        # Include a UTC error timestamp so multiple failures within the same run don't overwrite each other
+        $errorTimestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
 
         $srcScreen = Join-Path $YurunaLogDir "failure_screenshot_${VMName}.png"
         if (Test-Path $srcScreen) {
-            $destName = "$logId.failure-screenshot.png"
+            $destName = "$logId.$errorTimestamp.failure-screenshot.png"
             $dest = Join-Path $statusLogDir $destName
             Copy-Item -Path $srcScreen -Destination $dest -Force
             Write-Output "  Failure screenshot saved: ./status/log/$destName"
@@ -142,7 +144,7 @@ function Copy-FailureArtifactsToStatusLog {
 
         $srcOcr = Join-Path $YurunaLogDir "failure_ocr_${VMName}.txt"
         if (Test-Path $srcOcr) {
-            $destName = "$logId.failure-ocr.txt"
+            $destName = "$logId.$errorTimestamp.failure-ocr.txt"
             $dest = Join-Path $statusLogDir $destName
             Copy-Item -Path $srcOcr -Destination $dest -Force
             Write-Output "  Failure OCR text saved: ./status/log/$destName"

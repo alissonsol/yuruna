@@ -25,7 +25,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Try or Install Ubuntu",
-      "timeoutSeconds": 180,
+      "timeoutSeconds": 300,
       "pollSeconds": 6,
       "text": "",
       "description": "Dismiss GRUB menu"
@@ -33,7 +33,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Not listed?",
-      "timeoutSeconds": 900,
+      "timeoutSeconds": 600,
       "pollSeconds": 6,
       "text": "",
       "description": "Not listed?"

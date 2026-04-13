@@ -37,7 +37,16 @@ docker start registry 2>/dev/null || docker run -d -p 5000:5000 --restart=always
 
 # Clone yuruna if not present
 if [ ! -d /home/ubuntu/yuruna ]; then
-    git clone https://github.com/alissonsol/yuruna.git /home/ubuntu/yuruna
+    for attempt in 1 2 3; do
+        git clone https://github.com/alissonsol/yuruna.git /home/ubuntu/yuruna && break
+        echo "git clone attempt $attempt failed"
+        rm -rf /home/ubuntu/yuruna
+        [ $attempt -lt 3 ] && sleep 15
+    done
+    if [ ! -d /home/ubuntu/yuruna ]; then
+        echo "git clone failed after 3 attempts" >&2
+        exit 1
+    fi
 fi
 
 # Run Set-Resource

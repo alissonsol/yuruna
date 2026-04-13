@@ -24,7 +24,7 @@
     {
       "action": "waitForText",
       "pattern": "login:",
-      "timeoutSeconds": 180,
+      "timeoutSeconds": 300,
       "pollSeconds": 6,
       "description": "login:"
     },

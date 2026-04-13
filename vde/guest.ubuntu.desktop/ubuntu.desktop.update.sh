@@ -49,8 +49,20 @@ sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REA
 sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
     gsettings set org.gnome.desktop.session idle-delay 0
 echo "Screen lock disabled, idle timeout set to 0 (never)."
-echo "Disabling services that may suspend the machine."
+
+echo "TESTHACK:Disabling services that may suspend the machine."
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+
+echo "TESTHACK: Disabling update notifier popups that steal focus from the Terminal during tests."
+sudo apt-get remove -y update-notifier update-manager || true
+sudo rm -f /etc/xdg/autostart/update-notifier.desktop
+sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades 2>/dev/null || true
+sudo tee /etc/apt/apt.conf.d/10periodic >/dev/null <<'EOF'
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::AutocleanInterval "0";
+APT::Periodic::Unattended-Upgrade "0";
+EOF
 
 echo ""
 echo -e "\e[1;36m>>> Updating system packages...\e[0m"

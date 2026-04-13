@@ -35,8 +35,15 @@ case "$ARCH" in
     ;;
 esac
 
-echo "Disabling services that may suspend the machine."
+echo "TESTHACK: Disabling services that may suspend the machine."
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+
+echo "TESTHACK: Disabling update notifier popups that steal focus from the Terminal during tests."
+sudo systemctl disable --now packagekit.service packagekit-offline-update.service 2>/dev/null || true
+sudo systemctl disable --now dnf-automatic.timer dnf-automatic-notifyonly.timer dnf-automatic-install.timer 2>/dev/null || true
+REAL_USER="${SUDO_USER:-$USER}"
+sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
+    gsettings set org.gnome.software download-updates false 2>/dev/null || true
 
 echo ""
 echo -e "\e[1;36m>>> Updating system packages...\e[0m"

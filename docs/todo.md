@@ -17,6 +17,8 @@
 - Externalize "credentials": should come through method that can start just reading local file, but later gets credentials from "service"
 - Flags so that now all notifications get email (reduce noise)
 - Less dependency on remote for "fetch-and-execute": can do a "git clone" early on and then use content locally (better to ensure "consistency")
+- Functionality to find and activate window with a certain title (maily in Ubuntu)
+  - Background: during a test run, a popup came to offer an update and took away focus from the Terminal window. Ensure focus is back there before commands are sent.
 
 ### P1
 

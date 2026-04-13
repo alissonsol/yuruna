@@ -41,7 +41,7 @@ if [ ! -d /home/ubuntu/yuruna ]; then
         git clone https://github.com/alissonsol/yuruna.git /home/ubuntu/yuruna && break
         echo "git clone attempt $attempt failed"
         rm -rf /home/ubuntu/yuruna
-        [ $attempt -lt 3 ] && sleep 15
+        [ $attempt -lt 3 ] && sleep 60
     done
     if [ ! -d /home/ubuntu/yuruna ]; then
         echo "git clone failed after 3 attempts" >&2

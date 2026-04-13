@@ -174,6 +174,20 @@ try {
     Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $_"
 }
 
+# === Source-change detection: capture mtimes so the next cycle can relaunch ===
+# if Invoke-TestRunner.ps1 or any module under test/modules is edited mid-run.
+function Get-SourceFingerprint {
+    param([string]$ScriptPath, [string]$ModulesDir)
+    $files = @((Get-Item $ScriptPath))
+    if (Test-Path $ModulesDir) {
+        $files += Get-ChildItem -Path $ModulesDir -Filter *.psm1 -File -Recurse
+    }
+    ($files | Sort-Object FullName | ForEach-Object {
+        "$($_.FullName)|$($_.LastWriteTimeUtc.Ticks)|$($_.Length)"
+    }) -join "`n"
+}
+$script:SourceFingerprint = Get-SourceFingerprint -ScriptPath $PSCommandPath -ModulesDir $ModulesDir
+
 # === Continuous test loop ===
 $HeartbeatFile = Join-Path $StatusDir "server.heartbeat"
 $CycleCount     = 0
@@ -189,6 +203,17 @@ while ($true) {
     if ($script:ShutdownRequested) {
         Write-Output "Shutdown requested. Exiting cycle loop."
         break
+    }
+
+    # Relaunch into a fresh process if the script or any module changed on disk
+    # since this process started. The currently running process has parsed
+    # sources cached in memory; only a new process will pick up edits.
+    $currentFingerprint = Get-SourceFingerprint -ScriptPath $PSCommandPath -ModulesDir $ModulesDir
+    if ($currentFingerprint -ne $script:SourceFingerprint) {
+        Write-Output "Source changed on disk — relaunching Invoke-TestRunner.ps1 for next cycle..."
+        $pwshExe = (Get-Process -Id $PID).Path
+        & $pwshExe -NoLogo -File $PSCommandPath @PSBoundParameters
+        exit $LASTEXITCODE
     }
 
     # Re-check all host conditions before each cycle — settings can revert

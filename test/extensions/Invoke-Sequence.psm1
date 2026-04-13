@@ -1465,8 +1465,9 @@ function Invoke-Sequence {
     foreach ($step in $steps) {
         $stepNum++
         $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
-        Write-Information "    [$stepNum/$($steps.Count)] $($step.action): $desc"
+        Write-Progress -Activity "Sequence" -Status "[$stepNum/$($steps.Count)] $($step.action): $desc"
 
+        $stepStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $ok = $true
         switch ($step.action) {
             "delay" {
@@ -1624,6 +1625,10 @@ function Invoke-Sequence {
                 Write-Warning "Unknown action: $($step.action)"
             }
         }
+
+        $stepStopwatch.Stop()
+        $elapsedLabel = ("{0:0000}" -f [int]$stepStopwatch.Elapsed.TotalSeconds)
+        Write-Information "$elapsedLabel s [$stepNum/$($steps.Count)] $($step.action): $desc"
 
         if ($ok -eq $false) {
             Write-Warning "    Step [$stepNum] failed: $desc"

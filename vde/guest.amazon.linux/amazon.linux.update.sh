@@ -35,6 +35,9 @@ case "$ARCH" in
     ;;
 esac
 
+echo "Disabling services that may suspend the machine."
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+
 echo ""
 echo -e "\e[1;36m>>> Updating system packages...\e[0m"
 sudo dnf update -y

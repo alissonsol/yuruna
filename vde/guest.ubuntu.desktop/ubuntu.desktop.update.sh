@@ -49,6 +49,8 @@ sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REA
 sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
     gsettings set org.gnome.desktop.session idle-delay 0
 echo "Screen lock disabled, idle timeout set to 0 (never)."
+echo "Disabling services that may suspend the machine."
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
 echo ""
 echo -e "\e[1;36m>>> Updating system packages...\e[0m"

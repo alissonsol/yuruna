@@ -1792,7 +1792,7 @@ function Invoke-Sequence {
     $sequenceElapsedLabel = ("{0,4}" -f [int]$sequenceStopwatch.Elapsed.TotalSeconds)
     $elapsedTotalSeconds = [int]$sequenceStopwatch.Elapsed.TotalSeconds
     $elapsedTimeIsMinutes = "$([int]($elapsedTotalSeconds / 60)) min and $($elapsedTotalSeconds % 60) s"
-    Write-Information "     $sequenceElapsedLabel s [All $($steps.Count) steps completed in $elapsedTimeIsMinutes]"
+    Write-Information "    $sequenceElapsedLabel s [All $($steps.Count) steps completed in $elapsedTimeIsMinutes]"
     return $true
 
   } catch {

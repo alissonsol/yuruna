@@ -279,11 +279,10 @@
       document.getElementById('m-cycle').textContent    = data.cycle    || '—';
       const runIdLabel = (data.runId || '—').slice(0, 19);
       const runLogUrl  = logFileUrl(data.runId, data.hostname, data.gitCommit);
-      if (runLogUrl) {
-        document.getElementById('m-runid').innerHTML = `<a href="${runLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${runIdLabel}</a>`;
-      } else {
-        document.getElementById('m-runid').textContent = runIdLabel;
-      }
+      const runCell = runLogUrl
+        ? `<a href="${runLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${runIdLabel}</a>`
+        : runIdLabel;
+      document.getElementById('m-runid').innerHTML = `<span class="badge ${cls(status)}">${runCell}</span>`;
       document.getElementById('m-started').textContent  = fmtDate(data.startedAt);
       document.getElementById('m-finished').textContent = data.finishedAt ? fmtDate(data.finishedAt) : (status === 'running' ? '(in progress)' : '—');
       document.getElementById('m-getimage').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';

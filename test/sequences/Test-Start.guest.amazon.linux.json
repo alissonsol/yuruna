@@ -71,24 +71,6 @@
       "description": "Retype new password:"
     },
     {
-      "action": "typeAndEnter",
-      "text": "clear",
-      "sensitive": true,
-      "description": "Clear screen, due to the balloon memory noise"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 60,
-      "pollSeconds": 6,
-      "description": "Login shell prompt: ${username}@${vmName}"
-    },
-    {
-      "action": "delay",
-      "seconds": 9,
-      "description": "Pause before running update"
-    },
-    {
       "action": "fetchAndExecute",
       "text": "sudo bash /automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.update.sh",
       "description": "vde/guest.amazon.linux/amazon.linux.update.sh",
@@ -104,7 +86,7 @@
     {
       "action": "typeAndEnter",
       "text": "clear; sudo reboot now",
-      "description": "Reboot the VM, for the fun of it!"
+      "description": "Reboot the VM"
     }
   ]
 }

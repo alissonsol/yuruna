@@ -377,6 +377,9 @@ while ($true) {
         }
         $VMName = $VMNames[$GuestKey]
         $script:ActiveVMName = $VMName
+        # Refresh server heartbeat per-guest so a multi-hour cycle (e.g. full
+        # OS install) does not let the 30-minute heartbeat timeout self-exit.
+        Set-Content -Path $HeartbeatFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
         Write-Output ""
         Write-Output "=== $GuestKey (VM: $VMName) ==="
 
@@ -686,6 +689,11 @@ while ($true) {
 
     $delay = if ($CycleDelay) { $CycleDelay } else { $CycleDelaySeconds }
     for ($remaining = $delay; $remaining -gt 0; $remaining--) {
+        # Refresh the server heartbeat every 60s during the wait so the
+        # detached status server doesn't self-exit on its 30-minute timeout.
+        if (($remaining % 60) -eq 0) {
+            Set-Content -Path $HeartbeatFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
+        }
         $pct = [math]::Round((($delay - $remaining) / $delay) * 100)
         Write-Progress -Activity "Next cycle" -Status "in $remaining seconds..." -PercentComplete $pct
         Start-Sleep -Seconds 1

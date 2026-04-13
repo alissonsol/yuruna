@@ -8,6 +8,9 @@
   - MAJOR BLOCK: Keyboard locked during Ubuntu boot (spice issue?)
   - 2nd: Not detecting the ${username}@${vmName} pattern: is there a better way to do the OCR?
   - 3rd: Spurious messages coming at random times (like the "hv_balloon" messages)
+  - 4th: Still getting sporadic errors when sending chars to the macOS.
+    - Amazon Linux command: `dnf list installed | grep desktop`
+    - Is received as: `dnf list installed \ grep desktop`
 - Investigate framework for "mobile"
 - Windows sequence for startup and minimal workload test
 - Get error logs from inside VM to outside in cross-host and cross-guest manner

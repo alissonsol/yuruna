@@ -1511,6 +1511,7 @@ function Invoke-Sequence {
 
     $stepNum = 0
     $screenshotDir = Join-Path (Split-Path -Parent $SequencePath) "captures"
+    $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     foreach ($step in $steps) {
         $stepNum++
@@ -1787,7 +1788,9 @@ function Invoke-Sequence {
     }
 
     Write-ProgressTick -Activity "Sequence" -Completed
-    Write-Information "    All $($steps.Count) steps completed."
+    $sequenceStopwatch.Stop()
+    $sequenceElapsedLabel = ("{0,4}" -f [int]$sequenceStopwatch.Elapsed.TotalSeconds)
+    Write-Information "    $sequenceElapsedLabel s. All $($steps.Count) steps completed."
     return $true
 
   } catch {

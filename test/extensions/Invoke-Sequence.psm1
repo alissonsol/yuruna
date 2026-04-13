@@ -19,6 +19,7 @@
 # Ensure all Write-Information calls are visible in the console.
 # This is set at module scope so it applies to all functions.
 $InformationPreference = 'Continue'
+$ProgressPreference = 'Continue'
 
 # Inherit debug/verbose preferences from the parent process via env vars.
 # Child pwsh processes don't inherit PowerShell preference variables, so
@@ -30,6 +31,30 @@ if ($env:YURUNA_VERBOSE -eq '1') { $global:VerbosePreference = 'Continue' }
 # The config file lives one level up from this module (test/test-config.json).
 $script:DefaultCharDelayMs = 20
 $script:DefaultVncPort     = 5900
+
+# ── Progress marker protocol ─────────────────────────────────────────────────
+# When Invoke-Sequence runs inside a child pwsh whose stdout is piped to the
+# parent (see Test.Install-OS.psm1), the child's ConsoleHost goes
+# non-interactive and Write-Progress becomes a no-op. We work around this by
+# ALSO emitting a marker line on stdout for each tick; the parent's pipeline
+# parses these and calls Write-Progress in its own interactive host. The
+# marker must never be intercepted by the yuruna-log proxy, so we bypass it
+# via $Host.UI.WriteLine (raw host write, not the Write-* stream).
+function Write-ProgressTick {
+    param(
+        [Parameter(Mandatory)][string]$Activity,
+        [string]$Status = '',
+        [int]$PercentComplete = -1,
+        [switch]$Completed
+    )
+    if ($Completed) {
+        Write-Progress -Activity $Activity -Completed
+        $Host.UI.WriteLine("##YURUNA-PROGRESS##|$Activity|done|-1|1")
+    } else {
+        Write-Progress -Activity $Activity -Status $Status -PercentComplete $PercentComplete
+        $Host.UI.WriteLine("##YURUNA-PROGRESS##|$Activity|$Status|$PercentComplete|0")
+    }
+}
 $_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test-config.json"
 if (Test-Path $_configPath) {
     try {
@@ -1153,6 +1178,9 @@ function Wait-ForText {
 
     try {
         while ($elapsed -lt $TimeoutSeconds) {
+            # PROGRESS-INLINE-TICK: reference impl lives in "delay"
+            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
+            Write-ProgressTick -Activity "waitForText" -Status "'$patternLabel' (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
             # Capture the VM screen — this becomes the "current screen"
             $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $currentScreenPath
             if (-not $captured -or -not (Test-Path $currentScreenPath)) {
@@ -1310,6 +1338,7 @@ function Wait-ForText {
         # Clean up temp screenshot files (failure copies already saved above)
         Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
         Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
+        Write-ProgressTick -Activity "waitForText" -Completed
     }
 }
 
@@ -1318,20 +1347,27 @@ function Wait-ForText {
 function Wait-ForPort {
     param([string]$VMName, [int]$Port, [int]$TimeoutSeconds = 120)
     $elapsed = 0
-    while ($elapsed -lt $TimeoutSeconds) {
-        try {
-            $tcp = New-Object System.Net.Sockets.TcpClient
-            $async = $tcp.BeginConnect($VMName, $Port, $null, $null)
-            $wait = $async.AsyncWaitHandle.WaitOne(2000, $false)
-            if ($wait -and $tcp.Connected) { $tcp.Close(); Write-Debug "      Port $Port responding"; return $true }
-            $tcp.Close()
-        } catch { Write-Verbose "Port $Port connection attempt failed: $_" }
-        Start-Sleep -Seconds 5
-        $elapsed += 5
-        Write-Debug "      Waiting for port $Port... (${elapsed}s / ${TimeoutSeconds}s)"
+    try {
+        while ($elapsed -lt $TimeoutSeconds) {
+            try {
+                $tcp = New-Object System.Net.Sockets.TcpClient
+                $async = $tcp.BeginConnect($VMName, $Port, $null, $null)
+                $wait = $async.AsyncWaitHandle.WaitOne(2000, $false)
+                if ($wait -and $tcp.Connected) { $tcp.Close(); Write-Debug "      Port $Port responding"; return $true }
+                $tcp.Close()
+            } catch { Write-Verbose "Port $Port connection attempt failed: $_" }
+            Start-Sleep -Seconds 5
+            $elapsed += 5
+            Write-Debug "      Waiting for port $Port... (${elapsed}s / ${TimeoutSeconds}s)"
+            # PROGRESS-INLINE-TICK: reference impl lives in "delay"
+            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
+            Write-ProgressTick -Activity "waitForPort" -Status "${VMName}:${Port} (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
+        }
+        Write-Warning "Port $Port did not respond within ${TimeoutSeconds}s"
+        return $false
+    } finally {
+        Write-ProgressTick -Activity "waitForPort" -Completed
     }
-    Write-Warning "Port $Port did not respond within ${TimeoutSeconds}s"
-    return $false
 }
 
 # ── Action: waitForHeartbeat ─────────────────────────────────────────────────
@@ -1339,19 +1375,26 @@ function Wait-ForPort {
 function Wait-ForHeartbeat {
     param([string]$VMName, [int]$TimeoutSeconds = 300)
     $elapsed = 0
-    while ($elapsed -lt $TimeoutSeconds) {
-        try {
-            $hb = Get-VMIntegrationService -VMName $VMName -Name "Heartbeat" -ErrorAction SilentlyContinue
-            if ($hb -and $hb.PrimaryStatusDescription -eq "OK") {
-                Write-Debug "      Heartbeat OK"; return $true
-            }
-        } catch { Write-Verbose "Heartbeat check failed: $_" }
-        Start-Sleep -Seconds 5
-        $elapsed += 5
-        Write-Debug "      Waiting for heartbeat... (${elapsed}s / ${TimeoutSeconds}s)"
+    try {
+        while ($elapsed -lt $TimeoutSeconds) {
+            try {
+                $hb = Get-VMIntegrationService -VMName $VMName -Name "Heartbeat" -ErrorAction SilentlyContinue
+                if ($hb -and $hb.PrimaryStatusDescription -eq "OK") {
+                    Write-Debug "      Heartbeat OK"; return $true
+                }
+            } catch { Write-Verbose "Heartbeat check failed: $_" }
+            Start-Sleep -Seconds 5
+            $elapsed += 5
+            Write-Debug "      Waiting for heartbeat... (${elapsed}s / ${TimeoutSeconds}s)"
+            # PROGRESS-INLINE-TICK: reference impl lives in "delay"
+            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
+            Write-ProgressTick -Activity "waitForHeartbeat" -Status "$VMName (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
+        }
+        Write-Warning "Heartbeat not OK within ${TimeoutSeconds}s"
+        return $false
+    } finally {
+        Write-ProgressTick -Activity "waitForHeartbeat" -Completed
     }
-    Write-Warning "Heartbeat not OK within ${TimeoutSeconds}s"
-    return $false
 }
 
 # ── Action: waitForVMStop ────────────────────────────────────────────────────
@@ -1359,20 +1402,27 @@ function Wait-ForHeartbeat {
 function Wait-ForVMStop {
     param([string]$HostType, [string]$VMName, [int]$TimeoutSeconds = 300)
     $elapsed = 0
-    while ($elapsed -lt $TimeoutSeconds) {
-        if ($HostType -eq "host.windows.hyper-v") {
-            $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-            if ($vm -and $vm.State -eq 'Off') { Write-Debug "      VM is Off"; return $true }
-        } elseif ($HostType -eq "host.macos.utm") {
-            $status = & utmctl status "$VMName" 2>&1
-            if ($status -match "stopped|shutdown") { Write-Debug "      VM is stopped"; return $true }
+    try {
+        while ($elapsed -lt $TimeoutSeconds) {
+            if ($HostType -eq "host.windows.hyper-v") {
+                $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+                if ($vm -and $vm.State -eq 'Off') { Write-Debug "      VM is Off"; return $true }
+            } elseif ($HostType -eq "host.macos.utm") {
+                $status = & utmctl status "$VMName" 2>&1
+                if ($status -match "stopped|shutdown") { Write-Debug "      VM is stopped"; return $true }
+            }
+            Start-Sleep -Seconds 5
+            $elapsed += 5
+            Write-Debug "      Waiting for VM to stop... (${elapsed}s / ${TimeoutSeconds}s)"
+            # PROGRESS-INLINE-TICK: reference impl lives in "delay"
+            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
+            Write-ProgressTick -Activity "waitForVMStop" -Status "$VMName (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
         }
-        Start-Sleep -Seconds 5
-        $elapsed += 5
-        Write-Debug "      Waiting for VM to stop... (${elapsed}s / ${TimeoutSeconds}s)"
+        Write-Warning "VM did not stop within ${TimeoutSeconds}s"
+        return $false
+    } finally {
+        Write-ProgressTick -Activity "waitForVMStop" -Completed
     }
-    Write-Warning "VM did not stop within ${TimeoutSeconds}s"
-    return $false
 }
 
 # ── Action: screenshot ───────────────────────────────────────────────────────
@@ -1465,7 +1515,13 @@ function Invoke-Sequence {
     foreach ($step in $steps) {
         $stepNum++
         $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
-        Write-Progress -Activity "Sequence" -Status "[$stepNum/$($steps.Count)] $($step.action): $desc"
+        # Force-enable progress bar visibility for the whole step body.
+        # See "Pro Tip": some hosts/settings silence Write-Progress; restoring
+        # the original value in `finally` keeps caller preferences intact.
+        $savedProgress = $global:ProgressPreference
+        $global:ProgressPreference = 'Continue'
+        try {
+        Write-ProgressTick -Activity "Sequence" -Status "[$stepNum/$($steps.Count)] $($step.action): $desc" -PercentComplete ([math]::Round((($stepNum - 1) / [math]::Max($steps.Count,1)) * 100))
 
         $stepStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $ok = $true
@@ -1473,7 +1529,14 @@ function Invoke-Sequence {
             "delay" {
                 $secs = [int]$step.seconds
                 Write-Debug "      Waiting $secs seconds..."
-                Start-Sleep -Seconds $secs
+                # PROGRESS-INLINE-TICK: reference implementation of the per-second
+                # progress loop. Keep other PROGRESS-INLINE-TICK blocks in sync.
+                for ($r = $secs; $r -gt 0; $r--) {
+                    $pct = [math]::Round((($secs - $r) / [math]::Max($secs,1)) * 100)
+                    Write-ProgressTick -Activity "delay" -Status "${r}s remaining" -PercentComplete $pct
+                    Start-Sleep -Seconds 1
+                }
+                Write-ProgressTick -Activity "delay" -Completed
             }
             "key" {
                 $keyName = $step.name
@@ -1495,7 +1558,14 @@ function Invoke-Sequence {
                 Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                 if ($ok -ne $false) {
-                    Start-Sleep -Seconds $delaySeconds
+                    # PROGRESS-INLINE-TICK: reference impl lives in "delay"
+                    $delaySecsInt = [int][math]::Ceiling($delaySeconds)
+                    for ($r = $delaySecsInt; $r -gt 0; $r--) {
+                        $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
+                        Write-ProgressTick -Activity "typeAndEnter" -Status "drain ${r}s" -PercentComplete $pct
+                        Start-Sleep -Seconds 1
+                    }
+                    Write-ProgressTick -Activity "typeAndEnter" -Completed
                     # Brief pause to let the VM's keyboard buffer drain before Enter.
                     # On macOS UTM, Send-Text (CGEvent/JXA) and Send-Key (AppleScript)
                     # run as separate OS processes; without this gap the Enter can be
@@ -1549,7 +1619,14 @@ function Invoke-Sequence {
                     Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
                     $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                     if ($ok -ne $false) {
-                        Start-Sleep -Seconds $delaySeconds
+                        # PROGRESS-INLINE-TICK: reference impl lives in "delay"
+                        $delaySecsInt = [int][math]::Ceiling($delaySeconds)
+                        for ($r = $delaySecsInt; $r -gt 0; $r--) {
+                            $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
+                            Write-ProgressTick -Activity "waitForAndEnter" -Status "drain ${r}s" -PercentComplete $pct
+                            Start-Sleep -Seconds 1
+                        }
+                        Write-ProgressTick -Activity "waitForAndEnter" -Completed
                         Start-Sleep -Milliseconds 800
                         $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                     }
@@ -1583,7 +1660,14 @@ function Invoke-Sequence {
                 Write-Debug "      fetchAndExecute: typing '$text' + Enter"
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
                 if ($ok -ne $false) {
-                    Start-Sleep -Seconds $delaySeconds
+                    # PROGRESS-INLINE-TICK: reference impl lives in "delay"
+                    $delaySecsInt = [int][math]::Ceiling($delaySeconds)
+                    for ($r = $delaySecsInt; $r -gt 0; $r--) {
+                        $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
+                        Write-ProgressTick -Activity "fetchAndExecute" -Status "drain ${r}s" -PercentComplete $pct
+                        Start-Sleep -Seconds 1
+                    }
+                    Write-ProgressTick -Activity "fetchAndExecute" -Completed
                     Start-Sleep -Milliseconds 800
                     $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                 }
@@ -1603,7 +1687,14 @@ function Invoke-Sequence {
                         Write-Debug "      fetchAndExecute: typing password '$pwMasked' + Enter"
                         $ok = Send-Text -HostType $HostType -VMName $VMName -Text $pwText -CharDelayMs $charDelay
                         if ($ok -ne $false) {
-                            Start-Sleep -Seconds $delaySeconds
+                            # PROGRESS-INLINE-TICK: reference impl lives in "delay"
+                            $delaySecsInt = [int][math]::Ceiling($delaySeconds)
+                            for ($r = $delaySecsInt; $r -gt 0; $r--) {
+                                $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
+                                Write-ProgressTick -Activity "fetchAndExecute" -Status "password drain ${r}s" -PercentComplete $pct
+                                Start-Sleep -Seconds 1
+                            }
+                            Write-ProgressTick -Activity "fetchAndExecute" -Completed
                             Start-Sleep -Milliseconds 800
                             $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                         }
@@ -1625,9 +1716,12 @@ function Invoke-Sequence {
                 Write-Warning "Unknown action: $($step.action)"
             }
         }
+        } finally {
+            $global:ProgressPreference = $savedProgress
+        }
 
         $stepStopwatch.Stop()
-        $elapsedLabel = ("{0:0000}" -f [int]$stepStopwatch.Elapsed.TotalSeconds)
+        $elapsedLabel = ("    {0,4}" -f [int]$stepStopwatch.Elapsed.TotalSeconds)
         Write-Information "$elapsedLabel s [$stepNum/$($steps.Count)] $($step.action): $desc"
 
         if ($ok -eq $false) {
@@ -1692,6 +1786,7 @@ function Invoke-Sequence {
         }
     }
 
+    Write-ProgressTick -Activity "Sequence" -Completed
     Write-Information "    All $($steps.Count) steps completed."
     return $true
 

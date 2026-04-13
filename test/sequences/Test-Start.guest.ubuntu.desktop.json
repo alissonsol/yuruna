@@ -33,7 +33,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Not listed?",
-      "timeoutSeconds": 600,
+      "timeoutSeconds": 900,
       "pollSeconds": 6,
       "text": "",
       "description": "Not listed?"

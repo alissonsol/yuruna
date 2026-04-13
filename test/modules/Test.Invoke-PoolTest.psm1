@@ -67,8 +67,28 @@ function Invoke-PoolTest {
         $displayName = [System.IO.Path]::GetFileNameWithoutExtension($s.Name)
         Write-Information "  Running: $displayName" -InformationAction Continue
         if ($ShowOutput) {
-            & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName *>&1 | ForEach-Object {
-                Write-Information "    $_" -InformationAction Continue
+            & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName | ForEach-Object {
+                # PROGRESS-MARKER-PARSER: keep in sync with Test.Install-OS.psm1
+                $line = [string]$_
+                $idx = $line.IndexOf('##YURUNA-PROGRESS##|')
+                if ($idx -ge 0) {
+                    $parts = $line.Substring($idx + 20).Split('|')
+                    if ($parts.Count -ge 4) {
+                        $pActivity = $parts[0]
+                        $pStatus   = $parts[1]
+                        $pPercent  = [int]$parts[2]
+                        $pDone     = $parts[3] -eq '1'
+                        if ($pDone) {
+                            Write-Progress -Activity $pActivity -Completed
+                        } elseif ($pPercent -ge 0) {
+                            Write-Progress -Activity $pActivity -Status $pStatus -PercentComplete $pPercent
+                        } else {
+                            Write-Progress -Activity $pActivity -Status $pStatus
+                        }
+                    }
+                } else {
+                    Write-Information "    $line" -InformationAction Continue
+                }
             }
         } else {
             & pwsh -NoProfile -File $s.FullName -HostType $HostType -GuestKey $GuestKey -VMName $VMName *>$null

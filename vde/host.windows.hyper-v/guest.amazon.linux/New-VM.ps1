@@ -111,7 +111,15 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
 	-replace 'HOSTNAME_PLACEHOLDER', $VMName
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
-Copy-Item -Path $UserDataTemplate -Destination "$SeedDir/user-data"
+
+# Load the SSH public key used by the test harness to drive the VM over SSH.
+$TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
+Import-Module $TestSshModule -Force
+$SshAuthorizedKey = Get-YurunaSshPublicKey
+if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey)
+Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"
 $VolumeId = "cidata"

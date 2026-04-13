@@ -84,6 +84,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `stopOnFailure` | `false` | When `true`, stop tests on first failure and preserve VM for investigation. When `false`, clean up the failed VM and continue to the next guest. Failure artifacts are always copied to `status/log/` for remote inspection |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
 | `charDelayMs` | `20` | Default delay in ms between keystrokes in `type`/`typeAndEnter` actions |
+| `keystrokeMechanism` | `"hypervisor"` | How the harness drives guest VMs. `"hypervisor"` uses keystroke injection (Hyper-V scancodes or UTM VNC/CGEvent). `"ssh"` routes workload sequences over SSH using a per-host key under `test/.ssh/` that is injected into each guest's cloud-init `authorized_keys` at VM creation. In SSH mode, Invoke-Sequence prefers a sibling `.ssh.json` variant of each sequence file when one exists (e.g. `Test-Workload.guest.amazon.linux.ssh.json`) and falls back to the keystroke sequence otherwise |
 | `vncPort` | `5900` | VNC port for QEMU-backend UTM VMs (display `:0` = 5900). Used by the focus-independent VNC keystroke transport |
 | `verifyScreenshotThreshold` | `0.85` | Similarity threshold (0–1) for verify-screenshot comparison |
 | `guestOrder` | all three | Array of guest keys to test, in execution order (see below) |

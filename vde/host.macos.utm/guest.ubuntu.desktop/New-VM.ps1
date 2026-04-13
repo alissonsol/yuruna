@@ -162,7 +162,13 @@ if (-not (Test-Path $UserDataTemplate)) {
 
 # Use .Replace() (literal) instead of -replace (regex) because the hash
 # contains $ delimiters ($6$salt$hash) that regex would interpret as backreferences
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash)
+# Load the SSH public key used by the test harness to drive the VM over SSH.
+$TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
+Import-Module $TestSshModule -Force
+$SshAuthorizedKey = Get-YurunaSshPublicKey
+if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey)
 
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

@@ -98,7 +98,14 @@ if (-not (Test-Path $UserDataTemplate)) {
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $VMName
-$UserData = Get-Content -Raw $UserDataTemplate
+
+# Load the SSH public key used by the test harness to drive the VM over SSH.
+$TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
+Import-Module $TestSshModule -Force
+$SshAuthorizedKey = Get-YurunaSshPublicKey
+if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey)
 
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline

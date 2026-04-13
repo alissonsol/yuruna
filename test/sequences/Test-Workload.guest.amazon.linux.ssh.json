@@ -1,0 +1,38 @@
+{
+  "$schema": "SSH-driven equivalent of Test-Workload.guest.amazon.linux.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'.",
+  "$actions": {
+    "sshWaitReady":       "Wait until the guest accepts SSH using the yuruna harness key. Parameters: timeoutSeconds (number), pollSeconds (number).",
+    "sshExec":            "Run a command on the guest over SSH. Parameters: command (string), timeoutSeconds (number), allowFailure (boolean), sensitive (boolean).",
+    "sshFetchAndExecute": "Run a long-lived command over SSH (SSH equivalent of fetchAndExecute). Parameters: command (string), timeoutSeconds (number)."
+  },
+
+  "description": "Amazon Linux (SSH): install the Desktop package group and verify — parallel path to the keystroke sequence.",
+  "variables": {
+    "username": "ec2-user"
+  },
+  "steps": [
+    {
+      "action": "sshWaitReady",
+      "timeoutSeconds": 300,
+      "pollSeconds": 5,
+      "description": "Wait for sshd + cloud-init authorized_keys to be ready"
+    },
+    {
+      "action": "sshExec",
+      "command": "whoami && hostname",
+      "description": "Smoke test: confirm session identity"
+    },
+    {
+      "action": "sshFetchAndExecute",
+      "command": "sudo dnf groupinstall -y \"Desktop\"",
+      "timeoutSeconds": 1800,
+      "description": "GUI install"
+    },
+    {
+      "action": "sshExec",
+      "command": "dnf list installed | grep -i desktop || true",
+      "allowFailure": true,
+      "description": "Show installed desktop packages"
+    }
+  ]
+}

@@ -16,6 +16,9 @@ CLAUDE.md
 **/CLAUDE.md
 **/.claude
 
+# Yuruna test harness SSH keys (generated per-host on first run)
+test/.ssh/
+
 # User-specific files
 *.rsuser
 *.suo

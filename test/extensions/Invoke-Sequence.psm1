@@ -29,8 +29,9 @@ if ($env:YURUNA_VERBOSE -eq '1') { $global:VerbosePreference = 'Continue' }
 
 # ── Load global defaults from test-config.json ──────────────────────────────
 # The config file lives one level up from this module (test/test-config.json).
-$script:DefaultCharDelayMs = 20
-$script:DefaultVncPort     = 5900
+$script:DefaultCharDelayMs      = 20
+$script:DefaultVncPort          = 5900
+$script:DefaultKeystrokeMechanism = "hypervisor"
 
 # ── Progress marker protocol ─────────────────────────────────────────────────
 # When Invoke-Sequence runs inside a child pwsh whose stdout is piped to the
@@ -59,8 +60,9 @@ $_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test-config.json"
 if (Test-Path $_configPath) {
     try {
         $_cfg = Get-Content -Raw $_configPath | ConvertFrom-Json
-        if ($_cfg.charDelayMs) { $script:DefaultCharDelayMs = [int]$_cfg.charDelayMs }
-        if ($_cfg.vncPort)     { $script:DefaultVncPort     = [int]$_cfg.vncPort }
+        if ($_cfg.charDelayMs)        { $script:DefaultCharDelayMs        = [int]$_cfg.charDelayMs }
+        if ($_cfg.vncPort)            { $script:DefaultVncPort            = [int]$_cfg.vncPort }
+        if ($_cfg.keystrokeMechanism) { $script:DefaultKeystrokeMechanism = [string]$_cfg.keystrokeMechanism }
     } catch { Write-Verbose "Config parse error — using built-in default: $_" }
 }
 Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
@@ -83,6 +85,9 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 #   waitForPort      — Wait until a TCP port responds on the VM.
 #   waitForHeartbeat — Wait for Hyper-V heartbeat (Hyper-V only).
 #   waitForVMStop    — Wait until the VM reaches the Off/stopped state.
+#   sshWaitReady     — Wait until the guest accepts SSH using the yuruna harness key.
+#   sshExec          — Run a command on the guest over SSH; non-zero exit fails unless allowFailure=true.
+#   sshFetchAndExecute — Run a long-lived command over SSH (SSH equivalent of fetchAndExecute).
 #
 # Variables defined in the JSON "variables" block are substituted into
 # action parameters using ${variableName} syntax. Built-in variables:
@@ -1473,6 +1478,21 @@ function Invoke-Sequence {
         [switch]$ShowSensitive
     )
 
+    # ── SSH variant selection ──────────────────────────────────────────────
+    # When test-config.json sets keystrokeMechanism="ssh", prefer a sibling
+    # sequence file with a .ssh.json suffix (e.g. Test-Workload.guest.amazon.linux.ssh.json).
+    # This is the parallel-path switch: the existing keystroke-based file is
+    # untouched, and the SSH variant is picked up automatically when the flag
+    # is set. If no .ssh.json sibling exists, fall back to the original file
+    # so guests that haven't been migrated yet continue to work in both modes.
+    if ($script:DefaultKeystrokeMechanism -eq "ssh") {
+        $sshVariant = [System.IO.Path]::ChangeExtension($SequencePath, $null).TrimEnd('.') + ".ssh.json"
+        if (Test-Path $sshVariant) {
+            Write-Information "    keystrokeMechanism=ssh → using SSH variant: $(Split-Path -Leaf $sshVariant)"
+            $SequencePath = $sshVariant
+        }
+    }
+
     if (-not (Test-Path $SequencePath)) {
         Write-Information "    No sequence file found: $SequencePath"
         return $true
@@ -1481,6 +1501,7 @@ function Invoke-Sequence {
     # Initialize logDir early so the catch block can write diagnostics
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")    -Force -ErrorAction SilentlyContinue -Verbose:$false
     $logDir = Get-YurunaLogDir
 
   try {
@@ -1713,6 +1734,53 @@ function Invoke-Sequence {
                         -FreshMatchTailLines 12 -ResetAfterMisses 3
                 }
             }
+            "sshWaitReady" {
+                # Wait until the guest accepts SSH with the harness key.
+                # Mirrors waitForPort but handshakes all the way to an authenticated shell.
+                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 300
+                $poll    = $step.pollSeconds    ? [int]$step.pollSeconds    : 5
+                Write-Debug "      sshWaitReady: $GuestKey@$VMName (timeout: ${timeout}s)"
+                $ok = Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $timeout -PollSeconds $poll
+            }
+            "sshExec" {
+                # Run a command on the guest over SSH. Non-zero exit fails the step
+                # unless allowFailure=true. On success, stdout+stderr are dropped to
+                # match the keystroke flow (which never captured guest-side output).
+                # On failure, the captured output is included in the warning so the
+                # user can see what went wrong without re-running with -Verbose.
+                $cmd     = Expand-Variable $step.command $vars
+                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 900
+                $masked  = ($step.sensitive -and -not $ShowSensitive) ? "***" : $cmd
+                Write-Debug "      sshExec: $masked"
+                $result  = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $cmd -TimeoutSeconds $timeout
+                Write-Debug "      sshExec output: $($result.output)"
+                if (-not $result.success) {
+                    if ($step.allowFailure -eq $true) {
+                        Write-Debug "      sshExec exit=$($result.exitCode) (allowFailure=true)"
+                    } else {
+                        Write-Warning "      sshExec failed (exit=$($result.exitCode)): $masked"
+                        if ($result.output) { Write-Warning "      output: $($result.output)" }
+                        $ok = $false
+                    }
+                }
+            }
+            "sshFetchAndExecute" {
+                # SSH equivalent of fetchAndExecute: runs a shell command (typically
+                # invoking fetch-and-execute.sh) over SSH in a single blocking call.
+                # No OCR polling, no password prompt handling (sudo is passwordless
+                # for cloud-init users, or the command handles its own auth).
+                # Output is dropped on success and included in the warning on failure.
+                $cmd     = Expand-Variable $step.command $vars
+                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 1800
+                Write-Debug "      sshFetchAndExecute: $cmd"
+                $result  = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $cmd -TimeoutSeconds $timeout
+                Write-Debug "      sshFetchAndExecute output: $($result.output)"
+                if (-not $result.success) {
+                    Write-Warning "      sshFetchAndExecute failed (exit=$($result.exitCode)): $cmd"
+                    if ($result.output) { Write-Warning "      output: $($result.output)" }
+                    $ok = $false
+                }
+            }
             default {
                 Write-Warning "Unknown action: $($step.action)"
             }
@@ -1759,6 +1827,9 @@ function Invoke-Sequence {
                     $actionLabel = "waitForAndEnter: `"$patternDisplay`""
                 }
                 "fetchAndExecute"  { $actionLabel = "fetchAndExecute: `"$(Expand-Variable $step.text $vars)`"" }
+                "sshWaitReady"     { $actionLabel = "sshWaitReady" }
+                "sshExec"          { $actionLabel = "sshExec: `"$(Expand-Variable $step.command $vars)`"" }
+                "sshFetchAndExecute" { $actionLabel = "sshFetchAndExecute: `"$(Expand-Variable $step.command $vars)`"" }
             }
 
             $failureInfo = @{

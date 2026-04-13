@@ -3,10 +3,17 @@
 users:
 # A user by the name `ec2-user` is created in the image by default.
   - default
+# Top-level ssh_authorized_keys: cloud-init installs these on the default
+# user (ec2-user). This is the documented pattern and avoids the unreliable
+# "redefine ec2-user under users:" form, which cloud-init may silently merge
+# or drop when the username matches the distro default.
+ssh_authorized_keys:
+  - SSH_AUTHORIZED_KEY_PLACEHOLDER
 chpasswd:
   list: |
     ec2-user:amazonlinux
 # In the above line, do not add any spaces after 'ec2-user:'.
+ssh_pwauth: true
 
 # --- System: denylist hv_balloon to prevent console messages ---
 write_files:
@@ -18,6 +25,8 @@ write_files:
 runcmd:
   # --- System: unload hv_balloon if already loaded ---
   - rmmod hv_balloon 2>/dev/null || true
+  # --- SSH: ensure sshd is enabled and running for test-harness SSH access ---
+  - systemctl enable --now sshd || true
   # --- GNOME: auto-open terminal on login ---
   - mkdir -p /etc/xdg/autostart
   - |

@@ -20,6 +20,7 @@
   },
   "maxHistoryRuns": 30,
   "charDelayMs": 20,
+  "keystrokeMechanism": "hypervisor",
   "vncPort": 5900,
   "verifyScreenshotThreshold": 0.85,
   "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"]

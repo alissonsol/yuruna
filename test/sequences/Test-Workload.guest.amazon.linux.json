@@ -14,7 +14,7 @@
   },
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
 
-  "description": "Amazon Linux: log in with new password, install VS Code.",
+  "description": "Amazon Linux: log in with new password, install the Desktop package group.",
   "variables": {
     "username":    "ec2-user",
     "password":    "amazonlinux",

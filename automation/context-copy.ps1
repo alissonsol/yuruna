@@ -52,7 +52,8 @@ kubectl config use-context $sourceContext *>&1 | Write-Verbose
 $currentContext = kubectl config current-context
 if ($currentContext -ne $sourceContext) { Write-Information "K8S source context not found: $sourceContext`n"; return $false; }
 
-# Copy sourceContext to destinationContext. HACK: Assumes the current one will become index 0.
+# --minify narrows the kubectl view to a single user/cluster/context,
+# so index 0 is always the source entry being renamed below.
 Write-Debug "`n==== ********* Copying context '$sourceContext' to '$destinationContext' ************** =======";
 $yamlContent = $(kubectl config view --minify --raw=true -o yaml)
 # Write-Verbose $(ConvertTo-Yaml $yamlContent)

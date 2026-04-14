@@ -7,6 +7,15 @@ Extension scripts run custom tests against each guest VM. There are two phases:
 - **Test-Workload** scripts validate workloads, configurations, and features
   after the OS is installed and the VM is verified running.
 
+Sequence files in `../sequences/` come in two flavors, selected automatically by
+`Invoke-Sequence` based on `test-config.json`:
+
+- `Test-<phase>.<guest-key>.json` — keystroke path (OCR + scancode injection,
+  used when `keystrokeMechanism="hypervisor"`).
+- `Test-<phase>.<guest-key>.ssh.json` — SSH path (used when
+  `keystrokeMechanism="ssh"`, if the sibling file exists; otherwise the
+  keystroke variant is used).
+
 ## Quick start
 
 1. Create a `.ps1` script in this directory following the naming convention below

@@ -10,7 +10,8 @@ if [ -z "$FILE_PATH" ]; then
     exit 1
 fi
 
-# TODO: Remove the hack below. It is improving reliability to find the "prompt" when it was already present!
+# Reset the visible screen so OCR-based "wait for prompt" on the host side
+# doesn't match a prompt left over from the previous command.
 clear
 
 # Construct and execute

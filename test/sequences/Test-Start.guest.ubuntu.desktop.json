@@ -11,7 +11,7 @@
     "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
     "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
     "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number).",
-    "fetchAndExecute":  "Type a command + Enter, optionally handle a password prompt, then wait for a completion pattern (freshMatch). Parameters: text (string), description (string), passwordPattern (string, default empty), passwordTimeoutSeconds (number, default 30), passwordPollSeconds (number, default 5), passwordText (string), waitPattern (string), waitTimeoutSeconds (number, default 900), waitPollSeconds (number, default 9)."
+    "fetchAndExecute":  "Type a command + Enter, then wait for a completion pattern (freshMatch). Parameters: text (string), description (string), charDelayMs (number), delaySeconds (number, default 2), waitPattern (string), waitTimeoutSeconds (number, default 900), waitPollSeconds (number, default 9)."
   },
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
 

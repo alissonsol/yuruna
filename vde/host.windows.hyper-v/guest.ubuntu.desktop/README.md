@@ -32,7 +32,7 @@ Start the VM from Hyper-V Manager. The Ubuntu installer will run automatically u
 
 **On the VM (after setup): Updating**
 
-You should be prompted to change the password on first login. You can change the password at any time with the `passwd` command. The default user is `ubuntu` and the initial password is `password`.
+The default user is `ubuntu` and the initial password is `password`. Autoinstall expires the password, so you will be forced to change it on first interactive login; you can also change it later with `passwd`.
 
 Open a terminal and run the following command.
 

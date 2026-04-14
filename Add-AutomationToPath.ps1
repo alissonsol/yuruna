@@ -18,7 +18,10 @@
 
 # Adds the 'automation' subfolder of this repository to the current session's PATH,
 # and persists it to the user-level PATH so it survives reboots and new terminal windows.
-$repoRoot = git rev-parse --show-toplevel
+# Use the script's own directory as the repo root instead of `git rev-parse` — in some
+# environments Git refuses with "fatal: detected dubious ownership in repository" and
+# asks the user to add the path to safe.directory, but that path isn't known up front.
+$repoRoot = $PSScriptRoot
 $automationPath = Join-Path $repoRoot "automation"
 
 if (-not (Test-Path $automationPath)) {

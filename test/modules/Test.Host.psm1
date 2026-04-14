@@ -229,6 +229,64 @@ function Set-MacHostConditionSet {
         Write-Output "Screen lock password is already disabled."
     }
 
+    # ── 2b. Screen saver idle — per-host variant (Ventura+) ──────────────
+    # Modern macOS stores screensaver prefs under the ByHost domain. Without
+    # this, the System Settings UI still shows a non-zero idle time even after
+    # section 2 above, and the screen saver will still kick in.
+    $ssIdleHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
+    if ($LASTEXITCODE -eq 0 -and "$ssIdleHost".Trim() -ne "0") {
+        if ($PSCmdlet.ShouldProcess("Screen saver idle time [currentHost] (currently $($ssIdleHost.Trim())s)", "Set to 0 (disabled)")) {
+            Write-Output "Disabling screen saver idle activation (currentHost)..."
+            & defaults -currentHost write com.apple.screensaver idleTime -int 0
+            $changed = $true
+        }
+    } else {
+        Write-Output "Screen saver idle activation (currentHost) is already disabled."
+    }
+
+    # ── 3b. Screen lock password — per-host variant ─────────────────────
+    $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
+    if ($LASTEXITCODE -eq 0 -and "$askPwHost".Trim() -eq "1") {
+        if ($PSCmdlet.ShouldProcess("Screen lock password [currentHost]", "Disable (askForPassword → 0)")) {
+            Write-Output "Disabling screen lock password requirement (currentHost)..."
+            & defaults -currentHost write com.apple.screensaver askForPassword -int 0
+            $changed = $true
+        }
+    } else {
+        Write-Output "Screen lock password (currentHost) is already disabled."
+    }
+
+    # ── 3c. "Require password after sleep/screen saver begins" delay ─────
+    # Sonoma+ lock-screen pane: "Require password ... after X". Setting a
+    # very large delay effectively prevents the lock from engaging even if
+    # some other process re-enables askForPassword.
+    & defaults write com.apple.screensaver askForPasswordDelay -int 2147483647 2>$null | Out-Null
+    & defaults -currentHost write com.apple.screensaver askForPasswordDelay -int 2147483647 2>$null | Out-Null
+
+    # ── 3d. System sleep → Never (requires sudo) ─────────────────────────
+    # Display-sleep alone isn't enough: if the whole system sleeps, the
+    # display locks on wake regardless of screensaver settings.
+    $currentSysSleep = "unknown"
+    $sysLine = & pmset -g custom 2>$null | Select-String '^\s*[^d]\s*sleep\s+(\d+)' | Select-Object -First 1
+    if ($sysLine) { $currentSysSleep = $sysLine.Matches[0].Groups[1].Value }
+
+    if ($currentSysSleep -ne "0") {
+        if ($PSCmdlet.ShouldProcess("System sleep (currently $currentSysSleep min)", "Set to 0 (Never) via sudo pmset")) {
+            Write-Output "Setting system sleep to Never (AC and battery)..."
+            & sudo pmset -c sleep 0
+            & sudo pmset -b sleep 0
+            & sudo pmset -c disksleep 0
+            $changed = $true
+        }
+    } else {
+        Write-Output "System sleep is already set to Never."
+    }
+
+    # ── 3e. Prevent idle sleep explicitly ─────────────────────────────────
+    # Belt-and-suspenders: disable the idle-sleep assertion even if some
+    # other subsystem tries to re-enable it.
+    & sudo pmset -c disablesleep 1 2>$null | Out-Null
+
     # ── 4. Accessibility — trigger the system prompt if not granted ───────
     try {
         $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
@@ -328,10 +386,9 @@ function Set-WindowsHostConditionSet {
     # ── 3. Machine inactivity lock → disabled ────────────────────────────
     $regPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
     $lockTimeout = $null
-    try {
-        $lockTimeout = Get-ItemPropertyValue -Path $regPath -Name 'InactivityTimeoutSecs' -ErrorAction SilentlyContinue
-    } catch {
-        Write-Debug "InactivityTimeoutSecs read failed: $_"
+    $regProps = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+    if ($regProps -and $regProps.PSObject.Properties.Name -contains 'InactivityTimeoutSecs') {
+        $lockTimeout = $regProps.InactivityTimeoutSecs
     }
 
     if ($lockTimeout -and $lockTimeout -gt 0) {
@@ -480,8 +537,11 @@ function Assert-WindowsHostConditionSet {
 
     # 4. Lock screen timeout — warn if machine will lock
     try {
-        $lockTimeout = Get-ItemPropertyValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
-            -Name 'InactivityTimeoutSecs' -ErrorAction SilentlyContinue
+        $lockTimeout = $null
+        $regProps = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ErrorAction SilentlyContinue
+        if ($regProps -and $regProps.PSObject.Properties.Name -contains 'InactivityTimeoutSecs') {
+            $lockTimeout = $regProps.InactivityTimeoutSecs
+        }
         if ($lockTimeout -and $lockTimeout -gt 0) {
             Write-Warning "═══════════════════════════════════════════════════════════════════"
             Write-Warning " Machine inactivity lock is set to $lockTimeout second(s)."

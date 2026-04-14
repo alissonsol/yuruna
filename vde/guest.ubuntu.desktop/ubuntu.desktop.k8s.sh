@@ -402,7 +402,11 @@ if [ -n "$MKCERT_ARCH" ]; then
     curl -fsSL "https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}&nocache=$(date +%s)" -o /tmp/mkcert
     chmod +x /tmp/mkcert
     sudo mv /tmp/mkcert /usr/local/bin/mkcert
-    mkcert -install || true
+    # Run mkcert -install as the desktop user so rootCA.pem lands in their
+    # $HOME/.local/share/mkcert, regardless of whether this script was
+    # invoked directly or via sudo.
+    TARGET_USER="${SUDO_USER:-$USER}"
+    sudo -u "$TARGET_USER" -H mkcert -install || true
 fi
 echo -e "\e[1;32m<<< mkcert installation complete.\e[0m"
 

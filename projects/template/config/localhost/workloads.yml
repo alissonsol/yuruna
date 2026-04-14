@@ -34,7 +34,9 @@ workloads:
     - kubectl: "label namespace ingress-ns cert-manager.io/disable-validation=true --v=1"
     - kubectl: "config set-context --current --namespace=${env:namespace} --v=1"
     # For localhost: manually create certificate
-    - shell: "mkcert -install"
+    # On Linux, run mkcert -install as the logged-in user (honoring SUDO_USER)
+    # so rootCA.pem lands in that user's $HOME/.local/share/mkcert.
+    - shell: 'if ("$IsLinux" -eq "True") { sudo -u (`$(if (`$env:SUDO_USER) { `$env:SUDO_USER } else { `$env:USER })) -H mkcert -install } else { mkcert -install }'
     - shell: "mkcert -key-file \"${env:workFolder}/website-tls.key\" -cert-file \"${env:workFolder}/website-tls.crt\" ${env:websiteDomain} \"*.${env:websiteDomain}\" localhost \"*.localhost\" 127.0.0.1 ::1 ${env:_hostname} ${env:_frontendIp}"
     - kubectl: "delete secret ${env:websiteTlsSecret} --namespace=${env:namespace} --ignore-not-found=true"  
     - kubectl: "create secret tls ${env:websiteTlsSecret} --key \"${env:workFolder}/website-tls.key\" --cert \"${env:workFolder}/website-tls.crt\" --namespace=${env:namespace}"

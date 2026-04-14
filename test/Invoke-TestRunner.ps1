@@ -163,13 +163,13 @@ $script:ActiveVMName      = $null
 $script:CycleFinalized    = $true    # tracks whether Complete-Run/Stop-LogFile have been called
 
 try {
-    [Console]::CancelKeyPress += {
+    [Console]::add_CancelKeyPress({
         param($eventSender, $e)
         $null = $eventSender  # required by .NET event signature
         $e.Cancel = $true
         $script:ShutdownRequested = $true
         Write-Warning "Shutdown requested (Ctrl+C). Will clean up after current operation..."
-    }
+    })
 } catch {
     Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $_"
 }

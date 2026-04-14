@@ -12,6 +12,7 @@
     - Amazon Linux command: `dnf list installed | grep desktop`
     - Is received as: `dnf list installed \ grep desktop`
 - Investigate framework for "mobile"
+- Configurable test sequences and pools
 - Windows sequence for startup and minimal workload test
 - Get error logs from inside VM to outside in cross-host and cross-guest manner
 - Externalize "credentials": should come through method that can start just reading local file, but later gets credentials from "service"

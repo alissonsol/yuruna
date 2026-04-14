@@ -27,7 +27,7 @@ REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
 
 # Fix kube permissions
-sudo chown -R ubuntu:ubuntu /home/ubuntu/.kube
+sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.kube"
 
 # Install mkcert CA
 mkcert -install 2>/dev/null || true
@@ -36,35 +36,35 @@ mkcert -install 2>/dev/null || true
 docker start registry 2>/dev/null || docker run -d -p 5000:5000 --restart=always --name registry registry:2
 
 # Clone yuruna if not present
-if [ ! -d /home/ubuntu/yuruna ]; then
+if [ ! -d "$REAL_HOME/yuruna" ]; then
     for attempt in 1 2 3; do
-        git clone https://github.com/alissonsol/yuruna.git /home/ubuntu/yuruna && break
+        git clone https://github.com/alissonsol/yuruna.git "$REAL_HOME/yuruna" && break
         echo "git clone attempt $attempt failed"
-        rm -rf /home/ubuntu/yuruna
+        rm -rf "$REAL_HOME/yuruna"
         [ $attempt -lt 3 ] && sleep 60
     done
-    if [ ! -d /home/ubuntu/yuruna ]; then
+    if [ ! -d "$REAL_HOME/yuruna" ]; then
         echo "git clone failed after 3 attempts" >&2
         exit 1
     fi
 fi
 
 # Run Set-Resource
-cd /home/ubuntu/yuruna/examples
+cd "$REAL_HOME/yuruna/examples"
 pwsh ../automation/Set-Resource.ps1 website localhost
 
 # Rename kubectl context to match runId
-CONTEXT=$(grep 'clusterDnsPrefix' /home/ubuntu/yuruna/examples/website/config/localhost/resources.output.yml | awk '{print $2}' | tr -d '"')
+CONTEXT=$(grep 'clusterDnsPrefix' "$REAL_HOME/yuruna/examples/website/config/localhost/resources.output.yml" | awk '{print $2}' | tr -d '"')
 kubectl config rename-context docker-desktop "localhost-${CONTEXT}" 2>/dev/null || true
 
 # Build and push Docker image
-cd /home/ubuntu/yuruna/examples/website/components/frontend/website
-cp /home/ubuntu/.aspnet/https/aspnetapp.pfx .
+cd "$REAL_HOME/yuruna/examples/website/components/frontend/website"
+cp "$REAL_HOME/.aspnet/https/aspnetapp.pfx" .
 docker build --progress=plain --rm --build-arg DEV=1 --no-cache -f Dockerfile -t "website/website:latest" .
 docker tag website/website:latest localhost:5000/website/website:latest
 docker push localhost:5000/website/website:latest
 
 # Run Set-Component and Set-Workload
-cd /home/ubuntu/yuruna/examples
+cd "$REAL_HOME/yuruna/examples"
 pwsh ../automation/Set-Component.ps1 website localhost
 pwsh ../automation/Set-Workload.ps1 website localhost

@@ -336,11 +336,19 @@ while ($true) {
 
     Write-Output "Run ID:  $RunId"
     Write-Output "Commit:  $GitCommit"
-    Write-Output "Guests:  $($GuestList -join ', ')"
 
-    # --- Get-Image (every N hours, configurable) ---
     $lastGetImage = Get-LastGetImageTime -StatusFilePath $StatusFile
     $needGetImage = (-not $lastGetImage) -or ((Get-Date).ToUniversalTime() - [datetime]$lastGetImage).TotalHours -ge $GetImageRefreshHours
+    Write-Output "Get-Image: $($lastGetImage ?? 'never')"
+
+    $testConfigMTime = (Test-Path $ConfigPath) ? (Get-Item $ConfigPath).LastWriteTime.ToString('u') : 'n/a'
+    Write-Output "Test-Config: $testConfigMTime"
+    Write-Output ""
+    Write-Output "===== test-config.json"
+    if (Test-Path $ConfigPath) {
+        Get-Content -Raw $ConfigPath | Write-Output
+    }
+    Write-Output ""
 
     if ($needGetImage) {
         Write-Output ""

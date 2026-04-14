@@ -136,6 +136,9 @@ if (Test-Path $StatusFile) {
     }
 }
 
+# --- Clear stale heartbeat so the new server isn't killed by a prior runner's timestamp ---
+Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
+
 # --- Launch the server as a detached process ---
 $serverScript = @"
 `$ErrorActionPreference = 'Stop'

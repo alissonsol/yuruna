@@ -450,10 +450,12 @@ function Send-TextVNC {
             $shifted = $entry[1]
             if ($shifted) {
                 Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $true
+                Start-Sleep -Milliseconds 20
             }
             Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
             Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
             if ($shifted) {
+                Start-Sleep -Milliseconds 10
                 Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false
             }
             if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }

@@ -408,7 +408,6 @@ while ($true) {
             Get-Content -Raw $ConfigPath | Write-Output
         }
     }
-    Write-Output ""
 
     # --- Abort cycle early if Get-Image failed ---
     if (-not $OverallPassed) {

@@ -50,10 +50,6 @@
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
       "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
-      "passwordPattern": "[sudo] password for ${username}",
-      "passwordTimeoutSeconds": 60,
-      "passwordPollSeconds": 6,
-      "passwordText": "${newPassword}",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 1800,
       "waitPollSeconds": 9
@@ -79,10 +75,6 @@
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
       "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.website.sh",
-      "passwordPattern": "[sudo] password for ${username}",
-      "passwordTimeoutSeconds": 30,
-      "passwordPollSeconds": 3,
-      "passwordText": "${newPassword}",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
       "waitPollSeconds": 9

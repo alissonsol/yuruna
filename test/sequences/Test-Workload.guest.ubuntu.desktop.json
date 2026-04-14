@@ -50,10 +50,6 @@
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
       "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
-      "passwordPattern": "[sudo] password for ${username}",
-      "passwordTimeoutSeconds": 60,
-      "passwordPollSeconds": 6,
-      "passwordText": "${newPassword}",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 300,
       "waitPollSeconds": 9

@@ -118,6 +118,19 @@ if ($Config.statusServer.enabled -and -not $NoServer) {
     & $startScript -Port $serverPort -Restart
 }
 
+# === Helper: strip apiKey entries from a nested hashtable/array before logging ===
+function Remove-ApiKeyRecursive {
+    param($Node)
+    if ($Node -is [System.Collections.IDictionary]) {
+        foreach ($key in @($Node.Keys)) {
+            if ($key -eq 'apiKey') { $Node.Remove($key); continue }
+            Remove-ApiKeyRecursive $Node[$key]
+        }
+    } elseif ($Node -is [System.Collections.IEnumerable] -and $Node -isnot [string]) {
+        foreach ($item in $Node) { Remove-ApiKeyRecursive $item }
+    }
+}
+
 # === Helper: copy failure artifacts to status/log for remote inspection ===
 function Copy-FailureArtifactsToStatusLog {
     param([string]$VMName)
@@ -346,7 +359,14 @@ while ($true) {
     Write-Output ""
     Write-Output "===== test-config.json"
     if (Test-Path $ConfigPath) {
-        Get-Content -Raw $ConfigPath | Write-Output
+        try {
+            $redacted = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+            Remove-ApiKeyRecursive $redacted
+            $redacted | ConvertTo-Json -Depth 20 | Write-Output
+        } catch {
+            Write-Warning "Could not redact test-config.json for log: $_"
+            Get-Content -Raw $ConfigPath | Write-Output
+        }
     }
     Write-Output ""
 

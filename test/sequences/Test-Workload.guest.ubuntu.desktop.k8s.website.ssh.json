@@ -25,7 +25,7 @@
     },
     {
       "action": "sshFetchAndExecute",
-      "command": "sudo /automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
+      "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
       "timeoutSeconds": 1800,
       "description": "Install Kubernetes via fetch-and-execute"
     },
@@ -37,7 +37,7 @@
     },
     {
       "action": "sshFetchAndExecute",
-      "command": "sudo /automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
+      "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
       "timeoutSeconds": 1800,
       "description": "Deploy website workload via fetch-and-execute"
     },

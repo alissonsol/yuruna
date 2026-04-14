@@ -352,24 +352,6 @@ while ($true) {
 
     $lastGetImage = Get-LastGetImageTime -StatusFilePath $StatusFile
     $needGetImage = (-not $lastGetImage) -or ((Get-Date).ToUniversalTime() - [datetime]$lastGetImage).TotalHours -ge $GetImageRefreshHours
-    Write-Output "Get-Image: $($lastGetImage ?? 'never')"
-
-    $testConfigMTime = (Test-Path $ConfigPath) ? (Get-Item $ConfigPath).LastWriteTime.ToString('u') : 'n/a'
-    Write-Output "Test-Config: $testConfigMTime"
-    Write-Output ""
-    Write-Output "===== test-config.json"
-    if (Test-Path $ConfigPath) {
-        try {
-            $redacted = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
-            Remove-ApiKeyRecursive $redacted
-            $redacted | ConvertTo-Json -Depth 20 | Write-Output
-        } catch {
-            Write-Warning "Could not redact test-config.json for log: $_"
-            Get-Content -Raw $ConfigPath | Write-Output
-        }
-    }
-    Write-Output ""
-
     if ($needGetImage) {
         Write-Output ""
         Write-Output "--- Get-Image (${GetImageRefreshHours}h refresh) ---"
@@ -412,6 +394,21 @@ while ($true) {
             Write-Output "Get-Image: skipped (last run: $lastGetImage, all images present)"
         }
     }
+
+    Write-Output ""
+    $testConfigMTime = (Test-Path $ConfigPath) ? (Get-Item $ConfigPath).LastWriteTime.ToString('u') : 'n/a'
+    Write-Output "===== test-config.json: $testConfigMTime"
+    if (Test-Path $ConfigPath) {
+        try {
+            $redacted = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+            Remove-ApiKeyRecursive $redacted
+            $redacted | ConvertTo-Json -Depth 20 | Write-Output
+        } catch {
+            Write-Warning "Could not redact test-config.json for log: $_"
+            Get-Content -Raw $ConfigPath | Write-Output
+        }
+    }
+    Write-Output ""
 
     # --- Abort cycle early if Get-Image failed ---
     if (-not $OverallPassed) {

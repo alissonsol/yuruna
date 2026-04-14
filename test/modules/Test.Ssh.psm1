@@ -180,6 +180,30 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
         }
     }
 
+    # macOS Apple Virtualization fallback: the built-in DHCP server for the
+    # shared network writes leases to /var/db/dhcpd_leases. cloud-init sets
+    # the guest hostname to VMName, so the lease's name= field matches.
+    if ($IsMacOS) {
+        $leaseFile = '/var/db/dhcpd_leases'
+        if (Test-Path $leaseFile) {
+            try {
+                $content = Get-Content $leaseFile -Raw -ErrorAction Stop
+                # Split into per-VM blocks delimited by { ... }
+                $blocks = [regex]::Matches($content, '\{[^}]*\}')
+                foreach ($b in $blocks) {
+                    $text = $b.Value
+                    if ($text -match "(?m)^\s*name=$([regex]::Escape($VMName))\s*$") {
+                        if ($text -match "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") {
+                            return [string]$Matches[1]
+                        }
+                    }
+                }
+            } catch {
+                Write-Debug "dhcpd_leases lookup failed for ${VMName}: $_"
+            }
+        }
+    }
+
     return $VMName
 }
 

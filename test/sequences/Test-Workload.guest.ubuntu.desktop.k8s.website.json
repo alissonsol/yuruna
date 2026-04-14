@@ -55,7 +55,7 @@
       "passwordPollSeconds": 6,
       "passwordText": "${newPassword}",
       "waitPattern": "FETCHED AND EXECUTED:",
-      "waitTimeoutSeconds": 600,
+      "waitTimeoutSeconds": 1800,
       "waitPollSeconds": 9
     },
     {

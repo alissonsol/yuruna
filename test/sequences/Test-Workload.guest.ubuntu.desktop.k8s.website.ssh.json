@@ -48,9 +48,9 @@
     },
     {
       "action": "sshExec",
-      "command": "for i in $(seq 1 30); do if bash /home/ubuntu/yuruna/test/test-localhost.sh 2>&1 | grep -q 200; then echo 'HTTP 200 OK'; exit 0; fi; sleep 5; done; echo 'HTTP 200 not seen after 150s'; exit 1",
-      "timeoutSeconds": 300,
-      "description": "Poll test-localhost.sh until HTTP 200 response"
+      "command": "bash /home/ubuntu/yuruna/test/test-localhost.sh 2>&1 | tee /tmp/test-localhost.out; grep -q 200 /tmp/test-localhost.out",
+      "timeoutSeconds": 120,
+      "description": "Check test-localhost.sh output contains HTTP 200"
     }
   ]
 }

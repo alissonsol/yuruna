@@ -50,6 +50,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
 fi
 
 # Run Set-Resource
+echo "==== Set-Resource ===="
 cd "$REAL_HOME/yuruna/examples"
 pwsh ../automation/Set-Resource.ps1 website localhost
 
@@ -66,5 +67,7 @@ docker push localhost:5000/website/website:latest
 
 # Run Set-Component and Set-Workload
 cd "$REAL_HOME/yuruna/examples"
+echo "==== Set-Component ===="
 pwsh ../automation/Set-Component.ps1 website localhost
+echo "==== Set-Workload ===="
 pwsh ../automation/Set-Workload.ps1 website localhost

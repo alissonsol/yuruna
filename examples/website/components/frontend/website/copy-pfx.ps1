@@ -19,13 +19,13 @@
 Push-Location $PSScriptRoot
 
 $env:basePath = $HOME
-Write-Output "basePath: ${env:basePath}";
+Write-Information "basePath: ${env:basePath}";
 
 $env:pfxPath = ".aspnet/https/aspnetapp.pfx"
-Write-Output "pfxPath: ${env:pfxPath}";
+Write-Information "pfxPath: ${env:pfxPath}";
 
 $env:pfxFile = Join-Path -Path ${env:basePath} -ChildPath ${env:pfxPath}
-Write-Output "pfxFile: $env:pfxFile"
+Write-Information "pfxFile: $env:pfxFile"
 
 Copy-Item -Path $env:pfxFile -Destination . -Force;
 

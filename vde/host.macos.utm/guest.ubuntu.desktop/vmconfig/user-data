@@ -20,9 +20,30 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
+  # Pass-through cloud-init for the INSTALLED target. Subiquity does not parse
+  # this block; it copies it to the installed system, where cloud-init runs it
+  # on first boot. Top-level ssh_authorized_keys attaches to the default user
+  # (ubuntu) after subiquity has committed the identity section, which avoids
+  # the earlier failure modes where ssh.authorized-keys or raw SSH-related
+  # late-commands silently broke identity application.
+  user-data:
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
   late-commands:
     # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu
+    # --- SSH: install yuruna test-harness authorized key for the ubuntu user ---
+    # Single curtin-in-target command, mirroring the passwd --expire pattern that
+    # has always been safe. Previous attempts using either autoinstall.ssh.authorized-keys
+    # or multi-line raw shell late-commands silently broke subiquity's identity
+    # application (empty /etc/shadow). This form runs in the installed target
+    # chroot after identity is committed, keeping the install path untouched.
+    - curtin in-target --target=/target -- bash -c 'install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh && echo "SSH_AUTHORIZED_KEY_PLACEHOLDER" > /home/ubuntu/.ssh/authorized_keys && chmod 600 /home/ubuntu/.ssh/authorized_keys && chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys'
+    # --- Sudo: grant the ubuntu user passwordless sudo for the test harness ---
+    # Needed so the SSH-driven workload can invoke /automation/fetch-and-execute.sh
+    # with sudo (no TTY, no askpass under BatchMode). Dropped as a sudoers.d file
+    # with 0440 perms per sudo's requirements.
+    - curtin in-target --target=/target -- bash -c 'echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-yuruna-ubuntu && chmod 440 /etc/sudoers.d/90-yuruna-ubuntu && chown root:root /etc/sudoers.d/90-yuruna-ubuntu'
     # --- System: disable swap ---
     - sed -i '/ swap / s/^/#/' /target/etc/fstab
     - curtin in-target --target=/target -- systemctl mask swap.target

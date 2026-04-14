@@ -132,12 +132,17 @@ function Get-GuestAddress {
 .SYNOPSIS
 Resolves a yuruna VM name to an address that ssh can actually reach.
 .DESCRIPTION
-On Hyper-V, VMs on the Default Switch get DHCP-assigned IPs but their names
-are not registered in the host's DNS resolver, so `ssh user@vm-name` fails
-with "could not resolve hostname". This helper queries Hyper-V integration
-services for the current IPv4 and returns it. On non-Hyper-V hosts (UTM on
-macOS, or when integration services haven't reported yet), it falls back to
-the VMName so the caller can still try name-based resolution.
+VM names are not registered in the host's DNS resolver on either Hyper-V
+Default Switch or UTM on macOS, so `ssh user@vm-name` fails with "could not
+resolve hostname". This helper asks the host's virtualization stack for the
+VM's current IPv4 and returns it.
+
+  Hyper-V (Windows)  -> Get-VMNetworkAdapter integration-services query
+  UTM    (macOS)     -> utmctl ip-address <VMName>
+
+If no address is reported yet (integration services still coming up, or
+the VM has just booted), falls back to VMName so the caller's retry loop
+can try again shortly.
 .PARAMETER VMName
 The yuruna VM name (the hostname assigned by cloud-init).
 .OUTPUTS
@@ -156,6 +161,25 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
             Write-Debug "Get-VMNetworkAdapter failed for ${VMName}: $_"
         }
     }
+
+    if ($IsMacOS -and (Get-Command utmctl -ErrorAction SilentlyContinue)) {
+        # utmctl ip-address emits one address per line. On Apple Virtualization
+        # backend it reports the guest IP as soon as integration services are up.
+        # Filter to IPv4 and skip loopback / link-local / UTM internal ranges.
+        try {
+            $output = & utmctl ip-address $VMName 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $ipv4 = ($output -split "`r?`n") |
+                    Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
+                    Where-Object { $_ -notmatch '^(127\.|169\.254\.)' } |
+                    Select-Object -First 1
+                if ($ipv4) { return [string]$ipv4 }
+            }
+        } catch {
+            Write-Debug "utmctl ip-address failed for ${VMName}: $_"
+        }
+    }
+
     return $VMName
 }
 

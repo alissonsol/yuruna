@@ -107,6 +107,11 @@
       border-radius: .375rem; padding: .45rem .625rem;
       font-family: 'Menlo','Consolas',monospace; word-break: break-all;
     }
+    /* When the sequence is paused, the guest-action box matches the banner's
+       amber background so the pause state reads the same across both. */
+    .guest-action.paused {
+      background: #ca8a04; color: #fff; border-color: #a16207;
+    }
 
     /* ── Badges ── */
     .badge {
@@ -308,12 +313,15 @@
   // or '' when there is nothing to show. The current-action.json sidecar is
   // written by Invoke-Sequence at each step boundary; we only surface it
   // on the guest whose key matches and while that guest is still running.
-  function guestActionHtml(g, actionData) {
+  // When paused=true, the box picks up the amber paused variant so it
+  // matches the paused banner background.
+  function guestActionHtml(g, actionData, paused) {
     if (!actionData || !actionData.line) return '';
     if (g.status !== 'running') return '';
     if (actionData.guestKey && actionData.guestKey !== g.guestKey) return '';
     const safe = actionData.line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    return `<div class="guest-action">${safe}</div>`;
+    const cls = paused ? 'guest-action paused' : 'guest-action';
+    return `<div class="${cls}">${safe}</div>`;
   }
 
   function renderStatus(data, actionData) {
@@ -375,7 +383,7 @@
         const dur    = fmtDuration(g.steps?.[0]?.startedAt, g.steps?.slice(-1)[0]?.finishedAt);
         const errHtml = g.steps?.find(s => s.errorMessage)
           ? `<div class="guest-error">${g.steps.find(s=>s.errorMessage).errorMessage}</div>` : '';
-        const actHtml = guestActionHtml(g, actionData);
+        const actHtml = guestActionHtml(g, actionData, paused);
         return `<div class="guest-card">
           <div class="left">
             <div class="guest-name">${g.guestKey}</div>

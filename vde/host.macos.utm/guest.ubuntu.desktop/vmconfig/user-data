@@ -67,19 +67,27 @@ autoinstall:
       X-GNOME-Autostart-enabled=true
       NoDisplay=true
       DESKTOP
-    # --- IBus: force simple IM for the gdm greeter (and user sessions) ---
-    # The greeter's gnome-shell races two ibus-daemon instances on startup
-    # (one normal, one started with -r --xim for Xwayland). When the second
-    # replaces the first, gnome-shell keeps a stale proxy to the old
-    # InputContext_* D-Bus path, and every subsequent key press to a text
-    # entry returns UnknownMethod and is silently swallowed. The greeter only
-    # needs ASCII for login anyway, so point GTK/Qt/XIM at the built-in
-    # simple IM. pam_env readenv=1 in the gdm-launch-environment stack loads
-    # /etc/environment into the greeter session, so adding the vars here
-    # takes effect for both the greeter and post-login user sessions.
-    - curtin in-target --target=/target -- bash -c 'echo "GTK_IM_MODULE=gtk-im-context-simple" >> /etc/environment'
-    - curtin in-target --target=/target -- bash -c 'echo "QT_IM_MODULE=simple" >> /etc/environment'
-    - curtin in-target --target=/target -- bash -c 'echo "XMODIFIERS=@im=none" >> /etc/environment'
+    # --- IBus: stub out ibus-daemon to avoid the gdm greeter input-method race ---
+    # On Ubuntu 24.04 + GNOME 46, the gdm greeter's gnome-shell spawns two
+    # ibus-daemon instances back-to-back: one normal, then one with
+    # "-r --xim" that replaces the first to add XIM support for Xwayland.
+    # The replace handshake orphans gnome-shell's InputContext D-Bus proxy.
+    # Every subsequent key press to a greeter text entry calls
+    # org/freedesktop/IBus/InputContext_N.ProcessKeyEvent on the dead path,
+    # gets UnknownMethod, and is silently swallowed by gnome-shell's IM
+    # filter. The login fields look focused but accept no input, while
+    # Enter/Tab/Escape and tty switches still work (those bypass the IM
+    # filter). Setting GTK_IM_MODULE/QT_IM_MODULE was verified NOT to help:
+    # gnome-shell's Wayland IM layer uses libibus directly, bypassing the
+    # GTK module abstraction. The only reliable fix is to prevent
+    # ibus-daemon from running at all. Divert the real binary and symlink
+    # to /bin/true so gnome-shell's exec returns immediately; gnome-shell
+    # then proceeds without an IBus backend and key events reach text
+    # entries via the direct libinput → mutter → clutter path. For yuruna
+    # test VMs (ASCII passwords and shell commands only) losing IBus is a
+    # non-issue. dpkg-divert survives apt upgrades.
+    - curtin in-target --target=/target -- dpkg-divert --local --add --rename /usr/bin/ibus-daemon
+    - curtin in-target --target=/target -- ln -sf /bin/true /usr/bin/ibus-daemon
     # --- GNOME: enable automatic timezone (requires dconf) ---
     - mkdir -p /target/etc/dconf/db/local.d
     - |

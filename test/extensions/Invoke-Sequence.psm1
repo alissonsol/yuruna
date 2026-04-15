@@ -1534,8 +1534,20 @@ function Invoke-Sequence {
     $screenshotDir = Join-Path (Split-Path -Parent $SequencePath) "captures"
     $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
+    # Pause back-channel: the status server's /control/pause endpoint creates
+    # test/status/control.pause. We check it at the top of every step iteration
+    # so a click on the UI Pause button takes effect before the next action.
+    $pauseFlagFile = Join-Path (Split-Path -Parent $PSScriptRoot) "status/control.pause"
+
     foreach ($step in $steps) {
         $stepNum++
+        if (Test-Path $pauseFlagFile) {
+            Write-Information "    [$stepNum/$($steps.Count)] Paused (status-server request). Waiting for resume..."
+            while (Test-Path $pauseFlagFile) {
+                Start-Sleep -Seconds 1
+            }
+            Write-Information "    [$stepNum/$($steps.Count)] Resumed."
+        }
         $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
         # Force-enable progress bar visibility for the whole step body.
         # See "Pro Tip": some hosts/settings silence Write-Progress; restoring

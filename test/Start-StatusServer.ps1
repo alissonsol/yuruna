@@ -145,6 +145,8 @@ $serverScript = @"
 `$listener = [System.Net.HttpListener]::new()
 `$listener.Prefixes.Add('http://*:$Port/')
 `$heartbeatFile = Join-Path '$($StatusDir -replace "'","''")' 'server.heartbeat'
+`$pauseFile     = Join-Path '$($StatusDir -replace "'","''")' 'control.pause'
+`$statusJsonFile = Join-Path '$($StatusDir -replace "'","''")' 'status.json'
 `$heartbeatTimeoutMinutes = 30
 try {
     `$listener.Start()
@@ -169,6 +171,39 @@ try {
             `$path = `$req.Url.LocalPath.TrimStart('/')
             if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
             `$path = `$path -replace '^status[/\\]', ''
+
+            # --- Control endpoints: Pause/Continue back-channel from the UI ---
+            # Creating/removing control.pause is the source of truth checked by
+            # Invoke-Sequence on every step iteration; we also mirror the flag
+            # into status.json so the next UI poll flips the banner immediately
+            # (the normal parent-side Write-StatusJson will keep it in sync
+            # thereafter by re-reading the file each write).
+            if (`$path -eq 'control/pause' -or `$path -eq 'control/resume') {
+                `$desiredPaused = (`$path -eq 'control/pause')
+                try {
+                    if (`$desiredPaused) {
+                        Set-Content -Path `$pauseFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
+                    } else {
+                        Remove-Item `$pauseFile -Force -ErrorAction SilentlyContinue
+                    }
+                } catch { }
+                try {
+                    `$doc = Get-Content -Raw `$statusJsonFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+                    `$doc['paused'] = `$desiredPaused
+                    `$tmp = "`$statusJsonFile.tmp"
+                    `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
+                    Move-Item -Path `$tmp -Destination `$statusJsonFile -Force
+                } catch { }
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$payload = if (`$desiredPaused) { '{"ok":true,"paused":true}' } else { '{"ok":true,"paused":false}' }
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
             `$file = Join-Path '$($StatusDir -replace "'","''")' `$path
             `$file = [System.IO.Path]::GetFullPath(`$file)
             if (-not `$file.StartsWith('$($StatusDir -replace "'","''")')) {

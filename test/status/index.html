@@ -35,12 +35,29 @@
     #banner.running { background: #2563eb; color: #fff; }
     #banner.pass    { background: #16a34a; color: #fff; }
     #banner.fail    { background: #dc2626; color: #fff; }
+    #banner.paused  { background: #ca8a04; color: #fff; }
     #banner .dot {
       width: .625rem; height: .625rem; border-radius: 50%;
       background: currentColor; display: inline-block; flex-shrink: 0;
     }
     #banner.running .dot { animation: pulse 1.4s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* Pause/Continue control, right-aligned inside the banner */
+    #pause-btn {
+      margin-left: auto;
+      background: rgba(255,255,255,0.15);
+      color: inherit;
+      border: 1px solid rgba(255,255,255,0.35);
+      padding: .3rem .75rem;
+      border-radius: .375rem;
+      font-weight: 600; font-size: .8125rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    #pause-btn:hover:not([disabled]) { background: rgba(255,255,255,0.28); }
+    #pause-btn[disabled] { cursor: default; opacity: .35; }
 
     /* ── Main container ── */
     main { max-width: 860px; margin: 1.75rem auto; padding: 0 1.5rem; }
@@ -103,6 +120,7 @@
     .pass, .pass-bg     { background: #dcfce7; color: #16a34a; }
     .fail, .fail-bg     { background: #fee2e2; color: #dc2626; }
     .skipped, .skipped-bg { background: #fef9c3; color: #a16207; }
+    .paused, .paused-bg { background: #fef3c7; color: #ca8a04; }
 
     /* ── History table ── */
     .table-wrap { overflow-x: auto; }
@@ -150,6 +168,7 @@
 <div id="banner" class="idle">
   <span class="dot"></span>
   <span id="banner-text">Loading…</span>
+  <button id="pause-btn" type="button" disabled>Pause</button>
 </div>
 
 <main>
@@ -204,14 +223,48 @@
     idle:    'No test data available',
     running: 'Test run in progress',
     pass:    'All guests operational',
-    fail:    'Incident detected — see details below'
+    fail:    'Incident detected — see details below',
+    paused:  'Test run paused'
   };
 
   // Show the server we are connected to in the footer
   document.getElementById('footer-server').textContent = window.location.host;
 
   function cls(status) {
-    return ['idle','running','pass','fail','skipped','pending'].includes(status) ? status : 'idle';
+    return ['idle','running','pass','fail','skipped','pending','paused'].includes(status) ? status : 'idle';
+  }
+
+  // Update the Pause/Continue button label + enabled state based on
+  // the effective banner state ('running'|'paused'|other).
+  function updatePauseButton(effective) {
+    const btn = document.getElementById('pause-btn');
+    if (!btn) return;
+    if (effective === 'paused') {
+      btn.textContent = 'Continue';
+      btn.disabled = false;
+      btn.onclick = () => controlAction('resume');
+    } else if (effective === 'running') {
+      btn.textContent = 'Pause';
+      btn.disabled = false;
+      btn.onclick = () => controlAction('pause');
+    } else {
+      btn.textContent = 'Pause';
+      btn.disabled = true;
+      btn.onclick = null;
+    }
+  }
+
+  // Post to the control endpoint, then force an immediate status refresh so
+  // the banner flips to yellow (or back) without waiting for the 30s poll.
+  async function controlAction(action) {
+    const btn = document.getElementById('pause-btn');
+    btn.disabled = true;
+    try {
+      await fetch('control/' + action, { method: 'POST', cache: 'no-store' });
+    } catch (e) {
+      console.warn('control ' + action + ' failed:', e.message);
+    }
+    loadStatus();
   }
 
   function badge(status, label) {
@@ -262,6 +315,7 @@
     if (!data || (!data.runId && !data.guests?.length && !data.history?.length)) {
       banner.className = 'idle';
       document.getElementById('banner-text').textContent = BANNER.idle;
+      updatePauseButton('idle');
       ['sec-meta','sec-guests','sec-history'].forEach(id => document.getElementById(id).style.display = 'none');
       noData.style.display = '';
       return;
@@ -269,8 +323,14 @@
     noData.style.display = 'none';
 
     const status = data.overallStatus || 'idle';
-    banner.className = cls(status);
-    document.getElementById('banner-text').textContent = BANNER[status] || status;
+    const paused = !!data.paused;
+    // When paused, the banner shows yellow + "Test run paused" regardless of
+    // the underlying overallStatus. The Pause/Continue button is driven by
+    // the same effective state.
+    const effective = paused ? 'paused' : cls(status);
+    banner.className = effective;
+    document.getElementById('banner-text').textContent = paused ? BANNER.paused : (BANNER[status] || status);
+    updatePauseButton(effective);
 
     // Meta
     if (data.runId) {

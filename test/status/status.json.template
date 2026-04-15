@@ -6,6 +6,7 @@
   "startedAt": null,
   "finishedAt": null,
   "overallStatus": "idle",
+  "paused": false,
   "gitCommit": null,
   "lastGetImageAt": null,
   "cycle": 0,

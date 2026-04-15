@@ -118,16 +118,17 @@ if ($Config.statusServer.enabled -and -not $NoServer) {
     & $startScript -Port $serverPort -Restart
 }
 
-# === Helper: strip apiKey entries from a nested hashtable/array before logging ===
-function Remove-ApiKeyRecursive {
-    param($Node)
-    if ($Node -is [System.Collections.IDictionary]) {
-        foreach ($key in @($Node.Keys)) {
-            if ($key -eq 'apiKey') { $Node.Remove($key); continue }
-            Remove-ApiKeyRecursive $Node[$key]
+# === Helper: strip everything under the top-level 'secrets' node before logging ===
+function Remove-SecretsFromConfig {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Mutates a local in-memory hashtable used only for log redaction; no system state changes.')]
+    param($Config)
+    if ($Config -is [System.Collections.IDictionary] -and $Config.Contains('secrets')) {
+        $node = $Config['secrets']
+        if ($node -is [System.Collections.IDictionary]) {
+            foreach ($key in @($node.Keys)) { $node.Remove($key) }
         }
-    } elseif ($Node -is [System.Collections.IEnumerable] -and $Node -isnot [string]) {
-        foreach ($item in $Node) { Remove-ApiKeyRecursive $item }
     }
 }
 
@@ -401,7 +402,7 @@ while ($true) {
     if (Test-Path $ConfigPath) {
         try {
             $redacted = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
-            Remove-ApiKeyRecursive $redacted
+            Remove-SecretsFromConfig $redacted
             $redacted | ConvertTo-Json -Depth 20 | Write-Output
         } catch {
             Write-Warning "Could not redact test-config.json for log: $_"

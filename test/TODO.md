@@ -22,7 +22,7 @@ or a double-buffer approach (write to `status.next.json`, then rename).
 **File:** `Invoke-TestRunner.ps1`
 The `$Config` hashtable holds the Resend API key for the entire lifetime of the
 runner. After sending a notification, zero out the key:
-`$Config.notification.resend.apiKey = $null`. Re-read it from disk only when
+`$Config.secrets.resend.apiKey = $null`. Re-read it from disk only when
 needed.
 
 ### Harden bash command for macOS server launch

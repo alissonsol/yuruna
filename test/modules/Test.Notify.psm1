@@ -33,9 +33,9 @@ function Send-Notification {
         return
     }
 
-    $resend = $notif.resend
+    $resend = $Config.secrets.resend
     if (-not $resend -or -not $resend.apiKey -or -not $resend.from) {
-        throw "Resend configuration incomplete: notification.resend.apiKey and notification.resend.from are required."
+        throw "Resend configuration incomplete: secrets.resend.apiKey and secrets.resend.from are required."
     }
 
     $headers = @{

@@ -2,7 +2,7 @@
 
 ## Guide: development and testing workflow
 
-1. **Set up local configuration.** Copy `test/test-config.json.template` to `test/test-config.json` (the latter is gitignored). Open a [Resend](https://resend.com) account, create an API key, and fill in the `notification` section of `test-config.json` so that failure alerts can be delivered.
+1. **Set up local configuration.** Copy `test/test-config.json.template` to `test/test-config.json` (the latter is gitignored). Open a [Resend](https://resend.com) account, create an API key, and fill in `notification.toAddress` and the `secrets.resend` block in `test-config.json` so that failure alerts can be delivered. The runner strips everything under the top-level `secrets` node from logged config.
 
 2. **Create a branch and make code changes.** If you modify files that guest VMs retrieve via the "fetch and execute" pattern, you may need to push the branch before testing so the VM can download the updated scripts. In that case, temporarily change the base URL used for the fetch process to point to your branch (see [Testing script changes from a branch](#testing-script-changes-from-a-branch) below).
 

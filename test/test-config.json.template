@@ -1,6 +1,8 @@
 {
   "notification": {
-    "toAddress": "",
+    "toAddress": ""
+  },
+  "secrets": {
     "resend": {
       "apiKey": "",
       "from": ""

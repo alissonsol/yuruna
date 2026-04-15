@@ -46,7 +46,9 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 ```json
 {
   "notification": {
-    "toAddress": "recipient@example.com",
+    "toAddress": "recipient@example.com"
+  },
+  "secrets": {
     "resend": {
       "apiKey": "re_your_api_key",
       "from": "Yuruna VDE <notifications@yourdomain.com>"
@@ -127,7 +129,7 @@ Notifications are sent via the [Resend](https://resend.com) email API.
 1. Create a free account at [resend.com](https://resend.com).
 2. Go to [API Keys](https://resend.com/api-keys) and create a new API key. Copy the key (it starts with `re_`).
 3. Add and verify your sending domain under [Domains](https://resend.com/domains), or use the provided `onboarding@resend.dev` address for testing.
-4. Set `notification.resend.apiKey` to your API key and `notification.resend.from` to your verified sender address in `test-config.json`.
+4. Set `secrets.resend.apiKey` to your API key and `secrets.resend.from` to your verified sender address in `test-config.json`. The runner strips everything under the top-level `secrets` node from logged config, so credentials do not appear in transcripts.
 
 **Domain verification:** To send from your own domain (rather than `onboarding@resend.dev`), you must register the domain with Resend and add the DNS records (typically TXT and/or MX) that Resend provides to verify domain ownership.
 

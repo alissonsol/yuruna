@@ -161,28 +161,28 @@ Write-Section "Resend API settings"
 if (Test-IsSet $notif.toAddress) { Write-Pass "notification.toAddress = '$($notif.toAddress)'" }
 else                         { Write-Fail "notification.toAddress is not set." }
 
-$resend = $notif.resend
+$resend = $Config.secrets.resend
 
 if (-not $resend) {
-    Write-Fail "'notification.resend' block is missing."
+    Write-Fail "'secrets.resend' block is missing."
     exit 1
 }
 
-Write-Pass "'notification.resend' block is present."
+Write-Pass "'secrets.resend' block is present."
 
 if (Test-IsSet $resend.apiKey) {
-    Write-Pass "resend.apiKey is set (not shown)."
+    Write-Pass "secrets.resend.apiKey is set (not shown)."
     if (-not "$($resend.apiKey)".StartsWith("re_")) {
-        Write-Warn "resend.apiKey does not start with 're_' — Resend API keys typically begin with 're_'."
+        Write-Warn "secrets.resend.apiKey does not start with 're_' — Resend API keys typically begin with 're_'."
     }
 } else {
-    Write-Fail "resend.apiKey is not set. Get your API key at https://resend.com/api-keys"
+    Write-Fail "secrets.resend.apiKey is not set. Get your API key at https://resend.com/api-keys"
 }
 
 if (Test-IsSet $resend.from) {
-    Write-Pass "resend.from = '$($resend.from)'"
+    Write-Pass "secrets.resend.from = '$($resend.from)'"
 } else {
-    Write-Fail "resend.from is not set. Example: 'Yuruna VDE <notifications@yourdomain.com>'"
+    Write-Fail "secrets.resend.from is not set. Example: 'Yuruna VDE <notifications@yourdomain.com>'"
 }
 
 # Abort if any FAIL was recorded before network checks.

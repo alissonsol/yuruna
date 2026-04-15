@@ -67,7 +67,7 @@ Edit until it works using `kubectl edit svc [service-name] -n [namespace-name]`.
 
 ## Debugging localhost issues
 
-A workaround after deploying resources and components is to reset the Kubernetes cluster in Docker and reconnect the contexts. There is a PowerShell script named `context-copy` under the automation folder that can be used for this. The context names that may need to be reconnected are listed in the `resources.output.yml` file; deleting those contexts ahead of time avoids issues. Then, use `context-copy [sourceContextName] [destinationContextName]`.
+A workaround after deploying resources and components is to reset the Kubernetes cluster in Docker and reconnect the contexts. Use the `automation/context-copy.ps1` script for this. The context names that may need to be reconnected are listed in the `resources.output.yml` file; deleting those contexts ahead of time avoids issues. Then, run `automation/context-copy.ps1 -sourceContext <source> -destinationContext <dest>`.
 
 GitHub issue documenting need to restart Docker: <https://github.com/docker/for-mac/issues/4903>
 

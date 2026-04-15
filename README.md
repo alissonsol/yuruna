@@ -2,7 +2,7 @@
 
 **Tools and automation for development environments and cloud deployments.**
 
-Yuruna provides two main capabilities: creating Virtual Development Environments (VDE) for consistent, reproducible workspaces, and deploying containerized applications to Kubernetes across multiple clouds.
+Yuruna provides three main capabilities: creating Virtual Development Environments (VDE) for consistent, reproducible workspaces; deploying containerized applications to Kubernetes across multiple clouds; and a VM-based test harness for automated workload validation via keystroke injection or SSH.
 
 - [macOS UTM host](vde/host.macos.utm/README.md) Setup
   - [Amazon Linux](vde/host.macos.utm/guest.amazon.linux/README.md) guest

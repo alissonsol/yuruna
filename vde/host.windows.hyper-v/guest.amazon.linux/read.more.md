@@ -32,7 +32,7 @@ One-time steps per host machine:
 For each VM:
 - Run `New-VM.ps1 <vmname>` (e.g., `New-VM.ps1 amazon-linux01`). This creates the VM, generates a `seed.iso` from the `vmconfig` folder, and places it in a per-VM folder under `$localVhdxPath`.
 - Start the VM from Hyper-V Manager. Default credentials: `ec2-user` / `amazonlinux` (unless changed in [vmconfig/user-data](./vmconfig/user-data)). If prompted for `/usr/bin/dnf check-release-update`, upgrade before continuing.
-- Run `sudo bash /amazon.linux.update.sh` (the `runcmd` in `user-data` pre-downloads this file to `/`). This installs the GUI and tools.
+- Run `/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.update.sh` (cloud-init's `runcmd` pre-downloads `fetch-and-execute.sh` into `/automation/` — the workload script itself is fetched from GitHub on demand). This installs the GUI and tools.
 - Run `sudo reboot now`. The VM reboots into the GUI.
 
 ### 2.1) Changing memory allocation

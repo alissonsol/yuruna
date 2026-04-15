@@ -71,7 +71,7 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 # Supported actions (defined in the "steps" array in each JSON):
 #   delay            — Wait N seconds.
 #   key              — Send a single keystroke.
-#   type             — Type a text string into the VM (charDelayMs configurable, default from test-config.json, fallback 50ms).
+#   type             — Type a text string into the VM (charDelayMs configurable, default from test-config.json, fallback 20ms).
 #   typeAndEnter     — Type a text string, wait, then press Enter (charDelayMs/delaySeconds configurable).
 #   screenshot       — Capture a screenshot for debugging.
 #   waitForText      — Capture + OCR the VM screen until pattern appears (supports array of alternate patterns).

@@ -313,14 +313,18 @@
   // or '' when there is nothing to show. The current-action.json sidecar is
   // written by Invoke-Sequence at each step boundary; we only surface it
   // on the guest whose key matches and while that guest is still running.
-  // When paused=true, the box picks up the amber paused variant so it
-  // matches the paused banner background.
+  // The box only picks up the amber paused variant once the running step
+  // has actually ended and Invoke-Sequence has written the "Paused
+  // (waiting for resume)" marker. While a step is still running after the
+  // user clicks Pause, the banner is already amber but the action box
+  // stays blue to signal "pause will take effect at the next step".
   function guestActionHtml(g, actionData, paused) {
     if (!actionData || !actionData.line) return '';
     if (g.status !== 'running') return '';
     if (actionData.guestKey && actionData.guestKey !== g.guestKey) return '';
     const safe = actionData.line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const cls = paused ? 'guest-action paused' : 'guest-action';
+    const waitingForResume = paused && /Paused \(waiting for resume\)/.test(actionData.line);
+    const cls = waitingForResume ? 'guest-action paused' : 'guest-action';
     return `<div class="${cls}">${safe}</div>`;
   }
 

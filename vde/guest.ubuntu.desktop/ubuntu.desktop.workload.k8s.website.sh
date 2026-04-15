@@ -16,8 +16,25 @@ sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.kube"
 # Install mkcert CA
 mkcert -install 2>/dev/null || true
 
-# Start Docker registry if not running
-docker start registry 2>/dev/null || docker run -d -p 5000:5000 --restart=always --name registry registry:2
+# Start Docker registry if not running. Pulls via public.ecr.aws mirror to avoid
+# Docker Hub's anonymous pull rate limit, which had been the top cause of
+# workload-test failures.
+REGISTRY_IMAGE="public.ecr.aws/docker/library/registry:2"
+if ! docker start registry 2>/dev/null; then
+    if ! docker_out=$(docker run -d -p 5000:5000 --restart=always --name registry "$REGISTRY_IMAGE" 2>&1); then
+        echo "docker run registry failed:" >&2
+        echo "$docker_out" >&2
+        if echo "$docker_out" | grep -qiE 'pull rate limit|toomanyrequests|429 Too Many Requests'; then
+            echo "" >&2
+            echo "ERROR: Registry image pull hit a rate limit." >&2
+            echo "       Image: $REGISTRY_IMAGE" >&2
+            echo "       The mirror is throttling anonymous pulls from this IP." >&2
+            echo "       Options: wait and retry, switch to a different mirror, or authenticate." >&2
+            echo "" >&2
+        fi
+        exit 1
+    fi
+fi
 
 # Clone yuruna if not present
 if [ ! -d "$REAL_HOME/yuruna" ]; then

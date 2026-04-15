@@ -67,6 +67,19 @@ autoinstall:
       X-GNOME-Autostart-enabled=true
       NoDisplay=true
       DESKTOP
+    # --- IBus: force simple IM for the gdm greeter (and user sessions) ---
+    # The greeter's gnome-shell races two ibus-daemon instances on startup
+    # (one normal, one started with -r --xim for Xwayland). When the second
+    # replaces the first, gnome-shell keeps a stale proxy to the old
+    # InputContext_* D-Bus path, and every subsequent key press to a text
+    # entry returns UnknownMethod and is silently swallowed. The greeter only
+    # needs ASCII for login anyway, so point GTK/Qt/XIM at the built-in
+    # simple IM. pam_env readenv=1 in the gdm-launch-environment stack loads
+    # /etc/environment into the greeter session, so adding the vars here
+    # takes effect for both the greeter and post-login user sessions.
+    - curtin in-target --target=/target -- bash -c 'echo "GTK_IM_MODULE=gtk-im-context-simple" >> /etc/environment'
+    - curtin in-target --target=/target -- bash -c 'echo "QT_IM_MODULE=simple" >> /etc/environment'
+    - curtin in-target --target=/target -- bash -c 'echo "XMODIFIERS=@im=none" >> /etc/environment'
     # --- GNOME: enable automatic timezone (requires dconf) ---
     - mkdir -p /target/etc/dconf/db/local.d
     - |

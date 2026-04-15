@@ -27,13 +27,52 @@ case "$ARCH" in
     ;;
 esac
 
+# Retry helper for apt-get calls. Transient apt / mirror / DNS failures on
+# first-boot VMs are common; without this, a single flaky mirror would abort
+# the whole install via set -e and all later sections (including the HTTPS
+# dev cert needed by the website workload) would silently not run. Each
+# attempt streams its stdout/stderr normally so the log shows exactly what
+# apt is doing; on failure we print a labeled banner with the attempt number
+# and exit code, sleep, and try again with exponential backoff. After the
+# final attempt we return the real exit code so set -e can still abort the
+# script with a visible, diagnosable failure.
+apt_retry() {
+    local max_attempts=3
+    local attempt=1
+    local delay=15
+    local rc=0
+    while [ $attempt -le $max_attempts ]; do
+        if [ $attempt -gt 1 ]; then
+            echo ""
+            echo ">> apt_retry: attempt $attempt/$max_attempts for: $*"
+            echo ""
+        fi
+        rc=0
+        "$@" || rc=$?
+        if [ $rc -eq 0 ]; then
+            return 0
+        fi
+        echo ""
+        echo "!! apt_retry: attempt $attempt/$max_attempts failed (rc=$rc): $*"
+        if [ $attempt -lt $max_attempts ]; then
+            echo "!! apt_retry: sleeping ${delay}s before retry"
+            sleep $delay
+            delay=$((delay * 2))
+        fi
+        attempt=$((attempt + 1))
+    done
+    echo ""
+    echo "!! apt_retry: all $max_attempts attempts exhausted for: $*"
+    return $rc
+}
+
 echo "=== Installing Kubernetes requirements for Ubuntu ==="
 
 # ===== Basic Tools =====
 echo ""
 echo -e "\e[1;36m>>> Installing Basic Tools...\e[0m"
-sudo apt-get update -y
-sudo apt-get install -y \
+apt_retry sudo apt-get update -y
+apt_retry sudo apt-get install -y \
     ssh net-tools apt-transport-https curl git \
     build-essential procps file \
     wget software-properties-common \
@@ -87,8 +126,8 @@ Components: main
 Architectures: $(dpkg --print-architecture)
 Signed-by: /etc/apt/keyrings/microsoft.gpg" | sudo tee /etc/apt/sources.list.d/azure-cli.sources > /dev/null
 
-sudo apt-get update -y
-sudo apt-get install -y azure-cli
+apt_retry sudo apt-get update -y
+apt_retry sudo apt-get install -y azure-cli
 echo -e "\e[1;32m<<< Azure CLI installation complete.\e[0m"
 
 # AWS CLI (official installer — supports amd64 and arm64)
@@ -132,8 +171,8 @@ Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
 Components: stable
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+apt_retry sudo apt-get update -y
+apt_retry sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Docker service starts automatically after installation;
 # enable + start as a safety net, tolerating errors in environments where systemd is not fully available
@@ -171,7 +210,7 @@ echo -e "\e[1;32m<<< Docker installation complete.\e[0m"
 # ===== KVM Virtualization Support (required by Docker Desktop) =====
 echo ""
 echo -e "\e[1;36m>>> Installing KVM Virtualization Support...\e[0m"
-sudo apt-get install -y cpu-checker qemu-kvm libvirt-daemon-system libvirt-clients
+apt_retry sudo apt-get install -y cpu-checker qemu-kvm libvirt-daemon-system libvirt-clients
 sudo modprobe kvm
 # Load the appropriate vendor-specific KVM module
 if grep -q vmx /proc/cpuinfo 2>/dev/null; then
@@ -206,7 +245,7 @@ else
 fi
 if [ -n "$DOCKER_DESKTOP_URL" ]; then
     curl -fsSL "${DOCKER_DESKTOP_URL}?nocache=$(date +%s)" -o /tmp/docker-desktop.deb
-    sudo apt-get install -y /tmp/docker-desktop.deb
+    apt_retry sudo apt-get install -y /tmp/docker-desktop.deb
     rm -f /tmp/docker-desktop.deb
 fi
 echo -e "\e[1;32m<<< Docker Desktop installation complete.\e[0m"
@@ -265,8 +304,8 @@ sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL "https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key?nocache=$(date +%s)" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
 
-sudo apt-get update -y
-sudo apt-get install -y kubelet kubeadm kubectl
+apt_retry sudo apt-get update -y
+apt_retry sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to be run after kubeadm init"
 
@@ -397,7 +436,7 @@ echo -e "\e[1;32m<<< mkcert installation complete.\e[0m"
 # graphviz (available in Ubuntu repositories)
 echo ""
 echo -e "\e[1;36m>>> Installing graphviz...\e[0m"
-sudo apt-get install -y graphviz
+apt_retry sudo apt-get install -y graphviz
 echo -e "\e[1;32m<<< graphviz installation complete.\e[0m"
 
 # ===== HTTPS Development Certificate =====

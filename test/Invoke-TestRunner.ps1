@@ -52,6 +52,7 @@ $ScreenshotsDir = Join-Path $TestRoot "screenshots"
 $VerifyDir      = Join-Path $TestRoot "verify"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
+$TemplatePath = Join-Path $TestRoot "test-config.json.template"
 
 # === Publish debug/verbose preferences as env vars so child processes inherit them ===
 $env:YURUNA_DEBUG   = $debug_mode   ? '1' : '0'
@@ -84,9 +85,121 @@ if (-not (Test-Path $StatusFile)) {
     }
 }
 
-# === Read config ===
-if (-not (Test-Path $ConfigPath)) { Write-Error "Config not found: $ConfigPath"; exit 1 }
-$Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+# === Helpers: sync test-config.json against its template ===
+# At the start of each cycle the live config is overlaid on top of the
+# template so that new keys introduced in the template are added locally
+# without losing user-set values. The merged object is rewritten to disk
+# only when it differs from the on-disk copy outside the 'secrets' subtree
+# (user credentials always diverge from the template blanks — including
+# them in the diff would churn the file every cycle).
+
+# Recursively overlay $Current values onto $Template. Template shape wins
+# (which keys exist); current values win for overlapping scalar and array
+# entries. Keys that only exist in $Current are dropped — the template is
+# the schema source of truth. Output keys are emitted in alphabetical order
+# at every nesting level so regenerated test-config.json is stable and
+# independent of the template file's own key ordering.
+function ConvertTo-MergedHashtable {
+    param($Template, $Current)
+
+    if ($Template -isnot [System.Collections.IDictionary]) { return $Template }
+
+    $result = [ordered]@{}
+    foreach ($key in ($Template.Keys | Sort-Object)) {
+        $tVal = $Template[$key]
+        $hasCurrent = ($Current -is [System.Collections.IDictionary]) -and $Current.Contains($key)
+        if ($tVal -is [System.Collections.IDictionary]) {
+            $cVal = $hasCurrent ? $Current[$key] : $null
+            $result[$key] = ConvertTo-MergedHashtable -Template $tVal -Current $cVal
+        } elseif ($hasCurrent) {
+            $result[$key] = $Current[$key]
+        } else {
+            $result[$key] = $tVal
+        }
+    }
+    return $result
+}
+
+# Return a shallow clone of $Config without its top-level 'secrets' key,
+# used only for diff comparison.
+function Copy-HashtableWithoutSecretNode {
+    param($Config)
+    if ($Config -isnot [System.Collections.IDictionary]) { return $Config }
+    $copy = [ordered]@{}
+    foreach ($key in $Config.Keys) {
+        if ($key -eq 'secrets') { continue }
+        $copy[$key] = $Config[$key]
+    }
+    return $copy
+}
+
+function Update-TestConfigFromTemplate {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)] [string]$ConfigPath,
+        [Parameter(Mandatory)] [string]$TemplatePath
+    )
+
+    if (-not (Test-Path $TemplatePath)) {
+        Write-Warning "Template not found: $TemplatePath — loading config as-is."
+        return (Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable)
+    }
+    if (-not (Test-Path $ConfigPath)) {
+        Write-Information "Config not found: $ConfigPath — bootstrapping from template." -InformationAction Continue
+        Copy-Item -Path $TemplatePath -Destination $ConfigPath
+        return (Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable)
+    }
+
+    $template = Get-Content -Raw $TemplatePath | ConvertFrom-Json -AsHashtable
+    $current  = Get-Content -Raw $ConfigPath   | ConvertFrom-Json -AsHashtable
+
+    # TODO: remove this legacy shim once all active checkouts have migrated.
+    # notification.resend.{apiKey,from} used to live under notification; move
+    # any values we find there into secrets.resend so the merge below (which
+    # drops template-orphan keys) doesn't lose them.
+    if ($current -is [System.Collections.IDictionary] -and
+        $current.Contains('notification') -and
+        $current['notification'] -is [System.Collections.IDictionary] -and
+        $current['notification'].Contains('resend')) {
+        $legacy = $current['notification']['resend']
+        if (-not $current.Contains('secrets') -or $current['secrets'] -isnot [System.Collections.IDictionary]) {
+            $current['secrets'] = [ordered]@{}
+        }
+        if (-not $current['secrets'].Contains('resend') -or $current['secrets']['resend'] -isnot [System.Collections.IDictionary]) {
+            $current['secrets']['resend'] = [ordered]@{}
+        }
+        foreach ($k in @($legacy.Keys)) {
+            $existing = $current['secrets']['resend'][$k]
+            if ([string]::IsNullOrEmpty("$existing")) {
+                $current['secrets']['resend'][$k] = $legacy[$k]
+            }
+        }
+        $current['notification'].Remove('resend')
+        Write-Information "Migrated legacy notification.resend.* -> secrets.resend.* in $ConfigPath" -InformationAction Continue
+    }
+
+    $merged = ConvertTo-MergedHashtable -Template $template -Current $current
+
+    $mergedForDiff  = Copy-HashtableWithoutSecretNode $merged
+    $currentForDiff = Copy-HashtableWithoutSecretNode $current
+    $mergedJson  = $mergedForDiff  | ConvertTo-Json -Depth 20
+    $currentJson = $currentForDiff | ConvertTo-Json -Depth 20
+
+    if ($mergedJson -ne $currentJson) {
+        if ($PSCmdlet.ShouldProcess($ConfigPath, "Rewrite with template overlay")) {
+            Write-Information "test-config.json: applying template overlay to pick up schema changes." -InformationAction Continue
+            $merged | ConvertTo-Json -Depth 20 | Set-Content -Path $ConfigPath -Encoding utf8NoBOM
+        }
+    }
+
+    return $merged
+}
+
+# === Read config (syncs against template first) ===
+if (-not (Test-Path $ConfigPath) -and -not (Test-Path $TemplatePath)) {
+    Write-Error "Neither config nor template found. Config: $ConfigPath  Template: $TemplatePath"; exit 1
+}
+$Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
 
 # === Phase 0: Bootstrap ===
 $HostType = Get-HostType
@@ -285,9 +398,9 @@ while ($true) {
     }
     $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
 
-    # --- Re-read config (may have changed via git pull) ---
+    # --- Re-read config (may have changed via git pull); sync against template ---
     try {
-        $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
+        $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
     } catch {
         Write-Warning "Could not reload config after git pull, using previous config: $_"
     }

@@ -1,29 +1,29 @@
 {
+  "alwaysRedownloadImages": false,
+  "charDelayMs": 20,
+  "cycleDelaySeconds": 30,
+  "getImageRefreshHours": 24,
+  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"],
+  "keystrokeMechanism": "hypervisor",
+  "maxHistoryRuns": 30,
   "notification": {
     "toAddress": ""
   },
+  "repoUrl": "https://github.com/alissonsol/yuruna",
   "secrets": {
     "resend": {
       "apiKey": "",
       "from": ""
     }
   },
-  "alwaysRedownloadImages": false,
-  "getImageRefreshHours": 24,
-  "repoUrl": "https://github.com/alissonsol/yuruna",
+  "statusServer": {
+    "enabled": true,
+    "port": 8080
+  },
   "stopOnFailure": false,
   "testVmNamePrefix": "test-",
-  "cycleDelaySeconds": 30,
-  "vmStartTimeoutSeconds": 120,
-  "vmBootDelaySeconds": 15,
-  "statusServer": {
-    "port": 8080,
-    "enabled": true
-  },
-  "maxHistoryRuns": 30,
-  "charDelayMs": 20,
-  "keystrokeMechanism": "hypervisor",
-  "vncPort": 5900,
   "verifyScreenshotThreshold": 0.85,
-  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"]
+  "vmBootDelaySeconds": 15,
+  "vmStartTimeoutSeconds": 120,
+  "vncPort": 5900
 }

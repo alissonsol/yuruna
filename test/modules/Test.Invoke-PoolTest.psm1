@@ -87,7 +87,13 @@ function Invoke-PoolTest {
                         }
                     }
                 } else {
-                    Write-Information "    $line" -InformationAction Continue
+                    # Indent VERBOSE one tab deeper than DEBUG/plain lines so the
+                    # log gives verbose output a visibly subordinate position.
+                    if ($line -match '^\s*(?:\x1b\[[0-9;]*m)?VERBOSE:') {
+                        Write-Information "        $line" -InformationAction Continue
+                    } else {
+                        Write-Information "    $line" -InformationAction Continue
+                    }
                 }
             }
         } else {

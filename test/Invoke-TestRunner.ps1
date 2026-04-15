@@ -867,6 +867,15 @@ while ($true) {
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 }
 
+# === Keep the status server alive past runner exit ===
+# The detached status server self-terminates if the heartbeat file goes
+# stale for >30 minutes. That guards against orphaned servers when the
+# runner crashes without cleanup. On any graceful exit from the cycle loop
+# (stopOnFailure, shutdown request, consecutive-crash abort), we delete the
+# heartbeat file so the server's stale-check sees no file and keeps running
+# indefinitely — the user can inspect the failure via the web UI.
+Remove-Item $HeartbeatFile -Force -ErrorAction SilentlyContinue
+
 # === Failure notification (only reached when stopOnFailure breaks the loop) ===
 if (-not $OverallPassed -and $FailedGuest) {
     Write-Output ""

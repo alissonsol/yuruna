@@ -171,7 +171,9 @@ function Write-Verbose {
     )
     process {
         if ($global:__YurunaLogFile) {
-            [System.Net.WebUtility]::HtmlEncode("VERBOSE: $Message") | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            # VERBOSE entries are indented one tab deeper than DEBUG entries
+            # in the log file, making the log hierarchy easier to scan.
+            [System.Net.WebUtility]::HtmlEncode("    VERBOSE: $Message") | Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
         }
         Microsoft.PowerShell.Utility\Write-Verbose -Message $Message
     }

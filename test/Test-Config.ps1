@@ -98,31 +98,31 @@ try {
 
 Write-Section "Top-level settings"
 
-if ($Config.ContainsKey("notification")) {
+if ($Config.Contains("notification")) {
     Write-Pass "'notification' block is present."
 } else {
     Write-Fail "'notification' block is missing."
 }
 
-if ($Config.ContainsKey("alwaysRedownloadImages")) {
+if ($Config.Contains("alwaysRedownloadImages")) {
     Write-Pass "'alwaysRedownloadImages' = $($Config.alwaysRedownloadImages)"
 } else {
     Write-Warn "'alwaysRedownloadImages' not set — defaults to false."
 }
 
-if ($Config.ContainsKey("cleanupAfterTest")) {
+if ($Config.Contains("cleanupAfterTest")) {
     Write-Pass "'cleanupAfterTest' = $($Config.cleanupAfterTest)"
 } else {
     Write-Warn "'cleanupAfterTest' not set — defaults to false (VMs will not be removed)."
 }
 
-if ($Config.ContainsKey("testVmNamePrefix")) {
+if ($Config.Contains("testVmNamePrefix")) {
     Write-Pass "'testVmNamePrefix' = '$($Config.testVmNamePrefix)'"
 } else {
     Write-Warn "'testVmNamePrefix' not set — defaults to 'test-'."
 }
 
-if ($Config.ContainsKey("maxHistoryRuns")) {
+if ($Config.Contains("maxHistoryRuns")) {
     $mhr = [int]$Config.maxHistoryRuns
     if ($mhr -gt 0) { Write-Pass "'maxHistoryRuns' = $mhr" }
     else            { Write-Warn "'maxHistoryRuns' is $mhr — should be a positive integer." }
@@ -130,27 +130,27 @@ if ($Config.ContainsKey("maxHistoryRuns")) {
     Write-Warn "'maxHistoryRuns' not set — defaults to 30."
 }
 
-if ($Config.ContainsKey("statusServer")) {
+if ($Config.Contains("statusServer")) {
     $ss = $Config.statusServer
     Write-Pass "'statusServer' block present (enabled=$($ss.enabled), port=$($ss.port))."
 } else {
     Write-Warn "'statusServer' not set — status HTTP server will be disabled."
 }
 
-if ($Config.ContainsKey("repoUrl")) {
+if ($Config.Contains("repoUrl")) {
     Write-Pass "'repoUrl' = '$($Config.repoUrl)'"
 } else {
     Write-Warn "'repoUrl' not set — status page commit links may not work."
 }
 
-if ($Config.ContainsKey("stopOnFailure")) {
+if ($Config.Contains("stopOnFailure")) {
     Write-Pass "'stopOnFailure' = $($Config.stopOnFailure)"
 } else {
     Write-Warn "'stopOnFailure' not set — defaults to false (continues on failure)."
 }
 
 # Abort here if notification block is missing; nothing more to check.
-if (-not $Config.ContainsKey("notification")) { exit 1 }
+if (-not $Config.Contains("notification")) { exit 1 }
 
 $notif = $Config.notification
 

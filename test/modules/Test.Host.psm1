@@ -46,7 +46,7 @@ function Get-GuestList {
     (controlling both order and which guests to include).
     Otherwise the full default list is returned.
     #>
-    param([hashtable]$Config = @{})
+    param([System.Collections.IDictionary]$Config = @{})
 
     $default = @("guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11")
 

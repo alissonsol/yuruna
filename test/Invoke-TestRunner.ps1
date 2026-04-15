@@ -445,7 +445,7 @@ while ($true) {
     $VmBootDelay    = $Config.vmBootDelaySeconds    ? [int]$Config.vmBootDelaySeconds    : 15
     $CycleDelay     = $Config.cycleDelaySeconds     ? [int]$Config.cycleDelaySeconds     : $CycleDelaySeconds
     $GetImageRefreshHours = $Config.getImageRefreshHours ? [int]$Config.getImageRefreshHours : 24
-    $StopOnFailure  = if ($Config.ContainsKey('stopOnFailure')) { [bool]$Config.stopOnFailure } else { $false }
+    $StopOnFailure  = if ($Config.Contains('stopOnFailure')) { [bool]$Config.stopOnFailure } else { $false }
 
     # --- Initialize status for this cycle ---
     $RunId = Initialize-StatusDocument `

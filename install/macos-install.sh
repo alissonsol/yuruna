@@ -62,44 +62,111 @@ fi
 log "Updating Homebrew"
 brew update
 
-# ── Formulae + casks ─────────────────────────────────────────────────────────
-brew_install_formula() {
-  local name="$1"
-  if brew list --formula --versions "$name" >/dev/null 2>&1; then
-    log "  $name already installed (formula)"
-  else
-    log "  installing $name"
-    brew install "$name"
+# ── Stop anything that would block an upgrade ───────────────────────────────
+# Re-runs of this script must be able to upgrade UTM, PowerShell, and the
+# repository in place. Casks refuse to upgrade while their app is running,
+# and an active Yuruna test run or status server would fight with us for
+# the repo working tree and port 8080.
+
+quit_mac_app() {
+  # Graceful Cmd-Q via AppleScript; fall back to pkill if it refuses.
+  local app="$1" procPattern="${2:-$1}"
+  if pgrep -x "$procPattern" >/dev/null 2>&1 || pgrep -f "/$app.app/" >/dev/null 2>&1; then
+    log "  quitting $app (in-flight upgrade)"
+    osascript -e "tell application \"$app\" to quit" >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5; do
+      pgrep -x "$procPattern" >/dev/null 2>&1 || ! pgrep -f "/$app.app/" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    if pgrep -x "$procPattern" >/dev/null 2>&1 || pgrep -f "/$app.app/" >/dev/null 2>&1; then
+      warn "  $app did not quit gracefully — sending SIGTERM"
+      pkill -x "$procPattern" 2>/dev/null || true
+      pkill -f "/$app.app/" 2>/dev/null || true
+      sleep 1
+    fi
   fi
 }
 
-brew_install_cask() {
+stop_yuruna_processes() {
+  # Kill any running Invoke-TestRunner / Invoke-TestSequence / Start-StatusServer
+  # under the current user, but leave the pwsh running *this* installer alone.
+  local patterns=(
+    "Invoke-TestRunner.ps1"
+    "Invoke-TestSequence.ps1"
+    "Start-StatusServer.ps1"
+  )
+  for pat in "${patterns[@]}"; do
+    local pids
+    pids=$(pgrep -f "$pat" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+      log "  stopping $pat (pids: $pids)"
+      # shellcheck disable=SC2086
+      kill $pids 2>/dev/null || true
+      sleep 1
+      # shellcheck disable=SC2086
+      kill -9 $pids 2>/dev/null || true
+    fi
+  done
+  # Free port 8080 if the status server is still holding it.
+  if command -v lsof >/dev/null 2>&1; then
+    local port_pids
+    port_pids=$(lsof -ti tcp:8080 2>/dev/null || true)
+    if [[ -n "$port_pids" ]]; then
+      warn "  freeing port 8080 (pids: $port_pids)"
+      # shellcheck disable=SC2086
+      kill $port_pids 2>/dev/null || true
+    fi
+  fi
+}
+
+log "Stopping anything that would block an upgrade"
+stop_yuruna_processes
+quit_mac_app "UTM"
+
+# ── Formulae + casks ─────────────────────────────────────────────────────────
+brew_ensure_formula() {
+  local name="$1"
+  if brew list --formula --versions "$name" >/dev/null 2>&1; then
+    log "  upgrading $name (formula, if outdated)"
+    brew upgrade --formula "$name" 2>&1 | grep -vE "already installed|up-to-date" || true
+  else
+    log "  installing $name (formula)"
+    brew install --formula "$name"
+  fi
+}
+
+brew_ensure_cask() {
   local name="$1" appPath="${2:-}"
   if brew list --cask --versions "$name" >/dev/null 2>&1; then
-    log "  $name already installed (cask)"
+    log "  upgrading $name (cask, if outdated)"
+    brew upgrade --cask "$name" 2>&1 | grep -vE "already installed|up-to-date" || true
     return 0
   fi
   if [[ -n "$appPath" && -d "$appPath" ]]; then
-    log "  $name already present at $appPath — skipping cask install"
+    log "  $name already present at $appPath (installed outside brew) — skipping"
     return 0
   fi
   log "  installing $name (cask)"
   brew install --cask "$name"
 }
 
-log "Installing required formulae"
-brew_install_formula git
-brew_install_formula powershell || brew_install_cask powershell
-brew_install_formula tesseract   # needed by Test.Tesseract.psm1 for OCR steps
+log "Installing / upgrading required formulae"
+brew_ensure_formula git
+brew_ensure_formula powershell || brew_ensure_cask powershell
+brew_ensure_formula tesseract   # needed by Test.Tesseract.psm1 for OCR steps
 
-log "Installing required casks"
-brew_install_cask utm "/Applications/UTM.app"
+log "Installing / upgrading required casks"
+brew_ensure_cask utm "/Applications/UTM.app"
 
 # powershell ships as a cask on some taps; make sure pwsh is on PATH.
 if ! command -v pwsh >/dev/null 2>&1; then
   log "  installing PowerShell (cask fallback)"
   brew install --cask powershell
 fi
+
+log "Running brew cleanup"
+brew cleanup --quiet || true
+
 command -v pwsh >/dev/null 2>&1 || die "pwsh not found after install."
 command -v git  >/dev/null 2>&1 || die "git not found after install."
 [[ -d /Applications/UTM.app ]]  || warn "UTM.app not found under /Applications — test runner will warn."

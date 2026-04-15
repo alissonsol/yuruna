@@ -1558,7 +1558,9 @@ function Invoke-Sequence {
             $tmp = "$currentActionFile.tmp"
             $doc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
             Move-Item -Path $tmp -Destination $currentActionFile -Force
-        } catch { }
+        } catch {
+            Write-Verbose "current-action.json write failed: $($_.Exception.Message)"
+        }
     }
 
     foreach ($step in $steps) {

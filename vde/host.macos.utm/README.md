@@ -2,40 +2,43 @@
 
 One-time setup instructions for preparing a macOS host with UTM.
 
-## Install Homebrew
+## Quick install (one line)
 
-Check latest instructions for `brew` from [brew.sh](https://brew.sh/)
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-After installing `brew`, you may need to open another terminal.
-
-## Install Required Tools
+Paste this into Terminal on a fresh macOS machine:
 
 ```bash
-brew install --cask utm
-brew install git
-brew install powershell
-brew install openssl qemu wget
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos-install.sh)"
 ```
 
-## macOS Permissions for the Test Harness
+It installs Xcode Command Line Tools, Homebrew, `git`, PowerShell
+(`pwsh`), `tesseract`, and UTM; clones this repository into
+`~/git/yuruna`; seeds `test/test-config.json` from the template; and
+runs [`test/Set-MacHostConditionSet.ps1`](../../test/Set-MacHostConditionSet.ps1)
+to disable display sleep and the screen saver lock so UTM screen
+captures stay readable. The script is idempotent — it is safe to run
+it again to pick up updates.
 
-The automated test harness sends keystrokes to UTM VMs without requiring window focus. This uses the macOS Accessibility API (`AXUIElementPostKeyboardEvent`), which requires explicit permission.
+After the script finishes:
 
-Grant **Accessibility** access to your terminal app (Terminal.app, iTerm2, etc.):
+1. Edit `~/git/yuruna/test/test-config.json` for your environment.
+2. Launch UTM once (`open -a UTM`) so it can request any first-run
+   permissions, and grant **Accessibility** to your terminal app under
+   **System Settings > Privacy & Security > Accessibility** (required
+   for the harness to send keystrokes without UTM being focused).
+3. Run the test harness:
 
-**System Settings > Privacy & Security > Accessibility** — add and enable your terminal application.
+   ```bash
+   cd ~/git/yuruna/test
+   pwsh ./Invoke-TestRunner.ps1
+   ```
 
-Without this permission, the harness falls back to AppleScript/CGEvent keystroke delivery, which requires UTM to be the focused application and is fragile when other windows steal focus.
-
-For QEMU-backend guests (Windows 11), an additional VNC transport is available that sends keystrokes over TCP to the VM's built-in VNC server, bypassing the GUI entirely.
+Want to understand what the installer does, or set things up by hand?
+See [read.more.md](read.more.md) for the step-by-step manual walk-through.
 
 ## Next: Create a Guest VM
 
-After completing the host setup, follow the instructions for your guest operating system:
+After completing the host setup, follow the instructions for your
+guest operating system:
 
 - [Amazon Linux](guest.amazon.linux/README.md)
 - [Ubuntu Desktop](guest.ubuntu.desktop/README.md)

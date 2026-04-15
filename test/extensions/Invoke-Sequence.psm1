@@ -1539,9 +1539,32 @@ function Invoke-Sequence {
     # so a click on the UI Pause button takes effect before the next action.
     $pauseFlagFile = Join-Path (Split-Path -Parent $PSScriptRoot) "status/control.pause"
 
+    # Current-action sidecar: write the in-progress step to a small JSON file
+    # that the status server can serve. The UI polls it alongside status.json
+    # and renders the line under the matching guest card. We write at the top
+    # of each iteration (so the UI sees the step that's about to run, not the
+    # one that just finished) and once more at the end of a successful
+    # sequence with the "[All N steps completed]" summary.
+    $currentActionFile = Join-Path (Split-Path -Parent $PSScriptRoot) "status/current-action.json"
+    $writeCurrentAction = {
+        param([string]$Line)
+        try {
+            $doc = [ordered]@{
+                guestKey  = $GuestKey
+                vmName    = $VMName
+                line      = $Line
+                updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            }
+            $tmp = "$currentActionFile.tmp"
+            $doc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
+            Move-Item -Path $tmp -Destination $currentActionFile -Force
+        } catch { }
+    }
+
     foreach ($step in $steps) {
         $stepNum++
         if (Test-Path $pauseFlagFile) {
+            & $writeCurrentAction "[$stepNum/$($steps.Count)] Paused (waiting for resume)"
             Write-Information "    [$stepNum/$($steps.Count)] Paused (status-server request). Waiting for resume..."
             while (Test-Path $pauseFlagFile) {
                 Start-Sleep -Seconds 1
@@ -1549,6 +1572,7 @@ function Invoke-Sequence {
             Write-Information "    [$stepNum/$($steps.Count)] Resumed."
         }
         $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
+        & $writeCurrentAction "[$stepNum/$($steps.Count)] $($step.action): $desc"
         # Force-enable progress bar visibility for the whole step body.
         # See "Pro Tip": some hosts/settings silence Write-Progress; restoring
         # the original value in `finally` keeps caller preferences intact.
@@ -1845,6 +1869,7 @@ function Invoke-Sequence {
     $elapsedTotalSeconds = [int]$sequenceStopwatch.Elapsed.TotalSeconds
     $elapsedTimeIsMinutes = "$([int]($elapsedTotalSeconds / 60)) min and $($elapsedTotalSeconds % 60) s"
     Write-Information "    $sequenceElapsedLabel s [All $($steps.Count) steps completed in $elapsedTimeIsMinutes]"
+    & $writeCurrentAction "[All $($steps.Count) steps completed in $elapsedTimeIsMinutes]"
     return $true
 
   } catch {

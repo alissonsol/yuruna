@@ -101,6 +101,12 @@
       border-radius: .375rem; padding: .45rem .625rem;
       font-family: 'Menlo','Consolas',monospace; word-break: break-all;
     }
+    .guest-action {
+      margin-top: .5rem; font-size: .75rem; color: #1d4ed8;
+      background: #eff6ff; border: 1px solid #bfdbfe;
+      border-radius: .375rem; padding: .45rem .625rem;
+      font-family: 'Menlo','Consolas',monospace; word-break: break-all;
+    }
 
     /* ── Badges ── */
     .badge {
@@ -298,7 +304,19 @@
     return m ? (r ? `${m}m ${r}s` : `${m}m`) : `${s}s`;
   }
 
-  function renderStatus(data) {
+  // Return an HTML fragment for the "current action" line on a guest card,
+  // or '' when there is nothing to show. The current-action.json sidecar is
+  // written by Invoke-Sequence at each step boundary; we only surface it
+  // on the guest whose key matches and while that guest is still running.
+  function guestActionHtml(g, actionData) {
+    if (!actionData || !actionData.line) return '';
+    if (g.status !== 'running') return '';
+    if (actionData.guestKey && actionData.guestKey !== g.guestKey) return '';
+    const safe = actionData.line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<div class="guest-action">${safe}</div>`;
+  }
+
+  function renderStatus(data, actionData) {
     const noData = document.getElementById('no-data');
     const banner = document.getElementById('banner');
     const headerMachine = document.getElementById('header-machine');
@@ -357,11 +375,13 @@
         const dur    = fmtDuration(g.steps?.[0]?.startedAt, g.steps?.slice(-1)[0]?.finishedAt);
         const errHtml = g.steps?.find(s => s.errorMessage)
           ? `<div class="guest-error">${g.steps.find(s=>s.errorMessage).errorMessage}</div>` : '';
+        const actHtml = guestActionHtml(g, actionData);
         return `<div class="guest-card">
           <div class="left">
             <div class="guest-name">${g.guestKey}</div>
             <div class="guest-meta">${g.vmName ? 'VM: '+g.vmName+' · ' : ''}${dur !== '—' ? 'Duration: '+dur : ''}</div>
             <div class="steps">${steps}</div>
+            ${actHtml}
             ${errHtml}
           </div>
           <div>${badge(g.status)}</div>
@@ -399,15 +419,21 @@
   let countdown = 30;
 
   async function loadStatus() {
+    let data = null;
+    let actionData = null;
     try {
       const res  = await fetch('status.json?_=' + Date.now());
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      renderStatus(data);
+      data = await res.json();
     } catch (e) {
       console.warn('Could not load status.json:', e.message);
-      renderStatus(null);
     }
+    try {
+      // Soft fetch — 404 is normal when no sequence has run yet.
+      const aRes = await fetch('current-action.json?_=' + Date.now());
+      if (aRes.ok) actionData = await aRes.json();
+    } catch (e) { /* ignored: current-action.json is optional */ }
+    renderStatus(data, actionData);
     document.getElementById('last-loaded').textContent = new Date().toLocaleTimeString();
     countdown = 30;
   }

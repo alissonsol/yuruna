@@ -368,6 +368,8 @@ test/test-config.json
 test/status/status.json
 test/status/server.pid
 test/status/server.err
+test/status/control.pause
+test/status/current-action.json
 
 # Test run logs (generated at runtime)
 test/status/log/*

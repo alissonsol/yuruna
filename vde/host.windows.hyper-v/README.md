@@ -2,28 +2,80 @@
 
 One-time setup instructions for preparing a Windows host with Hyper-V.
 
-## Install Required Tools
+## Quick install (one line)
 
-- Install [PowerShell](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows) if not already installed. 
-  - This documentation was tested with version 7.5.4.
-  - Check your version with the command `Get-Host | Select-Object Version`.
-
-- Install [Windows ADK Deployment Tools](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install) for `Oscdimg.exe` (needed to create seed ISO).
-  - During installation, select only "Deployment Tools".
-
-## Enable Hyper-V
-
-Enable Hyper-V from Windows Features or run in an elevated PowerShell:
+Open **Windows PowerShell** (or `pwsh`) on a fresh Windows machine and
+paste this line:
 
 ```powershell
-Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -NoRestart
+irm https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows-install.ps1 | iex
 ```
 
-If it was not enabled already, it is recommended to restart Windows after enabling Hyper-V.
+It installs PowerShell 7, Git, the Windows ADK Deployment Tools
+(for `oscdimg.exe`), and Tesseract OCR via `winget`; enables the
+**Microsoft-Hyper-V-All** Windows Feature; clones this repository
+into `%USERPROFILE%\git\yuruna`; seeds `test\test-config.json` from
+the template; and runs
+[`test\Set-WindowsHostConditionSet.ps1`](../../test/Set-WindowsHostConditionSet.ps1)
+to disable display timeout and the machine-inactivity lock so
+Hyper-V screen captures stay readable. The script is idempotent —
+it is safe to run it again to pick up updates.
+
+Consistent with the other Yuruna scripts that need elevation, the
+installer prints an up-front banner listing exactly what it needs
+Administrator rights for (winget installs, `Enable-WindowsOptionalFeature`,
+`powercfg`/registry tweaks inside `Set-WindowsHostConditionSet.ps1`)
+and — if you started it from a non-elevated shell — self-relaunches
+via a **single UAC prompt**. You won't be asked again after that.
+
+After the script finishes, do these steps in order:
+
+1. **Open a new PowerShell window.** The installer ran in a process
+   whose `PATH` was patched in-memory, but your original shell still
+   has the old environment. A fresh `pwsh` / PowerShell window
+   guarantees that `pwsh.exe`, `git.exe`, and `oscdimg.exe` are all
+   visible. From here on, prefer `pwsh` over the legacy
+   `powershell.exe`.
+
+2. **Restart Windows if Hyper-V was just enabled.** If this is the
+   first time `Microsoft-Hyper-V-All` was turned on, the installer
+   prints a yellow warning at the end. A reboot is required before
+   any Hyper-V cmdlet — and therefore `Invoke-TestRunner.ps1` —
+   will work. Skip this step if you already had Hyper-V enabled.
+
+3. **Edit the test config** for your environment:
+
+   ```powershell
+   notepad $HOME\git\yuruna\test\test-config.json
+   ```
+
+4. **Launch Hyper-V Manager once** so it registers with your user
+   profile and surfaces any first-run dialogs:
+
+   ```powershell
+   Start-Process virtmgmt.msc
+   ```
+
+   This step is *not* automated by the installer: Hyper-V Manager
+   personalizes itself per user on first launch, and some
+   enterprise-managed machines also require an interactive
+   acknowledgement the first time the MMC snap-in loads.
+
+5. **Run the test harness** from the new pwsh window:
+
+   ```powershell
+   cd $HOME\git\yuruna\test
+   pwsh .\Invoke-TestRunner.ps1
+   ```
+
+Want to understand what the installer does, or set things up by
+hand? See [read.more.md](read.more.md) for the step-by-step manual
+walk-through.
 
 ## Next: Create a Guest VM
 
-After completing the host setup, follow the instructions for your guest operating system:
+After completing the host setup, follow the instructions for your
+guest operating system:
 
 - [Amazon Linux](guest.amazon.linux/README.md)
 - [Ubuntu Desktop](guest.ubuntu.desktop/README.md)

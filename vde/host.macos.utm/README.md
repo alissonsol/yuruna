@@ -18,14 +18,55 @@ to disable display sleep and the screen saver lock so UTM screen
 captures stay readable. The script is idempotent — it is safe to run
 it again to pick up updates.
 
-After the script finishes:
+Consistent with the other Yuruna scripts that need elevation, the
+installer prints an up-front banner listing exactly what it needs
+`sudo` for (Homebrew cask post-install + `pmset` inside
+`Set-MacHostConditionSet.ps1`) and prompts for your macOS password
+**once** — the timestamp is then kept alive for the rest of the run.
 
-1. Edit `~/git/yuruna/test/test-config.json` for your environment.
-2. Launch UTM once (`open -a UTM`) so it can request any first-run
-   permissions, and grant **Accessibility** to your terminal app under
-   **System Settings > Privacy & Security > Accessibility** (required
-   for the harness to send keystrokes without UTM being focused).
-3. Run the test harness:
+After the script finishes, do these steps in order:
+
+1. **Make the new tools visible in your current terminal.** The
+   installer ran in its own subshell, so the Terminal window where
+   you pasted the `curl` command still has no `brew`, `pwsh`, or
+   `git` on `PATH`. Either open a new Terminal window, or patch the
+   current shell by running the line the installer prints at the end
+   — on Apple Silicon this is:
+
+   ```bash
+   eval "$(/opt/homebrew/bin/brew shellenv)"
+   ```
+
+   (On Intel Macs Homebrew lives at `/usr/local` instead.)
+
+2. **Edit the test config** for your environment:
+
+   ```bash
+   $EDITOR ~/git/yuruna/test/test-config.json
+   ```
+
+3. **Launch UTM once** so macOS can register it and surface any
+   first-run dialogs (network access, file access, etc.):
+
+   ```bash
+   open -a UTM
+   ```
+
+4. **Grant Accessibility permission to your terminal app.** The
+   harness sends keystrokes to UTM VMs through the macOS
+   Accessibility API (`AXUIElementPostKeyboardEvent`) so VMs stay
+   driven even when they are not the focused window. This step is
+   *not* automated by the installer: macOS's TCC (Transparency,
+   Consent, and Control) framework deliberately forbids any process
+   — even one running as root — from toggling Accessibility on
+   behalf of another app. Only a real human click in System Settings
+   will do it.
+
+   Go to **System Settings > Privacy & Security > Accessibility**
+   and add (or enable) your terminal app: Terminal.app, iTerm2,
+   Ghostty, etc.
+
+5. **Run the test harness:**
 
    ```bash
    cd ~/git/yuruna/test

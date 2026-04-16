@@ -26,10 +26,24 @@ log "Yuruna macOS installer starting"
 log "  repo   : $YURUNA_REPO ($YURUNA_BRANCH)"
 log "  target : $YURUNA_DIR"
 
-# Prime sudo once so later steps (pmset in Set-MacHostConditionSet) don't stall.
-log "Requesting sudo (needed for Homebrew + host configuration)"
+# ── sudo announcement (consistent with other Yuruna scripts) ───────────────
+# Every script in this repo that needs elevation says so up front rather than
+# surprising the user midway through. Match that convention here and prime
+# sudo a single time so the Homebrew installer, cask post-installs, and the
+# pmset call in Set-MacHostConditionSet.ps1 all reuse the same timestamp.
+cat <<'SUDO_NOTICE'
+
+  ┌───────────────────────────────────────────────────────────────┐
+  │  This installer needs sudo for:                               │
+  │    • Homebrew install + cask post-install scripts             │
+  │    • pmset / defaults in Set-MacHostConditionSet.ps1          │
+  │  You will be prompted for your macOS password ONCE, below.    │
+  └───────────────────────────────────────────────────────────────┘
+
+SUDO_NOTICE
 sudo -v
-( while true; do sudo -n true; sleep 50; kill -0 "$$" 2>/dev/null || exit; done ) &
+# Keep the sudo timestamp fresh for the whole run so later steps don't re-prompt.
+( while true; do sudo -n true; sleep 30; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!
 trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
 
@@ -193,23 +207,50 @@ fi
 
 # ── Host configuration (disable display sleep, screen saver, etc.) ──────────
 if [[ -f "$TEST_DIR/Set-MacHostConditionSet.ps1" ]]; then
-  log "Running Set-MacHostConditionSet.ps1"
+  log "Running Set-MacHostConditionSet.ps1 (uses pmset via sudo)"
+  # Refresh the sudo timestamp right before the pwsh call so pmset inside the
+  # PowerShell script never re-prompts even if the keep-alive loop missed a beat.
+  sudo -v
   ( cd "$TEST_DIR" && pwsh -NoLogo -NoProfile -File ./Set-MacHostConditionSet.ps1 )
 else
   warn "Set-MacHostConditionSet.ps1 not found under $TEST_DIR — skipping host config."
 fi
 
 # ── Done ────────────────────────────────────────────────────────────────────
+# Figure out which brew shellenv line the user needs to load in their current
+# terminal. The installer ran in its own subshell, so the caller's interactive
+# shell still has no /opt/homebrew (or /usr/local) on PATH until they either
+# open a new terminal or source the profile file Homebrew updated.
+BREW_PREFIX="$(brew --prefix)"
+BREW_SHELLENV="eval \"\$($BREW_PREFIX/bin/brew shellenv)\""
+
 cat <<EOF
 
 $(log "Yuruna is ready.")
 
-Next steps:
-  1. Review and edit the test config:
+Next steps (in order):
+
+  1. Activate the new PATH in your CURRENT terminal. The installer ran in a
+     subshell so 'brew', 'pwsh', 'git' from Homebrew are not yet visible to
+     the shell you used to paste the curl command. Either open a new Terminal
+     window, or run this one-liner to patch the current session:
+
+       $BREW_SHELLENV
+
+  2. Review and edit the test config:
        \$EDITOR $TEST_DIR/test-config.json
-  2. Launch UTM once so it can request any first-run permissions:
+
+  3. Launch UTM once so it can register with macOS and request any first-run
+     permissions (network, file access):
        open -a UTM
-  3. Run the test runner:
+
+  4. Grant Accessibility permission to your terminal app. This step is NOT
+     automated because macOS TCC requires a human click in System Settings —
+     no script (even with sudo) can toggle Accessibility for another process.
+       System Settings > Privacy & Security > Accessibility
+       → add and enable Terminal.app (or iTerm2, Ghostty, …)
+
+  5. Run the test runner:
        cd $TEST_DIR && pwsh ./Invoke-TestRunner.ps1
 
 Re-running this installer is safe; it will update Homebrew packages and

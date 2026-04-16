@@ -7,6 +7,8 @@
   "keystrokeMechanism": "hypervisor",
   "maxHistoryRuns": 30,
   "notification": {
+    "failuresBeforeAlert": 2,
+    "successesBeforeRearm": 5,
     "toAddress": ""
   },
   "repoUrl": "https://github.com/alissonsol/yuruna",

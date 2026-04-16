@@ -285,18 +285,30 @@ function Copy-FailureArtifactsToStatusLog {
 }
 
 # === Graceful shutdown support ===
-$script:ShutdownRequested = $false
+# The CancelKeyPress event handler runs in a separate SessionState (because
+# Register-ObjectEvent -Action creates its own scope). A plain $script:var
+# would not propagate back to the main runner. Use a thread-safe dictionary
+# as shared state so both the event action and the main loop see the same
+# flag without any scope or runspace issues.
+$script:ShutdownState = [System.Collections.Concurrent.ConcurrentDictionary[string,bool]]::new()
+$script:ShutdownState['Requested'] = $false
 $script:ActiveVMName      = $null
 $script:CycleFinalized    = $true    # tracks whether Complete-Run/Stop-LogFile have been called
 
 try {
-    [Console]::add_CancelKeyPress({
-        param($eventSender, $e)
-        $null = $eventSender  # required by .NET event signature
-        $e.Cancel = $true
-        $script:ShutdownRequested = $true
-        Write-Warning "Shutdown requested (Ctrl+C). Will clean up after current operation..."
-    })
+    # Use Register-ObjectEvent instead of [Console]::add_CancelKeyPress() so
+    # the handler runs on the PowerShell pipeline thread where a runspace
+    # exists. A raw .NET event delegate fires on a CLR thread-pool thread
+    # that has no runspace, which causes a fatal PSInvalidOperationException
+    # ("There is no Runspace available to run scripts in this thread") and
+    # kills the entire process — preventing graceful cleanup.
+    $shutdownRef = $script:ShutdownState
+    $null = Register-ObjectEvent -InputObject ([Console]) -EventName CancelKeyPress `
+        -SourceIdentifier YurunaCancelKey -MessageData $shutdownRef -Action {
+            $Event.SourceEventArgs.Cancel = $true
+            $Event.MessageData['Requested'] = $true
+            Write-Warning "Shutdown requested (Ctrl+C). Will clean up after current operation..."
+        }
 } catch {
     Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $_"
 }
@@ -326,8 +338,19 @@ $OverallPassed       = $true
 $ConsecutiveCrashes  = 0
 $MaxConsecutiveCrashes = 3
 
+# === Notification gating ===
+# failuresBeforeAlert : consecutive cycle failures required before sending an alert.
+# successesBeforeRearm: consecutive successes (or a fresh Invoke-TestRunner start)
+#                       required before the alert can fire again.
+# State machine: Armed → (N consecutive failures) → Fired → (M consecutive successes) → Armed
+$FailuresBeforeAlert  = [int]($Config.notification.failuresBeforeAlert  ?? 1)
+$SuccessesBeforeRearm = [int]($Config.notification.successesBeforeRearm ?? 1)
+$ConsecutiveFailures  = 0
+$ConsecutiveSuccesses = 0
+$AlertArmed           = $true   # armed on every fresh start of Invoke-TestRunner
+
 while ($true) {
-    if ($script:ShutdownRequested) {
+    if ($script:ShutdownState['Requested']) {
         Write-Output "Shutdown requested. Exiting cycle loop."
         break
     }
@@ -533,7 +556,7 @@ while ($true) {
     # --- Test each guest sequentially (cleanup → create → start → verify → screenshots → pool test → stop) ---
     # Only one guest VM exists at a time, so failures don't leave other VMs active.
     foreach ($GuestKey in $GuestList) {
-        if ($script:ShutdownRequested) {
+        if ($script:ShutdownState['Requested']) {
             Write-Output "Shutdown requested. Skipping remaining guests."
             $OverallPassed = $false; $FailedStep = "shutdown"
             break
@@ -765,9 +788,19 @@ while ($true) {
     Write-Output ""
     Write-Output "=== Cycle $CycleCount complete: $FinalStatus ==="
 
-    if ($OverallPassed) { $ConsecutiveCrashes = 0 }
+    if ($OverallPassed) {
+        $ConsecutiveCrashes  = 0
+        $ConsecutiveFailures = 0
+        $ConsecutiveSuccesses++
+        if (-not $AlertArmed -and $ConsecutiveSuccesses -ge $SuccessesBeforeRearm) {
+            $AlertArmed = $true
+            Write-Output "  Notification alert rearmed after $ConsecutiveSuccesses consecutive successes."
+        }
+    }
 
     if (-not $OverallPassed) {
+        $ConsecutiveSuccesses = 0
+        $ConsecutiveFailures++
         if ($StopOnFailure) {
             break
         }
@@ -779,19 +812,25 @@ while ($true) {
             Write-Output "  Guest:   $FailedGuest"
             Write-Output "  Step:    $FailedStep"
             Write-Output "  Error:   $FailureMessage"
+            Write-Output "  Alert:   $ConsecutiveFailures/$FailuresBeforeAlert failures $(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})"
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 
-            $body = Format-FailureMessage `
-                -HostType     $HostType `
-                -Hostname     (hostname) `
-                -GuestKey     $FailedGuest `
-                -StepName     $FailedStep `
-                -ErrorMessage $FailureMessage `
-                -RunId        $RunId `
-                -GitCommit    $GitCommit
-            Send-Notification -Config $Config `
-                -Subject "Yuruna VDE Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
-                -Body    $body
+            if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
+                $body = Format-FailureMessage `
+                    -HostType     $HostType `
+                    -Hostname     (hostname) `
+                    -GuestKey     $FailedGuest `
+                    -StepName     $FailedStep `
+                    -ErrorMessage $FailureMessage `
+                    -RunId        $RunId `
+                    -GitCommit    $GitCommit
+                Send-Notification -Config $Config `
+                    -Subject "Yuruna VDE Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
+                    -Body    $body
+                $AlertArmed           = $false
+                $ConsecutiveSuccesses = 0
+                Write-Output "  Notification sent. Alert suppressed until $SuccessesBeforeRearm consecutive successes or runner restart."
+            }
         }
     }
 
@@ -842,7 +881,7 @@ while ($true) {
     Write-Output "  Will retry next cycle ($ConsecutiveCrashes/$MaxConsecutiveCrashes consecutive errors)."
   }
 
-    if ($script:ShutdownRequested) {
+    if ($script:ShutdownState['Requested']) {
         Write-Output "Shutdown requested. Exiting cycle loop."
         break
     }
@@ -875,6 +914,8 @@ while ($true) {
 # heartbeat file so the server's stale-check sees no file and keeps running
 # indefinitely — the user can inspect the failure via the web UI.
 Remove-Item $HeartbeatFile -Force -ErrorAction SilentlyContinue
+Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
+Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
 
 # === Failure notification (only reached when stopOnFailure breaks the loop) ===
 if (-not $OverallPassed -and $FailedGuest) {
@@ -888,22 +929,27 @@ if (-not $OverallPassed -and $FailedGuest) {
     Write-Output "  Run ID:  $RunId"
     Write-Output "  Commit:  $GitCommit"
     Write-Output "  Log:     $LogFile"
+    Write-Output "  Alert:   $ConsecutiveFailures/$FailuresBeforeAlert failures $(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})"
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output ""
     Write-Output "To reproduce with full diagnostics:"
     Write-Output "  pwsh test/Invoke-TestRunner.ps1 -NoGitPull -debug_mode `$true -verbose_mode `$true"
 
-    $body = Format-FailureMessage `
-        -HostType     $HostType `
-        -Hostname     (hostname) `
-        -GuestKey     $FailedGuest `
-        -StepName     $FailedStep `
-        -ErrorMessage $FailureMessage `
-        -RunId        $RunId `
-        -GitCommit    $GitCommit
-    Send-Notification -Config $Config `
-        -Subject "Yuruna VDE Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
-        -Body    $body
+    if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
+        $body = Format-FailureMessage `
+            -HostType     $HostType `
+            -Hostname     (hostname) `
+            -GuestKey     $FailedGuest `
+            -StepName     $FailedStep `
+            -ErrorMessage $FailureMessage `
+            -RunId        $RunId `
+            -GitCommit    $GitCommit
+        Send-Notification -Config $Config `
+            -Subject "Yuruna VDE Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
+            -Body    $body
+    } else {
+        Write-Output "  Notification suppressed ($ConsecutiveFailures/$FailuresBeforeAlert failures, armed=$AlertArmed)."
+    }
 }
 
 exit ($OverallPassed ? 0 : 1)

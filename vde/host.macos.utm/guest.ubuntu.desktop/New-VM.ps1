@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a01
 .AUTHOR Alisson Sol
@@ -168,7 +168,35 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey)
+# Detect the apt-cache VM and inject its proxy URL if available.
+# On macOS/UTM there is no Get-VM equivalent; check if the cache VM is
+# reachable on the host-local network by probing port 3142 on common
+# gateway addresses and any running UTM VM IPs.
+$AptCacheUrl = ""
+$cacheProbeAddresses = @()
+# UTM VMs typically get IPs in the 192.168.64.x range (Apple Virtualization shared network)
+for ($octet = 2; $octet -le 30; $octet++) { $cacheProbeAddresses += "192.168.64.$octet" }
+foreach ($ip in $cacheProbeAddresses) {
+    $tcp = New-Object System.Net.Sockets.TcpClient
+    try {
+        $result = $tcp.BeginConnect($ip, 3142, $null, $null)
+        $success = $result.AsyncWaitHandle.WaitOne(200)  # 200ms timeout per IP
+        if ($success -and $tcp.Connected) {
+            $AptCacheUrl = "http://${ip}:3142"
+            Write-Output "  apt-cache VM detected at $AptCacheUrl — guest will use local proxy."
+            break
+        }
+    } catch {
+        Write-Verbose "apt-cache probe to ${ip}:3142 failed: $($_.Exception.Message)"
+    } finally {
+        $tcp.Close()
+    }
+}
+if (-not $AptCacheUrl) {
+    Write-Output "  No apt-cache VM detected on local network. Guest will download packages directly from Ubuntu mirrors."
+}
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_CACHE_URL_PLACEHOLDER', $AptCacheUrl)
 
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

@@ -108,7 +108,31 @@ Open UTM once by hand so macOS can present any first-run dialogs
 open -a UTM
 ```
 
-## 8) Run the Test Harness
+## 8) Optional: Set up the local apt cache VM
+
+Each Ubuntu Desktop install downloads ~900 MB of packages from
+Ubuntu's CDN. When the test harness runs cycles back-to-back, the
+CDN may rate-limit requests (HTTP 429), causing the install to fail.
+A local `apt-cacher-ng` VM caches everything after the first
+download, cutting subsequent installs to ~2 minutes and eliminating
+rate-limit failures.
+
+This step is optional — skip it if you prefer direct CDN downloads.
+
+```bash
+cd ~/git/yuruna/vde/host.macos.utm/guest.apt-cache
+pwsh ./Get-Image.ps1    # downloads Ubuntu Server cloud image (ARM64)
+pwsh ./New-VM.ps1        # creates + starts the cache VM
+```
+
+The Ubuntu Desktop `New-VM.ps1` detects the running cache VM
+automatically. See
+[guest.apt-cache/README.md](guest.apt-cache/README.md) for details.
+
+> **Note**: The macOS UTM `New-VM.ps1` for the cache VM has not been
+> implemented yet. See the README for manual setup instructions.
+
+## 9) Run the Test Harness
 
 ```bash
 cd ~/git/yuruna/test

@@ -17,7 +17,7 @@
 #requires -version 7
 
 param(
-    [switch]$stable
+    [switch]$daily
 )
 
 # === Configuration ===
@@ -25,7 +25,11 @@ $downloadDir = "$HOME/virtual/ubuntu.env"
 $baseImageName = "host.macos.utm.guest.ubuntu.desktop"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 
-if ($stable) {
+if ($daily) {
+    $isoFileName = "noble-desktop-arm64.iso"
+    $sourceUrl = "https://cdimage.ubuntu.com/noble/daily-live/current/$isoFileName"
+    $checksumUrl = "https://cdimage.ubuntu.com/noble/daily-live/current/SHA256SUMS"
+} else {
     $releaseBaseUrl = "https://cdimage.ubuntu.com/releases/noble/release"
     # Discover the latest stable ISO filename from the release page
     Write-Output "Discovering latest stable release from $releaseBaseUrl ..."
@@ -39,10 +43,6 @@ if ($stable) {
     $isoFileName = ($isoMatches | Sort-Object Value -Descending | Select-Object -First 1).Value
     $sourceUrl = "$releaseBaseUrl/$isoFileName"
     $checksumUrl = "$releaseBaseUrl/SHA256SUMS"
-} else {
-    $isoFileName = "noble-desktop-arm64.iso"
-    $sourceUrl = "https://cdimage.ubuntu.com/noble/daily-live/current/$isoFileName"
-    $checksumUrl = "https://cdimage.ubuntu.com/noble/daily-live/current/SHA256SUMS"
 }
 
 # === Find the file to download ===

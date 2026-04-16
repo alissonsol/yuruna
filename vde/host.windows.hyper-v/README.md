@@ -72,6 +72,37 @@ Want to understand what the installer does, or set things up by
 hand? See [read.more.md](read.more.md) for the step-by-step manual
 walk-through.
 
+## Optional: Local apt cache VM
+
+The test harness creates and destroys Ubuntu Desktop VMs every cycle.
+Each fresh install downloads ~900 MB of packages (kernel, firmware,
+desktop tools) from Ubuntu's CDN. When cycles run back-to-back,
+Ubuntu's mirrors may return **429 Too Many Requests** for large files
+like `linux-firmware`, causing the install to fail.
+
+A small **apt-cacher-ng** VM running on the same host eliminates both
+problems: the first install populates the local cache, and every
+subsequent install pulls the same packages from LAN at disk speed.
+
+This step is **optional** — the test harness works without it, but
+install times drop from ~30 minutes to ~2 minutes on cache hits, and
+CDN rate-limit failures stop entirely.
+
+```powershell
+# One-time setup (elevated pwsh):
+cd $HOME\git\yuruna\vde\host.windows.hyper-v\guest.apt-cache
+pwsh .\Get-Image.ps1    # downloads Ubuntu Server cloud image (~600 MB)
+pwsh .\New-VM.ps1        # creates 512 MB cache VM, waits for port 3142
+```
+
+Once the `apt-cache` VM is running, no further configuration is
+needed. The Ubuntu Desktop `New-VM.ps1` automatically detects it and
+injects the proxy URL into the autoinstall seed ISO. Stop or delete
+the cache VM at any time to revert to direct CDN downloads.
+
+See [guest.apt-cache/README.md](guest.apt-cache/README.md) for
+details on how it works.
+
 ## Next: Create a Guest VM
 
 After completing the host setup, follow the instructions for your

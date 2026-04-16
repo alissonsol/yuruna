@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c45
 .AUTHOR Alisson Sol
@@ -133,7 +133,65 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey)
+# Detect the apt-cache VM and inject its proxy URL if available.
+# When the cache VM is running, guest installs fetch .deb packages from the
+# local cache instead of hitting Ubuntu's CDN (avoids 429 rate-limit failures
+# and cuts install time from ~30 min to ~2 min on cache hit).
+$AptCacheUrl = ""
+$cacheVM = Get-VM -Name "apt-cache" -ErrorAction SilentlyContinue
+if ($cacheVM -and $cacheVM.State -eq 'Running') {
+    # Two discovery strategies, in the same order guest.apt-cache/New-VM.ps1
+    # uses when it brings the cache up — keeping them aligned ensures this
+    # consumer can find the cache the creator just announced.
+    #   1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) — needs hv_kvp_daemon
+    #      running in the cache guest. Often empty on freshly-installed images.
+    #   2. ARP cache (Get-NetNeighbor) scoped to the Default Switch interface,
+    #      matched by the cache VM's MAC. Works as soon as the guest sends any
+    #      IP traffic, independent of guest agents.
+    $cacheIps = @($cacheVM | Get-VMNetworkAdapter | ForEach-Object { $_.IPAddresses } |
+        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
+    if (-not $cacheIps) {
+        $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
+        $vmMac = ($cacheVM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
+        if ($hostAdapter -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
+            $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
+            $neighbor = Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.LinkLayerAddress -eq $vmMacDashed -and
+                    $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
+                    $_.State -ne 'Unreachable'
+                } | Select-Object -First 1
+            if ($neighbor) { $cacheIps = @($neighbor.IPAddress) }
+        }
+    }
+
+    # TCP-probe port 3142 before claiming the cache — apt-cacher-ng may still
+    # be installing if cloud-init hasn't finished, in which case routing the
+    # guest's apt traffic to a closed port would silently break installs.
+    foreach ($ip in $cacheIps) {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        try {
+            $async = $tcp.BeginConnect($ip, 3142, $null, $null)
+            if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
+                $AptCacheUrl = "http://${ip}:3142"
+                Write-Output "  apt-cache VM detected at $AptCacheUrl — guest will use local proxy."
+                break
+            }
+        } catch {
+            Write-Verbose "apt-cache probe to ${ip}:3142 failed: $($_.Exception.Message)"
+        } finally {
+            $tcp.Close()
+        }
+    }
+    if (-not $AptCacheUrl) {
+        Write-Warning "  apt-cache VM is running but no listener on :3142 (cloud-init may still be installing). Guest will download directly."
+    }
+} else {
+    Write-Output "  No apt-cache VM running. Guest will download packages directly from Ubuntu mirrors."
+}
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_CACHE_URL_PLACEHOLDER', $AptCacheUrl)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

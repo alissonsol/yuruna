@@ -215,6 +215,95 @@ $global:VerbosePreference = $savedVerbose
 $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
+# Apt-cache detection: run the SAME probe each guest.ubuntu.desktop/New-VM.ps1
+# uses at VM-creation time, so the startup banner cannot disagree with the
+# proxy URL that later gets injected into the autoinstall user-data. When a
+# cache is detected the installed guest also gets a persistent apt proxy
+# (see guest.ubuntu.desktop/vmconfig/user-data late-commands), so every
+# post-install apt-get in test-workload flows through the cache too.
+function Test-AptCacheAvailable {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [string]$HostType)
+
+    if ($HostType -eq 'host.windows.hyper-v') {
+        $cacheVM = Get-VM -Name 'apt-cache' -ErrorAction SilentlyContinue
+        if (-not $cacheVM -or $cacheVM.State -ne 'Running') { return $null }
+
+        # Strategy 1: Hyper-V KVP via Get-VMNetworkAdapter. Requires
+        # hv_kvp_daemon (hyperv-daemons) inside the guest. After a fresh
+        # apt-cache install this is usually available, but if cloud-init
+        # hasn't fully completed — or the daemon isn't running — IPAddresses
+        # comes back empty.
+        $candidateIps = @($cacheVM | Get-VMNetworkAdapter | ForEach-Object { $_.IPAddresses } |
+            Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
+
+        # Strategy 2: ARP cache lookup by VM MAC, scoped to the Default
+        # Switch interface. Mirrors guest.apt-cache/New-VM.ps1 so detection
+        # here cannot disagree with what the cache-VM creator discovered.
+        if (-not $candidateIps) {
+            $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
+            $vmMac = ($cacheVM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
+            if ($hostAdapter -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
+                $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
+                $neighbor = Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        $_.LinkLayerAddress -eq $vmMacDashed -and
+                        $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
+                        $_.State -ne 'Unreachable'
+                    } | Select-Object -First 1
+                if ($neighbor) { $candidateIps = @($neighbor.IPAddress) }
+            }
+        }
+
+        # Confirm port 3142 is actually listening before claiming a cache —
+        # an IP alone doesn't prove apt-cacher-ng is up (cloud-init may still
+        # be installing). Same probe shape as the macos.utm branch.
+        foreach ($ip in $candidateIps) {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            try {
+                $async = $tcp.BeginConnect($ip, 3142, $null, $null)
+                if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
+                    return "http://${ip}:3142"
+                }
+            } catch {
+                Write-Verbose "apt-cache probe to ${ip}:3142 failed: $($_.Exception.Message)"
+            } finally {
+                $tcp.Close()
+            }
+        }
+        return $null
+    }
+    if ($HostType -eq 'host.macos.utm') {
+        # UTM guests on Apple Virtualization live on 192.168.64.0/24; probe
+        # .2-.30 for a listener on 3142 (same range guest.ubuntu.desktop uses).
+        for ($octet = 2; $octet -le 30; $octet++) {
+            $candidate = "192.168.64.$octet"
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            try {
+                $async = $tcp.BeginConnect($candidate, 3142, $null, $null)
+                if ($async.AsyncWaitHandle.WaitOne(200) -and $tcp.Connected) {
+                    return "http://${candidate}:3142"
+                }
+            } catch {
+                Write-Verbose "apt-cache probe to ${candidate}:3142 failed: $($_.Exception.Message)"
+            } finally {
+                $tcp.Close()
+            }
+        }
+        return $null
+    }
+    return $null
+}
+
+$aptCacheUrl = Test-AptCacheAvailable -HostType $HostType
+if ($aptCacheUrl) {
+    Write-Output "Apt cache: detected at $aptCacheUrl (guests will use local proxy)"
+} else {
+    Write-Output "Apt cache: not detected (guests will download directly from Ubuntu mirrors)"
+}
+
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
 Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
@@ -303,6 +392,12 @@ try {
     # ("There is no Runspace available to run scripts in this thread") and
     # kills the entire process — preventing graceful cleanup.
     $shutdownRef = $script:ShutdownState
+    # Clean up any subscriber/job left behind by a prior run that exited
+    # without reaching the bottom-of-script Unregister-Event (Ctrl+C, error,
+    # IDE-terminated session). Without this, re-running in the same shell
+    # fails with "A subscriber with the source identifier ... already exists".
+    Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
+    Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
     $null = Register-ObjectEvent -InputObject ([Console]) -EventName CancelKeyPress `
         -SourceIdentifier YurunaCancelKey -MessageData $shutdownRef -Action {
             $Event.SourceEventArgs.Cancel = $true

@@ -400,14 +400,29 @@ echo -e "\e[1;36m>>> Installing Helm...\e[0m"
 curl -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3?nocache=$(date +%s)" | bash || true
 echo -e "\e[1;32m<<< Helm installation complete.\e[0m"
 
-# OpenTofu (official install script, deb method)
+# OpenTofu: deb install (primary) with standalone fallback, then verify.
+# The deb method fetches https://get.opentofu.org/opentofu.gpg; a transient
+# outage on that endpoint previously caused the install to fail while the
+# script happily continued (due to `|| true`), leaving every downstream
+# Set-Resource tofu invocation breaking with "command not recognized" and
+# ultimately producing HTTP 503 from the ingress. The standalone method
+# pulls the binary from github.com/opentofu/opentofu/releases and does not
+# touch get.opentofu.org, so it routes around the outage entirely.
 echo ""
 echo -e "\e[1;36m>>> Installing OpenTofu...\e[0m"
 curl --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh?nocache=$(date +%s)" -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
-/tmp/install-opentofu.sh --install-method deb || true
+if ! /tmp/install-opentofu.sh --install-method deb; then
+    echo "WARNING: OpenTofu deb install failed (often a GPG-key fetch from get.opentofu.org). Falling back to standalone method..."
+    /tmp/install-opentofu.sh --install-method standalone || true
+fi
 rm -f /tmp/install-opentofu.sh
-echo -e "\e[1;32m<<< OpenTofu installation complete.\e[0m"
+if ! command -v tofu >/dev/null 2>&1; then
+    echo "ERROR: OpenTofu install failed via both deb and standalone methods."
+    echo "Downstream Set-Resource steps rely on 'tofu'; aborting early rather than failing silently at the ingress check."
+    exit 1
+fi
+echo -e "\e[1;32m<<< OpenTofu installation complete ($(tofu version | head -1)).\e[0m"
 
 # mkcert (download pre-built binary from GitHub)
 echo ""
@@ -460,7 +475,7 @@ kubeadm version || true
 kubectl version --client || true
 pwsh --version 2>/dev/null || echo "PowerShell - run: pwsh --version"
 helm version --short 2>/dev/null || echo "Helm - run: helm version --short"
-tofu version 2>/dev/null | head -1 || echo "OpenTofu - run: tofu version"
+tofu version | head -1
 mkcert -version 2>/dev/null || echo "mkcert - run: mkcert -version"
 az --version 2>/dev/null | head -1 || true
 aws --version || true

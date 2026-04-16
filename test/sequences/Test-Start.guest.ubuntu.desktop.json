@@ -7,7 +7,7 @@
     "typeAndEnter":     "Type a text string, wait, then press Enter. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, default 50), delaySeconds (number, default 2).",
     "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
     "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
-    "waitForAndEnter":  "Wait for text pattern on screen via OCR, then type a string and press Enter. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean), text (string), sensitive (boolean), charDelayMs (number, default 50), delaySeconds (number, default 2).",
+    "waitForAndEnter":  "Wait for text pattern on screen via OCR, then type a string and press Enter. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean), text (string), sensitive (boolean), charDelayMs (number, default 50), delaySeconds (number, default 2), tabCount (number, Tab presses before typing to navigate focus, default 0).",
     "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
     "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
     "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number).",
@@ -15,7 +15,7 @@
   },
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
 
-  "description": "Ubuntu Desktop: dismiss GRUB 'Try or Install' menu then let autoinstall run unattended.",
+  "description": "Ubuntu Desktop: dismiss GRUB menu, confirm desktop installer, wait for install + reboot, then complete first login.",
   "variables": {
     "username":    "ubuntu",
     "password":    "password",
@@ -29,14 +29,23 @@
       "pollSeconds": 6,
       "text": "",
       "description": "Dismiss GRUB menu"
-    },    
+    },
+    {
+      "action": "waitForAndEnter",
+      "pattern": ["Install", "install"],
+      "timeoutSeconds": 600,
+      "pollSeconds": 9,
+      "tabCount": 2,
+      "text": "",
+      "description": "Tab to the Install button and press Enter (newer daily ISOs show an Install button even with autoinstall; tabCount may need tuning if the UI layout changes)"
+    },
     {
       "action": "waitForAndEnter",
       "pattern": "Not listed?",
-      "timeoutSeconds": 900,
-      "pollSeconds": 6,
+      "timeoutSeconds": 3600,
+      "pollSeconds": 15,
       "text": "",
-      "description": "Not listed?"
+      "description": "Wait for OS install + reboot + GDM login screen"
     },
     {
       "action": "waitForAndEnter",

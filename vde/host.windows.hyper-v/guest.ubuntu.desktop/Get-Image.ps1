@@ -17,7 +17,7 @@
 #requires -version 7
 
 param(
-    [switch]$stable
+    [switch]$daily
 )
 
 # Inform and check for elevation
@@ -33,7 +33,11 @@ $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.ubuntu.desktop"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 
-if ($stable) {
+if ($daily) {
+    $isoFileName = "noble-desktop-amd64.iso"
+    $sourceUrl = "https://cdimage.ubuntu.com/noble/daily-live/current/$isoFileName"
+    $checksumUrl = "https://cdimage.ubuntu.com/noble/daily-live/current/SHA256SUMS"
+} else {
     $releaseBaseUrl = "https://releases.ubuntu.com/noble/"
     # Discover the latest stable ISO filename from the release page
     Write-Output "Discovering latest stable release from $releaseBaseUrl ..."
@@ -47,10 +51,6 @@ if ($stable) {
     $isoFileName = ($isoMatches | Sort-Object Value -Descending | Select-Object -First 1).Value
     $sourceUrl = "$releaseBaseUrl/$isoFileName"
     $checksumUrl = "$releaseBaseUrl/SHA256SUMS"
-} else {
-    $isoFileName = "noble-desktop-amd64.iso"
-    $sourceUrl = "https://cdimage.ubuntu.com/noble/daily-live/current/$isoFileName"
-    $checksumUrl = "https://cdimage.ubuntu.com/noble/daily-live/current/SHA256SUMS"
 }
 
 Write-Output "Hyper-V default VHDX folder: $downloadDir"

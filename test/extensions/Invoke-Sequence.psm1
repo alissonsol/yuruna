@@ -1672,6 +1672,18 @@ function Invoke-Sequence {
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
                     -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses
                 if ($ok -ne $false) {
+                    # Send Tab keystrokes before typing, if requested. This is
+                    # needed when the target element (e.g. an "Install" button)
+                    # does not have keyboard focus by default.
+                    $tabCount = $step.tabCount ? [int]$step.tabCount : 0
+                    if ($tabCount -gt 0) {
+                        Write-Debug "      Sending $tabCount Tab(s) to reach the target element"
+                        for ($t = 0; $t -lt $tabCount; $t++) {
+                            Send-Key -HostType $HostType -VMName $VMName -KeyName "Tab" | Out-Null
+                            Start-Sleep -Milliseconds 300
+                        }
+                        Start-Sleep -Milliseconds 500
+                    }
                     $text = Expand-Variable $step.text $vars
                     $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
                     $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2

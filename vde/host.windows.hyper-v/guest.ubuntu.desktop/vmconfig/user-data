@@ -1,9 +1,7 @@
 #cloud-config
-bootcmd:
-  - echo $(cat /proc/cmdline) autoinstall > /tmp/cmdline
-  - mount -n --bind -o ro /tmp/cmdline /proc/cmdline
 autoinstall:
   version: 1
+  proxy: APT_CACHE_URL_PLACEHOLDER
   locale: en_US.UTF-8
   keyboard:
     layout: us
@@ -30,6 +28,19 @@ autoinstall:
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
   late-commands:
+    # --- Apt cache: persist proxy into the installed system ---
+    # autoinstall.proxy above applies ONLY to subiquity itself; the installed
+    # system has no apt proxy unless we write one here. New-VM.ps1 substitutes
+    # APT_CACHE_URL_PLACEHOLDER with either the detected URL (e.g.
+    # http://172.x.y.z:3142) or the empty string. On empty, [ -n "" ] is
+    # false and the file is not created — so "no cache" behaves exactly as
+    # before. On hit, every post-install apt-get in the guest (test-workload,
+    # VS Code, .NET SDK, Kubernetes packages, etc.) flows through the cache.
+    - |
+      if [ -n "APT_CACHE_URL_PLACEHOLDER" ]; then
+        echo 'Acquire::http::Proxy "APT_CACHE_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+      fi
     # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu
     # --- SSH: install yuruna test-harness authorized key for the ubuntu user ---

@@ -2,6 +2,10 @@
 
 Some notes and hacks learned during the development process.
 
+## Getting log data from inside a VM
+
+At times, copy and paste works directly. When it doesn't, the best approach, if the GUI is available, is to use <https://privatebin.at>. That works like <https://pastebin.com> but allows data beyond 512KB.
+
 ## Files not changed
 
 Some files are set `assume-unchanged` by scripts that modify the values saved into them. Revert that with the command `git update-index --really-refresh`.

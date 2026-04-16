@@ -168,6 +168,9 @@ log "Installing / upgrading required formulae"
 brew_ensure_formula git
 brew_ensure_formula powershell || brew_ensure_cask powershell
 brew_ensure_formula tesseract   # needed by Test.Tesseract.psm1 for OCR steps
+brew_ensure_formula qemu        # provides qemu-img, needed by Get-Image.ps1 to resize guest disks
+brew_ensure_formula wget        # used by several guest Get-Image.ps1 download steps
+brew_ensure_formula openssl     # used by cloud-init seed preparation for some guests
 
 log "Installing / upgrading required casks"
 brew_ensure_cask utm "/Applications/UTM.app"

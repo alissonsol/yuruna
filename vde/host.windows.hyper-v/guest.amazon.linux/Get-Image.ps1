@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42d7e8f9-a0b1-4c23-d456-7e8f9a0b1c23
 .AUTHOR Alisson Sol
@@ -66,15 +66,17 @@ if ($checksumLink) {
 	Write-Warning "No checksum file found. Skipping integrity verification."
 }
 
-# Extract the .vhdx file from the zip
-Remove-Item $baseImageFile -Force -ErrorAction SilentlyContinue
+# Extract the .vhdx file from the zip — write to a temp path first so the
+# previous image is only replaced after a successful extraction.
+$extractedFile = Join-Path $downloadDir "$baseImageName.downloading.vhdx"
+Remove-Item $extractedFile -Force -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($downloadFile)
 $entry = $zip.Entries | Where-Object { $_.Name -match "\.vhdx$" }
 if ($entry) {
 	$stream = $entry.Open()
 	try {
-		$outStream = [System.IO.File]::Open($baseImageFile, [System.IO.FileMode]::Create)
+		$outStream = [System.IO.File]::Open($extractedFile, [System.IO.FileMode]::Create)
 		try {
 			$stream.CopyTo($outStream)
 		} finally {
@@ -91,7 +93,13 @@ if ($entry) {
 $zip.Dispose()
 
 # === Name the file as per naming convention ===
-# The extracted file is already written directly as $baseImageFile above.
+$previousFile = Join-Path $downloadDir "$baseImageName.previous.vhdx"
+Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+if (Test-Path $baseImageFile) {
+	Move-Item -Path $baseImageFile -Destination $previousFile
+	Write-Output "Previous image preserved as: $previousFile"
+}
+Move-Item -Path $extractedFile -Destination $baseImageFile
 
 # Clean up the downloaded zip file
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue

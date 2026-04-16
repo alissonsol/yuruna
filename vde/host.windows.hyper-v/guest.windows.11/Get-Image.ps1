@@ -55,6 +55,12 @@ $existingIso = Get-ChildItem -Path $downloadDir -Filter "Win11*.iso" -ErrorActio
 if ($existingIso) {
     Write-Output "Found Windows 11 ISO: $($existingIso.FullName)"
     Write-Output "Renaming to: $baseImageFile"
+    $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
+    Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+    if (Test-Path $baseImageFile) {
+        Move-Item -Path $baseImageFile -Destination $previousFile
+        Write-Output "Previous image preserved as: $previousFile"
+    }
     Move-Item -Path $existingIso.FullName -Destination $baseImageFile
     Write-Output "Done: $baseImageFile"
     exit 0
@@ -127,6 +133,12 @@ try {
     }
 
     # Rename to the naming convention
+    $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
+    Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+    if (Test-Path $baseImageFile) {
+        Move-Item -Path $baseImageFile -Destination $previousFile
+        Write-Output "  Previous image preserved as: $previousFile"
+    }
     Move-Item -Path $downloadFile -Destination $baseImageFile -Force
     Write-Output ""
     Write-Output "=== Download complete: $baseImageFile ==="

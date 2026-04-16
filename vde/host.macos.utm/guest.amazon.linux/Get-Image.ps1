@@ -55,7 +55,12 @@ if ($checksumLink) {
 }
 
 # === Name the file as per naming convention ===
-Remove-Item $baseImageFile -Force -ErrorAction SilentlyContinue
+$previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
+Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+if (Test-Path $baseImageFile) {
+    Move-Item -Path $baseImageFile -Destination $previousFile
+    Write-Output "Previous image preserved as: $previousFile"
+}
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
 Write-Output "Download complete: $baseImageFile"

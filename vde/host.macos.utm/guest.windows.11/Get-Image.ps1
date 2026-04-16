@@ -62,6 +62,12 @@ if (Test-Path -Path $baseImageFile) {
     if ($existingIso) {
         Write-Output "Found Windows 11 ARM64 ISO: $($existingIso.FullName)"
         Write-Output "Renaming to: $baseImageFile"
+        $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
+        Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+        if (Test-Path $baseImageFile) {
+            Move-Item -Path $baseImageFile -Destination $previousFile
+            Write-Output "Previous image preserved as: $previousFile"
+        }
         Move-Item -Path $existingIso.FullName -Destination $baseImageFile
         Write-Output "Done: $baseImageFile"
         $windowsOk = $true
@@ -135,6 +141,12 @@ if (-not $windowsOk) {
             throw "Downloaded file is suspiciously small (< 1 GB). It may not be a valid ISO."
         }
 
+        $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
+        Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+        if (Test-Path $baseImageFile) {
+            Move-Item -Path $baseImageFile -Destination $previousFile
+            Write-Output "  Previous image preserved as: $previousFile"
+        }
         Move-Item -Path $downloadFile -Destination $baseImageFile -Force
         Write-Output "  Saved as: $baseImageFile"
         $windowsOk = $true
@@ -185,6 +197,12 @@ if (Test-Path -Path $spiceImageFile) {
         $spiceSize = (Get-Item $spiceDownloadFile).Length
         if ($spiceSize -lt 1MB) {
             throw "Downloaded file is too small ($spiceSize bytes). It may not be a valid ISO."
+        }
+        $spicePreviousFile = Join-Path $downloadDir "$($spiceImageName -replace '\.iso$','.previous.iso')"
+        Remove-Item $spicePreviousFile -Force -ErrorAction SilentlyContinue
+        if (Test-Path $spiceImageFile) {
+            Move-Item -Path $spiceImageFile -Destination $spicePreviousFile
+            Write-Output "  Previous SPICE image preserved as: $spicePreviousFile"
         }
         Move-Item -Path $spiceDownloadFile -Destination $spiceImageFile -Force
         Write-Output "  Saved as: $spiceImageFile"

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Yuruna Windows + Hyper-V bootstrap installer.
 
@@ -44,9 +44,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-function Write-Step { param([string]$m) Write-Host "==> $m" -ForegroundColor Cyan }
-function Write-Warn { param([string]$m) Write-Host "!!  $m" -ForegroundColor Yellow }
-function Write-Die  { param([string]$m) Write-Host "XX  $m" -ForegroundColor Red; exit 1 }
+function Write-Step { param([string]$m) Write-Output "==> $m" }
+function Write-Warn { param([string]$m) Write-Warning $m }
+function Write-Die  { param([string]$m) Write-Error $m; exit 1 }
 
 # ── Preflight: Windows only ─────────────────────────────────────────────────
 if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
@@ -72,7 +72,7 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
   |  launched from an elevated shell.                             |
   +---------------------------------------------------------------+
 
-'@ | Write-Host -ForegroundColor Cyan
+'@ | Write-Output
 
 if (-not $isAdmin) {
     Write-Step 'Relaunching elevated (UAC prompt)'
@@ -102,7 +102,9 @@ Write-Step "  repo   : $YurunaRepo ($YurunaBranch)"
 Write-Step "  target : $YurunaDir"
 
 # ── Stop anything that would block an upgrade ──────────────────────────────
-function Stop-YurunaProcesses {
+function Stop-YurunaProcess {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
     $patterns = @('Invoke-TestRunner.ps1','Invoke-TestSequence.ps1','Start-StatusServer.ps1')
     foreach ($pat in $patterns) {
         $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
@@ -125,7 +127,7 @@ function Stop-YurunaProcesses {
 }
 
 Write-Step 'Stopping anything that would block an upgrade'
-Stop-YurunaProcesses
+Stop-YurunaProcess
 
 # ── winget availability ────────────────────────────────────────────────────
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
@@ -148,7 +150,7 @@ function Install-WingetPackage {
             --accept-package-agreements --accept-source-agreements `
             --disable-interactivity 2>&1 |
             Where-Object { $_ -notmatch 'No applicable upgrade|No installed package' } |
-            ForEach-Object { Write-Host "     $_" }
+            ForEach-Object { Write-Output "     $_" }
     } else {
         Write-Step "  installing $FriendlyName"
         winget install --id $Id --exact --silent `
@@ -202,7 +204,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
     & $gitExe -C $YurunaDir fetch --tags origin
     & $gitExe -C $YurunaDir checkout $YurunaBranch
     & $gitExe -C $YurunaDir pull --ff-only origin $YurunaBranch 2>&1 | ForEach-Object {
-        if ($_ -match 'Already up to date|Fast-forward|Updating') { Write-Host "     $_" }
+        if ($_ -match 'Already up to date|Fast-forward|Updating') { Write-Output "     $_" }
         else { Write-Warn $_ }
     }
 } else {
@@ -246,12 +248,12 @@ Next steps (in order):
      installed pwsh.exe / git.exe / oscdimg.exe are picked up). Inside that
      new window you can use 'pwsh' instead of 'powershell' from here on.
 
-"@ | Write-Host -ForegroundColor Green
+"@ | Write-Output
 
 if ($script:RestartNeeded) {
-    Write-Host '  2. RESTART Windows — Hyper-V was just enabled and needs a reboot.' -ForegroundColor Yellow
-    Write-Host '     After the reboot, continue with step 3.' -ForegroundColor Yellow
-    Write-Host ''
+    Write-Warning '  2. RESTART Windows — Hyper-V was just enabled and needs a reboot.'
+    Write-Warning '     After the reboot, continue with step 3.'
+    Write-Output ''
 }
 
 @"
@@ -268,4 +270,4 @@ if ($script:RestartNeeded) {
 
 Re-running this installer is safe; it will upgrade winget packages and
 fast-forward the Yuruna checkout when possible.
-"@ | Write-Host -ForegroundColor Green
+"@ | Write-Output

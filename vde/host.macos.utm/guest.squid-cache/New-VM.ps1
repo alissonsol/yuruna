@@ -183,36 +183,56 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
 
 # === Guidance ===
+# Use a LITERAL here-string (@'...'@ — single quotes) for the multi-line
+# block. The shell snippets below contain $(utmctl ...), "$ip", and other
+# bash syntax that MUST be passed through verbatim for the user to read,
+# NOT evaluated by PowerShell. Placeholders like __VM_NAME__ / __UTM_DIR__
+# are substituted after the fact with .Replace(). An earlier version tried
+# to escape $ with \$ — but \ is NOT a PowerShell string escape, so
+# `\$(utmctl ...)` actually ran utmctl and produced "Virtual machine not
+# found" in the middle of the guidance output.
 Write-Output ""
 Write-Output "=== VM bundle created ==="
 Write-Output "  Path:      $UtmDir"
 Write-Output "  Backend:   Apple Virtualization"
-Write-Output ""
-Write-Output "Next steps (the guest.ubuntu.desktop consumer will ERROR — not"
-Write-Output "silently fall back to direct CDN — if it finds this VM but can't"
-Write-Output "reach port 3128, so verify all three checks below before starting"
-Write-Output "guest installs):"
-Write-Output ""
-Write-Output "  1. Register with UTM:"
-Write-Output "       open '$UtmDir'    # double-click equivalent"
-Write-Output ""
-Write-Output "  2. Start the VM and wait 5-15 minutes for cloud-init"
-Write-Output "     (install squid + apache2 + squid-cgi, then pre-warm):"
-Write-Output "       utmctl start $VMName"
-Write-Output ""
-Write-Output "  3. Verify squid is listening on port 3128:"
-Write-Output "       ip=\$(utmctl ip-address $VMName | head -n1)"
-Write-Output "       nc -z -w 3 \"\$ip\" 3128 && echo 'squid OK' || echo 'squid DOWN'"
-Write-Output ""
-Write-Output "  4. Verify pre-warm finished (cache occupancy should be > 0):"
-Write-Output "       open \"http://\$ip/cgi-bin/cachemgr.cgi\"    # → 'storedir'"
-Write-Output ""
-Write-Output "If step 3 reports 'squid DOWN' after 15 minutes, access the VM:"
-Write-Output "  * UTM window:  login 'ubuntu' / password 'password' (does NOT expire)"
-Write-Output "  * SSH:         ssh ubuntu@\$ip   (uses the yuruna harness key"
-Write-Output "                                   at test/.ssh/yuruna_ed25519; passwordless)"
-Write-Output ""
-Write-Output "Then run:"
-Write-Output "  cloud-init status --long"
-Write-Output "  sudo tail -n 200 /var/log/cloud-init-output.log"
-Write-Output "  systemctl status squid"
+$guidance = @'
+
+Next steps (the guest.ubuntu.desktop consumer will ERROR — not
+silently fall back to direct CDN — if it finds this VM but can't
+reach port 3128, so verify all three checks below before starting
+guest installs):
+
+  1. Register with UTM:
+       open '__UTM_DIR__'    # double-click equivalent
+
+  2. Start the VM and wait 5-15 minutes for cloud-init
+     (install squid + apache2 + squid-cgi, then pre-warm):
+       utmctl start __VM_NAME__
+
+  3. Verify squid is listening on port 3128:
+       ip=$(utmctl ip-address __VM_NAME__ | head -n1)
+       nc -z -w 3 "$ip" 3128 && echo 'squid OK' || echo 'squid DOWN'
+
+  4. Verify pre-warm finished (cache occupancy should be > 0):
+       open "http://$ip/cgi-bin/cachemgr.cgi"    # -> 'storedir'
+
+If step 3 reports 'squid DOWN' after 15 minutes, access the VM:
+  * UTM window:  login 'ubuntu' / password 'password' (does NOT expire)
+  * SSH:         ssh ubuntu@$ip   (uses the yuruna harness key
+                                   at test/.ssh/yuruna_ed25519; passwordless)
+
+Then — REAL apt/cloud-init errors live in the output log, not in
+'cloud-init status'. Run this FIRST:
+  sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' \
+    /var/log/cloud-init-output.log | head -40
+
+If that's inconclusive, fall back to:
+  cloud-init status --long
+  sudo tail -n 300 /var/log/cloud-init-output.log
+  systemctl status squid
+
+'429 Too Many Requests' in the log -> Ubuntu's CDN rate-limited
+this Mac's public IP while cloud-init tried to install squid.
+Wait 15-30 min and rebuild by re-running this script.
+'@
+Write-Output ($guidance.Replace('__VM_NAME__', $VMName).Replace('__UTM_DIR__', $UtmDir))

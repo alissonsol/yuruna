@@ -219,20 +219,33 @@ Accessing the squid-cache VM for debugging:
               (uses the yuruna harness key at test\.ssh\yuruna_ed25519 —
                same key this Ubuntu Desktop guest uses; passwordless)
 
-Diagnostic steps:
-  1. Confirm squid is up inside the cache VM (console or SSH):
-       systemctl status squid
-       ss -ltn 'sport = :3128'
-       cloud-init status --long    # still running?
-       sudo tail -n 200 /var/log/cloud-init-output.log
-  2. If squid is up, confirm reachability from this host:
-       Test-NetConnection -Port 3128 -ComputerName <ip>
-  3. If cloud-init is still running on the cache VM, wait for it to
-     finish (can take 5-15 min on first boot) and re-run this script.
-  4. If squid is broken, re-create the cache:
-       vde\host.windows.hyper-v\guest.squid-cache\New-VM.ps1
-     (It now exits non-zero on port-bind failure, so you'll see the
-      real error instead of a silent success.)
+=== Step 1: find the actual apt / cloud-init error ===
+The REAL error is in /var/log/cloud-init-output.log inside the cache VM,
+not in 'cloud-init status' or 'systemctl status'. Run this first:
+
+  sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40
+
+Common patterns:
+  * '429 Too Many Requests'    → Ubuntu's CDN rate-limited this host
+                                  when the cache VM tried to install
+                                  squid itself. Wait 15-30 min then
+                                  re-run guest.squid-cache/New-VM.ps1
+                                  (rebuilds the cache VM cleanly).
+  * 'Unable to locate package' → package name changed; report it.
+  * Nothing obvious            → use the fuller diagnostics below.
+
+=== Step 2: deeper diagnostics ===
+  systemctl status squid                # 'could not be found' = install failed
+  ss -ltn 'sport = :3128'               # port bound?
+  cloud-init status --long              # still running?
+  Test-NetConnection -Port 3128 -ComputerName <ip>   # from this host
+
+Recovery:
+  * Cloud-init still running → wait for it to finish (5-15 min on
+    first boot), then re-run this script.
+  * Install broken → rebuild the cache VM:
+      vde\host.windows.hyper-v\guest.squid-cache\New-VM.ps1
+    (exits non-zero on port-bind failure, so you'll see the real error.)
 
 To intentionally skip the cache for this install, stop the cache VM
 first:  Stop-VM squid-cache   (guest will then WARN and download direct).

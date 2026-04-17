@@ -351,29 +351,39 @@ Accessing the VM for debugging:
               (uses the yuruna harness key at test\.ssh\yuruna_ed25519 —
                same key the Ubuntu Desktop guests use; passwordless)
 
-Diagnostic commands inside the VM:
-  # Is cloud-init still working through the package install?
-  cloud-init status --long
+=== Step 1: find the actual apt / cloud-init error ===
+`cloud-init status --long` only SHOWS the fact that something failed;
+the REAL error is in the output log. Run this first — it's the single
+most useful diagnostic:
 
-  # Tail the cloud-init log — look for apt errors, timeouts, or a crash
-  # in the pre-warm loop:
-  sudo tail -n 200 /var/log/cloud-init-output.log
+  sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40
 
-  # Is squid installed and running?
-  systemctl status squid
-  ss -ltn 'sport = :3128'
+Or dump the whole tail:
 
-  # If squid is up but the host still can't reach it, check the guest firewall:
-  sudo ufw status
-  sudo iptables -L -n
+  sudo tail -n 300 /var/log/cloud-init-output.log
 
-Common causes and fixes:
-  * Cloud-init was throttled downloading squid/apache2 itself → re-run
-    .\New-VM.ps1 (idempotent), or wait a few minutes and probe manually:
-      Test-NetConnection -Port 3128 -ComputerName $cacheIp
-  * squid -z (cache init) crashed → fix /etc/squid/conf.d/yuruna.conf,
-    then: sudo squid -z -N ; sudo systemctl restart squid
-  * The VM came up on an unexpected network → inspect 'ip -br a' inside
-    the guest and confirm it matches $cacheIp.
+Common patterns you'll see there:
+  * '429 Too Many Requests'   → Ubuntu's CDN is rate-limiting this
+                                 host's public IP. Wait 15-30 min and
+                                 re-run .\New-VM.ps1 (idempotent — it
+                                 rebuilds the VM cleanly).
+  * 'Unable to locate package' → a package name changed on the mirror;
+                                 report the specific name so it can be
+                                 fixed in vmconfig/user-data.
+  * 'Could not resolve'        → DNS broken inside the VM. Check
+                                 'resolvectl status' and netplan config.
+  * Nothing obvious            → run the fuller diagnostic block below.
+
+=== Step 2: deeper diagnostics (only if step 1 is inconclusive) ===
+  systemctl status squid                # 'could not be found' = install failed
+  ss -ltn 'sport = :3128'               # port bound? who's listening?
+  sudo ufw status ; sudo iptables -L -n # guest-side firewall
+  ip -br a                              # IP matches $cacheIp?
+
+Recovery options:
+  * Retry:   re-run .\New-VM.ps1 (idempotent rebuild).
+  * Manual:  ssh in, fix (e.g. wait for rate-limit, then
+             'sudo cloud-init clean --logs && sudo cloud-init init').
+  * Probe:   Test-NetConnection -Port 3128 -ComputerName $cacheIp
 "@
 exit 1

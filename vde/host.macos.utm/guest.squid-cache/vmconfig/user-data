@@ -25,15 +25,27 @@ packages:
   - squid-cgi
   - apache2
 write_files:
-  # Point the squid VM's own apt at the local squid, so the pre-warm step in
-  # runcmd pulls packages through squid (populating its cache) rather than
-  # going direct. Kept as a conf.d dropin so `runcmd` can delete it after
-  # pre-warm to avoid squid ever proxying requests for itself.
-  - path: /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
+  # Retry apt fetches on transient network errors. Cloud-init's default is
+  # one-shot; a single timeout against archive.ubuntu.com or an intermittent
+  # TCP reset will fail the whole package install and leave the VM without
+  # squid — the exact "Exit code: 100 / Stdout: -" failure reported against
+  # `apt-get install apache2 squid`. Retries=5 covers transient hiccups;
+  # it does NOT paper over a 4xx (429/404) which apt treats as fatal — those
+  # still need operator attention via /var/log/cloud-init-output.log.
+  - path: /etc/apt/apt.conf.d/80-yuruna-retries
     permissions: '0644'
     owner: root:root
     content: |
-      Acquire::http::Proxy "http://127.0.0.1:3128";
+      Acquire::Retries "5";
+      Acquire::Retries::Delay-Max "60";
+  # NOTE: the 99yuruna-prewarm-proxy apt dropin used to live here — that was
+  # a bootstrap bug. cloud-init runs write_files BEFORE the `packages:` apt
+  # install, so if this dropin already exists at package-install time, apt
+  # tries to fetch squid itself through 127.0.0.1:3128 — which of course
+  # fails ("Unable to connect to 127.0.0.1:3128"), the whole install bombs
+  # with Exit code 100, and squid never gets installed at all. The proxy
+  # dropin is now written LATER in runcmd, only after squid is confirmed
+  # listening on :3128. (The cleanup at the end of runcmd still applies.)
   # Restrict cachemgr.cgi to RFC1918 sources, matching the squid ACL.
   # Apache's default cgi-bin/ serve is open to all — in practice UTM's
   # Shared network (192.168.64.0/24) only lets the host and sibling VMs
@@ -147,6 +159,11 @@ runcmd:
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
       sleep 1
     done
+  # Only NOW route this VM's own apt through the local squid — squid is
+  # confirmed listening, so the self-proxy loop is safe. Writing this file
+  # before package install would have (and did) cause apt to try fetching
+  # squid itself through a proxy that didn't exist yet.
+  - echo 'Acquire::http::Proxy "http://127.0.0.1:3128";' > /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
   - apt-get update
   # Each call: try --reinstall --download-only first (forces re-fetch of
   # already-installed packages like linux-firmware on the cloud image);

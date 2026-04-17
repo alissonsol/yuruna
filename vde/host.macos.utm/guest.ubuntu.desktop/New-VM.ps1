@@ -243,15 +243,31 @@ Accessing the squid-cache VM for debugging:
                  (uses the yuruna harness key at test/.ssh/yuruna_ed25519 —
                   same key this Ubuntu Desktop guest uses; passwordless)
 
-Diagnostic commands inside the VM:
-  cloud-init status --long                         # still running?
-  sudo tail -n 200 /var/log/cloud-init-output.log
-  systemctl status squid
-  ss -ltn 'sport = :3128'
+=== Step 1: find the actual apt / cloud-init error ===
+The REAL error is in /var/log/cloud-init-output.log inside the cache VM,
+not in 'cloud-init status' or 'systemctl status'. Run this first:
 
-If cloud-init is still running (can take 5-15 min on first boot), wait
-for it to finish and re-run this script. If squid is broken, rebuild:
-  vde/host.macos.utm/guest.squid-cache/New-VM.ps1
+  sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40
+
+Common patterns:
+  * '429 Too Many Requests'    → Ubuntu's CDN rate-limited this host
+                                  when the cache VM tried to install
+                                  squid itself (extra-likely on macOS
+                                  UTM where every VM shares one public
+                                  IP). Wait 15-30 min then rebuild.
+  * 'Unable to locate package' → package name changed; report it.
+  * Nothing obvious            → use the fuller diagnostics below.
+
+=== Step 2: deeper diagnostics ===
+  systemctl status squid                # 'could not be found' = install failed
+  ss -ltn 'sport = :3128'               # port bound?
+  cloud-init status --long              # still running?
+
+Recovery:
+  * Cloud-init still running → wait for it to finish (5-15 min on
+    first boot), then re-run this script.
+  * Install broken → rebuild the cache VM:
+      vde/host.macos.utm/guest.squid-cache/New-VM.ps1
 
 To intentionally skip the cache for this install, stop it first:
   utmctl stop squid-cache   (guest will then WARN and download direct).

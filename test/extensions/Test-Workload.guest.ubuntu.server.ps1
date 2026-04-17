@@ -56,9 +56,17 @@ Import-Module $engineModule -Force -Verbose:$false
 # siblings run in sorted order after the base sequence. This mirrors the
 # ubuntu.desktop variant but auto-discovers the extras instead of hardcoding
 # them, so adding a new sequence is a file-drop rather than a script edit.
+#
+# The ".ssh" suffix is reserved: Test-Workload.$GuestKey.ssh.json is the
+# parallel-path alternative that Invoke-Sequence substitutes for the base
+# when test-config.json has keystrokeMechanism="ssh". It is NEVER an
+# additional workload to run on top of the base — without this filter the
+# harness in hypervisor mode would also execute the SSH variant, which
+# correctly fails because sshd isn't up (Test-Start only brought up GDM).
 $baseSeq  = "Test-Workload.$GuestKey"
 $sequences = @($baseSeq)
 $extras = Get-ChildItem -Path $SequencesDir -Filter "$baseSeq.*.json" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne "$baseSeq.ssh.json" } |
     Sort-Object Name |
     ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) }
 if ($extras) { $sequences += $extras }

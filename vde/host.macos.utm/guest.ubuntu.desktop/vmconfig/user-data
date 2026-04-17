@@ -16,8 +16,15 @@ autoinstall:
     layout:
       name: lvm
   ssh:
-    install-server: true
     allow-pw: true
+  # ssh.install-server intentionally omitted: the Ubuntu Desktop ISO ships no
+  # openssh-server package on /cdrom, and during install subiquity's target
+  # apt only sees file:/cdrom (the http mirror it configures applies post-
+  # install, not to subiquity's own package step). Setting install-server: true
+  # therefore fails the install with "openssh-server has no installation
+  # candidate". We install openssh-server on first boot via cloud-init's
+  # packages: list below — by then 99yuruna-apt-cache is in place and the
+  # download flows through the apt-cache proxy.
   # Pass-through cloud-init for the INSTALLED target. Subiquity does not parse
   # this block; it copies it to the installed system, where cloud-init runs it
   # on first boot. Top-level ssh_authorized_keys attaches to the default user
@@ -27,6 +34,9 @@ autoinstall:
   user-data:
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
+    package_update: true
+    packages:
+      - openssh-server
   late-commands:
     # --- Apt cache: persist proxy into the installed system ---
     # autoinstall.proxy above applies ONLY to subiquity itself; the installed
@@ -116,9 +126,15 @@ autoinstall:
       blacklist hv_balloon
       MODPROBE
     # --- Network: download fetch-and-execute utility ---
+    # --no-proxy: autoinstall.proxy above exports https_proxy=<apt-cache>
+    # to subiquity's env, and apt-cacher-ng refuses HTTPS CONNECT tunnels by
+    # default ("CONNECT denied (ask the admin to allow HTTPS tunnels)"), which
+    # would fail the install at this late-command. Bypass the proxy for direct
+    # HTTPS downloads — apt traffic continues to flow through the cache via
+    # /etc/apt/apt.conf.d/99yuruna-apt-cache.
     - mkdir -p /target/automation
-    - wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
+    - wget --no-cache --no-proxy -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
     - curtin in-target --target=/target -- chmod +x /automation/fetch-and-execute.sh
     # --- Network: timezone detection via IP geolocation and NTP ---
     - curtin in-target --target=/target -- timedatectl set-ntp true
-    - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'
+    - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --no-proxy --timeout=5 "http://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'

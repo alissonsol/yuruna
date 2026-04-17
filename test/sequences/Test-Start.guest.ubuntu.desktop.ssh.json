@@ -1,0 +1,56 @@
+{
+  "$schema": "SSH-driven equivalent of Test-Start.guest.ubuntu.desktop.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'. Hybrid: OCR for the two pre-install dismissals (GRUB menu, autoinstall confirmation) — sshd doesn't exist yet — then SSH for everything post-install. SSH key auth bypasses the `passwd --expire ubuntu` aging that breaks console password login, so the OCR password-change dance is skipped entirely.",
+  "$actions": {
+    "waitForAndEnter":    "Wait for text on screen via OCR, then type and press Enter (with optional Tab navigation).",
+    "sshWaitReady":       "Wait until the guest accepts SSH using the yuruna harness key. Parameters: timeoutSeconds (number), pollSeconds (number).",
+    "sshExec":            "Run a command on the guest over SSH. Parameters: command (string), timeoutSeconds (number), allowFailure (boolean), sensitive (boolean).",
+    "sshFetchAndExecute": "Run a long-lived command over SSH (SSH equivalent of fetchAndExecute). Parameters: command (string), timeoutSeconds (number)."
+  },
+
+  "description": "Ubuntu Desktop (SSH): OCR-dismiss GRUB + Install confirmation, then wait for cloud-init's first-boot openssh-server and run the update script over SSH.",
+  "variables": {
+    "username": "ubuntu"
+  },
+  "steps": [
+    {
+      "action": "waitForAndEnter",
+      "pattern": "Try or Install Ubuntu",
+      "timeoutSeconds": 600,
+      "pollSeconds": 6,
+      "text": "",
+      "description": "Dismiss GRUB menu — pre-install, sshd doesn't exist yet, OCR is the only option"
+    },
+    {
+      "action": "waitForAndEnter",
+      "pattern": ["Install", "install"],
+      "timeoutSeconds": 600,
+      "pollSeconds": 9,
+      "tabCount": 2,
+      "text": "",
+      "description": "Tab to Install button and press Enter — autoinstall in stable Desktop ISOs still requires this confirmation; tabCount may need tuning if the UI layout changes"
+    },
+    {
+      "action": "sshWaitReady",
+      "timeoutSeconds": 1800,
+      "pollSeconds": 15,
+      "description": "Wait for OS install + reboot + cloud-init's first-boot openssh-server install. Replaces the OCR steps for 'Not listed?' and the password-change dance — those are fragile against Ubuntu 24.04+ GDM UI changes, and SSH key auth makes the password-aging dance moot."
+    },
+    {
+      "action": "sshExec",
+      "command": "whoami && hostname",
+      "description": "Smoke test: confirm session identity + that the autoinstall hostname stuck"
+    },
+    {
+      "action": "sshFetchAndExecute",
+      "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
+      "timeoutSeconds": 1800,
+      "description": "Equivalent of the OCR-driven fetchAndExecute in the keystroke variant"
+    },
+    {
+      "action": "sshExec",
+      "command": "sudo reboot now",
+      "allowFailure": true,
+      "description": "Reboot — sudo issues the call and SSH connection drops as expected (allowFailure)"
+    }
+  ]
+}

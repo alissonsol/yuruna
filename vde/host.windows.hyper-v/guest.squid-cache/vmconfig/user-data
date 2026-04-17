@@ -11,7 +11,7 @@ chpasswd:
   expire: false
   users:
     - name: ubuntu
-      password: password
+      password: PASSWORD_PLACEHOLDER
       type: text
 ssh_pwauth: true
 ssh_authorized_keys:

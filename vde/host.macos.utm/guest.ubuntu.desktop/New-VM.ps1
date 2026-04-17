@@ -263,10 +263,13 @@ guest shares the host's single public IP via Apple Virtualization's
 Shared NAT).
 
 Accessing the squid-cache VM for debugging:
-  * UTM window:  login 'ubuntu' / password 'password'
-                 (cloud-init sets this; does NOT expire after first use)
+  * UTM window:  login:    ubuntu
+                 password: read it from
+                   ~/virtual/squid-cache/squid-cache-password.txt
+                 (the squid-cache New-VM.ps1 generates a fresh random
+                  10-char password on each rebuild and saves it there.)
   * SSH:         ssh ubuntu@<ip>   (find <ip> in the UTM window)
-                 (uses the yuruna harness key at test/.ssh/yuruna_ed25519 —
+                 (uses the yuruna harness key at test/.ssh/yuruna_ed25519 --
                   same key this Ubuntu Desktop guest uses; passwordless)
 
 === Step 1: find the actual apt / cloud-init error ===

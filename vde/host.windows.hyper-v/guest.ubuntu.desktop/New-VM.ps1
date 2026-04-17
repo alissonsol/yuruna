@@ -219,8 +219,11 @@ was supposed to prevent).
 
 Accessing the squid-cache VM for debugging:
   * Console:  vmconnect localhost squid-cache
-              login: ubuntu    password: password
-              (cloud-init sets this; does NOT expire after first use)
+              login:    ubuntu
+              password: read it from
+                <HyperVVHDPath>\squid-cache\squid-cache-password.txt
+              (the squid-cache New-VM.ps1 generates a fresh random
+               10-char password on each rebuild and saves it there.)
   * SSH:      ssh ubuntu@<ip>
               (uses the yuruna harness key at test\.ssh\yuruna_ed25519 --
                same key this Ubuntu Desktop guest uses; passwordless)

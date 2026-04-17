@@ -126,10 +126,32 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Substitute the SSH key placeholder in user-data. `.Replace()` (literal)
-# rather than -replace (regex) because the key contains characters regex
-# would interpret (though ssh-rsa base64 usually doesn't, cheap insurance).
-$UserData = (Get-Content -Raw (Join-Path $VmConfigDir "user-data")).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey)
+# Generate a random 10-char alphanumeric password for the 'ubuntu' user.
+# Using a fresh password per rebuild (rather than the constant 'password')
+# prevents browsers from caching / auto-suggesting it when opening
+# cachemgr.cgi, which was triggering repeated password-manager popups.
+# Charset is ASCII alphanumerics only: no YAML-escape surprises, and no
+# shell-special characters when the user ssh's with the password.
+$pwChars = [char[]]'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+$UbuntuPassword = -join (1..10 | ForEach-Object {
+    $pwChars[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32(0, $pwChars.Length)]
+})
+
+# Stash the password next to the raw image so users can retrieve it long
+# after this script's console output has scrolled away. The file is
+# plaintext — the download dir lives under ~/virtual/squid-cache (owner-
+# only on default APFS home perms), and this is a dev-only credential
+# with RFC1918-only reachability.
+$PasswordFile = Join-Path $downloadDir "squid-cache-password.txt"
+Set-Content -Path $PasswordFile -Value $UbuntuPassword -NoNewline
+& chmod 600 $PasswordFile 2>&1 | Out-Null
+
+# Substitute the SSH key and password placeholders in user-data. `.Replace()`
+# (literal) rather than -replace (regex) because the key contains characters
+# regex would interpret (though ssh-rsa base64 usually doesn't, cheap insurance).
+$UserData = (Get-Content -Raw (Join-Path $VmConfigDir "user-data")).
+    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
+    Replace('PASSWORD_PLACEHOLDER', $UbuntuPassword)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"
@@ -195,6 +217,12 @@ Write-Output ""
 Write-Output "=== VM bundle created ==="
 Write-Output "  Path:      $UtmDir"
 Write-Output "  Backend:   Apple Virtualization"
+Write-Output ""
+Write-Output "  Console/SSH login:"
+Write-Output "    user:     ubuntu"
+Write-Output "    password: $UbuntuPassword"
+Write-Output "    (saved also at: $PasswordFile,"
+Write-Output "     and embedded in the seed.iso's user-data — chpasswd)"
 $guidance = @'
 
 Next steps (the guest.ubuntu.desktop consumer will ERROR — not
@@ -217,7 +245,8 @@ guest installs):
        open "http://$ip/cgi-bin/cachemgr.cgi"    # -> 'storedir'
 
 If step 3 reports 'squid DOWN' after 15 minutes, access the VM:
-  * UTM window:  login 'ubuntu' / password 'password' (does NOT expire)
+  * UTM window:  login 'ubuntu' / password '__PASSWORD__'
+                 (password also at __PASSWORD_FILE__; does NOT expire)
   * SSH:         ssh ubuntu@$ip   (uses the yuruna harness key
                                    at test/.ssh/yuruna_ed25519; passwordless)
 
@@ -235,4 +264,8 @@ If that's inconclusive, fall back to:
 this Mac's public IP while cloud-init tried to install squid.
 Wait 15-30 min and rebuild by re-running this script.
 '@
-Write-Output ($guidance.Replace('__VM_NAME__', $VMName).Replace('__UTM_DIR__', $UtmDir))
+Write-Output ($guidance.
+    Replace('__VM_NAME__', $VMName).
+    Replace('__UTM_DIR__', $UtmDir).
+    Replace('__PASSWORD__', $UbuntuPassword).
+    Replace('__PASSWORD_FILE__', $PasswordFile))

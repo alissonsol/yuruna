@@ -9,7 +9,10 @@ The runner loops continuously (until a failure), executing this cycle:
 1. Pulls the latest repo (`git pull`)
 2. **Re-reads configuration** (`test-config.json` — picks up changes from git pull or local edits)
 3. **Refresh images** (every 24 hours): downloads base images via `Get-Image.ps1`
-4. **For each guest** (configurable via `guestOrder` — defaults to all three):
+4. **For each guest** (listed in `guestOrder`):
+   - **Folder check** — verifies `vde/<hostType>/<guestKey>/` exists on this host.
+     Missing folder = per-guest failure; the cycle still proceeds with the remaining
+     guests unless `stopOnFailure` is `true`.
    - **Cleanup** — removes the previous test VM for this guest (if any)
    - **New-VM** — creates a test VM via `New-VM.ps1`
    - **Start-VM** — starts the VM (UTM `utmctl` / Hyper-V `Start-VM`)
@@ -68,7 +71,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
   },
   "maxHistoryRuns": 30,
   "charDelayMs": 20,
-  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"]
+  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.ubuntu.server", "guest.windows.11"]
 }
 ```
 
@@ -89,15 +92,18 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `keystrokeMechanism` | `"hypervisor"` | How the harness drives guest VMs. `"hypervisor"` uses keystroke injection (Hyper-V scancodes or UTM VNC/CGEvent). `"ssh"` routes workload sequences over SSH using a per-host key under `test/.ssh/` that is injected into each guest's cloud-init `authorized_keys` at VM creation. In SSH mode, Invoke-Sequence prefers a sibling `.ssh.json` variant of each sequence file when one exists (e.g. `Test-Workload.guest.amazon.linux.ssh.json`) and falls back to the keystroke sequence otherwise |
 | `vncPort` | `5900` | VNC port for QEMU-backend UTM VMs (display `:0` = 5900). Used by the focus-independent VNC keystroke transport |
 | `verifyScreenshotThreshold` | `0.85` | Similarity threshold (0–1) for verify-screenshot comparison |
-| `guestOrder` | all three | Array of guest keys to test, in execution order (see below) |
+| `guestOrder` | _(required)_ | Array of guest keys to test, in execution order. Each entry must correspond to a `vde/<hostType>/<guestKey>/` folder on this host — see below |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
 | `statusServer.port` | `8080` | Port for the status server |
 
 ### Guest ordering and skipping
 
 The `guestOrder` array in `test-config.json` controls which guests are tested and
-in what order. When omitted, all three guests run in the default order:
-`guest.amazon.linux`, `guest.ubuntu.desktop`, `guest.windows.11`.
+in what order. Any `guest.<name>` is valid as long as `vde/<hostType>/<guestKey>/`
+exists on the current host — the runner discovers guests by looking for that
+folder at the start of each cycle, not by matching against a hardcoded list. This
+means **adding a new guest is purely a matter of creating the folder with
+`Get-Image.ps1` + `New-VM.ps1`**; no code change in the harness is needed.
 
 To change the order (e.g. test Ubuntu Desktop before Amazon Linux):
 
@@ -117,8 +123,12 @@ To run only a single guest:
 "guestOrder": ["guest.windows.11"]
 ```
 
-Unknown guest keys in the array are warned about and ignored. To restore the
-default behavior, remove the `guestOrder` key entirely.
+If a listed guest has no corresponding folder on the current host, that guest is
+marked as a failure for the cycle (the others still run unless `stopOnFailure` is
+`true`). This matters for guests that exist on only one host: listing
+`guest.ubuntu.server` on macOS works only if `vde/host.macos.utm/guest.ubuntu.server/`
+is present; otherwise it's reported as a missing-folder failure and the runner
+moves on.
 
 ### Setting up notifications
 
@@ -330,7 +340,7 @@ and how strict the comparison should be:
   "guestKey": "guest.amazon.linux",
   "hostType": "host.macos.utm",
   "trainedAt": "2026-03-26T10:00:00Z",
-  "vmName": "test-amazon-linux01",
+  "vmName": "test-amazon-linux-01",
   "checkpoints": [
     { "name": "boot-complete", "delaySeconds": 60, "threshold": 0.85 },
     { "name": "login-screen",  "delaySeconds": 120, "threshold": 0.80 }

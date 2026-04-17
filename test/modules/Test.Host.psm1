@@ -41,24 +41,70 @@ function Get-HostType {
 function Get-GuestList {
     <#
     .SYNOPSIS
-    Returns the ordered list of guest keys to test.
-    If the config hashtable contains a "guestOrder" array, that list is used
-    (controlling both order and which guests to include).
-    Otherwise the full default list is returned.
+    Returns the ordered list of guest keys to test, as declared in $Config.guestOrder.
+    .DESCRIPTION
+    Returns the list verbatim — whether any of those guests is actually implemented
+    for the current host is decided at runtime by Test-GuestFolder (the runner then
+    logs a per-guest failure for any missing folder). This replaces the old hardcoded
+    allow-list that had to be updated every time a new guest.<name> was added.
+    If guestOrder is missing or empty, returns an empty list and emits a warning.
     #>
     param([System.Collections.IDictionary]$Config = @{})
 
-    $default = @("guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11")
-
     if ($Config.guestOrder -and $Config.guestOrder.Count -gt 0) {
-        $invalid = $Config.guestOrder | Where-Object { $_ -notin $default }
-        if ($invalid) {
-            Write-Warning "Unknown guest keys in guestOrder will be ignored: $($invalid -join ', ')"
-        }
-        return @($Config.guestOrder | Where-Object { $_ -in $default })
+        return @($Config.guestOrder)
     }
 
-    return $default
+    Write-Warning "test-config.json has no 'guestOrder' entries — nothing to run."
+    return @()
+}
+
+function Test-GuestFolder {
+    <#
+    .SYNOPSIS
+    Returns $true when the guest-specific scripts folder exists for a given host.
+    .DESCRIPTION
+    Layout convention: <repo>/vde/<hostType>/<guestKey>/ contains Get-Image.ps1 and
+    New-VM.ps1 for that host+guest combination. A guest is considered available on a
+    host iff that folder exists. Some guests are host-specific by design (e.g. a
+    hypothetical macOS-only guest), so a single guestOrder can legitimately name
+    guests that exist on only one host; callers treat a missing folder as a failure
+    for that guest on the current host, not a config error.
+    #>
+    param(
+        [Parameter(Mandatory)] [string]$VdeRoot,
+        [Parameter(Mandatory)] [string]$HostType,
+        [Parameter(Mandatory)] [string]$GuestKey
+    )
+    $folder = Join-Path $VdeRoot "$HostType/$GuestKey"
+    return (Test-Path -Path $folder -PathType Container)
+}
+
+function Get-TestVMName {
+    <#
+    .SYNOPSIS
+    Derives the test VM name for a given guest key + prefix.
+    .DESCRIPTION
+    Pure algorithmic derivation: strip the "guest." prefix, replace remaining dots
+    with hyphens, append "-01" as the instance suffix, and add the configured prefix.
+    Examples with prefix "test-":
+        guest.ubuntu.server  →  test-ubuntu-server-01
+        guest.amazon.linux   →  test-amazon-linux-01
+        guest.windows.11     →  test-windows-11-01
+    No hardcoded allow-list — any guest key the harness is asked to run produces a
+    deterministic VM name without requiring code changes.
+    Note on migration: this convention differs from the pre-2026-04 harness which
+    used "test-amazon-linux01", "test-ubuntu-desktop01", "test-windows11-01".
+    Test VMs from the old convention are orphaned (Remove-TestVM keys off the new
+    name); clean them up manually once with `Get-VM test-* | Remove-VM` on Hyper-V
+    or `utmctl list | grep test-` on UTM.
+    #>
+    param(
+        [Parameter(Mandatory)] [string]$GuestKey,
+        [string]$Prefix = "test-"
+    )
+    $stem = ($GuestKey -replace '^guest\.', '') -replace '\.', '-'
+    return "${Prefix}${stem}-01"
 }
 
 function Test-ElevationRequired {
@@ -647,4 +693,4 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
-Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-ElevationRequired, Assert-HostConditionSet, Set-MacHostConditionSet, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit
+Export-ModuleMember -Function Get-HostType, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Assert-HostConditionSet, Set-MacHostConditionSet, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit

@@ -1,0 +1,128 @@
+#cloud-config
+autoinstall:
+  version: 1
+  # apt.proxy (scoped — not top-level `proxy:`) routes only apt/apt-get
+  # through the local squid-cache when one is running. Scope matters: the
+  # top-level `proxy:` also exports http_proxy/https_proxy into late-
+  # commands' env, which previously broke late-command `wget https://...`
+  # calls against proxies that refused CONNECT. apt-scoped proxy avoids
+  # that. The block is injected by New-VM.ps1 only when a squid-cache VM
+  # is reachable at creation time; otherwise it stays absent and subiquity
+  # fetches packages direct from Ubuntu mirrors.
+  #
+  # Why the Server ISO instead of the Desktop ISO: the Desktop 24.04 ISO's
+  # base image ships /etc/apt/sources.list.d/ubuntu.sources with a
+  # cdrom-only entry, and the cdrom holds no kernel meta-package. curtin's
+  # install_kernel therefore fails with "Unable to locate package
+  # linux-generic[-hwe-24.04]" because the target chroot has no network
+  # source and the cdrom doesn't carry the kernel. The Server ISO ships
+  # a network-configured ubuntu.sources AND linux-generic on the cdrom, so
+  # autoinstall completes cleanly. We bolt ubuntu-desktop on top via the
+  # autoinstall.packages list below — subiquity fetches it through the
+  # squid-cache during install, so the first boot lands straight in GDM.
+APT_PROXY_BLOCK_PLACEHOLDER
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  packages:
+    # Desktop environment. Installed by subiquity during the install step,
+    # via apt against archive.ubuntu.com — through squid-cache when available.
+    # ~2 GB of .deb payload; caching makes guest rebuilds dramatically
+    # faster and dodges 429s on repeated pulls of libreoffice / gnome-shell.
+    - ubuntu-desktop
+    - console-setup
+    - keyboard-configuration
+  identity:
+    hostname: HOSTNAME_PLACEHOLDER
+    username: ubuntu
+    password: "HASH_PLACEHOLDER"
+  storage:
+    layout:
+      name: lvm
+  ssh:
+    # The Server cdrom DOES ship openssh-server, so install-server: true
+    # works here (unlike the Desktop ISO variant, where openssh-server has
+    # to be deferred to first-boot cloud-init).
+    install-server: true
+    allow-pw: true
+    authorized-keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+  # Server autoinstall typically presents a confirmation prompt in the
+  # text installer. interactive-sections: [] disables every interactive
+  # step, so the install runs fully unattended — no "Install" button
+  # click or Tab-to-focus dance like the Desktop ISO required.
+  interactive-sections: []
+  late-commands:
+    # --- Apt cache: persist proxy into the installed system ---
+    # Belt-and-suspenders with autoinstall.apt.proxy: subiquity already
+    # writes an apt proxy config into the target when apt.proxy is set,
+    # but we explicitly write 99yuruna-apt-cache so (a) the file name is
+    # predictable for debugging, and (b) behavior is unchanged if
+    # subiquity's apt-persistence logic ever drifts.
+    - |
+      if [ -n "PROXY_URL_PLACEHOLDER" ]; then
+        echo 'Acquire::http::Proxy "PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+      fi
+    # --- Security: user account ---
+    - curtin in-target --target=/target -- passwd --expire ubuntu
+    # --- Sudo: grant the ubuntu user passwordless sudo for the test harness ---
+    - curtin in-target --target=/target -- bash -c 'echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-yuruna-ubuntu && chmod 440 /etc/sudoers.d/90-yuruna-ubuntu && chown root:root /etc/sudoers.d/90-yuruna-ubuntu'
+    # --- System: disable swap ---
+    - sed -i '/ swap / s/^/#/' /target/etc/fstab
+    - curtin in-target --target=/target -- systemctl mask swap.target
+    # --- System: disable MOTD ---
+    - chmod -x /target/etc/update-motd.d/*
+    - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
+    # --- GNOME: skip initial setup ---
+    - curtin in-target --target=/target -- mkdir -p /etc/skel/.config
+    - echo 'yes' > /target/etc/skel/.config/gnome-initial-setup-done
+    - curtin in-target --target=/target -- mkdir -p /home/ubuntu/.config
+    - echo 'yes' > /target/home/ubuntu/.config/gnome-initial-setup-done
+    - curtin in-target --target=/target -- chown -R ubuntu:ubuntu /home/ubuntu/.config
+    # --- GNOME: auto-open terminal on login ---
+    - curtin in-target --target=/target -- mkdir -p /etc/xdg/autostart
+    - |
+      cat > /target/etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
+      [Desktop Entry]
+      Type=Application
+      Name=Open Terminal
+      Exec=gnome-terminal
+      X-GNOME-Autostart-enabled=true
+      NoDisplay=true
+      DESKTOP
+    # --- IBus: stub out ibus-daemon to avoid the gdm greeter input-method race ---
+    # On Ubuntu 24.04 + GNOME 46, the gdm greeter's gnome-shell spawns two
+    # ibus-daemon instances back-to-back and the second replaces the first,
+    # orphaning gnome-shell's InputContext D-Bus proxy. Key presses to the
+    # greeter text entry are then silently swallowed. dpkg-divert +
+    # ln -s /bin/true makes gnome-shell's ibus-daemon exec return immediately,
+    # bypassing the race. ubuntu-desktop is in autoinstall.packages so
+    # /usr/bin/ibus-daemon exists by the time late-commands run.
+    - curtin in-target --target=/target -- dpkg-divert --local --add --rename /usr/bin/ibus-daemon
+    - curtin in-target --target=/target -- ln -sf /bin/true /usr/bin/ibus-daemon
+    # --- GNOME: enable automatic timezone (requires dconf, installed with ubuntu-desktop) ---
+    - mkdir -p /target/etc/dconf/db/local.d
+    - |
+      cat > /target/etc/dconf/db/local.d/00-timezone << 'DCONF'
+      [org/gnome/desktop/datetime]
+      automatic-timezone=true
+
+      [org/gnome/system/location]
+      enabled=true
+      DCONF
+    - curtin in-target --target=/target -- dconf update
+    # --- System: denylist hv_balloon to prevent console messages ---
+    # Hyper-V-specific — the hv_balloon kernel module spams the console
+    # with memory-pressure messages that are harmless but pollute OCR.
+    - |
+      cat > /target/etc/modprobe.d/denylist-hv-balloon.conf << 'MODPROBE'
+      blacklist hv_balloon
+      MODPROBE
+    # --- Network: download fetch-and-execute utility ---
+    - mkdir -p /target/automation
+    - wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
+    - curtin in-target --target=/target -- chmod +x /automation/fetch-and-execute.sh
+    # --- Network: timezone detection via IP geolocation and NTP ---
+    - curtin in-target --target=/target -- timedatectl set-ntp true
+    - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'

@@ -32,7 +32,9 @@
     the trained references.
 
 .PARAMETER GuestKey
-    The guest to train (e.g. guest.amazon.linux, guest.ubuntu.desktop, guest.windows.11).
+    The guest to train. Any guest.<name> whose vde/<hostType>/<guestKey>/ folder
+    exists on the current host is accepted (e.g. guest.amazon.linux,
+    guest.ubuntu.desktop, guest.ubuntu.server, guest.windows.11).
 
 .PARAMETER ConfigPath
     Path to test-config.json. Defaults to test/test-config.json.
@@ -79,13 +81,13 @@ Write-Output "Host type: $HostType"
 Write-Output "Guest:     $GuestKey"
 Write-Output ""
 
-$Prefix = if ($Config.testVmNamePrefix) { $Config.testVmNamePrefix } else { "test-" }
-$VMName = switch ($GuestKey) {
-    "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
-    "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
-    "guest.windows.11"     { "${Prefix}windows11-01"     }
-    default                { "${Prefix}vm01"             }
+if (-not (Test-GuestFolder -VdeRoot $VdeRoot -HostType $HostType -GuestKey $GuestKey)) {
+    Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $(Join-Path $VdeRoot "$HostType/$GuestKey")"
+    exit 1
 }
+
+$Prefix = if ($Config.testVmNamePrefix) { $Config.testVmNamePrefix } else { "test-" }
+$VMName = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix
 
 # Setup directories
 $guestDir = Join-Path $ScreenshotsDir $GuestKey

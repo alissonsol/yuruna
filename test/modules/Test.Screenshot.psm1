@@ -586,6 +586,105 @@ public class HyperVCapture {
     return $null
 }
 
+# ── Window-bound screenshot (for click flows) ───────────────────────────────
+
+<#
+.SYNOPSIS
+    Captures the VM's display via the host window (vmconnect / UTM), exposing
+    the window handle / id so a follow-up click can land on the same coord space.
+.DESCRIPTION
+    Click actions need the screenshot and the click to share a coordinate
+    system. Get-VMScreenshot prefers the WMI thumbnail path (no window
+    required), which reports VM-native pixels that do NOT line up with
+    vmconnect's client area when zoom/scale differs. This helper forces
+    the window-capture path so OCR coordinates are directly usable for
+    SendInput / CGEvent clicks.
+.OUTPUTS
+    Hashtable: @{ ImagePath; HWnd; Width; Height } on Hyper-V,
+    @{ ImagePath; WindowId; OriginX; OriginY; Scale } on UTM,
+    or $null on failure.
+#>
+function Get-VMWindowScreenshot {
+    param(
+        [string]$HostType,
+        [string]$VMName,
+        [string]$OutputPath
+    )
+    $dir = Split-Path -Parent $OutputPath
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+
+    switch ($HostType) {
+        "host.windows.hyper-v" {
+            return Get-HyperVWindowScreenshot -VMName $VMName -OutputPath $OutputPath
+        }
+        "host.macos.utm" {
+            Write-Warning "Get-VMWindowScreenshot is not yet implemented for host.macos.utm."
+            Write-Warning "  Click-by-OCR needs: window id + window origin + backing scale factor"
+            Write-Warning "  so imageXY → screenXY conversion works for CGEvent clicks."
+            return $null
+        }
+        default {
+            Write-Error "Unknown host type for window screenshot: $HostType"
+            return $null
+        }
+    }
+}
+
+function Get-HyperVWindowScreenshot {
+    <#
+    .SYNOPSIS
+        Captures the vmconnect client area via PrintWindow and returns hWnd + dimensions.
+    .DESCRIPTION
+        Used by click-by-OCR flows that need the screenshot's pixel space to line
+        up with ClientToScreen coordinates. The default Get-VMScreenshot path
+        prefers WMI thumbnails which do NOT share vmconnect's coord space.
+    .OUTPUTS
+        Hashtable @{ ImagePath; HWnd; Width; Height } on success, or $null.
+    #>
+    param([string]$VMName, [string]$OutputPath)
+
+    # Ensure the HyperVCapture type is loaded. The easiest way is to invoke
+    # Get-HyperVScreenshot once; its Add-Type call is idempotent (guarded by
+    # a type-existence check), and any captured PNG is overwritten below.
+    if (-not ('HyperVCapture' -as [type])) {
+        $warmupPath = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna_warmup_${VMName}.png"
+        Get-HyperVScreenshot -VMName $VMName -OutputPath $warmupPath | Out-Null
+        Remove-Item $warmupPath -Force -ErrorAction SilentlyContinue
+    }
+    if (-not ('HyperVCapture' -as [type])) {
+        Write-Warning "HyperVCapture type failed to load. Click-by-OCR requires the Test.Screenshot module."
+        return $null
+    }
+
+    try {
+        [HyperVCapture]::EnsureDpiAware()
+        $hWnd = [HyperVCapture]::FindWindow($VMName)
+        if ($hWnd -eq [IntPtr]::Zero) {
+            Write-Warning "vmconnect window not found for '$VMName'. Open a vmconnect session for this VM before using waitForAndClickButton."
+            return $null
+        }
+        $ok = [HyperVCapture]::CaptureToFile($hWnd, $OutputPath)
+        if (-not $ok -or -not (Test-Path $OutputPath)) {
+            Write-Warning "PrintWindow capture failed for '$VMName'."
+            return $null
+        }
+        # Report the captured image's dimensions for downstream click coord sanity checks
+        Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+        $bmp = [System.Drawing.Bitmap]::new($OutputPath)
+        try {
+            return @{
+                ImagePath = $OutputPath
+                HWnd      = $hWnd
+                Width     = $bmp.Width
+                Height    = $bmp.Height
+            }
+        } finally { $bmp.Dispose() }
+    } catch {
+        Write-Warning "Get-HyperVWindowScreenshot failed: $_"
+        return $null
+    }
+}
+
 # ── Screenshot comparison ────────────────────────────────────────────────────
 
 <#
@@ -729,4 +828,4 @@ function Invoke-ScreenshotTest {
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
 
-Export-ModuleMember -Function Get-VMScreenshot, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest
+Export-ModuleMember -Function Get-VMScreenshot, Get-VMWindowScreenshot, Get-HyperVWindowScreenshot, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest

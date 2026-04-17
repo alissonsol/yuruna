@@ -80,6 +80,12 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 #                       freshMatchTailLines: number of trailing OCR lines to check (default 12).
 #   waitForAndEnter  — Wait for text pattern on screen via OCR, then type a string and press Enter.
 #                       Combines waitForText + typeAndEnter into a single step.
+#   waitForAndClickButton — Wait for a labelled button via OCR and click its centre.
+#                       Uses Tesseract TSV to get per-word bounding boxes, then
+#                       synthesizes a mouse click at (centerX + offsetX, centerY + offsetY).
+#                       More reliable than Tab-count navigation for focus-sensitive UIs
+#                       (e.g. Ubuntu Desktop 24.04 installer). Hyper-V only for now;
+#                       UTM support is stubbed.
 #   waitForPort      — Wait until a TCP port responds on the VM.
 #   waitForHeartbeat — Wait for Hyper-V heartbeat (Hyper-V only).
 #   waitForVMStop    — Wait until the VM reaches the Off/stopped state.
@@ -1136,6 +1142,275 @@ function Test-CombinedOcrMatch {
     }
 }
 
+# ── Action: waitForAndClickButton — OCR-located mouse click ─────────────────
+#
+# Button-focus navigation via Tab keystrokes is brittle: initial focus depends
+# on splash animation state, async-loaded widgets, and installer redesigns,
+# so the "correct" Tab count drifts. waitForAndClickButton sidesteps focus
+# entirely — it OCRs the VM screen, locates the button's bounding box, and
+# synthesizes a mouse click at that box's centre.
+#
+# Coordinate contract: the captured image and the click target share the
+# same pixel space. On Hyper-V we use PrintWindow on the vmconnect client
+# area so image (x,y) == vmconnect client (x,y), and ClientToScreen maps
+# it to a SetCursorPos + mouse_event sequence.
+
+function Initialize-HyperVMouseType {
+    if ('HyperVMouse' -as [type]) { return }
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class HyperVMouse {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern int  GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT pt);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+
+    const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    const uint MOUSEEVENTF_LEFTUP   = 0x0004;
+
+    static bool dpiAware = false;
+    public static void EnsureDpiAware() {
+        if (!dpiAware) { SetProcessDPIAware(); dpiAware = true; }
+    }
+
+    public static IntPtr FindWindow(string titleContains) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lp) => {
+            if (!IsWindowVisible(hWnd)) return true;
+            var sb = new StringBuilder(256);
+            GetWindowText(hWnd, sb, 256);
+            if (sb.ToString().Contains(titleContains)) { found = hWnd; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    // Left-click at a client-area pixel (clientX, clientY) inside hWnd.
+    // Restores the host cursor afterwards so the operator's mouse isn't
+    // "stolen" mid-test. Returns false if the window cannot be targeted.
+    public static bool ClickClientPoint(IntPtr hWnd, int clientX, int clientY) {
+        EnsureDpiAware();
+        POINT origin; GetCursorPos(out origin);
+        // Non-fatal: foreground may be refused if another window holds focus
+        // lock (e.g. another input-receiving app just got activated). The
+        // click still lands if vmconnect accepts mouse events while inactive.
+        SetForegroundWindow(hWnd);
+        System.Threading.Thread.Sleep(80);
+        POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
+        if (!ClientToScreen(hWnd, ref pt)) return false;
+        if (!SetCursorPos(pt.X, pt.Y)) return false;
+        System.Threading.Thread.Sleep(40);
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
+        System.Threading.Thread.Sleep(30);
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
+        System.Threading.Thread.Sleep(50);
+        SetCursorPos(origin.X, origin.Y);
+        return true;
+    }
+}
+"@
+}
+
+function Send-ClickHyperV {
+    param([string]$VMName, [int]$X, [int]$Y)
+    if (-not $IsWindows) {
+        Write-Warning "Send-ClickHyperV called on non-Windows host."
+        return $false
+    }
+    Initialize-HyperVMouseType
+    $hWnd = [HyperVMouse]::FindWindow($VMName)
+    if ($hWnd -eq [IntPtr]::Zero) {
+        Write-Warning "vmconnect window not found for '$VMName'. Click requires an open vmconnect session."
+        return $false
+    }
+    $ok = [HyperVMouse]::ClickClientPoint($hWnd, $X, $Y)
+    Write-Debug "      Hyper-V click at client ($X, $Y) ok=$ok"
+    return $ok
+}
+
+function Send-Click {
+    param([string]$HostType, [string]$VMName, [int]$X, [int]$Y)
+    if ($HostType -eq "host.windows.hyper-v") { return Send-ClickHyperV -VMName $VMName -X $X -Y $Y }
+    elseif ($HostType -eq "host.macos.utm") {
+        # UTM click needs: locate UTM window, read frame origin + backing scale,
+        # send CGEventCreateMouseEvent at (window.x + imageX/scale, window.y +
+        # imageY/scale). Retina screenshots are 2x, CGEvent coords are in points.
+        # Not yet implemented.
+        Write-Warning "Send-Click is not yet implemented for host.macos.utm — falling back to key-based navigation."
+        return $false
+    }
+    else { Write-Warning "Unknown host for Send-Click: $HostType"; return $false }
+}
+
+<#
+.SYNOPSIS
+    Runs OCR on an image, finds the bounding box of a button-label pattern,
+    and returns its coordinates in the image's pixel space.
+.DESCRIPTION
+    Uses Tesseract TSV mode (word-level boxes) because TSV boxes are
+    directly consumable — Vision / WinRT don't surface per-word coords in
+    our existing shims. For multi-word labels, requires contiguous words
+    on the same line (y-diff within half a word height). Matching is
+    case-insensitive substring so low-confidence words ("lnstall") still
+    resolve.
+.OUTPUTS
+    Hashtable @{ x; y; w; h; centerX; centerY; text } or $null if not found.
+#>
+function Find-TextLocation {
+    param(
+        [Parameter(Mandatory)] [string]$ImagePath,
+        [Parameter(Mandatory)] [string]$Label
+    )
+    $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+    Import-Module (Join-Path $modulesDir "Test.Tesseract.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+
+    try {
+        $boxes = Get-TesseractWordBox -ImagePath $ImagePath
+    } catch {
+        Write-Warning "Tesseract TSV OCR failed: $_"
+        return $null
+    }
+    if (-not $boxes -or $boxes.Count -eq 0) { return $null }
+
+    $tokens = @(($Label.Trim() -split '\s+') | Where-Object { $_ })
+    if ($tokens.Count -eq 0) { return $null }
+
+    for ($i = 0; $i -le ($boxes.Count - $tokens.Count); $i++) {
+        $match = $true
+        for ($j = 0; $j -lt $tokens.Count; $j++) {
+            # -like is case-insensitive in PowerShell; substring match
+            # tolerates partial OCR ("Install." vs "Install").
+            if ($boxes[$i + $j].text -notlike "*$($tokens[$j])*") {
+                $match = $false
+                break
+            }
+        }
+        if (-not $match) { continue }
+
+        # Multi-word label: require words on roughly the same line so we
+        # don't stitch together a token from a header and another from a
+        # footer that happens to share vocabulary.
+        if ($tokens.Count -gt 1) {
+            $firstY = $boxes[$i].y
+            $firstH = [math]::Max(1, $boxes[$i].h)
+            $sameLine = $true
+            for ($j = 1; $j -lt $tokens.Count; $j++) {
+                $yDiff = [math]::Abs($boxes[$i + $j].y - $firstY)
+                if ($yDiff -gt ($firstH / 2)) { $sameLine = $false; break }
+            }
+            if (-not $sameLine) { continue }
+        }
+
+        $minX = [int]::MaxValue; $minY = [int]::MaxValue
+        $maxX = 0; $maxY = 0
+        for ($j = 0; $j -lt $tokens.Count; $j++) {
+            $b = $boxes[$i + $j]
+            if ($b.x -lt $minX) { $minX = $b.x }
+            if ($b.y -lt $minY) { $minY = $b.y }
+            if (($b.x + $b.w) -gt $maxX) { $maxX = $b.x + $b.w }
+            if (($b.y + $b.h) -gt $maxY) { $maxY = $b.y + $b.h }
+        }
+        return @{
+            x       = $minX
+            y       = $minY
+            w       = $maxX - $minX
+            h       = $maxY - $minY
+            centerX = [int](($minX + $maxX) / 2)
+            centerY = [int](($minY + $maxY) / 2)
+            text    = ($tokens -join ' ')
+        }
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Waits for a labelled button to appear on the VM screen and clicks it.
+.DESCRIPTION
+    Loops: capture the VM window at the host's coordinate space, OCR for
+    the label, and if found, click at the label's centre. Falls back to
+    returning $false after TimeoutSeconds if the button never resolves
+    (caller can then decide to send Tab+Enter as a legacy fallback).
+.OUTPUTS
+    $true on click dispatched, $false on timeout / unsupported host.
+#>
+function Wait-ForAndClickButton {
+    param(
+        [string]$HostType,
+        [string]$VMName,
+        [string[]]$Label,
+        [int]$TimeoutSeconds = 120,
+        [int]$PollSeconds = 5,
+        [int]$OffsetX = 0,
+        [int]$OffsetY = 0
+    )
+    $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+    Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+
+    $logDir = Get-YurunaLogDir
+    $capturePath = Join-Path $logDir "clickbutton_${VMName}.png"
+    $labelDisplay = $Label -join "' | '"
+    $elapsed = 0
+
+    try {
+        while ($elapsed -lt $TimeoutSeconds) {
+            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
+            Write-ProgressTick -Activity "waitForAndClickButton" -Status "'$labelDisplay' (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
+
+            Remove-Item $capturePath -Force -ErrorAction SilentlyContinue
+            $capture = Get-VMWindowScreenshot -HostType $HostType -VMName $VMName -OutputPath $capturePath
+            if (-not $capture) {
+                Write-Debug "      Window capture unavailable — retrying"
+                Start-Sleep -Seconds $PollSeconds
+                $elapsed += $PollSeconds
+                continue
+            }
+
+            foreach ($candidate in $Label) {
+                $coord = Find-TextLocation -ImagePath $capture.ImagePath -Label $candidate
+                if ($coord) {
+                    $clickX = $coord.centerX + $OffsetX
+                    $clickY = $coord.centerY + $OffsetY
+                    Write-Debug "      Found '$candidate' at ($($coord.x),$($coord.y)) ${($coord.w)}x${($coord.h)} → click ($clickX, $clickY)"
+                    $ok = Send-Click -HostType $HostType -VMName $VMName -X $clickX -Y $clickY
+                    # Preserve a diagnostic capture so a failed click can be inspected
+                    $debugCopy = Join-Path $logDir "clickbutton_${VMName}_last.png"
+                    Copy-Item -Path $capture.ImagePath -Destination $debugCopy -Force -ErrorAction SilentlyContinue
+                    return $ok
+                }
+            }
+
+            Start-Sleep -Seconds $PollSeconds
+            $elapsed += $PollSeconds
+        }
+
+        # Timeout — preserve the final screenshot so the operator can see
+        # what the OCR was looking at.
+        $failScreenPath = Join-Path $logDir "failure_clickbutton_${VMName}.png"
+        if (Test-Path $capturePath) {
+            Copy-Item -Path $capturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
+            Write-Information "      Failure screenshot saved: $failScreenPath"
+        }
+        Write-Warning "Button with label '$labelDisplay' not located within ${TimeoutSeconds}s"
+        return $false
+    } finally {
+        Remove-Item $capturePath -Force -ErrorAction SilentlyContinue
+        Write-ProgressTick -Activity "waitForAndClickButton" -Completed
+    }
+}
+
 # ── Action: waitForText ──────────────────────────────────────────────────────
 
 function Wait-ForText {
@@ -1703,6 +1978,25 @@ function Invoke-Sequence {
                         $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
                     }
                 }
+            }
+            "waitForAndClickButton" {
+                # Accept either a single string or array of candidate labels
+                # (useful when OCR might split "Install" as "lnstall" in some engines
+                # — list both forms and first hit wins).
+                $rawLabels = $step.label
+                if ($rawLabels -is [System.Collections.IEnumerable] -and $rawLabels -isnot [string]) {
+                    [string[]]$labels = $rawLabels | ForEach-Object { Expand-Variable $_ $vars }
+                } else {
+                    [string[]]$labels = @(Expand-Variable $rawLabels $vars)
+                }
+                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 120
+                $poll    = $step.pollSeconds    ? [int]$step.pollSeconds    : 5
+                $offX    = $step.offsetX        ? [int]$step.offsetX        : 0
+                $offY    = $step.offsetY        ? [int]$step.offsetY        : 0
+                $labelDisplay = $labels -join "' | '"
+                Write-Debug "      Waiting for button '$labelDisplay' (timeout: ${timeout}s)"
+                $ok = Wait-ForAndClickButton -HostType $HostType -VMName $VMName -Label $labels `
+                    -TimeoutSeconds $timeout -PollSeconds $poll -OffsetX $offX -OffsetY $offY
             }
             "screenshot" {
                 $label = $step.label ?? "step$stepNum"

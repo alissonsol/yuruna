@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
 .AUTHOR Alisson Sol
@@ -151,4 +151,59 @@ function Invoke-TesseractOcr {
     return $text
 }
 
-Export-ModuleMember -Function Find-Tesseract, Get-TesseractInstallGuidance, Assert-TesseractInstalled, Invoke-TesseractOcr
+function Get-TesseractWordBox {
+    <#
+    .SYNOPSIS
+        Runs Tesseract OCR in TSV mode and returns per-word bounding boxes.
+    .DESCRIPTION
+        Uses tesseract's `tsv` output config (standard in every modern install)
+        to get level/x/y/w/h/conf/text rows. We filter to level=5 (word) and
+        skip empty-text rows. Coordinates are in the image's pixel space,
+        origin top-left — the same space the caller captured the screenshot in.
+    .PARAMETER ImagePath
+        Path to a PNG or image file to OCR.
+    .OUTPUTS
+        System.Collections.Hashtable[]. Each entry: @{ text; x; y; w; h; conf }.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable[]])]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ImagePath
+    )
+
+    $tesseractExe = Find-Tesseract
+    if (-not $tesseractExe) { throw (Get-TesseractInstallGuidance) }
+    $absPath = (Resolve-Path $ImagePath).Path
+
+    # `tesseract <img> stdout tsv` prints TSV with columns:
+    #   level page_num block_num par_num line_num word_num left top width height conf text
+    $output = & $tesseractExe $absPath stdout tsv 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Tesseract TSV mode failed with exit code $LASTEXITCODE."
+    }
+
+    $boxes = [System.Collections.Generic.List[hashtable]]::new()
+    foreach ($line in $output) {
+        $s = "$line"
+        if ([string]::IsNullOrWhiteSpace($s)) { continue }
+        if ($s.StartsWith('level')) { continue }       # header row
+        $cols = $s -split "`t"
+        if ($cols.Count -lt 12) { continue }
+        # level 5 = word; ignore page/block/paragraph/line aggregates
+        if ([int]$cols[0] -ne 5) { continue }
+        $text = $cols[11]
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        $boxes.Add(@{
+            text = $text
+            x    = [int]$cols[6]
+            y    = [int]$cols[7]
+            w    = [int]$cols[8]
+            h    = [int]$cols[9]
+            conf = [int]$cols[10]
+        })
+    }
+    return $boxes.ToArray()
+}
+
+Export-ModuleMember -Function Find-Tesseract, Get-TesseractInstallGuidance, Assert-TesseractInstalled, Invoke-TesseractOcr, Get-TesseractWordBox

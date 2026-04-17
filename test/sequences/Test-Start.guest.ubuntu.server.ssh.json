@@ -1,0 +1,47 @@
+{
+  "$schema": "SSH-driven equivalent of Test-Start.guest.ubuntu.server.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'. Shorter than the desktop SSH variant: subiquity runs fully hands-off via interactive-sections:[], so there's no Install-button dance — just one OCR step to dismiss GRUB, then SSH-wait for cloud-init to finish installing ubuntu-desktop and bringing up sshd.",
+  "$actions": {
+    "waitForAndEnter":    "Wait for text on screen via OCR, then type and press Enter.",
+    "sshWaitReady":       "Wait until the guest accepts SSH using the yuruna harness key. Parameters: timeoutSeconds (number), pollSeconds (number).",
+    "sshExec":            "Run a command on the guest over SSH. Parameters: command (string), timeoutSeconds (number), allowFailure (boolean), sensitive (boolean).",
+    "sshFetchAndExecute": "Run a long-lived command over SSH (SSH equivalent of fetchAndExecute). Parameters: command (string), timeoutSeconds (number)."
+  },
+
+  "description": "Ubuntu Server (with ubuntu-desktop, SSH): OCR-dismiss GRUB, then drive everything else over SSH once cloud-init has finished installing ubuntu-desktop.",
+  "variables": {
+    "username": "ubuntu"
+  },
+  "steps": [
+    {
+      "action": "waitForAndEnter",
+      "pattern": "Try or Install Ubuntu Server",
+      "timeoutSeconds": 600,
+      "pollSeconds": 6,
+      "text": "",
+      "description": "Dismiss the Ubuntu Server live-ISO GRUB menu — pre-install, sshd doesn't exist yet, OCR is the only option."
+    },
+    {
+      "action": "sshWaitReady",
+      "timeoutSeconds": 2400,
+      "pollSeconds": 15,
+      "description": "Wait for autoinstall + reboot + cloud-init. Budget is larger than the desktop SSH variant because subiquity is also fetching ~2GB of ubuntu-desktop packages during install; the squid-cache makes subsequent runs much faster."
+    },
+    {
+      "action": "sshExec",
+      "command": "whoami && hostname",
+      "description": "Smoke test: confirm session identity + that the autoinstall hostname stuck."
+    },
+    {
+      "action": "sshFetchAndExecute",
+      "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
+      "timeoutSeconds": 1800,
+      "description": "Reuse the desktop update script — ubuntu-desktop package behaviour is identical on both guest types."
+    },
+    {
+      "action": "sshExec",
+      "command": "sudo reboot now",
+      "allowFailure": true,
+      "description": "Reboot — SSH connection drops as the host goes down (allowFailure)."
+    }
+  ]
+}

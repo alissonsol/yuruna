@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol
@@ -190,21 +190,21 @@ if ($parts.Count -lt 2) {
 }
 $GuestKey = $parts[1]
 
-# Validate guest key
-$knownGuests = @("guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11")
-if ($GuestKey -notin $knownGuests) {
-    Write-Warning "Guest key '$GuestKey' is not in the known list: $($knownGuests -join ', ')"
+# Validate guest key by checking the folder exists for the current host. No
+# hardcoded allow-list — a guest is valid iff its vde/<hostType>/<guestKey>/
+# folder is on disk, matching the convention Invoke-TestRunner.ps1 uses.
+if (-not (Test-GuestFolder -VdeRoot $VdeRoot -HostType $HostType -GuestKey $GuestKey)) {
+    $folder = Join-Path $VdeRoot "$HostType/$GuestKey"
+    Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $folder"
+    Write-Output "  Add Get-Image.ps1 + New-VM.ps1 under that path to enable this guest, or"
+    Write-Output "  correct the sequence name so it references a guest that exists on this host."
+    exit 1
 }
 
 # === Derive VM name (use -VMName override if provided) ===
 if (-not $VMName) {
     $Prefix = $Config.testVmNamePrefix ?? "test-"
-    $VMName = switch ($GuestKey) {
-        "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
-        "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
-        "guest.windows.11"     { "${Prefix}windows11-01"     }
-        default                { "${Prefix}vm01"             }
-    }
+    $VMName = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix
 }
 
 # === Ensure VM exists (reuse or create) ===

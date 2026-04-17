@@ -8,7 +8,7 @@
     "screenshot":       "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
     "waitForText":      "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
     "waitForAndEnter":  "Wait for text pattern on screen via OCR, then type a string and press Enter. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean), text (string), sensitive (boolean), charDelayMs (number, default 50), delaySeconds (number, default 2), tabCount (number, Tab presses before typing to navigate focus, default 0).",
-    "waitForAndClickButton": "Wait for a button label to appear on the VM screen via OCR, then click at the label's centre. Parameters: label (string or string-array of candidate labels), timeoutSeconds (number, default 120), pollSeconds (number, default 5), offsetX (number, pixel offset from centre, default 0), offsetY (number, default 0). Hyper-V: uses vmconnect window + SendInput; vmconnect must be open. UTM: not yet implemented.",
+    "waitForAndClickButton": "Wait for a button label to appear on the VM screen via OCR, then click at the label's centre. Parameters: label (string or string-array of candidate labels), timeoutSeconds (number, default 120), pollSeconds (number, default 5), offsetX (number, default 0), offsetY (number, default 0).",
     "waitForPort":      "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
     "waitForHeartbeat": "Wait for Hyper-V Integration Services heartbeat. Parameters: timeoutSeconds (number). Hyper-V only.",
     "waitForVMStop":    "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number).",
@@ -16,7 +16,7 @@
   },
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
 
-  "description": "Ubuntu Desktop: dismiss GRUB menu, confirm desktop installer, wait for install + reboot, then complete first login.",
+  "description": "Ubuntu Server (with ubuntu-desktop): dismiss GRUB, wait for unattended autoinstall + reboot + GDM, complete first login. No Install-button click — subiquity runs hands-off via autoinstall's interactive-sections:[].",
   "variables": {
     "username":    "ubuntu",
     "password":    "password",
@@ -25,18 +25,19 @@
   "steps": [
     {
       "action": "waitForAndEnter",
-      "pattern": "Try or Install Ubuntu",
+      "pattern": "Try or Install Ubuntu Server",
       "timeoutSeconds": 600,
       "pollSeconds": 6,
       "text": "",
-      "description": "Dismiss GRUB menu"
+      "description": "Dismiss the Ubuntu Server live-ISO GRUB menu — pressing Enter boots the default entry and autoinstall takes over (no UI confirmation needed, unlike the Desktop ISO)."
     },
     {
-      "action": "waitForAndClickButton",
-      "label": ["Install Ubuntu", "Install", "lnstall"],
-      "timeoutSeconds": 600,
-      "pollSeconds": 9,
-      "description": "Click the Install button via OCR-located coordinates. Replaces the old tabCount-based approach which drifted when the installer UI laid out focus differently across releases."
+      "action": "waitForAndEnter",
+      "pattern": "Continue with autoinstall?",
+      "timeoutSeconds": 3600,
+      "pollSeconds": 15,
+      "text": "yes",
+      "description": "Continue with autoinstall?"
     },
     {
       "action": "waitForAndEnter",
@@ -44,7 +45,7 @@
       "timeoutSeconds": 3600,
       "pollSeconds": 15,
       "text": "",
-      "description": "Wait for OS install + reboot + GDM login screen"
+      "description": "Wait for subiquity to finish (including the ubuntu-desktop download via squid-cache, ~2GB) + reboot + GDM login screen."
     },
     {
       "action": "waitForAndEnter",
@@ -53,7 +54,7 @@
       "pollSeconds": 3,
       "text": "${password}",
       "sensitive": true,
-      "description": "Password"
+      "description": "GDM: initial password"
     },
     {
       "action": "waitForAndEnter",
@@ -62,7 +63,7 @@
       "pollSeconds": 3,
       "text": "${password}",
       "sensitive": true,
-      "description": "Current password"
+      "description": "passwd --expire forced this dialog — re-enter current password"
     },
     {
       "action": "waitForAndEnter",
@@ -87,12 +88,12 @@
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 60,
       "pollSeconds": 6,
-      "description": "CAREFUL: Shell prompt is also window title for Ubuntu!"
+      "description": "Wait for the auto-opened gnome-terminal shell prompt. CAREFUL: the same string is also the window title, so OCR can false-match — tune pollSeconds if needed."
     },
     {
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
-      "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
+      "description": "Reuse the desktop update script — ubuntu-desktop is the same package regardless of whether it came from the Desktop ISO or ubuntu-desktop-on-server.",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
       "waitPollSeconds": 9
@@ -100,7 +101,7 @@
     {
       "action": "typeAndEnter",
       "text": "clear; sudo reboot now",
-      "description": "Reboot the VM, for the fun of it!"
+      "description": "Reboot so the next sequence starts from a clean GDM state."
     }
   ]
 }

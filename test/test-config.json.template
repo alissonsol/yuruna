@@ -3,7 +3,7 @@
   "charDelayMs": 20,
   "cycleDelaySeconds": 30,
   "getImageRefreshHours": 24,
-  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.windows.11"],
+  "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.ubuntu.server", "guest.windows.11"],
   "keystrokeMechanism": "hypervisor",
   "maxHistoryRuns": 30,
   "notification": {

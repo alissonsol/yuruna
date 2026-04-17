@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Backend</key>
+	<string>Apple</string>
+	<key>ConfigurationVersion</key>
+	<integer>4</integer>
+	<key>Information</key>
+	<dict>
+		<key>Icon</key>
+		<string>linux</string>
+		<key>IconCustom</key>
+		<false/>
+		<key>Name</key>
+		<string>__VM_NAME__</string>
+		<key>UUID</key>
+		<string>__VM_UUID__</string>
+	</dict>
+	<key>System</key>
+	<dict>
+		<key>Architecture</key>
+		<string>aarch64</string>
+		<key>CPUCount</key>
+		<integer>__CPU_COUNT__</integer>
+		<key>MemorySize</key>
+		<integer>__MEMORY_SIZE__</integer>
+		<key>Boot</key>
+		<dict>
+			<key>OperatingSystem</key>
+			<string>Linux</string>
+			<key>UEFIBoot</key>
+			<true/>
+			<key>EfiVariableStoragePath</key>
+			<string>efi_vars.fd</string>
+		</dict>
+		<key>GenericPlatform</key>
+		<dict>
+			<key>machineIdentifier</key>
+			<data>__MACHINE_IDENTIFIER__</data>
+		</dict>
+	</dict>
+	<key>Virtualization</key>
+	<dict>
+		<key>Audio</key>
+		<true/>
+		<key>Balloon</key>
+		<true/>
+		<key>Entropy</key>
+		<true/>
+		<key>Keyboard</key>
+		<string>Generic</string>
+		<key>Pointer</key>
+		<string>Mouse</string>
+		<key>ClipboardSharing</key>
+		<true/>
+		<key>Rosetta</key>
+		<false/>
+	</dict>
+	<!-- Display: Fixed 1920x1080 at 80 PPI. DynamicResolution is disabled
+	     so UTM does not scale to the host Retina display.
+	     WARNING: The test harness OCR is calibrated for 1920x1080.
+	     Changing this resolution may break automated screen-text detection
+	     in waitForText sequence steps. -->
+	<key>Display</key>
+	<array>
+		<dict>
+			<key>WidthPixels</key>
+			<integer>1920</integer>
+			<key>HeightPixels</key>
+			<integer>1080</integer>
+			<key>PixelsPerInch</key>
+			<integer>80</integer>
+			<key>DynamicResolution</key>
+			<false/>
+		</dict>
+	</array>
+	<key>Drive</key>
+	<array>
+		<dict>
+			<key>Identifier</key>
+			<string>__DISK_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__DISK_IMAGE_NAME__</string>
+			<key>ReadOnly</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Identifier</key>
+			<string>__ISO_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__ISO_IMAGE_NAME__</string>
+			<key>ReadOnly</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>Identifier</key>
+			<string>__SEED_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__SEED_IMAGE_NAME__</string>
+			<key>ReadOnly</key>
+			<true/>
+		</dict>
+	</array>
+	<key>Network</key>
+	<array>
+		<dict>
+			<key>Mode</key>
+			<string>Shared</string>
+			<key>MacAddress</key>
+			<string>__MAC_ADDRESS__</string>
+		</dict>
+	</array>
+	<key>Serial</key>
+	<array/>
+</dict>
+</plist>

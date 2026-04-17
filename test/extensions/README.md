@@ -53,7 +53,7 @@ Each extension script receives three parameters:
 param(
     [string]$HostType,    # "host.macos.utm" or "host.windows.hyper-v"
     [string]$GuestKey,    # e.g. "guest.amazon.linux"
-    [string]$VMName       # e.g. "test-amazon-linux01"
+    [string]$VMName       # e.g. "test-amazon-linux-01"
 )
 ```
 

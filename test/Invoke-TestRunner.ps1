@@ -536,15 +536,12 @@ while ($true) {
     $GuestList = Get-GuestList -Config $Config
     $Prefix = $Config.testVmNamePrefix ?? "test-"
 
-    # Build VM name map
+    # Build VM name map — algorithmic derivation (see Get-TestVMName) so any
+    # guest key from guestOrder produces a stable VM name without requiring
+    # a hardcoded lookup per guest.
     $VMNames = @{}
     foreach ($GuestKey in $GuestList) {
-        $VMNames[$GuestKey] = switch ($GuestKey) {
-            "guest.amazon.linux"   { "${Prefix}amazon-linux01"   }
-            "guest.ubuntu.desktop" { "${Prefix}ubuntu-desktop01" }
-            "guest.windows.11"     { "${Prefix}windows11-01"     }
-            default                { "${Prefix}vm01"             }
-        }
+        $VMNames[$GuestKey] = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix
     }
 
     # Determine step list based on available extensions and screenshot schedules
@@ -586,19 +583,53 @@ while ($true) {
     Write-Output "Run ID:  $RunId"
     Write-Output "Commit:  $GitCommit"
 
+    # --- Pre-flight: every guest-key in guestOrder must have a vde/host.<x>/<guest>/
+    #     folder on this host. There is no hardcoded known-guests allow-list; this
+    #     existence check IS the allow-list. Guests that don't exist on the current
+    #     host are marked fail and skipped for the rest of the cycle; stopOnFailure
+    #     ends the cycle immediately.
+    $FailedGuests = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($GuestKey in $GuestList) {
+        if (Test-GuestFolder -VdeRoot $VdeRoot -HostType $HostType -GuestKey $GuestKey) { continue }
+        $folder = Join-Path $VdeRoot "$HostType/$GuestKey"
+        $err = "Guest folder not found: $folder"
+        Write-Warning "  ERROR [$GuestKey / folder check]: $err"
+        Write-Output "  (add a vde/$HostType/$GuestKey/ directory with Get-Image.ps1 + New-VM.ps1 to enable this guest on $HostType)"
+        Set-GuestStatus -GuestKey $GuestKey -Status "fail"
+        # Attach the failure to the first step so the status UI shows it against
+        # this guest's row (the Discover/folder-check phase doesn't have its own step).
+        if ($StepNames.Count -gt 0) {
+            Set-StepStatus -GuestKey $GuestKey -StepName $StepNames[0] -Status "fail" -ErrorMessage $err
+        }
+        [void]$FailedGuests.Add($GuestKey)
+        $OverallPassed = $false
+        if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "folder-check"; $FailureMessage = $err }
+        if ($StopOnFailure) { break }
+    }
+
+    if ($StopOnFailure -and -not $OverallPassed) {
+        Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
+        Stop-LogFile
+        break
+    }
+
     $lastGetImage = Get-LastGetImageTime -StatusFilePath $StatusFile
     $needGetImage = (-not $lastGetImage) -or ((Get-Date).ToUniversalTime() - [datetime]$lastGetImage).TotalHours -ge $GetImageRefreshHours
     if ($needGetImage) {
         Write-Output ""
         Write-Output "--- Get-Image (${GetImageRefreshHours}h refresh) ---"
         foreach ($GuestKey in $GuestList) {
+            if ($FailedGuests.Contains($GuestKey)) { continue }
             Write-Output "Downloading image for $GuestKey..."
             $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
             if (-not $r.success) {
                 Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
                 Write-Output "  Log folder: $YurunaLogDir"
-                $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage
-                break
+                [void]$FailedGuests.Add($GuestKey)
+                $OverallPassed = $false
+                if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage }
+                if ($StopOnFailure) { break }
+                continue
             }
             Write-Output "  $GuestKey image: OK"
         }
@@ -611,6 +642,7 @@ while ($true) {
         # Re-download any that are missing (e.g. manually deleted or first run after a clean).
         $missingAny = $false
         foreach ($GuestKey in $GuestList) {
+            if ($FailedGuests.Contains($GuestKey)) { continue }
             $imagePath = Get-ImagePath -HostType $HostType -GuestKey $GuestKey
             if (-not $imagePath -or -not (Test-Path $imagePath)) {
                 $label = $imagePath ?? "$HostType/$GuestKey"
@@ -619,9 +651,12 @@ while ($true) {
                 if (-not $r.success) {
                     Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
                     Write-Output "  Log folder: $YurunaLogDir"
-                    $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage
+                    [void]$FailedGuests.Add($GuestKey)
+                    $OverallPassed = $false
+                    if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage }
                     $missingAny = $true
-                    break
+                    if ($StopOnFailure) { break }
+                    continue
                 }
                 Write-Output "  $GuestKey image: OK (re-downloaded)"
             }
@@ -645,8 +680,8 @@ while ($true) {
         }
     }
 
-    # --- Abort cycle early if Get-Image failed ---
-    if (-not $OverallPassed) {
+    # --- Abort cycle early if a pre-pipeline step failed under stopOnFailure ---
+    if ($StopOnFailure -and -not $OverallPassed) {
         Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
         Stop-LogFile
         break
@@ -659,6 +694,13 @@ while ($true) {
             Write-Output "Shutdown requested. Skipping remaining guests."
             $OverallPassed = $false; $FailedStep = "shutdown"
             break
+        }
+        # Skip guests that already failed the pre-flight folder check or
+        # Get-Image step when stopOnFailure is false.
+        if ($FailedGuests.Contains($GuestKey)) {
+            Write-Output ""
+            Write-Output "=== $GuestKey (skipped — earlier failure) ==="
+            continue
         }
         $VMName = $VMNames[$GuestKey]
         $script:ActiveVMName = $VMName

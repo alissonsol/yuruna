@@ -185,10 +185,35 @@ if ($IsMacOS) {
         Write-Error "UTM did not register '$VMName' within 30 s. Open UTM manually to continue."
         exit 1
     }
+    # On a freshly-imported bundle, `utmctl start` can return 0 at the RPC
+    # level while UTM is still finalizing bundle ingestion, and the start
+    # request is silently dropped — the VM stays in 'stopped'. Verify the
+    # transition by parsing `utmctl status` output and retry a few times.
+    # `utmctl status` prints one of: started / paused / stopped / suspended.
     Write-Output "  Registered. Starting VM..."
-    & utmctl start $VMName 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "'utmctl start $VMName' failed (exit $LASTEXITCODE)."
+    $started = $false
+    for ($attempt = 1; $attempt -le 3 -and -not $started; $attempt++) {
+        & utmctl start $VMName 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "'utmctl start $VMName' failed (exit $LASTEXITCODE)."
+            exit 1
+        }
+        # Poll up to 15 s for the VM to leave 'stopped'. A state of 'started'
+        # (or any non-stopped/paused state) means the start actually took.
+        for ($i = 0; $i -lt 15; $i++) {
+            Start-Sleep -Seconds 1
+            $state = (& utmctl status $VMName 2>&1 | Select-Object -First 1)
+            if ($LASTEXITCODE -eq 0 -and $state -and "$state".Trim() -notmatch '^(stopped|paused)\s*$') {
+                $started = $true
+                break
+            }
+        }
+        if (-not $started) {
+            Write-Warning "  'utmctl start' attempt $attempt returned 0 but VM still reports '$state' — retrying."
+        }
+    }
+    if (-not $started) {
+        Write-Error "UTM did not transition '$VMName' out of 'stopped' after 3 start attempts. Open UTM manually and start the VM, then re-run."
         exit 1
     }
 

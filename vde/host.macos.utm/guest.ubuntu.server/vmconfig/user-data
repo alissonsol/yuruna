@@ -21,6 +21,26 @@ autoinstall:
   # autoinstall.packages list below — subiquity fetches it through the
   # squid-cache during install, so the first boot lands straight in GDM.
 APT_PROXY_BLOCK_PLACEHOLDER
+  # Pin the NIC to IPv4-only DHCP and disable IPv6 RA acceptance. On Apple
+  # Virtualization's Shared-NAT, the virtio-net interface (enp0s1) receives
+  # unsolicited IPv6 Router Advertisements that fire RTM_NEWLINK events.
+  # Combined with subiquity's network-readiness re-probe when apt.proxy is
+  # set, the CHANGELINK events drive subiquity's Network/_send_update into
+  # a self-sustaining loop (visible on the console as repeating
+  # "start/finish: subiquity/Network/_send_update: CHANGE enp0s1" lines).
+  # Wildcard match so the rule still applies if the kernel names the NIC
+  # differently (eth0 under net.ifnames=0, ens*, etc.).
+  network:
+    version: 2
+    ethernets:
+      "en*":
+        dhcp4: true
+        dhcp6: false
+        accept-ra: false
+      "eth*":
+        dhcp4: true
+        dhcp6: false
+        accept-ra: false
   locale: en_US.UTF-8
   keyboard:
     layout: us

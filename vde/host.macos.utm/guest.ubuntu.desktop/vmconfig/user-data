@@ -33,6 +33,16 @@ APT_PROXY_BLOCK_PLACEHOLDER
   storage:
     layout:
       name: lvm
+  # Pin the kernel to linux-generic. Ubuntu Desktop 24.04 defaults to the
+  # HWE meta-package linux-generic-hwe-24.04, which lives in noble-updates
+  # — NOT on the installer cdrom. During curtin's install_kernel step the
+  # target chroot's sources.list still only references file:/cdrom (the
+  # network-mirror rewrite curtin does earlier doesn't reach the chroot at
+  # this point), so `apt-get install --download-only linux-generic-hwe-24.04`
+  # returns "Unable to locate package" and fails the install. linux-generic
+  # ships on the cdrom, so the step succeeds without network round-trip.
+  kernel:
+    package: linux-generic
   ssh:
     allow-pw: true
   # ssh.install-server intentionally omitted: the Ubuntu Desktop ISO ships no

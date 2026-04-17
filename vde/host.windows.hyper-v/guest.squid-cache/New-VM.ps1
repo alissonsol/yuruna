@@ -245,8 +245,11 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
 Write-Progress -Activity $activity -Completed
 
 if (-not $cacheIp) {
-    Write-Error @"
-squid-cache VM '$VMName' did not obtain an IP address within 20 minutes.
+    $detail = @"
+
+=========================================================================
+ERROR: squid-cache VM '$VMName' did not obtain an IP address within 20 minutes.
+=========================================================================
 
 The VM is running but never showed up in the Default Switch ARP cache
 and never reported an IP via Hyper-V KVP. Exiting with failure so
@@ -257,7 +260,7 @@ Accessing the VM for debugging:
               login: ubuntu    password: password
               (cloud-init sets this; password does NOT expire, so you
                can keep using it for repeat debugging sessions)
-  * SSH:      not available until the VM has a reachable IP — that's
+  * SSH:      not available until the VM has a reachable IP -- that's
               what failed here, so console is the only path.
 
 Diagnostic steps inside the VM:
@@ -268,9 +271,11 @@ Diagnostic steps inside the VM:
   5. View cloud-init logs:   sudo journalctl -u cloud-init -n 200
 
 If cloud-init is still running (package install is slow or the mirror
-is throttled), re-run .\New-VM.ps1 after it finishes — the script is
+is throttled), re-run .\New-VM.ps1 after it finishes -- the script is
 idempotent and will rebuild the VM cleanly.
+=========================================================================
 "@
+    Write-Host $detail -ForegroundColor Red
     exit 1
 }
 
@@ -336,8 +341,11 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
 }
 
 Write-Progress -Activity $portActivity -Completed
-Write-Error @"
-squid did not start listening on ${cacheIp}:3128 within 15 minutes.
+$detail = @"
+
+=========================================================================
+ERROR: squid did not start listening on ${cacheIp}:3128 within 15 minutes.
+=========================================================================
 
 The VM is running and has an IP, but port 3128 never accepted a TCP
 connection. Exiting with failure so subsequent guest installs can't
@@ -348,12 +356,12 @@ Accessing the VM for debugging:
               login: ubuntu    password: password
               (cloud-init sets this; does NOT expire after first use)
   * SSH:      ssh ubuntu@$cacheIp
-              (uses the yuruna harness key at test\.ssh\yuruna_ed25519 —
+              (uses the yuruna harness key at test\.ssh\yuruna_ed25519 --
                same key the Ubuntu Desktop guests use; passwordless)
 
 === Step 1: find the actual apt / cloud-init error ===
-`cloud-init status --long` only SHOWS the fact that something failed;
-the REAL error is in the output log. Run this first — it's the single
+'cloud-init status --long' only SHOWS the fact that something failed;
+the REAL error is in the output log. Run this first -- it's the single
 most useful diagnostic:
 
   sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40
@@ -363,16 +371,16 @@ Or dump the whole tail:
   sudo tail -n 300 /var/log/cloud-init-output.log
 
 Common patterns you'll see there:
-  * '429 Too Many Requests'   → Ubuntu's CDN is rate-limiting this
-                                 host's public IP. Wait 15-30 min and
-                                 re-run .\New-VM.ps1 (idempotent — it
-                                 rebuilds the VM cleanly).
-  * 'Unable to locate package' → a package name changed on the mirror;
-                                 report the specific name so it can be
-                                 fixed in vmconfig/user-data.
-  * 'Could not resolve'        → DNS broken inside the VM. Check
-                                 'resolvectl status' and netplan config.
-  * Nothing obvious            → run the fuller diagnostic block below.
+  * '429 Too Many Requests'    -> Ubuntu's CDN is rate-limiting this
+                                  host's public IP. Wait 15-30 min and
+                                  re-run .\New-VM.ps1 (idempotent -- it
+                                  rebuilds the VM cleanly).
+  * 'Unable to locate package' -> a package name changed on the mirror;
+                                  report the specific name so it can be
+                                  fixed in vmconfig/user-data.
+  * 'Could not resolve'        -> DNS broken inside the VM. Check
+                                  'resolvectl status' and netplan config.
+  * Nothing obvious            -> run the fuller diagnostic block below.
 
 === Step 2: deeper diagnostics (only if step 1 is inconclusive) ===
   systemctl status squid                # 'could not be found' = install failed
@@ -385,5 +393,7 @@ Recovery options:
   * Manual:  ssh in, fix (e.g. wait for rate-limit, then
              'sudo cloud-init clean --logs && sudo cloud-init init').
   * Probe:   Test-NetConnection -Port 3128 -ComputerName $cacheIp
+=========================================================================
 "@
+Write-Host $detail -ForegroundColor Red
 exit 1

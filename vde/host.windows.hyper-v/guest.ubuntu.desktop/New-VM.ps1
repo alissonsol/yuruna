@@ -203,8 +203,14 @@ if (-not $cacheVM) {
     }
     if (-not $ProxyUrl) {
         $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
-        Write-Error @"
-squid-cache VM is running but port 3128 is not reachable.
+        # Write-Error reformats multi-line content (wraps + prefixes each
+        # line with '|'), which renders our diagnostic block unreadable.
+        # Use Write-Host with ForegroundColor for the detail, then exit 1.
+        $detail = @"
+
+=========================================================================
+ERROR: squid-cache VM is running but port 3128 is not reachable.
+=========================================================================
   Discovered IPs: $ipList
 
 Aborting so this guest install doesn't silently fall back to direct
@@ -216,7 +222,7 @@ Accessing the squid-cache VM for debugging:
               login: ubuntu    password: password
               (cloud-init sets this; does NOT expire after first use)
   * SSH:      ssh ubuntu@<ip>
-              (uses the yuruna harness key at test\.ssh\yuruna_ed25519 —
+              (uses the yuruna harness key at test\.ssh\yuruna_ed25519 --
                same key this Ubuntu Desktop guest uses; passwordless)
 
 === Step 1: find the actual apt / cloud-init error ===
@@ -226,13 +232,13 @@ not in 'cloud-init status' or 'systemctl status'. Run this first:
   sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40
 
 Common patterns:
-  * '429 Too Many Requests'    → Ubuntu's CDN rate-limited this host
+  * '429 Too Many Requests'    -> Ubuntu's CDN rate-limited this host
                                   when the cache VM tried to install
                                   squid itself. Wait 15-30 min then
                                   re-run guest.squid-cache/New-VM.ps1
                                   (rebuilds the cache VM cleanly).
-  * 'Unable to locate package' → package name changed; report it.
-  * Nothing obvious            → use the fuller diagnostics below.
+  * 'Unable to locate package' -> package name changed; report it.
+  * Nothing obvious            -> use the fuller diagnostics below.
 
 === Step 2: deeper diagnostics ===
   systemctl status squid                # 'could not be found' = install failed
@@ -241,15 +247,17 @@ Common patterns:
   Test-NetConnection -Port 3128 -ComputerName <ip>   # from this host
 
 Recovery:
-  * Cloud-init still running → wait for it to finish (5-15 min on
+  * Cloud-init still running -> wait for it to finish (5-15 min on
     first boot), then re-run this script.
-  * Install broken → rebuild the cache VM:
+  * Install broken -> rebuild the cache VM:
       vde\host.windows.hyper-v\guest.squid-cache\New-VM.ps1
     (exits non-zero on port-bind failure, so you'll see the real error.)
 
 To intentionally skip the cache for this install, stop the cache VM
 first:  Stop-VM squid-cache   (guest will then WARN and download direct).
+=========================================================================
 "@
+        Write-Host $detail -ForegroundColor Red
         exit 1
     }
 }

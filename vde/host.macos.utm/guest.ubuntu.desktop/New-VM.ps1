@@ -217,18 +217,44 @@ $probePort3128 = {
 
 if ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
     # VM exists and is started — port MUST respond, else ERROR.
-    $squidIp = (& $utmctl ip-address squid-cache 2>$null | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)
-    if ($squidIp) {
-        if (& $probePort3128 $squidIp.Trim() 1000) {
-            $ProxyUrl = "http://$($squidIp.Trim()):3128"
-            Write-Output "  squid-cache VM detected at $ProxyUrl — guest will use local proxy."
+    # Two discovery attempts, both required because `utmctl ip-address` can
+    # return nothing on macOS 15+ when the guest is still negotiating DHCP
+    # or when the UTM daemon hasn't polled its agent yet — in which case
+    # a subnet probe of 192.168.64.0/24 (Apple Virtualization's Shared NAT
+    # range) often succeeds where utmctl didn't.
+    $squidIp = (& $utmctl ip-address squid-cache 2>$null |
+                ForEach-Object { $_.Trim() } |
+                Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
+                Select-Object -First 1)
+    if ($squidIp -and (& $probePort3128 $squidIp 1000)) {
+        $ProxyUrl = "http://${squidIp}:3128"
+        Write-Output "  squid-cache detected at $ProxyUrl (via utmctl ip-address) — guest will use local proxy."
+    }
+    # Second attempt: subnet-probe when utmctl didn't yield a reachable IP.
+    if (-not $ProxyUrl) {
+        for ($octet = 2; $octet -le 30; $octet++) {
+            $candidate = "192.168.64.$octet"
+            if (& $probePort3128 $candidate 200) {
+                $ProxyUrl = "http://${candidate}:3128"
+                $squidIp = $candidate   # so diagnostic text below has a real IP
+                Write-Output "  squid-cache detected at $ProxyUrl (subnet probe fallback, utmctl ip-address gave no usable IP) — guest will use local proxy."
+                break
+            }
         }
     }
     if (-not $ProxyUrl) {
-        Write-Error @"
-squid-cache VM is started but port 3128 is not reachable.
-  utmctl status squid-cache → $squidStatus
-  IP:                        $squidIp
+        # Write-Error reformats multi-line content (wraps + prefixes each
+        # line with '|'), which renders our diagnostic block unreadable.
+        # Use Write-Host with ForegroundColor for the detail, then exit 1.
+        $ipShown = if ($squidIp) { $squidIp } else { '(utmctl returned no IPv4)' }
+        $detail = @"
+
+=========================================================================
+ERROR: squid-cache VM is started but port 3128 is not reachable.
+=========================================================================
+  utmctl status squid-cache  : $squidStatus
+  utmctl ip-address          : $ipShown
+  subnet probe 192.168.64/24 : no listener on :3128
 
 Aborting so this guest install doesn't silently fall back to direct
 CDN access and hit the 429 rate limiter (the exact failure squid-cache
@@ -239,7 +265,7 @@ Shared NAT).
 Accessing the squid-cache VM for debugging:
   * UTM window:  login 'ubuntu' / password 'password'
                  (cloud-init sets this; does NOT expire after first use)
-  * SSH:         ssh ubuntu@$squidIp
+  * SSH:         ssh ubuntu@<ip>   (find <ip> in the UTM window)
                  (uses the yuruna harness key at test/.ssh/yuruna_ed25519 —
                   same key this Ubuntu Desktop guest uses; passwordless)
 
@@ -250,13 +276,13 @@ not in 'cloud-init status' or 'systemctl status'. Run this first:
   sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40
 
 Common patterns:
-  * '429 Too Many Requests'    → Ubuntu's CDN rate-limited this host
+  * '429 Too Many Requests'    -> Ubuntu's CDN rate-limited this host
                                   when the cache VM tried to install
                                   squid itself (extra-likely on macOS
                                   UTM where every VM shares one public
                                   IP). Wait 15-30 min then rebuild.
-  * 'Unable to locate package' → package name changed; report it.
-  * Nothing obvious            → use the fuller diagnostics below.
+  * 'Unable to locate package' -> package name changed; report it.
+  * Nothing obvious            -> use the fuller diagnostics below.
 
 === Step 2: deeper diagnostics ===
   systemctl status squid                # 'could not be found' = install failed
@@ -264,14 +290,16 @@ Common patterns:
   cloud-init status --long              # still running?
 
 Recovery:
-  * Cloud-init still running → wait for it to finish (5-15 min on
+  * Cloud-init still running -> wait for it to finish (5-15 min on
     first boot), then re-run this script.
-  * Install broken → rebuild the cache VM:
+  * Install broken -> rebuild the cache VM:
       vde/host.macos.utm/guest.squid-cache/New-VM.ps1
 
 To intentionally skip the cache for this install, stop it first:
   utmctl stop squid-cache   (guest will then WARN and download direct).
+=========================================================================
 "@
+        Write-Host $detail -ForegroundColor Red
         exit 1
     }
 } elseif ($squidStatus) {

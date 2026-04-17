@@ -216,45 +216,33 @@ $probePort3128 = {
 }
 
 if ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
-    # VM exists and is started — port MUST respond, else ERROR.
-    # Two discovery attempts, both required because `utmctl ip-address` can
-    # return nothing on macOS 15+ when the guest is still negotiating DHCP
-    # or when the UTM daemon hasn't polled its agent yet — in which case
-    # a subnet probe of 192.168.64.0/24 (Apple Virtualization's Shared NAT
-    # range) often succeeds where utmctl didn't.
-    $squidIp = (& $utmctl ip-address squid-cache 2>$null |
-                ForEach-Object { $_.Trim() } |
-                Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
-                Select-Object -First 1)
-    if ($squidIp -and (& $probePort3128 $squidIp 1000)) {
-        $ProxyUrl = "http://${squidIp}:3128"
-        Write-Output "  squid-cache detected at $ProxyUrl (via utmctl ip-address) — guest will use local proxy."
-    }
-    # Second attempt: subnet-probe when utmctl didn't yield a reachable IP.
-    if (-not $ProxyUrl) {
-        for ($octet = 2; $octet -le 30; $octet++) {
-            $candidate = "192.168.64.$octet"
-            if (& $probePort3128 $candidate 200) {
-                $ProxyUrl = "http://${candidate}:3128"
-                $squidIp = $candidate   # so diagnostic text below has a real IP
-                Write-Output "  squid-cache detected at $ProxyUrl (subnet probe fallback, utmctl ip-address gave no usable IP) — guest will use local proxy."
-                break
-            }
+    # VM exists and is started — find its IP by TCP-probing the Apple
+    # Virtualization Shared-NAT subnet (192.168.64.0/24) for a listener
+    # on :3128. We do NOT use `utmctl ip-address` here: UTM's CLI only
+    # supports that subcommand for QEMU-backed VMs. Our squid-cache uses
+    # Apple Virtualization, which returns "Operation not supported by
+    # the backend" — useless for discovery.
+    $squidIp = $null
+    for ($octet = 2; $octet -le 30; $octet++) {
+        $candidate = "192.168.64.$octet"
+        if (& $probePort3128 $candidate 200) {
+            $ProxyUrl = "http://${candidate}:3128"
+            $squidIp = $candidate
+            Write-Output "  squid-cache detected at $ProxyUrl (subnet probe on 192.168.64.0/24) — guest will use local proxy."
+            break
         }
     }
     if (-not $ProxyUrl) {
         # Write-Error reformats multi-line content (wraps + prefixes each
         # line with '|'), which renders our diagnostic block unreadable.
         # Use Write-Host with ForegroundColor for the detail, then exit 1.
-        $ipShown = if ($squidIp) { $squidIp } else { '(utmctl returned no IPv4)' }
         $detail = @"
 
 =========================================================================
 ERROR: squid-cache VM is started but port 3128 is not reachable.
 =========================================================================
   utmctl status squid-cache  : $squidStatus
-  utmctl ip-address          : $ipShown
-  subnet probe 192.168.64/24 : no listener on :3128
+  subnet probe 192.168.64/24 : no listener on :3128 (ports 2-30 checked)
 
 Aborting so this guest install doesn't silently fall back to direct
 CDN access and hit the 429 rate limiter (the exact failure squid-cache

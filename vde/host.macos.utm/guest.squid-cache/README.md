@@ -46,10 +46,23 @@ and **pre-warms** the cache by pulling `linux-firmware` (the main 429
 offender) and the HWE kernel meta through the local proxy. Expect
 5-15 minutes on first boot depending on upstream bandwidth.
 
-Once running, find the VM's IP with:
+Once running, find the VM's IP. `utmctl ip-address` does **not** work
+for Apple Virtualization-backed VMs (UTM's CLI only supports it for
+QEMU guests); use one of these instead:
 
 ```bash
-utmctl ip-address squid-cache
+# (a) simplest — open the UTM window for squid-cache and read the
+#     "eth0: <ip>" line the Linux console prints at the login prompt.
+
+# (b) Apple's shared-NAT DHCP leases file (usually user-readable):
+awk -F'[ =]' '/name=squid-cache/{f=1} f && /ip_address/{print $NF; exit}' \
+    /var/db/dhcpd_leases
+
+# (c) port-scan the Shared-NAT subnet for a squid listener on :3128
+#     — works regardless of what the VM called itself:
+for i in $(seq 2 30); do
+  nc -z -w 1 192.168.64.$i 3128 2>/dev/null && echo "squid at 192.168.64.$i"
+done
 ```
 
 ## How guest VMs use it
@@ -59,11 +72,13 @@ At seed-ISO creation time, the Ubuntu Desktop
 in this order:
 
 1. `utmctl status squid-cache` — if the VM is registered with UTM
-2. If status is `started`, `utmctl ip-address squid-cache` + TCP probe
-   on port 3128
+2. If status is `started`, subnet-probe 192.168.64.2-30 for a TCP
+   listener on port 3128. (`utmctl ip-address` is NOT used — it
+   returns "Operation not supported by the backend" on Apple
+   Virtualization VMs; the subnet probe works regardless.)
 3. If utmctl isn't installed (neither on PATH nor at
-   `/Applications/UTM.app/Contents/MacOS/utmctl`), falls back to a
-   subnet probe of 192.168.64.2-30:3128 for alternate setups
+   `/Applications/UTM.app/Contents/MacOS/utmctl`), falls back to the
+   same subnet probe for alternate setups
 
 When the cache is reachable, `http://<ip>:3128` gets substituted into
 the autoinstall `apt.proxy` field **and** into a persistent apt proxy
@@ -89,7 +104,10 @@ manager is reachable from a browser on the host:
 http://<squid-cache-vm-ip>/cgi-bin/cachemgr.cgi
 ```
 
-Find the IP with `utmctl ip-address squid-cache`. The first page is
+Find the IP using one of the methods in the Setup section above
+(`utmctl ip-address` doesn't work for Apple Virtualization VMs —
+check the UTM window, `/var/db/dhcpd_leases`, or subnet-probe :3128).
+The first page is
 a form — leave **Cache Host** as `localhost` and **Cache Port** as
 `3128`. Useful reports:
 
@@ -130,8 +148,9 @@ Cloud-init configures the default `ubuntu` user with:
   that.)
 - **SSH key**: the yuruna test-harness public key (generated/cached at
   `test/.ssh/yuruna_ed25519` by [Test.Ssh.psm1](../../../test/modules/Test.Ssh.psm1)).
-  `ssh ubuntu@$(utmctl ip-address squid-cache | head -n1)` works
-  passwordless from the Mac host.
+  `ssh ubuntu@<ip>` works passwordless from the Mac host. (Find
+  `<ip>` using the recipes in the Setup section — `utmctl ip-address`
+  doesn't work for Apple Virtualization VMs.)
 
 Both paths exist because this VM is most often debugged when it *hasn't*
 finished cloud-init yet — SSH isn't up at that point, only the UTM

@@ -237,14 +237,27 @@ guest installs):
      (install squid + apache2 + squid-cgi, then pre-warm):
        utmctl start __VM_NAME__
 
-  3. Verify squid is listening on port 3128:
-       ip=$(utmctl ip-address __VM_NAME__ | head -n1)
+  3. Find the VM's IP. `utmctl ip-address` does NOT work for Apple
+     Virtualization VMs (returns "Operation not supported by the
+     backend") — use one of these instead:
+     a) Easiest — look in the UTM window for __VM_NAME__; the Linux
+        console prints "eth0: <ip>" at the login prompt after DHCP.
+     b) Apple's shared-NAT DHCP leases (usually user-readable):
+          awk -F'[ =]' '/name=__VM_NAME__/{found=1} found && /ip_address/{print $NF; exit}' \
+              /var/db/dhcpd_leases
+     c) Port-scan the Shared-NAT subnet for a squid listener:
+          for i in $(seq 2 30); do
+            nc -z -w 1 192.168.64.$i 3128 2>/dev/null && echo "squid at 192.168.64.$i"
+          done
+     Call the resulting address `$ip` in the remaining steps.
+
+  4. Verify squid is listening on port 3128:
        nc -z -w 3 "$ip" 3128 && echo 'squid OK' || echo 'squid DOWN'
 
-  4. Verify pre-warm finished (cache occupancy should be > 0):
+  5. Verify pre-warm finished (cache occupancy should be > 0):
        open "http://$ip/cgi-bin/cachemgr.cgi"    # -> 'storedir'
 
-If step 3 reports 'squid DOWN' after 15 minutes, access the VM:
+If step 4 reports 'squid DOWN' after 15 minutes, access the VM:
   * UTM window:  login 'ubuntu' / password '__PASSWORD__'
                  (password also at __PASSWORD_FILE__; does NOT expire)
   * SSH:         ssh ubuntu@$ip   (uses the yuruna harness key

@@ -188,6 +188,12 @@ Write-Output "   this can take 5-15 minutes on a slow connection — be patient)
 #      the guest, which only runs after cloud-init finishes installing
 #      hyperv-daemons. Kept as a confirmation path.
 $cacheIp = $null
+# Candidate IPs accumulated from ARP + KVP discovery. Kept as an array
+# (rather than a single $cacheIp) because Hyper-V's Default Switch keeps
+# stale State='Permanent' neighbor entries: the same VM MAC can appear at
+# two IPs across cache-VM recreations. The downstream :3128 probe loop
+# tiebreaks — whichever candidate answers squid wins.
+$cacheCandidateIps = @()
 $maxIterations = 240  # 240 * 5s = 20 minutes
 
 # Find the Default Switch interface — we scope ARP lookups to this interface
@@ -227,26 +233,28 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
             Write-Output "  VM MAC: $vmMacDashed (matching against Default Switch ARP cache)"
             $vmMacLogged = $true
         }
-        $neighbor = Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $defaultSwitchIfIndex -ErrorAction SilentlyContinue |
+        # Collect ALL matching neighbor entries. Stale 'Permanent' entries
+        # from prior cache-VM incarnations may share this MAC; we include
+        # them here and let the :3128 probe loop pick the live one.
+        $arpIps = @(Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $defaultSwitchIfIndex -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.LinkLayerAddress -eq $vmMacDashed -and
                 $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
                 $_.State -ne 'Unreachable'
-            } |
-            Select-Object -First 1
-        if ($neighbor) {
-            $cacheIp = $neighbor.IPAddress
-            Write-Output "  Discovered IP via ARP (MAC $vmMacDashed): $cacheIp"
+            } | ForEach-Object { $_.IPAddress })
+        if ($arpIps) {
+            $cacheCandidateIps = $arpIps
+            Write-Output "  Discovered IP(s) via ARP (MAC $vmMacDashed): $($arpIps -join ', ')"
             break
         }
     }
 
     # Strategy 2: Hyper-V KVP (only works after hyperv-daemons is installed)
     $adapters = Get-VMNetworkAdapter -VMName $VMName
-    $ips = $adapters | ForEach-Object { $_.IPAddresses } | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' }
+    $ips = @($adapters | ForEach-Object { $_.IPAddresses } | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
     if ($ips) {
-        $cacheIp = $ips[0]
-        Write-Output "  Discovered IP via Hyper-V KVP: $cacheIp"
+        $cacheCandidateIps = $ips
+        Write-Output "  Discovered IP(s) via Hyper-V KVP: $($ips -join ', ')"
         break
     }
 
@@ -267,7 +275,7 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
 
 Write-Progress -Activity $activity -Completed
 
-if (-not $cacheIp) {
+if (-not $cacheCandidateIps) {
     $detail = @"
 
 =========================================================================
@@ -303,31 +311,38 @@ idempotent and will rebuild the VM cleanly.
     exit 1
 }
 
-Write-Output "Cache VM IP: $cacheIp"
+Write-Output "Cache VM candidate IP(s): $($cacheCandidateIps -join ', ')"
 Write-Output "Waiting for squid to listen on port 3128 (up to 15 minutes)..."
 Write-Output "  (cloud-init installs squid + apache2 + squid-cgi, then pre-warms"
 Write-Output "   the cache by pulling linux-firmware through the local proxy —"
 Write-Output "   squid binds :3128 before pre-warm starts, so port response"
 Write-Output "   usually happens 3-5 minutes in on a responsive mirror.)"
 
-$portActivity = "Waiting for squid on ${cacheIp}:3128"
+$portActivity = "Waiting for squid on :3128 (candidates: $($cacheCandidateIps -join ', '))"
 $portMaxIterations = 180  # 180 * 5s = 15 minutes — matches the cloud-init budget we advertise
 $portStartTime = Get-Date
 
 for ($i = 0; $i -lt $portMaxIterations; $i++) {
-    # Non-blocking TCP probe with 1s timeout (synchronous Connect() can block
-    # ~20s on filtered/unreachable ports and starves our progress updates).
-    $tcp = New-Object System.Net.Sockets.TcpClient
+    # Probe EACH candidate on :3128. When ARP discovery returned stale +
+    # live IPs for the same MAC, only the live one will answer. Whichever
+    # responds first is adopted as the authoritative $cacheIp.
     $connected = $false
-    try {
-        $async = $tcp.BeginConnect($cacheIp, 3128, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
-            $connected = $true
+    foreach ($ip in $cacheCandidateIps) {
+        # Non-blocking TCP probe with 1s timeout (synchronous Connect() can block
+        # ~20s on filtered/unreachable ports and starves our progress updates).
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        try {
+            $async = $tcp.BeginConnect($ip, 3128, $null, $null)
+            if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
+                $cacheIp = $ip
+                $connected = $true
+                break
+            }
+        } catch {
+            Write-Verbose "TCP probe to ${ip}:3128 failed: $($_.Exception.Message)"
         }
-    } catch {
-        Write-Verbose "TCP probe to ${cacheIp}:3128 failed: $($_.Exception.Message)"
+        finally { $tcp.Close() }
     }
-    finally { $tcp.Close() }
 
     if ($connected) {
         Write-Progress -Activity $portActivity -Completed
@@ -371,10 +386,12 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
 }
 
 Write-Progress -Activity $portActivity -Completed
+$candidateList = $cacheCandidateIps -join ', '
 $detail = @"
 
 =========================================================================
-ERROR: squid did not start listening on ${cacheIp}:3128 within 15 minutes.
+ERROR: squid did not start listening on :3128 within 15 minutes.
+  Candidate IPs probed: $candidateList
 =========================================================================
 
 The VM is running and has an IP, but port 3128 never accepted a TCP
@@ -387,7 +404,7 @@ Accessing the VM for debugging:
               password: $UbuntuPassword
               (also saved at $PasswordFile;
                cloud-init sets it from user-data; does NOT expire.)
-  * SSH:      ssh ubuntu@$cacheIp
+  * SSH:      ssh ubuntu@<candidate>    (try each of: $candidateList)
               (uses the yuruna harness key at test\.ssh\yuruna_ed25519 --
                same key the Ubuntu Desktop guests use; passwordless)
 
@@ -418,13 +435,13 @@ Common patterns you'll see there:
   systemctl status squid                # 'could not be found' = install failed
   ss -ltn 'sport = :3128'               # port bound? who's listening?
   sudo ufw status ; sudo iptables -L -n # guest-side firewall
-  ip -br a                              # IP matches $cacheIp?
+  ip -br a                              # IP matches one of: $candidateList ?
 
 Recovery options:
   * Retry:   re-run .\New-VM.ps1 (idempotent rebuild).
   * Manual:  ssh in, fix (e.g. wait for rate-limit, then
              'sudo cloud-init clean --logs && sudo cloud-init init').
-  * Probe:   Test-NetConnection -Port 3128 -ComputerName $cacheIp
+  * Probe:   Test-NetConnection -Port 3128 -ComputerName <candidate>   # each of: $candidateList
 =========================================================================
 "@
 $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)

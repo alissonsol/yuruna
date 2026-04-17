@@ -250,13 +250,18 @@ function Test-ProxyCacheAvailable {
             $vmMac = ($cacheVM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
             if ($hostAdapter -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
                 $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
-                $neighbor = Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
+                # Collect ALL matching neighbor entries — Hyper-V's Default
+                # Switch accumulates stale State='Permanent' entries across
+                # cache-VM recreations, so the same MAC can appear at two
+                # IPs. Picking -First 1 previously caused detection to land
+                # on the stale IP and fail the :3128 probe. The foreach loop
+                # below picks whichever candidate actually answers.
+                $candidateIps = @(Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
                     Where-Object {
                         $_.LinkLayerAddress -eq $vmMacDashed -and
                         $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
                         $_.State -ne 'Unreachable'
-                    } | Select-Object -First 1
-                if ($neighbor) { $candidateIps = @($neighbor.IPAddress) }
+                    } | ForEach-Object { $_.IPAddress })
             }
         }
 

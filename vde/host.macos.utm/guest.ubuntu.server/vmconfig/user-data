@@ -1,12 +1,17 @@
 #cloud-config
 autoinstall:
   version: 1
-  # When a squid-cache VM is reachable, New-VM.ps1 expands
-  # APT_PROXY_BLOCK_PLACEHOLDER below into:
+  # When a squid-cache VM is reachable, New-VM.ps1 expands the
+  # placeholder line below into:
   #   apt:
   #     geoip: false
   #     primary: [{arches: [default], uri: http://ports.ubuntu.com/ubuntu-ports}]
   #     proxy: http://<squid>:3128
+  # The literal token must NOT appear anywhere else in this file — New-VM.ps1
+  # uses String.Replace(), which is a substring match, not token-aware, and
+  # a stray mention inside a comment would splice the multi-line YAML into
+  # the comment text and produce invalid YAML (subiquity then silently falls
+  # back to the full interactive installer — language/keyboard/mirror prompts).
   # Rationale for the full block (vs. just `proxy:`):
   #   * proxy   — route apt through squid. (Subiquity also exports this as
   #               http_proxy/https_proxy globally; see proxy.py:43-44.)

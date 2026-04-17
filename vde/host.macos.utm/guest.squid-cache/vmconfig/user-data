@@ -82,7 +82,14 @@ write_files:
       # Shared NAT egress through the host's single public IP, which makes
       # the per-source-IP rate limit bite faster than on Hyper-V.
 
-      http_port 3128
+      # NOTE: we do NOT set `http_port 3128` here. Ubuntu's stock
+      # /etc/squid/squid.conf already declares it, and /etc/squid/conf.d/*
+      # is INCLUDED (not overlaid) into the main config. Declaring the
+      # same `http_port 3128` twice makes squid try to bind the port
+      # twice — the second bind fails with EADDRINUSE and you get
+      # "listen (..., 256) system call failed: (98) Address already in
+      # use" in squid's log while squid still appears 'running'.
+      # The default binding is what we want (all interfaces, port 3128).
 
       # Permit only RFC1918 sources. UTM Shared mode hands out addresses
       # in 192.168.64.0/24; the 10/8 and 172.16/12 entries cover alternate
@@ -159,6 +166,16 @@ runcmd:
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
       sleep 1
     done
+    # Diagnostic safety net: if squid never bound :3128, dump its journal
+    # into the cloud-init-output.log so the operator's first
+    # `grep ERROR /var/log/cloud-init-output.log` surfaces the real cause
+    # (e.g. EADDRINUSE from a duplicate http_port). Without this, the host
+    # just sees "can't TCP-connect to the cache" without knowing why.
+    if ! ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128; then
+      echo "=== YURUNA: squid did not bind :3128 within 60s ==="
+      systemctl --no-pager -l status squid || true
+      journalctl --no-pager -u squid -n 80 || true
+    fi
   # Only NOW route this VM's own apt through the local squid — squid is
   # confirmed listening, so the self-proxy loop is safe. Writing this file
   # before package install would have (and did) cause apt to try fetching

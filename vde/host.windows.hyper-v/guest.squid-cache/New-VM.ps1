@@ -296,7 +296,7 @@ is throttled), re-run .\New-VM.ps1 after it finishes -- the script is
 idempotent and will rebuild the VM cleanly.
 =========================================================================
 "@
-    Write-Host $detail -ForegroundColor Red
+    $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
     exit 1
 }
 
@@ -424,5 +424,5 @@ Recovery options:
   * Probe:   Test-NetConnection -Port 3128 -ComputerName $cacheIp
 =========================================================================
 "@
-Write-Host $detail -ForegroundColor Red
+$Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
 exit 1

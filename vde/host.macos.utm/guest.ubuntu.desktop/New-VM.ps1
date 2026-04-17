@@ -222,12 +222,10 @@ if ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
     # supports that subcommand for QEMU-backed VMs. Our squid-cache uses
     # Apple Virtualization, which returns "Operation not supported by
     # the backend" — useless for discovery.
-    $squidIp = $null
     for ($octet = 2; $octet -le 30; $octet++) {
         $candidate = "192.168.64.$octet"
         if (& $probePort3128 $candidate 200) {
             $ProxyUrl = "http://${candidate}:3128"
-            $squidIp = $candidate
             Write-Output "  squid-cache detected at $ProxyUrl (subnet probe on 192.168.64.0/24) — guest will use local proxy."
             break
         }
@@ -235,7 +233,8 @@ if ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
     if (-not $ProxyUrl) {
         # Write-Error reformats multi-line content (wraps + prefixes each
         # line with '|'), which renders our diagnostic block unreadable.
-        # Use Write-Host with ForegroundColor for the detail, then exit 1.
+        # $Host.UI.WriteLine is the PSScriptAnalyzer-safe way to keep the
+        # color output Write-Host would give us.
         $detail = @"
 
 =========================================================================
@@ -290,7 +289,7 @@ To intentionally skip the cache for this install, stop it first:
   utmctl stop squid-cache   (guest will then WARN and download direct).
 =========================================================================
 "@
-        Write-Host $detail -ForegroundColor Red
+        $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
         exit 1
     }
 } elseif ($squidStatus) {

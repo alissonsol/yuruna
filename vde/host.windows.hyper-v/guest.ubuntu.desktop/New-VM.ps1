@@ -205,7 +205,8 @@ if (-not $cacheVM) {
         $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
         # Write-Error reformats multi-line content (wraps + prefixes each
         # line with '|'), which renders our diagnostic block unreadable.
-        # Use Write-Host with ForegroundColor for the detail, then exit 1.
+        # $Host.UI.WriteLine is the PSScriptAnalyzer-safe way to keep the
+        # color output Write-Host would give us.
         $detail = @"
 
 =========================================================================
@@ -260,7 +261,7 @@ To intentionally skip the cache for this install, stop the cache VM
 first:  Stop-VM squid-cache   (guest will then WARN and download direct).
 =========================================================================
 "@
-        Write-Host $detail -ForegroundColor Red
+        $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
         exit 1
     }
 }

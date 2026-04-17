@@ -24,6 +24,12 @@ packages:
   # default conf.d/serve-cgi-bin.conf after we enable mod_cgi in runcmd.
   - squid-cgi
   - apache2
+  # Network debugging tools for interactive triage of the cache VM from
+  # its console/SSH. Noble's server cloud image ships `ip` (from iproute2)
+  # but NOT `ifconfig` or `ping`, so muscle-memory commands fail during a
+  # post-boot diagnostic session. Cheap to install, big quality-of-life win.
+  - net-tools       # ifconfig, netstat, route, arp
+  - iputils-ping    # ping, ping6
 write_files:
   # Retry apt fetches on transient network errors. Cloud-init's default is
   # one-shot; a single timeout against archive.ubuntu.com or an intermittent

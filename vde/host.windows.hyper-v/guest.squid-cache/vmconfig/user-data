@@ -24,6 +24,12 @@ packages:
   # default conf.d/serve-cgi-bin.conf after we enable mod_cgi in runcmd.
   - squid-cgi
   - apache2
+  # Network debugging tools for interactive triage of the cache VM from
+  # its console/SSH. Noble's server cloud image ships `ip` (from iproute2)
+  # but NOT `ifconfig` or `ping`, so muscle-memory commands fail during a
+  # post-boot diagnostic session. Cheap to install, big quality-of-life win.
+  - net-tools       # ifconfig, netstat, route, arp
+  - iputils-ping    # ping, ping6
   # hyperv-daemons provides hv_kvp_daemon so the host's
   # Get-VMNetworkAdapter cmdlet can read the guest's IP address.
   # Without it, the host reports an empty IPAddresses list forever.

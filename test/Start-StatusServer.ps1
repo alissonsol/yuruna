@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol
@@ -147,10 +147,32 @@ $serverScript = @"
 `$heartbeatFile = Join-Path '$($StatusDir -replace "'","''")' 'server.heartbeat'
 `$pauseFile     = Join-Path '$($StatusDir -replace "'","''")' 'control.pause'
 `$statusJsonFile = Join-Path '$($StatusDir -replace "'","''")' 'status.json'
+`$serverLogFile = Join-Path '$($StatusDir -replace "'","''")' 'server.err'
 `$heartbeatTimeoutMinutes = 30
+# Log any per-iteration exception so we can actually see why the server died.
+# On Windows, Start-Process -WindowStyle Hidden has no stderr redirection, so
+# without this file an unhandled throw in the loop dies silently — which was
+# exactly the prior failure mode where the server vanished mid-run with no
+# trace. Keep the log bounded so it can't fill the status dir indefinitely.
+function Write-ServerErr {
+    param([string]`$msg)
+    try {
+        if ((Test-Path `$serverLogFile) -and ((Get-Item `$serverLogFile).Length -gt 1MB)) {
+            Move-Item -Path `$serverLogFile -Destination "`$serverLogFile.old" -Force -ErrorAction SilentlyContinue
+        }
+        Add-Content -Path `$serverLogFile -Value "[`$(Get-Date -Format o)] `$msg" -ErrorAction SilentlyContinue
+    } catch { }
+}
 try {
     `$listener.Start()
+    Write-ServerErr "listener started on http://*:$Port/ (pid `$PID)"
     while (`$listener.IsListening) {
+      # Outer try/catch: any throw below MUST NOT kill the server. Previously
+      # `$listener.EndGetContext(...)` sat outside the inner try, so transient
+      # HttpListenerException (client reset, malformed request, http.sys
+      # hiccup) unwound to the outer try/finally and exited the process with
+      # no log. Wrap the whole iteration here; log + continue.
+      try {
         # Use async GetContext with timeout so we can check the heartbeat periodically
         `$asyncResult = `$listener.BeginGetContext(`$null, `$null)
         while (-not `$asyncResult.AsyncWaitHandle.WaitOne(10000)) {
@@ -158,6 +180,7 @@ try {
             if (Test-Path `$heartbeatFile) {
                 `$age = (Get-Date) - (Get-Item `$heartbeatFile).LastWriteTime
                 if (`$age.TotalMinutes -gt `$heartbeatTimeoutMinutes) {
+                    Write-ServerErr "heartbeat stale (`$([int]`$age.TotalMinutes) min > `$heartbeatTimeoutMinutes min) — self-exit"
                     `$listener.Stop()
                     exit 0
                 }
@@ -248,7 +271,17 @@ try {
         } catch {
             try { `$ctx.Response.Abort() } catch { }
         }
+      } catch {
+        # Log any unhandled iteration-level failure (EndGetContext throws,
+        # listener kicked out by http.sys, etc.) and keep serving. Without
+        # this the server used to die silently on the first transient blip.
+        Write-ServerErr "iteration error: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
+        Start-Sleep -Milliseconds 200
+      }
     }
+} catch {
+    Write-ServerErr "fatal: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
+    throw
 } finally { `$listener.Stop() }
 "@
 

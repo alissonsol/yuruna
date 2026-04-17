@@ -133,14 +133,30 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Detect the apt-cache VM and inject its proxy URL if available.
-# When the cache VM is running, guest installs fetch .deb packages from the
-# local cache instead of hitting Ubuntu's CDN (avoids 429 rate-limit failures
-# and cuts install time from ~30 min to ~2 min on cache hit).
-$AptCacheUrl = ""
-$cacheVM = Get-VM -Name "apt-cache" -ErrorAction SilentlyContinue
-if ($cacheVM -and $cacheVM.State -eq 'Running') {
-    # Two discovery strategies, in the same order guest.apt-cache/New-VM.ps1
+# Detect the squid-cache VM and inject its proxy URL if available.
+# When the cache VM is running, guest installs fetch packages via the local
+# HTTP cache instead of hitting Ubuntu's CDN (avoids 429 rate-limit failures
+# and cuts install time from ~30 min to ~2 min on cache hit). Replaces the
+# previous apt-cacher-ng cache, which only cached .deb URLs and missed
+# subiquity's pre-install kernel fetch — the one that was 429'ing.
+#
+# Severity policy (to avoid silent fallback-to-429):
+#   * No squid-cache VM on this host      → WARNING, proceed (direct CDN)
+#   * squid-cache VM exists but stopped   → WARNING, proceed (direct CDN)
+#   * squid-cache VM running but :3128
+#     doesn't answer within a few seconds → ERROR, exit 1 (don't guess;
+#                                            the cache owner should fix it
+#                                            before launching guest installs)
+$ProxyUrl = ""
+$cacheVM = Get-VM -Name "squid-cache" -ErrorAction SilentlyContinue
+if (-not $cacheVM) {
+    Write-Warning "  No squid-cache VM exists on this host. Guest will download packages directly from Ubuntu mirrors — expect 429 rate-limit failures on linux-firmware under load."
+    Write-Warning "  To enable caching, run: vde\host.windows.hyper-v\guest.squid-cache\New-VM.ps1"
+} elseif ($cacheVM.State -ne 'Running') {
+    Write-Warning "  squid-cache VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
+    Write-Warning "  To enable caching: Start-VM squid-cache ; then wait for cloud-init to finish."
+} else {
+    # Two discovery strategies, in the same order guest.squid-cache/New-VM.ps1
     # uses when it brings the cache up — keeping them aligned ensures this
     # consumer can find the cache the creator just announced.
     #   1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) — needs hv_kvp_daemon
@@ -166,32 +182,78 @@ if ($cacheVM -and $cacheVM.State -eq 'Running') {
         }
     }
 
-    # TCP-probe port 3142 before claiming the cache — apt-cacher-ng may still
-    # be installing if cloud-init hasn't finished, in which case routing the
-    # guest's apt traffic to a closed port would silently break installs.
+    # TCP-probe port 3128. If the cache VM is running but we can't reach
+    # the port, fail loud — silently omitting the proxy here is how we
+    # ended up with installs 429'ing against security.ubuntu.com despite
+    # a squid-cache VM being up.
     foreach ($ip in $cacheIps) {
         $tcp = New-Object System.Net.Sockets.TcpClient
         try {
-            $async = $tcp.BeginConnect($ip, 3142, $null, $null)
+            $async = $tcp.BeginConnect($ip, 3128, $null, $null)
             if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
-                $AptCacheUrl = "http://${ip}:3142"
-                Write-Output "  apt-cache VM detected at $AptCacheUrl — guest will use local proxy."
+                $ProxyUrl = "http://${ip}:3128"
+                Write-Output "  squid-cache VM detected at $ProxyUrl — guest will use local proxy."
                 break
             }
         } catch {
-            Write-Verbose "apt-cache probe to ${ip}:3142 failed: $($_.Exception.Message)"
+            Write-Verbose "squid-cache probe to ${ip}:3128 failed: $($_.Exception.Message)"
         } finally {
             $tcp.Close()
         }
     }
-    if (-not $AptCacheUrl) {
-        Write-Warning "  apt-cache VM is running but no listener on :3142 (cloud-init may still be installing). Guest will download directly."
+    if (-not $ProxyUrl) {
+        $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
+        Write-Error @"
+squid-cache VM is running but port 3128 is not reachable.
+  Discovered IPs: $ipList
+
+Aborting so this guest install doesn't silently fall back to direct
+CDN access and hit the 429 rate limiter (the exact failure squid-cache
+was supposed to prevent).
+
+Accessing the squid-cache VM for debugging:
+  * Console:  vmconnect localhost squid-cache
+              login: ubuntu    password: password
+              (cloud-init sets this; does NOT expire after first use)
+  * SSH:      ssh ubuntu@<ip>
+              (uses the yuruna harness key at test\.ssh\yuruna_ed25519 —
+               same key this Ubuntu Desktop guest uses; passwordless)
+
+Diagnostic steps:
+  1. Confirm squid is up inside the cache VM (console or SSH):
+       systemctl status squid
+       ss -ltn 'sport = :3128'
+       cloud-init status --long    # still running?
+       sudo tail -n 200 /var/log/cloud-init-output.log
+  2. If squid is up, confirm reachability from this host:
+       Test-NetConnection -Port 3128 -ComputerName <ip>
+  3. If cloud-init is still running on the cache VM, wait for it to
+     finish (can take 5-15 min on first boot) and re-run this script.
+  4. If squid is broken, re-create the cache:
+       vde\host.windows.hyper-v\guest.squid-cache\New-VM.ps1
+     (It now exits non-zero on port-bind failure, so you'll see the
+      real error instead of a silent success.)
+
+To intentionally skip the cache for this install, stop the cache VM
+first:  Stop-VM squid-cache   (guest will then WARN and download direct).
+"@
+        exit 1
     }
-} else {
-    Write-Output "  No apt-cache VM running. Guest will download packages directly from Ubuntu mirrors."
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_CACHE_URL_PLACEHOLDER', $AptCacheUrl)
+# Build the autoinstall apt-proxy block. When a cache is reachable, inject
+# a top-level `apt: proxy: http://...` under autoinstall so subiquity's own
+# in-installer apt-get calls (including the kernel/linux-firmware step that
+# 429'd against security.ubuntu.com) route through squid. When no cache,
+# omit the block entirely — subiquity then behaves exactly as before.
+# Single `  apt:` key (2-space indent matches sibling keys under `autoinstall:`).
+if ($ProxyUrl) {
+    $AptProxyBlock = "  apt:`n    proxy: $ProxyUrl"
+} else {
+    $AptProxyBlock = ""
+}
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('PROXY_URL_PLACEHOLDER', $ProxyUrl)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

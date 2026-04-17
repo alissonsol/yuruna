@@ -1,0 +1,171 @@
+#cloud-config
+hostname: squid-cache
+# Default 'ubuntu' user gets a known password AND the yuruna harness SSH key.
+# Both paths matter because this VM is usually debugged when it HASN'T
+# finished cloud-init — at which point SSH may not be up yet, only the
+# text console via UTM's window. Console login needs a password; post-boot
+# automation uses the key. Password reset is NOT forced (expire: false)
+# so repeated `ssh ubuntu@...` calls from the harness keep working without
+# an interactive first-login step.
+chpasswd:
+  expire: false
+  users:
+    - name: ubuntu
+      password: password
+      type: text
+ssh_pwauth: true
+ssh_authorized_keys:
+  - SSH_AUTHORIZED_KEY_PLACEHOLDER
+package_update: true
+packages:
+  - squid
+  # squid-cgi provides cachemgr.cgi, the CGI front-end to Squid's cache
+  # manager. apache2 hosts it; cgi-bin/ is already wired up by Apache's
+  # default conf.d/serve-cgi-bin.conf after we enable mod_cgi in runcmd.
+  - squid-cgi
+  - apache2
+write_files:
+  # Point the squid VM's own apt at the local squid, so the pre-warm step in
+  # runcmd pulls packages through squid (populating its cache) rather than
+  # going direct. Kept as a conf.d dropin so `runcmd` can delete it after
+  # pre-warm to avoid squid ever proxying requests for itself.
+  - path: /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
+    permissions: '0644'
+    owner: root:root
+    content: |
+      Acquire::http::Proxy "http://127.0.0.1:3128";
+  # Restrict cachemgr.cgi to RFC1918 sources, matching the squid ACL.
+  # Apache's default cgi-bin/ serve is open to all — in practice UTM's
+  # Shared network (192.168.64.0/24) only lets the host and sibling VMs
+  # reach this VM, but aligning Apache's policy with squid's means a
+  # misconfigured network can't accidentally expose the cache manager.
+  - path: /etc/apache2/conf-available/yuruna-cachemgr.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      <Location /cgi-bin/cachemgr.cgi>
+          Require ip 127.0.0.1
+          Require ip 10.0.0.0/8
+          Require ip 172.16.0.0/12
+          Require ip 192.168.0.0/16
+      </Location>
+  # Drop-in overrides on top of Ubuntu's stock /etc/squid/squid.conf.
+  # conf.d files are included after the main config, so same-named directives
+  # here win. Keeping this a drop-in (not a full replacement) means future
+  # squid package upgrades still get their default refresh_pattern and ACL
+  # baseline — we only override what's specific to yuruna's use case.
+  - path: /etc/squid/conf.d/yuruna.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # yuruna squid-cache — generic HTTP proxy/cache for test-VM installs.
+      # Replaces the previous apt-cacher-ng approach, which only cached .deb
+      # URLs and still let security.ubuntu.com 429s bubble up to subiquity
+      # because its pre-install kernel fetch went direct. Squid caches any
+      # cacheable HTTP response, so the installer's own apt-get --download-only
+      # of linux-firmware etc. goes through the cache on every subsequent
+      # install and no longer races the CDN rate limiter.
+      #
+      # Extra motivation on macOS: all UTM VMs behind Apple Virtualization's
+      # Shared NAT egress through the host's single public IP, which makes
+      # the per-source-IP rate limit bite faster than on Hyper-V.
+
+      http_port 3128
+
+      # Permit only RFC1918 sources. UTM Shared mode hands out addresses
+      # in 192.168.64.0/24; the 10/8 and 172.16/12 entries cover alternate
+      # network modes so this config is reusable.
+      acl yuruna_local src 10.0.0.0/8
+      acl yuruna_local src 172.16.0.0/12
+      acl yuruna_local src 192.168.0.0/16
+      http_access allow yuruna_local
+
+      # Disk cache sized for a 50 GB virtual disk. ufs is the simplest store
+      # format and fine for a single-host dev cache; switch to aufs/diskd
+      # only if we see squid blocking on disk I/O under concurrent installs.
+      cache_dir ufs /var/spool/squid 40000 16 256
+      maximum_object_size 4 GB
+      maximum_object_size_in_memory 32 MB
+      cache_mem 512 MB
+
+      # Package files are content-addressable (version is in the filename),
+      # so cached copies never go stale. 525600 minutes = 1 year.
+      refresh_pattern -i \.deb$        525600 100% 525600
+      refresh_pattern -i \.udeb$       525600 100% 525600
+      refresh_pattern -i \.tar\.xz$    525600 100% 525600
+      refresh_pattern -i \.tar\.gz$    525600 100% 525600
+      refresh_pattern -i \.tar\.bz2$   525600 100% 525600
+      refresh_pattern -i \.iso$        525600 100% 525600
+      # Apt metadata (InRelease, Packages.*) moves — poll origin each time.
+      refresh_pattern -i /InRelease$                    0 0%  60
+      refresh_pattern -i /Release$                      0 0%  60
+      refresh_pattern -i /Release\.gpg$                 0 0%  60
+      refresh_pattern -i /Packages(\.gz|\.xz|\.bz2)?$   0 0%  60
+      refresh_pattern -i /Sources(\.gz|\.xz|\.bz2)?$    0 0%  60
+
+      # Keep CONNECT tunneling for HTTPS reachable from guests even though
+      # we don't cache the encrypted bodies yet. Enabling HTTPS caching
+      # requires SSL-bump with a generated CA that each guest must trust —
+      # tracked as a follow-up ("https caching with keys").
+      logfile_rotate 2
+runcmd:
+  # cache_dir requires the store be initialized before squid will start.
+  # apt's postinst calls swap-state init already, but re-running is idempotent
+  # and guards against the case where our write_files dropped in a different
+  # cache_dir size than the package default squid tried to initialize against.
+  - systemctl stop squid
+  - squid -z -N || true
+  - systemctl enable squid
+  - systemctl start squid
+  # --- Enable cachemgr.cgi monitoring ---
+  # a2enmod cgi wires mod_cgi into Apache; a2enconf enables the RFC1918
+  # ACL dropin written above. Squid's default squid.conf already has
+  # `http_access allow manager localhost` + `http_access deny manager`,
+  # so manager queries from 127.0.0.1 (where Apache runs) succeed while
+  # remote mgr: URLs are rejected — no extra squid ACL work needed.
+  - a2enmod cgi
+  - a2enconf yuruna-cachemgr
+  - systemctl enable apache2
+  - systemctl restart apache2
+  # --- Pre-warm the cache ---
+  # security.ubuntu.com rate-limits `linux-firmware` (~330 MB) hard enough
+  # that every cold guest install 429s on it. Pre-fetching it here — via
+  # the local proxy — means squid has it before any guest asks, so the
+  # first-ever guest install serves from cache instead of hitting the
+  # rate-limited origin. We pull the HWE meta too so the kernel, modules-
+  # extra, and headers .debs land in cache alongside it. (Note: the arm64
+  # ISO has no intel-microcode/amd64-microcode/firmware-sof-signed analog,
+  # which is why the amd64-only variants of those packages aren't pre-
+  # warmed on this side — the `|| true` loop would skip them anyway.)
+  #
+  # Wait up to 60s for squid's listener before starting. apt's postinst
+  # usually has squid up by this point, but we re-check defensively because
+  # the preceding `squid -z` can take a moment on first boot to initialize
+  # the 40 GB swap state.
+  - |
+    for i in $(seq 1 60); do
+      ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
+      sleep 1
+    done
+  - apt-get update
+  # Each call: try --reinstall --download-only first (forces re-fetch of
+  # already-installed packages like linux-firmware on the cloud image);
+  # fall back to plain --download-only for packages not yet installed
+  # (linux-generic-hwe-24.04 on a minimal server image). `|| true` on the
+  # fallback so a single miss doesn't abort the loop.
+  - |
+    for pkg in linux-firmware linux-generic-hwe-24.04; do
+      echo "=== yuruna prewarm: $pkg ==="
+      apt-get install --download-only --reinstall -y "$pkg" 2>/dev/null \
+        || apt-get install --download-only -y "$pkg" 2>/dev/null \
+        || echo "yuruna prewarm: skipped $pkg"
+    done
+  # Squid now has the large .debs cached under /var/spool/squid.
+  # Clear the local /var/cache/apt copy (squid's store is separate) to
+  # reclaim ~1 GB inside the VM.
+  - apt-get clean
+  # Remove the apt proxy dropin so future apt usage inside the squid VM
+  # itself doesn't loop through its own squid instance. Guests continue
+  # to reach squid at 3128 over the network as normal.
+  - rm -f /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
+  - echo "squid-cache ready on port 3128 (pre-warmed)"

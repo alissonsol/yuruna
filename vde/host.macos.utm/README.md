@@ -76,17 +76,23 @@ After the script finishes, do these steps in order:
 Want to understand what the installer does, or set things up by hand?
 See [read.more.md](read.more.md) for the step-by-step manual walk-through.
 
-## Optional: Local apt cache VM
+## Optional: Local HTTP cache VM (squid)
 
 The test harness creates and destroys Ubuntu Desktop VMs every cycle.
 Each fresh install downloads ~900 MB of packages (kernel, firmware,
 desktop tools) from Ubuntu's CDN. When cycles run back-to-back,
 Ubuntu's mirrors may return **429 Too Many Requests** for large files
-like `linux-firmware`, causing the install to fail.
+like `linux-firmware`, causing the install to fail. UTM VMs behind
+Apple Virtualization's Shared NAT all egress through the host's
+single public IP, which makes the per-source rate limit bite faster
+than on Hyper-V — so running a local cache matters more here.
 
-A small **apt-cacher-ng** VM running on the same host eliminates both
+A small **squid** VM running on the same host eliminates both
 problems: the first install populates the local cache, and every
 subsequent install pulls the same packages from LAN at disk speed.
+Squid replaces the older apt-cacher-ng setup because it caches
+every HTTP response (not just .deb URLs), which covers subiquity's
+own kernel/firmware fetches — the step that was hitting the 429.
 
 This step is **optional** — the test harness works without it, but
 install times drop from ~30 minutes to ~2 minutes on cache hits, and
@@ -94,18 +100,27 @@ CDN rate-limit failures stop entirely.
 
 ```bash
 # One-time setup:
-cd ~/git/yuruna/vde/host.macos.utm/guest.apt-cache
-pwsh ./Get-Image.ps1    # downloads Ubuntu Server cloud image (~600 MB, ARM64)
-pwsh ./New-VM.ps1        # creates cache VM, waits for port 3142
+cd ~/git/yuruna/vde/host.macos.utm/guest.squid-cache
+pwsh ./Get-Image.ps1    # downloads + converts Ubuntu Server cloud image (~600 MB, arm64)
+pwsh ./New-VM.ps1        # assembles a UTM bundle; double-click it to register with UTM
 ```
 
-Once the cache VM is running, no further configuration is needed. The
-Ubuntu Desktop `New-VM.ps1` automatically detects it on the local
-network and injects the proxy URL into the autoinstall seed ISO. Stop
-or delete the cache VM at any time to revert to direct CDN downloads.
+Once the `squid-cache` VM is running, no further configuration is
+needed. The Ubuntu Desktop `New-VM.ps1` auto-detects it via
+`utmctl status squid-cache` (falling back to a 192.168.64.0/24:3128
+subnet probe) and injects the proxy URL into the autoinstall seed ISO.
+Stop the cache VM to revert to direct CDN downloads (a WARNING will
+print at the top of the guest-install run).
 
-See [guest.apt-cache/README.md](guest.apt-cache/README.md) for
-details on how it works.
+**Important**: if the cache VM is `started` but port 3128 is unreachable,
+the Ubuntu Desktop `New-VM.ps1` now **errors out** (`exit 1`) instead of
+silently falling back. This prevents the exact 429 failures the cache
+was meant to prevent. Wait for cloud-init to finish (5-15 min on first
+boot) or check the VM before retrying.
+
+See [guest.squid-cache/README.md](guest.squid-cache/README.md) for
+details — including the cachemgr.cgi monitoring page at
+`http://<squid-cache-ip>/cgi-bin/cachemgr.cgi`.
 
 ## Next: Create a Guest VM
 

@@ -1,0 +1,80 @@
+﻿<#PSScriptInfo
+.VERSION 0.1
+.GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
+.AUTHOR Alisson Sol
+.COPYRIGHT (c) 2026 Alisson Sol et al.
+.TAGS
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# === Configuration ===
+# arm64 cloud image — macOS UTM runs on Apple Silicon via Apple Virtualization.
+$sourceUrl = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img"
+$downloadDir = "$HOME/virtual/squid-cache"
+$baseImageName = "host.macos.utm.guest.squid-cache"
+# Final artifact is RAW, not qcow2: Apple Virtualization.framework only
+# accepts raw-format block device images. The qemu-img call below converts
+# once here so New-VM.ps1 can copy the ready-to-boot disk directly into
+# the .utm bundle.
+$baseImageFile = Join-Path $downloadDir "$baseImageName.raw"
+
+# === Download ===
+New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+
+$downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
+Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+Write-Output "Downloading $sourceUrl to $downloadFile"
+& curl -L --progress-bar -o $downloadFile $sourceUrl
+if ($LASTEXITCODE -ne 0) { Write-Error "Download failed (curl exit code $LASTEXITCODE)"; exit 1 }
+
+$fileSize = (Get-Item $downloadFile).Length
+if ($fileSize -lt 100MB) {
+    Write-Error "Downloaded file is suspiciously small ($([math]::Round($fileSize / 1MB, 1)) MB). Expected ~600 MB."
+    Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+    exit 1
+}
+
+# === Convert qcow2 → raw for Apple Virtualization ===
+$convertedFile = Join-Path $downloadDir "$baseImageName.converting.raw"
+Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
+Write-Output "Converting qcow2 to raw..."
+& qemu-img convert -f qcow2 -O raw $downloadFile $convertedFile
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "qemu-img convert failed. Install QEMU with: brew install qemu"
+    Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
+    exit 1
+}
+
+# Resize to 50 GB (sparse on APFS — apparent 50 GB, actual ~2.5 GB until used).
+Write-Output "Resizing raw image to 50GB..."
+& qemu-img resize -f raw $convertedFile 50G
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "qemu-img resize failed — continuing with original size."
+    Write-Warning "The cache VM will only have the base cloud-image capacity (~2.5 GB)"
+    Write-Warning "which fills up after 1-2 installs. Resize manually with:"
+    Write-Warning "  qemu-img resize -f raw '$baseImageFile' 50G"
+}
+
+# === Preserve previous and finalize ===
+$previousFile = Join-Path $downloadDir "$baseImageName.previous.raw"
+Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+if (Test-Path $baseImageFile) {
+    Move-Item -Path $baseImageFile -Destination $previousFile
+    Write-Output "Previous image preserved as: $previousFile"
+}
+Move-Item -Path $convertedFile -Destination $baseImageFile
+
+# Clean up the downloaded qcow2 — we only need the raw now.
+Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+
+Write-Output "Download complete: $baseImageFile"

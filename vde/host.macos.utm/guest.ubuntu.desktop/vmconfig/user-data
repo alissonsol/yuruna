@@ -1,17 +1,25 @@
 #cloud-config
 autoinstall:
   version: 1
-  # No top-level `proxy:` here on purpose. The Ubuntu Desktop install pulls
-  # every package from file:/cdrom (the ISO is self-contained), so a proxy
-  # gives subiquity nothing to cache during the install. Worse, when set:
-  #   * subiquity reruns its mirror-validation cycle 3-4 times (~10 min added)
-  #   * subiquity exports http_proxy/https_proxy into late-commands' env, and
-  #     apt-cacher-ng refuses HTTPS CONNECT tunnels by default — that breaks
-  #     direct HTTPS wgets in late-commands.
-  # The cache still gets used post-install via the late-command below that
-  # writes /etc/apt/apt.conf.d/99yuruna-apt-cache. cloud-init's first-boot
-  # apt install (openssh-server) and every subsequent apt-get in the guest
-  # (test-workload, VS Code, .NET SDK, k8s packages, etc.) flow through it.
+  # apt.proxy (scoped — not top-level `proxy:`) routes only apt/apt-get
+  # through the local squid-cache when one is running. Scope matters: the
+  # top-level `proxy:` also exports http_proxy/https_proxy into late-
+  # commands' env, which previously broke late-command `wget https://...`
+  # calls against proxies that refused CONNECT. apt-scoped proxy avoids
+  # that. The block is injected by New-VM.ps1 only when a squid-cache VM
+  # is reachable at creation time; otherwise it stays absent and subiquity
+  # fetches packages direct from Ubuntu mirrors.
+  #
+  # Why this matters for kernel install specifically: subiquity's
+  # `apt-get --download-only linux-generic-hwe-24.04` step ran before any
+  # of our late-commands, so under the old apt-cacher-ng setup those
+  # packages went direct — and security.ubuntu.com's 429 rate limit
+  # periodically failed the install (especially on macOS UTM, where every
+  # VM shares the host's public IP behind Apple Virtualization's Shared
+  # NAT and trips the CDN limit faster than Hyper-V). apt.proxy is applied
+  # before the kernel step, so those downloads now flow through squid and
+  # are cacheable across subsequent installs.
+APT_PROXY_BLOCK_PLACEHOLDER
   locale: en_US.UTF-8
   keyboard:
     layout: us
@@ -49,16 +57,20 @@ autoinstall:
       - openssh-server
   late-commands:
     # --- Apt cache: persist proxy into the installed system ---
-    # The installed system has no apt proxy unless we write one here.
-    # New-VM.ps1 substitutes APT_CACHE_URL_PLACEHOLDER with either the
-    # detected URL (e.g. http://192.168.64.x:3142) or the empty string. On
-    # empty, [ -n "" ] is false and the file is not created — so "no cache"
-    # behaves exactly as before. On hit, every post-install apt-get in the
-    # guest (cloud-init's first-boot openssh-server install, test-workload,
-    # VS Code, .NET SDK, Kubernetes packages, etc.) flows through the cache.
+    # Belt-and-suspenders with autoinstall.apt.proxy: subiquity already
+    # writes an apt proxy config into the target when apt.proxy is set,
+    # but we explicitly write 99yuruna-apt-cache so (a) the file name is
+    # predictable for debugging, and (b) behavior is unchanged if
+    # subiquity's apt-persistence logic ever drifts.
+    # New-VM.ps1 substitutes PROXY_URL_PLACEHOLDER with either the
+    # detected URL (e.g. http://192.168.64.x:3128) or the empty string. On
+    # empty, [ -n "" ] is false and the file is not created. On hit, every
+    # post-install apt-get in the guest (cloud-init's first-boot
+    # openssh-server install, test-workload, VS Code, .NET SDK, Kubernetes
+    # packages, etc.) flows through the cache.
     - |
-      if [ -n "APT_CACHE_URL_PLACEHOLDER" ]; then
-        echo 'Acquire::http::Proxy "APT_CACHE_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+      if [ -n "PROXY_URL_PLACEHOLDER" ]; then
+        echo 'Acquire::http::Proxy "PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
       fi
     # --- Security: user account ---

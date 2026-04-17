@@ -142,26 +142,29 @@ profile and surface any first-run dialogs:
 Start-Process virtmgmt.msc
 ```
 
-## 11) Optional: Set up the local apt cache VM
+## 11) Optional: Set up the local HTTP cache VM (squid)
 
 Each Ubuntu Desktop install downloads ~900 MB of packages from
 Ubuntu's CDN. When the test harness runs cycles back-to-back, the
 CDN may rate-limit requests (HTTP 429), causing the install to fail.
-A local `apt-cacher-ng` VM caches everything after the first
-download, cutting subsequent installs to ~2 minutes and eliminating
-rate-limit failures.
+A local **squid** VM caches every HTTP response — including the
+installer's own kernel and linux-firmware fetches — so subsequent
+installs drop to ~2 minutes and rate-limit failures stop entirely.
+(Squid replaces the older apt-cacher-ng cache, which only cached
+.deb URLs and missed the pre-install kernel step where the 429
+originated.)
 
 This step is optional — skip it if you prefer direct CDN downloads.
 
 ```powershell
-cd $HOME\git\yuruna\vde\host.windows.hyper-v\guest.apt-cache
-pwsh .\Get-Image.ps1    # downloads Ubuntu Server cloud image
+cd $HOME\git\yuruna\vde\host.windows.hyper-v\guest.squid-cache
+pwsh .\Get-Image.ps1     # downloads Ubuntu Server cloud image
 pwsh .\New-VM.ps1        # creates + starts the cache VM
 ```
 
 The Ubuntu Desktop `New-VM.ps1` detects the running cache VM
 automatically. See
-[guest.apt-cache/README.md](guest.apt-cache/README.md) for details.
+[guest.squid-cache/README.md](guest.squid-cache/README.md) for details.
 
 ## 12) Run the Test Harness
 

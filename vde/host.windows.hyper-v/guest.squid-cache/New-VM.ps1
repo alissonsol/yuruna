@@ -1,6 +1,6 @@
 ﻿<#PSScriptInfo
 .VERSION 0.1
-.GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f7
+.GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
@@ -18,23 +18,25 @@
 
 <#
 .SYNOPSIS
-    Creates (or recreates) the apt-cacher-ng cache VM on Hyper-V.
+    Creates (or recreates) the squid HTTP-caching proxy VM on Hyper-V.
 
 .DESCRIPTION
-    Builds a lightweight Ubuntu Server cloud-image VM that runs apt-cacher-ng
-    on port 3142. Guest VMs that set their apt proxy to this VM's IP will
-    download each .deb only once; subsequent installs are served from the
-    local cache.
+    Builds a lightweight Ubuntu Server cloud-image VM that runs Squid on
+    port 3128. Guest VMs that set their HTTP proxy to this VM's IP will
+    transparently cache every cacheable HTTP response — including the
+    .deb packages the Ubuntu installer fetches during its kernel install
+    step, which was previously uncached and caused intermittent 429
+    failures from security.ubuntu.com.
 
-    The VM is named "apt-cache" by default. Run Get-Image.ps1 first to
+    The VM is named "squid-cache" by default. Run Get-Image.ps1 first to
     download the base cloud image.
 
     After creation the script starts the VM, waits for cloud-init to finish
-    and apt-cacher-ng to listen on port 3142, then prints the IP address
-    that guest VMs should use as their apt proxy.
+    and squid to listen on port 3128, then prints the proxy URL that guest
+    VMs should use.
 
 .PARAMETER VMName
-    Name of the Hyper-V VM. Default: apt-cache
+    Name of the Hyper-V VM. Default: squid-cache
 
 .EXAMPLE
     .\Get-Image.ps1
@@ -43,7 +45,7 @@
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "apt-cache"
+    [string]$VMName = "squid-cache"
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -87,7 +89,7 @@ if ($existingVM) {
 
 # === Locate base image ===
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
-$baseImageName = "host.windows.hyper-v.guest.apt-cache"
+$baseImageName = "host.windows.hyper-v.guest.squid-cache"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
 
 if (!(Test-Path -Path $baseImageFile)) {
@@ -111,20 +113,32 @@ if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $vmConfigDir "meta-data") -Destination "$SeedDir/meta-data"
-Copy-Item -Path (Join-Path $vmConfigDir "user-data") -Destination "$SeedDir/user-data"
+
+# Load the yuruna test-harness SSH public key — same module the Ubuntu
+# Desktop guest uses, so one keypair grants passwordless access to every
+# VM in the yuruna environment (including this cache VM, for debugging
+# when squid or cloud-init misbehave).
+$TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
+Import-Module $TestSshModule -Force
+$SshAuthorizedKey = Get-YurunaSshPublicKey
+if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+
+# Substitute the SSH key placeholder in user-data. `.Replace()` (literal)
+# rather than -replace (regex) because the key contains characters regex
+# would interpret (though ssh-rsa base64 usually doesn't, cheap insurance).
+$UserData = (Get-Content -Raw (Join-Path $vmConfigDir "user-data")).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey)
+Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Output "Generating seed.iso with cloud-init configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
 # === Create and configure Hyper-V VM ===
-# 2 GB RAM, 4 vCPU — sized for parallel apt-cacher-ng streams.
-# subiquity opens 4-8 concurrent .deb downloads per guest install; with
-# 1 vCPU + 512 MB the cache became a bottleneck (it had to receive,
-# disk-write, and forward simultaneously on a single core), making
-# proxied installs slower than direct downloads. 4 cores cover the
-# parallel streams; 2 GB gives apt-cacher-ng enough page cache to keep
-# hot .deb files in memory between back-to-back guest installs.
+# 2 GB RAM, 4 vCPU — sized for parallel squid streams. subiquity opens 4-8
+# concurrent .deb downloads per guest install; with 1 vCPU + 512 MB the
+# previous apt-cacher-ng cache became a bottleneck (receive + disk-write +
+# forward on a single core). Same sizing applies to squid: receive + cache
+# store + forward is similar per-stream work.
 Write-Output "Creating new VM '$VMName'..."
 New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName "Default Switch" -VHDPath $vhdxFile | Out-Null
 Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaximumBytes 2GB -AutomaticCheckpointsEnabled $false | Out-Null
@@ -136,12 +150,12 @@ Set-VMProcessor -VMName $VMName -Count 4 | Out-Null
 # === Cleanup temporary folders ===
 Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
 
-# === Start VM and wait for apt-cacher-ng ===
+# === Start VM and wait for squid ===
 Write-Output "Starting VM '$VMName'..."
 Start-VM -Name $VMName
 
 Write-Output "Waiting for VM to obtain an IP address..."
-Write-Output "  (first boot runs cloud-init: apt update + install apt-cacher-ng + hyperv-daemons;"
+Write-Output "  (first boot runs cloud-init: apt update + install squid + hyperv-daemons;"
 Write-Output "   this can take 5-15 minutes on a slow connection — be patient)"
 
 # Discover the cache VM's IP. Two strategies, checked each iteration:
@@ -150,10 +164,6 @@ Write-Output "   this can take 5-15 minutes on a slow connection — be patient)
 #   2. Hyper-V KVP via Get-VMNetworkAdapter — requires hv_kvp_daemon inside
 #      the guest, which only runs after cloud-init finishes installing
 #      hyperv-daemons. Kept as a confirmation path.
-#
-# The previous subnet-scan strategy assumed a hardcoded /28 (host.2–.14)
-# but the Default Switch is actually a /20 (~4094 hosts) on Windows 11, so
-# any DHCP lease outside the first 14 addresses was never found.
 $cacheIp = $null
 $maxIterations = 240  # 240 * 5s = 20 minutes
 
@@ -177,7 +187,7 @@ $vmMacLogged = $false
 # Re-enable Write-Progress for the wait loop (the script-level default is
 # SilentlyContinue so web-download progress doesn't spam non-interactive shells).
 $ProgressPreference = 'Continue'
-$activity  = "Waiting for '$VMName' cloud-init (apt-cacher-ng install)"
+$activity  = "Waiting for '$VMName' cloud-init (squid install)"
 $startTime = Get-Date
 $baselineSizeMB = [math]::Round((Get-Item $vhdxFile).Length / 1MB, 0)
 
@@ -235,21 +245,44 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
 Write-Progress -Activity $activity -Completed
 
 if (-not $cacheIp) {
-    Write-Warning "Could not determine IP for '$VMName' after 20 minutes."
-    Write-Warning "The VM is running — connect a console via Hyper-V Manager and check:"
-    Write-Warning "  - 'ip a' inside the guest shows a DHCP address"
-    Write-Warning "  - 'systemctl status apt-cacher-ng' reports active"
-    Write-Warning "  - 'systemctl status hv-kvp-daemon' reports active"
-    Write-Warning "If cloud-init is still running (check 'cloud-init status'), wait longer."
-    Write-Output "VM '$VMName' created."
-    exit 0
+    Write-Error @"
+squid-cache VM '$VMName' did not obtain an IP address within 20 minutes.
+
+The VM is running but never showed up in the Default Switch ARP cache
+and never reported an IP via Hyper-V KVP. Exiting with failure so
+guest installs won't silently fall back to direct CDN access and 429.
+
+Accessing the VM for debugging:
+  * Console:  vmconnect localhost $VMName
+              login: ubuntu    password: password
+              (cloud-init sets this; password does NOT expire, so you
+               can keep using it for repeat debugging sessions)
+  * SSH:      not available until the VM has a reachable IP — that's
+              what failed here, so console is the only path.
+
+Diagnostic steps inside the VM:
+  1. Check network:          ip -br a   # should show eth0 with an IPv4
+  2. Check cloud-init:       cloud-init status --long
+  3. Check squid:            systemctl status squid
+  4. Check KVP daemon:       systemctl status hv-kvp-daemon
+  5. View cloud-init logs:   sudo journalctl -u cloud-init -n 200
+
+If cloud-init is still running (package install is slow or the mirror
+is throttled), re-run .\New-VM.ps1 after it finishes — the script is
+idempotent and will rebuild the VM cleanly.
+"@
+    exit 1
 }
 
 Write-Output "Cache VM IP: $cacheIp"
-Write-Output "Waiting for apt-cacher-ng to listen on port 3142..."
+Write-Output "Waiting for squid to listen on port 3128 (up to 15 minutes)..."
+Write-Output "  (cloud-init installs squid + apache2 + squid-cgi, then pre-warms"
+Write-Output "   the cache by pulling linux-firmware through the local proxy —"
+Write-Output "   squid binds :3128 before pre-warm starts, so port response"
+Write-Output "   usually happens 3-5 minutes in on a responsive mirror.)"
 
-$portActivity = "Waiting for apt-cacher-ng on ${cacheIp}:3142"
-$portMaxIterations = 60  # 60 * 5s = 5 minutes
+$portActivity = "Waiting for squid on ${cacheIp}:3128"
+$portMaxIterations = 180  # 180 * 5s = 15 minutes — matches the cloud-init budget we advertise
 $portStartTime = Get-Date
 
 for ($i = 0; $i -lt $portMaxIterations; $i++) {
@@ -258,25 +291,31 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
     $tcp = New-Object System.Net.Sockets.TcpClient
     $connected = $false
     try {
-        $async = $tcp.BeginConnect($cacheIp, 3142, $null, $null)
+        $async = $tcp.BeginConnect($cacheIp, 3128, $null, $null)
         if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
             $connected = $true
         }
     } catch {
-        Write-Verbose "TCP probe to ${cacheIp}:3142 failed: $($_.Exception.Message)"
+        Write-Verbose "TCP probe to ${cacheIp}:3128 failed: $($_.Exception.Message)"
     }
     finally { $tcp.Close() }
 
     if ($connected) {
         Write-Progress -Activity $portActivity -Completed
         Write-Output ""
-        Write-Output "=== apt-cacher-ng is ready ==="
-        Write-Output "  VM:    $VMName"
-        Write-Output "  IP:    $cacheIp"
-        Write-Output "  Proxy: http://${cacheIp}:3142"
+        Write-Output "=== squid-cache is READY ==="
+        Write-Output "  VM:        $VMName"
+        Write-Output "  IP:        $cacheIp"
+        Write-Output "  Proxy:     http://${cacheIp}:3128"
+        Write-Output "  Monitor:   http://${cacheIp}/cgi-bin/cachemgr.cgi"
         Write-Output ""
-        Write-Output "Guest VMs will use this proxy automatically when"
-        Write-Output "the cache VM is running at New-VM time."
+        Write-Output "Pre-warm may still be running in the background (pulling"
+        Write-Output "linux-firmware and the HWE kernel meta through the local"
+        Write-Output "proxy). Confirm completion by opening the Monitor URL"
+        Write-Output "above → 'storedir' and checking cache occupancy > 0."
+        Write-Output ""
+        Write-Output "Guest VMs will auto-detect squid at port 3128 when their"
+        Write-Output "New-VM.ps1 runs. Keep the VM running across cycles."
         exit 0
     }
 
@@ -297,7 +336,44 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
 }
 
 Write-Progress -Activity $portActivity -Completed
-Write-Warning "apt-cacher-ng not responding on ${cacheIp}:3142 after 5 minutes."
-Write-Warning "Cloud-init may still be running. Check the VM console (vmconnect localhost $VMName)."
-Write-Warning "Inside the guest, run: cloud-init status --long ; systemctl status apt-cacher-ng"
-Write-Output "VM '$VMName' created and running at $cacheIp."
+Write-Error @"
+squid did not start listening on ${cacheIp}:3128 within 15 minutes.
+
+The VM is running and has an IP, but port 3128 never accepted a TCP
+connection. Exiting with failure so subsequent guest installs can't
+silently fall back to direct CDN access and hit 429 rate limits.
+
+Accessing the VM for debugging:
+  * Console:  vmconnect localhost $VMName
+              login: ubuntu    password: password
+              (cloud-init sets this; does NOT expire after first use)
+  * SSH:      ssh ubuntu@$cacheIp
+              (uses the yuruna harness key at test\.ssh\yuruna_ed25519 —
+               same key the Ubuntu Desktop guests use; passwordless)
+
+Diagnostic commands inside the VM:
+  # Is cloud-init still working through the package install?
+  cloud-init status --long
+
+  # Tail the cloud-init log — look for apt errors, timeouts, or a crash
+  # in the pre-warm loop:
+  sudo tail -n 200 /var/log/cloud-init-output.log
+
+  # Is squid installed and running?
+  systemctl status squid
+  ss -ltn 'sport = :3128'
+
+  # If squid is up but the host still can't reach it, check the guest firewall:
+  sudo ufw status
+  sudo iptables -L -n
+
+Common causes and fixes:
+  * Cloud-init was throttled downloading squid/apache2 itself → re-run
+    .\New-VM.ps1 (idempotent), or wait a few minutes and probe manually:
+      Test-NetConnection -Port 3128 -ComputerName $cacheIp
+  * squid -z (cache init) crashed → fix /etc/squid/conf.d/yuruna.conf,
+    then: sudo squid -z -N ; sudo systemctl restart squid
+  * The VM came up on an unexpected network → inspect 'ip -br a' inside
+    the guest and confirm it matches $cacheIp.
+"@
+exit 1

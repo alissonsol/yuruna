@@ -168,35 +168,136 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Detect the apt-cache VM and inject its proxy URL if available.
-# On macOS/UTM there is no Get-VM equivalent; check if the cache VM is
-# reachable on the host-local network by probing port 3142 on common
-# gateway addresses and any running UTM VM IPs.
-$AptCacheUrl = ""
-$cacheProbeAddresses = @()
-# UTM VMs typically get IPs in the 192.168.64.x range (Apple Virtualization shared network)
-for ($octet = 2; $octet -le 30; $octet++) { $cacheProbeAddresses += "192.168.64.$octet" }
-foreach ($ip in $cacheProbeAddresses) {
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    try {
-        $result = $tcp.BeginConnect($ip, 3142, $null, $null)
-        $success = $result.AsyncWaitHandle.WaitOne(200)  # 200ms timeout per IP
-        if ($success -and $tcp.Connected) {
-            $AptCacheUrl = "http://${ip}:3142"
-            Write-Output "  apt-cache VM detected at $AptCacheUrl — guest will use local proxy."
-            break
-        }
-    } catch {
-        Write-Verbose "apt-cache probe to ${ip}:3142 failed: $($_.Exception.Message)"
-    } finally {
-        $tcp.Close()
-    }
-}
-if (-not $AptCacheUrl) {
-    Write-Output "  No apt-cache VM detected on local network. Guest will download packages directly from Ubuntu mirrors."
+# Detect the squid-cache VM and inject its proxy URL if available.
+# On macOS/UTM there is no Get-VM equivalent; we use `utmctl status squid-cache`
+# to tell "VM doesn't exist" from "VM exists but port unreachable" — that
+# distinction drives severity (WARNING vs ERROR) below.
+#
+# Severity policy (to avoid silent fallback-to-429):
+#   * No squid-cache VM registered with UTM → WARNING, proceed (direct CDN)
+#   * VM registered but not started         → WARNING, proceed (direct CDN)
+#   * VM started but :3128 unreachable      → ERROR, exit 1 (don't guess;
+#                                              the cache owner should fix it
+#                                              before launching guest installs)
+$ProxyUrl = ""
+# Resolve utmctl. The brew cask install puts it on PATH; a plain UTM.app
+# install (Mac App Store or direct .dmg) does not, so fall back to the
+# canonical path inside the bundle. If neither exists, skip the utmctl
+# branch entirely and rely on the subnet-probe fallback below.
+$utmctl = (Get-Command utmctl -ErrorAction SilentlyContinue)?.Source
+if (-not $utmctl -and (Test-Path "/Applications/UTM.app/Contents/MacOS/utmctl")) {
+    $utmctl = "/Applications/UTM.app/Contents/MacOS/utmctl"
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_CACHE_URL_PLACEHOLDER', $AptCacheUrl)
+$squidStatus = $null
+if ($utmctl) {
+    try {
+        # utmctl prints e.g. 'started' / 'stopped' / 'paused' on stdout; errors go to stderr.
+        # A non-existent VM exits non-zero — we trap that as "not registered".
+        $squidStatus = (& $utmctl status squid-cache 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -ne 0) { $squidStatus = $null }
+    } catch {
+        Write-Verbose "utmctl status squid-cache failed: $($_.Exception.Message)"
+        $squidStatus = $null
+    }
+}
+
+$probePort3128 = {
+    param($ipToTest, $timeoutMs)
+    $tcp = New-Object System.Net.Sockets.TcpClient
+    $ok = $false
+    try {
+        $h = $tcp.BeginConnect($ipToTest, 3128, $null, $null)
+        if ($h.AsyncWaitHandle.WaitOne($timeoutMs) -and $tcp.Connected) { $ok = $true }
+    } catch {
+        Write-Verbose "squid-cache probe to ${ipToTest}:3128 failed: $($_.Exception.Message)"
+    } finally { $tcp.Close() }
+    return $ok
+}
+
+if ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
+    # VM exists and is started — port MUST respond, else ERROR.
+    $squidIp = (& $utmctl ip-address squid-cache 2>$null | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)
+    if ($squidIp) {
+        if (& $probePort3128 $squidIp.Trim() 1000) {
+            $ProxyUrl = "http://$($squidIp.Trim()):3128"
+            Write-Output "  squid-cache VM detected at $ProxyUrl — guest will use local proxy."
+        }
+    }
+    if (-not $ProxyUrl) {
+        Write-Error @"
+squid-cache VM is started but port 3128 is not reachable.
+  utmctl status squid-cache → $squidStatus
+  IP:                        $squidIp
+
+Aborting so this guest install doesn't silently fall back to direct
+CDN access and hit the 429 rate limiter (the exact failure squid-cache
+was supposed to prevent — especially bad on macOS/UTM where every
+guest shares the host's single public IP via Apple Virtualization's
+Shared NAT).
+
+Accessing the squid-cache VM for debugging:
+  * UTM window:  login 'ubuntu' / password 'password'
+                 (cloud-init sets this; does NOT expire after first use)
+  * SSH:         ssh ubuntu@$squidIp
+                 (uses the yuruna harness key at test/.ssh/yuruna_ed25519 —
+                  same key this Ubuntu Desktop guest uses; passwordless)
+
+Diagnostic commands inside the VM:
+  cloud-init status --long                         # still running?
+  sudo tail -n 200 /var/log/cloud-init-output.log
+  systemctl status squid
+  ss -ltn 'sport = :3128'
+
+If cloud-init is still running (can take 5-15 min on first boot), wait
+for it to finish and re-run this script. If squid is broken, rebuild:
+  vde/host.macos.utm/guest.squid-cache/New-VM.ps1
+
+To intentionally skip the cache for this install, stop it first:
+  utmctl stop squid-cache   (guest will then WARN and download direct).
+"@
+        exit 1
+    }
+} elseif ($squidStatus) {
+    # VM exists but isn't started — warn and fall through to direct CDN.
+    Write-Warning "  squid-cache VM exists (status: $squidStatus) but is not started. Guest will download directly (expect occasional 429s)."
+    Write-Warning "  To enable caching: utmctl start squid-cache ; then wait for cloud-init to finish."
+} else {
+    # No VM registered under that name — fall back to subnet probe for
+    # alternate setups (user might run a different cache VM name), then
+    # warn if nothing responds.
+    for ($octet = 2; $octet -le 30; $octet++) {
+        $candidate = "192.168.64.$octet"
+        if (& $probePort3128 $candidate 200) {
+            $ProxyUrl = "http://${candidate}:3128"
+            Write-Output "  squid-cache detected at $ProxyUrl (subnet probe fallback) — guest will use local proxy."
+            break
+        }
+    }
+    if (-not $ProxyUrl) {
+        if (-not $utmctl) {
+            Write-Warning "  utmctl not found (tried PATH and /Applications/UTM.app/Contents/MacOS/utmctl) — can't query UTM directly."
+            Write-Warning "  Subnet probe of 192.168.64.0/24:3128 also found nothing. Install UTM with 'brew install --cask utm' or add it to PATH."
+        } else {
+            Write-Warning "  No squid-cache VM registered with UTM and nothing listening on :3128 in 192.168.64.0/24."
+        }
+        Write-Warning "  Guest will download directly — expect 429 rate-limit failures on linux-firmware under load."
+        Write-Warning "  To enable caching, run: vde/host.macos.utm/guest.squid-cache/New-VM.ps1"
+    }
+}
+
+# Build the autoinstall apt-proxy block. When a cache is reachable, inject
+# a top-level `apt: proxy: http://...` under autoinstall so subiquity's own
+# in-installer apt-get calls (including the kernel/linux-firmware step that
+# 429'd against security.ubuntu.com) route through squid. When no cache,
+# omit the block entirely — subiquity then behaves exactly as before.
+if ($ProxyUrl) {
+    $AptProxyBlock = "  apt:`n    proxy: $ProxyUrl"
+} else {
+    $AptProxyBlock = ""
+}
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('PROXY_URL_PLACEHOLDER', $ProxyUrl)
 
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

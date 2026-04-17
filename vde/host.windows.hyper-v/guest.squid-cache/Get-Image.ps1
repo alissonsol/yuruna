@@ -1,6 +1,6 @@
 ﻿<#PSScriptInfo
 .VERSION 0.1
-.GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e56
+.GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e57
 .AUTHOR Alisson Sol
 .COPYRIGHT (c) 2026 Alisson Sol et al.
 .TAGS
@@ -26,7 +26,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # === Configuration ===
 $sourceUrl = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
-$baseImageName = "host.windows.hyper-v.guest.apt-cache"
+$baseImageName = "host.windows.hyper-v.guest.squid-cache"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
 
 Write-Output "Hyper-V default VHDX folder: $downloadDir"
@@ -96,7 +96,7 @@ try {
 if (-not $resized) {
     Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img."
     Write-Warning "The cache VM will have only ~3.5 GB of disk — enough for 1-2"
-    Write-Warning "Ubuntu Desktop installs before apt-cacher-ng fills it up."
+    Write-Warning "Ubuntu Desktop installs before squid fills it up."
     Write-Warning "Resize manually with: Resize-VHD -Path '$baseImageFile' -SizeBytes 50GB"
 }
 

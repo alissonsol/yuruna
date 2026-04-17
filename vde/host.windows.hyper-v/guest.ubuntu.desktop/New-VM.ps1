@@ -172,13 +172,21 @@ if (-not $cacheVM) {
         $vmMac = ($cacheVM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
         if ($hostAdapter -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
             $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
-            $neighbor = Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
+            # DO NOT take only the first neighbor entry. Hyper-V's Default
+            # Switch leaves stale entries in the Windows neighbor table as
+            # State='Permanent' when VMs are re-created: the SAME MAC can
+            # appear at two IPs (e.g. 172.25.181.179 from a prior incarnation
+            # AND 172.25.177.161 from the currently-running VM). Picking
+            # just one previously caused cache detection to hit the stale
+            # IP, fail the TCP probe on :3128, and silently fall back to
+            # direct CDN. Collect ALL matching IPs and let the probe loop
+            # below pick whichever one actually answers on 3128.
+            $cacheIps = @(Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
                 Where-Object {
                     $_.LinkLayerAddress -eq $vmMacDashed -and
                     $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
                     $_.State -ne 'Unreachable'
-                } | Select-Object -First 1
-            if ($neighbor) { $cacheIps = @($neighbor.IPAddress) }
+                } | ForEach-Object { $_.IPAddress })
         }
     }
 

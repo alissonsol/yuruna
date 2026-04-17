@@ -31,6 +31,9 @@ function Get-ImagePath {
         "host.macos.utm/guest.ubuntu.desktop" {
             return "$HOME/virtual/ubuntu.env/host.macos.utm.guest.ubuntu.desktop.iso"
         }
+        "host.macos.utm/guest.ubuntu.server" {
+            return "$HOME/virtual/ubuntu.env/host.macos.utm.guest.ubuntu.server.iso"
+        }
         "host.macos.utm/guest.windows.11" {
             return "$HOME/virtual/windows.env/host.macos.utm.guest.windows.11.iso"
         }
@@ -39,6 +42,7 @@ function Get-ImagePath {
             $fileNames = @{
                 "host.windows.hyper-v/guest.amazon.linux"    = "host.windows.hyper-v.guest.amazon.linux.vhdx"
                 "host.windows.hyper-v/guest.ubuntu.desktop"  = "host.windows.hyper-v.guest.ubuntu.desktop.iso"
+                "host.windows.hyper-v/guest.ubuntu.server"   = "host.windows.hyper-v.guest.ubuntu.server.iso"
                 "host.windows.hyper-v/guest.windows.11"      = "host.windows.hyper-v.guest.windows.11.iso"
             }
             $fileName = $fileNames["$HostType/$GuestKey"]

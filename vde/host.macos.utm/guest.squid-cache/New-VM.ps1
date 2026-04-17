@@ -97,7 +97,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # Copy the pre-built raw cloud image into the bundle as the boot disk.
 # Apple Virtualization.framework reads this directly; no conversion here —
-# Get-Image.ps1 already produced raw, resized to 50 GB.
+# Get-Image.ps1 already produced raw, resized to 144 GB.
 $DiskImage = "$DataDir/disk.img"
 Write-Output "Copying cloud image into bundle as disk.img (sparse copy on APFS)..."
 # `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back
@@ -183,10 +183,13 @@ $MachineIdBytes = [byte[]]::new(16)
 $rng.NextBytes($MachineIdBytes)
 $MachineIdentifier = [Convert]::ToBase64String($MachineIdBytes)
 
-# 2 GB RAM, 4 vCPU — same sizing the Hyper-V squid-cache uses. subiquity
+# 4 GB RAM, 4 vCPU — same sizing the Hyper-V squid-cache uses. subiquity
 # opens 4-8 concurrent .deb downloads per install; with 1 vCPU + 512 MB
 # the cache became a bottleneck under the old apt-cacher-ng, making
 # proxied installs slower than direct. 4 cores cover the parallel streams.
+# 4 GB (up from 2 GB) gives headroom for squid's larger in-memory index as
+# the on-disk cache grows to 128 GB — squid keeps one metadata entry per
+# cached object in RAM (~400 bytes each).
 $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VM_NAME__',            $VMName `
     -replace '__VM_UUID__',            $VmUuid `
@@ -197,7 +200,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
     -replace '__MACHINE_IDENTIFIER__', $MachineIdentifier `
     -replace '__CPU_COUNT__',          '4' `
-    -replace '__MEMORY_SIZE__',        '2048'
+    -replace '__MEMORY_SIZE__',        '4096'
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 

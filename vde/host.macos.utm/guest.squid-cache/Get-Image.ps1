@@ -55,14 +55,16 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Resize to 50 GB (sparse on APFS — apparent 50 GB, actual ~2.5 GB until used).
-Write-Output "Resizing raw image to 50GB..."
-& qemu-img resize -f raw $convertedFile 50G
+# Resize to 144 GB (sparse on APFS — apparent 144 GB, actual ~2.5 GB until
+# used). Sized to fit squid's 128 GB cache_dir plus ~16 GB of OS/logs/swap
+# headroom — see vmconfig/user-data `cache_dir ufs /var/spool/squid 131072`.
+Write-Output "Resizing raw image to 144GB..."
+& qemu-img resize -f raw $convertedFile 144G
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "qemu-img resize failed — continuing with original size."
     Write-Warning "The cache VM will only have the base cloud-image capacity (~2.5 GB)"
     Write-Warning "which fills up after 1-2 installs. Resize manually with:"
-    Write-Warning "  qemu-img resize -f raw '$baseImageFile' 50G"
+    Write-Warning "  qemu-img resize -f raw '$baseImageFile' 144G"
 }
 
 # === Preserve previous and finalize ===

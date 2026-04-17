@@ -73,7 +73,7 @@
 			<false/>
 		</dict>
 	</array>
-	<!-- Two drives: the 50 GB raw cloud image (bootable) and the
+	<!-- Two drives: the 144 GB raw cloud image (bootable) and the
 	     cidata seed ISO (read-only, consumed by cloud-init on first boot). -->
 	<key>Drive</key>
 	<array>

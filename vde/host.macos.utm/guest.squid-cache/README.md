@@ -29,13 +29,14 @@ pwsh ./New-VM.ps1
 
 `Get-Image.ps1` downloads the Ubuntu Server Noble cloud image
 (arm64, qcow2), converts it to raw via `qemu-img convert`, and resizes
-it to 50 GB for cache storage. The raw format is required by Apple
+it to 144 GB for cache storage (128 GB squid cache + OS headroom).
+The raw format is required by Apple
 Virtualization.framework.
 
 `New-VM.ps1` assembles a UTM bundle at
 `~/Desktop/Yuruna.VDE/<hostname>.nosync/squid-cache.utm/` containing:
 
-- `config.plist` (Apple Virtualization backend, 2 GB RAM / 4 vCPU)
+- `config.plist` (Apple Virtualization backend, 4 GB RAM / 4 vCPU)
 - `Data/efi_vars.fd` (created via the Virtualization.framework Swift API)
 - `Data/disk.img` (APFS-clone of the pre-built raw cloud image)
 - `Data/seed.iso` (cloud-init metadata + user-data, produced via `hdiutil`)

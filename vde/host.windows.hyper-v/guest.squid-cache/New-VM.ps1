@@ -154,14 +154,17 @@ Write-Output "Generating seed.iso with cloud-init configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
 # === Create and configure Hyper-V VM ===
-# 2 GB RAM, 4 vCPU — sized for parallel squid streams. subiquity opens 4-8
+# 4 GB RAM, 4 vCPU — sized for parallel squid streams. subiquity opens 4-8
 # concurrent .deb downloads per guest install; with 1 vCPU + 512 MB the
 # previous apt-cacher-ng cache became a bottleneck (receive + disk-write +
 # forward on a single core). Same sizing applies to squid: receive + cache
-# store + forward is similar per-stream work.
+# store + forward is similar per-stream work. 4 GB (up from 2 GB) gives
+# headroom for squid's larger in-memory index as the on-disk cache grows
+# to 128 GB — squid keeps one metadata entry per cached object in RAM
+# (~400 bytes each).
 Write-Output "Creating new VM '$VMName'..."
-New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName "Default Switch" -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaximumBytes 2GB -AutomaticCheckpointsEnabled $false | Out-Null
+New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 4GB -SwitchName "Default Switch" -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMinimumBytes 4GB -MemoryMaximumBytes 4GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null

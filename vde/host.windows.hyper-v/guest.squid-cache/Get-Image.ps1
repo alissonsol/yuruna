@@ -79,25 +79,26 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Resize to 50GB for cache storage. Prefer Hyper-V's native Resize-VHD:
+# Resize to 144 GB for cache storage (128 GB squid cache_dir + ~16 GB
+# OS/logs headroom). Prefer Hyper-V's native Resize-VHD:
 # qemu-img reports "This image does not support resize" for VHDX files it
 # creates, even with subformat=dynamic. Resize-VHD handles VHDX correctly.
-Write-Output "Resizing VHDX to 50GB..."
+Write-Output "Resizing VHDX to 144GB..."
 $resized = $false
 try {
-    Resize-VHD -Path $convertedFile -SizeBytes 50GB -ErrorAction Stop
+    Resize-VHD -Path $convertedFile -SizeBytes 144GB -ErrorAction Stop
     $resized = $true
 } catch {
     Write-Warning "Resize-VHD failed: $($_.Exception.Message)"
     Write-Output "  Falling back to qemu-img resize..."
-    & $qemuImg resize $convertedFile 50G
+    & $qemuImg resize $convertedFile 144G
     if ($LASTEXITCODE -eq 0) { $resized = $true }
 }
 if (-not $resized) {
     Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img."
     Write-Warning "The cache VM will have only ~3.5 GB of disk — enough for 1-2"
     Write-Warning "Ubuntu Desktop installs before squid fills it up."
-    Write-Warning "Resize manually with: Resize-VHD -Path '$baseImageFile' -SizeBytes 50GB"
+    Write-Warning "Resize manually with: Resize-VHD -Path '$baseImageFile' -SizeBytes 144GB"
 }
 
 # === Preserve previous and finalize ===

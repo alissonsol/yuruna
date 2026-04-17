@@ -99,10 +99,11 @@ write_files:
       acl yuruna_local src 192.168.0.0/16
       http_access allow yuruna_local
 
-      # Disk cache sized for a 50 GB VHDX. ufs is the simplest store format
-      # and fine for a single-host dev cache; switch to aufs/diskd only if
-      # we see squid blocking on disk I/O under concurrent installs.
-      cache_dir ufs /var/spool/squid 40000 16 256
+      # Disk cache sized for a 144 GB VHDX: 128 GB for squid + ~16 GB
+      # OS/logs headroom. ufs is the simplest store format and fine for a
+      # single-host dev cache; switch to aufs/diskd only if we see squid
+      # blocking on disk I/O under concurrent installs.
+      cache_dir ufs /var/spool/squid 131072 16 256
       maximum_object_size 4 GB
       maximum_object_size_in_memory 32 MB
       cache_mem 512 MB

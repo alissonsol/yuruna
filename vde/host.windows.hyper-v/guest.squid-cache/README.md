@@ -6,7 +6,8 @@ installations.
 ## What it does
 
 Runs [Squid](https://www.squid-cache.org/) inside a lightweight Ubuntu
-Server VM (2 GB RAM, 4 vCPU, 50 GB disk). The VM listens on port 3128
+Server VM (4 GB RAM, 4 vCPU, 144 GB disk — 128 GB of which is squid's
+on-disk cache). The VM listens on port 3128
 and transparently caches every cacheable HTTP response that flows
 through it — `.deb` packages, ISO metadata files, firmware blobs, and
 anything else the installer (or the workload running inside the guest)
@@ -40,8 +41,8 @@ pwsh .\New-VM.ps1
 ```
 
 `Get-Image.ps1` downloads the Ubuntu Server Noble cloud image (amd64),
-converts it from qcow2 to VHDX via `qemu-img`, and resizes it to 50 GB
-for cache storage.
+converts it from qcow2 to VHDX via `qemu-img`, and resizes it to 144 GB
+for cache storage (128 GB squid cache + OS headroom).
 
 `New-VM.ps1` creates a Hyper-V Gen 2 VM named `squid-cache` on the
 Default Switch, attaches a cloud-init seed ISO that installs and

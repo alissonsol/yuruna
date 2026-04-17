@@ -1,14 +1,29 @@
 #cloud-config
 autoinstall:
   version: 1
-  # apt.proxy (scoped — not top-level `proxy:`) routes only apt/apt-get
-  # through the local squid-cache when one is running. Scope matters: the
-  # top-level `proxy:` also exports http_proxy/https_proxy into late-
-  # commands' env, which previously broke late-command `wget https://...`
-  # calls against proxies that refused CONNECT. apt-scoped proxy avoids
-  # that. The block is injected by New-VM.ps1 only when a squid-cache VM
-  # is reachable at creation time; otherwise it stays absent and subiquity
-  # fetches packages direct from Ubuntu mirrors.
+  # When a squid-cache VM is reachable, New-VM.ps1 expands
+  # APT_PROXY_BLOCK_PLACEHOLDER below into:
+  #   apt:
+  #     geoip: false
+  #     primary: [{arches: [default], uri: http://ports.ubuntu.com/ubuntu-ports}]
+  #     proxy: http://<squid>:3128
+  # Rationale for the full block (vs. just `proxy:`):
+  #   * proxy   — route apt through squid. (Subiquity also exports this as
+  #               http_proxy/https_proxy globally; see proxy.py:43-44.)
+  #   * primary — pin the arm64 mirror. Apple Silicon UTM is arm64, so
+  #               ports.ubuntu.com is the correct repo. Without this,
+  #               subiquity geoip-elects archive.ubuntu.com (amd64) which
+  #               404s through the proxy and drives mirror.py's retry loop.
+  #   * geoip   — false. The HTTPS geoip.ubuntu.com lookup otherwise goes
+  #               through squid and can stall on CONNECT, keeping the
+  #               retry loop alive.
+  # The retry loop is what causes the console spam
+  #   "start/finish: subiquity/Network/_send_update: CHANGE enp0s1"
+  # — each mirror retry's netplan re-apply fires RTM_NEWLINK events that
+  # subiquity's update_link → _send_update consumes. Pinning primary +
+  # disabling geoip makes election succeed on the first try and the loop
+  # exits. Without a reachable cache the whole block stays empty and
+  # subiquity fetches direct from Ubuntu mirrors.
   #
   # Why the Server ISO instead of the Desktop ISO: the Desktop 24.04 arm64
   # ISO's base image ships /etc/apt/sources.list.d/ubuntu.sources with a
@@ -21,26 +36,6 @@ autoinstall:
   # autoinstall.packages list below — subiquity fetches it through the
   # squid-cache during install, so the first boot lands straight in GDM.
 APT_PROXY_BLOCK_PLACEHOLDER
-  # Pin the NIC to IPv4-only DHCP and disable IPv6 RA acceptance. On Apple
-  # Virtualization's Shared-NAT, the virtio-net interface (enp0s1) receives
-  # unsolicited IPv6 Router Advertisements that fire RTM_NEWLINK events.
-  # Combined with subiquity's network-readiness re-probe when apt.proxy is
-  # set, the CHANGELINK events drive subiquity's Network/_send_update into
-  # a self-sustaining loop (visible on the console as repeating
-  # "start/finish: subiquity/Network/_send_update: CHANGE enp0s1" lines).
-  # Wildcard match so the rule still applies if the kernel names the NIC
-  # differently (eth0 under net.ifnames=0, ens*, etc.).
-  network:
-    version: 2
-    ethernets:
-      "en*":
-        dhcp4: true
-        dhcp6: false
-        accept-ra: false
-      "eth*":
-        dhcp4: true
-        dhcp6: false
-        accept-ra: false
   locale: en_US.UTF-8
   keyboard:
     layout: us

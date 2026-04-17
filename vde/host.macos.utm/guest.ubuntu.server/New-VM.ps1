@@ -288,11 +288,31 @@ To intentionally skip the cache:
     }
 }
 
-# Build the autoinstall apt-proxy block. When a cache is reachable, inject
-# `apt: proxy: http://...` under autoinstall so subiquity + first-boot
-# apt-get all route through squid.
+# Build the autoinstall apt block. When a cache is reachable we inject:
+#   * proxy:   route apt (and, unavoidably, http_proxy/https_proxy) via squid
+#   * primary: pin the arm64 mirror to ports.ubuntu.com so subiquity doesn't
+#              elect archive.ubuntu.com (the amd64 default) and 404 behind
+#              the proxy. Apple Silicon UTM is arm64-only for this image.
+#   * geoip:   false — skips the HTTPS geoip.ubuntu.com lookup that otherwise
+#              goes through squid (http_proxy is exported globally when
+#              apt.proxy is set: subiquity/server/controllers/proxy.py:43-44)
+#              and can stall on the squid CONNECT path, keeping subiquity's
+#              mirror-election retry loop (mirror.py:200-227) alive.
+#
+# The retry loop is the actual driver of the "subiquity/Network/_send_update
+# CHANGE enp0s1" console spam — each retry's netplan re-apply fires
+# RTM_NEWLINK events that subiquity consumes in update_link → _send_update.
+# Pinning primary + disabling geoip makes the mirror election succeed on
+# the first try, so the loop exits quickly.
 if ($ProxyUrl) {
-    $AptProxyBlock = "  apt:`n    proxy: $ProxyUrl"
+    $AptProxyBlock = @"
+  apt:
+    geoip: false
+    primary:
+      - arches: [default]
+        uri: http://ports.ubuntu.com/ubuntu-ports
+    proxy: $ProxyUrl
+"@
 } else {
     $AptProxyBlock = ""
 }

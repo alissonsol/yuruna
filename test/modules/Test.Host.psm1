@@ -156,23 +156,49 @@ function Assert-ScreenLock {
         Write-Debug "pmset check failed: $_"
     }
 
-    # 2. Screen saver idle time (defaults read com.apple.screensaver idleTime)
-    #    0 = disabled (good).  Missing key also means disabled.
+    # 2. Screen saver idle time (defaults read com.apple.screensaver idleTime).
+    #    0 = disabled (good). A MISSING key is NOT safe — macOS falls back
+    #    to a built-in default (~1200s), which is what lets the screensaver
+    #    engage after 20 minutes despite the script reporting "already
+    #    disabled". Flag both missing AND non-zero as issues. Check the
+    #    per-host domain too; either being unsafe is enough for the saver
+    #    to engage.
     try {
-        $idleTime = & defaults read com.apple.screensaver idleTime 2>$null
-        if ($LASTEXITCODE -eq 0 -and "$idleTime".Trim() -ne "0") {
-            $issues += "Screen saver activates after $($idleTime.Trim()) second(s)."
+        $idleTime     = & defaults read              com.apple.screensaver idleTime 2>$null
+        $idleTimeHead = $LASTEXITCODE
+        $idleTimeHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
+        $idleTimeHostHead = $LASTEXITCODE
+        if ($idleTimeHead -ne 0) {
+            $issues += "Screen saver idleTime is unset (user domain) — macOS default applies (~20 min)."
+        } elseif ("$idleTime".Trim() -ne "0") {
+            $issues += "Screen saver activates after $($idleTime.Trim()) second(s) (user domain)."
+        }
+        if ($idleTimeHostHead -ne 0) {
+            $issues += "Screen saver idleTime is unset (currentHost) — macOS default applies (~20 min)."
+        } elseif ("$idleTimeHost".Trim() -ne "0") {
+            $issues += "Screen saver activates after $($idleTimeHost.Trim()) second(s) (currentHost)."
         }
     } catch {
         Write-Debug "Screen saver check failed: $_"
     }
 
-    # 3. Screen lock on sleep / screen saver (macOS Ventura+: sysadminctl)
-    #    Fallback: defaults read com.apple.screensaver askForPassword
+    # 3. Password requirement after screen saver (com.apple.screensaver
+    #    askForPassword). Missing key on some macOS versions defaults to
+    #    1 (on) — flag both missing AND explicit 1. Check both domains.
     try {
-        $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
-        if ($LASTEXITCODE -eq 0 -and "$askPw".Trim() -eq "1") {
-            $issues += "Screen lock (password after screen saver) is enabled."
+        $askPw     = & defaults read              com.apple.screensaver askForPassword 2>$null
+        $askPwHead = $LASTEXITCODE
+        $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
+        $askPwHostHead = $LASTEXITCODE
+        if ($askPwHead -ne 0) {
+            $issues += "Screen lock askForPassword is unset (user domain) — macOS default may be 1."
+        } elseif ("$askPw".Trim() -eq "1") {
+            $issues += "Screen lock (password after screen saver) is enabled (user domain)."
+        }
+        if ($askPwHostHead -ne 0) {
+            $issues += "Screen lock askForPassword is unset (currentHost) — macOS default may be 1."
+        } elseif ("$askPwHost".Trim() -eq "1") {
+            $issues += "Screen lock (password after screen saver) is enabled (currentHost)."
         }
     } catch {
         Write-Debug "Screen lock password check failed: $_"
@@ -311,58 +337,75 @@ function Set-MacHostConditionSet {
     }
 
     # ── 2. Screen saver idle time → 0 (disabled) ─────────────────────────
+    # A MISSING idleTime key is NOT the same as 0: macOS falls back to a
+    # built-in non-zero default (~1200s). The old
+    # `LASTEXITCODE -eq 0 -and value -ne "0"` check skipped the write when
+    # the key was absent and printed "already disabled", letting the
+    # screensaver engage after ~20min despite the script appearing to
+    # succeed. Skip the write only when the key EXISTS and is exactly "0";
+    # every other case (missing, empty, any other number) triggers an
+    # explicit write.
     $ssIdle = & defaults read com.apple.screensaver idleTime 2>$null
-    $ssIsActive = ($LASTEXITCODE -eq 0 -and "$ssIdle".Trim() -ne "0")
-
-    if ($ssIsActive) {
-        if ($PSCmdlet.ShouldProcess("Screen saver idle time (currently $($ssIdle.Trim())s)", "Set to 0 (disabled)")) {
-            Write-Output "Disabling screen saver idle activation..."
+    $ssIdleRead = ($LASTEXITCODE -eq 0)
+    if ($ssIdleRead -and "$ssIdle".Trim() -eq "0") {
+        Write-Output "Screen saver idle activation is already disabled."
+    } else {
+        $label = if (-not $ssIdleRead) { 'unset — macOS default applies' } else { "$($ssIdle.Trim())s" }
+        if ($PSCmdlet.ShouldProcess("Screen saver idle time (currently $label)", "Set to 0 (disabled)")) {
+            Write-Output "Disabling screen saver idle activation (was $label)..."
             & defaults write com.apple.screensaver idleTime -int 0
             $changed = $true
         }
-    } else {
-        Write-Output "Screen saver idle activation is already disabled."
     }
 
     # ── 3. Screen lock (password after screen saver) → OFF ───────────────
+    # Same "missing key != safe" reasoning as §2: on some macOS versions
+    # the built-in default for askForPassword is 1, not 0. Write 0 unless
+    # the key is explicitly set to "0".
     $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
-    $lockOn = ($LASTEXITCODE -eq 0 -and "$askPw".Trim() -eq "1")
-
-    if ($lockOn) {
-        if ($PSCmdlet.ShouldProcess("Screen lock password", "Disable (askForPassword → 0)")) {
-            Write-Output "Disabling screen lock password requirement..."
+    $askPwRead = ($LASTEXITCODE -eq 0)
+    if ($askPwRead -and "$askPw".Trim() -eq "0") {
+        Write-Output "Screen lock password is already disabled."
+    } else {
+        $label = if (-not $askPwRead) { 'unset — macOS default applies' } else { "$($askPw.Trim())" }
+        if ($PSCmdlet.ShouldProcess("Screen lock password (currently $label)", "Disable (askForPassword → 0)")) {
+            Write-Output "Disabling screen lock password requirement (was $label)..."
             & defaults write com.apple.screensaver askForPassword -int 0
             $changed = $true
         }
-    } else {
-        Write-Output "Screen lock password is already disabled."
     }
 
     # ── 2b. Screen saver idle — per-host variant (Ventura+) ──────────────
     # Modern macOS stores screensaver prefs under the ByHost domain. Without
     # this, the System Settings UI still shows a non-zero idle time even after
     # section 2 above, and the screen saver will still kick in.
+    # Same missing-key-is-unsafe logic as §2.
     $ssIdleHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
-    if ($LASTEXITCODE -eq 0 -and "$ssIdleHost".Trim() -ne "0") {
-        if ($PSCmdlet.ShouldProcess("Screen saver idle time [currentHost] (currently $($ssIdleHost.Trim())s)", "Set to 0 (disabled)")) {
-            Write-Output "Disabling screen saver idle activation (currentHost)..."
+    $ssIdleHostRead = ($LASTEXITCODE -eq 0)
+    if ($ssIdleHostRead -and "$ssIdleHost".Trim() -eq "0") {
+        Write-Output "Screen saver idle activation (currentHost) is already disabled."
+    } else {
+        $label = if (-not $ssIdleHostRead) { 'unset — macOS default applies' } else { "$($ssIdleHost.Trim())s" }
+        if ($PSCmdlet.ShouldProcess("Screen saver idle time [currentHost] (currently $label)", "Set to 0 (disabled)")) {
+            Write-Output "Disabling screen saver idle activation, currentHost (was $label)..."
             & defaults -currentHost write com.apple.screensaver idleTime -int 0
             $changed = $true
         }
-    } else {
-        Write-Output "Screen saver idle activation (currentHost) is already disabled."
     }
 
     # ── 3b. Screen lock password — per-host variant ─────────────────────
+    # Same missing-key-is-unsafe logic as §3.
     $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
-    if ($LASTEXITCODE -eq 0 -and "$askPwHost".Trim() -eq "1") {
-        if ($PSCmdlet.ShouldProcess("Screen lock password [currentHost]", "Disable (askForPassword → 0)")) {
-            Write-Output "Disabling screen lock password requirement (currentHost)..."
+    $askPwHostRead = ($LASTEXITCODE -eq 0)
+    if ($askPwHostRead -and "$askPwHost".Trim() -eq "0") {
+        Write-Output "Screen lock password (currentHost) is already disabled."
+    } else {
+        $label = if (-not $askPwHostRead) { 'unset — macOS default applies' } else { "$($askPwHost.Trim())" }
+        if ($PSCmdlet.ShouldProcess("Screen lock password [currentHost] (currently $label)", "Disable (askForPassword → 0)")) {
+            Write-Output "Disabling screen lock password requirement, currentHost (was $label)..."
             & defaults -currentHost write com.apple.screensaver askForPassword -int 0
             $changed = $true
         }
-    } else {
-        Write-Output "Screen lock password (currentHost) is already disabled."
     }
 
     # ── 3c. "Require password after sleep/screen saver begins" delay ─────

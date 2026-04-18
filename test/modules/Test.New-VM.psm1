@@ -214,18 +214,30 @@ function Stop-HyperVVMForce {
         return $false
     }
 
-    # First attempt: graceful-ish TurnOff. -ErrorAction SilentlyContinue so
-    # a stuck VM doesn't throw here; we verify by polling state below.
-    Stop-VM -Name $VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 6>$null
+    # First attempt: graceful-ish TurnOff — in a background job so a hung
+    # vmms can't block us. Stop-VM -TurnOff can block indefinitely on a
+    # stuck VM (observed: test-ubuntu-server-01 left in 'Stopping' wedged
+    # vmms); -ErrorAction SilentlyContinue suppresses errors but not
+    # blocking. Without the job wrapper the vmwp.exe escalation below is
+    # unreachable, stranding the test runner during post-failure cleanup.
+    $stopJob = Start-Job -ScriptBlock {
+        Stop-VM -Name $using:VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    }
 
     # Poll for Off. Stuck VMs show 'Stopping' indefinitely — that's the
     # signal to escalate.
     $deadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-        if (-not $vm -or $vm.State -eq 'Off') { return $true }
+        if (-not $vm -or $vm.State -eq 'Off') {
+            Stop-Job   -Job $stopJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $stopJob -Force -ErrorAction SilentlyContinue
+            return $true
+        }
         Start-Sleep -Milliseconds 500
     }
+    Stop-Job   -Job $stopJob -ErrorAction SilentlyContinue
+    Remove-Job -Job $stopJob -Force -ErrorAction SilentlyContinue
 
     # Escalate: kill the VMWP.exe worker process hosting this VM. The
     # worker's command line contains the VM's Id GUID — filter by that
@@ -237,7 +249,14 @@ function Stop-HyperVVMForce {
         Where-Object { $_.Name -ieq 'vmwp.exe' -and $_.CommandLine -and $_.CommandLine -match [regex]::Escape($vmId) }
     if (-not $workers) {
         Write-Warning "  No vmwp.exe worker found for VM $vmId. VM may already be transitioning; will retry Stop-VM."
-        Stop-VM -Name $VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 6>$null
+        # Same job wrapper as the first attempt — if the retry also hangs,
+        # bound it and fall through to the final state check.
+        $retryJob = Start-Job -ScriptBlock {
+            Stop-VM -Name $using:VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        }
+        Wait-Job   -Job $retryJob -Timeout 10 | Out-Null
+        Stop-Job   -Job $retryJob -ErrorAction SilentlyContinue
+        Remove-Job -Job $retryJob -Force -ErrorAction SilentlyContinue
     } else {
         foreach ($w in $workers) {
             try {

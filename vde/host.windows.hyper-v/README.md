@@ -103,8 +103,9 @@ needed. The Ubuntu Desktop `New-VM.ps1` automatically detects it and
 injects the proxy URL into the autoinstall seed ISO. Stop or delete
 the cache VM at any time to revert to direct CDN downloads.
 
-See [guest.squid-cache/README.md](guest.squid-cache/README.md) for
-details on how it works.
+See [test/SquidCache.md](../../test/SquidCache.md) for details on how
+it works, including the Grafana dashboard, cache tuning, and offline
+replay.
 
 ## Next: Create a Guest VM
 

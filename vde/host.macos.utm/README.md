@@ -118,8 +118,9 @@ silently falling back. This prevents the exact 429 failures the cache
 was meant to prevent. Wait for cloud-init to finish (5-15 min on first
 boot) or check the VM before retrying.
 
-See [guest.squid-cache/README.md](guest.squid-cache/README.md) for
-details — including the cachemgr.cgi monitoring page at
+See [test/SquidCache.md](../../test/SquidCache.md) for details —
+including the Grafana dashboard at `http://<squid-cache-ip>:3000`
+(anonymous Viewer, no login) and the cachemgr.cgi fallback at
 `http://<squid-cache-ip>/cgi-bin/cachemgr.cgi`.
 
 ## Next: Create a Guest VM

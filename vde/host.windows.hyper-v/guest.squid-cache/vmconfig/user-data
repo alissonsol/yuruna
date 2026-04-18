@@ -16,24 +16,49 @@ chpasswd:
 ssh_pwauth: true
 ssh_authorized_keys:
   - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# Grafana OSS repo for the Prometheus+Grafana monitoring stack. Key fetched
+# from keyserver.ubuntu.com (cloud-init's default, reliable); fingerprint
+# pinned per Grafana's install docs. Grafana Cloud is NOT used — this is
+# the self-hosted OSS build, free forever, no sign-in.
+apt:
+  sources:
+    grafana.list:
+      source: "deb https://apt.grafana.com stable main"
+      keyid: B53AE77BADB630A683046005963FA27710458545
 package_update: true
 packages:
   - squid
   # squid-cgi provides cachemgr.cgi, the CGI front-end to Squid's cache
   # manager. apache2 hosts it; cgi-bin/ is already wired up by Apache's
   # default conf.d/serve-cgi-bin.conf after we enable mod_cgi in runcmd.
+  # Kept alongside the Prometheus+Grafana stack as a low-overhead fallback
+  # for raw cachemgr queries when the richer UI is down or being debugged.
   - squid-cgi
   - apache2
+  # Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301)
+  # and renders through Grafana (port 3000, anonymous Viewer). squid-
+  # exporter has no apt package and no stable GitHub release-asset URL
+  # pattern, so golang-go is pulled in just long enough to `go install`
+  # it; both build tools are purged at the end of runcmd to reclaim
+  # ~400 MB — the compiled /usr/local/bin/squid-exporter binary stays.
+  - prometheus
+  - grafana
+  - golang-go
   # Network debugging tools for interactive triage of the cache VM from
   # its console/SSH. Noble's server cloud image ships `ip` (from iproute2)
   # but NOT `ifconfig` or `ping`, so muscle-memory commands fail during a
   # post-boot diagnostic session. Cheap to install, big quality-of-life win.
   - net-tools       # ifconfig, netstat, route, arp
   - iputils-ping    # ping, ping6
-  # hyperv-daemons provides hv_kvp_daemon so the host's
-  # Get-VMNetworkAdapter cmdlet can read the guest's IP address.
-  # Without it, the host reports an empty IPAddresses list forever.
-  - hyperv-daemons
+  # NOTE: hyperv-daemons (hv_kvp_daemon) is installed via runcmd with
+  # `|| true` instead of being listed here. The package's dep on a
+  # linux-cloud-tools-$(uname -r) that exactly matches the running
+  # cloud-image kernel can't always be satisfied until the first
+  # `apt-get update` catches up, and a hard failure at package-install
+  # time was failing the ENTIRE cloud-init packages phase (including
+  # grafana/prometheus/squid). If hv-kvp-daemon doesn't come up, the
+  # host's Get-VMNetworkAdapter returns an empty IPAddresses list and
+  # discovery falls back to ARP — slower but still works.
 write_files:
   # Retry apt fetches on transient network errors. Cloud-init's default is
   # one-shot; a single timeout against archive.ubuntu.com or an intermittent
@@ -105,6 +130,27 @@ write_files:
       acl yuruna_local src 192.168.0.0/16
       http_access allow yuruna_local
 
+      # --- Snapshot-cache tuning ---
+      # This cache is tuned to behave as a replayable snapshot:
+      #   1. cached objects stay until the disk is nearly full (never
+      #      proactively released)
+      #   2. the cache keeps serving even when origin is unreachable or
+      #      sends cache-hostile headers
+      #   3. combined with offline_mode (flipped on by runcmd after
+      #      prewarm), a fully-populated cache supports guest installs
+      #      with zero internet access.
+      #
+      # cache_replacement_policy MUST appear before cache_dir — squid
+      # binds the policy at cache_dir-parse time, so a later override has
+      # no effect. heap LFUDA keeps frequently-used large objects
+      # (linux-firmware, kernels) in preference to many small ones; GDSF
+      # does the same for the in-memory cache. When eviction finally
+      # fires, rarely-touched small objects are dropped first — the big
+      # expensive-to-refetch blobs survive, which is what offline replay
+      # needs.
+      cache_replacement_policy heap LFUDA
+      memory_replacement_policy heap GDSF
+
       # Disk cache sized for a 144 GB VHDX: 128 GB for squid + ~16 GB
       # OS/logs headroom. ufs is the simplest store format and fine for a
       # single-host dev cache; switch to aufs/diskd only if we see squid
@@ -114,14 +160,36 @@ write_files:
       maximum_object_size_in_memory 32 MB
       cache_mem 512 MB
 
-      # Package files are content-addressable (version is in the filename),
-      # so cached copies never go stale. 525600 minutes = 1 year.
-      refresh_pattern -i \.deb$        525600 100% 525600
-      refresh_pattern -i \.udeb$       525600 100% 525600
-      refresh_pattern -i \.tar\.xz$    525600 100% 525600
-      refresh_pattern -i \.tar\.gz$    525600 100% 525600
-      refresh_pattern -i \.tar\.bz2$   525600 100% 525600
-      refresh_pattern -i \.iso$        525600 100% 525600
+      # Never release unless forced: only start evicting when the disk is
+      # >99% full, stopping at 98%. Default 90/95 would start releasing
+      # objects as soon as ~5 GB of free space remained — aggressive, and
+      # the wrong default for a sticky snapshot cache.
+      cache_swap_high 99
+      cache_swap_low  98
+
+      # Don't cache failures (404, 5xx). A transient network blip during
+      # one install must not become a poisoned 504 returned forever for
+      # an object squid could otherwise fetch successfully next time.
+      negative_ttl 0 seconds
+
+      # Never abort a partial download. If a client disconnects mid-fetch
+      # (e.g. guest reboot), squid finishes the fetch so the next client
+      # gets a cache hit instead of re-downloading from scratch. -1 KB
+      # disables the quick-abort threshold entirely.
+      quick_abort_min -1 KB
+
+      # Package files are content-addressable (version is in the URL), so
+      # a new version would be a different URL — there is no value in
+      # revalidating the URL we already have. The override/ignore flags
+      # force squid to keep serving these regardless of origin or
+      # intermediate cache-control hints (no-store, must-revalidate,
+      # private, reload-from-client). 525600 minutes = 1 year.
+      refresh_pattern -i \.deb$      525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
+      refresh_pattern -i \.udeb$     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
+      refresh_pattern -i \.tar\.xz$  525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
+      refresh_pattern -i \.tar\.gz$  525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
+      refresh_pattern -i \.tar\.bz2$ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
+      refresh_pattern -i \.iso$      525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
       # Apt metadata (InRelease, Packages.*) moves — poll origin each time.
       refresh_pattern -i /InRelease$                    0 0%  60
       refresh_pattern -i /Release$                      0 0%  60
@@ -134,6 +202,143 @@ write_files:
       # requires SSL-bump with a generated CA that each guest must trust —
       # tracked as a follow-up ("https caching with keys").
       logfile_rotate 2
+  # --- Prometheus: bind loopback only; Grafana runs in the same VM and
+  # scrapes via localhost. Keeps Prometheus's open-access UI off the host
+  # LAN — the Grafana dashboard on :3000 is the only exposed entry point.
+  - path: /etc/default/prometheus
+    permissions: '0644'
+    owner: root:root
+    content: |
+      ARGS="--web.listen-address=127.0.0.1:9090"
+  - path: /etc/prometheus/prometheus.yml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      global:
+        scrape_interval: 15s
+      scrape_configs:
+        - job_name: prometheus
+          static_configs:
+            - targets: ['localhost:9090']
+        - job_name: squid
+          static_configs:
+            - targets: ['localhost:9301']
+  # --- squid-exporter systemd unit. Binary installed in runcmd via
+  # `go install`; the unit starts on boot after network + squid are up.
+  # Bound to loopback — Prometheus (same VM) is the only consumer.
+  - path: /etc/systemd/system/squid-exporter.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Squid Prometheus exporter (boynux/squid-exporter)
+      After=network-online.target squid.service
+      Wants=network-online.target squid.service
+      [Service]
+      Type=simple
+      User=nobody
+      Group=nogroup
+      ExecStart=/usr/local/bin/squid-exporter -listen 127.0.0.1:9301 -squid-hostname localhost -squid-port 3128
+      Restart=on-failure
+      RestartSec=5
+      [Install]
+      WantedBy=multi-user.target
+  # --- Grafana: anonymous Viewer so operators hit the dashboard without
+  # any login step (and no sign-up, no Grafana Cloud). Admin login still
+  # works (default admin/admin) if someone wants to edit dashboards. The
+  # drop-in path is the standard systemd override location; Grafana's
+  # binary reads GF_* env vars natively.
+  - path: /etc/systemd/system/grafana-server.service.d/yuruna.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Service]
+      Environment=GF_AUTH_ANONYMOUS_ENABLED=true
+      Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+  # --- Grafana datasource provisioning. UID pinned so the provisioned
+  # dashboard below can reference Prometheus without knowing Grafana's
+  # auto-generated UID.
+  - path: /etc/grafana/provisioning/datasources/yuruna.yaml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          uid: yuruna-prometheus
+          type: prometheus
+          access: proxy
+          url: http://localhost:9090
+          isDefault: true
+          editable: false
+  # --- Grafana dashboard provider: scan /var/lib/grafana/dashboards for
+  # JSON files and import them. updateIntervalSeconds keeps them in sync
+  # if an operator edits the on-disk file post-boot.
+  - path: /etc/grafana/provisioning/dashboards/yuruna.yaml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      apiVersion: 1
+      providers:
+        - name: yuruna
+          folder: ''
+          type: file
+          disableDeletion: true
+          updateIntervalSeconds: 30
+          options:
+            path: /var/lib/grafana/dashboards
+  # --- Minimal squid dashboard. The 'up' panel confirms all Prometheus
+  # scrape targets (prometheus itself + squid-exporter) are reachable —
+  # that alone answers "is the stack healthy?" even if squid-exporter
+  # metric names drift between releases. The squid_client_* panels
+  # render once the exporter is serving; if a metric name changes, the
+  # panel shows "No data" but the rest of the dashboard still loads.
+  - path: /var/lib/grafana/dashboards/squid.json
+    permissions: '0644'
+    owner: root:root
+    content: |
+      {
+        "uid": "yuruna-squid",
+        "title": "Squid Cache (yuruna)",
+        "schemaVersion": 39,
+        "version": 1,
+        "refresh": "30s",
+        "time": {"from": "now-1h", "to": "now"},
+        "panels": [
+          {
+            "id": 1,
+            "type": "stat",
+            "title": "Scrape targets up",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 0, "w": 12, "h": 6},
+            "targets": [{"expr": "up", "refId": "A", "legendFormat": "{{job}}"}]
+          },
+          {
+            "id": 2,
+            "type": "timeseries",
+            "title": "Client HTTP requests/sec",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 12, "y": 0, "w": 12, "h": 6},
+            "targets": [{"expr": "rate(squid_client_http_requests_total[5m])", "refId": "A"}]
+          },
+          {
+            "id": 3,
+            "type": "timeseries",
+            "title": "Client HTTP hits/sec",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 6, "w": 12, "h": 6},
+            "targets": [{"expr": "rate(squid_client_http_hits_total[5m])", "refId": "A"}]
+          },
+          {
+            "id": 4,
+            "type": "timeseries",
+            "title": "Client HTTP kbytes_out/sec",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 12, "y": 6, "w": 12, "h": 6},
+            "targets": [{"expr": "rate(squid_client_http_kbytes_out_total[5m])", "refId": "A"}]
+          }
+        ]
+      }
 runcmd:
   # cache_dir requires the store be initialized before squid will start.
   # apt's postinst calls swap-state init already, but re-running is idempotent
@@ -143,9 +348,20 @@ runcmd:
   - squid -z -N || true
   - systemctl enable squid
   - systemctl start squid
-  # Start the Hyper-V KVP daemon so the host can discover our IP.
-  - systemctl enable hv-kvp-daemon.service
-  - systemctl start hv-kvp-daemon.service
+  # Install hyperv-daemons tolerantly (see packages: note). `apt-get update`
+  # has already been implicitly run by cloud-init's package phase; run it
+  # again here because hyperv-daemons' linux-cloud-tools-$(uname -r) dep
+  # can show up after a refresh. If it still fails, discovery falls back
+  # to ARP — don't abort the rest of runcmd.
+  - DEBIAN_FRONTEND=noninteractive apt-get update || true
+  # Single-quoted so YAML doesn't see the `yuruna:` inside the echo as a
+  # mapping key and abort runcmd with a shellify TypeError.
+  - 'DEBIAN_FRONTEND=noninteractive apt-get install -y hyperv-daemons || echo "yuruna: hyperv-daemons install failed - host IP discovery will fall back to ARP"'
+  # Start the Hyper-V KVP daemon so the host can discover our IP. `|| true`
+  # because hv-kvp-daemon.service only exists if the package install above
+  # actually succeeded.
+  - systemctl enable hv-kvp-daemon.service || true
+  - systemctl start hv-kvp-daemon.service || true
   # --- Enable cachemgr.cgi monitoring ---
   # a2enmod cgi wires mod_cgi into Apache; a2enconf enables the RFC1918
   # ACL dropin written above. Squid's default squid.conf already has
@@ -209,4 +425,67 @@ runcmd:
   # itself doesn't loop through its own squid instance. Guests continue
   # to reach squid at 3128 over the network as normal.
   - rm -f /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
+  # --- Flip squid into offline_mode NOW that prewarm is done. With
+  # offline_mode on, squid serves cached objects without ever contacting
+  # origin — a cache hit returns stored content, a cache miss returns a
+  # 504. That's what makes the "fully disconnected if everything needed
+  # is cached" workflow work: guests can run apt installs against this
+  # proxy with no internet available on the host.
+  #
+  # Must be flipped AFTER prewarm because with offline_mode on, the very
+  # first request (cold cache) would return 504 and prewarm would never
+  # populate anything. Dropped in as a separate conf.d file so an
+  # operator can refresh the cache against origin by removing the single
+  # file and running `squid -k reconfigure` — no other config affected.
+  - |
+    cat > /etc/squid/conf.d/yuruna-offline.conf << 'EOF'
+    # Serve only from cache; do not contact origin for any object. A
+    # cache miss returns 504. To refresh against origin: delete this file
+    # and run `squid -k reconfigure` (or `systemctl reload squid`).
+    offline_mode on
+    EOF
+  - squid -k reconfigure
+  # Single-quote the whole echo so YAML doesn't parse `cache:` as a
+  # mapping key. Cloud-init's shellify() chokes on a dict in runcmd and
+  # aborts the ENTIRE runcmd phase — which happened here once and left
+  # a VM with Apache's default page, no cachemgr, no offline_mode, and
+  # no monitoring stack even though write_files and packages had run.
+  - 'echo "squid-cache offline_mode ON - serving cached content only"'
+  # --- Build and install squid-exporter. No apt package and no stable
+  # GitHub release asset URL, so `go install` from source is the only
+  # reliable cross-arch path: produces an amd64 binary on Hyper-V and an
+  # arm64 binary on UTM without any URL-pattern guessing. Pinned to
+  # v1.10.5 for reproducible boots; bump when we need new metrics. Runs
+  # AFTER the prewarm proxy cleanup so the Go module fetch (HTTPS to
+  # proxy.golang.org and GitHub) doesn't try to traverse squid — squid
+  # can't cache HTTPS without SSL-bump.
+  - |
+    export GOPATH=/root/go HOME=/root
+    if /usr/bin/go install github.com/boynux/squid-exporter@v1.10.5; then
+        install -m 0755 /root/go/bin/squid-exporter /usr/local/bin/squid-exporter
+        echo "yuruna: squid-exporter installed at /usr/local/bin/squid-exporter"
+    else
+        echo "=== YURUNA: squid-exporter build failed — Grafana squid panels will stay empty until the binary is provided by hand ==="
+    fi
+    rm -rf /root/go
+  # Reclaim ~400 MB: the Go toolchain is only needed for the build above.
+  # squid-exporter itself is a static binary that runs without Go installed.
+  - DEBIAN_FRONTEND=noninteractive apt-get purge -y golang-go || true
+  - DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
+  # --- Start the monitoring stack. daemon-reload picks up the
+  # squid-exporter unit + the grafana-server drop-in that were written
+  # via write_files. Grafana is restarted (rather than just enabled) to
+  # ensure the anonymous-Viewer env vars take effect even if the deb's
+  # postinst already started it.
+  - systemctl daemon-reload
+  - systemctl enable --now squid-exporter.service
+  - systemctl enable --now prometheus.service
+  - systemctl enable grafana-server.service
+  - systemctl restart grafana-server.service
+  - |
+    vm_ip=$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -1)
+    echo "=== YURUNA monitoring ==="
+    echo "  Grafana:    http://${vm_ip}:3000 (anonymous Viewer — no login required)"
+    echo "  Prometheus: http://127.0.0.1:9090 (loopback only — scrape via Grafana)"
+    echo "  cachemgr:   http://${vm_ip}/cgi-bin/cachemgr.cgi (raw cachemgr fallback)"
   - echo "squid-cache ready on port 3128 (pre-warmed)"

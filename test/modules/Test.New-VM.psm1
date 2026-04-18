@@ -165,7 +165,12 @@ Returns $true when the VM is either gone or in 'Off' state; $false when
 even the VMWP kill didn't clear it.
 #>
 function Stop-HyperVVMForce {
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    # ConfirmImpact left at the default (Medium). With High the harness was
+    # prompting on every cleanup ("Performing the operation 'Force-stop VM
+    # ...' — are you sure?"), which blocked the multi-cycle test loop. In
+    # an automated harness a failed VM MUST be force-stopped without user
+    # input; if someone wants a preview they can still pass -WhatIf.
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$VMName,
@@ -233,8 +238,10 @@ function Remove-HyperVTestVM {
     if ($PSCmdlet.ShouldProcess($VMName, 'Remove VM')) {
         $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
         if ($vm) {
-            $null = Stop-HyperVVMForce -VMName $VMName
-            Remove-VM  -Name $VMName -Force 6>$null
+            # -Confirm:$false: automated harness must not prompt even if a
+            # future caller escalates ConfirmImpact or $ConfirmPreference.
+            $null = Stop-HyperVVMForce -VMName $VMName -Confirm:$false
+            Remove-VM  -Name $VMName -Force -Confirm:$false 6>$null
             Write-Output "Removed Hyper-V VM: $VMName"
         }
         $vhdPath = (Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath

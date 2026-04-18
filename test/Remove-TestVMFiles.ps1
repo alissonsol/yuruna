@@ -58,15 +58,16 @@ switch ($HostType) {
                 # and every subsequent cycle retries against the same stale
                 # instance — exactly what happened to test-ubuntu-server-01.
                 if (Get-Command Stop-HyperVVMForce -ErrorAction SilentlyContinue) {
-                    $null = Stop-HyperVVMForce -VMName $vm.Name
+                    # -Confirm:$false: automated harness must not prompt.
+                    $null = Stop-HyperVVMForce -VMName $vm.Name -Confirm:$false
                 } else {
-                    Stop-VM -Name $vm.Name -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 6>$null
+                    Stop-VM -Name $vm.Name -Force -TurnOff -Confirm:$false -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 6>$null
                 }
                 Write-Output "    Stopped."
             } else {
                 Write-Output "    Already off."
             }
-            Remove-VM -Name $vm.Name -Force 6>$null
+            Remove-VM -Name $vm.Name -Force -Confirm:$false 6>$null
             Write-Output "    Removed from Hyper-V."
         }
     }

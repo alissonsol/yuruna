@@ -30,14 +30,31 @@ function Invoke-NewVM {
         [string]$HostType,
         [string]$GuestKey,
         [string]$VdeRoot,
-        [string]$VMName
+        [string]$VMName,
+        # Forwarded to the guest's New-VM.ps1 when the caller already knows
+        # the squid-cache URL (e.g. Invoke-TestRunner detected it once at
+        # startup). Forwarding ensures every guest in a run uses the same
+        # cache address — without this, each New-VM.ps1 ran its own probe
+        # and could pick a different (or stale) IP, breaking apt inside
+        # the installer. When unbound, the guest script does its own
+        # discovery (preserving standalone/manual usage).
+        [string]$ProxyUrl
     )
     $scriptPath = Join-Path $VdeRoot "$HostType/$GuestKey/New-VM.ps1"
     if (-not (Test-Path $scriptPath)) {
         return @{ success=$false; errorMessage="New-VM.ps1 not found at: $scriptPath" }
     }
-    Write-Output "Running: $scriptPath -VMName $VMName"
-    $output = & pwsh -NoProfile -File $scriptPath -VMName $VMName 2>&1
+    # Build the child argument list. Only forward -ProxyUrl when the caller
+    # actually supplied it: an unbound param here means "probe yourself",
+    # which is what Invoke-TestSequence / Train-Screenshots rely on.
+    $childArgs = @('-VMName', $VMName)
+    if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
+        $childArgs += @('-ProxyUrl', $ProxyUrl)
+        Write-Output "Running: $scriptPath -VMName $VMName -ProxyUrl '$ProxyUrl'"
+    } else {
+        Write-Output "Running: $scriptPath -VMName $VMName"
+    }
+    $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) {
         $text = "$line".TrimEnd()

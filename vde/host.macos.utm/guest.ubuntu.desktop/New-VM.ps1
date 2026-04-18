@@ -17,7 +17,13 @@
 #requires -version 7
 
 param(
-    [string]$VMName = "ubuntu-desktop01"
+    [string]$VMName = "ubuntu-desktop01",
+    # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM) so
+    # every guest in a run agrees on a single squid-cache URL. When bound
+    # (even to ""), the local subnet probe is skipped and this value is
+    # used verbatim: "" means "no cache, go direct"; a URL means "use this".
+    # When NOT bound (standalone / manual run), fall back to the probe below.
+    [string]$ProxyUrl
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -179,6 +185,17 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 #   * VM started but :3128 unreachable      → ERROR, exit 1 (don't guess;
 #                                              the cache owner should fix it
 #                                              before launching guest installs)
+if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
+    # URL was forwarded by the caller (test runner). Skip the probe so this
+    # script and the runner's detection agree on a single cache URL — the
+    # probe at VM-create time races with transient listeners (stale leases,
+    # torn-down sibling guests) and can bake a dead IP into the cidata seed.
+    if ($ProxyUrl) {
+        Write-Output "  squid-cache URL forwarded by caller: $ProxyUrl — skipping local probe."
+    } else {
+        Write-Output "  No proxy forwarded by caller — guest will download directly."
+    }
+} else {
 $ProxyUrl = ""
 # Resolve utmctl. The brew cask install puts it on PATH; a plain UTM.app
 # install (Mac App Store or direct .dmg) does not, so fall back to the
@@ -318,6 +335,7 @@ To intentionally skip the cache for this install, stop it first:
         Write-Warning "  Guest will download directly — expect 429 rate-limit failures on linux-firmware under load."
         Write-Warning "  To enable caching, run: vde/host.macos.utm/guest.squid-cache/New-VM.ps1"
     }
+}
 }
 
 # Build the autoinstall apt-proxy block. When a cache is reachable, inject

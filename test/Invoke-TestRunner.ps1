@@ -719,7 +719,16 @@ while ($true) {
         Set-GuestStatus -GuestKey $GuestKey -Status "running"
 
         Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "running"
-        $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName
+        # Forward the cache URL detected once at runner startup so every
+        # guest in this run uses the same address. Omitting this lets
+        # each guest's New-VM.ps1 probe independently, which races with
+        # transient listeners (stale DHCP leases, torn-down sibling VMs)
+        # and can bake a dead IP into the cidata seed — observed on UTM
+        # where apt then fails with "No route to host" at install time.
+        # When no cache was detected, pass "" so guests skip their own
+        # probe and go direct: one detection event, one outcome.
+        $newVmProxy = if ($proxyCacheUrl) { $proxyCacheUrl } else { "" }
+        $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName -ProxyUrl $newVmProxy
         if ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
             Write-Output "  $GuestKey New-VM: PASS"

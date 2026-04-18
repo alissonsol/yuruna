@@ -34,7 +34,13 @@
 #>
 
 param(
-    [string]$VMName = "ubuntu-server01"
+    [string]$VMName = "ubuntu-server01",
+    # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM) so
+    # every guest in a run agrees on a single squid-cache URL. When bound
+    # (even to ""), the local subnet probe is skipped and this value is
+    # used verbatim: "" means "no cache, go direct"; a URL means "use this".
+    # When NOT bound (standalone / manual run), fall back to the probe below.
+    [string]$ProxyUrl
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -193,6 +199,17 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 # for the desktop-ISO flow: installing ubuntu-desktop on first boot pulls
 # ~2 GB of .deb packages through apt, and caching them across guest
 # rebuilds is a very large cycle-time win.
+if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
+    # URL was forwarded by the caller (test runner). Skip the probe so this
+    # script and the runner's detection agree on a single cache URL — the
+    # probe at VM-create time races with transient listeners (stale leases,
+    # torn-down sibling guests) and can bake a dead IP into the cidata seed.
+    if ($ProxyUrl) {
+        Write-Output "  squid-cache URL forwarded by caller: $ProxyUrl — skipping local probe."
+    } else {
+        Write-Output "  No proxy forwarded by caller — guest will download directly."
+    }
+} else {
 $ProxyUrl = ""
 $utmctl = (Get-Command utmctl -ErrorAction SilentlyContinue)?.Source
 if (-not $utmctl -and (Test-Path "/Applications/UTM.app/Contents/MacOS/utmctl")) {
@@ -286,6 +303,7 @@ To intentionally skip the cache:
         Write-Warning "  Guest will download directly — expect 429 rate-limit failures on linux-firmware + ubuntu-desktop under load."
         Write-Warning "  To enable caching, run: vde/host.macos.utm/guest.squid-cache/New-VM.ps1"
     }
+}
 }
 
 # Build the autoinstall apt block. When a cache is reachable we inject:

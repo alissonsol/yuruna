@@ -181,6 +181,7 @@ try {
     # Best-effort: leave a previous file intact if there was one.
 }
 
+
 # --- Report SSH-server availability (no install attempted here) ---
 # Start-StatusServer used to auto-install OpenSSH, which made the first
 # invocation on a fresh host feel hung for several minutes inside
@@ -216,6 +217,39 @@ try {
     }
 } catch {
     Write-Warning "SSH-server check failed (continuing with HTTP status server): $_"
+}
+
+# --- Probe for proxy cache and record state to status/log/proxy-cache.txt ---
+# The UI banner appends this string to the status text so a viewer can see
+# at a glance whether the harness is behind a local squid. The file holds
+# ready-to-embed HTML (including an <a href> to the cachemgr URL) so the
+# UI can inject it without knowing the URL format. Written once at
+# Start-StatusServer time — restart the server to refresh after bringing
+# the squid cache up or down. Needs $detectedHost, so runs AFTER the SSH
+# block that performs host detection.
+$ProxyCacheFile = Join-Path $LogDir "proxy-cache.txt"
+try {
+    $proxyCacheModPath = Join-Path $ModulesDir "Test.ProxyCache.psm1"
+    if ((Test-Path $proxyCacheModPath) -and $detectedHost) {
+        Import-Module -Name $proxyCacheModPath -Force
+        $proxyCacheUrl = Test-ProxyCacheAvailable -HostType $detectedHost
+        if ($proxyCacheUrl) {
+            # $proxyCacheUrl looks like "http://192.168.64.5:3128".
+            $proxyUri = [uri]$proxyCacheUrl
+            $proxyManagerUrl = "http://$($proxyUri.Host)/cgi-bin/cachemgr.cgi"
+            $proxyCacheContent = 'Proxy cache: detected at <a href="' + $proxyManagerUrl + '" target="_blank">' + $proxyCacheUrl + '</a>'
+            Write-Output "Proxy cache: detected at $proxyCacheUrl (manager: $proxyManagerUrl) — written to $ProxyCacheFile"
+        } else {
+            $proxyCacheContent = 'Proxy cache: not detected'
+            Write-Output "Proxy cache: not detected — written to $ProxyCacheFile"
+        }
+        [System.IO.File]::WriteAllText($ProxyCacheFile, $proxyCacheContent, [System.Text.UTF8Encoding]::new($false))
+    } else {
+        Write-Warning "Proxy-cache probe skipped — module missing or host not detected."
+    }
+} catch {
+    Write-Warning "Failed to probe/write proxy-cache state: $_"
+    # Best-effort: leave a previous file intact if there was one.
 }
 
 # --- Launch the server as a detached process ---

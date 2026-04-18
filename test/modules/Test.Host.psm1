@@ -456,6 +456,44 @@ function Set-MacHostConditionSet {
     # script failure.
     & killall ScreenSaverEngine 2>$null | Out-Null
 
+    # ── 3j. Application Layer Firewall stealth mode → OFF ────────────────
+    # When stealth mode is on, macOS silently drops unsolicited ICMP echo
+    # requests — including from UTM guests on the 192.168.64.0/24
+    # shared-NAT bridge. Guests still reach TCP services on the host
+    # (status server, squid, sshd all have their own listeners), but
+    # `ping` from the guest to the host fails, which removes a common
+    # diagnostic when debugging a guest-boot crash. socketfilterfw is
+    # the canonical interface; defaults write is only needed on older
+    # macOS versions where the helper doesn't ship the setstealthmode
+    # verb. Both are no-ops when stealth is already off.
+    $alfHelper = '/usr/libexec/ApplicationFirewall/socketfilterfw'
+    if (Test-Path $alfHelper) {
+        $stealthRaw = & sudo $alfHelper --getstealthmode 2>$null
+        $stealthOn  = "$stealthRaw" -match 'enabled'
+        if ($stealthOn) {
+            if ($PSCmdlet.ShouldProcess('ALF stealth mode (currently enabled)', 'Disable so UTM guests can ping the host')) {
+                Write-Output "Disabling ALF stealth mode so UTM guests can ping the host..."
+                & sudo $alfHelper --setstealthmode off 2>&1 | Out-Null
+                $changed = $true
+            }
+        } else {
+            Write-Output "ALF stealth mode is already off."
+        }
+    } else {
+        # Fallback for hosts without the helper binary.
+        $stealthVal = & sudo defaults read /Library/Preferences/com.apple.alf stealthenabled 2>$null
+        if ($LASTEXITCODE -eq 0 -and "$stealthVal".Trim() -eq '1') {
+            if ($PSCmdlet.ShouldProcess('com.apple.alf stealthenabled (currently 1)', 'Set to 0 via sudo defaults')) {
+                Write-Output "Disabling ALF stealth mode via defaults write..."
+                & sudo defaults write /Library/Preferences/com.apple.alf stealthenabled -int 0 2>&1 | Out-Null
+                & sudo pkill -HUP socketfilterfw 2>$null | Out-Null
+                $changed = $true
+            }
+        } else {
+            Write-Output "ALF stealth mode is already off (or ALF is disabled entirely)."
+        }
+    }
+
     # ── 4. Accessibility — trigger the system prompt if not granted ───────
     try {
         $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
@@ -587,6 +625,102 @@ function Set-WindowsHostConditionSet {
         }
     } else {
         Write-Output "Lock screen on resume is already disabled (or not applicable)."
+    }
+
+    # ── 5. Allow ICMPv4 echo (ping) from both VM guests and the LAN ──────
+    # Two things have to be true for `ping <host>` to work:
+    #   (a) An explicit Allow rule for inbound ICMPv4 Echo Request must
+    #       exist and be enabled for EVERY profile whose interface you
+    #       want ping to work on. Windows ships with built-in rules
+    #       ('File and Printer Sharing (Echo Request - ICMPv4-In)') in
+    #       all three profiles (Domain, Private, Public) but DISABLED.
+    #   (b) Any block rule with higher precedence must not match.
+    #
+    # The earlier approach of creating a single -InterfaceAlias-scoped
+    # rule for 'vEthernet (Default Switch)' didn't work in practice,
+    # because disabled built-in rules coexist with it without being
+    # triggered — Windows Firewall doesn't merge them. The reliable
+    # fix is to enable the built-in echo-request rules across all
+    # profiles. This opens ping on the LAN NIC too (expected — the
+    # user also wants to ping the host from peer machines for
+    # diagnostics). No TCP service is exposed; ping is a liveness probe.
+    #
+    # A custom scoped rule is still created as a belt-and-suspenders in
+    # case the built-in rules are missing (stripped server SKUs, GPO
+    # override, etc.).
+
+    # 5a. Enable all built-in Allow + Inbound + ICMPv4 Echo Request rules.
+    $icmpAllowRules = Get-NetFirewallRule -Direction Inbound -Action Allow -ErrorAction SilentlyContinue |
+        Where-Object {
+            $fltr = $_ | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
+            $null -ne $fltr -and $fltr.Protocol -eq 'ICMPv4'
+        } |
+        Where-Object {
+            $icmp = $_ | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
+            # IcmpType '8' (echo request) may be listed as '8:*' or similar;
+            # match on the leading 8. When it's 'Any', keep it too since
+            # 'Any' includes echo request.
+            $types = ($icmp.IcmpType -join ',')
+            $types -match '(^|,)8(:|\*|,|$)' -or $types -match '(^|,)Any($|,)'
+        }
+    $enabledAny = $false
+    foreach ($rule in $icmpAllowRules) {
+        if ($rule.Enabled -ne 'True') {
+            if ($PSCmdlet.ShouldProcess("$($rule.DisplayName) [$($rule.Profile)]", 'Enable built-in ICMPv4 Echo Request rule')) {
+                Enable-NetFirewallRule -Name $rule.Name -ErrorAction SilentlyContinue
+                Write-Output "Enabled ICMPv4 echo rule: $($rule.DisplayName) [profile: $($rule.Profile)]"
+                $enabledAny = $true
+                $changed = $true
+            }
+        }
+    }
+    if (-not $enabledAny) {
+        Write-Output "ICMPv4 echo-request rules: all matching Allow rules already enabled (count: $($icmpAllowRules.Count))."
+    }
+
+    # 5b. Belt-and-suspenders: our own always-on rule, profile Any.
+    $icmpRuleName = 'Yuruna: Allow ICMPv4 Echo Request'
+    $existingRule = Get-NetFirewallRule -DisplayName $icmpRuleName -ErrorAction SilentlyContinue
+    if ($existingRule) {
+        if ($existingRule.Enabled -ne 'True') {
+            if ($PSCmdlet.ShouldProcess($icmpRuleName, 'Enable existing firewall rule')) {
+                Enable-NetFirewallRule -DisplayName $icmpRuleName
+                Write-Output "Enabled firewall rule: $icmpRuleName"
+                $changed = $true
+            }
+        } else {
+            Write-Output "Firewall rule already present and enabled: $icmpRuleName"
+        }
+    } else {
+        if ($PSCmdlet.ShouldProcess($icmpRuleName, 'Create ICMPv4 echo allow rule (all profiles)')) {
+            Write-Output "Creating firewall rule: $icmpRuleName (all profiles)..."
+            $null = New-NetFirewallRule `
+                -DisplayName $icmpRuleName `
+                -Description 'Allow inbound ICMPv4 Echo Request on all profiles so guest VMs and LAN peers can ping the host. Created by Yuruna Set-WindowsHostConditionSet.' `
+                -Direction Inbound `
+                -Action Allow `
+                -Protocol ICMPv4 `
+                -IcmpType 8 `
+                -Profile Any
+            $changed = $true
+        }
+    }
+
+    # 5c. Diagnostic: surface any enabled *Block* rule on ICMPv4 Echo that
+    # would veto our allow, so the user sees the blocker immediately
+    # instead of wondering why ping still fails.
+    $icmpBlockRules = Get-NetFirewallRule -Direction Inbound -Action Block -ErrorAction SilentlyContinue |
+        Where-Object { $_.Enabled -eq 'True' } |
+        Where-Object {
+            $fltr = $_ | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
+            $null -ne $fltr -and $fltr.Protocol -eq 'ICMPv4'
+        }
+    if ($icmpBlockRules) {
+        Write-Warning "Found enabled ICMPv4 Block rules that may override the Allow rules above:"
+        foreach ($r in $icmpBlockRules) {
+            Write-Warning "  $($r.DisplayName) [profile: $($r.Profile)]"
+        }
+        Write-Warning "If ping still fails, disable these or ask your admin — GPO may be pushing them."
     }
 
     if ($changed) {

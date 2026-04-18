@@ -263,10 +263,49 @@
       console.warn('Could not load log/ipaddresses.txt:', e.message);
     }
   }
+  // Raw HTML from status/log/proxy-cache.txt. Written once at
+  // Start-StatusServer startup; fetched once here on page load.
+  // Appended to the banner status text so a viewer can see at a glance
+  // whether the harness is behind a local squid cache. Declared before
+  // any init call so the loadProxyCacheText() invocation below can't
+  // hit the temporal-dead-zone if its first statement ever becomes a
+  // synchronous proxyCacheHtml read.
+  let proxyCacheHtml = '';
+
   loadIpAddresses();
+  // loadProxyCacheText resolves before the first renderStatus fires in
+  // practice (status.json fetch is slower), but even if it doesn't, the
+  // next 30-second poll re-runs renderStatus with proxyCacheHtml populated.
+  loadProxyCacheText();
 
   function cls(status) {
     return ['idle','running','pass','fail','skipped','pending','paused'].includes(status) ? status : 'idle';
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Write the banner text. statusText is plain text (e.g. 'Test run in
+  // progress') and gets HTML-escaped; proxyCacheHtml is trusted server-
+  // generated HTML (includes an <a href> to the cachemgr URL) and is
+  // injected as-is. Uses innerHTML so the link renders clickable.
+  function setBannerText(statusText) {
+    const el = document.getElementById('banner-text');
+    if (!el) return;
+    const base = escHtml(statusText || '');
+    el.innerHTML = proxyCacheHtml ? (base + ' - ' + proxyCacheHtml) : base;
+  }
+
+  async function loadProxyCacheText() {
+    try {
+      const res = await fetch('log/proxy-cache.txt?_=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      proxyCacheHtml = (await res.text()).trim();
+    } catch (e) {
+      proxyCacheHtml = '';
+      console.warn('Could not load log/proxy-cache.txt:', e.message);
+    }
   }
 
   // Update the Pause/Continue button label + enabled state based on
@@ -443,7 +482,7 @@
 
     if (!data || (!data.runId && !data.guests?.length && !data.history?.length)) {
       banner.className = 'idle';
-      document.getElementById('banner-text').textContent = BANNER.idle;
+      setBannerText(BANNER.idle);
       updatePauseButton('idle');
       ['sec-meta','sec-guests','sec-history'].forEach(id => document.getElementById(id).style.display = 'none');
       noData.style.display = '';
@@ -458,7 +497,7 @@
     // the same effective state.
     const effective = paused ? 'paused' : cls(status);
     banner.className = effective;
-    document.getElementById('banner-text').textContent = paused ? BANNER.paused : (BANNER[status] || status);
+    setBannerText(paused ? BANNER.paused : (BANNER[status] || status));
     updatePauseButton(effective);
 
     // Meta

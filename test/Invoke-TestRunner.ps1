@@ -54,6 +54,69 @@ $VerifyDir      = Join-Path $TestRoot "verify"
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 $TemplatePath = Join-Path $TestRoot "test-config.json.template"
 
+# === Single-instance guard ===
+# If another Invoke-TestRunner.ps1 is already running, stop it and wipe
+# any stranded test VMs before we start. Scenario: the operator launched
+# the runner in a second terminal without realising the first was still
+# going; both instances then race on the same VM names and shared status
+# files, and half the VMs end up stuck in Starting/Stopping state.
+#
+# The YURUNA_RUNNER_RELAUNCH env var marks the source-change relaunch
+# branch below — that branch intentionally spawns a child Invoke-TestRunner.ps1
+# and we don't want the child to treat its own parent as a competitor.
+$RunnerPidFile = Join-Path $StatusDir "runner.pid"
+if ($env:YURUNA_RUNNER_RELAUNCH -ne '1' -and (Test-Path $RunnerPidFile)) {
+    $existingPid = 0
+    try { $existingPid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { }
+    if ($existingPid -gt 0 -and $existingPid -ne $PID -and (Get-Process -Id $existingPid -ErrorAction SilentlyContinue)) {
+        # Verify the PID belongs to an Invoke-TestRunner.ps1 process — don't
+        # kill an arbitrary process that happens to have recycled this PID.
+        # Windows uses CIM; macOS/Linux use `ps -p <pid> -o args=`.
+        $cmd = $null
+        if ($IsWindows) {
+            $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$existingPid" -ErrorAction SilentlyContinue).CommandLine
+        } elseif ($IsMacOS -or $IsLinux) {
+            $cmd = & ps -p $existingPid -o args= 2>$null
+        }
+        if ($cmd -and $cmd -match 'Invoke-TestRunner\.ps1') {
+            Write-Output ""
+            Write-Output "============================================="
+            Write-Output "  Another Invoke-TestRunner.ps1 is running"
+            Write-Output "  PID:     $existingPid"
+            Write-Output "  Action:  stopping it and running"
+            Write-Output "           Remove-TestVMFiles.ps1 before start"
+            Write-Output "============================================="
+            Stop-Process -Id $existingPid -Force -ErrorAction SilentlyContinue
+            # Wait briefly for the old process to die before cleanup so its
+            # Hyper-V/UTM VM ops can't race with ours.
+            for ($i = 0; $i -lt 20; $i++) {
+                if (-not (Get-Process -Id $existingPid -ErrorAction SilentlyContinue)) { break }
+                Start-Sleep -Milliseconds 500
+            }
+            try {
+                $cleanup = Join-Path $TestRoot "Remove-TestVMFiles.ps1"
+                if (Test-Path $cleanup) {
+                    # 'test-' is the stock prefix and matches the template.
+                    # test-config.json hasn't been merged yet at this point,
+                    # so we can't read the user's override. Acceptable trade:
+                    # worst case the user picked a custom prefix and this
+                    # cleanup is a no-op — same as if the guard didn't run.
+                    & pwsh -NoProfile -File $cleanup -Prefix 'test-'
+                }
+            } catch {
+                Write-Warning "Remove-TestVMFiles.ps1 failed during single-instance takeover: $_"
+            }
+        } else {
+            Write-Warning "Stale runner.pid: PID $existingPid is not an Invoke-TestRunner.ps1 process. Ignoring."
+        }
+    }
+    Remove-Item $RunnerPidFile -Force -ErrorAction SilentlyContinue
+}
+# Record our PID regardless of the relaunch branch. On relaunch the child
+# overwrites the parent's entry; that's deliberate — the child is the one
+# doing real work, so it should own the lock.
+$PID | Set-Content -Path $RunnerPidFile -Encoding ascii
+
 # === Publish debug/verbose preferences as env vars so child processes inherit them ===
 $env:YURUNA_DEBUG   = $debug_mode   ? '1' : '0'
 $env:YURUNA_VERBOSE = $verbose_mode ? '1' : '0'
@@ -398,7 +461,15 @@ while ($true) {
     if ($currentFingerprint -ne $script:SourceFingerprint) {
         Write-Output "Source changed on disk — relaunching Invoke-TestRunner.ps1 for next cycle..."
         $pwshExe = (Get-Process -Id $PID).Path
-        & $pwshExe -NoLogo -File $PSCommandPath @PSBoundParameters
+        # Signal the child to skip the single-instance guard — it would
+        # otherwise see this parent's runner.pid and kill the only process
+        # we actually want running.
+        $env:YURUNA_RUNNER_RELAUNCH = '1'
+        try {
+            & $pwshExe -NoLogo -File $PSCommandPath @PSBoundParameters
+        } finally {
+            Remove-Item Env:YURUNA_RUNNER_RELAUNCH -ErrorAction SilentlyContinue
+        }
         exit $LASTEXITCODE
     }
 
@@ -984,6 +1055,21 @@ while ($true) {
 
 Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
 Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
+
+# Release runner.pid on graceful exit. Only delete if it still points to
+# us — a competing runner may have taken over since (and rewritten the
+# file with its own PID) and we shouldn't clobber theirs. A crash / kill
+# -9 / power loss leaves a stale PID behind; that's fine, the next
+# startup's single-instance guard detects it and handles it.
+try {
+    if (Test-Path $RunnerPidFile) {
+        $filePid = 0
+        try { $filePid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { }
+        if ($filePid -eq $PID) {
+            Remove-Item $RunnerPidFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+} catch { }
 
 # === Failure notification (only reached when stopOnFailure breaks the loop) ===
 if (-not $OverallPassed -and $FailedGuest) {

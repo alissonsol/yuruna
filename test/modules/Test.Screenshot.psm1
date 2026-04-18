@@ -242,6 +242,27 @@ public class HyperVCapture {
         return w > 0 && h > 0;
     }
 
+    // Open a file for writing, retrying briefly on transient sharing
+    // violations. Seen after pause/resume of a sequence: antivirus, Windows
+    // Explorer's thumbnail previewer, or an operator viewing the PNG while
+    // paused can hold the path open long enough that the next
+    // FileMode.Create hits ERROR_SHARING_VIOLATION. Five attempts x 200ms =
+    // ~1s of tolerance; if the lock persists past that, rethrow so the PS
+    // caller's try/catch writes the warning and waitForText retries on the
+    // next poll interval.
+    static FileStream OpenWriteWithRetry(string path) {
+        IOException last = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            try {
+                return new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+            } catch (IOException ex) {
+                last = ex;
+                if (attempt < 4) System.Threading.Thread.Sleep(200);
+            }
+        }
+        throw last;
+    }
+
     public static bool CaptureToFile(IntPtr hWnd, string path) {
         int w, h;
         if (!GetClientSize(hWnd, out w, out h)) return false;
@@ -258,7 +279,7 @@ public class HyperVCapture {
         GetDIBits(memDC, hBmp, 0, (uint)h, pixels, ref bi, 0);
         SelectObject(memDC, old); DeleteObject(hBmp); DeleteDC(memDC); ReleaseDC(IntPtr.Zero, screenDC);
         // Write minimal PNG (uncompressed via zlib stored blocks)
-        using (var fs = new FileStream(path, FileMode.Create)) {
+        using (var fs = OpenWriteWithRetry(path)) {
             WritePng(fs, w, h, pixels);
         }
         return true;
@@ -286,7 +307,7 @@ public class HyperVCapture {
         int startRow = h - cropH;
         byte[] cropPixels = new byte[w * cropH * 4];
         Array.Copy(pixels, startRow * w * 4, cropPixels, 0, cropPixels.Length);
-        using (var fs = new FileStream(path, FileMode.Create)) {
+        using (var fs = OpenWriteWithRetry(path)) {
             WritePng(fs, w, cropH, cropPixels);
         }
         return true;
@@ -368,7 +389,7 @@ public class HyperVCapture {
 
         byte[] cropPixels = new byte[w * regionH * 4];
         Array.Copy(pixels, regionTop * w * 4, cropPixels, 0, cropPixels.Length);
-        using (var fs = new FileStream(path, FileMode.Create)) {
+        using (var fs = OpenWriteWithRetry(path)) {
             WritePng(fs, w, regionH, cropPixels);
         }
         return true;
@@ -428,7 +449,7 @@ public class HyperVCapture {
         } else {
             return false; // unknown format
         }
-        using (var fs = new FileStream(path, FileMode.Create)) {
+        using (var fs = OpenWriteWithRetry(path)) {
             WritePng(fs, w, h, bgra);
         }
         return true;

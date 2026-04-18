@@ -231,7 +231,7 @@
 </main>
 
 <div id="footer-bar">
-  <span id="footer-machine">Connecting to <span class="mono" id="footer-server"></span></span>
+  <span id="footer-ips">Host IPs: <span class="mono" id="footer-ip-list">—</span></span>
   <span>Last loaded: <span id="last-loaded">—</span></span>
   <span>Refreshing in <span id="countdown">30</span>s · <a href="#" onclick="loadStatus();return false" style="color:#6b7280">Refresh now</a></span>
 </div>
@@ -245,8 +245,25 @@
     paused:  'Test run paused'
   };
 
-  // Show the server we are connected to in the footer
-  document.getElementById('footer-server').textContent = window.location.host;
+  // Populate the footer with the host's IP addresses, written by
+  // Start-StatusServer.ps1 to status/log/ipaddresses.txt. Fetched once
+  // on load — the file only changes when the status server restarts,
+  // and a browser reload picks that up. The "Connecting to localhost:…"
+  // that used to live here is redundant with the URL bar.
+  async function loadIpAddresses() {
+    const el = document.getElementById('footer-ip-list');
+    if (!el) return;
+    try {
+      const res = await fetch('log/ipaddresses.txt?_=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const text = (await res.text()).trim();
+      el.textContent = text || '—';
+    } catch (e) {
+      el.textContent = '—';
+      console.warn('Could not load log/ipaddresses.txt:', e.message);
+    }
+  }
+  loadIpAddresses();
 
   function cls(status) {
     return ['idle','running','pass','fail','skipped','pending','paused'].includes(status) ? status : 'idle';

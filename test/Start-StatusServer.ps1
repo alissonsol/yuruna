@@ -142,6 +142,45 @@ if (Test-Path $StatusFile) {
 # think it's load-bearing.
 Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
 
+# --- Enumerate host IP addresses and write them to status/log/ipaddresses.txt ---
+# The UI footer reads this file to show where the server is reachable from
+# other machines. Loopback (127.0.0.1, ::1) is excluded because it's
+# trivially useless for remote clients — if you're reading the page from
+# somewhere you already know the address you used to reach it. IPv4 is
+# listed first, then IPv6, so the common case appears earliest. The file
+# is overwritten on every Start-StatusServer invocation so stale entries
+# from a previous host/network are not preserved.
+$LogDir = Join-Path $StatusDir "log"
+if (-not (Test-Path $LogDir)) {
+    New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+}
+$IpAddressesFile = Join-Path $LogDir "ipaddresses.txt"
+try {
+    $collectedAddresses = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
+        Where-Object { $_.OperationalStatus -eq 'Up' } |
+        ForEach-Object { $_.GetIPProperties().UnicastAddresses } |
+        ForEach-Object { $_.Address } |
+        Where-Object { -not [System.Net.IPAddress]::IsLoopback($_) }
+
+    $ipv4 = $collectedAddresses |
+        Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } |
+        ForEach-Object { $_.ToString() } |
+        Sort-Object -Unique
+    $ipv6 = $collectedAddresses |
+        Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6 } |
+        ForEach-Object { $_.ToString() } |
+        Sort-Object -Unique
+
+    $allAddresses = @($ipv4) + @($ipv6)
+    $csv = ($allAddresses -join ',')
+    # UTF-8 without BOM so a browser fetch() yields a clean string.
+    [System.IO.File]::WriteAllText($IpAddressesFile, $csv, [System.Text.UTF8Encoding]::new($false))
+    Write-Output "IP addresses ($($allAddresses.Count)): written to $IpAddressesFile"
+} catch {
+    Write-Warning "Failed to enumerate/write IP addresses: $_"
+    # Best-effort: leave a previous file intact if there was one.
+}
+
 # --- Report SSH-server availability (no install attempted here) ---
 # Start-StatusServer used to auto-install OpenSSH, which made the first
 # invocation on a fresh host feel hung for several minutes inside

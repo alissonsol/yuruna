@@ -11,24 +11,24 @@
       "action": "sshWaitReady",
       "timeoutSeconds": 300,
       "pollSeconds": 5,
-      "description": "Wait for sshd to be ready (VM just rebooted at the end of Test-Start)."
+      "description": "Wait for sshd after reboot"
     },
     {
       "action": "sshExec",
       "command": "whoami && hostname",
-      "description": "Smoke test: confirm session identity."
+      "description": "Smoke test: whoami/hostname"
     },
     {
       "action": "sshFetchAndExecute",
       "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
       "timeoutSeconds": 1800,
-      "description": "Install VS Code via fetch-and-execute — reuses the desktop workload script."
+      "description": "ubuntu.desktop.code.sh"
     },
     {
       "action": "sshExec",
       "command": "dpkg -l | grep -i 'code ' || true",
       "allowFailure": true,
-      "description": "Show installed VS Code package."
+      "description": "Show installed VS Code package"
     }
   ]
 }

@@ -13,30 +13,30 @@
       "timeoutSeconds": 600,
       "pollSeconds": 6,
       "text": "",
-      "description": "Dismiss the Ubuntu Server live-ISO GRUB menu — pre-install, sshd doesn't exist yet, OCR is the only option."
+      "description": "Try or Install Ubuntu Server"
     },
     {
       "action": "sshWaitReady",
       "timeoutSeconds": 2400,
       "pollSeconds": 15,
-      "description": "Wait for autoinstall + reboot + cloud-init. Budget is larger than the desktop SSH variant because subiquity is also fetching ~2GB of ubuntu-desktop packages during install; the squid-cache makes subsequent runs much faster."
+      "description": "Wait for SSH after autoinstall"
     },
     {
       "action": "sshExec",
       "command": "whoami && hostname",
-      "description": "Smoke test: confirm session identity + that the autoinstall hostname stuck."
+      "description": "Smoke test: whoami/hostname"
     },
     {
       "action": "sshFetchAndExecute",
       "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
       "timeoutSeconds": 1800,
-      "description": "Reuse the desktop update script — ubuntu-desktop package behaviour is identical on both guest types."
+      "description": "ubuntu.desktop.update.sh"
     },
     {
       "action": "sshExec",
       "command": "sudo reboot now",
       "allowFailure": true,
-      "description": "Reboot — SSH connection drops as the host goes down (allowFailure)."
+      "description": "Reboot the VM"
     }
   ]
 }

@@ -16,7 +16,7 @@
       "timeoutSeconds": 600,
       "pollSeconds": 6,
       "text": "",
-      "description": "Wait for GDM login screen"
+      "description": "Not listed?"
     },
     {
       "action": "waitForAndEnter",
@@ -25,19 +25,19 @@
       "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
-      "description": "Password (already changed on first login during Test-Start)"
+      "description": "Password"
     },
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 120,
       "pollSeconds": 6,
-      "description": "Wait for shell prompt"
+      "description": "${username}@${vmName}"
     },
     {
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
-      "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
+      "description": "ubuntu.desktop.k8s.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 1800,
       "waitPollSeconds": 9
@@ -52,17 +52,17 @@
       "pattern": "Ready",
       "timeoutSeconds": 60,
       "pollSeconds": 9,
-      "description": "Wait for node to be Ready"
+      "description": "Ready"
     },
     {
       "action": "typeAndEnter",
       "text": "clear; newgrp docker",
-      "description": "Activate docker group for this current session"
+      "description": "Activate docker group"
     },
     {
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
-      "description": "vde/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
+      "description": "desktop.workload.k8s.website.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
       "waitPollSeconds": 9
@@ -82,7 +82,7 @@
       "pattern": "200",
       "timeoutSeconds": 120,
       "pollSeconds": 6,
-      "description": "Verify HTTP 200 response"
+      "description": "200"
     },
     {
       "action": "typeAndEnter",

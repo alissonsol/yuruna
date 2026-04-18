@@ -13,37 +13,37 @@
       "timeoutSeconds": 600,
       "pollSeconds": 6,
       "text": "",
-      "description": "Dismiss GRUB menu — pre-install, sshd doesn't exist yet, OCR is the only option"
+      "description": "Try or Install Ubuntu"
     },
     {
       "action": "waitForAndClickButton",
       "label": ["Install Ubuntu", "Install", "lnstall"],
       "timeoutSeconds": 600,
       "pollSeconds": 9,
-      "description": "Click Install via OCR-located coordinates. Replaces the old tabCount approach which drifted across installer UI revisions. For guest.ubuntu.server this step is not needed — subiquity's interactive-sections:[] runs fully unattended."
+      "description": "Install Ubuntu"
     },
     {
       "action": "sshWaitReady",
       "timeoutSeconds": 1800,
       "pollSeconds": 15,
-      "description": "Wait for OS install + reboot + cloud-init's first-boot openssh-server install. Replaces the OCR steps for 'Not listed?' and the password-change dance — those are fragile against Ubuntu 24.04+ GDM UI changes, and SSH key auth makes the password-aging dance moot."
+      "description": "Wait for SSH after install"
     },
     {
       "action": "sshExec",
       "command": "whoami && hostname",
-      "description": "Smoke test: confirm session identity + that the autoinstall hostname stuck"
+      "description": "Smoke test: whoami/hostname"
     },
     {
       "action": "sshFetchAndExecute",
       "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
       "timeoutSeconds": 1800,
-      "description": "Equivalent of the OCR-driven fetchAndExecute in the keystroke variant"
+      "description": "ubuntu.desktop.update.sh"
     },
     {
       "action": "sshExec",
       "command": "sudo reboot now",
       "allowFailure": true,
-      "description": "Reboot — sudo issues the call and SSH connection drops as expected (allowFailure)"
+      "description": "Reboot the VM"
     }
   ]
 }

@@ -16,7 +16,7 @@
       "timeoutSeconds": 600,
       "pollSeconds": 6,
       "text": "",
-      "description": "Dismiss the Ubuntu Server live-ISO GRUB menu — pressing Enter boots the default entry and autoinstall takes over (no UI confirmation needed, unlike the Desktop ISO)."
+      "description": "Try or Install Ubuntu Server"
     },
     {
       "action": "waitForAndEnter",
@@ -32,7 +32,7 @@
       "timeoutSeconds": 3600,
       "pollSeconds": 15,
       "text": "",
-      "description": "Wait for subiquity to finish (including the ubuntu-desktop download via squid-cache, ~2GB) + reboot + GDM login screen."
+      "description": "Not listed?"
     },
     {
       "action": "waitForAndEnter",
@@ -41,7 +41,7 @@
       "pollSeconds": 3,
       "text": "${password}",
       "sensitive": true,
-      "description": "GDM: initial password"
+      "description": "Password"
     },
     {
       "action": "waitForAndEnter",
@@ -50,7 +50,7 @@
       "pollSeconds": 3,
       "text": "${password}",
       "sensitive": true,
-      "description": "passwd --expire forced this dialog — re-enter current password"
+      "description": "Current password"
     },
     {
       "action": "waitForAndEnter",
@@ -75,12 +75,12 @@
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 60,
       "pollSeconds": 6,
-      "description": "Wait for the auto-opened gnome-terminal shell prompt. CAREFUL: the same string is also the window title, so OCR can false-match — tune pollSeconds if needed."
+      "description": "${username}@${vmName}"
     },
     {
       "action": "fetchAndExecute",
       "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
-      "description": "Reuse the desktop update script — ubuntu-desktop is the same package regardless of whether it came from the Desktop ISO or ubuntu-desktop-on-server.",
+      "description": "ubuntu.desktop.update.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
       "waitPollSeconds": 9
@@ -88,7 +88,7 @@
     {
       "action": "typeAndEnter",
       "text": "clear; sudo reboot now",
-      "description": "Reboot so the next sequence starts from a clean GDM state."
+      "description": "Reboot the VM"
     }
   ]
 }

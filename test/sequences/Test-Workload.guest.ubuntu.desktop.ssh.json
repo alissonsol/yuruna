@@ -11,18 +11,18 @@
       "action": "sshWaitReady",
       "timeoutSeconds": 300,
       "pollSeconds": 5,
-      "description": "Wait for sshd + cloud-init authorized_keys to be ready"
+      "description": "Wait for sshd + authorized_keys"
     },
     {
       "action": "sshExec",
       "command": "whoami && hostname",
-      "description": "Smoke test: confirm session identity"
+      "description": "Smoke test: whoami/hostname"
     },
     {
       "action": "sshFetchAndExecute",
       "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
       "timeoutSeconds": 1800,
-      "description": "Install VS Code via fetch-and-execute"
+      "description": "ubuntu.desktop.code.sh"
     },
     {
       "action": "sshExec",

@@ -36,7 +36,7 @@
       "pattern": "${username}@${vmName}",
       "timeoutSeconds": 30,
       "pollSeconds": 3,
-      "description": "Login shell prompt: ${username}@${vmName}"
+      "description": "${username}@${vmName}"
     },
     {
       "action": "delay",
@@ -51,7 +51,7 @@
     {
       "action": "delay",
       "seconds": 15,
-      "description": "HACK: Wait for login prompt to scroll off-screen."
+      "description": "HACK: scroll login prompt off"
     },
     {
       "action": "waitForText",
@@ -59,7 +59,7 @@
       "timeoutSeconds": 300,
       "pollSeconds": 6,
       "freshMatch": true,
-      "description": "${username}@${vmName} (may take several minutes)"
+      "description": "${username}@${vmName}"
     },
     {
       "action": "typeAndEnter",

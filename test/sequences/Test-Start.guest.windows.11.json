@@ -3,9 +3,9 @@
   "$actions": "See possible actions in the actions.json file",
   "description": "Windows 11: bypass 'Press any key to boot from CD/DVD' then let autounattend.xml drive the install.",
   "steps": [
-    { "action": "delay",  "seconds": 3,  "description": "Wait for UEFI firmware and vmconnect to initialize" },
+    { "action": "delay",  "seconds": 3,  "description": "Wait for UEFI + vmconnect init" },
     { "action": "key",    "name": "Enter", "description": "Boot from CD/DVD (first attempt)" },
-    { "action": "delay",  "seconds": 5,  "description": "Wait in case first Enter was too early" },
+    { "action": "delay",  "seconds": 5,  "description": "Retry in case Enter was early" },
     { "action": "key",    "name": "Enter", "description": "Boot from CD/DVD (retry)" }
   ]
 }

@@ -11,12 +11,12 @@
       "action": "sshWaitReady",
       "timeoutSeconds": 300,
       "pollSeconds": 5,
-      "description": "Wait for sshd + cloud-init authorized_keys to be ready"
+      "description": "Wait for sshd + authorized_keys"
     },
     {
       "action": "sshExec",
       "command": "whoami && hostname",
-      "description": "Smoke test: confirm session identity"
+      "description": "Smoke test: whoami/hostname"
     },
     {
       "action": "sshFetchAndExecute",

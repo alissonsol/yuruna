@@ -1,11 +1,6 @@
 {
   "$schema": "SSH-driven equivalent of Test-Workload.guest.ubuntu.desktop.k8s.website.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'.",
-  "$actions": {
-    "delay":              "Wait a fixed number of seconds. Parameters: seconds (number).",
-    "sshWaitReady":       "Wait until the guest accepts SSH using the yuruna harness key. Parameters: timeoutSeconds (number), pollSeconds (number).",
-    "sshExec":            "Run a command on the guest over SSH. Parameters: command (string), timeoutSeconds (number), allowFailure (boolean), sensitive (boolean).",
-    "sshFetchAndExecute": "Run a long-lived command over SSH (SSH equivalent of fetchAndExecute). Parameters: command (string), timeoutSeconds (number)."
-  },
+  "$actions": "See possible actions in the actions.json file",
 
   "description": "Ubuntu Desktop (SSH): install Kubernetes, deploy website to localhost cluster, verify HTTP 200 - parallel path to the keystroke sequence.",
   "variables": {

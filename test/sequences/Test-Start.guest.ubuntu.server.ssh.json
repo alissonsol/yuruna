@@ -1,11 +1,6 @@
 {
   "$schema": "SSH-driven equivalent of Test-Start.guest.ubuntu.server.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'. Shorter than the desktop SSH variant: subiquity runs fully hands-off via interactive-sections:[], so there's no Install-button dance — just one OCR step to dismiss GRUB, then SSH-wait for cloud-init to finish installing ubuntu-desktop and bringing up sshd.",
-  "$actions": {
-    "waitForAndEnter":    "Wait for text on screen via OCR, then type and press Enter.",
-    "sshWaitReady":       "Wait until the guest accepts SSH using the yuruna harness key. Parameters: timeoutSeconds (number), pollSeconds (number).",
-    "sshExec":            "Run a command on the guest over SSH. Parameters: command (string), timeoutSeconds (number), allowFailure (boolean), sensitive (boolean).",
-    "sshFetchAndExecute": "Run a long-lived command over SSH (SSH equivalent of fetchAndExecute). Parameters: command (string), timeoutSeconds (number)."
-  },
+  "$actions": "See possible actions in the actions.json file",
 
   "description": "Ubuntu Server (with ubuntu-desktop, SSH): OCR-dismiss GRUB, then drive everything else over SSH once cloud-init has finished installing ubuntu-desktop.",
   "variables": {

@@ -1,0 +1,21 @@
+{
+  "$schema": "Consolidated catalogue of actions available in sequence files (Test-Start.*.json, Test-Workload.*.json). Individual sequence files reference this catalogue instead of redeclaring each action's description. Action names here match the 'action' field in each step.",
+  "$variables": "Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
+  "actions": {
+    "delay":                 "Wait a fixed number of seconds. Parameters: seconds (number).",
+    "key":                   "Send a single keystroke. Parameters: name (string). Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.",
+    "type":                  "Type a text string. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, delay between chars in ms, default 50). Hyper-V: uses Msvm_Keyboard.TypeText.",
+    "typeAndEnter":          "Type a text string, wait, then press Enter. Parameters: text (string), sensitive (boolean, masks output), charDelayMs (number, default 50), delaySeconds (number, default 2).",
+    "screenshot":            "Capture a screenshot for debugging. Parameters: label (string, used in filename).",
+    "waitForText":           "Capture + OCR the VM screen until pattern appears. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean, waits for pattern to clear first if already on screen). Uses ${var} substitution.",
+    "waitForAndEnter":       "Wait for text pattern on screen via OCR, then type a string and press Enter. Parameters: pattern (string), timeoutSeconds (number), pollSeconds (number), freshMatch (boolean), text (string), sensitive (boolean), charDelayMs (number, default 50), delaySeconds (number, default 2), tabCount (number, Tab presses before typing to navigate focus, default 0).",
+    "waitForAndClickButton": "Wait for a button label to appear on the VM screen via OCR, then click at the label's centre. Parameters: label (string or string-array of candidate labels), timeoutSeconds (number, default 120), pollSeconds (number, default 5), offsetX (number, pixel offset from centre, default 0), offsetY (number, default 0). Hyper-V: uses vmconnect window + SendInput; vmconnect must be open. UTM: not yet implemented.",
+    "waitForPort":            "Wait until a TCP port responds on the VM. Parameters: port (number), timeoutSeconds (number).",
+    "waitForHeartbeat":       "Wait until Hyper-V Integration Services heartbeat reports OK. Parameters: timeoutSeconds (number). Hyper-V only.",
+    "waitForVMStop":          "Wait until the VM reaches the Off/stopped state. Parameters: timeoutSeconds (number).",
+    "fetchAndExecute":        "Type a command + Enter, then wait for a completion pattern (freshMatch). Parameters: text (string), description (string), charDelayMs (number), delaySeconds (number, default 2), waitPattern (string), waitTimeoutSeconds (number, default 900), waitPollSeconds (number, default 9).",
+    "sshWaitReady":           "Wait until the guest accepts SSH using the yuruna harness key. Parameters: timeoutSeconds (number), pollSeconds (number).",
+    "sshExec":                "Run a command on the guest over SSH. Parameters: command (string), timeoutSeconds (number), allowFailure (boolean), sensitive (boolean).",
+    "sshFetchAndExecute":     "Run a long-lived command over SSH (SSH equivalent of fetchAndExecute). Parameters: command (string), timeoutSeconds (number)."
+  }
+}

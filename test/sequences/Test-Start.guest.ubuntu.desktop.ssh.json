@@ -1,12 +1,6 @@
 {
   "$schema": "SSH-driven equivalent of Test-Start.guest.ubuntu.desktop.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'. Hybrid: OCR for the two pre-install dismissals (GRUB menu, autoinstall confirmation) — sshd doesn't exist yet — then SSH for everything post-install. SSH key auth bypasses the `passwd --expire ubuntu` aging that breaks console password login, so the OCR password-change dance is skipped entirely.",
-  "$actions": {
-    "waitForAndEnter":       "Wait for text on screen via OCR, then type and press Enter (with optional Tab navigation).",
-    "waitForAndClickButton": "Wait for a button label on screen via OCR, then click its centre. Parameters: label (string or string-array of candidate labels), timeoutSeconds, pollSeconds, offsetX, offsetY.",
-    "sshWaitReady":          "Wait until the guest accepts SSH using the yuruna harness key. Parameters: timeoutSeconds (number), pollSeconds (number).",
-    "sshExec":               "Run a command on the guest over SSH. Parameters: command (string), timeoutSeconds (number), allowFailure (boolean), sensitive (boolean).",
-    "sshFetchAndExecute":    "Run a long-lived command over SSH (SSH equivalent of fetchAndExecute). Parameters: command (string), timeoutSeconds (number)."
-  },
+  "$actions": "See possible actions in the actions.json file",
 
   "description": "Ubuntu Desktop (SSH): OCR-dismiss GRUB + Install confirmation, then wait for cloud-init's first-boot openssh-server and run the update script over SSH.",
   "variables": {

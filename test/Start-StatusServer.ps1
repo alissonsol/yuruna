@@ -44,6 +44,7 @@ $ErrorActionPreference = "Stop"
 $TestRoot  = $PSScriptRoot
 $StatusDir = Join-Path $TestRoot "status"
 $PidFile   = Join-Path $StatusDir "server.pid"
+$ModulesDir = Join-Path $TestRoot "modules"
 
 # --- Read port from config if not provided ---
 if ($Port -eq 0) {
@@ -141,6 +142,43 @@ if (Test-Path $StatusFile) {
 # think it's load-bearing.
 Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
 
+# --- Report SSH-server availability (no install attempted here) ---
+# Start-StatusServer used to auto-install OpenSSH, which made the first
+# invocation on a fresh host feel hung for several minutes inside
+# Add-WindowsCapability. That install is now externalized to
+# test/Start-SshServer.ps1, which the admin runs once explicitly. Here we
+# just probe the state and log it — same pattern as Invoke-TestRunner's
+# "Proxy cache: detected/not detected" line — so the user knows on startup
+# whether SSH is ready without waiting for the detached HTTP server.
+#
+# $detectedHost is also threaded into the detached server's here-string so
+# the control/ssh/* endpoints know which dispatcher arm to call.
+$detectedHost = ''
+try {
+    $hostModPath = Join-Path $ModulesDir "Test.Host.psm1"
+    $sshModPath  = Join-Path $ModulesDir "Test.SshServer.psm1"
+    if ((Test-Path $hostModPath) -and (Test-Path $sshModPath)) {
+        Import-Module -Name $hostModPath -Force
+        Import-Module -Name $sshModPath  -Force
+        $detectedHost = Get-HostType
+        if ($detectedHost) {
+            if (-not (Test-SshServerSupported -HostType $detectedHost)) {
+                Write-Output "SSH server: not supported on $detectedHost (status-page button will be disabled)"
+            } elseif (-not (Test-SshServerInstalled -HostType $detectedHost)) {
+                Write-Output "SSH server: not installed (run test/Start-SshServer.ps1 to install)"
+            } elseif (Test-SshServerEnabled -HostType $detectedHost) {
+                Write-Output "SSH server: installed and running"
+            } else {
+                Write-Output "SSH server: installed but stopped (status-page button can start it)"
+            }
+        }
+    } else {
+        Write-Warning "SSH-server check skipped — modules not found (Test.Host.psm1 / Test.SshServer.psm1)."
+    }
+} catch {
+    Write-Warning "SSH-server check failed (continuing with HTTP status server): $_"
+}
+
 # --- Launch the server as a detached process ---
 $serverScript = @"
 `$ErrorActionPreference = 'Stop'
@@ -149,6 +187,23 @@ $serverScript = @"
 `$pauseFile     = Join-Path '$($StatusDir -replace "'","''")' 'control.pause'
 `$statusJsonFile = Join-Path '$($StatusDir -replace "'","''")' 'status.json'
 `$serverLogFile = Join-Path '$($StatusDir -replace "'","''")' 'server.err'
+# --- SSH-toggle endpoints: need Test.SshServer in this process too ---
+# control/ssh/{status,enable,disable} is handled inline below; importing the
+# module at listener start means each request is just a function call, not
+# a child pwsh spawn. $sshHostType is captured from Get-HostType at parent
+# startup and baked into this script via the here-string.
+`$sshModPath  = Join-Path '$($ModulesDir -replace "'","''")' 'Test.SshServer.psm1'
+`$sshHostType = '$detectedHost'
+`$sshReady    = `$false
+if (Test-Path `$sshModPath) {
+    try {
+        Import-Module -Name `$sshModPath -Force -ErrorAction Stop
+        `$sshReady = `$true
+    } catch {
+        # Can't use Write-ServerErr yet — it's defined below. Defer log.
+        `$sshImportErr = `$_.Exception.Message
+    }
+}
 # NOTE: the server used to self-exit when server.heartbeat went stale. That
 # was removed because legitimate runner states can outlast ANY threshold —
 # e.g. a prompt-for-confirmation that pauses the runner for hours, or a
@@ -173,6 +228,8 @@ function Write-ServerErr {
 try {
     `$listener.Start()
     Write-ServerErr "listener started on http://*:$Port/ (pid `$PID)"
+    if (`$sshImportErr) { Write-ServerErr "Test.SshServer import failed: `$sshImportErr" }
+    Write-ServerErr "ssh support: hostType='`$sshHostType' moduleReady=`$sshReady"
     while (`$listener.IsListening) {
       # Outer try/catch: any throw below MUST NOT kill the server. Previously
       # `$listener.EndGetContext(...)` sat outside the inner try, so transient
@@ -190,6 +247,73 @@ try {
             `$path = `$req.Url.LocalPath.TrimStart('/')
             if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
             `$path = `$path -replace '^status[/\\]', ''
+
+            # --- SSH-toggle back-channel ---
+            # Three endpoints, one handler: status reads current state, enable
+            # and disable mutate it. The JSON response always carries the full
+            # {supported, enabled, ok, message} quadruple so the UI can settle
+            # the button on a single reply (no follow-up status fetch needed).
+            # supported=false short-circuits any mutate attempt — the UI
+            # already disables the button in that case, so this is belt-and-
+            # braces against direct curl hits.
+            if (`$path -eq 'control/ssh/status' -or `$path -eq 'control/ssh/enable' -or `$path -eq 'control/ssh/disable') {
+                # Three axes drive the UI button:
+                #   supported — host-type has an implementation at all
+                #   installed — OpenSSH is present on this machine
+                #   enabled   — sshd service is currently Running
+                # The button is disabled unless (supported && installed), and
+                # its label flips on `enabled`. enable/disable endpoints are
+                # short-circuited when OpenSSH isn't installed, because the
+                # user must run test/Start-SshServer.ps1 to install first.
+                `$supported = `$false
+                `$installed = `$false
+                `$enabled   = `$false
+                `$ok        = `$true
+                `$msg       = ''
+                if (`$sshReady -and (Get-Command Test-SshServerSupported -ErrorAction SilentlyContinue)) {
+                    try { `$supported = [bool](Test-SshServerSupported -HostType `$sshHostType) } catch { `$supported = `$false }
+                }
+                if (`$supported -and (Get-Command Test-SshServerInstalled -ErrorAction SilentlyContinue)) {
+                    try { `$installed = [bool](Test-SshServerInstalled -HostType `$sshHostType) } catch { `$installed = `$false }
+                }
+                if (`$supported -and `$installed) {
+                    try {
+                        if (`$path -eq 'control/ssh/enable') {
+                            `$ok = [bool](Enable-SshServer -HostType `$sshHostType)
+                        } elseif (`$path -eq 'control/ssh/disable') {
+                            `$ok = [bool](Disable-SshServer -HostType `$sshHostType)
+                        }
+                        if (Get-Command Test-SshServerEnabled -ErrorAction SilentlyContinue) {
+                            `$enabled = [bool](Test-SshServerEnabled -HostType `$sshHostType)
+                        }
+                    } catch {
+                        `$ok = `$false
+                        `$msg = `$_.Exception.Message
+                        Write-ServerErr "ssh `$path failed: `$msg"
+                    }
+                } elseif (`$path -ne 'control/ssh/status') {
+                    `$ok = `$false
+                    if (-not `$supported) {
+                        `$msg = 'SSH server toggle not supported on this host.'
+                    } else {
+                        `$msg = 'OpenSSH is not installed. Run test/Start-SshServer.ps1 first.'
+                    }
+                }
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$payload = @{
+                    ok        = `$ok
+                    supported = `$supported
+                    installed = `$installed
+                    enabled   = `$enabled
+                    message   = `$msg
+                } | ConvertTo-Json -Compress
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
 
             # --- Control endpoints: Pause/Continue back-channel from the UI ---
             # Creating/removing control.pause is the source of truth checked by

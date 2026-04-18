@@ -283,6 +283,49 @@ To stop the server manually:
 pwsh test/Stop-StatusServer.ps1
 ```
 
+### SSH server on the host (optional)
+
+Guest VMs and peer hosts can reach the test machine over SSH/SCP (e.g. to
+push artifacts or pull logs) once an SSH server is running on the host.
+This is **not installed automatically** — `Start-StatusServer.ps1` only
+reports the current state on startup (similar to the "Proxy cache:
+detected/not detected" line). To install, run once:
+
+```powershell
+# Windows — elevated PowerShell required
+pwsh test/Start-SshServer.ps1
+```
+
+On `host.windows.hyper-v` this adds the `OpenSSH.Server` Windows capability
+(several minutes on first install), starts the `sshd` service, and sets
+it to start automatically on boot. On `host.macos.utm` the script is a
+placeholder until macOS Remote Login wiring is built.
+
+To stop and fully uninstall:
+
+```powershell
+pwsh test/Stop-SshServer.ps1
+```
+
+**Status-page toggle button.** The banner on [status/index.html](status/index.html)
+has an "Enable SSH Server" / "Disable SSH Server" button left of
+Pause/Continue. It:
+
+- Is **disabled** whenever OpenSSH is not installed. Install first via
+  `Start-SshServer.ps1`.
+- Shows **"Enable SSH Server"** when OpenSSH is installed but `sshd` is
+  stopped — clicking starts the service.
+- Shows **"Disable SSH Server"** when `sshd` is running — clicking stops
+  it but leaves OpenSSH installed so a later Enable is instant.
+- Shows **"SSH Server N/A"** on host types with no implementation.
+
+Connecting from a guest VM or peer host:
+
+```bash
+ssh your-user@<host-ip>
+scp ./file.txt your-user@<host-ip>:C:/Users/Public/
+```
+
 ## Extending with custom tests
 
 Place `.ps1` scripts in `test/extensions/` to run custom validation after each
@@ -370,6 +413,8 @@ test/
   Invoke-TestSequence.ps1          # Dev helper — run a single sequence from any step
   Start-StatusServer.ps1          # Launches detached HTTP status server
   Stop-StatusServer.ps1           # Stops the detached status server
+  Start-SshServer.ps1             # Installs + enables OpenSSH Server on the host (one-time, admin)
+  Stop-SshServer.ps1              # Disables + uninstalls OpenSSH Server (admin)
   Test-Config.ps1                 # Validates config and sends a test notification
   Train-Screenshots.ps1           # Interactive screenshot training tool
   Remove-TestVMFiles.ps1          # Stops and removes all test VMs and files
@@ -380,6 +425,7 @@ test/
     Test.Host.psm1                # Host detection, elevation, git operations
     Test.Status.psm1              # status.json document management
     Test.StatusServer.psm1        # HTTP status server start/stop
+    Test.SshServer.psm1           # Install/enable/disable OpenSSH Server (Windows; macOS placeholder)
     Test.Notify.psm1              # Resend API email notifications
     Test.Get-Image.psm1           # Base image download and refresh
     Test.Log.psm1                 # Transcript logging to test/status/log/
@@ -419,6 +465,7 @@ test/
 | `Test.Host` | Platform detection, host-condition checks, git | `Get-HostType`, `Get-GuestList`, `Assert-HostConditionSet`, `Set-MacHostConditionSet`, `Set-WindowsHostConditionSet`, `Invoke-GitPull` |
 | `Test.Status` | Status document lifecycle | `Initialize-StatusDocument`, `Set-StepStatus`, `Complete-Run` |
 | `Test.StatusServer` | HTTP status server management | `Start-StatusServer`, `Stop-StatusServer` |
+| `Test.SshServer` | Host-side OpenSSH install/toggle (Hyper-V; macOS placeholder) | `Test-SshServerSupported`, `Test-SshServerInstalled`, `Test-SshServerEnabled`, `Install-SshServer`, `Uninstall-SshServer`, `Enable-SshServer`, `Disable-SshServer` |
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |
 | `Test.Get-Image` | Base image download/refresh | `Get-ImagePath`, `Invoke-GetImage` |
 | `Test.Log` | Transcript logging to `test/status/log/` | `Start-LogFile`, `Stop-LogFile` |

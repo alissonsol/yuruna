@@ -43,9 +43,13 @@
     #banner.running .dot { animation: pulse 1.4s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
 
-    /* Pause/Continue control, right-aligned inside the banner */
-    #pause-btn {
+    /* Banner controls (SSH toggle + Pause/Continue), right-aligned together */
+    #banner-controls {
       margin-left: auto;
+      display: flex;
+      gap: .5rem;
+    }
+    .banner-btn {
       background: rgba(255,255,255,0.15);
       color: inherit;
       border: 1px solid rgba(255,255,255,0.35);
@@ -56,8 +60,8 @@
       cursor: pointer;
       transition: background .15s, opacity .15s;
     }
-    #pause-btn:hover:not([disabled]) { background: rgba(255,255,255,0.28); }
-    #pause-btn[disabled] { cursor: default; opacity: .35; }
+    .banner-btn:hover:not([disabled]) { background: rgba(255,255,255,0.28); }
+    .banner-btn[disabled] { cursor: default; opacity: .35; }
 
     /* ── Main container ── */
     main { max-width: 860px; margin: 1.75rem auto; padding: 0 1.5rem; }
@@ -179,7 +183,10 @@
 <div id="banner" class="idle">
   <span class="dot"></span>
   <span id="banner-text">Loading…</span>
-  <button id="pause-btn" type="button" disabled>Pause</button>
+  <div id="banner-controls">
+    <button id="ssh-btn" class="banner-btn" type="button" disabled>SSH</button>
+    <button id="pause-btn" class="banner-btn" type="button" disabled>Pause</button>
+  </div>
 </div>
 
 <main>
@@ -276,6 +283,81 @@
       console.warn('control ' + action + ' failed:', e.message);
     }
     loadStatus();
+  }
+
+  // SSH-toggle button: reflects sshd state and drives the enable/disable
+  // endpoints. Three axes determine the final state:
+  //   supported — host type has an implementation (false on host.macos.utm)
+  //   installed — OpenSSH is present on the machine
+  //   enabled   — sshd service is currently running
+  // The button is DISABLED unless supported && installed. The admin must
+  // run test/Start-SshServer.ps1 once to install; this UI only toggles the
+  // service ON/OFF at runtime.
+  function updateSshButton(state) {
+    const btn = document.getElementById('ssh-btn');
+    if (!btn) return;
+    const supported = !!(state && state.supported);
+    const installed = !!(state && state.installed);
+    const enabled   = !!(state && state.enabled);
+    if (!supported) {
+      btn.textContent = 'SSH Server N/A';
+      btn.disabled = true;
+      btn.onclick = null;
+      return;
+    }
+    if (!installed) {
+      btn.textContent = 'SSH Server not installed';
+      btn.disabled = true;
+      btn.onclick = null;
+      return;
+    }
+    if (enabled) {
+      btn.textContent = 'Disable SSH Server';
+      btn.onclick = () => sshAction('disable');
+    } else {
+      btn.textContent = 'Enable SSH Server';
+      btn.onclick = () => sshAction('enable');
+    }
+    btn.disabled = false;
+  }
+
+  async function sshAction(action) {
+    const btn = document.getElementById('ssh-btn');
+    btn.disabled = true;
+    const prevText = btn.textContent;
+    btn.textContent = (action === 'enable') ? 'Enabling…' : 'Disabling…';
+    let state = null;
+    try {
+      const res = await fetch('control/ssh/' + action, { method: 'POST', cache: 'no-store' });
+      if (res.ok) state = await res.json();
+    } catch (e) {
+      console.warn('ssh ' + action + ' failed:', e.message);
+    }
+    if (state) {
+      updateSshButton(state);
+      if (!state.ok && state.message) console.warn('ssh ' + action + ': ' + state.message);
+    } else {
+      // Network error or non-200: restore the previous label and re-poll.
+      btn.textContent = prevText;
+      btn.disabled = false;
+      loadSshStatus();
+    }
+  }
+
+  async function loadSshStatus() {
+    try {
+      const res = await fetch('control/ssh/status', { cache: 'no-store' });
+      if (res.ok) {
+        const state = await res.json();
+        updateSshButton(state);
+        return;
+      }
+    } catch (e) {
+      console.warn('ssh status fetch failed:', e.message);
+    }
+    // Couldn't reach the endpoint (old server binary, network blip) — keep
+    // the button disabled with a neutral label.
+    updateSshButton({ supported: false, enabled: false });
   }
 
   function badge(status, label) {
@@ -448,6 +530,11 @@
     renderStatus(data, actionData);
     document.getElementById('last-loaded').textContent = new Date().toLocaleTimeString();
     countdown = 30;
+    // Also refresh the SSH-toggle button on every poll so that changes made
+    // outside this tab (another admin running Start-SshServer, the service
+    // crashing, etc.) show up without needing a full page reload. Fire-and-
+    // forget — loadSshStatus handles its own errors.
+    loadSshStatus();
   }
 
   setInterval(() => {

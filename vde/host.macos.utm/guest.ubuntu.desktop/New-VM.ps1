@@ -118,8 +118,16 @@ Write-Output "Creating VM '$VMName' using image: $baseImageFile"
 
 # === Create copies and files for VM ===
 
+# Load shared helpers (retry-on-EACCES bundle removal — handles the race
+# where UTM.app / QEMUHelper.xpc still holds file handles on disk.img
+# immediately after `utmctl delete`).
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "VM.common.psm1") -Force
+
 # Create UTM bundle structure
-if (Test-Path $UtmDir) { Remove-Item -Recurse -Force $UtmDir }
+if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    exit 1
+}
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # Create EFI variable store (required by Apple Virtualization UEFI boot)

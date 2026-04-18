@@ -155,12 +155,27 @@ function Remove-UtmTestVM {
         if ($LASTEXITCODE -eq 0) {
             Write-Output "Deleted UTM VM from registry: $VMName"
         }
-        # Remove the bundle directory from disk
+        # Remove the bundle directory from disk. Retry on EACCES: right after
+        # `utmctl delete` returns, UTM.app + QEMUHelper.xpc can still hold
+        # file handles on bundle contents (typically the mmap'd disk.img)
+        # for a few seconds, and a single-shot Remove-Item hits "Access is
+        # denied". The shared VDE helper retries with 2,4,6,8s backoff.
         $hostname  = $IsMacOS ? (& hostname -s 2>$null).Trim() : (& hostname).Trim()
         $utmBundle = "$HOME/Desktop/Yuruna.VDE/$hostname.nosync/$VMName.utm"
         if (Test-Path $utmBundle) {
-            Remove-Item -Recurse -Force $utmBundle
-            Write-Output "Removed UTM bundle: $utmBundle"
+            # test/modules/Test.New-VM.psm1 → vde/host.macos.utm/VM.common.psm1
+            $vdeHelper = Join-Path $PSScriptRoot "../../vde/host.macos.utm/VM.common.psm1"
+            Import-Module $vdeHelper -Force
+            if (Remove-UtmBundleWithRetry -Path $utmBundle) {
+                Write-Output "Removed UTM bundle: $utmBundle"
+            } else {
+                # Persistent failure → surface it to the runner. Previously
+                # we'd return $true and let New-VM.ps1 hit the same locked
+                # bundle and exit 1 from there; surfacing here gives a
+                # clearer "what failed where".
+                Write-Warning "Remove-UtmTestVM: bundle still present after retries: $utmBundle"
+                return $false
+            }
         }
         return $true
     }

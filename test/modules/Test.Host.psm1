@@ -208,6 +208,39 @@ function Assert-ScreenLock {
         Write-Debug "App Nap check failed: $_"
     }
 
+    # 6. sysadminctl unified screen lock (Ventura+). This overrides the
+    #    legacy askForPassword* keys — the machine can still lock even
+    #    when every individual defaults key is already "safe".
+    #    Accepted "disabled" forms from sysadminctl -screenLock status:
+    #      • "screenLock delay is -1(.000000) seconds"
+    #      • "screenLock is off"
+    #    Anything else (e.g. "screenLock delay is 300 seconds") means a
+    #    lock delay is active.
+    try {
+        # Strip the macOS NSLog prefix ("YYYY-MM-DD HH:MM:SS.mmm sysadminctl[pid:tid] ")
+        # so both the match and the user-facing message are clean.
+        $slStatus = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace '^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+sysadminctl\[\d+:\w+\]\s+', ''
+        $slDisabled = ("$slStatus" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)')
+        if (-not $slDisabled) {
+            $issues += "sysadminctl $slStatus"
+        }
+    } catch {
+        Write-Debug "sysadminctl -screenLock check failed: $_"
+    }
+
+    # 7. Auto-logout after inactivity ("Log out after N minutes" in
+    #    Security / Advanced). When set, macOS kicks the user back to
+    #    loginwindow — the password-demand symptom is identical to a
+    #    lock. System-level pref; read without sudo (world-readable).
+    try {
+        $autoLogout = & defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
+        if ($LASTEXITCODE -eq 0 -and "$autoLogout".Trim() -ne "0") {
+            $issues += "Auto-logout is active after $($autoLogout.Trim())s of inactivity (AutoLogOutDelay)."
+        }
+    } catch {
+        Write-Debug "AutoLogOutDelay check failed: $_"
+    }
+
     if ($issues.Count -eq 0) { return $true }
 
     Write-Warning "═══════════════════════════════════════════════════════════════════"
@@ -348,10 +381,14 @@ function Set-MacHostConditionSet {
 
     if ($currentSysSleep -ne "0") {
         if ($PSCmdlet.ShouldProcess("System sleep (currently $currentSysSleep min)", "Set to 0 (Never) via sudo pmset")) {
-            Write-Output "Setting system sleep to Never (AC and battery)..."
-            & sudo pmset -c sleep 0
-            & sudo pmset -b sleep 0
-            & sudo pmset -c disksleep 0
+            Write-Output "Setting system sleep to Never (all power sources)..."
+            # -a applies to AC + battery + UPS in one shot; previously we
+            # only set disksleep on -c, which left laptops on battery with
+            # disksleep=10. A disk-sleep transition wakes with the display
+            # re-checking the lock state, which on Ventura+ can trigger
+            # the unified screen lock even when askForPassword=0.
+            & sudo pmset -a sleep 0
+            & sudo pmset -a disksleep 0
             $changed = $true
         }
     } else {
@@ -360,8 +397,9 @@ function Set-MacHostConditionSet {
 
     # ── 3e. Prevent idle sleep explicitly ─────────────────────────────────
     # Belt-and-suspenders: disable the idle-sleep assertion even if some
-    # other subsystem tries to re-enable it.
-    & sudo pmset -c disablesleep 1 2>$null | Out-Null
+    # other subsystem tries to re-enable it. -a (not -c) so battery is
+    # covered too.
+    & sudo pmset -a disablesleep 1 2>$null | Out-Null
 
     # ── 3f. Extended pmset guards (Power Nap, standby, hibernation, etc.) ─
     # Even with sleep=0, macOS can perform transitions that briefly blank
@@ -456,42 +494,91 @@ function Set-MacHostConditionSet {
     # script failure.
     & killall ScreenSaverEngine 2>$null | Out-Null
 
-    # ── 3j. Application Layer Firewall stealth mode → OFF ────────────────
-    # When stealth mode is on, macOS silently drops unsolicited ICMP echo
-    # requests — including from UTM guests on the 192.168.64.0/24
-    # shared-NAT bridge. Guests still reach TCP services on the host
-    # (status server, squid, sshd all have their own listeners), but
-    # `ping` from the guest to the host fails, which removes a common
-    # diagnostic when debugging a guest-boot crash. socketfilterfw is
-    # the canonical interface; defaults write is only needed on older
-    # macOS versions where the helper doesn't ship the setstealthmode
-    # verb. Both are no-ops when stealth is already off.
-    $alfHelper = '/usr/libexec/ApplicationFirewall/socketfilterfw'
-    if (Test-Path $alfHelper) {
-        $stealthRaw = & sudo $alfHelper --getstealthmode 2>$null
-        $stealthOn  = "$stealthRaw" -match 'enabled'
-        if ($stealthOn) {
-            if ($PSCmdlet.ShouldProcess('ALF stealth mode (currently enabled)', 'Disable so UTM guests can ping the host')) {
-                Write-Output "Disabling ALF stealth mode so UTM guests can ping the host..."
-                & sudo $alfHelper --setstealthmode off 2>&1 | Out-Null
+    # ── 3j. sysadminctl unified screen lock (Ventura+) ───────────────────
+    # `sysadminctl -screenLock` is the modern (macOS 13+) unified control
+    # that System Settings > Lock Screen > "Require password after screen
+    # saver begins or display is turned off" now actually writes to.
+    # CRITICAL: it overrides the legacy `askForPassword` / `askForPasswordDelay`
+    # keys. A machine can have idleTime=0, askForPassword=0, and
+    # askForPasswordDelay=MAX_INT yet still lock after a few minutes
+    # because sysadminctl reports e.g. "screenLock delay is 300 seconds".
+    #
+    # "off" sets the delay to -1 (effectively disabled). sysadminctl
+    # requires the current user's password (not just sudo) because it
+    # touches the secure keyring entry backing the lock-screen policy.
+    # `-password -` reads the password from stdin — the script user will
+    # see a second prompt after the earlier sudo prompt.
+    # sysadminctl logs to stderr with an NSLog prefix; strip it so both
+    # the "currently: ..." breadcrumb and the regex match see clean text.
+    # Accepted "off" forms: "screenLock is off" OR "screenLock delay is -1".
+    $slNsLog  = '^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+sysadminctl\[\d+:\w+\]\s+'
+    $slStatus = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace $slNsLog, ''
+    $slAlreadyOff = "$slStatus" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)'
+    if (-not $slAlreadyOff) {
+        if ($PSCmdlet.ShouldProcess("sysadminctl $slStatus", "Disable (sysadminctl -screenLock off)")) {
+            Write-Output "Disabling sysadminctl unified screen lock (you may be prompted for your account password)..."
+            # Redirect stderr → stdout so the "password:" prompt and any
+            # diagnostics both appear on the tty where the user expects.
+            & sudo sysadminctl -screenLock off -password - 2>&1
+            # Re-check: if we couldn't disable it (wrong password, policy
+            # override, MDM enforcement), surface the state so the user
+            # knows the legacy keys won't save them.
+            $slAfter = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace $slNsLog, ''
+            if ("$slAfter" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)') {
+                Write-Output "sysadminctl screen lock is now disabled."
                 $changed = $true
+            } else {
+                Write-Warning "sysadminctl screen lock is STILL active after attempt: $slAfter"
+                Write-Warning "  If this Mac is MDM-managed, a Configuration Profile may be"
+                Write-Warning "  enforcing screen lock; check: profiles list ; profiles show -type configuration"
             }
-        } else {
-            Write-Output "ALF stealth mode is already off."
         }
     } else {
-        # Fallback for hosts without the helper binary.
-        $stealthVal = & sudo defaults read /Library/Preferences/com.apple.alf stealthenabled 2>$null
-        if ($LASTEXITCODE -eq 0 -and "$stealthVal".Trim() -eq '1') {
-            if ($PSCmdlet.ShouldProcess('com.apple.alf stealthenabled (currently 1)', 'Set to 0 via sudo defaults')) {
-                Write-Output "Disabling ALF stealth mode via defaults write..."
-                & sudo defaults write /Library/Preferences/com.apple.alf stealthenabled -int 0 2>&1 | Out-Null
-                & sudo pkill -HUP socketfilterfw 2>$null | Out-Null
-                $changed = $true
-            }
-        } else {
-            Write-Output "ALF stealth mode is already off (or ALF is disabled entirely)."
+        Write-Output "sysadminctl unified screen lock is already disabled."
+    }
+
+    # ── 3k. Auto-logout after inactivity (Security → Advanced) ───────────
+    # `com.apple.autologout.AutoLogOutDelay` (system-level) is the
+    # "Log out after N minutes of inactivity" toggle in the Lock Screen /
+    # Security pane. When set, macOS kicks the user back to loginwindow
+    # after the delay — the symptom is indistinguishable from a lock
+    # ("machine demands a password"), but no individual screen-saver /
+    # pmset key we control would prevent it. Stored at system level
+    # (/Library/Preferences/.GlobalPreferences), so requires sudo.
+    $autoLogoutDelay = & sudo defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
+    $autoLogoutOff = ($LASTEXITCODE -ne 0 -or "$autoLogoutDelay".Trim() -eq "0")
+    if (-not $autoLogoutOff) {
+        if ($PSCmdlet.ShouldProcess("Auto-logout delay (currently $($autoLogoutDelay.Trim())s)", "Set to 0 (disabled)")) {
+            Write-Output "Disabling auto-logout after inactivity..."
+            & sudo defaults write /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay -int 0
+            $changed = $true
         }
+    } else {
+        Write-Output "Auto-logout after inactivity is already disabled."
+    }
+
+    # ── 3l. Managed Configuration Profile detection (MDM override) ───────
+    # If the Mac is MDM-managed, a Configuration Profile can enforce
+    # screen lock / password delay / auto-logout at a level that OVERRIDES
+    # everything we set above — `defaults write` writes are silently
+    # ignored, or reverted on next mcxrefresh. We can't bypass a profile;
+    # we CAN warn the user so they don't chase a ghost.
+    try {
+        $profOutput = & profiles list 2>&1
+        $hasProfiles = ($LASTEXITCODE -eq 0 -and "$profOutput" -notmatch 'no configuration profiles')
+        if ($hasProfiles) {
+            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            Write-Warning " Configuration Profile(s) detected on this Mac. If any profile"
+            Write-Warning " enforces screen-lock / password / auto-logout policy, the settings"
+            Write-Warning " applied by this script will be overridden. Inspect with:"
+            Write-Warning "   profiles list"
+            Write-Warning "   profiles show -type configuration"
+            Write-Warning " Policy keys to look for: screenSaverPasswordDelay, askForPassword,"
+            Write-Warning " loginWindowIdleTime, AutoLogOutDelay, forceLockOnSleep."
+            Write-Warning "═══════════════════════════════════════════════════════════════════"
+        }
+    } catch {
+        Write-Debug "profiles list failed: $_"
     }
 
     # ── 4. Accessibility — trigger the system prompt if not granted ───────

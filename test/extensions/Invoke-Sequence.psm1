@@ -1799,19 +1799,19 @@ function Invoke-Sequence {
     }
     Write-Information "    Steps: $($steps.Count)"
 
-    # HACK: Force vmconnect to repaint by reconnecting.
-    # After a host reboot the Hyper-V console window may render blank;
-    # closing and reopening it forces a full framebuffer refresh.
-    Import-Module (Join-Path $modulesDir "Test.Start-VM.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-    Restart-VMConnect -HostType $HostType -VMName $VMName
-
-    $stepNum = 0
-    $screenshotDir = Join-Path (Split-Path -Parent $SequencePath) "captures"
-    $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-
     # Pause back-channel: the status server's /control/pause endpoint creates
-    # test/status/control.pause. We check it at the top of every step iteration
-    # so a click on the UI Pause button takes effect before the next action.
+    # test/status/control.pause. We gate on that file in two places:
+    #   1. Before sequence setup (here, below) — so Restart-VMConnect and any
+    #      per-sequence work don't run while paused, and the very first
+    #      action of a new sequence can't start while paused. This matters
+    #      most between two sequences (e.g. Test-Start → Test-Workload, or
+    #      one guest's workload → the next guest's workload) where clicking
+    #      Pause used to only take effect after the next sequence had
+    #      already started its first action.
+    #   2. At the top of each step iteration (further below) — so a click
+    #      mid-sequence takes effect before the next action.
+    # Empty-steps sequences have already returned above, so the sequence-
+    # level wait here never triggers for a sequence that has nothing to do.
     $pauseFlagFile = Join-Path (Split-Path -Parent $PSScriptRoot) "status/control.pause"
 
     # Current-action sidecar: write the in-progress step to a small JSON file
@@ -1838,16 +1838,41 @@ function Invoke-Sequence {
         }
     }
 
-    foreach ($step in $steps) {
-        $stepNum++
+    # Shared pause-wait block. Used both at sequence start (Label='[sequence
+    # start]') and at the top of each step (Label='[stepNum/Count]').
+    # Dynamic scoping resolves $pauseFlagFile and $writeCurrentAction from
+    # the caller's scope at invoke time, so the scriptblock doesn't need
+    # its own parameters for those.
+    $waitWhilePaused = {
+        param([string]$Label)
         if (Test-Path $pauseFlagFile) {
-            & $writeCurrentAction "[$stepNum/$($steps.Count)] Paused (waiting for resume)"
-            Write-Information "    [$stepNum/$($steps.Count)] Paused (status-server request). Waiting for resume..."
+            & $writeCurrentAction "$Label Paused (waiting for resume)"
+            Write-Information "    $Label Paused (status-server request). Waiting for resume..."
             while (Test-Path $pauseFlagFile) {
                 Start-Sleep -Seconds 1
             }
-            Write-Information "    [$stepNum/$($steps.Count)] Resumed."
+            Write-Information "    $Label Resumed."
         }
+    }
+
+    # Gate #1: sequence-level pause check, before any per-sequence work.
+    & $waitWhilePaused "[sequence start]"
+
+    # HACK: Force vmconnect to repaint by reconnecting.
+    # After a host reboot the Hyper-V console window may render blank;
+    # closing and reopening it forces a full framebuffer refresh.
+    Import-Module (Join-Path $modulesDir "Test.Start-VM.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Restart-VMConnect -HostType $HostType -VMName $VMName
+
+    $stepNum = 0
+    $screenshotDir = Join-Path (Split-Path -Parent $SequencePath) "captures"
+    $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+    foreach ($step in $steps) {
+        $stepNum++
+        # Gate #2: between-steps pause check. Catches a Pause clicked
+        # while the previous step was running.
+        & $waitWhilePaused "[$stepNum/$($steps.Count)]"
         $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
         & $writeCurrentAction "[$stepNum/$($steps.Count)] $($step.action): $desc"
         # Force-enable progress bar visibility for the whole step body.

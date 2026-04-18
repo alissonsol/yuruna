@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa01
 .AUTHOR Alisson Sol
@@ -43,13 +43,16 @@
     [bool] $true on success, $false on persistent failure.
 #>
 function Remove-UtmBundleWithRetry {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$Path,
         [int]$MaxAttempts = 5
     )
     if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($Path, "Remove UTM bundle (with up to $MaxAttempts retries)")) {
+        return $false
+    }
 
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         try {

@@ -136,7 +136,9 @@ if (Test-Path $StatusFile) {
     }
 }
 
-# --- Clear stale heartbeat so the new server isn't killed by a prior runner's timestamp ---
+# --- Clear any leftover heartbeat file from an older build that used it ---
+# The server no longer reads this file; just tidy it up so inspectors don't
+# think it's load-bearing.
 Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
 
 # --- Launch the server as a detached process ---
@@ -144,11 +146,16 @@ $serverScript = @"
 `$ErrorActionPreference = 'Stop'
 `$listener = [System.Net.HttpListener]::new()
 `$listener.Prefixes.Add('http://*:$Port/')
-`$heartbeatFile = Join-Path '$($StatusDir -replace "'","''")' 'server.heartbeat'
 `$pauseFile     = Join-Path '$($StatusDir -replace "'","''")' 'control.pause'
 `$statusJsonFile = Join-Path '$($StatusDir -replace "'","''")' 'status.json'
 `$serverLogFile = Join-Path '$($StatusDir -replace "'","''")' 'server.err'
-`$heartbeatTimeoutMinutes = 30
+# NOTE: the server used to self-exit when server.heartbeat went stale. That
+# was removed because legitimate runner states can outlast ANY threshold —
+# e.g. a prompt-for-confirmation that pauses the runner for hours, or a
+# single waitForText with timeoutSeconds:3600. The UI must stay up across
+# those cases, so the ONLY valid stop path is now Stop-StatusServer.ps1
+# (which kills the PID recorded in server.pid). A truly orphaned server
+# has to be killed manually — the trade-off is explicit and deliberate.
 # Log any per-iteration exception so we can actually see why the server died.
 # On Windows, Start-Process -WindowStyle Hidden has no stderr redirection, so
 # without this file an unhandled throw in the loop dies silently — which was
@@ -173,20 +180,9 @@ try {
       # hiccup) unwound to the outer try/finally and exited the process with
       # no log. Wrap the whole iteration here; log + continue.
       try {
-        # Use async GetContext with timeout so we can check the heartbeat periodically
-        `$asyncResult = `$listener.BeginGetContext(`$null, `$null)
-        while (-not `$asyncResult.AsyncWaitHandle.WaitOne(10000)) {
-            # Every 10s, check if the heartbeat file is stale
-            if (Test-Path `$heartbeatFile) {
-                `$age = (Get-Date) - (Get-Item `$heartbeatFile).LastWriteTime
-                if (`$age.TotalMinutes -gt `$heartbeatTimeoutMinutes) {
-                    Write-ServerErr "heartbeat stale (`$([int]`$age.TotalMinutes) min > `$heartbeatTimeoutMinutes min) — self-exit"
-                    `$listener.Stop()
-                    exit 0
-                }
-            }
-        }
-        `$ctx = `$listener.EndGetContext(`$asyncResult)
+        # Block indefinitely for the next request. No periodic wake-up is
+        # needed now that the heartbeat-stale self-exit is gone.
+        `$ctx = `$listener.GetContext()
         try {
             `$req  = `$ctx.Request
             `$res  = `$ctx.Response

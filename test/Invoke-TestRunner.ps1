@@ -432,7 +432,6 @@ function Get-SourceFingerprint {
 $script:SourceFingerprint = Get-SourceFingerprint -ScriptPath $PSCommandPath -ModulesDir $ModulesDir
 
 # === Continuous test loop ===
-$HeartbeatFile = Join-Path $StatusDir "server.heartbeat"
 $CycleCount     = 0
 try {
     $prevStatus = Get-Content -Raw $StatusFile | ConvertFrom-Json
@@ -486,9 +485,6 @@ while ($true) {
     $Warnings = [System.Collections.Generic.List[string]]::new()
 
   try {
-
-    # Touch heartbeat so the status server knows the runner is alive
-    Set-Content -Path $HeartbeatFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
 
     Write-Output ""
     Write-Output "============================================="
@@ -709,9 +705,6 @@ while ($true) {
         }
         $VMName = $VMNames[$GuestKey]
         $script:ActiveVMName = $VMName
-        # Refresh server heartbeat per-guest so a multi-hour cycle (e.g. full
-        # OS install) does not let the 30-minute heartbeat timeout self-exit.
-        Set-Content -Path $HeartbeatFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
         Write-Output ""
         Write-Output "=== $GuestKey (VM: $VMName) ==="
 
@@ -1037,11 +1030,6 @@ while ($true) {
 
     $delay = if ($CycleDelay) { $CycleDelay } else { $CycleDelaySeconds }
     for ($remaining = $delay; $remaining -gt 0; $remaining--) {
-        # Refresh the server heartbeat every 60s during the wait so the
-        # detached status server doesn't self-exit on its 30-minute timeout.
-        if (($remaining % 60) -eq 0) {
-            Set-Content -Path $HeartbeatFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
-        }
         $pct = [math]::Round((($delay - $remaining) / $delay) * 100)
         Write-Progress -Activity "Next cycle" -Status "in $remaining seconds..." -PercentComplete $pct
         Start-Sleep -Seconds 1
@@ -1052,14 +1040,6 @@ while ($true) {
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 }
 
-# === Keep the status server alive past runner exit ===
-# The detached status server self-terminates if the heartbeat file goes
-# stale for >30 minutes. That guards against orphaned servers when the
-# runner crashes without cleanup. On any graceful exit from the cycle loop
-# (stopOnFailure, shutdown request, consecutive-crash abort), we delete the
-# heartbeat file so the server's stale-check sees no file and keeps running
-# indefinitely — the user can inspect the failure via the web UI.
-Remove-Item $HeartbeatFile -Force -ErrorAction SilentlyContinue
 Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
 Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
 

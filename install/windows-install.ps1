@@ -7,8 +7,8 @@
     Git, the Windows ADK Deployment Tools (for oscdimg.exe), Tesseract OCR,
     and enables the Hyper-V Windows Feature. Clones the Yuruna repository
     into $HOME\git\yuruna, seeds test\test-config.json from the template,
-    and runs test\Set-WindowsHostConditionSet.ps1 to disable display
-    timeout and screen lock so Hyper-V screen captures stay readable.
+    and runs vde\host.windows.hyper-v\Enable-TestAutomation.ps1 to disable
+    display timeout and screen lock so Hyper-V screen captures stay readable.
 
     Idempotent — safe to re-run to pick up updates. On re-run it stops any
     running Yuruna test processes, upgrades installed packages via winget,
@@ -67,7 +67,7 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
   |    * winget package installs (PowerShell 7, Git, ADK, ...)    |
   |    * Enable-WindowsOptionalFeature -FeatureName Hyper-V       |
   |    * powercfg / registry edits in                             |
-  |      Set-WindowsHostConditionSet.ps1                          |
+  |      vde\host.windows.hyper-v\Enable-TestAutomation.ps1       |
   |  You will see ONE UAC prompt if the script was not already    |
   |  launched from an elevated shell.                             |
   +---------------------------------------------------------------+
@@ -222,19 +222,17 @@ if (-not (Test-Path $cfg) -and (Test-Path $tpl)) {
 }
 
 # ── Host configuration (display timeout, screen lock, etc.) ───────────────
-$setHost = Join-Path $testDir 'Set-WindowsHostConditionSet.ps1'
+$setHost = Join-Path $YurunaDir 'vde\host.windows.hyper-v\Enable-TestAutomation.ps1'
 if (Test-Path $setHost) {
     $pwshExe = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
     if (-not $pwshExe) {
-        Write-Warn 'pwsh not on PATH yet — skipping Set-WindowsHostConditionSet.ps1. Open a new terminal and run it manually.'
+        Write-Warn 'pwsh not on PATH yet — skipping vde\host.windows.hyper-v\Enable-TestAutomation.ps1. Open a new terminal and run it manually.'
     } else {
-        Write-Step 'Running Set-WindowsHostConditionSet.ps1'
-        Push-Location $testDir
-        try { & $pwshExe -NoLogo -NoProfile -File $setHost }
-        finally { Pop-Location }
+        Write-Step 'Running vde\host.windows.hyper-v\Enable-TestAutomation.ps1'
+        & $pwshExe -NoLogo -NoProfile -File $setHost
     }
 } else {
-    Write-Warn "Set-WindowsHostConditionSet.ps1 not found under $testDir — skipping host config."
+    Write-Warn "vde\host.windows.hyper-v\Enable-TestAutomation.ps1 not found under $YurunaDir — skipping host config."
 }
 
 # ── Done ───────────────────────────────────────────────────────────────────

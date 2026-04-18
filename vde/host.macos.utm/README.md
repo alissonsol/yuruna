@@ -13,7 +13,7 @@ Paste this into Terminal on a fresh macOS machine:
 It installs Xcode Command Line Tools, Homebrew, `git`, PowerShell
 (`pwsh`), `tesseract`, and UTM; clones this repository into
 `~/git/yuruna`; seeds `test/test-config.json` from the template; and
-runs [`test/Set-MacHostConditionSet.ps1`](../../test/Set-MacHostConditionSet.ps1)
+runs [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1)
 to disable display sleep and the screen saver lock so UTM screen
 captures stay readable. The script is idempotent — it is safe to run
 it again to pick up updates.
@@ -21,7 +21,7 @@ it again to pick up updates.
 Consistent with the other Yuruna scripts that need elevation, the
 installer prints an up-front banner listing exactly what it needs
 `sudo` for (Homebrew cask post-install + `pmset` inside
-`Set-MacHostConditionSet.ps1`) and prompts for your macOS password
+`Enable-TestAutomation.ps1`) and prompts for your macOS password
 **once** — the timestamp is then kept alive for the rest of the run.
 
 After the script finishes, do these steps in order:

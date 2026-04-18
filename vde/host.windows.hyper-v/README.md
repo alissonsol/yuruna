@@ -16,7 +16,7 @@ It installs PowerShell 7, Git, the Windows ADK Deployment Tools
 **Microsoft-Hyper-V-All** Windows Feature; clones this repository
 into `%USERPROFILE%\git\yuruna`; seeds `test\test-config.json` from
 the template; and runs
-[`test\Set-WindowsHostConditionSet.ps1`](../../test/Set-WindowsHostConditionSet.ps1)
+[`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1)
 to disable display timeout and the machine-inactivity lock so
 Hyper-V screen captures stay readable. The script is idempotent —
 it is safe to run it again to pick up updates.
@@ -24,7 +24,7 @@ it is safe to run it again to pick up updates.
 Consistent with the other Yuruna scripts that need elevation, the
 installer prints an up-front banner listing exactly what it needs
 Administrator rights for (winget installs, `Enable-WindowsOptionalFeature`,
-`powercfg`/registry tweaks inside `Set-WindowsHostConditionSet.ps1`)
+`powercfg`/registry tweaks inside `Enable-TestAutomation.ps1`)
 and — if you started it from a non-elevated shell — self-relaunches
 via a **single UAC prompt**. You won't be asked again after that.
 

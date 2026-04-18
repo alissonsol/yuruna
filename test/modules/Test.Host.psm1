@@ -279,8 +279,8 @@ function Assert-ScreenLock {
     Write-Warning " When the display blanks, UTM screen captures return a black"
     Write-Warning " image and OCR-based waitForText steps will time out."
     Write-Warning ""
-    Write-Warning " Quick fix — run from the test/ directory:"
-    Write-Warning "   ./Set-MacHostConditionSet.ps1"
+    Write-Warning " Quick fix — run from the repo root:"
+    Write-Warning "   pwsh ./vde/host.macos.utm/Enable-TestAutomation.ps1"
     Write-Warning ""
     Write-Warning " Or manually in System Settings:"
     Write-Warning "   1. Displays > Advanced > Prevent automatic sleeping when"
@@ -826,7 +826,7 @@ function Set-WindowsHostConditionSet {
             Write-Output "Creating firewall rule: $icmpRuleName (all profiles)..."
             $null = New-NetFirewallRule `
                 -DisplayName $icmpRuleName `
-                -Description 'Allow inbound ICMPv4 Echo Request on all profiles so guest VMs and LAN peers can ping the host. Created by Yuruna Set-WindowsHostConditionSet.' `
+                -Description 'Allow inbound ICMPv4 Echo Request on all profiles so guest VMs and LAN peers can ping the host. Created by Yuruna Enable-TestAutomation (vde\host.windows.hyper-v).' `
                 -Direction Inbound `
                 -Action Allow `
                 -Protocol ICMPv4 `
@@ -934,8 +934,8 @@ function Assert-WindowsHostConditionSet {
         Write-Warning "═══════════════════════════════════════════════════════════════════"
         Write-Warning " Hyper-V Virtual Machine Management service (vmms) is not running."
         Write-Warning ""
-        Write-Warning " Quick fix — run from an elevated PowerShell in the test/ directory:"
-        Write-Warning "   ./Set-WindowsHostConditionSet.ps1"
+        Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
+        Write-Warning "   pwsh .\vde\host.windows.hyper-v\Enable-TestAutomation.ps1"
         Write-Warning ""
         Write-Warning " If Hyper-V is not installed, enable it first:"
         Write-Warning "   Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
@@ -958,8 +958,8 @@ function Assert-WindowsHostConditionSet {
                 Write-Warning " The screen will blank during long test runs, which may cause"
                 Write-Warning " Hyper-V Enhanced Session screen captures to fail."
                 Write-Warning ""
-                Write-Warning " Quick fix — run from an elevated PowerShell in the test/ directory:"
-                Write-Warning "   ./Set-WindowsHostConditionSet.ps1"
+                Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
+                Write-Warning "   pwsh .\vde\host.windows.hyper-v\Enable-TestAutomation.ps1"
                 Write-Warning "═══════════════════════════════════════════════════════════════════"
                 return $false
             }
@@ -980,8 +980,8 @@ function Assert-WindowsHostConditionSet {
             Write-Warning " Machine inactivity lock is set to $lockTimeout second(s)."
             Write-Warning " The lock screen will activate during long test runs."
             Write-Warning ""
-            Write-Warning " Quick fix — run from an elevated PowerShell in the test/ directory:"
-            Write-Warning "   ./Set-WindowsHostConditionSet.ps1"
+            Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
+            Write-Warning "   pwsh .\vde\host.windows.hyper-v\Enable-TestAutomation.ps1"
             Write-Warning "═══════════════════════════════════════════════════════════════════"
             return $false
         }

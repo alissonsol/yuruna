@@ -30,13 +30,14 @@ log "  target : $YURUNA_DIR"
 # Every script in this repo that needs elevation says so up front rather than
 # surprising the user midway through. Match that convention here and prime
 # sudo a single time so the Homebrew installer, cask post-installs, and the
-# pmset call in Set-MacHostConditionSet.ps1 all reuse the same timestamp.
+# pmset call in vde/host.macos.utm/Enable-TestAutomation.ps1 all reuse the same timestamp.
 cat <<'SUDO_NOTICE'
 
   ┌───────────────────────────────────────────────────────────────┐
   │  This installer needs sudo for:                               │
   │    • Homebrew install + cask post-install scripts             │
-  │    • pmset / defaults in Set-MacHostConditionSet.ps1          │
+  │    • pmset / defaults in                                      │
+  │      vde/host.macos.utm/Enable-TestAutomation.ps1             │
   │  You will be prompted for your macOS password ONCE, below.    │
   └───────────────────────────────────────────────────────────────┘
 
@@ -209,14 +210,18 @@ if [[ ! -f "$TEST_DIR/test-config.json" && -f "$TEST_DIR/test-config.json.templa
 fi
 
 # ── Host configuration (disable display sleep, screen saver, etc.) ──────────
-if [[ -f "$TEST_DIR/Set-MacHostConditionSet.ps1" ]]; then
-  log "Running Set-MacHostConditionSet.ps1 (uses pmset via sudo)"
+# The host-prep script lives under vde/host.macos.utm/ (not test/) because
+# its logic is platform-specific; the test harness imports the underlying
+# module (test/modules/Test.Host.psm1) separately.
+HOST_SETUP="$YURUNA_DIR/vde/host.macos.utm/Enable-TestAutomation.ps1"
+if [[ -f "$HOST_SETUP" ]]; then
+  log "Running vde/host.macos.utm/Enable-TestAutomation.ps1 (uses pmset via sudo)"
   # Refresh the sudo timestamp right before the pwsh call so pmset inside the
   # PowerShell script never re-prompts even if the keep-alive loop missed a beat.
   sudo -v
-  ( cd "$TEST_DIR" && pwsh -NoLogo -NoProfile -File ./Set-MacHostConditionSet.ps1 )
+  pwsh -NoLogo -NoProfile -File "$HOST_SETUP"
 else
-  warn "Set-MacHostConditionSet.ps1 not found under $TEST_DIR — skipping host config."
+  warn "Enable-TestAutomation.ps1 not found at $HOST_SETUP — skipping host config."
 fi
 
 # ── Done ────────────────────────────────────────────────────────────────────

@@ -126,8 +126,8 @@ inactivity lock, and lock-screen-on-resume via `powercfg` and
 registry edits:
 
 ```powershell
-cd $HOME\git\yuruna\test
-pwsh .\Set-WindowsHostConditionSet.ps1
+cd $HOME\git\yuruna\vde\host.windows.hyper-v
+pwsh .\Enable-TestAutomation.ps1
 ```
 
 Use `-WhatIf` first to preview changes. The script is idempotent

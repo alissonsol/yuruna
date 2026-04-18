@@ -19,34 +19,45 @@
 
 <#
 .SYNOPSIS
-    Configures Windows host settings needed for unattended VM testing.
+    Prepares the Windows Hyper-V host to run yuruna automated VM tests.
 
 .DESCRIPTION
-    Starts the Hyper-V management service, disables display timeout (AC and DC),
-    disables the machine inactivity lock, and disables lock screen on resume.
-    Requires Administrator elevation.  Idempotent.
+    Configures host-side settings needed for unattended, long-running test
+    runs against Hyper-V guest VMs:
+      * starts the Hyper-V Virtual Machine Management service (vmms)
+      * display timeout (AC + DC) → Never
+      * machine inactivity lock → disabled
+      * lock screen on resume → disabled
+      * inbound ICMPv4 echo allowed (guest VMs + LAN can ping the host)
+    Requires Administrator elevation. Idempotent — safe to re-run.
 
-    Run this script before Invoke-TestRunner.ps1 when Assert-HostConditionSet
-    reports that display timeout or lock screen settings will interfere with
-    test runs.
+    Run this before Invoke-TestRunner.ps1 when Assert-HostConditionSet
+    reports that display timeout or lock screen settings will interfere
+    with test runs.
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.
 
 .EXAMPLE
-    ./Set-WindowsHostConditionSet.ps1
-    ./Set-WindowsHostConditionSet.ps1 -WhatIf
+    .\Enable-TestAutomation.ps1
+    .\Enable-TestAutomation.ps1 -WhatIf
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
 param()
 
 $ErrorActionPreference = "Stop"
-$TestRoot = $PSScriptRoot
+# This script lives under vde\host.windows.hyper-v\ ; the module it
+# delegates to is at test\modules\Test.Host.psm1 (two directory levels
+# up plus the test\ subtree). The cross-folder import is the same
+# pattern already used by Test.New-VM.psm1 -> vde\host.*\VM.common.psm1.
+$ScriptDir  = $PSScriptRoot
+$RepoRoot   = Split-Path -Parent (Split-Path -Parent $ScriptDir)
+$ModulePath = Join-Path $RepoRoot 'test\modules\Test.Host.psm1'
 
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
-Import-Module (Join-Path -Path $TestRoot -ChildPath "modules" -AdditionalChildPath "Test.Host.psm1") -Force
+Import-Module $ModulePath -Force
 $global:VerbosePreference = $savedVerbose
 
 Set-WindowsHostConditionSet @PSBoundParameters

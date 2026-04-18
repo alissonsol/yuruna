@@ -81,8 +81,8 @@ disables display sleep, the screen saver idle trigger, and the screen
 lock password requirement via `pmset` and `defaults`:
 
 ```bash
-cd ~/git/yuruna/test
-pwsh ./Set-MacHostConditionSet.ps1
+cd ~/git/yuruna/vde/host.macos.utm
+pwsh ./Enable-TestAutomation.ps1
 ```
 
 Use `-WhatIf` first to preview changes. The script is idempotent and

@@ -34,7 +34,14 @@
 #>
 
 param(
-    [string]$VMName = "ubuntu-server01"
+    [string]$VMName = "ubuntu-server01",
+    # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM) so
+    # every guest in a run agrees on a single squid-cache URL. When bound
+    # (even to ""), the local discovery is skipped and this value is used
+    # verbatim: "" means "no cache, go direct"; a URL means "use this".
+    # When NOT bound (standalone / manual run), fall back to the discovery
+    # block below.
+    [string]$ProxyUrl
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -158,6 +165,17 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 # for the desktop-ISO flow: installing ubuntu-desktop on first boot pulls
 # ~2 GB of .deb packages through apt, and caching them across guest
 # rebuilds is a very large cycle-time win.
+if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
+    # URL was forwarded by the caller (test runner). Skip discovery so this
+    # script and the runner agree on a single cache URL. On Hyper-V the
+    # race is narrower than on UTM (MAC-scoped neighbor lookup, not subnet
+    # scan), but keeping one source of truth still simplifies debugging.
+    if ($ProxyUrl) {
+        Write-Output "  squid-cache URL forwarded by caller: $ProxyUrl — skipping local discovery."
+    } else {
+        Write-Output "  No proxy forwarded by caller — guest will download directly."
+    }
+} else {
 $ProxyUrl = ""
 $cacheVM = Get-VM -Name "squid-cache" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
@@ -242,6 +260,7 @@ To intentionally skip the cache:
         $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
         exit 1
     }
+}
 }
 
 # Build the autoinstall apt-proxy block. When a cache is reachable, inject

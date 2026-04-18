@@ -29,8 +29,16 @@ $ModulesDir = Join-Path $TestRoot "modules"
 $hostModPath = Join-Path $ModulesDir "Test.Host.psm1"
 if (-not (Test-Path $hostModPath)) { Write-Error "Module not found: $hostModPath"; exit 1 }
 Import-Module -Name $hostModPath -Force
+# Test.New-VM.psm1 import is mandatory: it provides Stop-HyperVVMForce, which
+# is the only path that escalates to killing vmwp.exe when a VM is stuck in
+# 'Stopping'. Without it, a hung VM (e.g. test-ubuntu-server-01) blocks
+# cleanup forever.
 $newVmModPath = Join-Path $ModulesDir "Test.New-VM.psm1"
-if (Test-Path $newVmModPath) { Import-Module -Name $newVmModPath -Force }
+if (-not (Test-Path $newVmModPath)) { Write-Error "Module not found: $newVmModPath"; exit 1 }
+Import-Module -Name $newVmModPath -Force
+if (-not (Get-Command Stop-HyperVVMForce -ErrorAction SilentlyContinue)) {
+    Write-Error "Stop-HyperVVMForce not exported from $newVmModPath"; exit 1
+}
 
 # === Detect host type ===
 $HostType = Get-HostType
@@ -53,17 +61,17 @@ switch ($HostType) {
             if ($vm.State -ne 'Off') {
                 # Stop-HyperVVMForce escalates to killing the VM's vmwp.exe
                 # worker process when Stop-VM -TurnOff can't bring the VM to
-                # 'Off' within ~20 s (typically a stuck 'Stopping' state).
+                # 'Off' within 20 s (typically a stuck 'Stopping' state).
                 # Without this escalation, a hung VM blocks cleanup forever
                 # and every subsequent cycle retries against the same stale
                 # instance — exactly what happened to test-ubuntu-server-01.
-                if (Get-Command Stop-HyperVVMForce -ErrorAction SilentlyContinue) {
-                    # -Confirm:$false: automated harness must not prompt.
-                    $null = Stop-HyperVVMForce -VMName $vm.Name -Confirm:$false
+                # -Confirm:$false: automated harness must not prompt.
+                $stopped = Stop-HyperVVMForce -VMName $vm.Name -StopTimeoutSeconds 20 -Confirm:$false
+                if ($stopped) {
+                    Write-Output "    Stopped."
                 } else {
-                    Stop-VM -Name $vm.Name -Force -TurnOff -Confirm:$false -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 6>$null
+                    Write-Warning "    Stop-HyperVVMForce returned `$false for $($vm.Name); Remove-VM may fail."
                 }
-                Write-Output "    Stopped."
             } else {
                 Write-Output "    Already off."
             }

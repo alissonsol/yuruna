@@ -23,6 +23,23 @@ case "$ARCH" in
     ;;
 esac
 
+# ===== Pin the Hyper-V framebuffer resolution =====
+# Without an explicit video= parameter, hyperv_drm occasionally fails to
+# re-initialize on reboot, leaving the guest with a black screen and a wedged
+# console (Ctrl+Alt+F3 also dead). Pinning the framebuffer resolution in the
+# kernel cmdline avoids that reboot fragility. Hyper-V only.
+if [ "$ARCH" = "x86_64" ] && [ -f /etc/default/grub ]; then
+  echo ""
+  echo -e "\e[1;36m>>> Pinning Hyper-V framebuffer (video=hyperv_fb:1920x1080)...\e[0m"
+  if ! grep -q 'video=hyperv_fb' /etc/default/grub; then
+    sudo sed -i -E 's|^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"|GRUB_CMDLINE_LINUX_DEFAULT="\1 video=hyperv_fb:1920x1080"|; s|="  *|="|' /etc/default/grub
+    sudo update-grub
+    echo -e "\e[1;32m<<< GRUB updated with video=hyperv_fb:1920x1080.\e[0m"
+  else
+    echo "GRUB already has video=hyperv_fb; skipping."
+  fi
+fi
+
 # ===== Disable screen lock and idle timeout =====
 # Hypervisor-injected keystrokes don't reset the GNOME idle timer,
 # so long-running tests can trigger the lock screen.

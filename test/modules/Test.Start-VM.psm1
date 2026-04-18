@@ -105,20 +105,45 @@ function Stop-TestVM {
             return $true
         }
         "host.windows.hyper-v" {
-            try {
-                if ($PSCmdlet.ShouldProcess($VMName, 'Stop Hyper-V VM')) {
-                    Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
-                    # Close the vmconnect window for this VM
-                    Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
-                        Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
-                        Stop-Process -Force -ErrorAction SilentlyContinue
+            if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop Hyper-V VM')) { return $true }
+            # Prefer Stop-HyperVVMForce (Test.New-VM.psm1): Stop-VM -TurnOff
+            # with a 20 s deadline, then kill vmwp.exe for the VM's GUID if
+            # it's still not Off. Plain Stop-VM -TurnOff hangs indefinitely
+            # when vmms can't complete a 'Stopping' transition — exactly the
+            # stuck test-ubuntu-server-01 case that broke continuous runs
+            # even with stopOnFailure=false, because the runner blocked
+            # here before it ever got to Remove-TestVM.
+            $stopped = $false
+            if (Get-Command Stop-HyperVVMForce -ErrorAction SilentlyContinue) {
+                try {
+                    $stopped = [bool](Stop-HyperVVMForce -VMName $VMName -StopTimeoutSeconds 20 -Confirm:$false)
+                } catch {
+                    Write-Warning "Stop-HyperVVMForce threw for '$VMName': $_"
+                    $stopped = $false
                 }
-                Write-Output "Stopped Hyper-V VM: $VMName"
-                return $true
-            } catch {
-                Write-Warning "Stop-VM failed for '$VMName': $_"
-                return $false
+            } else {
+                # Fallback only — Test.New-VM.psm1 is loaded by
+                # Invoke-TestRunner alongside this module, so this branch
+                # is reached only when Test.Start-VM is used in isolation.
+                try {
+                    Stop-VM -Name $VMName -Force -TurnOff -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
+                    $stopped = $true
+                } catch {
+                    Write-Warning "Stop-VM failed for '$VMName': $_"
+                    $stopped = $false
+                }
             }
+            # Close the vmconnect window for this VM regardless — the host
+            # window has no value once the VM is off (or being killed).
+            Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+                Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+                Stop-Process -Force -ErrorAction SilentlyContinue
+            if ($stopped) {
+                Write-Output "Stopped Hyper-V VM: $VMName"
+            } else {
+                Write-Warning "Failed to stop Hyper-V VM '$VMName'; Remove-TestVM may take over."
+            }
+            return $stopped
         }
         default {
             Write-Warning "Unknown host type for Stop-VM: $HostType"

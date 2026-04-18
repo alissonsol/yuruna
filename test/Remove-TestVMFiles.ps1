@@ -25,26 +25,30 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $TestRoot
 $ModulesDir = Join-Path $TestRoot "modules"
 
-# === Import Test.Host + Test.New-VM (the latter provides Stop-HyperVVMForce) ===
+# === Import Test.Host (needed for Get-HostType on every platform) ===
 $hostModPath = Join-Path $ModulesDir "Test.Host.psm1"
 if (-not (Test-Path $hostModPath)) { Write-Error "Module not found: $hostModPath"; exit 1 }
 Import-Module -Name $hostModPath -Force
-# Test.New-VM.psm1 import is mandatory: it provides Stop-HyperVVMForce, which
-# is the only path that escalates to killing vmwp.exe when a VM is stuck in
-# 'Stopping'. Without it, a hung VM (e.g. test-ubuntu-server-01) blocks
-# cleanup forever.
-$newVmModPath = Join-Path $ModulesDir "Test.New-VM.psm1"
-if (-not (Test-Path $newVmModPath)) { Write-Error "Module not found: $newVmModPath"; exit 1 }
-Import-Module -Name $newVmModPath -Force
-if (-not (Get-Command Stop-HyperVVMForce -ErrorAction SilentlyContinue)) {
-    Write-Error "Stop-HyperVVMForce not exported from $newVmModPath"; exit 1
-}
 
 # === Detect host type ===
 $HostType = Get-HostType
 if (-not $HostType) { exit 1 }
 Write-Output "Host type: $HostType"
 Write-Output ""
+
+# === Hyper-V-only: Test.New-VM.psm1 provides Stop-HyperVVMForce ===
+# macOS/UTM uses utmctl directly and doesn't need this module. Loading it
+# unconditionally (and gating Get-Command Stop-HyperVVMForce before the
+# host-type switch) was skipping cleanup on macOS if anything in that chain
+# tripped under $ErrorActionPreference='Stop'.
+if ($HostType -eq "host.windows.hyper-v") {
+    $newVmModPath = Join-Path $ModulesDir "Test.New-VM.psm1"
+    if (-not (Test-Path $newVmModPath)) { Write-Error "Module not found: $newVmModPath"; exit 1 }
+    Import-Module -Name $newVmModPath -Force
+    if (-not (Get-Command Stop-HyperVVMForce -ErrorAction SilentlyContinue)) {
+        Write-Error "Stop-HyperVVMForce not exported from $newVmModPath"; exit 1
+    }
+}
 
 # === Stop all test-* VMs ===
 Write-Output "Stopping VMs with prefix '$Prefix'..."

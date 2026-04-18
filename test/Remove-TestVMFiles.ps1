@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol
@@ -25,10 +25,12 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $TestRoot
 $ModulesDir = Join-Path $TestRoot "modules"
 
-# === Import Test.Host module for Get-HostType ===
+# === Import Test.Host + Test.New-VM (the latter provides Stop-HyperVVMForce) ===
 $hostModPath = Join-Path $ModulesDir "Test.Host.psm1"
 if (-not (Test-Path $hostModPath)) { Write-Error "Module not found: $hostModPath"; exit 1 }
 Import-Module -Name $hostModPath -Force
+$newVmModPath = Join-Path $ModulesDir "Test.New-VM.psm1"
+if (Test-Path $newVmModPath) { Import-Module -Name $newVmModPath -Force }
 
 # === Detect host type ===
 $HostType = Get-HostType
@@ -49,7 +51,17 @@ switch ($HostType) {
         foreach ($vm in $testVMs) {
             Write-Output "  Stopping $($vm.Name) [$($vm.State)]..."
             if ($vm.State -ne 'Off') {
-                Stop-VM -Name $vm.Name -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 6>$null
+                # Stop-HyperVVMForce escalates to killing the VM's vmwp.exe
+                # worker process when Stop-VM -TurnOff can't bring the VM to
+                # 'Off' within ~20 s (typically a stuck 'Stopping' state).
+                # Without this escalation, a hung VM blocks cleanup forever
+                # and every subsequent cycle retries against the same stale
+                # instance — exactly what happened to test-ubuntu-server-01.
+                if (Get-Command Stop-HyperVVMForce -ErrorAction SilentlyContinue) {
+                    $null = Stop-HyperVVMForce -VMName $vm.Name
+                } else {
+                    Stop-VM -Name $vm.Name -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 6>$null
+                }
                 Write-Output "    Stopped."
             } else {
                 Write-Output "    Already off."

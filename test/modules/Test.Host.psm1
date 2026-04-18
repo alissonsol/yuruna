@@ -178,6 +178,36 @@ function Assert-ScreenLock {
         Write-Debug "Screen lock password check failed: $_"
     }
 
+    # 4. Hot corners bound to Start Screen Saver / Display Sleep / Lock
+    #    Screen. A drifting cursor during an unattended run can trigger
+    #    these and cause the UTM window to drop out of CGWindowList.
+    try {
+        $dangerousCorners = @{ '5' = 'Start Screen Saver'; '10' = 'Put Display to Sleep'; '13' = 'Lock Screen' }
+        foreach ($corner in @('tl','tr','bl','br')) {
+            $val = & defaults read com.apple.dock "wvous-$corner-corner" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $valTrim = "$val".Trim()
+                if ($dangerousCorners.ContainsKey($valTrim)) {
+                    $issues += "Hot corner '$corner' triggers '$($dangerousCorners[$valTrim])'."
+                }
+            }
+        }
+    } catch {
+        Write-Debug "Hot-corner check failed: $_"
+    }
+
+    # 5. App Nap not suppressed for UTM.app — macOS can throttle UTM's UI
+    #    thread and drop its window from CGWindowList even though the VM
+    #    is running. Matches the "UTM window for '<vm>' not found" symptom.
+    try {
+        $nap = & defaults read com.utmapp.UTM NSAppSleepDisabled 2>$null
+        if ($LASTEXITCODE -ne 0 -or "$nap".Trim() -ne '1') {
+            $issues += "App Nap is not suppressed for UTM.app (com.utmapp.UTM NSAppSleepDisabled not set to 1)."
+        }
+    } catch {
+        Write-Debug "App Nap check failed: $_"
+    }
+
     if ($issues.Count -eq 0) { return $true }
 
     Write-Warning "═══════════════════════════════════════════════════════════════════"
@@ -332,6 +362,99 @@ function Set-MacHostConditionSet {
     # Belt-and-suspenders: disable the idle-sleep assertion even if some
     # other subsystem tries to re-enable it.
     & sudo pmset -c disablesleep 1 2>$null | Out-Null
+
+    # ── 3f. Extended pmset guards (Power Nap, standby, hibernation, etc.) ─
+    # Even with sleep=0, macOS can perform transitions that briefly blank
+    # the display or suspend UTM: Power Nap (dark wake for Mail/Backup),
+    # standby (deep sleep after sleep threshold), auto-poweroff (shut the
+    # machine off after N hours of sleep), and hibernation (writes RAM to
+    # disk, then powers off). During a multi-hour test run any of these
+    # can hide the UTM window from CG enumeration — symptom: "UTM window
+    # for '<vm>' not found. CG: not_found, bounds: not_found".
+    #
+    # ttyskeepawake=1 keeps the system awake while a tty session is
+    # active (SSH, screen capture tools). tcpkeepalive=1 keeps sockets
+    # responsive. womp=1 allows wake-on-LAN but doesn't force sleep.
+    Write-Output "Applying extended pmset guards (powernap, standby, autopoweroff, hibernatemode, ttyskeepawake, tcpkeepalive)..."
+    & sudo pmset -a powernap       0 2>$null | Out-Null
+    & sudo pmset -a standby        0 2>$null | Out-Null
+    & sudo pmset -a standbydelay   0 2>$null | Out-Null
+    & sudo pmset -a autopoweroff   0 2>$null | Out-Null
+    & sudo pmset -a hibernatemode  0 2>$null | Out-Null
+    & sudo pmset -a ttyskeepawake  1 2>$null | Out-Null
+    & sudo pmset -a tcpkeepalive   1 2>$null | Out-Null
+    # proximitywake (handoff wake) is Apple-Silicon-only and not exposed
+    # on every model; swallow errors so older/Intel hosts don't fail here.
+    & sudo pmset -a proximitywake  0 2>$null | Out-Null
+
+    # ── 3g. Hot corners — neutralize screen-saver / sleep / lock triggers ──
+    # The Dock stores four hot-corner actions under
+    # wvous-{tl,tr,bl,br}-corner. During an unattended test a drifting
+    # mouse can land in one of these corners and trigger a screensaver /
+    # display-sleep / lock — which makes the UTM window vanish from the
+    # CG window list. Dangerous action codes we neutralize:
+    #   5  = Start Screen Saver
+    #   10 = Put Display to Sleep
+    #   13 = Lock Screen   (Sonoma+)
+    # Safe codes (0=none, 2=Mission Control, 3=Show App Windows, 4=Desktop,
+    # 11=Launchpad, 12=Notification Center, 14=Quick Note) are left alone.
+    $dangerousCorners = @{ '5' = 'Start Screen Saver'; '10' = 'Put Display to Sleep'; '13' = 'Lock Screen' }
+    $dockReloadNeeded = $false
+    foreach ($corner in @('tl','tr','bl','br')) {
+        $key = "wvous-$corner-corner"
+        $val = & defaults read com.apple.dock $key 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $valTrim = "$val".Trim()
+            if ($dangerousCorners.ContainsKey($valTrim)) {
+                $action = $dangerousCorners[$valTrim]
+                if ($PSCmdlet.ShouldProcess("Hot corner $corner (currently '$action' = $valTrim)", "Set to 0 (none)")) {
+                    Write-Output "Neutralizing hot corner '$corner' ($action → none)..."
+                    & defaults write com.apple.dock $key -int 0 2>$null | Out-Null
+                    # Clear the modifier-key requirement too, so the corner
+                    # isn't merely hidden behind a modifier that a wandering
+                    # cursor might hit alongside a stuck Shift key.
+                    & defaults write com.apple.dock "wvous-$corner-modifier" -int 0 2>$null | Out-Null
+                    $dockReloadNeeded = $true
+                    $changed = $true
+                }
+            }
+        }
+    }
+    if ($dockReloadNeeded) {
+        # Dock only re-reads these at launch; kick it so the change takes
+        # effect immediately (the Dock auto-relaunches).
+        & killall Dock 2>$null | Out-Null
+    } else {
+        Write-Output "Hot corners: no dangerous bindings (screen-saver / sleep / lock) detected."
+    }
+
+    # ── 3h. App Nap suppression for UTM.app ──────────────────────────────
+    # macOS App Nap throttles background apps that haven't received user
+    # input for a while. For UTM specifically this can freeze the UI
+    # thread, stop updating the window server, and drop the window out of
+    # CGWindowListCopyWindowInfo — which is exactly the
+    # "UTM window for '<vm>' not found" symptom the harness reports even
+    # when the VM itself is running fine. Opt UTM out unconditionally.
+    $utmBundleId = 'com.utmapp.UTM'
+    $napState = & defaults read $utmBundleId NSAppSleepDisabled 2>$null
+    $napAlreadyOff = ($LASTEXITCODE -eq 0 -and "$napState".Trim() -eq '1')
+    if (-not $napAlreadyOff) {
+        if ($PSCmdlet.ShouldProcess("App Nap for $utmBundleId", "Disable (NSAppSleepDisabled = YES)")) {
+            Write-Output "Disabling App Nap for UTM.app ($utmBundleId)..."
+            & defaults write $utmBundleId NSAppSleepDisabled -bool YES 2>$null | Out-Null
+            $changed = $true
+        }
+    } else {
+        Write-Output "App Nap for UTM.app is already disabled."
+    }
+
+    # ── 3i. Clear any stuck ScreenSaverEngine ────────────────────────────
+    # If a prior aborted run left the screen saver engaged, the engine
+    # process may still be running when this script applies settings.
+    # Killing it is idempotent and harmless when nothing is running;
+    # exit codes are swallowed so "no such process" isn't reported as a
+    # script failure.
+    & killall ScreenSaverEngine 2>$null | Out-Null
 
     # ── 4. Accessibility — trigger the system prompt if not granted ───────
     try {

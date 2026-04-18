@@ -23,20 +23,41 @@ case "$ARCH" in
     ;;
 esac
 
-# ===== Pin the Hyper-V framebuffer resolution =====
-# Without an explicit video= parameter, hyperv_drm occasionally fails to
-# re-initialize on reboot, leaving the guest with a black screen and a wedged
-# console (Ctrl+Alt+F3 also dead). Pinning the framebuffer resolution in the
-# kernel cmdline avoids that reboot fragility. Hyper-V only.
+# ===== Disable KMS to prevent Hyper-V black-screen-on-reboot =====
+# Ubuntu LP #2064815 / #2063143: on Hyper-V Gen 2, the simpledrm (UEFI
+# framebuffer) -> hyperv_drm handoff race intermittently leaves the
+# guest with a dead console on a later reboot -- both GUI and tty3 are
+# wedged because simpledrm still owns the console when GDM grabs DRM
+# master. As of 2026-04 there is no released kernel fix (HWE 6.11 on
+# 24.04.3 does NOT resolve it; the bug is Confirmed, unassigned on
+# Launchpad). nomodeset skips KMS entirely so hyperv_drm never loads
+# and the race can't happen. vmconnect reads via Hyper-V's synthetic
+# video channel independently of the guest's KMS driver, so the
+# console OCR path the harness relies on still works on efifb.
+#
+# Supersedes an earlier attempt that only pinned the framebuffer
+# resolution via video=hyperv_fb:1920x1080 -- that kept hyperv_drm
+# loaded, so the handoff race still triggered. The stale parameter is
+# stripped below if still present in an existing /etc/default/grub.
 if [ "$ARCH" = "x86_64" ] && [ -f /etc/default/grub ]; then
   echo ""
-  echo -e "\e[1;36m>>> Pinning Hyper-V framebuffer (video=hyperv_fb:1920x1080)...\e[0m"
-  if ! grep -q 'video=hyperv_fb' /etc/default/grub; then
-    sudo sed -i -E 's|^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"|GRUB_CMDLINE_LINUX_DEFAULT="\1 video=hyperv_fb:1920x1080"|; s|="  *|="|' /etc/default/grub
+  echo -e "\e[1;36m>>> Configuring GRUB to prevent Hyper-V black-screen-on-reboot (nomodeset)...\e[0m"
+  changed=0
+  if grep -q 'video=hyperv_fb' /etc/default/grub; then
+    sudo sed -i -E 's| *video=hyperv_fb:[^ "]*||g' /etc/default/grub
+    echo "  Removed stale video=hyperv_fb parameter from the prior fix attempt."
+    changed=1
+  fi
+  if ! grep -q 'nomodeset' /etc/default/grub; then
+    sudo sed -i -E 's|^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"|GRUB_CMDLINE_LINUX_DEFAULT="\1 nomodeset"|; s|="  *|="|' /etc/default/grub
+    echo "  Added nomodeset to GRUB_CMDLINE_LINUX_DEFAULT."
+    changed=1
+  fi
+  if [ $changed -eq 1 ]; then
     sudo update-grub
-    echo -e "\e[1;32m<<< GRUB updated with video=hyperv_fb:1920x1080.\e[0m"
+    echo -e "\e[1;32m<<< GRUB updated. Next reboot will not load hyperv_drm.\e[0m"
   else
-    echo "GRUB already has video=hyperv_fb; skipping."
+    echo "GRUB already configured; skipping."
   fi
 fi
 

@@ -18,26 +18,45 @@
 
 <#
 .SYNOPSIS
-    Stops the OpenSSH server and uninstalls the Windows capability.
+    Stops the OpenSSH server. By default leaves the Windows capability
+    installed so a later Start-SshServer.ps1 is fast; pass -Uninstall to
+    also remove the capability.
 
 .DESCRIPTION
-    Inverse of Start-SshServer.ps1. Stops the sshd service, then removes the
-    OpenSSH.Server Windows capability. Safe to re-run: missing capability
-    is treated as a no-op. The Windows firewall rule is left to DISM to
-    clean up as part of the capability removal.
+    Default behavior (no switch) — calls Disable-SshServer: stops the sshd
+    service, sets its startup to Manual so it won't come back on boot, and
+    removes the Yuruna firewall rule. Leaves the OpenSSH.Server Windows
+    capability installed, so the next Start-SshServer.ps1 only has to start
+    the service (seconds), not re-run Add-WindowsCapability (multiple
+    minutes).
 
-    Note: this is the HEAVY inverse. If you just want to temporarily disable
-    the server, use the status-page button ("Disable SSH Server") — that
-    only stops the sshd service without removing the capability, so
-    re-enabling is instant rather than requiring another multi-minute
-    install.
+    -Uninstall — calls Uninstall-SshServer: the above plus Remove-Windows-
+    Capability. Use this when you want the machine back to the baseline
+    state (no OpenSSH installed at all). Typically only needed for
+    cleanup before imaging or to reset a broken install.
+
+    Safe to re-run in both modes: missing service / missing capability /
+    missing firewall rule are all treated as no-ops.
 
     Requires Administrator on Windows. No-op placeholder on host.macos.utm
     until Remote Login wiring is built.
 
+.PARAMETER Uninstall
+    Also remove the OpenSSH.Server Windows capability after stopping the
+    service. Slower: next Start-SshServer.ps1 will need to reinstall.
+
 .EXAMPLE
+    # Default — stop the service, keep capability installed (fast re-enable):
     pwsh test/Stop-SshServer.ps1
+
+.EXAMPLE
+    # Full teardown — stop AND remove the capability:
+    pwsh test/Stop-SshServer.ps1 -Uninstall
 #>
+
+param(
+    [switch]$Uninstall
+)
 
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
@@ -58,15 +77,25 @@ if (-not $HostType) { exit 1 }
 Write-Output "Host type: $HostType"
 
 if (-not (Test-SshServerSupported -HostType $HostType)) {
-    Write-Warning "SSH server uninstall is not implemented for host type '$HostType'."
+    Write-Warning "SSH server stop is not implemented for host type '$HostType'."
     exit 0
 }
 
-$ok = Uninstall-SshServer -HostType $HostType
-if (-not $ok) {
-    Write-Error "SSH server uninstall failed. See warnings above."
-    exit 1
+if ($Uninstall) {
+    $ok = Uninstall-SshServer -HostType $HostType
+    if (-not $ok) {
+        Write-Error "SSH server uninstall failed. See warnings above."
+        exit 1
+    }
+    Write-Output ""
+    Write-Output "SSH server: stopped and capability removed."
+} else {
+    $ok = Disable-SshServer -HostType $HostType
+    if (-not $ok) {
+        Write-Error "SSH server disable failed. See warnings above."
+        exit 1
+    }
+    Write-Output ""
+    Write-Output "SSH server: stopped (capability still installed; Start-SshServer.ps1 will be fast)."
+    Write-Output "  For a full teardown: pwsh test/Stop-SshServer.ps1 -Uninstall"
 }
-
-Write-Output ""
-Write-Output "SSH server: stopped and uninstalled."

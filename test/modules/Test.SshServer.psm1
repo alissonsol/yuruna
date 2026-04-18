@@ -113,6 +113,86 @@ function Test-SshServerEnabled {
 }
 
 
+# ── Firewall rule (shared by Enable/Disable below) ──────────────────────────
+
+# Single Yuruna-managed rule that opens TCP/22 to any peer on the same
+# local subnet as the receiving adapter. Kept distinct from the default
+# 'OpenSSH-Server-In-TCP' rule (which the Windows capability install
+# creates, scoped to Private only) so the two coexist without
+# interference: removing ours leaves the default untouched, and adding
+# ours doesn't modify the default. Using -RemoteAddress LocalSubnet +
+# -Profile Any means one rule covers Wi-Fi, Ethernet, and Hyper-V
+# virtual switches, works on Public networks (because LocalSubnet is
+# resolved per adapter at packet time, so a coffee-shop peer never
+# matches), and re-evaluates dynamically if the host joins a new LAN.
+$script:YurunaSshRuleName = 'Yuruna-OpenSSH-LocalSubnet'
+
+<#
+.SYNOPSIS
+Idempotent — create the Yuruna-managed OpenSSH firewall rule if missing.
+
+.DESCRIPTION
+Called by Enable-WindowsSshServer after the sshd service starts. Returns
+$true on success or if the rule already exists. Returns $false only on an
+unexpected failure (not-admin is caught by the caller).
+#>
+function Add-YurunaSshFirewallRule {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    try {
+        if (Get-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction SilentlyContinue) {
+            Write-Information "Firewall rule '$script:YurunaSshRuleName' already present." -InformationAction Continue
+            return $true
+        }
+        New-NetFirewallRule `
+            -Name          $script:YurunaSshRuleName `
+            -DisplayName   'Yuruna OpenSSH Server (LocalSubnet, all profiles)' `
+            -Description   'Inbound TCP/22 from peers on the receiving adapter''s local subnet. Managed by test/Start-SshServer.ps1 (add) and test/Stop-SshServer.ps1 (remove).' `
+            -Direction     Inbound `
+            -Protocol      TCP `
+            -LocalPort     22 `
+            -RemoteAddress LocalSubnet `
+            -Profile       Any `
+            -Action        Allow `
+            -ErrorAction   Stop | Out-Null
+        Write-Information "Firewall rule '$script:YurunaSshRuleName' created (LocalSubnet, all profiles)." -InformationAction Continue
+        return $true
+    } catch {
+        Write-Warning "Add-YurunaSshFirewallRule failed: $_"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+Idempotent — remove the Yuruna-managed OpenSSH firewall rule if present.
+
+.DESCRIPTION
+Called by Disable-WindowsSshServer after the sshd service stops, so the
+host isn't left reachable on :22 after SSH is off. The default
+'OpenSSH-Server-In-TCP' rule is left in place; Windows owns that via the
+capability install.
+#>
+function Remove-YurunaSshFirewallRule {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    try {
+        if (Get-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction SilentlyContinue) {
+            Remove-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction Stop
+            Write-Information "Firewall rule '$script:YurunaSshRuleName' removed." -InformationAction Continue
+        } else {
+            Write-Information "Firewall rule '$script:YurunaSshRuleName' not present." -InformationAction Continue
+        }
+        return $true
+    } catch {
+        Write-Warning "Remove-YurunaSshFirewallRule failed: $_"
+        return $false
+    }
+}
+
+
 # ── Enable / Disable (runtime service toggle) ───────────────────────────────
 
 <#
@@ -172,6 +252,10 @@ function Enable-WindowsSshServer {
             Set-Service -Name sshd -StartupType 'Automatic' -ErrorAction Stop
             Write-Information "sshd startup type set to Automatic." -InformationAction Continue
         }
+        # Install the Yuruna-managed LocalSubnet firewall rule. Failure is
+        # non-fatal (service is already up and whatever rules existed before
+        # still apply) but surfaces a warning so the operator can investigate.
+        $null = Add-YurunaSshFirewallRule
         return $true
     } catch {
         Write-Warning "Failed to start/configure sshd service: $_"
@@ -223,6 +307,9 @@ function Disable-WindowsSshServer {
         $svc = Get-Service -Name sshd -ErrorAction SilentlyContinue
         if (-not $svc) {
             Write-Information "sshd service is not installed — nothing to disable." -InformationAction Continue
+            # Still remove our rule — if the service was uninstalled out from
+            # under us, the leftover firewall opening would be a stale hole.
+            $null = Remove-YurunaSshFirewallRule
             return $true
         }
         if ($svc.Status -eq 'Running') {
@@ -235,6 +322,10 @@ function Disable-WindowsSshServer {
             Set-Service -Name sshd -StartupType 'Manual' -ErrorAction Stop
             Write-Information "sshd startup type set to Manual (won't auto-start on boot)." -InformationAction Continue
         }
+        # Remove our rule so the port isn't left open after SSH is off. The
+        # default OpenSSH-Server-In-TCP rule is left alone (Windows owns it
+        # via the capability install).
+        $null = Remove-YurunaSshFirewallRule
         return $true
     } catch {
         Write-Warning "Failed to stop/configure sshd service: $_"

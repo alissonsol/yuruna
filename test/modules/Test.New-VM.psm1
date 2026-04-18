@@ -44,11 +44,28 @@ function Invoke-NewVM {
     if (-not (Test-Path $scriptPath)) {
         return @{ success=$false; errorMessage="New-VM.ps1 not found at: $scriptPath" }
     }
-    # Build the child argument list. Only forward -ProxyUrl when the caller
-    # actually supplied it: an unbound param here means "probe yourself",
-    # which is what Invoke-TestSequence / Train-Screenshots rely on.
+    # Build the child argument list. -ProxyUrl is forwarded only when:
+    #   1. the caller supplied it (unbound means "probe yourself" — what
+    #      Invoke-TestSequence / Train-Screenshots rely on), AND
+    #   2. the target script actually declares a -ProxyUrl parameter.
+    # Some guests (guest.amazon.linux, guest.windows.11) don't wire a
+    # proxy into their install flow, so their New-VM.ps1 doesn't declare
+    # the parameter — forwarding it anyway produced:
+    #   "A parameter cannot be found that matches parameter name 'ProxyUrl'"
+    # and broke the whole guest. Introspect the script's param block via
+    # Get-Command and skip the forward when the target doesn't accept it.
     $childArgs = @('-VMName', $VMName)
-    if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
+    $scriptAcceptsProxy = $false
+    try {
+        $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
+        $scriptAcceptsProxy = [bool]($cmdInfo.Parameters -and $cmdInfo.Parameters.ContainsKey('ProxyUrl'))
+    } catch {
+        # Get-Command parse failure — treat as "doesn't accept -ProxyUrl"
+        # rather than blowing up here; the child will surface a real
+        # syntax error when it runs.
+        $scriptAcceptsProxy = $false
+    }
+    if ($PSBoundParameters.ContainsKey('ProxyUrl') -and $scriptAcceptsProxy) {
         $childArgs += @('-ProxyUrl', $ProxyUrl)
         Write-Output "Running: $scriptPath -VMName $VMName -ProxyUrl '$ProxyUrl'"
     } else {

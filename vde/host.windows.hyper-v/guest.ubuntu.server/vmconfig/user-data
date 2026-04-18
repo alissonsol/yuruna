@@ -111,6 +111,31 @@ APT_PROXY_BLOCK_PLACEHOLDER
       [org/gnome/system/location]
       enabled=true
       DCONF
+    # --- GDM greeter: never blank the display ---
+    # ubuntu.desktop.update.sh disables idle/lock for the ubuntu USER, but
+    # that profile does NOT apply to the GDM greeter — which runs under the
+    # `gdm` system-db profile. With the default idle-delay, the greeter
+    # blanks after ~3 min, Hyper-V screen captures return pure black, OCR
+    # extracts no text, and Test-Workload step 1 ("Not listed?") times out
+    # even though the greeter would render correctly if anyone touched the
+    # VM. A dconf drop-in in /etc/dconf/db/gdm.d/ + dconf update is the
+    # Canonical-documented way to override greeter settings at install time.
+    - mkdir -p /target/etc/dconf/db/gdm.d
+    - |
+      cat > /target/etc/dconf/db/gdm.d/99-yuruna-no-idle << 'DCONF'
+      [org/gnome/desktop/session]
+      idle-delay=uint32 0
+
+      [org/gnome/settings-daemon/plugins/power]
+      sleep-inactive-ac-type='nothing'
+      sleep-inactive-battery-type='nothing'
+      idle-dim=false
+      power-button-action='nothing'
+
+      [org/gnome/desktop/screensaver]
+      lock-enabled=false
+      idle-activation-enabled=false
+      DCONF
     - curtin in-target --target=/target -- dconf update
     # --- System: denylist hv_balloon to prevent console messages ---
     # Hyper-V-specific — the hv_balloon kernel module spams the console

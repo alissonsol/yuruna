@@ -1,5 +1,5 @@
 {
-  "$schema": "SSH-driven equivalent of Test-Workload.guest.ubuntu.desktop.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'.",
+  "$schema": "SSH-driven equivalent of Test-Workload.guest.ubuntu.desktop.json. Selected automatically when test-config.json has keystrokeMechanism='SSH'.",
   "$actions": "See possible actions in the actions.json file",
 
   "description": "Ubuntu Desktop (SSH): install VS Code and verify - parallel path to the keystroke sequence.",

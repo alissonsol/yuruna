@@ -4,7 +4,7 @@
   "cycleDelaySeconds": 30,
   "getImageRefreshHours": 24,
   "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.ubuntu.server", "guest.windows.11"],
-  "keystrokeMechanism": "hypervisor",
+  "keystrokeMechanism": "GUI",
   "maxHistoryRuns": 30,
   "notification": {
     "failuresBeforeAlert": 2,

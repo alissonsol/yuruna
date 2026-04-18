@@ -1,5 +1,5 @@
 {
-  "$schema": "SSH-driven equivalent of Test-Workload.guest.ubuntu.server.k8s.website.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'.",
+  "$schema": "SSH-driven equivalent of Test-Workload.guest.ubuntu.server.k8s.website.json. Selected automatically when test-config.json has keystrokeMechanism='SSH'.",
   "$actions": "See possible actions in the actions.json file",
 
   "description": "Ubuntu Server (with ubuntu-desktop, SSH): install Kubernetes, deploy website to localhost cluster, verify HTTP 200 - parallel path to the keystroke sequence. Reuses guest.ubuntu.desktop workload scripts.",

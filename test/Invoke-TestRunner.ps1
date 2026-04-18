@@ -180,6 +180,26 @@ function Update-TestConfigFromTemplate {
 
     $merged = ConvertTo-MergedHashtable -Template $template -Current $current
 
+    # Validate keystrokeMechanism. Canonical values are "GUI" and "SSH";
+    # recognition is case-insensitive (so "gui"/"Ssh"/etc. are accepted) and
+    # the value is normalized to uppercase when written back. Any unrecognized
+    # value (including the legacy "hypervisor" from older checkouts) is
+    # discarded and replaced with the template default. No migration.
+    $validMechanisms = @('GUI', 'SSH')
+    if ($merged -is [System.Collections.IDictionary] -and $merged.Contains('keystrokeMechanism')) {
+        $original = "$($merged['keystrokeMechanism'])"
+        $upper    = $original.ToUpperInvariant()
+        if ($upper -in $validMechanisms) {
+            if ($original -cne $upper) {
+                $merged['keystrokeMechanism'] = $upper
+            }
+        } else {
+            $default = "$($template['keystrokeMechanism'])"
+            Write-Information "test-config.json: keystrokeMechanism='$original' not recognized — resetting to '$default'." -InformationAction Continue
+            $merged['keystrokeMechanism'] = $default
+        }
+    }
+
     $mergedForDiff  = Copy-HashtableWithoutSecretNode $merged
     $currentForDiff = Copy-HashtableWithoutSecretNode $current
     $mergedJson  = $mergedForDiff  | ConvertTo-Json -Depth 20

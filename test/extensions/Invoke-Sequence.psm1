@@ -29,7 +29,7 @@ if ($env:YURUNA_VERBOSE -eq '1') { $global:VerbosePreference = 'Continue' }
 # The config file lives one level up from this module (test/test-config.json).
 $script:DefaultCharDelayMs      = 20
 $script:DefaultVncPort          = 5900
-$script:DefaultKeystrokeMechanism = "hypervisor"
+$script:DefaultKeystrokeMechanism = "GUI"
 
 # ── Progress marker protocol ─────────────────────────────────────────────────
 # When Invoke-Sequence runs inside a child pwsh whose stdout is piped to the
@@ -1754,16 +1754,19 @@ function Invoke-Sequence {
     )
 
     # ── SSH variant selection ──────────────────────────────────────────────
-    # When test-config.json sets keystrokeMechanism="ssh", prefer a sibling
+    # When test-config.json sets keystrokeMechanism="SSH", prefer a sibling
     # sequence file with a .ssh.json suffix (e.g. Test-Workload.guest.amazon.linux.ssh.json).
     # This is the parallel-path switch: the existing keystroke-based file is
     # untouched, and the SSH variant is picked up automatically when the flag
     # is set. If no .ssh.json sibling exists, fall back to the original file
     # so guests that haven't been migrated yet continue to work in both modes.
-    if ($script:DefaultKeystrokeMechanism -eq "ssh") {
+    # Comparison is case-insensitive (PowerShell -eq default) so "ssh"/"SSH"
+    # both select this branch; the canonical uppercase form is written back
+    # to test-config.json by Invoke-TestRunner's validation step.
+    if ($script:DefaultKeystrokeMechanism -eq "SSH") {
         $sshVariant = [System.IO.Path]::ChangeExtension($SequencePath, $null).TrimEnd('.') + ".ssh.json"
         if (Test-Path $sshVariant) {
-            Write-Information "    keystrokeMechanism=ssh → using SSH variant: $(Split-Path -Leaf $sshVariant)"
+            Write-Information "    keystrokeMechanism=SSH → using SSH variant: $(Split-Path -Leaf $sshVariant)"
             $SequencePath = $sshVariant
         }
     }
@@ -1875,9 +1878,15 @@ function Invoke-Sequence {
         & $waitWhilePaused "[$stepNum/$($steps.Count)]"
         $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
         & $writeCurrentAction "[$stepNum/$($steps.Count)] $($step.action): $desc"
-        # Force-enable progress bar visibility for the whole step body.
-        # See "Pro Tip": some hosts/settings silence Write-Progress; restoring
-        # the original value in `finally` keeps caller preferences intact.
+        # Current-step visibility is intentionally driven by Write-Progress
+        # (via Write-ProgressTick below), NOT by a Write-Information here.
+        # A Write-Information at step-start would go through the yuruna-log
+        # proxy and leave a permanent line in both the terminal and the log
+        # transcript — then the end-of-step completion line (with elapsed
+        # time) would appear below rather than replacing it. Write-Progress
+        # renders out-of-band (floating bar) and auto-dismisses on
+        # -Completed, so the scroll-permanent log gets exactly one entry
+        # per step (the completion).
         $savedProgress = $global:ProgressPreference
         $global:ProgressPreference = 'Continue'
         try {

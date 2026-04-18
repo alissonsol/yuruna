@@ -11,9 +11,9 @@ Sequence files in `../sequences/` come in two flavors, selected automatically by
 `Invoke-Sequence` based on `test-config.json`:
 
 - `Test-<phase>.<guest-key>.json` — keystroke path (OCR + scancode injection,
-  used when `keystrokeMechanism="hypervisor"`).
+  used when `keystrokeMechanism="GUI"`).
 - `Test-<phase>.<guest-key>.ssh.json` — SSH path (used when
-  `keystrokeMechanism="ssh"`, if the sibling file exists; otherwise the
+  `keystrokeMechanism="SSH"`, if the sibling file exists; otherwise the
   keystroke variant is used).
 
 ## Quick start

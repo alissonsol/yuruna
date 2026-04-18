@@ -57,16 +57,19 @@ Import-Module $engineModule -Force -Verbose:$false
 # ubuntu.desktop variant but auto-discovers the extras instead of hardcoding
 # them, so adding a new sequence is a file-drop rather than a script edit.
 #
-# The ".ssh" suffix is reserved: Test-Workload.$GuestKey.ssh.json is the
-# parallel-path alternative that Invoke-Sequence substitutes for the base
-# when test-config.json has keystrokeMechanism="ssh". It is NEVER an
-# additional workload to run on top of the base — without this filter the
-# harness in hypervisor mode would also execute the SSH variant, which
-# correctly fails because sshd isn't up (Test-Start only brought up GDM).
+# The ".ssh" suffix is reserved: any Test-Workload.$GuestKey[.*].ssh.json is
+# the parallel-path alternative that Invoke-Sequence substitutes for its
+# non-.ssh sibling when test-config.json has keystrokeMechanism="SSH". Such
+# files are NEVER additional workloads to run on top of the base — without
+# this filter the harness in GUI mode would also execute every SSH
+# variant, which correctly fails because sshd isn't up (Test-Start only
+# brought up GDM). The filter matches every ".ssh" basename, not just the
+# base sequence's own .ssh.json, so sub-variant pairs like
+# Test-Workload.$GuestKey.k8s.website{,.ssh}.json also resolve correctly.
 $baseSeq  = "Test-Workload.$GuestKey"
 $sequences = @($baseSeq)
 $extras = Get-ChildItem -Path $SequencesDir -Filter "$baseSeq.*.json" -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -ne "$baseSeq.ssh.json" } |
+    Where-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -notlike '*.ssh' } |
     Sort-Object Name |
     ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) }
 if ($extras) { $sequences += $extras }

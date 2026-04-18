@@ -11,8 +11,10 @@
 #
 # Parallel path to the keystroke-injection flow in Invoke-Sequence.psm1.
 # Selected via the "keystrokeMechanism" flag in test/test-config.json:
-#   "hypervisor" (default) -- type characters into the VM console
-#   "ssh"                  -- run commands over SSH
+#   "GUI" (default) -- type characters into the VM console
+#   "SSH"           -- run commands over SSH
+# Comparisons are case-insensitive; the canonical form stored in
+# test-config.json is uppercase (normalized by the test-config validator).
 #
 # A single per-host ed25519 key pair is generated on first use and stored
 # under test/.ssh/. The public key is injected into each guest's cloud-init

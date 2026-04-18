@@ -1,5 +1,5 @@
 {
-  "$schema": "SSH-driven equivalent of Test-Start.guest.ubuntu.desktop.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'. Hybrid: OCR for the two pre-install dismissals (GRUB menu, autoinstall confirmation) — sshd doesn't exist yet — then SSH for everything post-install. SSH key auth bypasses the `passwd --expire ubuntu` aging that breaks console password login, so the OCR password-change dance is skipped entirely.",
+  "$schema": "SSH-driven equivalent of Test-Start.guest.ubuntu.desktop.json. Selected automatically when test-config.json has keystrokeMechanism='SSH'. Hybrid: OCR for the two pre-install dismissals (GRUB menu, autoinstall confirmation) — sshd doesn't exist yet — then SSH for everything post-install. SSH key auth bypasses the `passwd --expire ubuntu` aging that breaks console password login, so the OCR password-change dance is skipped entirely.",
   "$actions": "See possible actions in the actions.json file",
 
   "description": "Ubuntu Desktop (SSH): OCR-dismiss GRUB + Install confirmation, then wait for cloud-init's first-boot openssh-server and run the update script over SSH.",

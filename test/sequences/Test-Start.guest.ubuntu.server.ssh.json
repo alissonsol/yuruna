@@ -1,5 +1,5 @@
 {
-  "$schema": "SSH-driven equivalent of Test-Start.guest.ubuntu.server.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'. Shorter than the desktop SSH variant: subiquity runs fully hands-off via interactive-sections:[], so there's no Install-button dance — just one OCR step to dismiss GRUB, then SSH-wait for cloud-init to finish installing ubuntu-desktop and bringing up sshd.",
+  "$schema": "SSH-driven equivalent of Test-Start.guest.ubuntu.server.json. Selected automatically when test-config.json has keystrokeMechanism='SSH'. Shorter than the desktop SSH variant: subiquity runs fully hands-off via interactive-sections:[], so there's no Install-button dance — just one OCR step to dismiss GRUB, then SSH-wait for cloud-init to finish installing ubuntu-desktop and bringing up sshd.",
   "$actions": "See possible actions in the actions.json file",
 
   "description": "Ubuntu Server (with ubuntu-desktop, SSH): OCR-dismiss GRUB, then drive everything else over SSH once cloud-init has finished installing ubuntu-desktop.",

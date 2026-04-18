@@ -1,5 +1,5 @@
 {
-  "$schema": "SSH-driven equivalent of Test-Workload.guest.amazon.linux.json. Selected automatically when test-config.json has keystrokeMechanism='ssh'.",
+  "$schema": "SSH-driven equivalent of Test-Workload.guest.amazon.linux.json. Selected automatically when test-config.json has keystrokeMechanism='SSH'.",
   "$actions": "See possible actions in the actions.json file",
 
   "description": "Amazon Linux (SSH): install the Desktop package group and verify — parallel path to the keystroke sequence.",

@@ -27,7 +27,16 @@ apt:
       keyid: B53AE77BADB630A683046005963FA27710458545
 package_update: true
 packages:
-  - squid
+  # squid-openssl is the OpenSSL-linked build of squid. On Ubuntu Noble
+  # the default `squid` package is built WITHOUT --with-openssl (a
+  # long-standing Debian packaging split, originally driven by OpenSSL
+  # vs GPL licensing concerns), so its http_port parser rejects
+  # `ssl-bump`, `tls-cert=`, etc. with a "Bungled" FATAL at config-load
+  # time — the `squid.service` never binds a socket. `squid-openssl`
+  # installs the same /usr/sbin/squid path and the same squid.service
+  # unit, and conflicts with `squid` via Debian `Conflicts:` metadata,
+  # so depending on it here is both sufficient and idempotent.
+  - squid-openssl
   # squid-cgi provides cachemgr.cgi, the CGI front-end to Squid's cache
   # manager. apache2 hosts it; cgi-bin/ is already wired up by Apache's
   # default conf.d/serve-cgi-bin.conf after we enable mod_cgi in runcmd.
@@ -52,6 +61,13 @@ packages:
   # post-boot diagnostic session. Cheap to install, big quality-of-life win.
   - net-tools       # ifconfig, netstat, route, arp
   - iputils-ping    # ping, ping6
+  # openssl CLI for the one-shot CA-generation step in runcmd. The Ubuntu
+  # cloud image ships libssl but not the /usr/bin/openssl binary, so a
+  # `req -x509` call would fail with "command not found" and leave
+  # squid's http_port 3129 unable to load tls-cert/tls-key. Kept as a
+  # top-level package (not apt-get in runcmd) so failure surfaces in the
+  # normal package-install phase rather than silently halfway through.
+  - openssl
 write_files:
   # Retry apt fetches on transient network errors. Cloud-init's default is
   # one-shot; a single timeout against archive.ubuntu.com or an intermittent
@@ -194,11 +210,47 @@ write_files:
       refresh_pattern -i /Packages(\.gz|\.xz|\.bz2)?$   0 0%  60
       refresh_pattern -i /Sources(\.gz|\.xz|\.bz2)?$    0 0%  60
 
-      # Keep CONNECT tunneling for HTTPS reachable from guests even though
-      # we don't cache the encrypted bodies yet. Enabling HTTPS caching
-      # requires SSL-bump with a generated CA that each guest must trust —
-      # tracked as a follow-up ("https caching with keys").
       logfile_rotate 2
+
+      # --- HTTPS caching via SSL-bump (second listener on :3129) ---
+      # The stock http_port 3128 above stays a pure CONNECT-tunnel for
+      # HTTPS — no MITM, no caching, no cert trust required. That keeps
+      # any legacy client (and subiquity's pre-install HTTPS calls,
+      # which run before our CA gets into the target chroot) working
+      # exactly as it did before ssl-bump was added.
+      #
+      # Port 3129 is the opt-in ssl-bump listener. Guests whose trust
+      # store contains /etc/squid/ssl_cert/ca.pem (published at
+      # http://<cache>/yuruna-squid-ca.crt by Apache below) can point
+      # `Acquire::https::Proxy` there and get their HTTPS apt traffic
+      # intercepted, cached, and replayed through the same
+      # refresh_pattern + offline_mode pipeline as plain HTTP.
+      #
+      # peek-step1-then-bump-all is the minimum viable SSL-bump recipe:
+      # squid reads the TLS ClientHello to learn the SNI hostname, then
+      # generates a per-host leaf cert signed by the yuruna CA and
+      # terminates the client side. If a pin-checking client (snap, Go
+      # binaries) ever ends up on the install path, add an
+      # `acl nobump dstdomain ...` + `ssl_bump splice nobump` pair ABOVE
+      # the bump-all line rather than disabling bumping wholesale.
+      #
+      # The `step1` acl MUST be declared explicitly — squid does not
+      # auto-define at_step ACLs, so `ssl_bump peek step1` without this
+      # line fails with a FATAL "Bungled ... ssl_bump peek step1" at
+      # config-load time and squid never binds 3128/3129.
+      acl step1 at_step SslBump1
+      #
+      # NOTE: dynamic_cert_mem_cache_size is a TOP-LEVEL directive in
+      # Squid 6 (Ubuntu Noble's squid 6.x), NOT an http_port option. An
+      # earlier revision inlined it on the http_port line and tripped a
+      # parser "Bungled" error that prevented squid from starting at
+      # all. 4 MB is the default anyway, so we just let the default stand
+      # rather than restate it as a separate directive.
+      http_port 3129 ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
+      sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/lib/squid/ssl_db -M 4MB
+      sslcrtd_children 5
+      ssl_bump peek step1
+      ssl_bump bump all
   # --- Prometheus: bind loopback only; Grafana runs in the same VM and
   # scrapes via localhost. Keeps Prometheus's open-access UI off the host
   # LAN — the Grafana dashboard on :3000 is the only exposed entry point.
@@ -343,6 +395,66 @@ runcmd:
   # cache_dir size than the package default squid tried to initialize against.
   - systemctl stop squid
   - squid -z -N || true
+  # --- SSL-bump bootstrap: generate a self-signed CA and initialize the
+  # per-hostname cert DB that squid's sslcrtd helper uses to mint leaf
+  # certs on the fly. Both steps are idempotent (file/dir checks) so a
+  # cloud-init re-run does not rotate the CA — that would orphan every
+  # guest that had already trusted the previous one.
+  #
+  # The CA's private key lives ONLY inside this VM (/etc/squid/ssl_cert/
+  # is proxy:proxy 700). The public cert is copied to /var/www/html/
+  # further down so Apache can serve it to guests over plain HTTP.
+  #
+  # CN embeds the VM hostname + a build timestamp so if an operator
+  # deliberately rebuilds the cache VM and re-provisions guests, the
+  # distinct CN makes it obvious in a browser / `openssl x509` dump
+  # which cache instance signed a given leaf.
+  - |
+    set -e
+    CA_DIR=/etc/squid/ssl_cert
+    if [ ! -f "$CA_DIR/ca.pem" ]; then
+      mkdir -p "$CA_DIR"
+      # -addext (self-contained) instead of -extensions v3_ca (which
+      # silently produces a non-CA cert when /etc/ssl/openssl.cnf on the
+      # installed openssl 3.x build doesn't carry a [ v3_ca ] section).
+      # The resulting cert without basicConstraints=CA:true is loadable
+      # but Squid rejects it with "No valid signing certificate
+      # configured for HTTP_port [::]:3129" and never binds the port.
+      # keyCertSign is required for ssl-bump's per-host leaf minting.
+      openssl req -new -newkey rsa:2048 -sha256 -days 3650 -nodes -x509 \
+        -addext "basicConstraints=critical,CA:true" \
+        -addext "keyUsage=critical,digitalSignature,cRLSign,keyCertSign" \
+        -addext "subjectKeyIdentifier=hash" \
+        -keyout "$CA_DIR/ca.key" \
+        -out   "$CA_DIR/ca.pem" \
+        -subj  "/CN=yuruna-squid-cache $(hostname) $(date -u +%Y%m%dT%H%M%SZ)"
+      chown -R proxy:proxy "$CA_DIR"
+      chmod 700 "$CA_DIR"
+      chmod 600 "$CA_DIR/ca.key"
+      chmod 644 "$CA_DIR/ca.pem"
+    fi
+  # security_file_certgen's `-c` is create-new; it errors if the DB
+  # already exists, so the existence check guards re-runs. The DB holds
+  # the leaf certs squid generates for each SNI hostname — 4 MB is
+  # generous for a single-host dev cache (each entry is ~1 KB).
+  #
+  # The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu
+  # Noble the squid-openssl postinst does NOT guarantee this directory
+  # exists, and security_file_certgen's Create() makes only the leaf
+  # `ssl_db/` dir, not its parent — so without the `install -d` the
+  # helper FATALs with "Cannot create /var/lib/squid/ssl_db". Squid
+  # then launches, sslcrtd children crash-loop on every spawn, squid
+  # bails with "The sslcrtd_program helpers are crashing too rapidly,
+  # need help!" and squid-parent blocks restart for 3600s. Running the
+  # helper as `proxy` avoids a follow-up chown and confirms that user
+  # can write the tree.
+  - |
+    set -e
+    SSL_DB=/var/lib/squid/ssl_db
+    install -d -o proxy -g proxy -m 0750 /var/lib/squid
+    if [ ! -d "$SSL_DB" ]; then
+      sudo -u proxy /usr/lib/squid/security_file_certgen -c -s "$SSL_DB" -M 4MB
+    fi
   - systemctl enable squid
   - systemctl start squid
   # --- Enable cachemgr.cgi monitoring ---
@@ -353,6 +465,14 @@ runcmd:
   # remote mgr: URLs are rejected — no extra squid ACL work needed.
   - a2enmod cgi
   - a2enconf yuruna-cachemgr
+  # Publish the CA public cert at http://<cache>/yuruna-squid-ca.crt so
+  # guests can fetch and trust it during their own install. Only the
+  # public cert is copied — ca.key stays inside /etc/squid/ssl_cert/.
+  # The mode-644 public cert under /var/www/html/ is intentionally
+  # world-readable; RFC1918 reachability is enforced at the network
+  # layer (UTM Shared NAT) rather than via Apache ACLs here, so trust
+  # distribution works without an extra cachemgr-style `Require ip`.
+  - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
   - systemctl enable apache2
   - systemctl restart apache2
   # --- Pre-warm the cache ---
@@ -468,10 +588,37 @@ runcmd:
   - systemctl enable --now prometheus.service
   - systemctl enable grafana-server.service
   - systemctl restart grafana-server.service
+  # Wait for grafana-server to finish binding :3000 and dump journal if
+  # it doesn't. On a slow first boot (fresh cache VM, disk still warming
+  # up) grafana can take ~15s to come up after `restart` returns. Without
+  # this check, a failed start is only visible when an operator tries the
+  # dashboard URL and gets "connection refused" — by which time the
+  # cloud-init logs may have been rotated. Matches the diagnostic net
+  # used for squid:3128 earlier in runcmd so both failure modes surface
+  # the same way in /var/log/cloud-init-output.log.
+  - |
+    for i in $(seq 1 60); do
+      systemctl is-active --quiet grafana-server.service && \
+        ss -ltn 'sport = :3000' 2>/dev/null | grep -q 3000 && break
+      sleep 1
+    done
+    if ! systemctl is-active --quiet grafana-server.service; then
+      echo "=== YURUNA: grafana-server did not become active within 60s ==="
+      systemctl --no-pager -l status grafana-server.service || true
+      journalctl --no-pager -u grafana-server.service -n 80 || true
+    fi
   - |
     vm_ip=$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -1)
     echo "=== YURUNA monitoring ==="
     echo "  Grafana:    http://${vm_ip}:3000 (anonymous Viewer — no login required)"
     echo "  Prometheus: http://127.0.0.1:9090 (loopback only — scrape via Grafana)"
     echo "  cachemgr:   http://${vm_ip}/cgi-bin/cachemgr.cgi (raw cachemgr fallback)"
-  - echo "squid-cache ready on port 3128 (pre-warmed)"
+    echo "  CA cert:    http://${vm_ip}/yuruna-squid-ca.crt (trust to enable :3129 HTTPS caching)"
+  # Single-quoted for the same reason as the other echo lines in this
+  # runcmd: the bare `: ` after "ready" makes YAML parse the whole scalar
+  # as a mapping, cloud-init's shellify() gets a dict instead of a string
+  # and aborts the ENTIRE runcmd phase — so nothing (CA gen, ssl_db init,
+  # prewarm, squid-exporter, monitoring) runs. That failure mode is
+  # silent in the VM's systemctl output because write_files still runs;
+  # only `cloud-init status --long` surfaces the TypeError.
+  - 'echo "squid-cache ready: :3128 HTTP + CONNECT, :3129 HTTPS SSL-bump (pre-warmed)"'

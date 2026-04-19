@@ -248,24 +248,33 @@ if ($IsMacOS) {
         Write-Warning "  sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40"
     }
 
-    # === Step 6: host-side TCP forwarder ====================================
+    # === Step 6: host-side TCP forwarders ===================================
     # Apple Virtualization shared-NAT isolates guest↔guest traffic: guests on
     # 192.168.64.0/24 can reach the host/gateway (192.168.64.1) but not each
     # other. So a fresh guest cannot reach the squid VM at $cacheIp directly —
     # apt times out with "No route to host", subiquity reverts to offline
     # install, and ubuntu-desktop is then unresolvable because it only lives
-    # behind the proxy. The fix is a forwarder on the HOST that binds :3128
-    # and tunnels to $cacheIp:3128; guests point at 192.168.64.1:3128 and
-    # traffic reaches squid via the host.
-    # Keep it alive across Start-SquidCache.ps1 exit (it's a detached pwsh
-    # subprocess with its pid at $HOME/virtual/squid-cache/forwarder.pid).
-    # Stop-SquidCache.ps1 tears it down symmetrically.
+    # behind the proxy. The fix is one forwarder on the HOST per exposed
+    # port, binding the port and tunneling to $cacheIp.
+    #
+    # Ports:
+    #   3128 — squid HTTP proxy. Guests point apt at http://192.168.64.1:3128.
+    #   3000 — Grafana dashboard. Operator opens http://<mac-ip>:3000 from the
+    #          Mac (or from the LAN if the Mac is sharing its connection).
+    #          Analogous to the netsh portproxy the Windows runner sets up.
+    #
+    # Forwarders are detached pwsh subprocesses keyed by port (pidfile
+    # forwarder.<N>.pid under $HOME/virtual/squid-cache/). Stop-SquidCache.ps1
+    # tears them all down symmetrically via Stop-AllSquidForwarder.
     if ($cacheIp) {
         Write-Output ""
-        Write-Output "=== Step 6: host-side :3128 forwarder ==="
+        Write-Output "=== Step 6: host-side forwarders (3128 proxy + 3000 Grafana) ==="
         $vmCommon = Join-Path $RepoRoot "vde/host.macos.utm/VM.common.psm1"
         Import-Module $vmCommon -Force
-        [void](Start-SquidForwarder -CacheIp $cacheIp)
+        $mappedPorts = Add-SquidCachePortMap -CacheIp $cacheIp -Port @(3128, 3000)
+        if ($mappedPorts -notcontains 3000) {
+            Write-Warning "  :3000 (Grafana) forwarder did not bind — dashboard will only be reachable at http://${cacheIp}:3000 from the Mac."
+        }
     }
 } elseif ($IsWindows) {
     # Use the same KVP+ARP+:3128-probe discovery the guest consumers
@@ -293,9 +302,14 @@ if ($cacheIp) {
     Write-Output "  VM IP:       $cacheIp"
     if ($IsMacOS) {
         # On macOS VZ, guests cannot reach $cacheIp directly — they must
-        # use the host-side :3128 forwarder at 192.168.64.1 instead.
+        # use the host-side :3128 forwarder at 192.168.64.1 instead. The
+        # :3000 Grafana and :3129 SSL-bump listener are also host-forwarded
+        # on the same gateway so the dashboard URL and HTTPS caching work
+        # identically to the Hyper-V branch.
         Write-Output "  Proxy URL:   http://192.168.64.1:3128  (host forwarder → $cacheIp)"
+        Write-Output "  Grafana:     http://192.168.64.1:3000  (anonymous Viewer — host forwarder)"
         Write-Output "  cachemgr:    http://${cacheIp}/cgi-bin/cachemgr.cgi  (host-only; guests can't reach this)"
+        Write-Output "  CA cert:     http://${cacheIp}/yuruna-squid-ca.crt  (trust to enable :3129 HTTPS caching)"
     } else {
         Write-Output "  Proxy URL:   http://${cacheIp}:3128"
         Write-Output "  cachemgr:    http://${cacheIp}/cgi-bin/cachemgr.cgi"

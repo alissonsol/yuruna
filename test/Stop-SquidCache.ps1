@@ -62,15 +62,18 @@ if ($IsMacOS) {
     Write-Output ""
     Write-Output "=== Stop + delete '$VMName' (macOS/UTM) ==="
 
-    # Host-side :3128 forwarder (paired with Start-SquidCache.ps1). Tear it
-    # down BEFORE deleting the VM — once the upstream cache is gone, any
-    # guest still hitting 192.168.64.1:3128 would get connection-refused
-    # from the forwarder, which is less informative than "nothing listening."
+    # Host-side forwarders (paired with Start-SquidCache.ps1). Tear them
+    # ALL down BEFORE deleting the VM — once the upstream cache is gone,
+    # any guest still hitting 192.168.64.1:3128 (or an operator opening
+    # :3000 on the host) would get connection-refused from the forwarder,
+    # which is less informative than "nothing listening." Stop-All
+    # handles every Yuruna forwarder.<Port>.pid under the state dir so
+    # the Grafana :3000 tunnel and any future ports clean up together.
     $vmCommon = Join-Path $RepoRoot "vde/host.macos.utm/VM.common.psm1"
     if (Test-Path $vmCommon) {
         Import-Module $vmCommon -Force
-        Write-Output "  Stopping host-side :3128 forwarder (if any)..."
-        [void](Stop-SquidForwarder)
+        Write-Output "  Stopping all host-side forwarders (if any)..."
+        [void](Remove-SquidCachePortMap)
     }
 
     # `utmctl status <name>` exits non-zero with "Virtual machine not found"

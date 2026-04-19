@@ -126,12 +126,18 @@ function Start-SquidForwarder {
     if (-not (Test-Path $stateDir)) {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
-    $pidFile = Join-Path $stateDir "forwarder.pid"
-    $logFile = Join-Path $stateDir "forwarder.log"
+    # Pidfile/log are PER PORT so concurrent forwarders (one for the
+    # squid proxy at :3128, one for the Grafana dashboard at :3000, and
+    # potentially more) never fight over the same path. The old single-
+    # forwarder scheme used `forwarder.pid`/`forwarder.log`; naming by
+    # port makes discovery and selective teardown trivial from
+    # Stop-SquidForwarder / Stop-AllSquidForwarder.
+    $pidFile = Join-Path $stateDir "forwarder.$Port.pid"
+    $logFile = Join-Path $stateDir "forwarder.$Port.log"
 
-    # If a stale pid is still alive, kill it first — we want a single
-    # forwarder per host.
-    [void](Stop-SquidForwarder -Quiet)
+    # If a stale pid is still alive for THIS port, kill it first. Other
+    # ports' forwarders stay up untouched.
+    [void](Stop-SquidForwarder -Port $Port -Quiet)
 
     Write-Output "  Launching host-side forwarder: 0.0.0.0:${Port} → ${CacheIp}:${Port}"
     # Start-Process launches pwsh detached. RedirectStandard* is required
@@ -209,9 +215,10 @@ function Stop-SquidForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
+        [int]$Port = 3128,
         [switch]$Quiet
     )
-    $pidFile = Join-Path $HOME "virtual/squid-cache/forwarder.pid"
+    $pidFile = Join-Path $HOME "virtual/squid-cache/forwarder.$Port.pid"
     if (-not (Test-Path $pidFile)) {
         if (-not $Quiet) { Write-Output "  No forwarder pidfile — nothing to stop." }
         return $true
@@ -285,8 +292,8 @@ function Stop-SquidForwarder {
 function Get-SquidForwarder {
     [CmdletBinding()]
     [OutputType([bool])]
-    param()
-    $pidFile = Join-Path $HOME "virtual/squid-cache/forwarder.pid"
+    param([int]$Port = 3128)
+    $pidFile = Join-Path $HOME "virtual/squid-cache/forwarder.$Port.pid"
     if (-not (Test-Path $pidFile)) { return $false }
     $forwarderPid = (Get-Content $pidFile -Raw).Trim()
     if (-not ($forwarderPid -as [int])) { return $false }
@@ -294,4 +301,105 @@ function Get-SquidForwarder {
     return ($LASTEXITCODE -eq 0)
 }
 
-Export-ModuleMember -Function Remove-UtmBundleWithRetry, Start-SquidForwarder, Stop-SquidForwarder, Get-SquidForwarder
+<#
+.SYNOPSIS
+    Expose multiple squid-cache VM ports on the Mac host via per-port
+    TCP forwarders.
+
+.DESCRIPTION
+    macOS counterpart to the Windows Test.PortMap.psm1 Add-
+    SquidCachePortMap: runs one Start-SquidForwarder subprocess per
+    requested port, each with its own forwarder.<Port>.pid and log
+    file. Starts fresh every call — all existing Yuruna forwarders are
+    torn down first so a port list change (e.g. dropped 9090) doesn't
+    leave orphans.
+
+    Defaults to @(3128, 3000):
+      * 3128 is the squid HTTP proxy endpoint; guests point their apt
+        at http://192.168.64.1:3128 because Apple VZ shared-NAT blocks
+        guest↔guest traffic (the whole reason these forwarders exist).
+      * 3000 is the Grafana dashboard, so an operator on the host (or
+        on the host's LAN, if the Mac is sharing its connection) can
+        open http://<mac-ip>:3000 without reaching into the VM subnet.
+
+.PARAMETER CacheIp
+    IP of the squid-cache VM on the VZ shared-NAT subnet (typically
+    192.168.64.X).
+
+.PARAMETER Port
+    TCP ports to expose. Host port == VM port for each. Default
+    @(3128, 3000). Callers can extend with 9090 (Prometheus) etc.
+
+.OUTPUTS
+    [int[]] — ports that were successfully bound.
+#>
+function Add-SquidCachePortMap {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int[]], [System.Object[]])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [int[]]$Port = @(3128, 3000)
+    )
+    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:[$($Port -join ',')] -> ${CacheIp}", 'Launch per-port forwarders')) {
+        return @()
+    }
+    # Tear down EVERY prior forwarder first. Handles the port-list-changed
+    # scenario (e.g. removed 9090) and the VM-IP-changed scenario (new
+    # CacheIp — old forwarders would still tunnel to the gone VM).
+    [void](Stop-AllSquidForwarder -Quiet)
+    $launched = @()
+    foreach ($p in $Port) {
+        if (Start-SquidForwarder -CacheIp $CacheIp -Port $p) {
+            $launched += $p
+        }
+    }
+    return ,$launched
+}
+
+<#
+.SYNOPSIS
+    Stop every squid-cache port forwarder the host currently has.
+
+.DESCRIPTION
+    Enumerates $HOME/virtual/squid-cache/forwarder.<Port>.pid entries
+    and sends SIGTERM to each (SIGKILL escalation via Stop-Squid-
+    Forwarder per port). Missing directory / no pidfiles is a no-op.
+    Safe to call from Stop-SquidCache.ps1 even when no forwarders are
+    running.
+
+.OUTPUTS
+    [int[]] — ports whose forwarder was stopped (may be empty).
+#>
+function Stop-AllSquidForwarder {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int[]], [System.Object[]])]
+    param([switch]$Quiet)
+    $stateDir = Join-Path $HOME "virtual/squid-cache"
+    if (-not (Test-Path $stateDir)) { return @() }
+    $stopped = @()
+    # Glob each forwarder.<N>.pid under the state dir. BaseName strips the
+    # trailing ".pid" so the regex just needs to match the middle token.
+    Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            if ($_.BaseName -match '^forwarder\.(\d+)$') {
+                $portInt = [int]$matches[1]
+                if ($PSCmdlet.ShouldProcess("port $portInt", 'Stop squid forwarder')) {
+                    [void](Stop-SquidForwarder -Port $portInt -Quiet:$Quiet)
+                    $stopped += $portInt
+                }
+            }
+        }
+    return ,$stopped
+}
+
+function Remove-SquidCachePortMap {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int[]], [System.Object[]])]
+    param([switch]$Quiet)
+    if (-not $PSCmdlet.ShouldProcess('all squid-cache forwarders', 'Remove port map')) {
+        return @()
+    }
+    return ,@(Stop-AllSquidForwarder -Quiet:$Quiet)
+}
+
+Export-ModuleMember -Function Remove-UtmBundleWithRetry, Start-SquidForwarder, Stop-SquidForwarder, Get-SquidForwarder, Add-SquidCachePortMap, Remove-SquidCachePortMap, Stop-AllSquidForwarder

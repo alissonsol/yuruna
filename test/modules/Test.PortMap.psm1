@@ -51,7 +51,7 @@
     Get-BestHostIp returns the LAN-routable IPv4 an operator can paste
     into a browser to reach an exposed port. On Windows it ranks via
     Get-NetIPAddress + Get-NetRoute; on macOS it reads the default-
-    route interface from `/usr/sbin/route -n get default` and asks
+    route interface from `/sbin/route -n get default` and asks
     `ipconfig getifaddr` for that interface's address.
 #>
 
@@ -387,13 +387,13 @@ function Get-BestHostIp {
     param()
 
     if ($IsMacOS) {
-        # Use `/usr/sbin/route -n get default` to find the interface that
+        # Use `/sbin/route -n get default` to find the interface that
         # carries the default route, then `ipconfig getifaddr <iface>` for
         # that interface's IPv4. Avoids a parser for `ifconfig` output and
         # naturally skips loopback / utun / VZ bridges (they have no default
         # route). Fully-qualified paths so PSScriptAnalyzer's alias-avoidance
         # rule can tell these apart from pwsh built-ins.
-        $routeOut = & '/usr/sbin/route' -n get default 2>$null
+        $routeOut = & '/sbin/route' -n get default 2>$null
         $iface = $null
         foreach ($line in $routeOut) {
             if ($line -match 'interface:\s*(\S+)') { $iface = $matches[1]; break }

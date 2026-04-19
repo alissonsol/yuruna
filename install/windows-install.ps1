@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     One-liner bootstrap for a fresh Windows machine. Installs PowerShell 7,
-    Git, the Windows ADK Deployment Tools (for oscdimg.exe), Tesseract OCR,
+    Git, the Windows ADK Deployment Tools (for oscdimg.exe), QEMU tools
+    (for qemu-img used by guest.squid-cache/Get-Image.ps1), Tesseract OCR,
     and enables the Hyper-V Windows Feature. Clones the Yuruna repository
     into $HOME\git\yuruna, seeds test\test-config.json from the template,
     and runs vde\host.windows.hyper-v\Enable-TestAutomation.ps1 to disable
@@ -14,8 +15,22 @@
     running Yuruna test processes, upgrades installed packages via winget,
     and fast-forwards the repository checkout.
 
+    Startup shell — works from either Windows PowerShell 5.1 (the only
+    shell a fresh Windows 11 ships with) or pwsh.exe (7+). The script is
+    written in PS 5.1-compatible syntax through the self-relaunch block,
+    then:
+      1. Elevates itself if started unelevated (UAC). The new elevated
+         shell is whichever one the user started from — powershell.exe
+         on PS 5.1, pwsh.exe on PS 7+.
+      2. If still running in PS 5.1 after elevation, installs pwsh.exe
+         via winget, refreshes PATH, and re-executes this same script
+         under pwsh. The rest of Yuruna's harness also runs on pwsh so
+         unifying the shell version here means the user never has to
+         switch consoles mid-install.
+
     Requires Administrator elevation. The script will relaunch itself
-    elevated if started from a non-admin shell.
+    elevated if started from a non-admin shell. Requires winget ("App
+    Installer" from the Microsoft Store) which ships with Windows 11.
 
 .PARAMETER YurunaDir
     Target directory for the repository checkout. Default: $HOME\git\yuruna
@@ -76,6 +91,14 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
 
 if (-not $isAdmin) {
     Write-Step 'Relaunching elevated (UAC prompt)'
+    # Preserve the shell the user started from — powershell.exe on PS 5.1,
+    # pwsh.exe on PS 7+ — so a pwsh session doesn't get silently
+    # downgraded to Windows PowerShell across the UAC boundary. If the
+    # current process path can't be read (unusual but possible on locked-
+    # down hosts), fall back to powershell.exe which is always present.
+    $currentShellExe = $null
+    try { $currentShellExe = (Get-Process -Id $PID).Path } catch { $currentShellExe = $null }
+    if (-not $currentShellExe) { $currentShellExe = 'powershell.exe' }
     # Build an argument list that preserves the caller's parameters. When
     # invoked via `irm | iex` the script has no $PSCommandPath, so in that
     # case re-download and run from a temp file inside the elevated shell.
@@ -84,14 +107,14 @@ if (-not $isAdmin) {
         if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
         if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
         if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
-        Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argList
+        Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList $argList
     } else {
         $bootstrap = @"
 `$ErrorActionPreference='Stop'
 `$u='https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows-install.ps1'
 Invoke-RestMethod `$u | Invoke-Expression
 "@
-        Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
+        Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList @(
             '-NoProfile','-ExecutionPolicy','Bypass','-Command', $bootstrap)
     }
     exit 0
@@ -100,6 +123,77 @@ Invoke-RestMethod `$u | Invoke-Expression
 Write-Step "Yuruna Windows installer starting"
 Write-Step "  repo   : $YurunaRepo ($YurunaBranch)"
 Write-Step "  target : $YurunaDir"
+Write-Step "  shell  : $((Get-Process -Id $PID).ProcessName) (PowerShell $($PSVersionTable.PSVersion))"
+
+# ── PowerShell 7 bootstrap ────────────────────────────────────────────────
+# Fresh Windows 11 ships Windows PowerShell 5.1 only. The rest of Yuruna —
+# every pwsh-shebanged script under test/ and vde/ — expects pwsh 7+. If we
+# are still in PS 5.x after elevation, install pwsh via winget, refresh
+# PATH so pwsh.exe resolves in this same session, and re-execute this
+# script under pwsh. The child inherits the elevated token, so no second
+# UAC prompt. The parent exits with the child's exit code so a caller
+# chaining this install with `&&` or checking $LASTEXITCODE sees the
+# right outcome.
+#
+# This block must stay PS 5.1-compatible (no ?./??/ternary/chain ops) —
+# the whole file is parsed up-front, and even one PS 7-only token would
+# fail the file to load on 5.1 before this check can run.
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Step 'Bootstrapping PowerShell 7 (Windows PowerShell 5.x detected)'
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Die @'
+winget is not available on this system. Install "App Installer" from the
+Microsoft Store (or update Windows) and re-run this script.
+'@
+    }
+    $pwshPkg = winget list --id 'Microsoft.PowerShell' --exact --accept-source-agreements 2>$null |
+        Select-String -SimpleMatch 'Microsoft.PowerShell'
+    if (-not $pwshPkg) {
+        Write-Step '  installing PowerShell 7 via winget'
+        winget install --id 'Microsoft.PowerShell' --exact --silent `
+            --accept-package-agreements --accept-source-agreements `
+            --disable-interactivity
+    } else {
+        Write-Step '  PowerShell 7 already installed (winget reports present)'
+    }
+    # Refresh PATH in the current PS 5.1 session so pwsh.exe resolves. The
+    # winget install adds C:\Program Files\PowerShell\7 to the Machine PATH
+    # but the running shell keeps a stale copy until we merge it in.
+    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+                [Environment]::GetEnvironmentVariable('Path','User')
+    $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
+    if (-not $pwshCmd) {
+        Write-Die @'
+pwsh.exe is still not on PATH after the winget install. Open a NEW
+elevated PowerShell window (so it inherits the updated Machine PATH) and
+re-run this installer.
+'@
+    }
+    Write-Step "  Re-executing under $($pwshCmd.Source)"
+    # Same param-forwarding dance as the elevation block. When invoked via
+    # `irm | iex` there is no $PSCommandPath, so we re-download the script
+    # to a temp file and hand THAT to pwsh. Synchronous `&` call so the
+    # user sees all further output in this single console, and exit code
+    # propagates. Run the rest under the child pwsh and terminate here.
+    if ($PSCommandPath) {
+        $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"")
+        if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
+        if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
+        if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
+        & $pwshCmd.Source $argList
+        exit $LASTEXITCODE
+    } else {
+        $tmp = Join-Path $env:TEMP ("yuruna-windows-install-" + [guid]::NewGuid().ToString('N') + '.ps1')
+        $u   = 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows-install.ps1'
+        Invoke-RestMethod $u | Set-Content -Path $tmp -Encoding UTF8
+        try {
+            & $pwshCmd.Source -NoProfile -ExecutionPolicy Bypass -File $tmp
+            exit $LASTEXITCODE
+        } finally {
+            Remove-Item -Path $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
 
 # ── Stop anything that would block an upgrade ──────────────────────────────
 function Stop-YurunaProcess {
@@ -160,10 +254,11 @@ function Install-WingetPackage {
 }
 
 Write-Step 'Installing / upgrading required packages via winget'
-Install-WingetPackage -Id 'Microsoft.PowerShell'      -FriendlyName 'PowerShell 7'
-Install-WingetPackage -Id 'Git.Git'                   -FriendlyName 'Git'
-Install-WingetPackage -Id 'Microsoft.WindowsADK'      -FriendlyName 'Windows ADK (Deployment Tools / oscdimg)'
-Install-WingetPackage -Id 'UB-Mannheim.TesseractOCR'  -FriendlyName 'Tesseract OCR'
+Install-WingetPackage -Id 'Microsoft.PowerShell'              -FriendlyName 'PowerShell 7'
+Install-WingetPackage -Id 'Git.Git'                           -FriendlyName 'Git (brings openssl.exe used by Ubuntu guest New-VM.ps1 password hashing)'
+Install-WingetPackage -Id 'Microsoft.WindowsADK'              -FriendlyName 'Windows ADK (Deployment Tools / oscdimg)'
+Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img for guest.squid-cache/Get-Image.ps1)'
+Install-WingetPackage -Id 'UB-Mannheim.TesseractOCR'          -FriendlyName 'Tesseract OCR'
 
 # Refresh PATH in the current session so pwsh.exe / git.exe / oscdimg.exe
 # become reachable without opening a new terminal.
@@ -193,7 +288,11 @@ if (-not $feature) {
 }
 
 # ── Clone / update the repo ────────────────────────────────────────────────
-$gitExe = (Get-Command git -ErrorAction SilentlyContinue)?.Source
+# Pre-PS7 fallback — null-conditional ?.Source doesn't parse on PS 5.1,
+# and this whole file still has to load cleanly in 5.1 for the bootstrap
+# block above to fire. Resolve via an intermediate variable.
+$gitCmd = Get-Command git -ErrorAction SilentlyContinue
+$gitExe = if ($gitCmd) { $gitCmd.Source } else { $null }
 if (-not $gitExe) { Write-Die 'git not found after install — open a new terminal and re-run.' }
 
 $parent = Split-Path -Parent $YurunaDir
@@ -224,7 +323,12 @@ if (-not (Test-Path $cfg) -and (Test-Path $tpl)) {
 # ── Host configuration (display timeout, screen lock, etc.) ───────────────
 $setHost = Join-Path $YurunaDir 'vde\host.windows.hyper-v\Enable-TestAutomation.ps1'
 if (Test-Path $setHost) {
-    $pwshExe = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
+    # Same PS 5.1-safe resolution pattern as $gitExe above. By this point
+    # we are guaranteed to be under pwsh (the PS 7 bootstrap re-exec'd if
+    # we weren't), so this will always find pwsh.exe; the fallback is
+    # defensive for anyone running with -Command against the raw script.
+    $pwshCmd2 = Get-Command pwsh -ErrorAction SilentlyContinue
+    $pwshExe  = if ($pwshCmd2) { $pwshCmd2.Source } else { $null }
     if (-not $pwshExe) {
         Write-Warn 'pwsh not on PATH yet — skipping vde\host.windows.hyper-v\Enable-TestAutomation.ps1. Open a new terminal and run it manually.'
     } else {

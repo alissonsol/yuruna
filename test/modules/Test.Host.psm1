@@ -1019,13 +1019,28 @@ function Invoke-GitPull {
     #>
     param([string]$RepoRoot)
 
-    # Fetch latest from remote without modifying the working tree
-    Write-Information "Fetching remote changes in: $RepoRoot" -InformationAction Continue
-    $output = & git -C $RepoRoot fetch 2>&1
-    Write-Information "$output" -InformationAction Continue
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "git fetch failed (exit $LASTEXITCODE)."
-        return $false
+    # Fetch latest from remote without modifying the working tree. Retry a
+    # few times on failure: on macOS, the Application Firewall briefly
+    # stalls a process's outbound TCP connects right after it opens a new
+    # listening socket (status server, squid-cache forwarders). That shows
+    # up as "Couldn't connect to server after 1 ms / No route to host" on
+    # the very first fetch of a freshly-launched runner and recovers within
+    # a few seconds. Without a retry, cycle #1 always fails on an otherwise
+    # healthy network.
+    $maxAttempts = 3
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        Write-Information "Fetching remote changes in: $RepoRoot (attempt $attempt/$maxAttempts)" -InformationAction Continue
+        $output = & git -C $RepoRoot fetch 2>&1
+        Write-Information "$output" -InformationAction Continue
+        if ($LASTEXITCODE -eq 0) { break }
+        if ($attempt -ge $maxAttempts) {
+            Write-Error "git fetch failed (exit $LASTEXITCODE) after $maxAttempts attempts."
+            return $false
+        }
+        Write-Information "  git fetch failed (exit $LASTEXITCODE); retrying in 5s..." -InformationAction Continue
+        Start-Sleep -Seconds 5
     }
 
     # Determine local vs remote HEAD positions

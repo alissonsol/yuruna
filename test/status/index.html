@@ -169,14 +169,37 @@
       position: fixed; bottom: 0; left: 0; right: 0;
       background: #111827; color: #9ca3af; font-size: .6875rem;
       padding: .35rem 1rem; display: flex; justify-content: space-between;
+      align-items: center; gap: 1rem;
     }
+    /* IP list lives in a readonly textarea — up to two lines (IPv4 / IPv6),
+       capped at 1/3 of the page width. Rows are set dynamically by JS to
+       match the content line count (1 or 2), so the box never has vertical
+       empty space — this is what makes the field visually centered on the
+       footer row regardless of how many lines the file has.
+       `overflow:auto` (not hidden) keeps the textarea's native scroll-on-
+       caret behavior alive: clicking in and pressing End / arrow keys
+       scrolls the clipped content into view. `scrollbar-width:none` +
+       the ::-webkit-scrollbar rule below suppress the visible scrollbars
+       so nothing is drawn until the user interacts. `resize:none` keeps
+       the footer stable. */
+    #footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; gap: .5rem; }
+    #footer-ips .label { flex-shrink: 0; }
+    textarea#footer-ip-list {
+      flex: 1 1 auto; min-width: 0;
+      font-family: 'Menlo','Consolas',monospace; font-size: .6875rem;
+      color: #9ca3af; background: #0b1220; border: 1px solid #374151;
+      border-radius: 3px; padding: .15rem .35rem;
+      resize: none; overflow: auto; white-space: pre;
+      line-height: 1.25; vertical-align: middle;
+      scrollbar-width: none;
+    }
+    textarea#footer-ip-list::-webkit-scrollbar { display: none; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Yuruna VDE</h1>
-  <p>Virtual Development Environment Test Status</p>
+  <h1>Yuruna</h1>
   <span id="header-machine"></span>
 </header>
 
@@ -192,7 +215,7 @@
 <main>
 
   <section id="sec-meta" style="display:none">
-    <div class="section-title">Current Run</div>
+    <div class="section-title" id="sec-meta-title">Current Cycle</div>
     <div class="meta-grid">
       <div class="meta-card"><div class="label">Commit</div><div class="value" id="m-commit">—</div></div>
       <div class="meta-card"><div class="label">Cycle</div><div class="value" id="m-cycle">—</div></div>
@@ -231,7 +254,7 @@
 </main>
 
 <div id="footer-bar">
-  <span id="footer-ips">Host IPs: <span class="mono" id="footer-ip-list">—</span></span>
+  <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" aria-label="Host IP addresses">—</textarea></span>
   <span>Last loaded: <span id="last-loaded">—</span></span>
   <span>Refreshing in <span id="countdown">30</span>s · <a href="#" onclick="loadStatus();return false" style="color:#6b7280">Refresh now</a></span>
 </div>
@@ -239,10 +262,10 @@
 <script>
   const BANNER = {
     idle:    'No test data available',
-    running: 'Test run in progress',
+    running: 'Test in progress',
     pass:    'All guests operational',
     fail:    'Incident detected — see details below',
-    paused:  'Test run paused'
+    paused:  'Test paused'
   };
 
   // Populate the footer with the host's IP addresses, written by
@@ -256,26 +279,39 @@
     try {
       const res = await fetch('log/ipaddresses.txt?_=' + Date.now(), { cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      const text = (await res.text()).trim();
-      el.textContent = text || '—';
+      // Preserve the writer's two-line format (IPv4 on line 1, IPv6 on
+      // line 2). Only trim trailing whitespace so a final \n doesn't
+      // render as an empty third row inside the textarea.
+      const text = (await res.text()).replace(/\s+$/, '');
+      const value = text || '—';
+      el.value = value;
+      // Size the textarea to match its content so the field has no blank
+      // vertical padding — this is what keeps it visually centered on
+      // the footer row whether the file has 1 line ("No IP addresses
+      // detected" or just IPv4) or 2 lines (IPv4 + IPv6).
+      const lineCount = Math.min(2, Math.max(1, value.split('\n').length));
+      el.rows = lineCount;
     } catch (e) {
-      el.textContent = '—';
+      el.value = '—';
+      el.rows = 1;
       console.warn('Could not load log/ipaddresses.txt:', e.message);
     }
   }
-  // Raw HTML from status/log/proxy-cache.txt. Written once at
-  // Start-StatusServer startup; fetched once here on page load.
-  // Appended to the banner status text so a viewer can see at a glance
-  // whether the harness is behind a local squid cache. Declared before
-  // any init call so the loadProxyCacheText() invocation below can't
-  // hit the temporal-dead-zone if its first statement ever becomes a
-  // synchronous proxyCacheHtml read.
+  // Raw HTML from status/log/proxy-cache.txt. The server rewrites this
+  // file at the start of every test cycle (Start-StatusServer.ps1 runs
+  // with -Restart from Invoke-TestRunner.ps1 on each cycle, and its
+  // proxy-cache probe re-runs then). The UI re-fetches on every
+  // loadStatus() poll so a page left open sees the new cycle's proxy
+  // state without a manual reload.
+  // Appended to the "Current Cycle" section title (see renderStatus).
+  // Declared before any init call so the loadProxyCacheText() invocation
+  // below can't hit the temporal-dead-zone.
   let proxyCacheHtml = '';
 
   loadIpAddresses();
-  // loadProxyCacheText resolves before the first renderStatus fires in
-  // practice (status.json fetch is slower), but even if it doesn't, the
-  // next 30-second poll re-runs renderStatus with proxyCacheHtml populated.
+  // loadProxyCacheText() is called again inside loadStatus() on every
+  // poll — this first call just populates proxyCacheHtml before the
+  // first renderStatus fires so the section title has it immediately.
   loadProxyCacheText();
 
   function cls(status) {
@@ -286,15 +322,27 @@
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  // Write the banner text. statusText is plain text (e.g. 'Test run in
-  // progress') and gets HTML-escaped; proxyCacheHtml is trusted server-
-  // generated HTML (includes an <a href> to the cachemgr URL) and is
-  // injected as-is. Uses innerHTML so the link renders clickable.
+  // Write the banner text. The proxy-cache state used to live here but
+  // was moved to the "Current Cycle" section title (see renderStatus),
+  // so this helper is now a plain text-setter.
   function setBannerText(statusText) {
     const el = document.getElementById('banner-text');
     if (!el) return;
-    const base = escHtml(statusText || '');
-    el.innerHTML = proxyCacheHtml ? (base + ' - ' + proxyCacheHtml) : base;
+    el.textContent = statusText || '';
+  }
+
+  // Refresh the "Current Cycle" section title with proxy-cache HTML.
+  // Split out from renderStatus so the first loadProxyCacheText() can
+  // update the UI even before the first status.json poll lands.
+  function refreshCycleTitle() {
+    const el = document.getElementById('sec-meta-title');
+    if (!el) return;
+    // proxyCacheHtml is trusted server-generated HTML (may include an
+    // <a href> to the cachemgr URL). "Current Cycle" is a literal
+    // constant so there's nothing to escape on the left side.
+    el.innerHTML = proxyCacheHtml
+      ? ('Current Cycle - ' + proxyCacheHtml)
+      : 'Current Cycle';
   }
 
   async function loadProxyCacheText() {
@@ -306,6 +354,7 @@
       proxyCacheHtml = '';
       console.warn('Could not load log/proxy-cache.txt:', e.message);
     }
+    refreshCycleTitle();
   }
 
   // Update the Pause/Continue button label + enabled state based on
@@ -475,7 +524,7 @@
     if (data && data.hostname) {
       const hostLabel = data.host ? data.host.replace('host.','') : '';
       headerMachine.textContent = data.hostname + (hostLabel ? ' (' + hostLabel + ')' : '');
-      document.title = 'Yuruna VDE — ' + data.hostname;
+      document.title = data.hostname + ' — Yuruna status';
     } else {
       headerMachine.textContent = window.location.hostname || '';
     }
@@ -591,6 +640,12 @@
     // crashing, etc.) show up without needing a full page reload. Fire-and-
     // forget — loadSshStatus handles its own errors.
     loadSshStatus();
+    // Re-read proxy-cache.txt every poll. Start-StatusServer.ps1 rewrites
+    // it at the beginning of every test cycle (Invoke-TestRunner runs
+    // it with -Restart, which re-triggers the Test-ProxyCacheAvailable
+    // probe), so the UI picks up a new cycle's cache state within one
+    // poll interval even if the page was left open across cycles.
+    loadProxyCacheText();
   }
 
   setInterval(() => {

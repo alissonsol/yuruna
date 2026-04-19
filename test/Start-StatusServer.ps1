@@ -146,10 +146,18 @@ Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction Silent
 # The UI footer reads this file to show where the server is reachable from
 # other machines. Loopback (127.0.0.1, ::1) is excluded because it's
 # trivially useless for remote clients — if you're reading the page from
-# somewhere you already know the address you used to reach it. IPv4 is
-# listed first, then IPv6, so the common case appears earliest. The file
-# is overwritten on every Start-StatusServer invocation so stale entries
-# from a previous host/network are not preserved.
+# somewhere you already know the address you used to reach it.
+#
+# File format:
+#   * No addresses detected  → single line "No IP addresses detected"
+#   * Addresses detected     → up to two lines:
+#       line 1: IPv4 addresses, comma-separated (omitted if none)
+#       line 2: IPv6 addresses, comma-separated (omitted if none)
+#
+# Splitting IPv4 / IPv6 onto their own lines lets the UI render them as
+# two short rows instead of one long run, and the file is overwritten on
+# every Start-StatusServer invocation so stale entries from a previous
+# host/network are not preserved.
 $LogDir = Join-Path $StatusDir "log"
 if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
@@ -162,20 +170,31 @@ try {
         ForEach-Object { $_.Address } |
         Where-Object { -not [System.Net.IPAddress]::IsLoopback($_) }
 
-    $ipv4 = $collectedAddresses |
+    $ipv4 = @($collectedAddresses |
         Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } |
         ForEach-Object { $_.ToString() } |
-        Sort-Object -Unique
-    $ipv6 = $collectedAddresses |
+        Sort-Object -Unique)
+    $ipv6 = @($collectedAddresses |
         Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6 } |
         ForEach-Object { $_.ToString() } |
-        Sort-Object -Unique
+        Sort-Object -Unique)
 
-    $allAddresses = @($ipv4) + @($ipv6)
-    $csv = ($allAddresses -join ',')
+    if ($ipv4.Count -eq 0 -and $ipv6.Count -eq 0) {
+        $fileContent = "No IP addresses detected"
+        $reportCount = 0
+    } else {
+        $lines = @()
+        if ($ipv4.Count -gt 0) { $lines += ($ipv4 -join ',') }
+        if ($ipv6.Count -gt 0) { $lines += ($ipv6 -join ',') }
+        # LF, not CRLF — browsers treat the whole thing as text and the UI
+        # splits on \n; keeping a single line terminator style avoids
+        # \r leaking into the rendered strings.
+        $fileContent = ($lines -join "`n")
+        $reportCount = $ipv4.Count + $ipv6.Count
+    }
     # UTF-8 without BOM so a browser fetch() yields a clean string.
-    [System.IO.File]::WriteAllText($IpAddressesFile, $csv, [System.Text.UTF8Encoding]::new($false))
-    Write-Output "IP addresses ($($allAddresses.Count)): written to $IpAddressesFile"
+    [System.IO.File]::WriteAllText($IpAddressesFile, $fileContent, [System.Text.UTF8Encoding]::new($false))
+    Write-Output "IP addresses ($reportCount): written to $IpAddressesFile"
 } catch {
     Write-Warning "Failed to enumerate/write IP addresses: $_"
     # Best-effort: leave a previous file intact if there was one.
@@ -237,8 +256,8 @@ try {
             # $proxyCacheUrl looks like "http://192.168.64.5:3128".
             $proxyUri = [uri]$proxyCacheUrl
             $proxyManagerUrl = "http://$($proxyUri.Host)/cgi-bin/cachemgr.cgi"
-            $proxyCacheContent = 'Proxy cache: detected at <a href="' + $proxyManagerUrl + '" target="_blank">' + $proxyCacheUrl + '</a>'
-            Write-Output "Proxy cache: detected at $proxyCacheUrl (manager: $proxyManagerUrl) — written to $ProxyCacheFile"
+            $proxyCacheContent = 'Proxy cache: <a href="' + $proxyManagerUrl + '" target="_blank">' + $proxyCacheUrl + '</a>'
+            Write-Output "Proxy cache: $proxyCacheUrl (manager: $proxyManagerUrl) — written to $ProxyCacheFile"
         } else {
             $proxyCacheContent = 'Proxy cache: not detected'
             Write-Output "Proxy cache: not detected — written to $ProxyCacheFile"

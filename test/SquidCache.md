@@ -265,6 +265,12 @@ pre-provisioned "Squid Cache (yuruna)" dashboard includes:
   counters whose units are kbytes. Writing the panel query with the
   simpler-looking `_kbytes_out_total` is the fast-path mistake; the
   series simply doesn't exist and the panel renders "No data".)
+- **Client HTTP kbytes_in/sec** — `rate(squid_client_http_kbytes_in_kbytes_total[5m])`
+  Symmetric ingress counterpart to kbytes_out. Note: there is no
+  HTTPS-specific client counter — squid-exporter reads squid's own
+  `client_http.*` counters, which aggregate HTTP and HTTPS (via CONNECT
+  and ssl-bump) into the same family. A split would need a different
+  exporter that parses `access.log` (e.g. a squid log exporter).
 
 To edit dashboards, log in with `admin` / `admin` (Grafana's default;
 the install doesn't rotate it because the VM is reachable only on the

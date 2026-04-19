@@ -389,6 +389,14 @@ write_files:
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 6, "w": 12, "h": 6},
             "targets": [{"expr": "rate(squid_client_http_kbytes_out_kbytes_total[5m])", "refId": "A"}]
+          },
+          {
+            "id": 5,
+            "type": "timeseries",
+            "title": "Client HTTP kbytes_in/sec",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6},
+            "targets": [{"expr": "rate(squid_client_http_kbytes_in_kbytes_total[5m])", "refId": "A"}]
           }
         ]
       }

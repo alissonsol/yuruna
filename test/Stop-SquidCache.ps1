@@ -56,9 +56,22 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 if ($IsMacOS) {
     $MachineName = $(hostname -s)
     $UtmDir      = "$HOME/Desktop/Yuruna.VDE/$MachineName.nosync/$VMName.utm"
+    # Repo root for importing VM.common.psm1 (squid forwarder helpers).
+    $RepoRoot    = Split-Path -Parent $PSScriptRoot
 
     Write-Output ""
     Write-Output "=== Stop + delete '$VMName' (macOS/UTM) ==="
+
+    # Host-side :3128 forwarder (paired with Start-SquidCache.ps1). Tear it
+    # down BEFORE deleting the VM — once the upstream cache is gone, any
+    # guest still hitting 192.168.64.1:3128 would get connection-refused
+    # from the forwarder, which is less informative than "nothing listening."
+    $vmCommon = Join-Path $RepoRoot "vde/host.macos.utm/VM.common.psm1"
+    if (Test-Path $vmCommon) {
+        Import-Module $vmCommon -Force
+        Write-Output "  Stopping host-side :3128 forwarder (if any)..."
+        [void](Stop-SquidForwarder)
+    }
 
     # `utmctl status <name>` exits non-zero with "Virtual machine not found"
     # when the VM isn't registered — cheap probe, no need to parse `utmctl list`.

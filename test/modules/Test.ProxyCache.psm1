@@ -35,9 +35,12 @@ the Default Switch interface. Only returns an IP after confirming port
 3128 accepts a TCP connection (an IP alone doesn't prove squid is up —
 cloud-init may still be installing inside the cache VM).
 
-UTM: sweeps the Apple-Virtualization shared-NAT subnet 192.168.64.2-30
-for a :3128 listener. Matches the probe range in
-guest.ubuntu.desktop/New-VM.ps1.
+UTM: probes 127.0.0.1:3128 for the host-side forwarder launched by
+Start-SquidCache.ps1, and returns http://192.168.64.1:3128 when it
+answers. Apple Virtualization shared-NAT isolates guest↔guest traffic,
+so guests cannot reach the squid VM's IP directly (EHOSTUNREACH on ARP).
+The forwarder bridges :3128 on the host to the cache VM, and guests
+reach it via the VZ gateway address.
 #>
 function Test-ProxyCacheAvailable {
     [CmdletBinding()]
@@ -99,22 +102,24 @@ function Test-ProxyCacheAvailable {
         return $null
     }
     if ($HostType -eq 'host.macos.utm') {
-        # UTM guests on Apple Virtualization live on 192.168.64.0/24; probe
-        # .2-.30 for a squid listener on 3128. Matches the probe range in
-        # guest.ubuntu.desktop/New-VM.ps1 so banner and injected URL agree.
-        for ($octet = 2; $octet -le 30; $octet++) {
-            $candidate = "192.168.64.$octet"
-            $tcp = New-Object System.Net.Sockets.TcpClient
-            try {
-                $async = $tcp.BeginConnect($candidate, 3128, $null, $null)
-                if ($async.AsyncWaitHandle.WaitOne(200) -and $tcp.Connected) {
-                    return "http://${candidate}:3128"
-                }
-            } catch {
-                Write-Verbose "squid-cache probe to ${candidate}:3128 failed: $($_.Exception.Message)"
-            } finally {
-                $tcp.Close()
+        # On macOS VZ, the URL guests should use is http://192.168.64.1:3128
+        # (the VZ gateway — the host). Probing the guest-VM IP directly
+        # would return a URL guests cannot actually reach, because VZ's
+        # shared-NAT blocks guest↔guest traffic. The host-side forwarder
+        # launched by Start-SquidCache.ps1 binds :3128 on the host and
+        # tunnels to the cache VM — guests reach it as 192.168.64.1:3128.
+        # So probe :3128 on the host's loopback to confirm the forwarder
+        # is up, and return the gateway URL if it answers.
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        try {
+            $async = $tcp.BeginConnect("127.0.0.1", 3128, $null, $null)
+            if ($async.AsyncWaitHandle.WaitOne(200) -and $tcp.Connected) {
+                return "http://192.168.64.1:3128"
             }
+        } catch {
+            Write-Verbose "host forwarder probe 127.0.0.1:3128 failed: $($_.Exception.Message)"
+        } finally {
+            $tcp.Close()
         }
         return $null
     }

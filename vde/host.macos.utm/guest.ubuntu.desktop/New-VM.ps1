@@ -183,21 +183,28 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # Detect the squid-cache VM and inject its proxy URL if available.
-# On macOS/UTM there is no Get-VM equivalent; we use `utmctl status squid-cache`
-# to tell "VM doesn't exist" from "VM exists but port unreachable" — that
-# distinction drives severity (WARNING vs ERROR) below.
+# Detect the squid-cache forwarder and inject its proxy URL if available.
 #
-# Severity policy (to avoid silent fallback-to-429):
-#   * No squid-cache VM registered with UTM → WARNING, proceed (direct CDN)
-#   * VM registered but not started         → WARNING, proceed (direct CDN)
-#   * VM started but :3128 unreachable      → ERROR, exit 1 (don't guess;
-#                                              the cache owner should fix it
-#                                              before launching guest installs)
+# On macOS/VZ the guests cannot reach the squid-cache VM's IP directly —
+# Apple Virtualization shared-NAT isolates guest↔guest traffic. Instead,
+# Start-SquidCache.ps1 spins up a TCP forwarder on the Mac HOST that binds
+# :3128 and tunnels to the squid VM. Guests point at the VZ gateway
+# (192.168.64.1:3128), which always resolves to the host's listener.
+# So here we only need to check one place: is anything answering on :3128
+# of the host? If yes, the forwarder is up → hand 192.168.64.1:3128 to
+# the guest. Discovering the cache VM's direct IP is no longer useful.
+#
+# Severity policy:
+#   * Forwarder up          → inject http://192.168.64.1:3128 (PROXY)
+#   * utmctl sees VM started
+#     but no listener on :3128
+#     locally on the host    → ERROR, exit 1 (Start-SquidCache.ps1 wasn't
+#                              re-run; the forwarder is the critical piece)
+#   * VM not registered /
+#     not started            → WARNING, proceed (direct CDN, expect 429s)
 if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
     # URL was forwarded by the caller (test runner). Skip the probe so this
-    # script and the runner's detection agree on a single cache URL — the
-    # probe at VM-create time races with transient listeners (stale leases,
-    # torn-down sibling guests) and can bake a dead IP into the cidata seed.
+    # script and the runner's detection agree on a single cache URL.
     if ($ProxyUrl) {
         Write-Output "  squid-cache URL forwarded by caller: $ProxyUrl — skipping local probe."
     } else {
@@ -207,8 +214,7 @@ if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
 $ProxyUrl = ""
 # Resolve utmctl. The brew cask install puts it on PATH; a plain UTM.app
 # install (Mac App Store or direct .dmg) does not, so fall back to the
-# canonical path inside the bundle. If neither exists, skip the utmctl
-# branch entirely and rely on the subnet-probe fallback below.
+# canonical path inside the bundle.
 $utmctl = (Get-Command utmctl -ErrorAction SilentlyContinue)?.Source
 if (-not $utmctl -and (Test-Path "/Applications/UTM.app/Contents/MacOS/utmctl")) {
     $utmctl = "/Applications/UTM.app/Contents/MacOS/utmctl"
@@ -217,8 +223,6 @@ if (-not $utmctl -and (Test-Path "/Applications/UTM.app/Contents/MacOS/utmctl"))
 $squidStatus = $null
 if ($utmctl) {
     try {
-        # utmctl prints e.g. 'started' / 'stopped' / 'paused' on stdout; errors go to stderr.
-        # A non-existent VM exits non-zero — we trap that as "not registered".
         $squidStatus = (& $utmctl status squid-cache 2>$null | Select-Object -First 1)
         if ($LASTEXITCODE -ne 0) { $squidStatus = $null }
     } catch {
@@ -227,122 +231,80 @@ if ($utmctl) {
     }
 }
 
-$probePort3128 = {
-    param($ipToTest, $timeoutMs)
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    $ok = $false
-    try {
-        $h = $tcp.BeginConnect($ipToTest, 3128, $null, $null)
-        if ($h.AsyncWaitHandle.WaitOne($timeoutMs) -and $tcp.Connected) { $ok = $true }
-    } catch {
-        Write-Verbose "squid-cache probe to ${ipToTest}:3128 failed: $($_.Exception.Message)"
-    } finally { $tcp.Close() }
-    return $ok
-}
+# Probe :3128 on the host's loopback — this is where Start-SquidCache.ps1's
+# forwarder binds (0.0.0.0:3128, so 127.0.0.1 and 192.168.64.1 both work).
+# 127.0.0.1 is the most portable check.
+$forwarderUp = $false
+$tcp = New-Object System.Net.Sockets.TcpClient
+try {
+    $h = $tcp.BeginConnect("127.0.0.1", 3128, $null, $null)
+    if ($h.AsyncWaitHandle.WaitOne(200) -and $tcp.Connected) { $forwarderUp = $true }
+} catch {
+    Write-Verbose "host :3128 probe failed: $($_.Exception.Message)"
+} finally { $tcp.Close() }
 
-if ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
-    # VM exists and is started — find its IP by TCP-probing the Apple
-    # Virtualization Shared-NAT subnet (192.168.64.0/24) for a listener
-    # on :3128. We do NOT use `utmctl ip-address` here: UTM's CLI only
-    # supports that subcommand for QEMU-backed VMs. Our squid-cache uses
-    # Apple Virtualization, which returns "Operation not supported by
-    # the backend" — useless for discovery.
-    for ($octet = 2; $octet -le 30; $octet++) {
-        $candidate = "192.168.64.$octet"
-        if (& $probePort3128 $candidate 200) {
-            $ProxyUrl = "http://${candidate}:3128"
-            Write-Output "  squid-cache detected at $ProxyUrl (subnet probe on 192.168.64.0/24) — guest will use local proxy."
-            break
-        }
-    }
-    if (-not $ProxyUrl) {
-        # Write-Error reformats multi-line content (wraps + prefixes each
-        # line with '|'), which renders our diagnostic block unreadable.
-        # $Host.UI.WriteLine is the PSScriptAnalyzer-safe way to keep the
-        # color output Write-Host would give us.
-        $detail = @"
+if ($forwarderUp) {
+    $ProxyUrl = "http://192.168.64.1:3128"
+    Write-Output "  squid-cache forwarder detected on host — guest will use $ProxyUrl (→ squid VM)."
+} elseif ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
+    # VM is up but the host-side forwarder isn't — that's a setup bug, not
+    # a transient. On VZ the guest cannot reach the VM without the forwarder,
+    # so failing direct would be slow and confusing. Abort loudly instead.
+    $detail = @"
 
 =========================================================================
-ERROR: squid-cache VM is started but port 3128 is not reachable.
+ERROR: squid-cache VM is started but the host-side :3128 forwarder is
+       not running.
 =========================================================================
   utmctl status squid-cache  : $squidStatus
-  subnet probe 192.168.64/24 : no listener on :3128 (ports 2-30 checked)
+  probe 127.0.0.1:3128       : nothing listening on the host
 
-Aborting so this guest install doesn't silently fall back to direct
-CDN access and hit the 429 rate limiter (the exact failure squid-cache
-was supposed to prevent — especially bad on macOS/UTM where every
-guest shares the host's single public IP via Apple Virtualization's
-Shared NAT).
+Apple Virtualization shared-NAT blocks guest↔guest traffic, so guests
+cannot reach the squid VM directly. Start-SquidCache.ps1 normally
+launches a host-side forwarder that bridges this gap. It appears to
+have exited, been killed, or never ran after the forwarder fix landed.
 
-Accessing the squid-cache VM for debugging:
-  * UTM window:  login:    ubuntu
-                 password: read it from
-                   ~/virtual/squid-cache/squid-cache-password.txt
-                 (the squid-cache New-VM.ps1 generates a fresh random
-                  10-char password on each rebuild and saves it there.)
-  * SSH:         ssh ubuntu@<ip>   (find <ip> in the UTM window)
-                 (uses the yuruna harness key at test/.ssh/yuruna_ed25519 --
-                  same key this Ubuntu Desktop guest uses; passwordless)
+Fix:
+  test/Start-SquidCache.ps1   (re-runs the forwarder; safe to re-invoke)
 
-=== Step 1: find the actual apt / cloud-init error ===
-The REAL error is in /var/log/cloud-init-output.log inside the cache VM,
-not in 'cloud-init status' or 'systemctl status'. Run this first:
+State to inspect:
+  ~/virtual/squid-cache/forwarder.pid
+  ~/virtual/squid-cache/forwarder.log
+  ~/virtual/squid-cache/forwarder.stderr.log
+
+=== Accessing the squid-cache VM for debugging ===
+The REAL error, if the VM itself is unhealthy, lives in
+/var/log/cloud-init-output.log INSIDE the cache VM (not in
+`cloud-init status` or `systemctl status`). From the UTM window:
 
   sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40
+  systemctl status squid
+  ss -ltn 'sport = :3128'
 
 Common patterns:
   * '429 Too Many Requests'    -> Ubuntu's CDN rate-limited this host
-                                  when the cache VM tried to install
-                                  squid itself (extra-likely on macOS
-                                  UTM where every VM shares one public
-                                  IP). Wait 15-30 min then rebuild.
-  * 'Unable to locate package' -> package name changed; report it.
-  * Nothing obvious            -> use the fuller diagnostics below.
+                                  during the cache VM's own install.
+                                  Wait 15-30 min, rebuild.
+  * Nothing obvious            -> rebuild: test/Start-SquidCache.ps1
 
-=== Step 2: deeper diagnostics ===
-  systemctl status squid                # 'could not be found' = install failed
-  ss -ltn 'sport = :3128'               # port bound?
-  cloud-init status --long              # still running?
-
-Recovery:
-  * Cloud-init still running -> wait for it to finish (5-15 min on
-    first boot), then re-run this script.
-  * Install broken -> rebuild the cache VM:
-      vde/host.macos.utm/guest.squid-cache/New-VM.ps1
-
-To intentionally skip the cache for this install, stop it first:
-  utmctl stop squid-cache   (guest will then WARN and download direct).
+To intentionally skip the cache for this install:
+  test/Stop-SquidCache.ps1     (guest will then WARN and download direct).
 =========================================================================
 "@
-        $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
-        exit 1
-    }
+    $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
+    exit 1
 } elseif ($squidStatus) {
-    # VM exists but isn't started — warn and fall through to direct CDN.
     Write-Warning "  squid-cache VM exists (status: $squidStatus) but is not started. Guest will download directly (expect occasional 429s)."
-    Write-Warning "  To enable caching: utmctl start squid-cache ; then wait for cloud-init to finish."
+    Write-Warning "  To enable caching: test/Start-SquidCache.ps1"
 } else {
-    # No VM registered under that name — fall back to subnet probe for
-    # alternate setups (user might run a different cache VM name), then
-    # warn if nothing responds.
-    for ($octet = 2; $octet -le 30; $octet++) {
-        $candidate = "192.168.64.$octet"
-        if (& $probePort3128 $candidate 200) {
-            $ProxyUrl = "http://${candidate}:3128"
-            Write-Output "  squid-cache detected at $ProxyUrl (subnet probe fallback) — guest will use local proxy."
-            break
-        }
+    if (-not $utmctl) {
+        Write-Warning "  utmctl not found (tried PATH and /Applications/UTM.app/Contents/MacOS/utmctl) — can't query UTM directly."
+        Write-Warning "  Nothing listening on host :3128 either. Install UTM with 'brew install --cask utm' or add it to PATH."
+    } else {
+        Write-Warning "  No squid-cache VM registered with UTM and nothing listening on host :3128."
     }
-    if (-not $ProxyUrl) {
-        if (-not $utmctl) {
-            Write-Warning "  utmctl not found (tried PATH and /Applications/UTM.app/Contents/MacOS/utmctl) — can't query UTM directly."
-            Write-Warning "  Subnet probe of 192.168.64.0/24:3128 also found nothing. Install UTM with 'brew install --cask utm' or add it to PATH."
-        } else {
-            Write-Warning "  No squid-cache VM registered with UTM and nothing listening on :3128 in 192.168.64.0/24."
-        }
-        Write-Warning "  Guest will download directly — expect 429 rate-limit failures on linux-firmware under load."
-        Write-Warning "  To enable caching, run: vde/host.macos.utm/guest.squid-cache/New-VM.ps1"
-    }
+    Write-Warning "  Guest will download directly — expect 429 rate-limit failures on linux-firmware under load."
+    Write-Warning "  To enable caching, run: test/Start-SquidCache.ps1"
 }
 }
 

@@ -247,6 +247,26 @@ if ($IsMacOS) {
         Write-Warning "VM is still running — log in through the UTM window and run:"
         Write-Warning "  sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40"
     }
+
+    # === Step 6: host-side TCP forwarder ====================================
+    # Apple Virtualization shared-NAT isolates guest↔guest traffic: guests on
+    # 192.168.64.0/24 can reach the host/gateway (192.168.64.1) but not each
+    # other. So a fresh guest cannot reach the squid VM at $cacheIp directly —
+    # apt times out with "No route to host", subiquity reverts to offline
+    # install, and ubuntu-desktop is then unresolvable because it only lives
+    # behind the proxy. The fix is a forwarder on the HOST that binds :3128
+    # and tunnels to $cacheIp:3128; guests point at 192.168.64.1:3128 and
+    # traffic reaches squid via the host.
+    # Keep it alive across Start-SquidCache.ps1 exit (it's a detached pwsh
+    # subprocess with its pid at $HOME/virtual/squid-cache/forwarder.pid).
+    # Stop-SquidCache.ps1 tears it down symmetrically.
+    if ($cacheIp) {
+        Write-Output ""
+        Write-Output "=== Step 6: host-side :3128 forwarder ==="
+        $vmCommon = Join-Path $RepoRoot "vde/host.macos.utm/VM.common.psm1"
+        Import-Module $vmCommon -Force
+        [void](Start-SquidForwarder -CacheIp $cacheIp)
+    }
 } elseif ($IsWindows) {
     # New-VM.ps1 only exits 0 after :3128 responds — KVP should be warm too.
     # Retry a handful of times in case the KVP scrape races the exit.
@@ -267,9 +287,16 @@ Write-Output "=== squid-cache is READY ==="
 Write-Output "================================================================="
 Write-Output "  VM name:     $VMName"
 if ($cacheIp) {
-    Write-Output "  IP address:  $cacheIp"
-    Write-Output "  Proxy URL:   http://${cacheIp}:3128"
-    Write-Output "  cachemgr:    http://${cacheIp}/cgi-bin/cachemgr.cgi"
+    Write-Output "  VM IP:       $cacheIp"
+    if ($IsMacOS) {
+        # On macOS VZ, guests cannot reach $cacheIp directly — they must
+        # use the host-side :3128 forwarder at 192.168.64.1 instead.
+        Write-Output "  Proxy URL:   http://192.168.64.1:3128  (host forwarder → $cacheIp)"
+        Write-Output "  cachemgr:    http://${cacheIp}/cgi-bin/cachemgr.cgi  (host-only; guests can't reach this)"
+    } else {
+        Write-Output "  Proxy URL:   http://${cacheIp}:3128"
+        Write-Output "  cachemgr:    http://${cacheIp}/cgi-bin/cachemgr.cgi"
+    }
 } else {
     Write-Output "  IP address:  (discovery failed — see warnings above)"
 }

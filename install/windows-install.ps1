@@ -146,13 +146,26 @@ winget is not available on this system. Install "App Installer" from the
 Microsoft Store (or update Windows) and re-run this script.
 '@
     }
-    $pwshPkg = winget list --id 'Microsoft.PowerShell' --exact --accept-source-agreements 2>$null |
+    # Pin --source winget on every call. Without the pin, winget searches
+    # every registered source (including msstore) and fails hard when one
+    # of them has a stale/untrusted server cert, even if the package was
+    # found in the trusted `winget` source. Seen in the wild as:
+    #   Failed when searching source: msstore
+    #   0x8a15005e : The server certificate did not match any of the
+    #                expected values.
+    # When that happens winget refuses to pick a source automatically and
+    # aborts the install with "Please specify one of them using the
+    # --source option to proceed." -- so pinning sidesteps the disamb.
+    $pwshPkg = winget list --id 'Microsoft.PowerShell' --exact --source winget --accept-source-agreements 2>$null |
         Select-String -SimpleMatch 'Microsoft.PowerShell'
     if (-not $pwshPkg) {
         Write-Step '  installing PowerShell 7 via winget'
-        winget install --id 'Microsoft.PowerShell' --exact --silent `
+        winget install --id 'Microsoft.PowerShell' --exact --silent --source winget `
             --accept-package-agreements --accept-source-agreements `
             --disable-interactivity
+        if ($LASTEXITCODE -ne 0) {
+            Write-Die "winget install Microsoft.PowerShell exited $LASTEXITCODE. Re-run after resolving the winget source error shown above (e.g. 'winget source reset --force' from an elevated prompt)."
+        }
     } else {
         Write-Step '  PowerShell 7 already installed (winget reports present)'
     }
@@ -236,18 +249,21 @@ function Install-WingetPackage {
         [Parameter(Mandatory)][string]$Id,
         [string]$FriendlyName = $Id
     )
-    $installed = winget list --id $Id --exact --accept-source-agreements 2>$null |
+    # --source winget on every call -- see the PS 7 bootstrap block above
+    # for the msstore-cert rationale; same hazard applies to every other
+    # package we install.
+    $installed = winget list --id $Id --exact --source winget --accept-source-agreements 2>$null |
         Select-String -SimpleMatch $Id
     if ($installed) {
         Write-Step "  upgrading $FriendlyName (if outdated)"
-        winget upgrade --id $Id --exact --silent `
+        winget upgrade --id $Id --exact --silent --source winget `
             --accept-package-agreements --accept-source-agreements `
             --disable-interactivity 2>&1 |
             Where-Object { $_ -notmatch 'No applicable upgrade|No installed package' } |
             ForEach-Object { Write-Output "     $_" }
     } else {
         Write-Step "  installing $FriendlyName"
-        winget install --id $Id --exact --silent `
+        winget install --id $Id --exact --silent --source winget `
             --accept-package-agreements --accept-source-agreements `
             --disable-interactivity
     }

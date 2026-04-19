@@ -1019,28 +1019,31 @@ function Invoke-GitPull {
     #>
     param([string]$RepoRoot)
 
-    # Fetch latest from remote without modifying the working tree. Retry a
-    # few times on failure: on macOS, the Application Firewall briefly
-    # stalls a process's outbound TCP connects right after it opens a new
-    # listening socket (status server, squid-cache forwarders). That shows
-    # up as "Couldn't connect to server after 1 ms / No route to host" on
-    # the very first fetch of a freshly-launched runner and recovers within
-    # a few seconds. Without a retry, cycle #1 always fails on an otherwise
-    # healthy network.
-    $maxAttempts = 3
-    $attempt = 0
+    # Fetch latest from remote without modifying the working tree. Retry
+    # with linear backoff on failure: on macOS, the Application Firewall
+    # briefly stalls a process's outbound TCP connects right after it
+    # opens a new listening socket (status server, squid-cache forwarders).
+    # That shows up as "Couldn't connect to server after 1 ms / No route
+    # to host" on the very first fetches of a freshly-launched runner and
+    # has recovered later than a 5s wait in observed runs. 5 retries with
+    # 10/20/30/40/50s waits cover up to ~2.5 min of blip without masking a
+    # genuine outage.
+    $maxRetries  = 5
+    $attempt     = 0
     while ($true) {
         $attempt++
-        Write-Information "Fetching remote changes in: $RepoRoot (attempt $attempt/$maxAttempts)" -InformationAction Continue
+        $totalAttempts = $maxRetries + 1
+        Write-Information "Fetching remote changes in: $RepoRoot (attempt $attempt/$totalAttempts)" -InformationAction Continue
         $output = & git -C $RepoRoot fetch 2>&1
         Write-Information "$output" -InformationAction Continue
         if ($LASTEXITCODE -eq 0) { break }
-        if ($attempt -ge $maxAttempts) {
-            Write-Error "git fetch failed (exit $LASTEXITCODE) after $maxAttempts attempts."
+        if ($attempt -gt $maxRetries) {
+            Write-Error "git fetch failed (exit $LASTEXITCODE) after $totalAttempts attempts."
             return $false
         }
-        Write-Information "  git fetch failed (exit $LASTEXITCODE); retrying in 5s..." -InformationAction Continue
-        Start-Sleep -Seconds 5
+        $waitSeconds = 10 * $attempt
+        Write-Information "  git fetch failed (exit $LASTEXITCODE); retrying in ${waitSeconds}s..." -InformationAction Continue
+        Start-Sleep -Seconds $waitSeconds
     }
 
     # Determine local vs remote HEAD positions

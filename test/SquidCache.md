@@ -258,19 +258,28 @@ pre-provisioned "Squid Cache (yuruna)" dashboard includes:
 - **Scrape targets up** — confirms Prometheus is reaching both itself
   and `squid-exporter`. If either shows 0, something in the stack is
   down.
-- **Client HTTP requests/sec** — `rate(squid_client_http_requests_total[5m])`
-- **Client HTTP hits/sec** — `rate(squid_client_http_hits_total[5m])`
-- **Client HTTP kbytes_out/sec** — `rate(squid_client_http_kbytes_out_kbytes_total[5m])`
+- **Client HTTP(S) requests/sec** — `rate(squid_client_http_requests_total[5m])`
+- **Client HTTP(S) hits/sec** — `rate(squid_client_http_hits_total[5m])`
+- **Client HTTP(S) kbytes_out/sec** — `rate(squid_client_http_kbytes_out_kbytes_total[5m])`
   (boynux/squid-exporter appends `_kbytes_total` — not `_total` — for
   counters whose units are kbytes. Writing the panel query with the
   simpler-looking `_kbytes_out_total` is the fast-path mistake; the
   series simply doesn't exist and the panel renders "No data".)
-- **Client HTTP kbytes_in/sec** — `rate(squid_client_http_kbytes_in_kbytes_total[5m])`
+- **Client HTTP(S) kbytes_in/sec** — `rate(squid_client_http_kbytes_in_kbytes_total[5m])`
   Symmetric ingress counterpart to kbytes_out. Note: there is no
   HTTPS-specific client counter — squid-exporter reads squid's own
   `client_http.*` counters, which aggregate HTTP and HTTPS (via CONNECT
-  and ssl-bump) into the same family. A split would need a different
-  exporter that parses `access.log` (e.g. a squid log exporter).
+  and ssl-bump) into the same family. Panel titles use "HTTP(S)" to
+  reflect that the underlying counter covers both. A true protocol split
+  would need a different exporter that parses `access.log` (e.g. a squid
+  log exporter).
+- **Client HTTP(S) data served (last 1h)** — stat panel,
+  `increase(squid_client_http_kbytes_out_kbytes_total[1h])` with unit
+  `kbytes` so Grafana auto-scales KB → MB → GB (1024-based, matching
+  squid's internal accounting). Answers "how much did the proxy serve in
+  the last hour" at a glance. `increase()` can under-read by roughly one
+  scrape interval at the window edges — fine for an operator dashboard,
+  not for billing.
 
 To edit dashboards, log in with `admin` / `admin` (Grafana's default;
 the install doesn't rotate it because the VM is reachable only on the

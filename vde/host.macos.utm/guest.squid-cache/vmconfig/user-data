@@ -365,7 +365,7 @@ write_files:
           {
             "id": 2,
             "type": "timeseries",
-            "title": "Client HTTP requests/sec",
+            "title": "Client HTTP(S) requests/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 0, "w": 12, "h": 6},
             "targets": [{"expr": "rate(squid_client_http_requests_total[5m])", "refId": "A"}]
@@ -373,7 +373,7 @@ write_files:
           {
             "id": 3,
             "type": "timeseries",
-            "title": "Client HTTP hits/sec",
+            "title": "Client HTTP(S) hits/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 6, "w": 12, "h": 6},
             "targets": [{"expr": "rate(squid_client_http_hits_total[5m])", "refId": "A"}]
@@ -381,7 +381,7 @@ write_files:
           {
             "id": 4,
             "type": "timeseries",
-            "title": "Client HTTP kbytes_out/sec",
+            "title": "Client HTTP(S) kbytes_out/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 6, "w": 12, "h": 6},
             "targets": [{"expr": "rate(squid_client_http_kbytes_out_kbytes_total[5m])", "refId": "A"}]
@@ -389,10 +389,19 @@ write_files:
           {
             "id": 5,
             "type": "timeseries",
-            "title": "Client HTTP kbytes_in/sec",
+            "title": "Client HTTP(S) kbytes_in/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6},
             "targets": [{"expr": "rate(squid_client_http_kbytes_in_kbytes_total[5m])", "refId": "A"}]
+          },
+          {
+            "id": 6,
+            "type": "stat",
+            "title": "Client HTTP(S) data served (last 1h)",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 12, "y": 12, "w": 12, "h": 6},
+            "fieldConfig": {"defaults": {"unit": "kbytes"}},
+            "targets": [{"expr": "increase(squid_client_http_kbytes_out_kbytes_total[1h])", "refId": "A"}]
           }
         ]
       }

@@ -261,45 +261,64 @@ try {
             # same proxy-cache.txt so the status-page banner is in lock-
             # step with the console.
             #
-            # Port list: Windows @(3000) because guests on Hyper-V's
-            # Default Switch reach the cache VM directly at :3128;
-            # macOS @(3128, 3000) because Apple VZ shared-NAT isolates
-            # guest↔guest traffic and :3128 must be host-forwarded too.
+            # Port list @(80, 3128, 3129, 3000) on both platforms MUST
+            # match Invoke-TestRunner.ps1 and Start-SquidCache.ps1 — Add-
+            # SquidCachePortMap runs Clear-AllSquidCachePortMapping first,
+            # so a narrower list here would tear down ports the other
+            # callers just set up.
+            #
+            # External-cache branch: when $Env:ExternalProxyCacheIpAddress
+            # is set, Test-ProxyCacheAvailable returns the remote URL and
+            # the remote host exposes all its ports itself. Skip the
+            # local portproxy/forwarder entirely — the dashboard link
+            # points straight at the remote IP.
             $proxyCacheContent = $null
             $portMapModPath = Join-Path $ModulesDir "Test.PortMap.psm1"
             $mapOk = $false
             $bestIp = $null
+            $isExternal = [bool]$Env:ExternalProxyCacheIpAddress
             if (Test-Path $portMapModPath) {
                 Import-Module -Name $portMapModPath -Force
-                # Port-map target IP: on Windows, Test-ProxyCacheAvailable
-                # returns the VM's direct IP (Hyper-V Default Switch is
-                # reachable from the host), so parsing it out works. On
-                # macOS the URL is http://192.168.64.1:3128 — the VZ-
-                # gateway URL guests use, NOT the cache VM — and feeding
-                # 192.168.64.1 to Start-SquidForwarder would make the
-                # forwarder tunnel to its own listen socket (self-loop:
-                # TCP accepts succeed, nothing reaches squid, subiquity
-                # sees "Connection failed [IP: 192.168.64.1 3128]" and
-                # falls back to an offline install). Read the real VM IP
-                # from cache-ip.txt written by Start-SquidCache.ps1.
-                if ($IsMacOS) {
-                    $vmIp = $null
-                    $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
-                    if (Test-Path $cacheIpFile) {
-                        $candidate = (Get-Content -Raw $cacheIpFile).Trim()
-                        if ($candidate -match '^\d+\.\d+\.\d+\.\d+$') { $vmIp = $candidate }
-                    }
+                if ($isExternal) {
+                    # Remote serves its own ports; surface the remote IP
+                    # directly in the dashboard link. Clear any stale
+                    # local mapping from a prior local-cache cycle.
+                    [void](Remove-SquidCachePortMap)
+                    $bestIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+                    $mapOk = [bool]$bestIp
                 } else {
-                    $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
-                }
-                $squidPorts = if ($IsMacOS) { @(3128, 3129, 3000) } else { @(3000) }
-                if ($vmIp) {
-                    $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port $squidPorts
-                    $mapOk = [bool]$mapResult
-                }
-                if ($mapOk) {
-                    $bestIp = Get-BestHostIp
-                    if (-not $bestIp) { $bestIp = $vmIp }  # routable-iface fallback
+                    # Local-cache port-map target IP: on Windows, Test-
+                    # ProxyCacheAvailable returns the VM's direct IP
+                    # (Hyper-V Default Switch is reachable from the host),
+                    # so parsing it out works. On macOS the URL is
+                    # http://192.168.64.1:3128 — the VZ-gateway URL
+                    # guests use, NOT the cache VM — and feeding
+                    # 192.168.64.1 to Start-SquidForwarder would make the
+                    # forwarder tunnel to its own listen socket (self-
+                    # loop: TCP accepts succeed, nothing reaches squid,
+                    # subiquity sees "Connection failed [IP: 192.168.64.1
+                    # 3128]" and falls back to an offline install). Read
+                    # the real VM IP from cache-ip.txt written by
+                    # Start-SquidCache.ps1.
+                    if ($IsMacOS) {
+                        $vmIp = $null
+                        $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
+                        if (Test-Path $cacheIpFile) {
+                            $candidate = (Get-Content -Raw $cacheIpFile).Trim()
+                            if ($candidate -match '^\d+\.\d+\.\d+\.\d+$') { $vmIp = $candidate }
+                        }
+                    } else {
+                        $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+                    }
+                    $squidPorts = @(80, 3128, 3129, 3000)
+                    if ($vmIp) {
+                        $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port $squidPorts
+                        $mapOk = [bool]$mapResult
+                    }
+                    if ($mapOk) {
+                        $bestIp = Get-BestHostIp
+                        if (-not $bestIp) { $bestIp = $vmIp }  # routable-iface fallback
+                    }
                 }
             }
             if ($mapOk) {

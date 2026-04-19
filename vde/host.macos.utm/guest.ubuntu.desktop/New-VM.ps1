@@ -329,21 +329,32 @@ if ($ProxyUrl) {
 # so the guest's HTTPS proxy block stays a no-op and HTTP-only caching
 # still works.
 $CaCertBase64 = ""
-$cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
-if ($ProxyUrl -and (Test-Path $cacheIpFile)) {
-    $cacheVmIp = (Get-Content -Raw $cacheIpFile).Trim()
-    if ($cacheVmIp -match '^\d+\.\d+\.\d+\.\d+$') {
-        try {
-            $caResp = Invoke-WebRequest -Uri "http://${cacheVmIp}/yuruna-squid-ca.crt" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-            if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
-                $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
-                $CaCertBase64 = [Convert]::ToBase64String($caBytes)
-                Write-Output "  Fetched squid-cache CA from http://${cacheVmIp}/yuruna-squid-ca.crt ($($caBytes.Length) bytes) — embedded in seed."
-            }
-        } catch {
-            Write-Warning "  Could not fetch CA cert from http://${cacheVmIp}/yuruna-squid-ca.crt : $($_.Exception.Message)"
-            Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
+$cacheVmIp = $null
+if ($Env:ExternalProxyCacheIpAddress -and $Env:ExternalProxyCacheIpAddress -match '^\d+\.\d+\.\d+\.\d+$') {
+    # External cache: $ProxyUrl already points at the remote IP (no VZ-
+    # gateway rewrite), and the remote image is identical to the local one
+    # — same Apache on :80 serving /yuruna-squid-ca.crt. cache-ip.txt is
+    # not written for external caches, so read the IP straight from the
+    # environment variable.
+    $cacheVmIp = $Env:ExternalProxyCacheIpAddress.Trim()
+} elseif ($ProxyUrl) {
+    $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
+    if (Test-Path $cacheIpFile) {
+        $candidate = (Get-Content -Raw $cacheIpFile).Trim()
+        if ($candidate -match '^\d+\.\d+\.\d+\.\d+$') { $cacheVmIp = $candidate }
+    }
+}
+if ($ProxyUrl -and $cacheVmIp) {
+    try {
+        $caResp = Invoke-WebRequest -Uri "http://${cacheVmIp}/yuruna-squid-ca.crt" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+        if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
+            $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
+            $CaCertBase64 = [Convert]::ToBase64String($caBytes)
+            Write-Output "  Fetched squid-cache CA from http://${cacheVmIp}/yuruna-squid-ca.crt ($($caBytes.Length) bytes) — embedded in seed."
         }
+    } catch {
+        Write-Warning "  Could not fetch CA cert from http://${cacheVmIp}/yuruna-squid-ca.crt : $($_.Exception.Message)"
+        Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
     }
 }
 

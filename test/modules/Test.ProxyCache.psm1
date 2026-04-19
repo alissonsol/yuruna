@@ -47,6 +47,41 @@ function Test-ProxyCacheAvailable {
     [OutputType([string])]
     param([Parameter(Mandatory)] [string]$HostType)
 
+    # External cache override. $Env:ExternalProxyCacheIpAddress short-circuits
+    # the per-platform local-VM discovery and uses a remote squid-cache at the
+    # given IP. The remote image is assumed identical to the local one —
+    # Apache on :80 publishes /yuruna-squid-ca.crt, squid on :3128 / :3129,
+    # Grafana on :3000. Guests reach the remote IP through the host's
+    # outbound NAT (Hyper-V Default Switch and Apple VZ shared-NAT both NAT
+    # off-subnet), so no host-side forwarder is needed — the URL returned
+    # here goes straight to the remote, unlike the macOS local-VM branch
+    # which rewrites to the VZ gateway. If the remote doesn't answer on
+    # :3128 we return $null (same "no cache" semantics as a stopped local
+    # VM) rather than falling back to local discovery: the operator set the
+    # variable deliberately, and silently switching to a local cache would
+    # mask misconfiguration. Caller then logs "not detected" and guests run
+    # direct against Ubuntu mirrors.
+    if ($Env:ExternalProxyCacheIpAddress) {
+        $externIp = $Env:ExternalProxyCacheIpAddress.Trim()
+        if ($externIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            Write-Warning "ExternalProxyCacheIpAddress='$externIp' is not a valid IPv4 address — ignoring."
+            return $null
+        }
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        try {
+            $async = $tcp.BeginConnect($externIp, 3128, $null, $null)
+            if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
+                return "http://${externIp}:3128"
+            }
+        } catch {
+            Write-Verbose "external squid-cache probe to ${externIp}:3128 failed: $($_.Exception.Message)"
+        } finally {
+            $tcp.Close()
+        }
+        Write-Warning "ExternalProxyCacheIpAddress=${externIp} set but ${externIp}:3128 did not answer. Guests will download directly for this cycle."
+        return $null
+    }
+
     if ($HostType -eq 'host.windows.hyper-v') {
         $cacheVM = Get-VM -Name 'squid-cache' -ErrorAction SilentlyContinue
         if (-not $cacheVM -or $cacheVM.State -ne 'Running') { return $null }

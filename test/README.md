@@ -158,6 +158,51 @@ Each check prints `[PASS]`, `[WARN]`, or `[FAIL]` with diagnostic detail.
 pwsh test/Test-Config.ps1 -SkipSend
 ```
 
+## Using a remote squid-cache
+
+By default the runner looks for a local `squid-cache` VM (see
+[SquidCache.md](SquidCache.md)). To point a test host at an **existing
+remote squid-cache** on the LAN — e.g. a shared cache VM on another
+machine — set one environment variable before launching the runner:
+
+```powershell
+# Windows
+$Env:ExternalProxyCacheIpAddress = '10.0.0.5'
+pwsh test\Invoke-TestRunner.ps1
+```
+
+```bash
+# macOS
+export ExternalProxyCacheIpAddress=10.0.0.5
+pwsh test/Invoke-TestRunner.ps1
+```
+
+When set, the variable short-circuits local cache discovery in both
+`Invoke-TestRunner.ps1` and `Start-StatusServer.ps1`. Every guest
+`New-VM.ps1` invocation inherits the remote URL, fetches the CA from
+`http://<remote>/yuruna-squid-ca.crt`, and wires apt to
+`http://<remote>:3128` (HTTP) + `http://<remote>:3129` (HTTPS). Un-set
+the variable to fall back to local discovery.
+
+The remote host must run the same squid-cache image — see the
+[external cache override](SquidCache.md#external-cache-override) and
+[serving remote clients](SquidCache.md#serving-remote-clients) sections
+of `SquidCache.md` for the host-side setup (Windows: elevated
+`Start-SquidCache.ps1`; macOS: `sudo -E pwsh ./Start-SquidCache.ps1`).
+
+**Validate the remote cache before a full cycle:**
+
+```powershell
+$Env:ExternalProxyCacheIpAddress = '10.0.0.5'
+pwsh test/Test-ProxyCache.ps1
+```
+
+[Test-ProxyCache.ps1](Test-ProxyCache.ps1) TCP-probes `:3128`, `:3129`,
+`:80`, `:3000` and HTTP-fetches the CA cert. PASS/FAIL/WARN per check,
+exit code `1` on any required-port failure — suitable for a preflight
+`&&` chain. With no env var it falls back to local discovery, same
+path `Invoke-TestRunner.ps1` uses.
+
 ## Usage
 
 ```powershell

@@ -16,6 +16,82 @@
 
 #requires -version 7
 
+<#
+.SYNOPSIS
+    Continuous VDE test cycle. Creates guest VMs per test-config.json,
+    runs their test sequences, loops until a failure.
+
+.DESCRIPTION
+    Primary harness entry point. Each cycle:
+      1. git pull (unless -NoGitPull)
+      2. re-read test-config.json
+      3. refresh base images if stale
+      4. detect the squid-cache (local VM or remote IP)
+      5. for each guest in guestOrder: cleanup → New-VM → Start-VM →
+         Verify-VM → Invoke-PoolTest
+      6. log, pause, next cycle
+      7. on first failure: leave the VM running, notify, exit
+
+    Full config schema, guest ordering, and notification setup live in
+    test/README.md. This help block only covers the command line and
+    the most load-bearing environment variables.
+
+    ENVIRONMENT VARIABLES:
+
+    $Env:ExternalProxyCacheIpAddress — point the runner at a remote
+      squid-cache instead of looking for a local VM. When set, guest
+      New-VM.ps1 invocations inherit the remote URL, fetch the CA from
+      http://<ip>/yuruna-squid-ca.crt, and wire apt to http://<ip>:3128
+      (HTTP) + http://<ip>:3129 (HTTPS). The remote host must run the
+      same squid-cache image; see test/SquidCache.md for the host-side
+      setup. Un-set or empty to fall back to local discovery.
+
+      Validate a candidate cache BEFORE launching a full cycle with:
+          $Env:ExternalProxyCacheIpAddress = '10.0.0.5'
+          pwsh test/Test-ProxyCache.ps1
+      That script TCP-probes :3128, :3129, :80, :3000 and fetches the
+      CA cert — PASS / FAIL / WARN per check, exit 1 if any required
+      port fails.
+
+.PARAMETER ConfigPath
+    Path to test-config.json. Defaults to test/test-config.json next to
+    this script.
+
+.PARAMETER NoGitPull
+    Skip the `git pull` at the start of each cycle. Useful during local
+    development when you want to iterate without pushing.
+
+.PARAMETER NoServer
+    Skip launching the built-in HTTP status server on port 8080.
+
+.PARAMETER NoExtensionOutput
+    Suppress extension script stdout/stderr in the runner's console.
+    Extensions still run and their output is written to the log file.
+
+.PARAMETER CycleDelaySeconds
+    Pause between cycles. Default 30.
+
+.PARAMETER debug_mode
+    Set to $true to raise $DebugPreference to Continue.
+
+.PARAMETER verbose_mode
+    Set to $true to raise $VerbosePreference to Continue.
+
+.EXAMPLE
+    # Local squid-cache (previously brought up by test/Start-SquidCache.ps1)
+    pwsh test/Invoke-TestRunner.ps1
+
+.EXAMPLE
+    # Remote squid-cache at 10.0.0.5 — no local VM needed.
+    $Env:ExternalProxyCacheIpAddress = '10.0.0.5'
+    pwsh test/Test-ProxyCache.ps1          # preflight
+    pwsh test/Invoke-TestRunner.ps1
+
+.EXAMPLE
+    # Iterate locally without pushing / without the status server.
+    pwsh test/Invoke-TestRunner.ps1 -NoGitPull -NoServer
+#>
+
 # The global variable is the cross-module communication channel with yuruna-log.
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '')]
 param(
@@ -310,21 +386,28 @@ Write-Output "Log folder: $YurunaLogDir"
 # gets injected into autoinstall user-data by guest.ubuntu.desktop/New-VM.ps1.
 $proxyCacheUrl = Test-ProxyCacheAvailable -HostType $HostType
 
-# When a cache is detected, expose selected VM ports on the host so an
-# operator on a different machine can open the Grafana dashboard at
-# http://<host>:3000 (and similar) without reaching into the VM's NAT
-# subnet directly. Add-SquidCachePortMap dispatches per-platform via
-# Test.PortMap.psm1 — netsh portproxy + firewall rule on Hyper-V,
-# detached TcpListener forwarders on macOS/UTM. When no cache is
-# detected, undo any mapping a prior cycle left in place.
+# When a local cache is detected, expose the VM's ports on the host so
+# LAN clients and operators on other machines can reach the proxy, the
+# ssl-bump listener, Apache's CA cert, and the Grafana dashboard without
+# reaching into the VM's NAT subnet directly. Add-SquidCachePortMap
+# dispatches per-platform via Test.PortMap.psm1 — netsh portproxy +
+# firewall rule on Hyper-V, detached TcpListener forwarders on macOS/UTM.
+# When no cache is detected, undo any mapping a prior cycle left in place.
 #
-# Port list differs per platform:
-#   Windows (Hyper-V): @(3000) — guests can reach the cache VM directly
-#     on the Default Switch, so :3128 does NOT need a host forward.
-#   macOS (UTM):       @(3128, 3129, 3000) — Apple VZ's shared-NAT
-#     isolates guest↔guest traffic, so :3128 MUST be host-forwarded too
-#     (without it, every guest's apt times out with "No route to host").
-#     :3129 is the ssl-bump listener so Acquire::https::Proxy works.
+# Port list is @(80, 3128, 3129, 3000) on both platforms and MUST match
+# the Start-SquidCache.ps1 call site — Add-SquidCachePortMap runs
+# Clear-AllSquidCachePortMapping first, so a narrower list at either
+# caller would tear down ports the other just set up. Local guests
+# continue to reach the VM directly on their NAT subnet regardless of
+# what's mapped on the host.
+#
+# External-cache branch: when $Env:ExternalProxyCacheIpAddress is set,
+# Test-ProxyCacheAvailable returns the remote URL and the remote host is
+# assumed to serve all four ports itself. Guests reach the remote IP via
+# the host's outbound NAT, so no local portproxy or forwarder is needed —
+# we skip Add-SquidCachePortMap entirely and link the dashboard directly
+# at the remote IP. Remove any leftover mappings from a prior local-cache
+# cycle so the old VM IP doesn't keep answering stale proxy requests.
 #
 # The detection line renders the word "detected" as an ANSI OSC 8
 # hyperlink to the Grafana dashboard so operators in a modern terminal
@@ -333,18 +416,27 @@ $proxyCacheUrl = Test-ProxyCacheAvailable -HostType $HostType
 # silently and just show "detected" as plain text — no regression.
 if ($proxyCacheUrl) {
     $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
-    $SquidExposedPorts = if ($IsMacOS) { @(3128, 3129, 3000) } else { @(3000) }
+    $isExternal = [bool]$Env:ExternalProxyCacheIpAddress
     $mapOk = $false
-    if ($vmIp) {
+    $bestIp = $null
+    if ($isExternal) {
+        # Remote cache serves its own ports; clear any local mapping a
+        # prior cycle left, then point the dashboard at the remote.
+        [void](Remove-SquidCachePortMap)
+        $mapOk = $true
+        $bestIp = $vmIp
+    } elseif ($vmIp) {
+        $SquidExposedPorts = @(80, 3128, 3129, 3000)
         $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port $SquidExposedPorts
         $mapOk = [bool]$mapResult
-    }
-    if ($mapOk) {
         $bestIp = Get-BestHostIp
         if (-not $bestIp) { $bestIp = $vmIp }  # fallback when no routable iface is found
+    }
+    if ($mapOk) {
         $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-12h&to=now&timezone=browser&refresh=1m"
         $esc = [char]27
-        $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\detected${esc}]8;;${esc}\"
+        $label = if ($isExternal) { "detected (external: $vmIp)" } else { "detected" }
+        $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\${label}${esc}]8;;${esc}\"
         Write-Output "Proxy cache: $linkedDetected"
     } else {
         Write-Output "Proxy cache: detected (port map failed)"

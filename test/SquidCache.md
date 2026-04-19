@@ -135,6 +135,118 @@ Silent fallback-to-CDN can't mask a 429:
 
 No changes to `test-config.json` or the test sequences are needed.
 
+## Serving remote clients
+
+A fresh cache VM is only reachable from its own host (Hyper-V Default
+Switch / UTM Shared NAT). To let a **different machine** on the LAN use
+the same cache — developer laptop, second test host, etc. —
+[Start-SquidCache.ps1](Start-SquidCache.ps1) forwards the VM's ports
+onto the host's interfaces. Every port the harness or an operator may
+touch is exposed: :3128 (HTTP proxy + HTTPS CONNECT), :3129 (ssl-bump),
+:80 (Apache + `/yuruna-squid-ca.crt`), :3000 (Grafana).
+
+### Windows Hyper-V
+
+Re-run `Start-SquidCache.ps1` from an **elevated** PowerShell:
+
+```powershell
+cd $HOME\git\yuruna\test
+pwsh .\Start-SquidCache.ps1
+```
+
+The script calls `Add-SquidCachePortMap` which issues `netsh interface
+portproxy add v4tov4 ...` for each port and adds a matching
+`Yuruna-SquidCache-Port-<N>` inbound firewall rule. Without elevation
+the portproxy and firewall calls are skipped with a warning and the
+cache stays reachable only from guests on the Default Switch.
+
+Remote clients then point at the host's LAN IP — for example,
+`http://<host-lan-ip>:3128` for apt, or
+`http://<host-lan-ip>/yuruna-squid-ca.crt` to download the CA.
+
+### macOS UTM
+
+Re-run with `sudo` so the :80 forwarder can bind the privileged port:
+
+```bash
+cd ~/git/yuruna/test
+sudo -E pwsh ./Start-SquidCache.ps1
+```
+
+`sudo -E` preserves `$HOME` so the forwarder's state files land in the
+user's `~/virtual/squid-cache/`, not `/var/root/virtual/...`. Without
+sudo the script still runs; :3128, :3129, :3000 forwarders launch
+unprivileged, but :80 is skipped with a warning:
+
+> `Add-SquidCachePortMap: port 80 is privileged on macOS; skipping.
+> Re-run under sudo to expose it to remote clients.`
+
+HTTP caching and HTTPS body caching via :3129 still work for the local
+host's guests. Only the remote CA-cert download at
+`http://<mac-ip>/yuruna-squid-ca.crt` is unavailable in that mode.
+
+### Squid ACL
+
+Squid itself accepts only RFC1918 source IPs (`10/8`, `172.16/12`,
+`192.168/16`) per the ACL in each `guest.squid-cache/vmconfig/user-data`.
+LAN clients are covered; a client on a routable public IP would still
+be denied even if firewall + portproxy let the packets through. The
+cache is not an open internet proxy and is not meant to be.
+
+## External cache override
+
+A client machine can **use** a remote cache (instead of hosting one) by
+setting a single environment variable before running the harness:
+
+```powershell
+# Windows
+$Env:ExternalProxyCacheIpAddress = '10.0.0.5'   # IP of the remote squid-cache host
+```
+
+```bash
+# macOS
+export ExternalProxyCacheIpAddress=10.0.0.5
+```
+
+When this variable is set, [Invoke-TestRunner.ps1](Invoke-TestRunner.ps1)
+and [Start-StatusServer.ps1](Start-StatusServer.ps1) skip local
+cache-VM discovery and route everything through the remote IP. The
+guest `New-VM.ps1` scripts (both desktop and server) inherit the URL,
+fetch the CA from `http://<remote>/yuruna-squid-ca.crt`, and configure
+apt with:
+
+- `apt.proxy = http://<remote>:3128` (HTTP)
+- `Acquire::https::Proxy "http://<remote>:3129";` (HTTPS body caching)
+
+The remote host is assumed to run the same squid-cache image described
+above. No guest, runner, or status-server config changes are needed
+beyond the env var. Un-set the variable (or set it to an empty string)
+to fall back to local discovery.
+
+### Validating before a run
+
+[Test-ProxyCache.ps1](Test-ProxyCache.ps1) probes every port the runner
+relies on and reports PASS/FAIL/WARN per check — runnable from any
+machine, even without Hyper-V / UTM installed. Use it to confirm a
+candidate remote cache is healthy **before** starting a full test cycle:
+
+```powershell
+$Env:ExternalProxyCacheIpAddress = '10.0.0.5'
+pwsh test/Test-ProxyCache.ps1
+# === Summary: 5 PASS, 0 WARN, 0 FAIL ===
+```
+
+Or probe an ad-hoc IP without exporting the variable:
+
+```powershell
+pwsh test/Test-ProxyCache.ps1 -CacheIp 10.0.0.5
+```
+
+With no arguments and no env var, the script falls back to local
+discovery (same path `Invoke-TestRunner.ps1` uses) and probes whatever
+`Start-SquidCache.ps1` brought up. Exit code is `1` when any required
+port fails — suitable for a preflight `&&` chain.
+
 ## Cache configuration
 
 The squid config is tuned so the cache behaves as a **replayable
@@ -242,9 +354,9 @@ The VM runs three monitoring services alongside squid itself:
 | Prometheus      | 9090 | 127.0.0.1                | Metrics datastore; accessed via Grafana.                         |
 | squid-exporter  | 9301 | 127.0.0.1                | Prometheus exporter; reads squid cachemgr over :3128.            |
 | cachemgr.cgi    | 80   | 0.0.0.0, RFC1918 ACL     | Raw cachemgr UI; kept as a fallback.                             |
-| CA cert         | 80   | 0.0.0.0                  | `/yuruna-squid-ca.crt` served by Apache (Hyper-V only).          |
+| CA cert         | 80   | 0.0.0.0                  | `/yuruna-squid-ca.crt` served by Apache.                         |
 | Squid HTTP      | 3128 | 0.0.0.0, RFC1918 ACL     | Plain-HTTP proxy + HTTPS CONNECT tunnel (no caching of bodies).  |
-| Squid HTTPS     | 3129 | 0.0.0.0, RFC1918 ACL     | SSL-bump listener — caches HTTPS bodies (Hyper-V only).          |
+| Squid HTTPS     | 3129 | 0.0.0.0, RFC1918 ACL     | SSL-bump listener — caches HTTPS bodies.                         |
 
 ### Grafana (primary UI)
 
@@ -425,11 +537,11 @@ or destroyed by [Invoke-TestRunner.ps1](Invoke-TestRunner.ps1).
 
 ## HTTPS caching
 
-**Hyper-V: shipped. UTM: still a follow-up.**
+Shipped on both Hyper-V and UTM.
 
-On Hyper-V the cache VM runs a second squid listener on `:3129` that
-performs **SSL-bump** — squid terminates TLS with a locally-generated
-CA, caches the plaintext bodies through the same `refresh_pattern` and
+The cache VM runs a second squid listener on `:3129` that performs
+**SSL-bump** — squid terminates TLS with a locally-generated CA, caches
+the plaintext bodies through the same `refresh_pattern` and
 `offline_mode` pipeline used for HTTP, and re-encrypts on the way out
 with a per-SNI leaf cert it mints on the fly. Guests that trust the CA
 get HTTPS apt traffic cached; everything else (including any guest that
@@ -456,8 +568,14 @@ never leaves the cache VM.
 
 ### Guest trust flow
 
-`vmconfig/user-data` for each Hyper-V guest (desktop and server) runs
-this inside the `late-commands` block when a proxy was injected by
+The two platforms use different delivery paths for the CA because
+Apple VZ's shared-NAT blocks guest↔guest traffic — a UTM guest can't
+reach the cache VM's IP directly the way a Hyper-V guest can — so on
+macOS the host pre-fetches the CA and embeds it in the autoinstall
+seed instead of having the guest fetch it late-command-side.
+
+**Hyper-V (in-install wget):** `vmconfig/user-data` for each guest
+runs this inside `late-commands` when a proxy was injected by
 `New-VM.ps1`:
 
 1. Derive the cache host from the proxy URL (strip `http://` and `:3128`).
@@ -468,9 +586,26 @@ this inside the `late-commands` block when a proxy was injected by
 4. Append `Acquire::https::Proxy "http://<cache>:3129";` to the
    existing `/target/etc/apt/apt.conf.d/99yuruna-apt-cache` dropin.
 
-Every path is best-effort — if CA fetch fails (older cache build, Apache
-down, etc.) the guest keeps the HTTP proxy, logs a `yuruna:` warning,
-and lets HTTPS apt go direct. No install abort, no regression.
+Best-effort — if CA fetch fails, the guest keeps the HTTP proxy and
+lets HTTPS apt go direct. No install abort.
+
+**UTM (host-side pre-fetch + base64 in seed):** `guest.ubuntu.*/New-VM.ps1`
+runs on the host, reads `$HOME/virtual/squid-cache/cache-ip.txt`
+(written by `Start-SquidCache.ps1`) or
+`$Env:ExternalProxyCacheIpAddress` if set, fetches
+`http://<ip>/yuruna-squid-ca.crt`, base64-encodes it, and splices it
+into the autoinstall seed as `CA_CERT_BASE64_PLACEHOLDER`. The guest's
+`late-commands` then:
+
+1. `printf '%s' "<base64>" | base64 -d > /target/.../yuruna-squid-ca.crt`
+2. `curtin in-target -- update-ca-certificates`
+3. Append `Acquire::https::Proxy "http://192.168.64.1:3129";` — the
+   VZ gateway, not the cache VM IP, because the host-side `:3129`
+   forwarder (started by `Start-SquidCache.ps1`) is the only path
+   guests have to reach the ssl-bump listener.
+
+Empty placeholder → no-op, HTTPS apt bypasses the cache. Same
+degrade-gracefully semantics as Hyper-V.
 
 ### Where caching actually kicks in
 
@@ -493,9 +628,3 @@ pin-checking client (snap, Go HTTPS) ends up on the install path, add
 an `acl nobump dstdomain ...` + `ssl_bump splice nobump` pair **above**
 the bump-all line rather than disabling bumping wholesale — see the
 `/etc/squid/conf.d/yuruna.conf` dropin for where to edit.
-
-### UTM: not implemented
-
-The macOS/UTM `guest.squid-cache/vmconfig/user-data` does not yet carry
-the SSL-bump block. Plain-HTTP caching and HTTPS CONNECT tunneling work
-as before; HTTPS body caching is the next follow-up.

@@ -168,6 +168,10 @@ function Set-StepStatus {
 #>
 function Complete-Run {
     param([string]$OverallStatus, [int]$MaxHistoryRuns = 30)
+    # Emergency-cleanup paths (e.g. a git-pull failure before
+    # Initialize-StatusDocument runs) can reach us with no doc. Silently
+    # no-op rather than crashing the catch block — nothing to finalize.
+    if (-not $script:Doc) { return }
     $script:Doc.finishedAt    = (Get-UtcTimestamp)
     $script:Doc.overallStatus = $OverallStatus
 

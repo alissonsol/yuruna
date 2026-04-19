@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Yuruna Windows + Hyper-V bootstrap installer.
 
@@ -11,16 +11,16 @@
     and runs vde\host.windows.hyper-v\Enable-TestAutomation.ps1 to disable
     display timeout and screen lock so Hyper-V screen captures stay readable.
 
-    Idempotent — safe to re-run to pick up updates. On re-run it stops any
+    Idempotent -- safe to re-run to pick up updates. On re-run it stops any
     running Yuruna test processes, upgrades installed packages via winget,
     and fast-forwards the repository checkout.
 
-    Startup shell — works from either Windows PowerShell 5.1 (the only
+    Startup shell -- works from either Windows PowerShell 5.1 (the only
     shell a fresh Windows 11 ships with) or pwsh.exe (7+). The script is
     written in PS 5.1-compatible syntax through the self-relaunch block,
     then:
       1. Elevates itself if started unelevated (UAC). The new elevated
-         shell is whichever one the user started from — powershell.exe
+         shell is whichever one the user started from -- powershell.exe
          on PS 5.1, pwsh.exe on PS 7+.
       2. If still running in PS 5.1 after elevation, installs pwsh.exe
          via winget, refreshes PATH, and re-executes this same script
@@ -63,12 +63,12 @@ function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
 function Write-Die  { param([string]$m) Write-Error $m; exit 1 }
 
-# ── Preflight: Windows only ─────────────────────────────────────────────────
+# -- Preflight: Windows only -------------------------------------------------
 if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
     Write-Die 'This installer only supports Windows.'
 }
 
-# ── Elevation announcement + self-relaunch ──────────────────────────────────
+# -- Elevation announcement + self-relaunch ----------------------------------
 # Every Yuruna script that needs elevation says so up front rather than
 # surprising the user midway through. Match that convention here.
 $principal = New-Object Security.Principal.WindowsPrincipal(
@@ -91,8 +91,8 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
 
 if (-not $isAdmin) {
     Write-Step 'Relaunching elevated (UAC prompt)'
-    # Preserve the shell the user started from — powershell.exe on PS 5.1,
-    # pwsh.exe on PS 7+ — so a pwsh session doesn't get silently
+    # Preserve the shell the user started from -- powershell.exe on PS 5.1,
+    # pwsh.exe on PS 7+ -- so a pwsh session doesn't get silently
     # downgraded to Windows PowerShell across the UAC boundary. If the
     # current process path can't be read (unusual but possible on locked-
     # down hosts), fall back to powershell.exe which is always present.
@@ -125,9 +125,9 @@ Write-Step "  repo   : $YurunaRepo ($YurunaBranch)"
 Write-Step "  target : $YurunaDir"
 Write-Step "  shell  : $((Get-Process -Id $PID).ProcessName) (PowerShell $($PSVersionTable.PSVersion))"
 
-# ── PowerShell 7 bootstrap ────────────────────────────────────────────────
-# Fresh Windows 11 ships Windows PowerShell 5.1 only. The rest of Yuruna —
-# every pwsh-shebanged script under test/ and vde/ — expects pwsh 7+. If we
+# -- PowerShell 7 bootstrap ------------------------------------------------
+# Fresh Windows 11 ships Windows PowerShell 5.1 only. The rest of Yuruna --
+# every pwsh-shebanged script under test/ and vde/ -- expects pwsh 7+. If we
 # are still in PS 5.x after elevation, install pwsh via winget, refresh
 # PATH so pwsh.exe resolves in this same session, and re-execute this
 # script under pwsh. The child inherits the elevated token, so no second
@@ -135,7 +135,7 @@ Write-Step "  shell  : $((Get-Process -Id $PID).ProcessName) (PowerShell $($PSVe
 # chaining this install with `&&` or checking $LASTEXITCODE sees the
 # right outcome.
 #
-# This block must stay PS 5.1-compatible (no ?./??/ternary/chain ops) —
+# This block must stay PS 5.1-compatible (no ?./??/ternary/chain ops) --
 # the whole file is parsed up-front, and even one PS 7-only token would
 # fail the file to load on 5.1 before this check can run.
 if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -195,7 +195,7 @@ re-run this installer.
     }
 }
 
-# ── Stop anything that would block an upgrade ──────────────────────────────
+# -- Stop anything that would block an upgrade ------------------------------
 function Stop-YurunaProcess {
     [CmdletBinding(SupportsShouldProcess)]
     param()
@@ -223,7 +223,7 @@ function Stop-YurunaProcess {
 Write-Step 'Stopping anything that would block an upgrade'
 Stop-YurunaProcess
 
-# ── winget availability ────────────────────────────────────────────────────
+# -- winget availability ----------------------------------------------------
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     Write-Die @'
 winget is not available on this system. Install "App Installer" from the
@@ -268,11 +268,11 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
 
 foreach ($cmd in 'git','pwsh') {
     if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-        Write-Warn "$cmd not yet on PATH — you may need to open a new terminal."
+        Write-Warn "$cmd not yet on PATH -- you may need to open a new terminal."
     }
 }
 
-# ── Hyper-V feature ────────────────────────────────────────────────────────
+# -- Hyper-V feature --------------------------------------------------------
 Write-Step 'Enabling Hyper-V Windows Feature (if not already enabled)'
 $feature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
 if (-not $feature) {
@@ -280,20 +280,20 @@ if (-not $feature) {
 } elseif ($feature.State -ne 'Enabled') {
     $result = Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -NoRestart
     if ($result.RestartNeeded) {
-        Write-Warn 'Hyper-V was just enabled — a RESTART is required before Invoke-TestRunner will work.'
+        Write-Warn 'Hyper-V was just enabled -- a RESTART is required before Invoke-TestRunner will work.'
         $script:RestartNeeded = $true
     }
 } else {
     Write-Step '  Hyper-V already enabled'
 }
 
-# ── Clone / update the repo ────────────────────────────────────────────────
-# Pre-PS7 fallback — null-conditional ?.Source doesn't parse on PS 5.1,
+# -- Clone / update the repo ------------------------------------------------
+# Pre-PS7 fallback -- null-conditional ?.Source doesn't parse on PS 5.1,
 # and this whole file still has to load cleanly in 5.1 for the bootstrap
 # block above to fire. Resolve via an intermediate variable.
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
 $gitExe = if ($gitCmd) { $gitCmd.Source } else { $null }
-if (-not $gitExe) { Write-Die 'git not found after install — open a new terminal and re-run.' }
+if (-not $gitExe) { Write-Die 'git not found after install -- open a new terminal and re-run.' }
 
 $parent = Split-Path -Parent $YurunaDir
 if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
@@ -311,7 +311,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
     & $gitExe clone --branch $YurunaBranch $YurunaRepo $YurunaDir
 }
 
-# ── Seed test-config.json from template ───────────────────────────────────
+# -- Seed test-config.json from template -----------------------------------
 $testDir = Join-Path $YurunaDir 'test'
 $cfg     = Join-Path $testDir 'test-config.json'
 $tpl     = Join-Path $testDir 'test-config.json.template'
@@ -320,7 +320,7 @@ if (-not (Test-Path $cfg) -and (Test-Path $tpl)) {
     Copy-Item $tpl $cfg
 }
 
-# ── Host configuration (display timeout, screen lock, etc.) ───────────────
+# -- Host configuration (display timeout, screen lock, etc.) ---------------
 $setHost = Join-Path $YurunaDir 'vde\host.windows.hyper-v\Enable-TestAutomation.ps1'
 if (Test-Path $setHost) {
     # Same PS 5.1-safe resolution pattern as $gitExe above. By this point
@@ -330,16 +330,16 @@ if (Test-Path $setHost) {
     $pwshCmd2 = Get-Command pwsh -ErrorAction SilentlyContinue
     $pwshExe  = if ($pwshCmd2) { $pwshCmd2.Source } else { $null }
     if (-not $pwshExe) {
-        Write-Warn 'pwsh not on PATH yet — skipping vde\host.windows.hyper-v\Enable-TestAutomation.ps1. Open a new terminal and run it manually.'
+        Write-Warn 'pwsh not on PATH yet -- skipping vde\host.windows.hyper-v\Enable-TestAutomation.ps1. Open a new terminal and run it manually.'
     } else {
         Write-Step 'Running vde\host.windows.hyper-v\Enable-TestAutomation.ps1'
         & $pwshExe -NoLogo -NoProfile -File $setHost
     }
 } else {
-    Write-Warn "vde\host.windows.hyper-v\Enable-TestAutomation.ps1 not found under $YurunaDir — skipping host config."
+    Write-Warn "vde\host.windows.hyper-v\Enable-TestAutomation.ps1 not found under $YurunaDir -- skipping host config."
 }
 
-# ── Done ───────────────────────────────────────────────────────────────────
+# -- Done -------------------------------------------------------------------
 @"
 
 ==> Yuruna is ready.
@@ -353,7 +353,7 @@ Next steps (in order):
 "@ | Write-Output
 
 if ($script:RestartNeeded) {
-    Write-Warning '  2. RESTART Windows — Hyper-V was just enabled and needs a reboot.'
+    Write-Warning '  2. RESTART Windows -- Hyper-V was just enabled and needs a reboot.'
     Write-Warning '     After the reboot, continue with step 3.'
     Write-Output ''
 }

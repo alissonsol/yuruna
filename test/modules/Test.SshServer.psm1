@@ -175,13 +175,15 @@ host isn't left reachable on :22 after SSH is off. The default
 capability install.
 #>
 function Remove-YurunaSshFirewallRule {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
     try {
         if (Get-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction SilentlyContinue) {
-            Remove-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction Stop
-            Write-Information "Firewall rule '$script:YurunaSshRuleName' removed." -InformationAction Continue
+            if ($PSCmdlet.ShouldProcess($script:YurunaSshRuleName, 'Remove-NetFirewallRule')) {
+                Remove-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction Stop
+                Write-Information "Firewall rule '$script:YurunaSshRuleName' removed." -InformationAction Continue
+            }
         } else {
             Write-Information "Firewall rule '$script:YurunaSshRuleName' not present." -InformationAction Continue
         }

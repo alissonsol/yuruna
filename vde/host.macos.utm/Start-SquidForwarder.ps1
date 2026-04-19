@@ -33,7 +33,7 @@
     On Hyper-V's real vswitch this works; on macOS VZ it cannot. This
     forwarder plugs the gap: it binds :3128 on the host and tunnels
     every connection to the squid VM. Guests then use
-    http://192.168.64.1:3128 — always reachable via the VZ gateway.
+    http://192.168.64.1:3128 -- always reachable via the VZ gateway.
 
     Pure PowerShell implementation (TcpListener + runspace pool per
     connection) so there is no brew/socat dependency.
@@ -54,7 +54,7 @@
 
 .PARAMETER BindAddress
     Interface to bind the listener on. Default "0.0.0.0" (all
-    interfaces) — picks up the VZ bridge IP (192.168.64.1)
+    interfaces) -- picks up the VZ bridge IP (192.168.64.1)
     automatically without having to enumerate interfaces.
 
 .PARAMETER PidFile
@@ -87,12 +87,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Pin the log path to script scope so Write-ForwarderLog accesses it
+# explicitly rather than via dynamic scope. Also makes PSScriptAnalyzer's
+# lexical-scope review see $LogFile as consumed in the main body (the
+# helper function below is invisible to PSReviewUnusedParameter).
+$script:ForwarderLogFile = $LogFile
+
 function Write-ForwarderLog {
     param([string]$Message)
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
     Write-Output $line
-    if ($LogFile) {
-        try { Add-Content -LiteralPath $LogFile -Value $line } catch { }
+    if ($script:ForwarderLogFile) {
+        try { Add-Content -LiteralPath $script:ForwarderLogFile -Value $line } catch {
+            # Log append is best-effort -- stdout already received the line,
+            # and a disk-full / permission blip on the log file must NOT
+            # take down the forwarder. Keep running.
+            $null = $_
+        }
     }
 }
 
@@ -107,10 +118,10 @@ $listener = [System.Net.Sockets.TcpListener]::new($bindIp, $Port)
 try {
     $listener.Start()
 } catch {
-    Write-ForwarderLog "FATAL: could not bind ${BindAddress}:${Port} — $($_.Exception.Message)"
+    Write-ForwarderLog "FATAL: could not bind ${BindAddress}:${Port} -- $($_.Exception.Message)"
     exit 1
 }
-Write-ForwarderLog "listening on ${BindAddress}:${Port} → ${CacheIp}:${Port} (pid $PID)"
+Write-ForwarderLog "listening on ${BindAddress}:${Port} -> ${CacheIp}:${Port} (pid $PID)"
 
 # Runspace pool so each forwarded connection runs on its own thread
 # without paying PowerShell job startup cost. Upper bound of 64
@@ -138,9 +149,10 @@ $workerScript = {
     } catch {
         # Connection-level errors are routine (e.g. upstream reset on
         # long CONNECT tunnels). Swallow; the listener keeps running.
+        $null = $_
     } finally {
-        if ($client)   { try { $client.Close()   } catch {} }
-        if ($upstream) { try { $upstream.Close() } catch {} }
+        if ($client)   { try { $client.Close()   } catch { $null = $_ } }
+        if ($upstream) { try { $upstream.Close() } catch { $null = $_ } }
     }
 }
 
@@ -156,10 +168,12 @@ try {
         [void]$ps.BeginInvoke()
     }
 } finally {
-    try { $listener.Stop() } catch {}
-    try { $pool.Close(); $pool.Dispose() } catch {}
+    # Shutdown-path cleanup: all best-effort. Errors here are irrelevant
+    # because the process is exiting; the OS reclaims sockets/fds either way.
+    try { $listener.Stop() } catch { $null = $_ }
+    try { $pool.Close(); $pool.Dispose() } catch { $null = $_ }
     if ($PidFile -and (Test-Path -LiteralPath $PidFile)) {
-        try { Remove-Item -LiteralPath $PidFile -Force } catch {}
+        try { Remove-Item -LiteralPath $PidFile -Force } catch { $null = $_ }
     }
     Write-ForwarderLog "shutting down"
 }

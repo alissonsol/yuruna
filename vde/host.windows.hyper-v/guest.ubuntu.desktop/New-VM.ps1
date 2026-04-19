@@ -174,60 +174,17 @@ if (-not $cacheVM) {
     Write-Warning "  squid-cache VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
     Write-Warning "  To enable caching: Start-VM squid-cache ; then wait for cloud-init to finish."
 } else {
-    # Two discovery strategies, in the same order guest.squid-cache/New-VM.ps1
-    # uses when it brings the cache up — keeping them aligned ensures this
-    # consumer can find the cache the creator just announced.
-    #   1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) — needs hv_kvp_daemon
-    #      running in the cache guest. Often empty on freshly-installed images.
-    #   2. ARP cache (Get-NetNeighbor) scoped to the Default Switch interface,
-    #      matched by the cache VM's MAC. Works as soon as the guest sends any
-    #      IP traffic, independent of guest agents.
-    $cacheIps = @($cacheVM | Get-VMNetworkAdapter | ForEach-Object { $_.IPAddresses } |
-        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
-    if (-not $cacheIps) {
-        $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-            Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
-        $vmMac = ($cacheVM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
-        if ($hostAdapter -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
-            $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
-            # DO NOT take only the first neighbor entry. Hyper-V's Default
-            # Switch leaves stale entries in the Windows neighbor table as
-            # State='Permanent' when VMs are re-created: the SAME MAC can
-            # appear at two IPs (e.g. 172.25.181.179 from a prior incarnation
-            # AND 172.25.177.161 from the currently-running VM). Picking
-            # just one previously caused cache detection to hit the stale
-            # IP, fail the TCP probe on :3128, and silently fall back to
-            # direct CDN. Collect ALL matching IPs and let the probe loop
-            # below pick whichever one actually answers on 3128.
-            $cacheIps = @(Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
-                Where-Object {
-                    $_.LinkLayerAddress -eq $vmMacDashed -and
-                    $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
-                    $_.State -ne 'Unreachable'
-                } | ForEach-Object { $_.IPAddress })
-        }
-    }
-
-    # TCP-probe port 3128. If the cache VM is running but we can't reach
-    # the port, fail loud — silently omitting the proxy here is how we
-    # ended up with installs 429'ing against security.ubuntu.com despite
-    # a squid-cache VM being up.
-    foreach ($ip in $cacheIps) {
-        $tcp = New-Object System.Net.Sockets.TcpClient
-        try {
-            $async = $tcp.BeginConnect($ip, 3128, $null, $null)
-            if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
-                $ProxyUrl = "http://${ip}:3128"
-                Write-Output "  squid-cache VM detected at $ProxyUrl — guest will use local proxy."
-                break
-            }
-        } catch {
-            Write-Verbose "squid-cache probe to ${ip}:3128 failed: $($_.Exception.Message)"
-        } finally {
-            $tcp.Close()
-        }
-    }
-    if (-not $ProxyUrl) {
+    # KVP+ARP dual-strategy discovery + :3128 probe live in VM.common.psm1
+    # (Get-WorkingSquidProxyUrl). Keeping the discovery in one module means
+    # this consumer, the producer (guest.squid-cache/New-VM.ps1), and the
+    # Start-SquidCache.ps1 summary line all see the same answer — prior
+    # drift had Start-SquidCache's KVP-only summary reporting "discovery
+    # failed" while this script's ARP path was finding the cache fine.
+    $ProxyUrl = Get-WorkingSquidProxyUrl -VMName "squid-cache"
+    if ($ProxyUrl) {
+        Write-Output "  squid-cache VM detected at $ProxyUrl — guest will use local proxy."
+    } else {
+        $cacheIps = Get-CacheVmCandidateIp -VM $cacheVM
         $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
         # Write-Error reformats multi-line content (wraps + prefixes each
         # line with '|'), which renders our diagnostic block unreadable.

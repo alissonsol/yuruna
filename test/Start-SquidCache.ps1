@@ -268,13 +268,16 @@ if ($IsMacOS) {
         [void](Start-SquidForwarder -CacheIp $cacheIp)
     }
 } elseif ($IsWindows) {
-    # New-VM.ps1 only exits 0 after :3128 responds — KVP should be warm too.
-    # Retry a handful of times in case the KVP scrape races the exit.
-    for ($i = 0; $i -lt 6 -and -not $cacheIp; $i++) {
-        $ips = (Get-VMNetworkAdapter -VMName $VMName -ErrorAction SilentlyContinue).IPAddresses |
-            Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' }
-        if ($ips) { $cacheIp = $ips[0] } else { Start-Sleep -Seconds 2 }
-    }
+    # Use the same KVP+ARP+:3128-probe discovery the guest consumers
+    # (guest.ubuntu.server/desktop/New-VM.ps1) use, so the summary line
+    # below matches what a subsequent guest install will actually see.
+    # Prior code used KVP-only and printed "(discovery failed)" whenever
+    # hv_kvp_daemon wasn't warm, even though the inner New-VM.ps1's ARP
+    # path had already found the cache and the cache was serving :3128.
+    $vmCommon = Join-Path $RepoRoot "vde/host.windows.hyper-v/VM.common.psm1"
+    Import-Module $vmCommon -Force
+    $ProxyUrl = Get-WorkingSquidProxyUrl -VMName $VMName
+    if ($ProxyUrl -match '^http://([0-9.]+):') { $cacheIp = $matches[1] }
 }
 
 # === Final summary ==========================================================

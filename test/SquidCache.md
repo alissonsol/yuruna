@@ -24,10 +24,12 @@ package pulls from the local VM at disk speed.
    target system, so those downloads went direct and were the main
    source of intermittent `429 Too Many Requests` errors from
    `security.ubuntu.com`. A generic HTTP proxy caches those too.
-2. **Squid tunnels HTTPS (CONNECT) by default.** apt-cacher-ng refuses
-   CONNECT and broke `wget https://...` calls in late-commands. Squid
-   passes them through (without caching the body — caching HTTPS
-   requires SSL-bump, see [Future: HTTPS caching](#future-https-caching)).
+2. **Squid tunnels HTTPS (CONNECT) by default** and — on Hyper-V —
+   also **caches HTTPS** via a second SSL-bump listener on `:3129` (see
+   [HTTPS caching](#https-caching)). apt-cacher-ng refused CONNECT and
+   broke `wget https://...` in late-commands; Squid passes those through
+   unchanged on `:3128` and, for clients that trust the local CA,
+   transparently caches the bodies on `:3129`.
 
 ### Why the cache matters more on macOS
 
@@ -240,7 +242,9 @@ The VM runs three monitoring services alongside squid itself:
 | Prometheus      | 9090 | 127.0.0.1                | Metrics datastore; accessed via Grafana.                         |
 | squid-exporter  | 9301 | 127.0.0.1                | Prometheus exporter; reads squid cachemgr over :3128.            |
 | cachemgr.cgi    | 80   | 0.0.0.0, RFC1918 ACL     | Raw cachemgr UI; kept as a fallback.                             |
-| Squid           | 3128 | 0.0.0.0, RFC1918 ACL     | The proxy itself.                                                |
+| CA cert         | 80   | 0.0.0.0                  | `/yuruna-squid-ca.crt` served by Apache (Hyper-V only).          |
+| Squid HTTP      | 3128 | 0.0.0.0, RFC1918 ACL     | Plain-HTTP proxy + HTTPS CONNECT tunnel (no caching of bodies).  |
+| Squid HTTPS     | 3129 | 0.0.0.0, RFC1918 ACL     | SSL-bump listener — caches HTTPS bodies (Hyper-V only).          |
 
 ### Grafana (primary UI)
 
@@ -400,11 +404,79 @@ or destroyed by [Invoke-TestRunner.ps1](Invoke-TestRunner.ps1).
 - **Reload squid config** (after editing `/etc/squid/conf.d/*`):
   `sudo squid -k reconfigure`.
 
-## Future: HTTPS caching
+## HTTPS caching
 
-The current config tunnels HTTPS via `CONNECT` without caching the
-encrypted bodies. Caching HTTPS would require **SSL-bump**: squid
-terminates TLS with a locally-generated CA, caches the plaintext, and
-re-encrypts on the way out. That CA's certificate must be installed in
-every guest's trust store — straightforward via cloud-init
-`write_files` + `update-ca-certificates`. Not yet implemented.
+**Hyper-V: shipped. UTM: still a follow-up.**
+
+On Hyper-V the cache VM runs a second squid listener on `:3129` that
+performs **SSL-bump** — squid terminates TLS with a locally-generated
+CA, caches the plaintext bodies through the same `refresh_pattern` and
+`offline_mode` pipeline used for HTTP, and re-encrypts on the way out
+with a per-SNI leaf cert it mints on the fly. Guests that trust the CA
+get HTTPS apt traffic cached; everything else (including any guest that
+doesn't trust the CA) keeps using `:3128` with CONNECT tunneling and no
+caching, so nothing regresses.
+
+### Key / cert material
+
+Generated once by cloud-init on first boot of the squid-cache VM
+(idempotent — a re-run does **not** rotate the CA, which would orphan
+already-trusted guests):
+
+| Path                                 | Contents                                                    |
+|--------------------------------------|-------------------------------------------------------------|
+| `/etc/squid/ssl_cert/ca.key`         | 2048-bit RSA private key, `proxy:proxy 600`. VM-local only. |
+| `/etc/squid/ssl_cert/ca.pem`         | Self-signed CA cert (10 years). CN includes hostname + UTC timestamp. |
+| `/var/lib/squid/ssl_db/`             | `security_file_certgen` DB of per-SNI leaf certs (4 MB). |
+| `/var/www/html/yuruna-squid-ca.crt`  | Copy of the public cert, served by Apache.                  |
+
+The public cert is published at
+`http://<cache-vm-ip>/yuruna-squid-ca.crt` on the same Apache that
+serves `cachemgr.cgi`. Only the public cert is exposed — `ca.key`
+never leaves the cache VM.
+
+### Guest trust flow
+
+`vmconfig/user-data` for each Hyper-V guest (desktop and server) runs
+this inside the `late-commands` block when a proxy was injected by
+`New-VM.ps1`:
+
+1. Derive the cache host from the proxy URL (strip `http://` and `:3128`).
+2. `wget http://<cache>/yuruna-squid-ca.crt` into
+   `/target/usr/local/share/ca-certificates/yuruna-squid-ca.crt`.
+3. `curtin in-target -- update-ca-certificates` so the installed system
+   trusts it.
+4. Append `Acquire::https::Proxy "http://<cache>:3129";` to the
+   existing `/target/etc/apt/apt.conf.d/99yuruna-apt-cache` dropin.
+
+Every path is best-effort — if CA fetch fails (older cache build, Apache
+down, etc.) the guest keeps the HTTP proxy, logs a `yuruna:` warning,
+and lets HTTPS apt go direct. No install abort, no regression.
+
+### Where caching actually kicks in
+
+- **Subiquity in-install HTTPS calls** (kernel, firmware) — still via
+  `:3128` CONNECT, **not cached**. The CA isn't in the installer
+  environment's trust store during subiquity's apt step; only the
+  target chroot gets it.
+- **Guest first-boot + all post-install apt** — HTTPS traffic routes
+  through `:3129`, gets bumped, and lands in squid's on-disk cache
+  alongside the HTTP content.
+- **Non-apt HTTPS** (browsers, `curl`, snap, Go binaries) — untouched.
+  The CA is in the system trust store, but nothing in the guest is
+  configured to route non-apt traffic through squid.
+
+### ssl_bump rules
+
+The minimum viable recipe: `peek step1` → `bump all`. Squid reads the
+TLS ClientHello to learn the SNI hostname, then intercepts. If a
+pin-checking client (snap, Go HTTPS) ends up on the install path, add
+an `acl nobump dstdomain ...` + `ssl_bump splice nobump` pair **above**
+the bump-all line rather than disabling bumping wholesale — see the
+`/etc/squid/conf.d/yuruna.conf` dropin for where to edit.
+
+### UTM: not implemented
+
+The macOS/UTM `guest.squid-cache/vmconfig/user-data` does not yet carry
+the SSL-bump block. Plain-HTTP caching and HTTPS CONNECT tunneling work
+as before; HTTPS body caching is the next follow-up.

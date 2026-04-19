@@ -67,16 +67,22 @@ $TemplatePath = Join-Path $TestRoot "test-config.json.template"
 $RunnerPidFile = Join-Path $StatusDir "runner.pid"
 if ($env:YURUNA_RUNNER_RELAUNCH -ne '1' -and (Test-Path $RunnerPidFile)) {
     $existingPid = 0
-    try { $existingPid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { }
+    # Unreadable / malformed / missing pidfile is treated as "no prior
+    # runner" — the single-instance check below still runs on $existingPid
+    # = 0 (Get-Process of 0 returns null) so the branch is a safe no-op.
+    try { $existingPid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { $existingPid = 0 }
     if ($existingPid -gt 0 -and $existingPid -ne $PID -and (Get-Process -Id $existingPid -ErrorAction SilentlyContinue)) {
         # Verify the PID belongs to an Invoke-TestRunner.ps1 process — don't
         # kill an arbitrary process that happens to have recycled this PID.
-        # Windows uses CIM; macOS/Linux use `ps -p <pid> -o args=`.
+        # Windows uses CIM; macOS/Linux use /bin/ps (path-qualified so PSSA
+        # doesn't confuse this with the `ps` alias for Get-Process — we
+        # need the external binary for `-o args=` which Get-Process can't
+        # produce portably on Unix).
         $cmd = $null
         if ($IsWindows) {
             $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$existingPid" -ErrorAction SilentlyContinue).CommandLine
         } elseif ($IsMacOS -or $IsLinux) {
-            $cmd = & ps -p $existingPid -o args= 2>$null
+            $cmd = & '/bin/ps' -p $existingPid -o args= 2>$null
         }
         if ($cmd -and $cmd -match 'Invoke-TestRunner\.ps1') {
             Write-Output ""
@@ -1064,12 +1070,21 @@ Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
 try {
     if (Test-Path $RunnerPidFile) {
         $filePid = 0
-        try { $filePid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { }
+        # Malformed pidfile → leave it alone (don't remove something we
+        # can't identify as ours). $filePid stays 0 so the -eq $PID
+        # comparison below is false.
+        try { $filePid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { $filePid = 0 }
         if ($filePid -eq $PID) {
             Remove-Item $RunnerPidFile -Force -ErrorAction SilentlyContinue
         }
     }
-} catch { }
+} catch {
+    # Shutdown-path cleanup is strictly best-effort: any failure here
+    # (pidfile race with a competing runner, fs permission blip) leaves
+    # a possibly-stale file behind. That's fine — the single-instance
+    # guard at script start handles stale pidfiles on the next launch.
+    Write-Verbose "Shutdown pidfile cleanup swallowed error: $($_.Exception.Message)"
+}
 
 # === Failure notification (only reached when stopOnFailure breaks the loop) ===
 if (-not $OverallPassed -and $FailedGuest) {

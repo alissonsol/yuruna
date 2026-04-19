@@ -108,7 +108,7 @@ function Remove-UtmBundleWithRetry {
     192.168.64.X discovered by Start-SquidCache.ps1's subnet probe.
 #>
 function Start-SquidForwarder {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$CacheIp,
@@ -117,6 +117,9 @@ function Start-SquidForwarder {
     $forwarderScript = Join-Path $PSScriptRoot "Start-SquidForwarder.ps1"
     if (-not (Test-Path $forwarderScript)) {
         Write-Warning "Start-SquidForwarder.ps1 not found at: $forwarderScript"
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${Port}", 'Launch detached host-side TCP forwarder')) {
         return $false
     }
     $stateDir = Join-Path $HOME "virtual/squid-cache"
@@ -165,7 +168,12 @@ function Start-SquidForwarder {
                 Write-Output "  Forwarder up (pid $actualPid). Guests should use http://192.168.64.1:${Port}"
                 return $true
             }
-        } catch { } finally { $tcp.Close() }
+        } catch {
+            # Probe-time connection failure is expected while the child
+            # forwarder is still booting (pwsh startup + TcpListener.Start
+            # takes a moment). Retry until the deadline below.
+            $null = $_
+        } finally { $tcp.Close() }
         Start-Sleep -Milliseconds 100
     }
     Write-Warning "Forwarder launched (pid $($proc.Id)) but :${Port} did not answer within 3s."
@@ -173,8 +181,32 @@ function Start-SquidForwarder {
     return $false
 }
 
+<#
+.SYNOPSIS
+    Terminates the host-side squid-cache TCP forwarder if it is running.
+
+.DESCRIPTION
+    Reads $HOME/virtual/squid-cache/forwarder.pid and verifies the PID
+    belongs to Start-SquidForwarder.ps1 (via /bin/ps -o command=) before
+    signalling — a stale pidfile pointing at an unrelated process must
+    NOT be killed. Sends SIGTERM first and waits up to 2 s for the
+    process to exit; escalates to SIGKILL if the forwarder doesn't
+    respond. The pidfile is removed on either success path and on
+    stale-pidfile detection so the next Start-SquidForwarder call
+    starts clean.
+
+.PARAMETER Quiet
+    Suppress the informational Write-Output lines. Start-SquidForwarder
+    passes this when preflight-stopping a stale forwarder so the happy
+    path stays quiet.
+
+.OUTPUTS
+    [bool] $true on any exit where the pidfile is in a coherent state
+    (process stopped or never running). No current failure modes
+    surface as $false.
+#>
 function Stop-SquidForwarder {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
         [switch]$Quiet
@@ -191,10 +223,12 @@ function Stop-SquidForwarder {
         return $true
     }
     # Verify the process exists and looks like our forwarder before killing.
-    # `ps -p <pid> -o comm=` prints the short process name; `ps -p <pid> -o command=`
-    # (full argv) lets us confirm it's the Start-SquidForwarder.ps1 we launched
-    # and not some unrelated pid that happens to match a stale pidfile.
-    $cmd = (& ps -p $forwarderPid -o command= 2>$null) -join ""
+    # `/bin/ps -p <pid> -o command=` (path-qualified so PSScriptAnalyzer's
+    # PSAvoidUsingCmdletAliases doesn't confuse this with the `ps` alias
+    # for Get-Process) prints the full argv so we can confirm it's the
+    # Start-SquidForwarder.ps1 we launched — not some unrelated pid that
+    # happens to match a stale pidfile.
+    $cmd = (& '/bin/ps' -p $forwarderPid -o command= 2>$null) -join ""
     if ($LASTEXITCODE -ne 0 -or -not $cmd) {
         if (-not $Quiet) { Write-Output "  Forwarder pid $forwarderPid not running — cleaning pidfile." }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
@@ -205,12 +239,19 @@ function Stop-SquidForwarder {
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
+    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-SquidForwarder.ps1)", 'SIGTERM then SIGKILL if needed')) {
+        return $false
+    }
     if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid)..." }
-    & kill $forwarderPid 2>$null | Out-Null
+    # /bin/kill for SIGTERM (default). Stop-Process in PowerShell 7 on
+    # Unix maps to Process.Kill() which sends SIGKILL unconditionally --
+    # bypassing graceful shutdown, so we must invoke the external binary
+    # to get the two-phase TERM-then-KILL sequence below.
+    & '/bin/kill' $forwarderPid 2>$null | Out-Null
     # Wait for the process to actually exit before declaring success.
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Milliseconds 100
-        & ps -p $forwarderPid -o pid= 2>$null | Out-Null
+        & '/bin/ps' -p $forwarderPid -o pid= 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
             return $true
@@ -218,12 +259,29 @@ function Stop-SquidForwarder {
     }
     # Didn't die with SIGTERM — escalate.
     if (-not $Quiet) { Write-Warning "Forwarder $forwarderPid did not exit after SIGTERM — sending SIGKILL." }
-    & kill -9 $forwarderPid 2>$null | Out-Null
+    & '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
     Start-Sleep -Milliseconds 200
     Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
     return $true
 }
 
+<#
+.SYNOPSIS
+    Reports whether the host-side squid-cache TCP forwarder is running.
+
+.DESCRIPTION
+    Pure observer — never signals, never removes files. Returns $true
+    iff $HOME/virtual/squid-cache/forwarder.pid exists, parses as an
+    int, and refers to a live process (checked via /bin/ps). Does NOT
+    verify that the process is actually our Start-SquidForwarder.ps1;
+    Stop-SquidForwarder handles that stricter identity check on the
+    write path. Callers that only need a liveness hint (status UI,
+    should-I-launch-one decisions) can rely on this cheaper check.
+
+.OUTPUTS
+    [bool] $true if the pidfile points at a live process, $false
+    otherwise (missing pidfile, malformed content, or dead pid).
+#>
 function Get-SquidForwarder {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -232,7 +290,7 @@ function Get-SquidForwarder {
     if (-not (Test-Path $pidFile)) { return $false }
     $forwarderPid = (Get-Content $pidFile -Raw).Trim()
     if (-not ($forwarderPid -as [int])) { return $false }
-    & ps -p $forwarderPid -o pid= 2>$null | Out-Null
+    & '/bin/ps' -p $forwarderPid -o pid= 2>$null | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 

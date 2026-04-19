@@ -153,6 +153,22 @@ $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Output "Generating seed.iso with cloud-init configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
+# Surface the credentials BEFORE the long VM-create/boot/cloud-init wait
+# below. If anything in those 20-35 minutes of waiting fails (cloud-init
+# stall, apt rate-limit, yuruna.conf parse error, etc.), the operator
+# needs to console-login via vmconnect to diagnose — and without the
+# password handy they'd have to dig seed.iso off disk to recover it. The
+# final "ready" banner at script end still prints the same credentials;
+# this is just an early-surface copy.
+Write-Output ""
+Write-Output "=== squid-cache console/SSH login (available NOW) ==="
+Write-Output "  user:     ubuntu"
+Write-Output "  password: $UbuntuPassword"
+Write-Output "  saved at: $PasswordFile"
+Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VMName'"
+Write-Output "  and log in with the credentials above to inspect cloud-init state."
+Write-Output ""
+
 # === Create and configure Hyper-V VM ===
 # 4 GB RAM, 4 vCPU — sized for parallel squid streams. subiquity opens 4-8
 # concurrent .deb downloads per guest install; with 1 vCPU + 512 MB the
@@ -181,37 +197,21 @@ Write-Output "Waiting for VM to obtain an IP address..."
 Write-Output "  (first boot runs cloud-init: apt update + install squid + hyperv-daemons;"
 Write-Output "   this can take 5-15 minutes on a slow connection — be patient)"
 
-# Discover the cache VM's IP. Two strategies, checked each iteration:
-#   1. ARP lookup by VM MAC (Get-NetNeighbor) — works as soon as the guest
-#      sends any packet (DHCP request is enough), independent of guest agents.
-#   2. Hyper-V KVP via Get-VMNetworkAdapter — requires hv_kvp_daemon inside
-#      the guest, which only runs after cloud-init finishes installing
-#      hyperv-daemons. Kept as a confirmation path.
+# Discover the cache VM's IP. The KVP+ARP dual strategy lives in
+# VM.common.psm1 (Get-CacheVmCandidateIp) — this is the same primitive
+# consumers (guest.ubuntu.server/desktop) and the Start-SquidCache.ps1
+# summary call, so the producer and its consumers never see different
+# answers about which IPs belong to this VM.
+#
+# The :3128 probe does NOT run in this loop — squid isn't listening yet
+# (cloud-init is still running, which is what we're waiting for). A
+# downstream loop (starting at "Waiting for squid to listen on port 3128")
+# takes the $cacheCandidateIps we collect here and tiebreaks between
+# stale and live ARP entries by picking whichever one answers squid.
 $cacheIp = $null
-# Candidate IPs accumulated from ARP + KVP discovery. Kept as an array
-# (rather than a single $cacheIp) because Hyper-V's Default Switch keeps
-# stale State='Permanent' neighbor entries: the same VM MAC can appear at
-# two IPs across cache-VM recreations. The downstream :3128 probe loop
-# tiebreaks — whichever candidate answers squid wins.
 $cacheCandidateIps = @()
 $maxIterations = 240  # 240 * 5s = 20 minutes
-
-# Find the Default Switch interface — we scope ARP lookups to this interface
-# to avoid false matches from other virtual adapters (VMware, VirtualBox, WSL,
-# etc.) that may have stale neighbor entries on unrelated subnets.
-$hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-    Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
-$defaultSwitchIfIndex = $null
-if ($hostAdapter) {
-    $defaultSwitchIfIndex = $hostAdapter.InterfaceIndex
-    Write-Output "  Default Switch host: $($hostAdapter.IPAddress)/$($hostAdapter.PrefixLength) (ifIndex $defaultSwitchIfIndex)"
-} else {
-    Write-Warning "  Could not locate 'Default Switch' adapter — ARP discovery will fall back to KVP only"
-}
-
-# VM MAC is read inside the loop: Hyper-V assigns it asynchronously after
-# Start-VM (initial value is 000000000000 for the first few seconds).
-$vmMacLogged = $false
+$vmDiscoveryLogged = $false
 
 # Re-enable Write-Progress for the wait loop (the script-level default is
 # SilentlyContinue so web-download progress doesn't spam non-interactive shells).
@@ -223,39 +223,23 @@ $baselineSizeMB = [math]::Round((Get-Item $vhdxFile).Length / 1MB, 0)
 for ($i = 0; $i -lt $maxIterations; $i++) {
     Start-Sleep -Seconds 5
 
-    # Strategy 1: ARP cache lookup by VM MAC (fast, guest-agent-independent).
-    # Re-read the MAC each iteration — Hyper-V assigns a dynamic MAC a few
-    # seconds after Start-VM, so the first few reads return "000000000000".
-    $vmMac = (Get-VMNetworkAdapter -VMName $VMName | Select-Object -First 1).MacAddress
-    if ($defaultSwitchIfIndex -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
-        $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
-        if (-not $vmMacLogged) {
-            Write-Output "  VM MAC: $vmMacDashed (matching against Default Switch ARP cache)"
-            $vmMacLogged = $true
-        }
-        # Collect ALL matching neighbor entries. Stale 'Permanent' entries
-        # from prior cache-VM incarnations may share this MAC; we include
-        # them here and let the :3128 probe loop pick the live one.
-        $arpIps = @(Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $defaultSwitchIfIndex -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.LinkLayerAddress -eq $vmMacDashed -and
-                $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
-                $_.State -ne 'Unreachable'
-            } | ForEach-Object { $_.IPAddress })
-        if ($arpIps) {
-            $cacheCandidateIps = $arpIps
-            Write-Output "  Discovered IP(s) via ARP (MAC $vmMacDashed): $($arpIps -join ', ')"
+    # Hyper-V assigns MAC and leases an IP asynchronously after Start-VM;
+    # the first few iterations normally return an empty candidate list.
+    $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if ($vm) {
+        $cacheCandidateIps = @(Get-CacheVmCandidateIp -VM $vm)
+        if ($cacheCandidateIps) {
+            if (-not $vmDiscoveryLogged) {
+                $vmMac = ($vm | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
+                $vmMacDashed = if ($vmMac -match '^[0-9A-Fa-f]{12}$') {
+                    (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
+                } else { '(unknown)' }
+                Write-Output "  VM MAC: $vmMacDashed"
+                Write-Output "  Discovered IP(s) for ${VMName}: $($cacheCandidateIps -join ', ')"
+                $vmDiscoveryLogged = $true
+            }
             break
         }
-    }
-
-    # Strategy 2: Hyper-V KVP (only works after hyperv-daemons is installed)
-    $adapters = Get-VMNetworkAdapter -VMName $VMName
-    $ips = @($adapters | ForEach-Object { $_.IPAddresses } | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
-    if ($ips) {
-        $cacheCandidateIps = $ips
-        Write-Output "  Discovered IP(s) via Hyper-V KVP: $($ips -join ', ')"
-        break
     }
 
     # Single-line progress: elapsed, VM CPU%, and VHDX size growth
@@ -326,22 +310,16 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
     # Probe EACH candidate on :3128. When ARP discovery returned stale +
     # live IPs for the same MAC, only the live one will answer. Whichever
     # responds first is adopted as the authoritative $cacheIp.
+    # Test-SquidPort (VM.common.psm1) is the shared non-blocking probe;
+    # 1000 ms is generous enough to ride over momentary scheduler stalls
+    # during a heavy cloud-init apt-install without starving progress.
     $connected = $false
     foreach ($ip in $cacheCandidateIps) {
-        # Non-blocking TCP probe with 1s timeout (synchronous Connect() can block
-        # ~20s on filtered/unreachable ports and starves our progress updates).
-        $tcp = New-Object System.Net.Sockets.TcpClient
-        try {
-            $async = $tcp.BeginConnect($ip, 3128, $null, $null)
-            if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
-                $cacheIp = $ip
-                $connected = $true
-                break
-            }
-        } catch {
-            Write-Verbose "TCP probe to ${ip}:3128 failed: $($_.Exception.Message)"
+        if (Test-SquidPort -IpAddress $ip -TimeoutMs 1000) {
+            $cacheIp = $ip
+            $connected = $true
+            break
         }
-        finally { $tcp.Close() }
     }
 
     if ($connected) {

@@ -63,6 +63,25 @@ APT_PROXY_BLOCK_PLACEHOLDER
       if [ -n "PROXY_URL_PLACEHOLDER" ]; then
         echo 'Acquire::http::Proxy "PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        # --- HTTPS caching opt-in: trust the squid-cache CA, point
+        # Acquire::https::Proxy at the ssl-bump listener on :3129.
+        # Best-effort: any failure here (CA fetch, trust-update) leaves
+        # the plain-HTTP proxy in place and lets HTTPS apt calls go
+        # direct — same behavior as before ssl-bump existed, so a cache
+        # without the new CA endpoint (older build) degrades gracefully
+        # instead of aborting the install.
+        CACHE_HOST=$(echo "PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+        mkdir -p /target/usr/local/share/ca-certificates
+        if wget --no-cache --tries=3 --timeout=15 -q \
+            -O /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt \
+            "http://${CACHE_HOST}/yuruna-squid-ca.crt"; then
+          chmod 0644 /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
+          curtin in-target --target=/target -- update-ca-certificates
+          echo "Acquire::https::Proxy \"http://${CACHE_HOST}:3129\";" >> /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        else
+          echo "yuruna: CA fetch from ${CACHE_HOST} failed - HTTPS apt will bypass the cache (HTTP caching unaffected)." >&2
+          rm -f /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
+        fi
       fi
     # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu

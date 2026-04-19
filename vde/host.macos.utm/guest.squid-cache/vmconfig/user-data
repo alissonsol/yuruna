@@ -332,7 +332,7 @@ write_files:
             "title": "Client HTTP kbytes_out/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 6, "w": 12, "h": 6},
-            "targets": [{"expr": "rate(squid_client_http_kbytes_out_total[5m])", "refId": "A"}]
+            "targets": [{"expr": "rate(squid_client_http_kbytes_out_kbytes_total[5m])", "refId": "A"}]
           }
         ]
       }

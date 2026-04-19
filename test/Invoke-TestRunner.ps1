@@ -136,7 +136,7 @@ if (Test-Path $yurunaLogModule) {
     Import-Module $yurunaLogModule -Global -Force
 }
 
-foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log", "Test.ProxyCache")) {
+foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log", "Test.ProxyCache", "Test.PortMap")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -309,10 +309,49 @@ Write-Output "Log folder: $YurunaLogDir"
 # banner via status/log/proxy-cache.txt) stay in lockstep with whatever URL
 # gets injected into autoinstall user-data by guest.ubuntu.desktop/New-VM.ps1.
 $proxyCacheUrl = Test-ProxyCacheAvailable -HostType $HostType
+
+# When a cache is detected on Hyper-V, expose its Grafana dashboard (and
+# any other configured ports) on the host's LAN-facing interface via
+# netsh portproxy + firewall rule so an operator on a different machine
+# can open the dashboard at http://<host>:3000 without reaching into the
+# Default-Switch NAT subnet directly. When no cache is detected, undo any
+# mapping a prior cycle left in place — a stale portproxy pointing at a
+# gone VM silently black-holes traffic. The port list is code-local so
+# adding Prometheus (:9090) or squid-exporter (:9301) later needs only
+# the array below to change.
+#
+# The detection line renders the word "detected" as an ANSI OSC 8
+# hyperlink to the Grafana dashboard so operators in a modern terminal
+# (Windows Terminal, VS Code integrated) can ctrl-click straight to the
+# squid-cache view. Terminals without OSC 8 support drop the escapes
+# silently and just show "detected" as plain text — no regression.
 if ($proxyCacheUrl) {
-    Write-Output "Proxy cache: detected at $proxyCacheUrl (guests will use local proxy)"
+    if ($HostType -eq 'host.windows.hyper-v') {
+        $SquidExposedPorts = @(3000)
+        $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+        $mapOk = $false
+        if ($vmIp) {
+            $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port $SquidExposedPorts
+            $mapOk = [bool]$mapResult
+        }
+        if ($mapOk) {
+            $bestIp = Get-BestHostIp
+            if (-not $bestIp) { $bestIp = $vmIp }  # fallback when no routable iface is found
+            $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-12h&to=now&timezone=browser&refresh=1m"
+            $esc = [char]27
+            $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\detected${esc}]8;;${esc}\"
+            Write-Output "Proxy cache: $linkedDetected"
+        } else {
+            Write-Output "Proxy cache: detected (port map failed)"
+        }
+    } else {
+        Write-Output "Proxy cache: detected at $proxyCacheUrl (guests will use local proxy)"
+    }
 } else {
     Write-Output "Proxy cache: not detected (guests will download directly from Ubuntu mirrors)"
+    if ($HostType -eq 'host.windows.hyper-v') {
+        [void](Remove-SquidCachePortMap)
+    }
 }
 
 $savedVerbose = $global:VerbosePreference

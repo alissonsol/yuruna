@@ -100,6 +100,18 @@ if ($IsMacOS) {
     Write-Output ""
     Write-Output "=== Stop + delete '$VMName' (Windows/Hyper-V) ==="
 
+    # Tear down any host-side port mappings a prior cycle exposed for this
+    # cache VM (Grafana on :3000 etc.). Done BEFORE deleting the VM so the
+    # state file on disk and the in-kernel portproxy + firewall rules are
+    # removed in sync — otherwise a stale :3000 listener would outlive the
+    # VM and black-hole LAN traffic until the next Invoke-TestRunner cycle.
+    $RepoRoot     = Split-Path -Parent $PSScriptRoot
+    $portMapMod   = Join-Path $RepoRoot 'test\modules\Test.PortMap.psm1'
+    if (Test-Path $portMapMod) {
+        Import-Module $portMapMod -Force
+        [void](Remove-SquidCachePortMap)
+    }
+
     # (Get-VMHost) loads the Hyper-V module on first use; fails cleanly if
     # Hyper-V isn't installed — same dependency Start-SquidCache.ps1 has.
     $downloadDir = (Get-VMHost).VirtualHardDiskPath

@@ -527,7 +527,14 @@
       headerMachine.textContent = window.location.hostname || '';
     }
 
-    if (!data || (!data.cycleId && !data.guests?.length && !data.history?.length)) {
+    // status.json persists across rename (the rename was recent — any file
+    // written before it still carries the old `runId` key instead of
+    // `cycleId`). Read either so the page renders the same whether the file
+    // pre-dates or post-dates the rename; new writes always go to cycleId,
+    // so this fallback quietly ages out once every guest has recycled.
+    const liveCycleId = data && (data.cycleId || data.runId);
+
+    if (!data || (!liveCycleId && !data.guests?.length && !data.history?.length)) {
       banner.className = 'idle';
       setBannerText(BANNER.idle);
       updatePauseButton('idle');
@@ -548,11 +555,11 @@
     updatePauseButton(effective);
 
     // Meta
-    if (data.cycleId) {
+    if (liveCycleId) {
       document.getElementById('sec-meta').style.display = '';
       document.getElementById('m-commit').textContent   = (data.gitCommit || '—').slice(0, 12);
-      const cycleIdLabel = (data.cycleId || '—').slice(0, 19);
-      const cycleLogUrl  = logFileUrl(data.cycleId, data.hostname, data.gitCommit);
+      const cycleIdLabel = (liveCycleId || '—').slice(0, 19);
+      const cycleLogUrl  = logFileUrl(liveCycleId, data.hostname, data.gitCommit);
       const cycleCell = cycleLogUrl
         ? `<a href="${cycleLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${cycleIdLabel}</a>`
         : cycleIdLabel;

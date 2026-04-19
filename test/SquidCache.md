@@ -260,7 +260,11 @@ pre-provisioned "Squid Cache (yuruna)" dashboard includes:
   down.
 - **Client HTTP requests/sec** — `rate(squid_client_http_requests_total[5m])`
 - **Client HTTP hits/sec** — `rate(squid_client_http_hits_total[5m])`
-- **Client HTTP kbytes_out/sec** — `rate(squid_client_http_kbytes_out_total[5m])`
+- **Client HTTP kbytes_out/sec** — `rate(squid_client_http_kbytes_out_kbytes_total[5m])`
+  (boynux/squid-exporter appends `_kbytes_total` — not `_total` — for
+  counters whose units are kbytes. Writing the panel query with the
+  simpler-looking `_kbytes_out_total` is the fast-path mistake; the
+  series simply doesn't exist and the panel renders "No data".)
 
 To edit dashboards, log in with `admin` / `admin` (Grafana's default;
 the install doesn't rotate it because the VM is reachable only on the

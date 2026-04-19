@@ -253,11 +253,55 @@ try {
         Import-Module -Name $proxyCacheModPath -Force
         $proxyCacheUrl = Test-ProxyCacheAvailable -HostType $detectedHost
         if ($proxyCacheUrl) {
-            # $proxyCacheUrl looks like "http://192.168.64.5:3128".
-            $proxyUri = [uri]$proxyCacheUrl
-            $proxyManagerUrl = "http://$($proxyUri.Host)/cgi-bin/cachemgr.cgi"
-            $proxyCacheContent = 'Proxy cache: <a href="' + $proxyManagerUrl + '" target="_blank">' + $proxyCacheUrl + '</a>'
-            Write-Output "Proxy cache: $proxyCacheUrl (manager: $proxyManagerUrl) — written to $ProxyCacheFile"
+            # Windows/Hyper-V: attempt port mapping so the status-page banner
+            # reports the same success/failure state Invoke-TestRunner prints
+            # to the console. Add-SquidCachePortMap is idempotent — when both
+            # this server-restart call and Invoke-TestRunner's own call run
+            # in the same cycle, the second call just tears down and re-adds
+            # the identical mapping. The "detected" word links to the
+            # Grafana dashboard (served on the exposed :3000) when mapping
+            # succeeded, and reads "detected (port map failed)" otherwise —
+            # which covers non-elevated shells, no routable host IP, etc.
+            # macOS/UTM keeps the prior cachemgr-link behavior: port mapping
+            # there is handled by the host-side squid forwarder, not this
+            # netsh path, so there is nothing new to expose.
+            $proxyCacheContent = $null
+            if ($detectedHost -eq 'host.windows.hyper-v') {
+                $portMapModPath = Join-Path $ModulesDir "Test.PortMap.psm1"
+                $mapOk = $false
+                $bestIp = $null
+                if (Test-Path $portMapModPath) {
+                    Import-Module -Name $portMapModPath -Force
+                    $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+                    if ($vmIp) {
+                        $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port @(3000)
+                        $mapOk = [bool]$mapResult
+                    }
+                    if ($mapOk) {
+                        $bestIp = Get-BestHostIp
+                        if (-not $bestIp) { $bestIp = $vmIp }  # routable-iface fallback
+                    }
+                }
+                if ($mapOk) {
+                    $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-12h&to=now&timezone=browser&refresh=1m"
+                    # Escape & in the query string for strict HTML-attribute
+                    # correctness — the injection is via .innerHTML so lenient
+                    # parsers work either way, but strict ones may trip on
+                    # bare `&` adjacent to entity-like sequences.
+                    $hrefUrl = $dashboardUrl -replace '&', '&amp;'
+                    $proxyCacheContent = 'Proxy cache: <a href="' + $hrefUrl + '" target="_blank">detected</a>'
+                    Write-Output "Proxy cache: detected, port map OK, dashboard=$dashboardUrl — written to $ProxyCacheFile"
+                } else {
+                    $proxyCacheContent = 'Proxy cache: detected (port map failed)'
+                    Write-Output "Proxy cache: detected, port map failed — written to $ProxyCacheFile"
+                }
+            } else {
+                # $proxyCacheUrl looks like "http://192.168.64.5:3128".
+                $proxyUri = [uri]$proxyCacheUrl
+                $proxyManagerUrl = "http://$($proxyUri.Host)/cgi-bin/cachemgr.cgi"
+                $proxyCacheContent = 'Proxy cache: <a href="' + $proxyManagerUrl + '" target="_blank">' + $proxyCacheUrl + '</a>'
+                Write-Output "Proxy cache: $proxyCacheUrl (manager: $proxyManagerUrl) — written to $ProxyCacheFile"
+            }
         } else {
             $proxyCacheContent = 'Proxy cache: not detected'
             Write-Output "Proxy cache: not detected — written to $ProxyCacheFile"

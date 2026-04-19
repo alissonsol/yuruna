@@ -65,7 +65,7 @@ function Format-FailureMessage {
         [string]$GuestKey,
         [string]$StepName,
         [string]$ErrorMessage,
-        [string]$RunId,
+        [string]$CycleId,
         [string]$GitCommit
     )
     return @"
@@ -76,7 +76,7 @@ Machine:  $Hostname
 Guest:    $GuestKey
 Step:     $StepName
 Error:    $ErrorMessage
-Run ID:   $RunId
+Cycle ID: $CycleId
 Commit:   $GitCommit
 Time:     $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')) UTC
 "@

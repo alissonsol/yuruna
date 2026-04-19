@@ -35,7 +35,7 @@ function Get-UtcTimestamp {
     Creates a new status document with the provided parameters. StepNames controls
     which steps are tracked per guest (allows the caller to add Invoke-PoolTest when
     extension scripts are present). Preserves history, cycle count, and lastGetImageAt
-    from the previous status file if present. Returns the runId string.
+    from the previous status file if present. Returns the cycleId string.
 
 .PARAMETER RepoUrl
     Repository URL (typically from test-config.json) used by the status page for
@@ -67,7 +67,7 @@ function Initialize-StatusDocument {
         } catch { Write-Warning "Could not read previous status: $_" }
     }
 
-    $runId = (Get-UtcTimestamp)
+    $cycleId = (Get-UtcTimestamp)
 
     $guests = foreach ($key in $GuestList) {
         $steps = foreach ($sn in $StepNames) {
@@ -85,8 +85,8 @@ function Initialize-StatusDocument {
         schemaVersion  = 1
         host           = $HostType
         hostname       = $Hostname
-        runId          = $runId
-        startedAt      = $runId
+        cycleId        = $cycleId
+        startedAt      = $cycleId
         finishedAt     = $null
         overallStatus  = "running"
         paused         = $false
@@ -99,7 +99,7 @@ function Initialize-StatusDocument {
     }
 
     Write-StatusJson
-    return $runId
+    return $cycleId
 }
 
 <#
@@ -175,7 +175,7 @@ function Complete-Run {
     foreach ($g in $script:Doc.guests) { $guestSummary[$g.guestKey] = $g.status }
 
     $entry = [ordered]@{
-        runId         = $script:Doc.runId
+        cycleId       = $script:Doc.cycleId
         startedAt     = $script:Doc.startedAt
         finishedAt    = $script:Doc.finishedAt
         overallStatus = $OverallStatus

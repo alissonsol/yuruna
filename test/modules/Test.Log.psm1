@@ -51,14 +51,14 @@ function Start-LogFile {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [string]$TestRoot,
-        [Parameter(Mandatory)] [string]$RunId,
+        [Parameter(Mandatory)] [string]$CycleId,
         [Parameter(Mandatory)] [string]$Hostname,
         [Parameter(Mandatory)] [string]$GitCommit
     )
     $logDir = Get-LogDir -TestRoot $TestRoot
-    # Sanitize RunId for use as a filename (replace colons from ISO timestamps)
-    $safeRunId = $RunId -replace ':', '-'
-    $logFile = Join-Path $logDir "${safeRunId}.${Hostname}.${GitCommit}.html"
+    # Sanitize CycleId for use as a filename (replace colons from ISO timestamps)
+    $safeCycleId = $CycleId -replace ':', '-'
+    $logFile = Join-Path $logDir "${safeCycleId}.${Hostname}.${GitCommit}.html"
     if ($PSCmdlet.ShouldProcess($logFile, 'Start log file')) {
         # Write HTML preamble
         "<html><body><pre>" | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue

@@ -519,7 +519,7 @@ while ($true) {
                 -GuestKey     "(bootstrap)" `
                 -StepName     "GitPull" `
                 -ErrorMessage "Git sync failed. Branch may have diverged, or network is unreachable." `
-                -RunId        "(not yet assigned)" `
+                -CycleId      "(not yet assigned)" `
                 -GitCommit    (Get-CurrentGitCommit -RepoRoot $RepoRoot)
             Send-Notification -Config $Config `
                 -Subject "Yuruna VDE Test: FAIL on $HostType / GitPull" `
@@ -578,7 +578,7 @@ while ($true) {
     $StopOnFailure  = if ($Config.Contains('stopOnFailure')) { [bool]$Config.stopOnFailure } else { $false }
 
     # --- Initialize status for this cycle ---
-    $RunId = Initialize-StatusDocument `
+    $CycleId = Initialize-StatusDocument `
         -StatusFilePath $StatusFile `
         -HostType       $HostType `
         -Hostname       (hostname) `
@@ -588,11 +588,11 @@ while ($true) {
         -StepNames      $StepNames
 
     # --- Start log file (transcript captures all console output) ---
-    $LogFile = Start-LogFile -TestRoot $TestRoot -RunId $RunId -Hostname (hostname) -GitCommit $GitCommit
+    $LogFile = Start-LogFile -TestRoot $TestRoot -CycleId $CycleId -Hostname (hostname) -GitCommit $GitCommit
     Write-Output "Log file: $LogFile"
 
-    Write-Output "Run ID:  $RunId"
-    Write-Output "Commit:  $GitCommit"
+    Write-Output "Cycle ID: $CycleId"
+    Write-Output "Commit:   $GitCommit"
 
     # --- Pre-flight: every guest-key in guestOrder must have a vde/host.<x>/<guest>/
     #     folder on this host. There is no hardcoded known-guests allow-list; this
@@ -980,7 +980,7 @@ while ($true) {
                     -GuestKey     $FailedGuest `
                     -StepName     $FailedStep `
                     -ErrorMessage $FailureMessage `
-                    -RunId        $RunId `
+                    -CycleId      $CycleId `
                     -GitCommit    $GitCommit
                 Send-Notification -Config $Config `
                     -Subject "Yuruna VDE Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
@@ -1094,9 +1094,9 @@ if (-not $OverallPassed -and $FailedGuest) {
     Write-Output "  Host:    $HostType"
     Write-Output "  Guest:   $FailedGuest"
     Write-Output "  Step:    $FailedStep"
-    Write-Output "  Error:   $FailureMessage"
-    Write-Output "  Run ID:  $RunId"
-    Write-Output "  Commit:  $GitCommit"
+    Write-Output "  Error:    $FailureMessage"
+    Write-Output "  Cycle ID: $CycleId"
+    Write-Output "  Commit:   $GitCommit"
     Write-Output "  Log:     $LogFile"
     Write-Output "  Alert:   $ConsecutiveFailures/$FailuresBeforeAlert failures $(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})"
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -1111,7 +1111,7 @@ if (-not $OverallPassed -and $FailedGuest) {
             -GuestKey     $FailedGuest `
             -StepName     $FailedStep `
             -ErrorMessage $FailureMessage `
-            -RunId        $RunId `
+            -CycleId      $CycleId `
             -GitCommit    $GitCommit
         Send-Notification -Config $Config `
             -Subject "Yuruna VDE Test: FAIL on $HostType / $FailedGuest / $FailedStep" `

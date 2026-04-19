@@ -76,7 +76,7 @@
 
     /* ── Meta row ── */
     .meta-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem;
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem;
     }
     .meta-card {
       background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
@@ -215,14 +215,12 @@
 <main>
 
   <section id="sec-meta" style="display:none">
-    <div class="section-title" id="sec-meta-title">Current Cycle</div>
+    <div class="section-title" id="sec-meta-title">Latest Cycle</div>
     <div class="meta-grid">
+      <div class="meta-card"><div class="label">Cycle ID (UTC)</div><div class="value" id="m-cycleid">—</div></div>
+      <div class="meta-card"><div class="label">Started (Local Time)</div><div class="value" id="m-started">—</div></div>
       <div class="meta-card"><div class="label">Commit</div><div class="value" id="m-commit">—</div></div>
-      <div class="meta-card"><div class="label">Cycle</div><div class="value" id="m-cycle">—</div></div>
-      <div class="meta-card"><div class="label">Run ID (UTC)</div><div class="value" id="m-runid">—</div></div>
-      <div class="meta-card"><div class="label">Started</div><div class="value" id="m-started">—</div></div>
-      <div class="meta-card"><div class="label">Finished</div><div class="value" id="m-finished">—</div></div>
-      <div class="meta-card"><div class="label">Last Get-Image</div><div class="value" id="m-getimage">—</div></div>
+      <div class="meta-card"><div class="label">Latest image refresh</div><div class="value" id="m-getimage">—</div></div>
     </div>
   </section>
 
@@ -232,12 +230,12 @@
   </section>
 
   <section id="sec-history" style="display:none">
-    <div class="section-title">Recent Runs</div>
+    <div class="section-title">Recent Cycles</div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Run ID (UTC)</th><th>Duration</th>
+            <th>Cycle ID (UTC)</th><th>Duration</th>
             <th>Commit</th><th>Guests</th>
           </tr>
         </thead>
@@ -303,7 +301,7 @@
   // proxy-cache probe re-runs then). The UI re-fetches on every
   // loadStatus() poll so a page left open sees the new cycle's proxy
   // state without a manual reload.
-  // Appended to the "Current Cycle" section title (see renderStatus).
+  // Appended to the "Latest Cycle" section title (see renderStatus).
   // Declared before any init call so the loadProxyCacheText() invocation
   // below can't hit the temporal-dead-zone.
   let proxyCacheHtml = '';
@@ -323,7 +321,7 @@
   }
 
   // Write the banner text. The proxy-cache state used to live here but
-  // was moved to the "Current Cycle" section title (see renderStatus),
+  // was moved to the "Latest Cycle" section title (see renderStatus),
   // so this helper is now a plain text-setter.
   function setBannerText(statusText) {
     const el = document.getElementById('banner-text');
@@ -331,18 +329,18 @@
     el.textContent = statusText || '';
   }
 
-  // Refresh the "Current Cycle" section title with proxy-cache HTML.
+  // Refresh the "Latest Cycle" section title with proxy-cache HTML.
   // Split out from renderStatus so the first loadProxyCacheText() can
   // update the UI even before the first status.json poll lands.
   function refreshCycleTitle() {
     const el = document.getElementById('sec-meta-title');
     if (!el) return;
     // proxyCacheHtml is trusted server-generated HTML (may include an
-    // <a href> to the cachemgr URL). "Current Cycle" is a literal
+    // <a href> to the cachemgr URL). "Latest Cycle" is a literal
     // constant so there's nothing to escape on the left side.
     el.innerHTML = proxyCacheHtml
-      ? ('Current Cycle - ' + proxyCacheHtml)
-      : 'Current Cycle';
+      ? ('Latest Cycle - ' + proxyCacheHtml)
+      : 'Latest Cycle';
   }
 
   async function loadProxyCacheText() {
@@ -477,10 +475,10 @@
     return `<span class="step-pill ${c}"${err}>${step.name}${skip}</span>`;
   }
 
-  function logFileUrl(runId, hostname, gitCommit) {
-    if (!runId || !hostname || !gitCommit) return null;
-    const safeRunId = runId.replace(/:/g, '-');
-    return 'log/' + safeRunId + '.' + hostname + '.' + gitCommit + '.html';
+  function logFileUrl(cycleId, hostname, gitCommit) {
+    if (!cycleId || !hostname || !gitCommit) return null;
+    const safeCycleId = cycleId.replace(/:/g, '-');
+    return 'log/' + safeCycleId + '.' + hostname + '.' + gitCommit + '.html';
   }
 
   function fmtDate(iso) {
@@ -529,7 +527,7 @@
       headerMachine.textContent = window.location.hostname || '';
     }
 
-    if (!data || (!data.runId && !data.guests?.length && !data.history?.length)) {
+    if (!data || (!data.cycleId && !data.guests?.length && !data.history?.length)) {
       banner.className = 'idle';
       setBannerText(BANNER.idle);
       updatePauseButton('idle');
@@ -550,18 +548,16 @@
     updatePauseButton(effective);
 
     // Meta
-    if (data.runId) {
+    if (data.cycleId) {
       document.getElementById('sec-meta').style.display = '';
       document.getElementById('m-commit').textContent   = (data.gitCommit || '—').slice(0, 12);
-      document.getElementById('m-cycle').textContent    = data.cycle    || '—';
-      const runIdLabel = (data.runId || '—').slice(0, 19);
-      const runLogUrl  = logFileUrl(data.runId, data.hostname, data.gitCommit);
-      const runCell = runLogUrl
-        ? `<a href="${runLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${runIdLabel}</a>`
-        : runIdLabel;
-      document.getElementById('m-runid').innerHTML = `<span class="badge ${cls(status)}">${runCell}</span>`;
+      const cycleIdLabel = (data.cycleId || '—').slice(0, 19);
+      const cycleLogUrl  = logFileUrl(data.cycleId, data.hostname, data.gitCommit);
+      const cycleCell = cycleLogUrl
+        ? `<a href="${cycleLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${cycleIdLabel}</a>`
+        : cycleIdLabel;
+      document.getElementById('m-cycleid').innerHTML = `<span class="badge ${cls(status)}">${cycleCell}</span>`;
       document.getElementById('m-started').textContent  = fmtDate(data.startedAt);
-      document.getElementById('m-finished').textContent = data.finishedAt ? fmtDate(data.finishedAt) : (status === 'running' ? '(in progress)' : '—');
       document.getElementById('m-getimage').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';
     }
 
@@ -597,14 +593,18 @@
         const guestPills = Object.entries(gs).map(([k, v]) =>
           `<span class="badge ${cls(v)}" style="font-size:.625rem;padding:.15rem .4rem">${k.replace('guest.','')}</span>`
         ).join(' ');
-        const hLogUrl = logFileUrl(h.runId, h.hostname, h.gitCommit);
-        const hRunLabel = (h.runId||'—').slice(0,19);
-        const hRunCell = hLogUrl
-          ? `<a href="${hLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${hRunLabel}</a>`
-          : hRunLabel;
+        // History entries written before the rename still have `runId`;
+        // read either field so old persisted rows remain clickable. New
+        // writes use `cycleId`; within ~30 cycles the fallback is moot.
+        const hCycleId = h.cycleId || h.runId;
+        const hLogUrl = logFileUrl(hCycleId, h.hostname, h.gitCommit);
+        const hCycleLabel = (hCycleId||'—').slice(0,19);
+        const hCycleCell = hLogUrl
+          ? `<a href="${hLogUrl}" target="_blank" style="color:inherit;text-decoration:underline dotted">${hCycleLabel}</a>`
+          : hCycleLabel;
         const statusCls = cls(h.overallStatus);
         return `<tr>
-          <td class="mono"><span class="badge ${statusCls}">${hRunCell}</span></td>
+          <td class="mono"><span class="badge ${statusCls}">${hCycleCell}</span></td>
           <td>${fmtDuration(h.startedAt, h.finishedAt)}</td>
           <td class="mono">${h.gitCommit && data.repoUrl
             ? `<a href="${data.repoUrl}/commit/${h.gitCommit}" target="_blank" style="color:inherit;text-decoration:underline dotted">${h.gitCommit.slice(0,8)}</a>`

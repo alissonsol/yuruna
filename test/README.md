@@ -247,8 +247,8 @@ module (`automation/yuruna-log.psm1`) overrides the built-in `Write-Output`,
 in addition to appearing on the console. The `debug_mode` and `verbose_mode`
 flags control how much detail appears on screen and in the log.
 
-Log files are named `{runId}.{hostname}.{gitCommit}.html` and are git-ignored.
-The status page links each Run ID to its log file for easy inspection.
+Log files are named `{cycleId}.{hostname}.{gitCommit}.html` and are git-ignored.
+The status page links each Cycle ID to its log file for easy inspection.
 
 ## Status page
 
@@ -261,8 +261,8 @@ http://localhost:8080/status/
 The page polls `status.json` every 30 seconds and shows:
 - Overall pass/fail banner
 - Per-guest status with step-level breakdown (New-VM, Start-VM, Verify-VM, Screenshots, Invoke-PoolTest)
-- History of recent runs
-- Clickable Run ID links to the corresponding log file
+- History of recent cycles
+- Clickable Cycle ID links to the corresponding log file
 
 ### How the status page is served
 

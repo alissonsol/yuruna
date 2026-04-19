@@ -269,9 +269,9 @@ $effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
 $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
 # --- Start log file (transcript captures all console output) ---
-$SeqRunId   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$SeqCycleId = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $GitCommit  = Get-CurrentGitCommit -RepoRoot $RepoRoot
-$LogFile    = Start-LogFile -TestRoot $TestRoot -RunId $SeqRunId -Hostname (hostname) -GitCommit $GitCommit
+$LogFile    = Start-LogFile -TestRoot $TestRoot -CycleId $SeqCycleId -Hostname (hostname) -GitCommit $GitCommit
 Write-Output "Log file: $LogFile"
 
 Write-Output ""

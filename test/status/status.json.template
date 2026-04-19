@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "host": null,
   "hostname": null,
-  "runId": null,
+  "cycleId": null,
   "startedAt": null,
   "finishedAt": null,
   "overallStatus": "idle",

@@ -310,15 +310,21 @@ Write-Output "Log folder: $YurunaLogDir"
 # gets injected into autoinstall user-data by guest.ubuntu.desktop/New-VM.ps1.
 $proxyCacheUrl = Test-ProxyCacheAvailable -HostType $HostType
 
-# When a cache is detected on Hyper-V, expose its Grafana dashboard (and
-# any other configured ports) on the host's LAN-facing interface via
-# netsh portproxy + firewall rule so an operator on a different machine
-# can open the dashboard at http://<host>:3000 without reaching into the
-# Default-Switch NAT subnet directly. When no cache is detected, undo any
-# mapping a prior cycle left in place — a stale portproxy pointing at a
-# gone VM silently black-holes traffic. The port list is code-local so
-# adding Prometheus (:9090) or squid-exporter (:9301) later needs only
-# the array below to change.
+# When a cache is detected, expose selected VM ports on the host so an
+# operator on a different machine can open the Grafana dashboard at
+# http://<host>:3000 (and similar) without reaching into the VM's NAT
+# subnet directly. Add-SquidCachePortMap dispatches per-platform via
+# Test.PortMap.psm1 — netsh portproxy + firewall rule on Hyper-V,
+# detached TcpListener forwarders on macOS/UTM. When no cache is
+# detected, undo any mapping a prior cycle left in place.
+#
+# Port list differs per platform:
+#   Windows (Hyper-V): @(3000) — guests can reach the cache VM directly
+#     on the Default Switch, so :3128 does NOT need a host forward.
+#   macOS (UTM):       @(3128, 3129, 3000) — Apple VZ's shared-NAT
+#     isolates guest↔guest traffic, so :3128 MUST be host-forwarded too
+#     (without it, every guest's apt times out with "No route to host").
+#     :3129 is the ssl-bump listener so Acquire::https::Proxy works.
 #
 # The detection line renders the word "detected" as an ANSI OSC 8
 # hyperlink to the Grafana dashboard so operators in a modern terminal
@@ -326,32 +332,26 @@ $proxyCacheUrl = Test-ProxyCacheAvailable -HostType $HostType
 # squid-cache view. Terminals without OSC 8 support drop the escapes
 # silently and just show "detected" as plain text — no regression.
 if ($proxyCacheUrl) {
-    if ($HostType -eq 'host.windows.hyper-v') {
-        $SquidExposedPorts = @(3000)
-        $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
-        $mapOk = $false
-        if ($vmIp) {
-            $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port $SquidExposedPorts
-            $mapOk = [bool]$mapResult
-        }
-        if ($mapOk) {
-            $bestIp = Get-BestHostIp
-            if (-not $bestIp) { $bestIp = $vmIp }  # fallback when no routable iface is found
-            $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-12h&to=now&timezone=browser&refresh=1m"
-            $esc = [char]27
-            $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\detected${esc}]8;;${esc}\"
-            Write-Output "Proxy cache: $linkedDetected"
-        } else {
-            Write-Output "Proxy cache: detected (port map failed)"
-        }
+    $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+    $SquidExposedPorts = if ($IsMacOS) { @(3128, 3129, 3000) } else { @(3000) }
+    $mapOk = $false
+    if ($vmIp) {
+        $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port $SquidExposedPorts
+        $mapOk = [bool]$mapResult
+    }
+    if ($mapOk) {
+        $bestIp = Get-BestHostIp
+        if (-not $bestIp) { $bestIp = $vmIp }  # fallback when no routable iface is found
+        $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-12h&to=now&timezone=browser&refresh=1m"
+        $esc = [char]27
+        $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\detected${esc}]8;;${esc}\"
+        Write-Output "Proxy cache: $linkedDetected"
     } else {
-        Write-Output "Proxy cache: detected at $proxyCacheUrl (guests will use local proxy)"
+        Write-Output "Proxy cache: detected (port map failed)"
     }
 } else {
     Write-Output "Proxy cache: not detected (guests will download directly from Ubuntu mirrors)"
-    if ($HostType -eq 'host.windows.hyper-v') {
-        [void](Remove-SquidCachePortMap)
-    }
+    [void](Remove-SquidCachePortMap)
 }
 
 $savedVerbose = $global:VerbosePreference

@@ -18,40 +18,41 @@
 
 <#
 .SYNOPSIS
-    Exposes squid-cache VM ports on the Windows host via portproxy + firewall.
+    Exposes squid-cache VM ports on the host, cross-platform.
 
 .DESCRIPTION
-    The squid-cache VM on Hyper-V's Default Switch gets an IP on a private
-    NAT subnet (e.g. 172.25.x.x) that is reachable from the host but NOT
-    from other machines on the host's LAN. This module bridges selected
-    VM ports to the host's external interface so tools running elsewhere
-    (a browser on a laptop, a curl from CI) can reach them at the host's
-    public address — Grafana on :3000 being the canonical example.
+    Single API (Add-SquidCachePortMap / Remove-SquidCachePortMap /
+    Get-BestHostIp) that dispatches internally per host OS. Callers in
+    Invoke-TestRunner.ps1, Start-StatusServer.ps1, Start-SquidCache.ps1
+    etc. use these symbols without knowing the underlying mechanism.
 
-    Three steps per port (Add-SquidCachePortMap):
-      Step 1 — Remove any stale portproxy rule on listenport=$Port so
-               repeated calls are idempotent. netsh refuses to replace an
-               existing rule in-place; it must be deleted first.
-      Step 2 — netsh interface portproxy add v4tov4 listenport=$Port
-               listenaddress=0.0.0.0 connectport=$Port connectaddress=$VMIp
-               Forwards inbound TCP on the host's $Port to the VM.
-      Step 3 — New-NetFirewallRule -DisplayName Yuruna-SquidCache-Port-$Port
-               -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow
-               Punches through Windows Firewall so traffic from the LAN
-               actually reaches the portproxy listener.
+    Windows (Hyper-V, the original):
+      VMs on Hyper-V's Default Switch land on a private NAT subnet
+      (172.25.x.x) reachable from the host but not the host's LAN. Ports
+      are exposed via three steps per port:
+        1. netsh interface portproxy delete (idempotency — netsh won't
+           replace in place)
+        2. netsh interface portproxy add v4tov4 listenport=P
+           listenaddress=0.0.0.0 connectport=P connectaddress=$VMIp
+        3. New-NetFirewallRule -DisplayName Yuruna-SquidCache-Port-P
+           -Direction Inbound -Protocol TCP -LocalPort P -Action Allow
+      Requires administrator; non-elevated callers get a warning and a
+      no-op (the cycle continues without port exposure).
 
-    The resulting list of (VM IP, ports) is persisted to
-    test/status/log/squid-cache-port-map.json so Remove-SquidCachePortMap
-    can undo the exact set of rules a previous Add created — even if the
-    caller has forgotten the port list or the VM IP has since changed.
+    macOS (UTM / Apple Virtualization):
+      Apple VZ's shared-NAT isolates guest↔guest traffic on
+      192.168.64.0/24 and no built-in portproxy equivalent is exposed
+      to userland. We run one detached pwsh TcpListener per port
+      (Start-SquidForwarder.ps1 under vde/host.macos.utm/) that binds
+      on 0.0.0.0 and tunnels to the VM. No elevation needed — ports
+      3128 and 3000 are both >=1024. State is the pidfile set under
+      $HOME/virtual/squid-cache/, so Remove enumerates and terminates.
 
-    Both Add and Remove require administrator privilege (netsh portproxy
-    and New-NetFirewallRule write to system state). Non-elevated callers
-    get a warning and a no-op rather than a hard failure, so the test
-    runner continues without port exposure rather than aborting a cycle.
-
-    Windows-only. Callers on macOS/UTM should guard with $IsWindows or
-    -HostType 'host.windows.hyper-v'.
+    Get-BestHostIp returns the LAN-routable IPv4 an operator can paste
+    into a browser to reach an exposed port. On Windows it ranks via
+    Get-NetIPAddress + Get-NetRoute; on macOS it reads the default-
+    route interface from `/usr/sbin/route -n get default` and asks
+    `ipconfig getifaddr` for that interface's address.
 #>
 
 $script:StateFileName = 'squid-cache-port-map.json'
@@ -205,16 +206,44 @@ function Add-SquidCachePortMap {
         [string]$StatusLogDir
     )
 
+    if ($VMIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+        Write-Warning "Add-SquidCachePortMap: VMIp '$VMIp' is not a valid IPv4 address — skipping."
+        return $null
+    }
+
+    # macOS branch — delegate to the per-port forwarder primitives in
+    # vde/host.macos.utm/VM.common.psm1. Each Start-SquidForwarder does
+    # its own per-port preflight (Stop-SquidForwarder -Port $p) so
+    # re-calling is idempotent AND leaves other-port forwarders alone.
+    # We deliberately do NOT call Stop-AllSquidForwarder first: when
+    # Invoke-TestRunner refreshes :3000 mid-cycle, it MUST NOT disturb
+    # the already-running :3128 forwarder guests depend on. State here
+    # is the live pidfile set under $HOME/virtual/squid-cache/, NOT a
+    # JSON file, so $StatusLogDir is ignored on this platform. Return a
+    # sentinel string so callers that treat any non-null return as
+    # success keep working uniformly across platforms.
+    if ($IsMacOS) {
+        $macModule = Resolve-MacVmCommonModule
+        if (-not $macModule) {
+            Write-Warning "Add-SquidCachePortMap: macOS VM.common.psm1 not found — cannot start forwarders."
+            return $null
+        }
+        Import-Module $macModule -Force
+        $launched = @()
+        foreach ($p in $Port) {
+            if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${p} -> ${VMIp}:${p}", 'Launch macOS squid forwarder')) { continue }
+            if (Start-SquidForwarder -CacheIp $VMIp -Port $p) { $launched += $p }
+        }
+        if ($launched.Count -eq 0) { return $null }
+        return "macos:forwarders=$($launched -join ',')"
+    }
+
     if (-not $IsWindows) {
-        Write-Verbose "Add-SquidCachePortMap: not Windows — no-op."
+        Write-Verbose "Add-SquidCachePortMap: unsupported platform — no-op."
         return $null
     }
     if (-not (Test-IsAdministrator)) {
         Write-Warning "Add-SquidCachePortMap: admin privilege required. Skipping port exposure (netsh portproxy + New-NetFirewallRule both need elevation)."
-        return $null
-    }
-    if ($VMIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-        Write-Warning "Add-SquidCachePortMap: VMIp '$VMIp' is not a valid IPv4 address — skipping."
         return $null
     }
 
@@ -297,8 +326,17 @@ function Remove-SquidCachePortMap {
     [OutputType([bool])]
     param([string]$StatusLogDir)
 
+    if ($IsMacOS) {
+        $macModule = Resolve-MacVmCommonModule
+        if (-not $macModule) { return $false }
+        Import-Module $macModule -Force
+        if (-not $PSCmdlet.ShouldProcess('all squid-cache forwarders', 'Stop')) { return $false }
+        $stopped = @(Stop-AllSquidForwarder)
+        return ($stopped.Count -gt 0)
+    }
+
     if (-not $IsWindows) {
-        Write-Verbose "Remove-SquidCachePortMap: not Windows — no-op."
+        Write-Verbose "Remove-SquidCachePortMap: unsupported platform — no-op."
         return $false
     }
 
@@ -348,6 +386,24 @@ function Get-BestHostIp {
     [OutputType([string])]
     param()
 
+    if ($IsMacOS) {
+        # Use `/usr/sbin/route -n get default` to find the interface that
+        # carries the default route, then `ipconfig getifaddr <iface>` for
+        # that interface's IPv4. Avoids a parser for `ifconfig` output and
+        # naturally skips loopback / utun / VZ bridges (they have no default
+        # route). Fully-qualified paths so PSScriptAnalyzer's alias-avoidance
+        # rule can tell these apart from pwsh built-ins.
+        $routeOut = & '/usr/sbin/route' -n get default 2>$null
+        $iface = $null
+        foreach ($line in $routeOut) {
+            if ($line -match 'interface:\s*(\S+)') { $iface = $matches[1]; break }
+        }
+        if (-not $iface) { return $null }
+        $ip = (& '/usr/sbin/ipconfig' getifaddr $iface 2>$null).Trim()
+        if ($ip -match '^\d+\.\d+\.\d+\.\d+$') { return $ip }
+        return $null
+    }
+
     if (-not $IsWindows) { return $null }
 
     $ranked = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {
@@ -370,6 +426,25 @@ function Get-BestHostIp {
     } | Sort-Object Priority
 
     return ($ranked | Select-Object -ExpandProperty IPAddress -First 1)
+}
+
+<#
+.SYNOPSIS
+    Locate vde/host.macos.utm/VM.common.psm1 relative to this module.
+.DESCRIPTION
+    Test.PortMap.psm1 lives under test/modules/, so $PSScriptRoot's parent's
+    parent is the repo root. Returns $null (not an error) if the macOS
+    module is missing so callers on an unusual checkout layout can degrade
+    gracefully with a warning instead of a hard failure.
+#>
+function Resolve-MacVmCommonModule {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $p = Join-Path $repoRoot 'vde/host.macos.utm/VM.common.psm1'
+    if (Test-Path $p) { return $p }
+    return $null
 }
 
 Export-ModuleMember -Function Add-SquidCachePortMap, Remove-SquidCachePortMap, Get-BestHostIp

@@ -333,7 +333,32 @@ if ($ProxyUrl) {
     $AptProxyBlock = ""
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('PROXY_URL_PLACEHOLDER', $ProxyUrl)
+# Fetch the squid-cache CA on the host so it can be base64-embedded in the
+# autoinstall seed. See guest.ubuntu.desktop/New-VM.ps1 for the same block
+# with full context; short version: guests on VZ shared-NAT cannot reach
+# the cache VM directly, but this script runs on the host which can. Any
+# failure (no cache-ip.txt, HTTP error, empty response) leaves $CaCertBase64
+# empty and the guest's HTTPS proxy block becomes a no-op.
+$CaCertBase64 = ""
+$cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
+if ($ProxyUrl -and (Test-Path $cacheIpFile)) {
+    $cacheVmIp = (Get-Content -Raw $cacheIpFile).Trim()
+    if ($cacheVmIp -match '^\d+\.\d+\.\d+\.\d+$') {
+        try {
+            $caResp = Invoke-WebRequest -Uri "http://${cacheVmIp}/yuruna-squid-ca.crt" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+            if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
+                $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
+                $CaCertBase64 = [Convert]::ToBase64String($caBytes)
+                Write-Output "  Fetched squid-cache CA from http://${cacheVmIp}/yuruna-squid-ca.crt ($($caBytes.Length) bytes) — embedded in seed."
+            }
+        } catch {
+            Write-Warning "  Could not fetch CA cert from http://${cacheVmIp}/yuruna-squid-ca.crt : $($_.Exception.Message)"
+            Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
+        }
+    }
+}
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('PROXY_URL_PLACEHOLDER', $ProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64)
 
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

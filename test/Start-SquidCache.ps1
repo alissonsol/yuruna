@@ -268,13 +268,29 @@ if ($IsMacOS) {
     # tears them all down symmetrically via Stop-AllSquidForwarder.
     if ($cacheIp) {
         Write-Output ""
-        Write-Output "=== Step 6: host-side forwarders (3128 proxy + 3000 Grafana) ==="
-        $vmCommon = Join-Path $RepoRoot "vde/host.macos.utm/VM.common.psm1"
-        Import-Module $vmCommon -Force
-        $mappedPorts = Add-SquidCachePortMap -CacheIp $cacheIp -Port @(3128, 3000)
-        if ($mappedPorts -notcontains 3000) {
-            Write-Warning "  :3000 (Grafana) forwarder did not bind — dashboard will only be reachable at http://${cacheIp}:3000 from the Mac."
-        }
+        Write-Output "=== Step 6: host-side forwarders (3128 proxy + 3129 ssl-bump + 3000 Grafana) ==="
+        # Unified cross-platform API (test/modules/Test.PortMap.psm1). On
+        # macOS it dispatches to vde/host.macos.utm/VM.common.psm1's
+        # Start-SquidForwarder primitives. Callers here don't need to know
+        # whether the host uses netsh portproxy (Hyper-V) or detached
+        # pwsh TcpListeners (macOS/UTM) — same symbol, same semantics.
+        # :3129 is the ssl-bump listener; guests on macOS reach it via
+        # the host-side forwarder at 192.168.64.1:3129, same gateway
+        # pattern as :3128.
+        $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
+        Import-Module $portMapMod -Force
+        [void](Add-SquidCachePortMap -VMIp $cacheIp -Port @(3128, 3129, 3000))
+
+        # Persist the cache VM IP so guest provisioners (guest.ubuntu.*
+        # New-VM.ps1) can fetch the squid-cache CA cert from the host
+        # without re-discovering it. The host CAN reach the VM directly
+        # on the VZ bridge (192.168.64.0/24); it's only the guests that
+        # can't. Writing the IP here lets guest New-VM.ps1 use a plain
+        # `curl http://<cacheIp>/yuruna-squid-ca.crt` from the host and
+        # base64-embed the result in the autoinstall seed.
+        $stateDir = Join-Path $HOME "virtual/squid-cache"
+        if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
+        Set-Content -Path (Join-Path $stateDir "cache-ip.txt") -Value $cacheIp -NoNewline -Encoding ascii
     }
 } elseif ($IsWindows) {
     # Use the same KVP+ARP+:3128-probe discovery the guest consumers

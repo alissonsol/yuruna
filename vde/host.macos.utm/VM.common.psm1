@@ -303,61 +303,6 @@ function Get-SquidForwarder {
 
 <#
 .SYNOPSIS
-    Expose multiple squid-cache VM ports on the Mac host via per-port
-    TCP forwarders.
-
-.DESCRIPTION
-    macOS counterpart to the Windows Test.PortMap.psm1 Add-
-    SquidCachePortMap: runs one Start-SquidForwarder subprocess per
-    requested port, each with its own forwarder.<Port>.pid and log
-    file. Starts fresh every call — all existing Yuruna forwarders are
-    torn down first so a port list change (e.g. dropped 9090) doesn't
-    leave orphans.
-
-    Defaults to @(3128, 3000):
-      * 3128 is the squid HTTP proxy endpoint; guests point their apt
-        at http://192.168.64.1:3128 because Apple VZ shared-NAT blocks
-        guest↔guest traffic (the whole reason these forwarders exist).
-      * 3000 is the Grafana dashboard, so an operator on the host (or
-        on the host's LAN, if the Mac is sharing its connection) can
-        open http://<mac-ip>:3000 without reaching into the VM subnet.
-
-.PARAMETER CacheIp
-    IP of the squid-cache VM on the VZ shared-NAT subnet (typically
-    192.168.64.X).
-
-.PARAMETER Port
-    TCP ports to expose. Host port == VM port for each. Default
-    @(3128, 3000). Callers can extend with 9090 (Prometheus) etc.
-
-.OUTPUTS
-    [int[]] — ports that were successfully bound.
-#>
-function Add-SquidCachePortMap {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([int[]], [System.Object[]])]
-    param(
-        [Parameter(Mandatory)][string]$CacheIp,
-        [int[]]$Port = @(3128, 3000)
-    )
-    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:[$($Port -join ',')] -> ${CacheIp}", 'Launch per-port forwarders')) {
-        return @()
-    }
-    # Tear down EVERY prior forwarder first. Handles the port-list-changed
-    # scenario (e.g. removed 9090) and the VM-IP-changed scenario (new
-    # CacheIp — old forwarders would still tunnel to the gone VM).
-    [void](Stop-AllSquidForwarder -Quiet)
-    $launched = @()
-    foreach ($p in $Port) {
-        if (Start-SquidForwarder -CacheIp $CacheIp -Port $p) {
-            $launched += $p
-        }
-    }
-    return ,$launched
-}
-
-<#
-.SYNOPSIS
     Stop every squid-cache port forwarder the host currently has.
 
 .DESCRIPTION
@@ -366,6 +311,11 @@ function Add-SquidCachePortMap {
     Forwarder per port). Missing directory / no pidfiles is a no-op.
     Safe to call from Stop-SquidCache.ps1 even when no forwarders are
     running.
+
+    Cross-platform `Add-SquidCachePortMap` / `Remove-SquidCachePortMap`
+    (see test/modules/Test.PortMap.psm1) dispatch to Start-SquidForwarder
+    + this function on macOS. The high-level symbols live there — only
+    platform-specific primitives stay here.
 
 .OUTPUTS
     [int[]] — ports whose forwarder was stopped (may be empty).
@@ -392,14 +342,4 @@ function Stop-AllSquidForwarder {
     return ,$stopped
 }
 
-function Remove-SquidCachePortMap {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([int[]], [System.Object[]])]
-    param([switch]$Quiet)
-    if (-not $PSCmdlet.ShouldProcess('all squid-cache forwarders', 'Remove port map')) {
-        return @()
-    }
-    return ,@(Stop-AllSquidForwarder -Quiet:$Quiet)
-}
-
-Export-ModuleMember -Function Remove-UtmBundleWithRetry, Start-SquidForwarder, Stop-SquidForwarder, Get-SquidForwarder, Add-SquidCachePortMap, Remove-SquidCachePortMap, Stop-AllSquidForwarder
+Export-ModuleMember -Function Remove-UtmBundleWithRetry, Start-SquidForwarder, Stop-SquidForwarder, Get-SquidForwarder, Stop-AllSquidForwarder

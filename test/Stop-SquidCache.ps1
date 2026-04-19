@@ -69,12 +69,22 @@ if ($IsMacOS) {
     # which is less informative than "nothing listening." Stop-All
     # handles every Yuruna forwarder.<Port>.pid under the state dir so
     # the Grafana :3000 tunnel and any future ports clean up together.
-    $vmCommon = Join-Path $RepoRoot "vde/host.macos.utm/VM.common.psm1"
-    if (Test-Path $vmCommon) {
-        Import-Module $vmCommon -Force
+    # Unified cross-platform API — dispatches to Stop-AllSquidForwarder
+    # under the hood on macOS. Keeps this script symmetrical with the
+    # Windows branch further down, which also calls Remove-SquidCache-
+    # PortMap via Test.PortMap.psm1.
+    $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
+    if (Test-Path $portMapMod) {
+        Import-Module $portMapMod -Force
         Write-Output "  Stopping all host-side forwarders (if any)..."
         [void](Remove-SquidCachePortMap)
     }
+    # Clean up the cache-ip breadcrumb that Start-SquidCache wrote for
+    # guest provisioners. Leaving it behind wouldn't hurt correctness
+    # (guests would just re-fetch against a stale IP and fail open) but
+    # matches the tidy-up pattern of the forwarder pidfiles.
+    $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
+    if (Test-Path $cacheIpFile) { Remove-Item -Path $cacheIpFile -Force -ErrorAction SilentlyContinue }
 
     # `utmctl status <name>` exits non-zero with "Virtual machine not found"
     # when the VM isn't registered — cheap probe, no need to parse `utmctl list`.

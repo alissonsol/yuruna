@@ -79,6 +79,12 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# qemu-img on Windows writes the output VHDX through NTFS sparse files,
+# which leaves FILE_ATTRIBUTE_SPARSE_FILE set on the file. Resize-VHD
+# then fails with 0xC03A001A ("Virtual hard disk files ... must not be
+# sparse"). Clear the flag before resizing.
+& fsutil sparse setflag $convertedFile 0 | Out-Null
+
 # Resize to 144 GB for cache storage (128 GB squid cache_dir + ~16 GB
 # OS/logs headroom). Prefer Hyper-V's native Resize-VHD:
 # qemu-img reports "This image does not support resize" for VHDX files it
@@ -98,7 +104,7 @@ if (-not $resized) {
     Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img."
     Write-Warning "The cache VM will have only ~3.5 GB of disk — enough for 1-2"
     Write-Warning "Ubuntu Desktop installs before squid fills it up."
-    Write-Warning "Resize manually with: Resize-VHD -Path '$baseImageFile' -SizeBytes 144GB"
+    Write-Warning "Resize manually with: fsutil sparse setflag '$baseImageFile' 0; Resize-VHD -Path '$baseImageFile' -SizeBytes 144GB"
 }
 
 # === Preserve previous and finalize ===

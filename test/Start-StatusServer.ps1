@@ -322,7 +322,7 @@ try {
                 }
             }
             if ($mapOk) {
-                $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-12h&to=now&timezone=browser&refresh=1m"
+                $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-2h&to=now&timezone=browser&refresh=1m"
                 # Escape & in the query string for strict HTML-attribute
                 # correctness — the injection is via .innerHTML so lenient
                 # parsers work either way, but strict ones may trip on

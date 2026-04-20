@@ -433,7 +433,7 @@ if ($cachingProxyUrl) {
         if (-not $bestIp) { $bestIp = $vmIp }  # fallback when no routable iface is found
     }
     if ($mapOk) {
-        $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-12h&to=now&timezone=browser&refresh=1m"
+        $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-2h&to=now&timezone=browser&refresh=1m"
         $esc = [char]27
         $label = if ($isExternal) { "detected (external: $vmIp)" } else { "detected" }
         $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\${label}${esc}]8;;${esc}\"

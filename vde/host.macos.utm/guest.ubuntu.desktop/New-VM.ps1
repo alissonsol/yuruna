@@ -313,8 +313,44 @@ To intentionally skip the cache for this install:
 # in-installer apt-get calls (including the kernel/linux-firmware step that
 # 429'd against security.ubuntu.com) route through squid. When no cache,
 # omit the block entirely — subiquity then behaves exactly as before.
+#
+# Kept in sync with host.macos.utm/guest.ubuntu.server/New-VM.ps1:
+#   * primary: pin the arm64 mirror to ports.ubuntu.com. Apple Silicon UTM
+#              is arm64-only, so the amd64 default (archive.ubuntu.com)
+#              would 404 behind the proxy.
+#   * geoip:   false — skip the HTTPS geoip.ubuntu.com lookup that would go
+#              through squid (http_proxy is exported globally when apt.proxy
+#              is set) and can stall on CONNECT, keeping subiquity's mirror-
+#              election retry loop alive and producing the "_send_update
+#              CHANGE enp0s1" console spam.
+#   * sources_list: the Desktop 24.04 arm64 squashfs ships
+#              /etc/apt/sources.list.d/ubuntu.sources (deb822) with ONLY a
+#              file:/cdrom entry and no network URI. Curtin's apt-config
+#              does a "modifymirrors" substitution — it can only rewrite an
+#              existing URI, not add one. Writing a classic /etc/apt/
+#              sources.list via `sources_list` bypasses the no-op; apt
+#              merges both files, so packages not on the cdrom (e.g.
+#              openssh-server, HWE kernel) are reachable via ports.ubuntu.com
+#              through squid during the install step — not just post-install.
+#              (Unpinning `kernel: linux-generic` to HWE, and re-enabling
+#              ssh.install-server, should now be safe; but those are separate
+#              decisions — leaving the existing workarounds in place.)
 if ($CachingProxyUrl) {
-    $AptProxyBlock = "  apt:`n    proxy: $CachingProxyUrl"
+    # `$PRIMARY / `$SECURITY / `$RELEASE are curtin template tokens —
+    # the backtick escapes the `$` so the here-string doesn't expand them.
+    $AptProxyBlock = @"
+  apt:
+    geoip: false
+    primary:
+      - arches: [default]
+        uri: http://ports.ubuntu.com/ubuntu-ports
+    proxy: $CachingProxyUrl
+    sources_list: |
+      deb `$PRIMARY `$RELEASE main restricted universe multiverse
+      deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
+      deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
+      deb `$SECURITY `$RELEASE-security main restricted universe multiverse
+"@
 } else {
     $AptProxyBlock = ""
 }

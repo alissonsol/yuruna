@@ -249,9 +249,27 @@ first:  Stop-VM squid-cache   (guest will then WARN and download direct).
 # in-installer apt-get calls (including the kernel/linux-firmware step that
 # 429'd against security.ubuntu.com) route through squid. When no cache,
 # omit the block entirely — subiquity then behaves exactly as before.
-# Single `  apt:` key (2-space indent matches sibling keys under `autoinstall:`).
+#
+# Kept in sync with host.windows.hyper-v/guest.ubuntu.server/New-VM.ps1.
+# sources_list: the Desktop 24.04 amd64 squashfs ships
+# /etc/apt/sources.list.d/ubuntu.sources (deb822) with ONLY a file:/cdrom
+# entry and no network URI. Curtin's apt-config does a "modifymirrors"
+# substitution — it can only rewrite an existing URI, not add one. Writing
+# a classic /etc/apt/sources.list via `sources_list` bypasses the no-op; apt
+# merges both files, so packages not on the cdrom (e.g. openssh-server, HWE
+# kernel) are reachable via archive.ubuntu.com through squid during install.
+# (`$PRIMARY/`$SECURITY/`$RELEASE are curtin template tokens — backtick
+# escapes the $ so PowerShell doesn't expand them.)
 if ($CachingProxyUrl) {
-    $AptProxyBlock = "  apt:`n    proxy: $CachingProxyUrl"
+    $AptProxyBlock = @"
+  apt:
+    proxy: $CachingProxyUrl
+    sources_list: |
+      deb `$PRIMARY `$RELEASE main restricted universe multiverse
+      deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
+      deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
+      deb `$SECURITY `$RELEASE-security main restricted universe multiverse
+"@
 } else {
     $AptProxyBlock = ""
 }

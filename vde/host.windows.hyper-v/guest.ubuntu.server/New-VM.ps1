@@ -226,8 +226,29 @@ To intentionally skip the cache:
 # Build the autoinstall apt-proxy block. When a cache is reachable, inject
 # `apt: proxy: http://...` under autoinstall so subiquity + first-boot
 # apt-get all route through squid.
+#
+# sources_list: the Server 24.04 amd64 squashfs ships
+# /etc/apt/sources.list.d/ubuntu.sources (deb822) with ONLY a file:/cdrom
+# entry and no network URI. Curtin's apt-config does a "modifymirrors"
+# substitution — it can only rewrite an existing URI, not add a new one.
+# With no archive.ubuntu.com URL to substitute, the proxied mirror never
+# lands on the target, and the postinstall
+#   apt-get install --download-only ubuntu-desktop
+# fails with E: Unable to locate package. Writing a classic /etc/apt/
+# sources.list via `sources_list` bypasses the no-op: apt merges both files
+# and ubuntu-desktop resolves via archive.ubuntu.com through the squid proxy.
+# (`$PRIMARY/`$SECURITY/`$RELEASE are curtin template tokens — backtick
+# escapes the $ so PowerShell doesn't expand them.)
 if ($CachingProxyUrl) {
-    $AptProxyBlock = "  apt:`n    proxy: $CachingProxyUrl"
+    $AptProxyBlock = @"
+  apt:
+    proxy: $CachingProxyUrl
+    sources_list: |
+      deb `$PRIMARY `$RELEASE main restricted universe multiverse
+      deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
+      deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
+      deb `$SECURITY `$RELEASE-security main restricted universe multiverse
+"@
 } else {
     $AptProxyBlock = ""
 }

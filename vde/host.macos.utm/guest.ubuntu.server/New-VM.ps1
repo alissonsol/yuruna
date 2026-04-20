@@ -314,6 +314,19 @@ To intentionally skip the cache:
 #              apt.proxy is set: subiquity/server/controllers/proxy.py:43-44)
 #              and can stall on the squid CONNECT path, keeping subiquity's
 #              mirror-election retry loop (mirror.py:200-227) alive.
+#   * sources_list: write a classic /etc/apt/sources.list with ports.ubuntu.com
+#              entries into the target. The Server 24.04 arm64 squashfs ships
+#              /etc/apt/sources.list.d/ubuntu.sources (deb822 format) with ONLY
+#              a file:/cdrom entry and no network URI. Curtin's apt-config
+#              does a "modifymirrors" substitution — it can only *rewrite* an
+#              existing URI, not add a new one. With no archive/ports URL to
+#              substitute, the ports.ubuntu.com mirror never lands on the
+#              target, and the postinstall "apt-get install --download-only
+#              ubuntu-desktop" fails with E: Unable to locate package. Writing
+#              sources.list directly bypasses the modifymirrors no-op. The
+#              cdrom entries in ubuntu.sources continue to serve the base
+#              install; apt merges both files, so ubuntu-desktop resolves via
+#              ports.ubuntu.com through the squid proxy.
 #
 # The retry loop is the actual driver of the "subiquity/Network/_send_update
 # CHANGE enp0s1" console spam — each retry's netplan re-apply fires
@@ -321,6 +334,10 @@ To intentionally skip the cache:
 # Pinning primary + disabling geoip makes the mirror election succeed on
 # the first try, so the loop exits quickly.
 if ($CachingProxyUrl) {
+    # NB: `$PRIMARY / `$SECURITY / `$RELEASE are curtin template tokens — the
+    # backtick escapes the `$` so PowerShell's here-string doesn't expand them
+    # as variables. Curtin substitutes them with the primary-mirror URI,
+    # security-mirror URI, and release codename respectively at install time.
     $AptProxyBlock = @"
   apt:
     geoip: false
@@ -328,6 +345,11 @@ if ($CachingProxyUrl) {
       - arches: [default]
         uri: http://ports.ubuntu.com/ubuntu-ports
     proxy: $CachingProxyUrl
+    sources_list: |
+      deb `$PRIMARY `$RELEASE main restricted universe multiverse
+      deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
+      deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
+      deb `$SECURITY `$RELEASE-security main restricted universe multiverse
 "@
 } else {
     $AptProxyBlock = ""

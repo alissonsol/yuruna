@@ -70,15 +70,15 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # but we explicitly write 99yuruna-apt-cache so (a) the file name is
     # predictable for debugging, and (b) behavior is unchanged if
     # subiquity's apt-persistence logic ever drifts.
-    # New-VM.ps1 substitutes PROXY_URL_PLACEHOLDER with either the
+    # New-VM.ps1 substitutes CACHING_PROXY_URL_PLACEHOLDER with either the
     # detected URL (e.g. http://172.x.y.z:3128) or the empty string. On
     # empty, [ -n "" ] is false and the file is not created. On hit,
     # every post-install apt-get in the guest (cloud-init's first-boot
     # openssh-server install, test-workload, VS Code, .NET SDK,
     # Kubernetes packages, etc.) flows through the cache.
     - |
-      if [ -n "PROXY_URL_PLACEHOLDER" ]; then
-        echo 'Acquire::http::Proxy "PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+      if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
+        echo 'Acquire::http::Proxy "CACHING_PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         # --- HTTPS caching opt-in: trust the squid-cache CA, point
         # Acquire::https::Proxy at the ssl-bump listener on :3129.
@@ -87,7 +87,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
         # direct — same behavior as before ssl-bump existed, so a cache
         # without the new CA endpoint (older build) degrades gracefully
         # instead of aborting the install.
-        CACHE_HOST=$(echo "PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+        CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
         mkdir -p /target/usr/local/share/ca-certificates
         if wget --no-cache --tries=3 --timeout=15 -q \
             -O /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt \

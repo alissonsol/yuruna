@@ -36,19 +36,19 @@ the Default Switch interface. Only returns an IP after confirming port
 cloud-init may still be installing inside the cache VM).
 
 UTM: probes 127.0.0.1:3128 for the host-side forwarder launched by
-Start-SquidCache.ps1, and returns http://192.168.64.1:3128 when it
+Start-CachingProxy.ps1, and returns http://192.168.64.1:3128 when it
 answers. Apple Virtualization shared-NAT isolates guest↔guest traffic,
 so guests cannot reach the squid VM's IP directly (EHOSTUNREACH on ARP).
 The forwarder bridges :3128 on the host to the cache VM, and guests
 reach it via the VZ gateway address.
 #>
-function Test-ProxyCacheAvailable {
+function Test-CachingProxyAvailable {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)] [string]$HostType)
 
-    # External cache override. $Env:ExternalProxyCacheIpAddress short-circuits
-    # the per-platform local-VM discovery and uses a remote squid-cache at the
+    # External cache override. $Env:CachingProxyIpAddress short-circuits
+    # the per-platform local-VM discovery and uses a remote caching proxy at the
     # given IP. The remote image is assumed identical to the local one —
     # Apache on :80 publishes /yuruna-squid-ca.crt, squid on :3128 / :3129,
     # Grafana on :3000. Guests reach the remote IP through the host's
@@ -61,10 +61,10 @@ function Test-ProxyCacheAvailable {
     # variable deliberately, and silently switching to a local cache would
     # mask misconfiguration. Caller then logs "not detected" and guests run
     # direct against Ubuntu mirrors.
-    if ($Env:ExternalProxyCacheIpAddress) {
-        $externIp = $Env:ExternalProxyCacheIpAddress.Trim()
+    if ($Env:CachingProxyIpAddress) {
+        $externIp = $Env:CachingProxyIpAddress.Trim()
         if ($externIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-            Write-Warning "ExternalProxyCacheIpAddress='$externIp' is not a valid IPv4 address — ignoring."
+            Write-Warning "CachingProxyIpAddress='$externIp' is not a valid IPv4 address — ignoring."
             return $null
         }
         $tcp = New-Object System.Net.Sockets.TcpClient
@@ -74,11 +74,11 @@ function Test-ProxyCacheAvailable {
                 return "http://${externIp}:3128"
             }
         } catch {
-            Write-Verbose "external squid-cache probe to ${externIp}:3128 failed: $($_.Exception.Message)"
+            Write-Verbose "external caching proxy probe to ${externIp}:3128 failed: $($_.Exception.Message)"
         } finally {
             $tcp.Close()
         }
-        Write-Warning "ExternalProxyCacheIpAddress=${externIp} set but ${externIp}:3128 did not answer. Guests will download directly for this cycle."
+        Write-Warning "CachingProxyIpAddress=${externIp} set but ${externIp}:3128 did not answer. Guests will download directly for this cycle."
         return $null
     }
 
@@ -88,7 +88,7 @@ function Test-ProxyCacheAvailable {
 
         # Strategy 1: Hyper-V KVP via Get-VMNetworkAdapter. Requires
         # hv_kvp_daemon (hyperv-daemons) inside the guest. After a fresh
-        # squid-cache install this is usually available, but if cloud-init
+        # caching proxy install this is usually available, but if cloud-init
         # hasn't fully completed — or the daemon isn't running — IPAddresses
         # comes back empty.
         $candidateIps = @($cacheVM | Get-VMNetworkAdapter | ForEach-Object { $_.IPAddresses } |
@@ -129,7 +129,7 @@ function Test-ProxyCacheAvailable {
                     return "http://${ip}:3128"
                 }
             } catch {
-                Write-Verbose "squid-cache probe to ${ip}:3128 failed: $($_.Exception.Message)"
+                Write-Verbose "caching proxy probe to ${ip}:3128 failed: $($_.Exception.Message)"
             } finally {
                 $tcp.Close()
             }
@@ -141,7 +141,7 @@ function Test-ProxyCacheAvailable {
         # (the VZ gateway — the host). Probing the guest-VM IP directly
         # would return a URL guests cannot actually reach, because VZ's
         # shared-NAT blocks guest↔guest traffic. The host-side forwarder
-        # launched by Start-SquidCache.ps1 binds :3128 on the host and
+        # launched by Start-CachingProxy.ps1 binds :3128 on the host and
         # tunnels to the cache VM — guests reach it as 192.168.64.1:3128.
         # So probe :3128 on the host's loopback to confirm the forwarder
         # is up, and return the gateway URL if it answers.
@@ -161,4 +161,4 @@ function Test-ProxyCacheAvailable {
     return $null
 }
 
-Export-ModuleMember -Function Test-ProxyCacheAvailable
+Export-ModuleMember -Function Test-CachingProxyAvailable

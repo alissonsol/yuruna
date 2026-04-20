@@ -60,8 +60,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # predictable for debugging, and (b) behavior is unchanged if
     # subiquity's apt-persistence logic ever drifts.
     - |
-      if [ -n "PROXY_URL_PLACEHOLDER" ]; then
-        echo 'Acquire::http::Proxy "PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+      if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
+        echo 'Acquire::http::Proxy "CACHING_PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         # --- HTTPS caching opt-in: trust the squid-cache CA, point
         # Acquire::https::Proxy at the ssl-bump listener on :3129.
@@ -70,7 +70,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
         # direct — same behavior as before ssl-bump existed, so a cache
         # without the new CA endpoint (older build) degrades gracefully
         # instead of aborting the install.
-        CACHE_HOST=$(echo "PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+        CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
         mkdir -p /target/usr/local/share/ca-certificates
         if wget --no-cache --tries=3 --timeout=15 -q \
             -O /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt \

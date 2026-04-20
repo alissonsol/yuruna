@@ -90,33 +90,33 @@ function Remove-UtmBundleWithRetry {
     reach a squid-cache VM at 192.168.64.X and subiquity fails over
     to an offline install.
 
-    Start-SquidForwarder spawns vde/host.macos.utm/Start-SquidForwarder.ps1
+    Start-CachingProxyForwarder spawns vde/host.macos.utm/Start-CachingProxyForwarder.ps1
     as a detached `pwsh` subprocess that binds :3128 on the host and
     tunnels every connection to $CacheIp:3128. Guests then use
     http://192.168.64.1:3128. The subprocess is detached so the forwarder
-    outlives the Start-SquidCache.ps1 invocation that launched it.
+    outlives the Start-CachingProxy.ps1 invocation that launched it.
 
     The PID goes into $HOME/virtual/squid-cache/forwarder.pid.
-    Stop-SquidForwarder reads that PID and sends SIGTERM. Get-SquidForwarder
+    Stop-CachingProxyForwarder reads that PID and sends SIGTERM. Get-CachingProxyForwarder
     reports whether the forwarder is up without killing it.
 
     Returns $true when the forwarder is verified listening on :3128
     (Start), terminated (Stop), or currently running (Get).
 
 .PARAMETER CacheIp
-    IP of the squid-cache VM (Start-SquidForwarder only). Typically
-    192.168.64.X discovered by Start-SquidCache.ps1's subnet probe.
+    IP of the squid-cache VM (Start-CachingProxyForwarder only). Typically
+    192.168.64.X discovered by Start-CachingProxy.ps1's subnet probe.
 #>
-function Start-SquidForwarder {
+function Start-CachingProxyForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$CacheIp,
         [int]$Port = 3128
     )
-    $forwarderScript = Join-Path $PSScriptRoot "Start-SquidForwarder.ps1"
+    $forwarderScript = Join-Path $PSScriptRoot "Start-CachingProxyForwarder.ps1"
     if (-not (Test-Path $forwarderScript)) {
-        Write-Warning "Start-SquidForwarder.ps1 not found at: $forwarderScript"
+        Write-Warning "Start-CachingProxyForwarder.ps1 not found at: $forwarderScript"
         return $false
     }
     if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${Port}", 'Launch detached host-side TCP forwarder')) {
@@ -131,18 +131,18 @@ function Start-SquidForwarder {
     # potentially more) never fight over the same path. The old single-
     # forwarder scheme used `forwarder.pid`/`forwarder.log`; naming by
     # port makes discovery and selective teardown trivial from
-    # Stop-SquidForwarder / Stop-AllSquidForwarder.
+    # Stop-CachingProxyForwarder / Stop-AllCachingProxyForwarder.
     $pidFile = Join-Path $stateDir "forwarder.$Port.pid"
     $logFile = Join-Path $stateDir "forwarder.$Port.log"
 
     # If a stale pid is still alive for THIS port, kill it first. Other
     # ports' forwarders stay up untouched.
-    [void](Stop-SquidForwarder -Port $Port -Quiet)
+    [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
 
     Write-Output "  Launching host-side forwarder: 0.0.0.0:${Port} → ${CacheIp}:${Port}"
     # Start-Process launches pwsh detached. RedirectStandard* is required
     # because without them pwsh inherits the parent's TTY and dies when
-    # Start-SquidCache.ps1 exits. The forwarder's own log file gets the
+    # Start-CachingProxy.ps1 exits. The forwarder's own log file gets the
     # live traffic; stdout/stderr go to /dev/null equivalents.
     $procArgs = @(
         '-NoProfile','-NoLogo','-File', $forwarderScript,
@@ -193,16 +193,16 @@ function Start-SquidForwarder {
 
 .DESCRIPTION
     Reads $HOME/virtual/squid-cache/forwarder.pid and verifies the PID
-    belongs to Start-SquidForwarder.ps1 (via /bin/ps -o command=) before
+    belongs to Start-CachingProxyForwarder.ps1 (via /bin/ps -o command=) before
     signalling — a stale pidfile pointing at an unrelated process must
     NOT be killed. Sends SIGTERM first and waits up to 2 s for the
     process to exit; escalates to SIGKILL if the forwarder doesn't
     respond. The pidfile is removed on either success path and on
-    stale-pidfile detection so the next Start-SquidForwarder call
+    stale-pidfile detection so the next Start-CachingProxyForwarder call
     starts clean.
 
 .PARAMETER Quiet
-    Suppress the informational Write-Output lines. Start-SquidForwarder
+    Suppress the informational Write-Output lines. Start-CachingProxyForwarder
     passes this when preflight-stopping a stale forwarder so the happy
     path stays quiet.
 
@@ -211,7 +211,7 @@ function Start-SquidForwarder {
     (process stopped or never running). No current failure modes
     surface as $false.
 #>
-function Stop-SquidForwarder {
+function Stop-CachingProxyForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -233,7 +233,7 @@ function Stop-SquidForwarder {
     # `/bin/ps -p <pid> -o command=` (path-qualified so PSScriptAnalyzer's
     # PSAvoidUsingCmdletAliases doesn't confuse this with the `ps` alias
     # for Get-Process) prints the full argv so we can confirm it's the
-    # Start-SquidForwarder.ps1 we launched — not some unrelated pid that
+    # Start-CachingProxyForwarder.ps1 we launched — not some unrelated pid that
     # happens to match a stale pidfile.
     $cmd = (& '/bin/ps' -p $forwarderPid -o command= 2>$null) -join ""
     if ($LASTEXITCODE -ne 0 -or -not $cmd) {
@@ -241,12 +241,12 @@ function Stop-SquidForwarder {
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
-    if ($cmd -notmatch 'Start-SquidForwarder\.ps1') {
-        if (-not $Quiet) { Write-Warning "Pid $forwarderPid is not Start-SquidForwarder.ps1 (is: $cmd) — leaving alone, removing stale pidfile." }
+    if ($cmd -notmatch 'Start-CachingProxyForwarder\.ps1') {
+        if (-not $Quiet) { Write-Warning "Pid $forwarderPid is not Start-CachingProxyForwarder.ps1 (is: $cmd) — leaving alone, removing stale pidfile." }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
-    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-SquidForwarder.ps1)", 'SIGTERM then SIGKILL if needed')) {
+    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-CachingProxyForwarder.ps1)", 'SIGTERM then SIGKILL if needed')) {
         return $false
     }
     if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid)..." }
@@ -280,8 +280,8 @@ function Stop-SquidForwarder {
     Pure observer — never signals, never removes files. Returns $true
     iff $HOME/virtual/squid-cache/forwarder.pid exists, parses as an
     int, and refers to a live process (checked via /bin/ps). Does NOT
-    verify that the process is actually our Start-SquidForwarder.ps1;
-    Stop-SquidForwarder handles that stricter identity check on the
+    verify that the process is actually our Start-CachingProxyForwarder.ps1;
+    Stop-CachingProxyForwarder handles that stricter identity check on the
     write path. Callers that only need a liveness hint (status UI,
     should-I-launch-one decisions) can rely on this cheaper check.
 
@@ -289,7 +289,7 @@ function Stop-SquidForwarder {
     [bool] $true if the pidfile points at a live process, $false
     otherwise (missing pidfile, malformed content, or dead pid).
 #>
-function Get-SquidForwarder {
+function Get-CachingProxyForwarder {
     [CmdletBinding()]
     [OutputType([bool])]
     param([int]$Port = 3128)
@@ -309,18 +309,18 @@ function Get-SquidForwarder {
     Enumerates $HOME/virtual/squid-cache/forwarder.<Port>.pid entries
     and sends SIGTERM to each (SIGKILL escalation via Stop-Squid-
     Forwarder per port). Missing directory / no pidfiles is a no-op.
-    Safe to call from Stop-SquidCache.ps1 even when no forwarders are
+    Safe to call from Stop-CachingProxy.ps1 even when no forwarders are
     running.
 
-    Cross-platform `Add-SquidCachePortMap` / `Remove-SquidCachePortMap`
-    (see test/modules/Test.PortMap.psm1) dispatch to Start-SquidForwarder
+    Cross-platform `Add-CachingProxyPortMap` / `Remove-CachingProxyPortMap`
+    (see test/modules/Test.PortMap.psm1) dispatch to Start-CachingProxyForwarder
     + this function on macOS. The high-level symbols live there — only
     platform-specific primitives stay here.
 
 .OUTPUTS
     [int[]] — ports whose forwarder was stopped (may be empty).
 #>
-function Stop-AllSquidForwarder {
+function Stop-AllCachingProxyForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([int[]], [System.Object[]])]
     param([switch]$Quiet)
@@ -334,7 +334,7 @@ function Stop-AllSquidForwarder {
             if ($_.BaseName -match '^forwarder\.(\d+)$') {
                 $portInt = [int]$matches[1]
                 if ($PSCmdlet.ShouldProcess("port $portInt", 'Stop squid forwarder')) {
-                    [void](Stop-SquidForwarder -Port $portInt -Quiet:$Quiet)
+                    [void](Stop-CachingProxyForwarder -Port $portInt -Quiet:$Quiet)
                     $stopped += $portInt
                 }
             }
@@ -342,4 +342,4 @@ function Stop-AllSquidForwarder {
     return ,$stopped
 }
 
-Export-ModuleMember -Function Remove-UtmBundleWithRetry, Start-SquidForwarder, Stop-SquidForwarder, Get-SquidForwarder, Stop-AllSquidForwarder
+Export-ModuleMember -Function Remove-UtmBundleWithRetry, Start-CachingProxyForwarder, Stop-CachingProxyForwarder, Get-CachingProxyForwarder, Stop-AllCachingProxyForwarder

@@ -37,7 +37,7 @@
          and `utmctl start` — Hyper-V's New-VM.ps1 already starts the VM
          natively, so no equivalent step is needed there.
       5. Wait for port 3128 to respond.
-      6. Add-SquidCachePortMap: expose :80 (Apache + CA cert),
+      6. Add-CachingProxyPortMap: expose :80 (Apache + CA cert),
          :3128 (squid HTTP), :3129 (squid ssl-bump), :3000 (Grafana)
          on the host's interfaces — netsh portproxy + firewall rule on
          Hyper-V, detached pwsh TcpListener forwarders on macOS/UTM.
@@ -50,9 +50,9 @@
       New-NetFirewallRule both require administrator. Without elevation
       the VM still comes up and local Default-Switch guests still reach
       it, but no ports are mapped onto the host's LAN interfaces —
-      Add-SquidCachePortMap logs a warning and no-ops.
+      Add-CachingProxyPortMap logs a warning and no-ops.
 
-      macOS: Run with `sudo -E pwsh ./Start-SquidCache.ps1`. Port :80 is
+      macOS: Run with `sudo -E pwsh ./Start-CachingProxy.ps1`. Port :80 is
       privileged (<1024) on macOS, so a user-scope pwsh TcpListener
       fails to bind it. Without sudo, the :3128 / :3129 / :3000
       forwarders still launch and the cache serves guests on this host
@@ -64,12 +64,12 @@
       user's ~/virtual/squid-cache/ and not /var/root/virtual/...
 
     This script is a no-op for the test runner when
-    $Env:ExternalProxyCacheIpAddress is set: Invoke-TestRunner.ps1 will
+    $Env:CachingProxyIpAddress is set: Invoke-TestRunner.ps1 will
     route to that remote IP regardless of any local cache this script
-    brought up. Running Start-SquidCache.ps1 with the variable set just
+    brought up. Running Start-CachingProxy.ps1 with the variable set just
     creates a local "warm spare" the runner will ignore.
 
-    See test/SquidCache.md for the full "Serving remote clients" and
+    See test/CachingProxy.md for the full "Serving remote clients" and
     "External cache override" sections.
 
 .PARAMETER VMName
@@ -79,19 +79,19 @@
     # Local-only cache (guests on this host use it; LAN clients don't
     # need access). No elevation needed on macOS; Windows still needs
     # admin for the local Hyper-V VM operations.
-    pwsh test/Start-SquidCache.ps1
+    pwsh test/Start-CachingProxy.ps1
 
 .EXAMPLE
     # Windows — elevated, exposing all four ports (80, 3128, 3129, 3000)
     # to LAN clients.
     # Open PowerShell as Administrator, then:
     cd C:\path\to\yuruna
-    pwsh test\Start-SquidCache.ps1
+    pwsh test\Start-CachingProxy.ps1
 
 .EXAMPLE
     # macOS — sudo so the :80 Apache/CA-cert forwarder can bind.
     cd ~/git/yuruna
-    sudo -E pwsh test/Start-SquidCache.ps1
+    sudo -E pwsh test/Start-CachingProxy.ps1
 #>
 
 param(
@@ -125,7 +125,7 @@ if ($IsMacOS) {
     $ImageFile    = Join-Path $downloadDir 'host.windows.hyper-v.guest.squid-cache.vhdx'
     $PasswordFile = Join-Path $downloadDir "$VMName/squid-cache-password.txt"
 } else {
-    Write-Error "Unsupported host. Start-SquidCache.ps1 runs on macOS (UTM) or Windows (Hyper-V)."
+    Write-Error "Unsupported host. Start-CachingProxy.ps1 runs on macOS (UTM) or Windows (Hyper-V)."
     exit 1
 }
 
@@ -311,7 +311,7 @@ if ($IsMacOS) {
     #          http://<mac-ip>/yuruna-squid-ca.crt to trust the ssl-bump CA;
     #          local guests fetch it via the host-side CA pre-read and don't
     #          use this port. Privileged (<1024), so the forwarder requires
-    #          root — Start-SquidCache.ps1 must be re-run under sudo to
+    #          root — Start-CachingProxy.ps1 must be re-run under sudo to
     #          expose :80. Skipping it is non-fatal: HTTP caching still works.
     #   3128 — squid HTTP proxy. Guests point apt at http://192.168.64.1:3128.
     #   3129 — squid ssl-bump listener for HTTPS caching.
@@ -320,23 +320,23 @@ if ($IsMacOS) {
     #          Analogous to the netsh portproxy the Windows runner sets up.
     #
     # Forwarders are detached pwsh subprocesses keyed by port (pidfile
-    # forwarder.<N>.pid under $HOME/virtual/squid-cache/). Stop-SquidCache.ps1
-    # tears them all down symmetrically via Stop-AllSquidForwarder.
+    # forwarder.<N>.pid under $HOME/virtual/squid-cache/). Stop-CachingProxy.ps1
+    # tears them all down symmetrically via Stop-AllCachingProxyForwarder.
     if ($cacheIp) {
         Write-Output ""
         Write-Output "=== Step 6: host-side forwarders (80 CA + 3128 proxy + 3129 ssl-bump + 3000 Grafana) ==="
         # Unified cross-platform API (test/modules/Test.PortMap.psm1). On
         # macOS it dispatches to vde/host.macos.utm/VM.common.psm1's
-        # Start-SquidForwarder primitives. Callers here don't need to know
+        # Start-CachingProxyForwarder primitives. Callers here don't need to know
         # whether the host uses netsh portproxy (Hyper-V) or detached
         # pwsh TcpListeners (macOS/UTM) — same symbol, same semantics.
         # The port list must match the Invoke-TestRunner.ps1 call site:
-        # Add-SquidCachePortMap runs Clear-AllSquidCachePortMapping first,
+        # Add-CachingProxyPortMap runs Clear-AllCachingProxyPortMapping first,
         # so a narrower list at either caller would tear down ports the
         # other just set up.
         $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
         Import-Module $portMapMod -Force
-        [void](Add-SquidCachePortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000))
+        [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000))
 
         # Persist the cache VM IP so guest provisioners (guest.ubuntu.*
         # New-VM.ps1) can fetch the squid-cache CA cert from the host
@@ -358,8 +358,8 @@ if ($IsMacOS) {
     # path had already found the cache and the cache was serving :3128.
     $vmCommon = Join-Path $RepoRoot "vde/host.windows.hyper-v/VM.common.psm1"
     Import-Module $vmCommon -Force
-    $ProxyUrl = Get-WorkingSquidProxyUrl -VMName $VMName
-    if ($ProxyUrl -match '^http://([0-9.]+):') { $cacheIp = $matches[1] }
+    $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName $VMName
+    if ($CachingProxyUrl -match '^http://([0-9.]+):') { $cacheIp = $matches[1] }
 
     # Expose the cache VM's ports to the host's LAN so remote clients can
     # reach squid (:3128 / :3129), Apache (:80 serving yuruna-squid-ca.crt),
@@ -368,13 +368,13 @@ if ($IsMacOS) {
     # from every Hyper-V guest on that switch), so this portproxy adds LAN
     # exposure without changing the local-guest path — those still target
     # the VM's private IP. The port list matches Invoke-TestRunner.ps1's
-    # Add-SquidCachePortMap call; mismatched lists fight each other because
-    # the function runs Clear-AllSquidCachePortMapping first. Requires
-    # elevation; Add-SquidCachePortMap warns and no-ops otherwise.
+    # Add-CachingProxyPortMap call; mismatched lists fight each other because
+    # the function runs Clear-AllCachingProxyPortMapping first. Requires
+    # elevation; Add-CachingProxyPortMap warns and no-ops otherwise.
     if ($cacheIp) {
         $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
         Import-Module $portMapMod -Force
-        [void](Add-SquidCachePortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000))
+        [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000))
     }
 }
 

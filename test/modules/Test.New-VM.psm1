@@ -32,42 +32,42 @@ function Invoke-NewVM {
         [string]$VdeRoot,
         [string]$VMName,
         # Forwarded to the guest's New-VM.ps1 when the caller already knows
-        # the squid-cache URL (e.g. Invoke-TestRunner detected it once at
+        # the caching proxy URL (e.g. Invoke-TestRunner detected it once at
         # startup). Forwarding ensures every guest in a run uses the same
         # cache address — without this, each New-VM.ps1 ran its own probe
         # and could pick a different (or stale) IP, breaking apt inside
         # the installer. When unbound, the guest script does its own
         # discovery (preserving standalone/manual usage).
-        [string]$ProxyUrl
+        [string]$CachingProxyUrl
     )
     $scriptPath = Join-Path $VdeRoot "$HostType/$GuestKey/New-VM.ps1"
     if (-not (Test-Path $scriptPath)) {
         return @{ success=$false; errorMessage="New-VM.ps1 not found at: $scriptPath" }
     }
-    # Build the child argument list. -ProxyUrl is forwarded only when:
+    # Build the child argument list. -CachingProxyUrl is forwarded only when:
     #   1. the caller supplied it (unbound means "probe yourself" — what
     #      Invoke-TestSequence / Train-Screenshots rely on), AND
-    #   2. the target script actually declares a -ProxyUrl parameter.
+    #   2. the target script actually declares a -CachingProxyUrl parameter.
     # Some guests (guest.amazon.linux, guest.windows.11) don't wire a
     # proxy into their install flow, so their New-VM.ps1 doesn't declare
     # the parameter — forwarding it anyway produced:
-    #   "A parameter cannot be found that matches parameter name 'ProxyUrl'"
+    #   "A parameter cannot be found that matches parameter name 'CachingProxyUrl'"
     # and broke the whole guest. Introspect the script's param block via
     # Get-Command and skip the forward when the target doesn't accept it.
     $childArgs = @('-VMName', $VMName)
     $scriptAcceptsProxy = $false
     try {
         $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
-        $scriptAcceptsProxy = [bool]($cmdInfo.Parameters -and $cmdInfo.Parameters.ContainsKey('ProxyUrl'))
+        $scriptAcceptsProxy = [bool]($cmdInfo.Parameters -and $cmdInfo.Parameters.ContainsKey('CachingProxyUrl'))
     } catch {
-        # Get-Command parse failure — treat as "doesn't accept -ProxyUrl"
+        # Get-Command parse failure — treat as "doesn't accept -CachingProxyUrl"
         # rather than blowing up here; the child will surface a real
         # syntax error when it runs.
         $scriptAcceptsProxy = $false
     }
-    if ($PSBoundParameters.ContainsKey('ProxyUrl') -and $scriptAcceptsProxy) {
-        $childArgs += @('-ProxyUrl', $ProxyUrl)
-        Write-Output "Running: $scriptPath -VMName $VMName -ProxyUrl '$ProxyUrl'"
+    if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
+        $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
+        Write-Output "Running: $scriptPath -VMName $VMName -CachingProxyUrl '$CachingProxyUrl'"
     } else {
         Write-Output "Running: $scriptPath -VMName $VMName"
     }

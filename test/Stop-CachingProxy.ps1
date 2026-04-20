@@ -21,11 +21,11 @@
     Stops and deletes the squid-cache VM for the current host environment.
 
 .DESCRIPTION
-    Cross-platform inverse of Start-SquidCache.ps1. Detects the host
+    Cross-platform inverse of Start-CachingProxy.ps1. Detects the host
     (macOS/UTM or Windows/Hyper-V) and removes the squid-cache VM,
     its disk/bundle, and the stashed password file. The base image
     (host.*.guest.squid-cache.*) is intentionally KEPT so the next
-    Start-SquidCache.ps1 run doesn't have to re-download ~600 MB.
+    Start-CachingProxy.ps1 run doesn't have to re-download ~600 MB.
 
     Flow:
       1. Stop and delete the VM registration (utmctl / Hyper-V).
@@ -37,7 +37,7 @@
     Name of the squid-cache VM. Default: squid-cache.
 
 .EXAMPLE
-    ./Stop-SquidCache.ps1
+    ./Stop-CachingProxy.ps1
 #>
 
 param(
@@ -62,14 +62,14 @@ if ($IsMacOS) {
     Write-Output ""
     Write-Output "=== Stop + delete '$VMName' (macOS/UTM) ==="
 
-    # Host-side forwarders (paired with Start-SquidCache.ps1). Tear them
+    # Host-side forwarders (paired with Start-CachingProxy.ps1). Tear them
     # ALL down BEFORE deleting the VM — once the upstream cache is gone,
     # any guest still hitting 192.168.64.1:3128 (or an operator opening
     # :3000 on the host) would get connection-refused from the forwarder,
     # which is less informative than "nothing listening." Stop-All
     # handles every Yuruna forwarder.<Port>.pid under the state dir so
     # the Grafana :3000 tunnel and any future ports clean up together.
-    # Unified cross-platform API — dispatches to Stop-AllSquidForwarder
+    # Unified cross-platform API — dispatches to Stop-AllCachingProxyForwarder
     # under the hood on macOS. Keeps this script symmetrical with the
     # Windows branch further down, which also calls Remove-SquidCache-
     # PortMap via Test.PortMap.psm1.
@@ -77,7 +77,7 @@ if ($IsMacOS) {
     if (Test-Path $portMapMod) {
         Import-Module $portMapMod -Force
         Write-Output "  Stopping all host-side forwarders (if any)..."
-        [void](Remove-SquidCachePortMap)
+        [void](Remove-CachingProxyPortMap)
     }
     # Clean up the cache-ip breadcrumb that Start-SquidCache wrote for
     # guest provisioners. Leaving it behind wouldn't hurt correctness
@@ -107,7 +107,7 @@ if ($IsMacOS) {
 
     Write-Output ""
     Write-Output "Base image kept at: $HOME/virtual/squid-cache/"
-    Write-Output "  (delete manually if you want the next Start-SquidCache.ps1"
+    Write-Output "  (delete manually if you want the next Start-CachingProxy.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsWindows) {
     Write-Output ""
@@ -122,11 +122,11 @@ if ($IsMacOS) {
     $portMapMod   = Join-Path $RepoRoot 'test\modules\Test.PortMap.psm1'
     if (Test-Path $portMapMod) {
         Import-Module $portMapMod -Force
-        [void](Remove-SquidCachePortMap)
+        [void](Remove-CachingProxyPortMap)
     }
 
     # (Get-VMHost) loads the Hyper-V module on first use; fails cleanly if
-    # Hyper-V isn't installed — same dependency Start-SquidCache.ps1 has.
+    # Hyper-V isn't installed — same dependency Start-CachingProxy.ps1 has.
     $downloadDir = (Get-VMHost).VirtualHardDiskPath
     $vmDir       = Join-Path $downloadDir $VMName
 
@@ -148,10 +148,10 @@ if ($IsMacOS) {
 
     Write-Output ""
     Write-Output "Base image kept at: $downloadDir\host.windows.hyper-v.guest.squid-cache.vhdx"
-    Write-Output "  (delete manually if you want the next Start-SquidCache.ps1"
+    Write-Output "  (delete manually if you want the next Start-CachingProxy.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } else {
-    Write-Error "Unsupported host. Stop-SquidCache.ps1 runs on macOS (UTM) or Windows (Hyper-V)."
+    Write-Error "Unsupported host. Stop-CachingProxy.ps1 runs on macOS (UTM) or Windows (Hyper-V)."
     exit 1
 }
 

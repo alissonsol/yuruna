@@ -25,14 +25,14 @@
     per check, so a misconfigured cache surfaces here instead of failing
     the middle of a guest install. Two modes:
 
-      * External — when $Env:ExternalProxyCacheIpAddress is set, the script
+      * External — when $Env:CachingProxyIpAddress is set, the script
         targets that IP directly. This is the exact path Invoke-TestRunner
         will take, so a PASS here means the runner will use that cache.
         Runnable from any machine — no VM host, no Hyper-V / UTM modules
         required.
 
-      * Local — falls back to Test-ProxyCacheAvailable (from
-        test/modules/Test.ProxyCache.psm1), which finds the squid-cache VM
+      * Local — falls back to Test-CachingProxyAvailable (from
+        test/modules/Test.CachingProxy.psm1), which finds the squid-cache VM
         on Hyper-V's Default Switch or UTM's Shared NAT. Must be run on
         the harness host.
 
@@ -53,22 +53,22 @@
     answer "is anything listening".
 
 .PARAMETER CacheIp
-    Override both $Env:ExternalProxyCacheIpAddress and local discovery.
+    Override both $Env:CachingProxyIpAddress and local discovery.
     Useful for ad-hoc probes against a candidate remote cache before
     exporting the env var.
 
 .EXAMPLE
     # External — set the env var the runner will read, then probe.
-    $Env:ExternalProxyCacheIpAddress = '10.0.0.5'
-    pwsh test/Test-ProxyCache.ps1
+    $Env:CachingProxyIpAddress = '10.0.0.5'
+    pwsh test/Test-CachingProxy.ps1
 
 .EXAMPLE
     # Ad-hoc probe of a candidate without setting the env var.
-    pwsh test/Test-ProxyCache.ps1 -CacheIp 10.0.0.5
+    pwsh test/Test-CachingProxy.ps1 -CacheIp 10.0.0.5
 
 .EXAMPLE
     # Local — no env var, discover whatever Start-SquidCache just brought up.
-    pwsh test/Test-ProxyCache.ps1
+    pwsh test/Test-CachingProxy.ps1
 #>
 
 param(
@@ -105,13 +105,13 @@ function Test-TcpPort {
 }
 
 # === Resolve the cache IP ===============================================
-# Priority: -CacheIp parameter > $Env:ExternalProxyCacheIpAddress > local
-# discovery via Test-ProxyCacheAvailable. Each source settles $resolvedIp
+# Priority: -CacheIp parameter > $Env:CachingProxyIpAddress > local
+# discovery via Test-CachingProxyAvailable. Each source settles $resolvedIp
 # before the port probes run; failure at this stage is a hard FAIL because
 # nothing else the script does is meaningful without an IP to target.
 
 Write-Output ""
-Write-Output "=== yuruna squid-cache probe ==="
+Write-Output "=== yuruna caching proxy probe ==="
 
 $resolvedIp   = $null
 $resolvedFrom = $null
@@ -123,40 +123,40 @@ if ($CacheIp) {
     }
     $resolvedIp   = $CacheIp
     $resolvedFrom = "-CacheIp parameter"
-} elseif ($Env:ExternalProxyCacheIpAddress) {
-    $externIp = $Env:ExternalProxyCacheIpAddress.Trim()
+} elseif ($Env:CachingProxyIpAddress) {
+    $externIp = $Env:CachingProxyIpAddress.Trim()
     if ($externIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-        Write-Fail "Env:ExternalProxyCacheIpAddress='$externIp' is not a valid IPv4 address."
+        Write-Fail "Env:CachingProxyIpAddress='$externIp' is not a valid IPv4 address."
         exit 1
     }
     $resolvedIp   = $externIp
-    $resolvedFrom = "`$Env:ExternalProxyCacheIpAddress"
+    $resolvedFrom = "`$Env:CachingProxyIpAddress"
 } else {
-    # Local discovery via Test-ProxyCacheAvailable. That module knows the
+    # Local discovery via Test-CachingProxyAvailable. That module knows the
     # per-platform quirks (Hyper-V ARP+KVP, UTM 192.168.64.1 gateway
     # rewrite) — no point duplicating them here. If the module can't load
     # we can't usefully fall back, so FAIL with a pointer.
-    $modulePath = Join-Path $PSScriptRoot "modules/Test.ProxyCache.psm1"
+    $modulePath = Join-Path $PSScriptRoot "modules/Test.CachingProxy.psm1"
     if (-not (Test-Path $modulePath)) {
-        Write-Fail "Local discovery requires $modulePath (not found). Set `$Env:ExternalProxyCacheIpAddress or pass -CacheIp to probe remotely."
+        Write-Fail "Local discovery requires $modulePath (not found). Set `$Env:CachingProxyIpAddress or pass -CacheIp to probe remotely."
         exit 1
     }
     Import-Module $modulePath -Force
     $hostType = if ($IsMacOS) { 'host.macos.utm' } elseif ($IsWindows) { 'host.windows.hyper-v' } else { $null }
     if (-not $hostType) {
-        Write-Fail "Local discovery only runs on macOS or Windows hosts. Set `$Env:ExternalProxyCacheIpAddress or pass -CacheIp."
+        Write-Fail "Local discovery only runs on macOS or Windows hosts. Set `$Env:CachingProxyIpAddress or pass -CacheIp."
         exit 1
     }
-    $proxyUrl = Test-ProxyCacheAvailable -HostType $hostType
+    $proxyUrl = Test-CachingProxyAvailable -HostType $hostType
     if (-not $proxyUrl) {
-        Write-Fail "Test-ProxyCacheAvailable returned no cache. Either Start-SquidCache.ps1 hasn't been run, or the cache VM is not listening on :3128."
+        Write-Fail "Test-CachingProxyAvailable returned no cache. Either Start-CachingProxy.ps1 hasn't been run, or the cache VM is not listening on :3128."
         exit 1
     }
     if ($proxyUrl -match '^http://([0-9.]+):') {
         $resolvedIp   = $matches[1]
-        $resolvedFrom = "Test-ProxyCacheAvailable ($proxyUrl)"
+        $resolvedFrom = "Test-CachingProxyAvailable ($proxyUrl)"
     } else {
-        Write-Fail "Test-ProxyCacheAvailable returned '$proxyUrl' (could not parse IP)."
+        Write-Fail "Test-CachingProxyAvailable returned '$proxyUrl' (could not parse IP)."
         exit 1
     }
 }

@@ -21,9 +21,9 @@
     Exposes squid-cache VM ports on the host, cross-platform.
 
 .DESCRIPTION
-    Single API (Add-SquidCachePortMap / Remove-SquidCachePortMap /
+    Single API (Add-CachingProxyPortMap / Remove-CachingProxyPortMap /
     Get-BestHostIp) that dispatches internally per host OS. Callers in
-    Invoke-TestRunner.ps1, Start-StatusServer.ps1, Start-SquidCache.ps1
+    Invoke-TestRunner.ps1, Start-StatusServer.ps1, Start-CachingProxy.ps1
     etc. use these symbols without knowing the underlying mechanism.
 
     Windows (Hyper-V, the original):
@@ -34,7 +34,7 @@
            replace in place)
         2. netsh interface portproxy add v4tov4 listenport=P
            listenaddress=0.0.0.0 connectport=P connectaddress=$VMIp
-        3. New-NetFirewallRule -DisplayName Yuruna-SquidCache-Port-P
+        3. New-NetFirewallRule -DisplayName Yuruna-CachingProxy-Port-P
            -Direction Inbound -Protocol TCP -LocalPort P -Action Allow
       Requires administrator; non-elevated callers get a warning and a
       no-op (the cycle continues without port exposure).
@@ -43,7 +43,7 @@
       Apple VZ's shared-NAT isolates guest↔guest traffic on
       192.168.64.0/24 and no built-in portproxy equivalent is exposed
       to userland. We run one detached pwsh TcpListener per port
-      (Start-SquidForwarder.ps1 under vde/host.macos.utm/) that binds
+      (Start-CachingProxyForwarder.ps1 under vde/host.macos.utm/) that binds
       on 0.0.0.0 and tunnels to the VM. No elevation needed — ports
       3128 and 3000 are both >=1024. State is the pidfile set under
       $HOME/virtual/squid-cache/, so Remove enumerates and terminates.
@@ -55,8 +55,8 @@
     `ipconfig getifaddr` for that interface's address.
 #>
 
-$script:StateFileName = 'squid-cache-port-map.json'
-$script:FirewallRulePrefix = 'Yuruna-SquidCache-Port-'
+$script:StateFileName = 'caching-proxy-port-map.json'
+$script:FirewallRulePrefix = 'Yuruna-CachingProxy-Port-'
 
 function Get-PortMapStatePath {
     [CmdletBinding()]
@@ -108,11 +108,11 @@ function Remove-SinglePortMap {
     delete of status/log/ — the OS still carries stale Yuruna rules
     that would otherwise outlive the runner. We pick them back up by
     pattern-matching on the firewall rule display name, which is the
-    predictable naming convention Add-SquidCachePortMap writes with, so
+    predictable naming convention Add-CachingProxyPortMap writes with, so
     "I don't remember what I mapped" never means "orphan rules persist".
     Non-Yuruna rules are untouched.
 .OUTPUTS
-    int[] — port numbers for every Yuruna-SquidCache-Port-<N> rule.
+    int[] — port numbers for every Yuruna-CachingProxy-Port-<N> rule.
 #>
 function Get-YurunaMappedPortFromFirewall {
     [CmdletBinding()]
@@ -134,7 +134,7 @@ function Get-YurunaMappedPortFromFirewall {
 
 <#
 .SYNOPSIS
-    Remove every Yuruna squid-cache port mapping the host currently has.
+    Remove every Yuruna caching proxy port mapping the host currently has.
 .DESCRIPTION
     Union of two sources: ports listed in the state file (if readable),
     and ports discoverable from Yuruna-named firewall rules currently
@@ -142,7 +142,7 @@ function Get-YurunaMappedPortFromFirewall {
     nor a missing firewall rule can hide a leftover mapping — whichever
     source knows about a port, the port gets torn down.
 #>
-function Clear-AllSquidCachePortMapping {
+function Clear-AllCachingProxyPortMapping {
     [CmdletBinding(SupportsShouldProcess)]
     # Both declared: runtime elements are ints, but the leading `,$unique`
     # array-wrap at the return trips the analyzer into seeing Object[].
@@ -158,7 +158,7 @@ function Clear-AllSquidCachePortMapping {
                 if ($p -is [int] -or $p -match '^\d+$') { $ports += [int]$p }
             }
         } catch {
-            Write-Verbose "Clear-AllSquidCachePortMapping: could not read state ($StatePath): $_"
+            Write-Verbose "Clear-AllCachingProxyPortMapping: could not read state ($StatePath): $_"
         }
     }
 
@@ -184,7 +184,7 @@ function Clear-AllSquidCachePortMapping {
 
 .PARAMETER VMIp
     IPv4 address of the running squid-cache VM (as returned by
-    Test-ProxyCacheAvailable / Get-WorkingSquidProxyUrl).
+    Test-CachingProxyAvailable / Get-WorkingCachingProxyUrl).
 
 .PARAMETER Port
     One or more TCP ports to forward. Host port == VM port. Default: 3000
@@ -197,7 +197,7 @@ function Clear-AllSquidCachePortMapping {
 .OUTPUTS
     Path to the state file written (for logging / diagnostic use).
 #>
-function Add-SquidCachePortMap {
+function Add-CachingProxyPortMap {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param(
@@ -207,15 +207,15 @@ function Add-SquidCachePortMap {
     )
 
     if ($VMIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-        Write-Warning "Add-SquidCachePortMap: VMIp '$VMIp' is not a valid IPv4 address — skipping."
+        Write-Warning "Add-CachingProxyPortMap: VMIp '$VMIp' is not a valid IPv4 address — skipping."
         return $null
     }
 
     # macOS branch — delegate to the per-port forwarder primitives in
-    # vde/host.macos.utm/VM.common.psm1. Each Start-SquidForwarder does
-    # its own per-port preflight (Stop-SquidForwarder -Port $p) so
+    # vde/host.macos.utm/VM.common.psm1. Each Start-CachingProxyForwarder does
+    # its own per-port preflight (Stop-CachingProxyForwarder -Port $p) so
     # re-calling is idempotent AND leaves other-port forwarders alone.
-    # We deliberately do NOT call Stop-AllSquidForwarder first: when
+    # We deliberately do NOT call Stop-AllCachingProxyForwarder first: when
     # Invoke-TestRunner refreshes :3000 mid-cycle, it MUST NOT disturb
     # the already-running :3128 forwarder guests depend on. State here
     # is the live pidfile set under $HOME/virtual/squid-cache/, NOT a
@@ -225,7 +225,7 @@ function Add-SquidCachePortMap {
     if ($IsMacOS) {
         $macModule = Resolve-MacVmCommonModule
         if (-not $macModule) {
-            Write-Warning "Add-SquidCachePortMap: macOS VM.common.psm1 not found — cannot start forwarders."
+            Write-Warning "Add-CachingProxyPortMap: macOS VM.common.psm1 not found — cannot start forwarders."
             return $null
         }
         Import-Module $macModule -Force
@@ -237,28 +237,28 @@ function Add-SquidCachePortMap {
         # skip that port with a clear message and keep the unprivileged
         # forwarders (:3128, :3129, :3000) running — HTTP caching still
         # works, only HTTPS caching for remote clients is lost until the
-        # operator re-runs Start-SquidCache.ps1 under sudo.
+        # operator re-runs Start-CachingProxy.ps1 under sudo.
         $isRoot = $false
         try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { $isRoot = $false }
         $launched = @()
         foreach ($p in $Port) {
             if ($p -lt 1024 -and -not $isRoot) {
-                Write-Warning "Add-SquidCachePortMap: port ${p} is privileged on macOS; skipping. Re-run under sudo to expose it to remote clients."
+                Write-Warning "Add-CachingProxyPortMap: port ${p} is privileged on macOS; skipping. Re-run under sudo to expose it to remote clients."
                 continue
             }
             if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${p} -> ${VMIp}:${p}", 'Launch macOS squid forwarder')) { continue }
-            if (Start-SquidForwarder -CacheIp $VMIp -Port $p) { $launched += $p }
+            if (Start-CachingProxyForwarder -CacheIp $VMIp -Port $p) { $launched += $p }
         }
         if ($launched.Count -eq 0) { return $null }
         return "macos:forwarders=$($launched -join ',')"
     }
 
     if (-not $IsWindows) {
-        Write-Verbose "Add-SquidCachePortMap: unsupported platform — no-op."
+        Write-Verbose "Add-CachingProxyPortMap: unsupported platform — no-op."
         return $null
     }
     if (-not (Test-IsAdministrator)) {
-        Write-Warning "Add-SquidCachePortMap: admin privilege required. Skipping port exposure (netsh portproxy + New-NetFirewallRule both need elevation)."
+        Write-Warning "Add-CachingProxyPortMap: admin privilege required. Skipping port exposure (netsh portproxy + New-NetFirewallRule both need elevation)."
         return $null
     }
 
@@ -273,11 +273,11 @@ function Add-SquidCachePortMap {
     #   (c) The status/log/ directory was wiped (repo re-clone, manual
     #       cleanup) so the state file is gone but netsh/firewall rules
     #       survive in the Windows registry across reboots.
-    # Clear-AllSquidCachePortMapping unions state-file ports with Yuruna-
+    # Clear-AllCachingProxyPortMapping unions state-file ports with Yuruna-
     # named firewall rules, so whichever source has evidence of a prior
     # mapping — or both — the port gets torn down. The state file is then
     # deleted and we start the new write from scratch.
-    [void](Clear-AllSquidCachePortMapping -StatePath $statePath -Confirm:$false)
+    [void](Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
 
     foreach ($p in $Port) {
         if (-not $PSCmdlet.ShouldProcess("host:${p} -> ${VMIp}:${p}", 'Add port mapping')) { continue }
@@ -290,7 +290,7 @@ function Add-SquidCachePortMap {
         # Step 2 — create the portproxy mapping.
         & netsh interface portproxy add v4tov4 listenport=$p listenaddress=0.0.0.0 connectport=$p connectaddress=$VMIp | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Add-SquidCachePortMap: netsh portproxy add failed for port ${p} (exit $LASTEXITCODE)."
+            Write-Warning "Add-CachingProxyPortMap: netsh portproxy add failed for port ${p} (exit $LASTEXITCODE)."
             continue
         }
 
@@ -301,7 +301,7 @@ function Add-SquidCachePortMap {
             Remove-NetFirewallRule -ErrorAction SilentlyContinue
         New-NetFirewallRule -DisplayName $ruleName -Direction Inbound `
             -Protocol TCP -LocalPort $p -Action Allow `
-            -Description "Yuruna squid-cache: forward host :${p} to VM :${p}" `
+            -Description "Yuruna caching proxy: forward host :${p} to VM :${p}" `
             -ErrorAction SilentlyContinue | Out-Null
 
         Write-Output "  Port map added: host:${p} -> ${VMIp}:${p}"
@@ -320,12 +320,12 @@ function Add-SquidCachePortMap {
 
 <#
 .SYNOPSIS
-    Remove all port mappings previously created by Add-SquidCachePortMap.
+    Remove all port mappings previously created by Add-CachingProxyPortMap.
 
 .DESCRIPTION
     Clears every Yuruna-named portproxy + firewall rule, drawing from both
-    the state file (test/status/log/squid-cache-port-map.json) and the
-    live list of Yuruna-SquidCache-Port-* rules on the host. Safe to call
+    the state file (test/status/log/caching-proxy-port-map.json) and the
+    live list of Yuruna-CachingProxy-Port-* rules on the host. Safe to call
     when the state file is missing — rule-scanning still finds leftovers
     from a prior boot, a crashed run, or a wiped status/log/ directory.
     Also safe to call when no mappings exist at all; emits nothing then.
@@ -336,7 +336,7 @@ function Add-SquidCachePortMap {
 .OUTPUTS
     $true if anything was removed, $false if nothing was found.
 #>
-function Remove-SquidCachePortMap {
+function Remove-CachingProxyPortMap {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([string]$StatusLogDir)
@@ -345,13 +345,13 @@ function Remove-SquidCachePortMap {
         $macModule = Resolve-MacVmCommonModule
         if (-not $macModule) { return $false }
         Import-Module $macModule -Force
-        if (-not $PSCmdlet.ShouldProcess('all squid-cache forwarders', 'Stop')) { return $false }
-        $stopped = @(Stop-AllSquidForwarder)
+        if (-not $PSCmdlet.ShouldProcess('all caching proxy forwarders', 'Stop')) { return $false }
+        $stopped = @(Stop-AllCachingProxyForwarder)
         return ($stopped.Count -gt 0)
     }
 
     if (-not $IsWindows) {
-        Write-Verbose "Remove-SquidCachePortMap: unsupported platform — no-op."
+        Write-Verbose "Remove-CachingProxyPortMap: unsupported platform — no-op."
         return $false
     }
 
@@ -361,13 +361,13 @@ function Remove-SquidCachePortMap {
         # the elevation warning — non-admin callers with nothing to do stay silent.
         $pendingPorts = Get-YurunaMappedPortFromFirewall
         if ($pendingPorts.Count -gt 0) {
-            Write-Warning "Remove-SquidCachePortMap: admin privilege required to remove portproxy/firewall rules for ports: $($pendingPorts -join ', '). State left in place for a later elevated run."
+            Write-Warning "Remove-CachingProxyPortMap: admin privilege required to remove portproxy/firewall rules for ports: $($pendingPorts -join ', '). State left in place for a later elevated run."
         }
         return $false
     }
 
     $statePath = Get-PortMapStatePath -StatusLogDir $StatusLogDir
-    $cleared = @(Clear-AllSquidCachePortMapping -StatePath $statePath -Confirm:$false)
+    $cleared = @(Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
     foreach ($p in $cleared) {
         Write-Output "  Port map removed: host:${p}"
     }
@@ -379,7 +379,7 @@ function Remove-SquidCachePortMap {
     Return the host's "best" outbound IPv4 address for LAN advertising.
 
 .DESCRIPTION
-    When a port has been exposed via Add-SquidCachePortMap, the URL an
+    When a port has been exposed via Add-CachingProxyPortMap, the URL an
     operator pastes into a browser needs an IP that is actually reachable
     from their machine — not a loopback, not a Hyper-V vEthernet NAT
     address, not a WellKnown (link-local / APIPA) stub. This picker
@@ -462,4 +462,4 @@ function Resolve-MacVmCommonModule {
     return $null
 }
 
-Export-ModuleMember -Function Add-SquidCachePortMap, Remove-SquidCachePortMap, Get-BestHostIp
+Export-ModuleMember -Function Add-CachingProxyPortMap, Remove-CachingProxyPortMap, Get-BestHostIp

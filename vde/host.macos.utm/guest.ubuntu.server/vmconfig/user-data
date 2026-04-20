@@ -80,8 +80,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # predictable for debugging, and (b) behavior is unchanged if
     # subiquity's apt-persistence logic ever drifts.
     - |
-      if [ -n "PROXY_URL_PLACEHOLDER" ]; then
-        echo 'Acquire::http::Proxy "PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+      if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
+        echo 'Acquire::http::Proxy "CACHING_PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         # --- HTTPS caching opt-in (macOS host path) ---
         # guest.ubuntu.server/New-VM.ps1 runs on the host and fetches the

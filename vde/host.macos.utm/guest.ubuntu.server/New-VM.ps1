@@ -36,11 +36,11 @@
 param(
     [string]$VMName = "ubuntu-server01",
     # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM) so
-    # every guest in a run agrees on a single squid-cache URL. When bound
+    # every guest in a run agrees on a single caching proxy URL. When bound
     # (even to ""), the local subnet probe is skipped and this value is
     # used verbatim: "" means "no cache, go direct"; a URL means "use this".
     # When NOT bound (standalone / manual run), fall back to the probe below.
-    [string]$ProxyUrl
+    [string]$CachingProxyUrl
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -201,7 +201,7 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 #
 # On macOS/VZ the guests cannot reach the squid-cache VM's IP directly —
 # Apple Virtualization shared-NAT isolates guest↔guest traffic. Instead,
-# Start-SquidCache.ps1 spins up a TCP forwarder on the Mac HOST that binds
+# Start-CachingProxy.ps1 spins up a TCP forwarder on the Mac HOST that binds
 # :3128 and tunnels to the squid VM. Guests point at the VZ gateway
 # (192.168.64.1:3128), which always resolves to the host's listener.
 # So here we only need to check one place: is anything answering on :3128
@@ -212,20 +212,20 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 #   * Forwarder up          → inject http://192.168.64.1:3128 (PROXY)
 #   * utmctl sees VM started
 #     but no listener on :3128
-#     locally on the host    → ERROR, exit 1 (Start-SquidCache.ps1 wasn't
+#     locally on the host    → ERROR, exit 1 (Start-CachingProxy.ps1 wasn't
 #                              re-run; the forwarder is the critical piece)
 #   * VM not registered /
 #     not started            → WARNING, proceed (direct CDN, expect 429s)
-if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
+if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
     # URL was forwarded by the caller (test runner). Skip the probe so this
     # script and the runner's detection agree on a single cache URL.
-    if ($ProxyUrl) {
-        Write-Output "  squid-cache URL forwarded by caller: $ProxyUrl — skipping local probe."
+    if ($CachingProxyUrl) {
+        Write-Output "  caching proxy URL forwarded by caller: $CachingProxyUrl — skipping local probe."
     } else {
         Write-Output "  No proxy forwarded by caller — guest will download directly."
     }
 } else {
-$ProxyUrl = ""
+$CachingProxyUrl = ""
 $utmctl = (Get-Command utmctl -ErrorAction SilentlyContinue)?.Source
 if (-not $utmctl -and (Test-Path "/Applications/UTM.app/Contents/MacOS/utmctl")) {
     $utmctl = "/Applications/UTM.app/Contents/MacOS/utmctl"
@@ -256,8 +256,8 @@ try {
 } finally { $tcp.Close() }
 
 if ($forwarderUp) {
-    $ProxyUrl = "http://192.168.64.1:3128"
-    Write-Output "  squid-cache forwarder detected on host — guest will use $ProxyUrl (→ squid VM)."
+    $CachingProxyUrl = "http://192.168.64.1:3128"
+    Write-Output "  squid-cache forwarder detected on host — guest will use $CachingProxyUrl (→ squid VM)."
 } elseif ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
     # VM is up but the host-side forwarder isn't — that's a setup bug, not
     # a transient. On VZ the guest cannot reach the VM without the forwarder,
@@ -272,12 +272,12 @@ ERROR: squid-cache VM is started but the host-side :3128 forwarder is
   probe 127.0.0.1:3128       : nothing listening on the host
 
 Apple Virtualization shared-NAT blocks guest↔guest traffic, so guests
-cannot reach the squid VM directly. Start-SquidCache.ps1 normally
+cannot reach the squid VM directly. Start-CachingProxy.ps1 normally
 launches a host-side forwarder that bridges this gap. It appears to
 have exited, been killed, or never ran after the forwarder fix landed.
 
 Fix:
-  test/Start-SquidCache.ps1   (re-runs the forwarder; safe to re-invoke)
+  test/Start-CachingProxy.ps1   (re-runs the forwarder; safe to re-invoke)
 
 State to inspect:
   ~/virtual/squid-cache/forwarder.pid
@@ -285,14 +285,14 @@ State to inspect:
   ~/virtual/squid-cache/forwarder.stderr.log
 
 To intentionally skip the cache:
-  test/Stop-SquidCache.ps1     (guest will then WARN and download direct).
+  test/Stop-CachingProxy.ps1     (guest will then WARN and download direct).
 =========================================================================
 "@
     $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
     exit 1
 } elseif ($squidStatus) {
     Write-Warning "  squid-cache VM exists (status: $squidStatus) but is not started. Guest will download directly (expect occasional 429s)."
-    Write-Warning "  To enable caching: test/Start-SquidCache.ps1"
+    Write-Warning "  To enable caching: test/Start-CachingProxy.ps1"
 } else {
     if (-not $utmctl) {
         Write-Warning "  utmctl not found — can't query UTM directly. Nothing listening on host :3128 either."
@@ -300,7 +300,7 @@ To intentionally skip the cache:
         Write-Warning "  No squid-cache VM registered with UTM and nothing listening on host :3128."
     }
     Write-Warning "  Guest will download directly — expect 429 rate-limit failures on linux-firmware + ubuntu-desktop under load."
-    Write-Warning "  To enable caching, run: test/Start-SquidCache.ps1"
+    Write-Warning "  To enable caching, run: test/Start-CachingProxy.ps1"
 }
 }
 
@@ -320,14 +320,14 @@ To intentionally skip the cache:
 # RTM_NEWLINK events that subiquity consumes in update_link → _send_update.
 # Pinning primary + disabling geoip makes the mirror election succeed on
 # the first try, so the loop exits quickly.
-if ($ProxyUrl) {
+if ($CachingProxyUrl) {
     $AptProxyBlock = @"
   apt:
     geoip: false
     primary:
       - arches: [default]
         uri: http://ports.ubuntu.com/ubuntu-ports
-    proxy: $ProxyUrl
+    proxy: $CachingProxyUrl
 "@
 } else {
     $AptProxyBlock = ""
@@ -341,21 +341,21 @@ if ($ProxyUrl) {
 # empty and the guest's HTTPS proxy block becomes a no-op.
 $CaCertBase64 = ""
 $cacheVmIp = $null
-if ($Env:ExternalProxyCacheIpAddress -and $Env:ExternalProxyCacheIpAddress -match '^\d+\.\d+\.\d+\.\d+$') {
-    # External cache: $ProxyUrl already points at the remote IP (no VZ-
+if ($Env:CachingProxyIpAddress -and $Env:CachingProxyIpAddress -match '^\d+\.\d+\.\d+\.\d+$') {
+    # External cache: $CachingProxyUrl already points at the remote IP (no VZ-
     # gateway rewrite), and the remote image is identical to the local one
     # — same Apache on :80 serving /yuruna-squid-ca.crt. cache-ip.txt is
     # not written for external caches, so read the IP straight from the
     # environment variable.
-    $cacheVmIp = $Env:ExternalProxyCacheIpAddress.Trim()
-} elseif ($ProxyUrl) {
+    $cacheVmIp = $Env:CachingProxyIpAddress.Trim()
+} elseif ($CachingProxyUrl) {
     $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
     if (Test-Path $cacheIpFile) {
         $candidate = (Get-Content -Raw $cacheIpFile).Trim()
         if ($candidate -match '^\d+\.\d+\.\d+\.\d+$') { $cacheVmIp = $candidate }
     }
 }
-if ($ProxyUrl -and $cacheVmIp) {
+if ($CachingProxyUrl -and $cacheVmIp) {
     try {
         $caResp = Invoke-WebRequest -Uri "http://${cacheVmIp}/yuruna-squid-ca.crt" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
         if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
@@ -369,7 +369,7 @@ if ($ProxyUrl -and $cacheVmIp) {
     }
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('PROXY_URL_PLACEHOLDER', $ProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64)
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64)
 
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

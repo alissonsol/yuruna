@@ -193,7 +193,7 @@ Write-Output "   this can take 5-15 minutes on a slow connection — be patient)
 
 # Discover the cache VM's IP. The KVP+ARP dual strategy lives in
 # VM.common.psm1 (Get-CacheVmCandidateIp) — this is the same primitive
-# consumers (guest.ubuntu.server/desktop) and the Start-SquidCache.ps1
+# consumers (guest.ubuntu.server/desktop) and the Start-CachingProxy.ps1
 # summary call, so the producer and its consumers never see different
 # answers about which IPs belong to this VM.
 #
@@ -304,12 +304,12 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
     # Probe EACH candidate on :3128. When ARP discovery returned stale +
     # live IPs for the same MAC, only the live one will answer. Whichever
     # responds first is adopted as the authoritative $cacheIp.
-    # Test-SquidPort (VM.common.psm1) is the shared non-blocking probe;
+    # Test-CachingProxyPort (VM.common.psm1) is the shared non-blocking probe;
     # 1000 ms is generous enough to ride over momentary scheduler stalls
     # during a heavy cloud-init apt-install without starving progress.
     $connected = $false
     foreach ($ip in $cacheCandidateIps) {
-        if (Test-SquidPort -IpAddress $ip -TimeoutMs 1000) {
+        if (Test-CachingProxyPort -IpAddress $ip -TimeoutMs 1000) {
             $cacheIp = $ip
             $connected = $true
             break

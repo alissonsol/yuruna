@@ -26,7 +26,7 @@
       1. git pull (unless -NoGitPull)
       2. re-read test-config.json
       3. refresh base images if stale
-      4. detect the squid-cache (local VM or remote IP)
+      4. detect the caching proxy (local VM or remote IP)
       5. for each guest in guestOrder: cleanup → New-VM → Start-VM →
          Verify-VM → Invoke-PoolTest
       6. log, pause, next cycle
@@ -38,17 +38,17 @@
 
     ENVIRONMENT VARIABLES:
 
-    $Env:ExternalProxyCacheIpAddress — point the runner at a remote
+    $Env:CachingProxyIpAddress — point the runner at a remote
       squid-cache instead of looking for a local VM. When set, guest
       New-VM.ps1 invocations inherit the remote URL, fetch the CA from
       http://<ip>/yuruna-squid-ca.crt, and wire apt to http://<ip>:3128
       (HTTP) + http://<ip>:3129 (HTTPS). The remote host must run the
-      same squid-cache image; see test/SquidCache.md for the host-side
+      same caching proxy image; see test/CachingProxy.md for the host-side
       setup. Un-set or empty to fall back to local discovery.
 
       Validate a candidate cache BEFORE launching a full cycle with:
-          $Env:ExternalProxyCacheIpAddress = '10.0.0.5'
-          pwsh test/Test-ProxyCache.ps1
+          $Env:CachingProxyIpAddress = '10.0.0.5'
+          pwsh test/Test-CachingProxy.ps1
       That script TCP-probes :3128, :3129, :80, :3000 and fetches the
       CA cert — PASS / FAIL / WARN per check, exit 1 if any required
       port fails.
@@ -78,13 +78,13 @@
     Set to $true to raise $VerbosePreference to Continue.
 
 .EXAMPLE
-    # Local squid-cache (previously brought up by test/Start-SquidCache.ps1)
+    # Local squid-cache (previously brought up by test/Start-CachingProxy.ps1)
     pwsh test/Invoke-TestRunner.ps1
 
 .EXAMPLE
     # Remote squid-cache at 10.0.0.5 — no local VM needed.
-    $Env:ExternalProxyCacheIpAddress = '10.0.0.5'
-    pwsh test/Test-ProxyCache.ps1          # preflight
+    $Env:CachingProxyIpAddress = '10.0.0.5'
+    pwsh test/Test-CachingProxy.ps1          # preflight
     pwsh test/Invoke-TestRunner.ps1
 
 .EXAMPLE
@@ -212,7 +212,7 @@ if (Test-Path $yurunaLogModule) {
     Import-Module $yurunaLogModule -Global -Force
 }
 
-foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log", "Test.ProxyCache", "Test.PortMap")) {
+foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log", "Test.CachingProxy", "Test.PortMap")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -380,54 +380,54 @@ $global:VerbosePreference = $savedVerbose
 $YurunaLogDir = Get-YurunaLogDir
 Write-Output "Log folder: $YurunaLogDir"
 
-# Proxy-cache detection moved to Test.ProxyCache.psm1 so Start-StatusServer
+# Proxy-cache detection moved to Test.CachingProxy.psm1 so Start-StatusServer
 # can share the same probe — both writers (console banner here, status-page
-# banner via status/log/proxy-cache.txt) stay in lockstep with whatever URL
+# banner via status/log/caching-proxy.txt) stay in lockstep with whatever URL
 # gets injected into autoinstall user-data by guest.ubuntu.desktop/New-VM.ps1.
-$proxyCacheUrl = Test-ProxyCacheAvailable -HostType $HostType
+$cachingProxyUrl = Test-CachingProxyAvailable -HostType $HostType
 
 # When a local cache is detected, expose the VM's ports on the host so
 # LAN clients and operators on other machines can reach the proxy, the
 # ssl-bump listener, Apache's CA cert, and the Grafana dashboard without
-# reaching into the VM's NAT subnet directly. Add-SquidCachePortMap
+# reaching into the VM's NAT subnet directly. Add-CachingProxyPortMap
 # dispatches per-platform via Test.PortMap.psm1 — netsh portproxy +
 # firewall rule on Hyper-V, detached TcpListener forwarders on macOS/UTM.
 # When no cache is detected, undo any mapping a prior cycle left in place.
 #
 # Port list is @(80, 3128, 3129, 3000) on both platforms and MUST match
-# the Start-SquidCache.ps1 call site — Add-SquidCachePortMap runs
-# Clear-AllSquidCachePortMapping first, so a narrower list at either
+# the Start-CachingProxy.ps1 call site — Add-CachingProxyPortMap runs
+# Clear-AllCachingProxyPortMapping first, so a narrower list at either
 # caller would tear down ports the other just set up. Local guests
 # continue to reach the VM directly on their NAT subnet regardless of
 # what's mapped on the host.
 #
-# External-cache branch: when $Env:ExternalProxyCacheIpAddress is set,
-# Test-ProxyCacheAvailable returns the remote URL and the remote host is
+# External-cache branch: when $Env:CachingProxyIpAddress is set,
+# Test-CachingProxyAvailable returns the remote URL and the remote host is
 # assumed to serve all four ports itself. Guests reach the remote IP via
 # the host's outbound NAT, so no local portproxy or forwarder is needed —
-# we skip Add-SquidCachePortMap entirely and link the dashboard directly
+# we skip Add-CachingProxyPortMap entirely and link the dashboard directly
 # at the remote IP. Remove any leftover mappings from a prior local-cache
 # cycle so the old VM IP doesn't keep answering stale proxy requests.
 #
 # The detection line renders the word "detected" as an ANSI OSC 8
 # hyperlink to the Grafana dashboard so operators in a modern terminal
 # (Windows Terminal, VS Code integrated) can ctrl-click straight to the
-# squid-cache view. Terminals without OSC 8 support drop the escapes
+# caching proxy view. Terminals without OSC 8 support drop the escapes
 # silently and just show "detected" as plain text — no regression.
-if ($proxyCacheUrl) {
-    $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
-    $isExternal = [bool]$Env:ExternalProxyCacheIpAddress
+if ($cachingProxyUrl) {
+    $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+    $isExternal = [bool]$Env:CachingProxyIpAddress
     $mapOk = $false
     $bestIp = $null
     if ($isExternal) {
         # Remote cache serves its own ports; clear any local mapping a
         # prior cycle left, then point the dashboard at the remote.
-        [void](Remove-SquidCachePortMap)
+        [void](Remove-CachingProxyPortMap)
         $mapOk = $true
         $bestIp = $vmIp
     } elseif ($vmIp) {
-        $SquidExposedPorts = @(80, 3128, 3129, 3000)
-        $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port $SquidExposedPorts
+        $CachingProxyExposedPorts = @(80, 3128, 3129, 3000)
+        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp -Port $CachingProxyExposedPorts
         $mapOk = [bool]$mapResult
         $bestIp = Get-BestHostIp
         if (-not $bestIp) { $bestIp = $vmIp }  # fallback when no routable iface is found
@@ -437,13 +437,13 @@ if ($proxyCacheUrl) {
         $esc = [char]27
         $label = if ($isExternal) { "detected (external: $vmIp)" } else { "detected" }
         $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\${label}${esc}]8;;${esc}\"
-        Write-Output "Proxy cache: $linkedDetected"
+        Write-Output "Caching proxy: $linkedDetected"
     } else {
-        Write-Output "Proxy cache: detected (port map failed)"
+        Write-Output "Caching proxy: detected (port map failed)"
     }
 } else {
-    Write-Output "Proxy cache: not detected (guests will download directly from Ubuntu mirrors)"
-    [void](Remove-SquidCachePortMap)
+    Write-Output "Caching proxy: not detected (guests will download directly from Ubuntu mirrors)"
+    [void](Remove-CachingProxyPortMap)
 }
 
 $savedVerbose = $global:VerbosePreference
@@ -868,8 +868,8 @@ while ($true) {
         # where apt then fails with "No route to host" at install time.
         # When no cache was detected, pass "" so guests skip their own
         # probe and go direct: one detection event, one outcome.
-        $newVmProxy = if ($proxyCacheUrl) { $proxyCacheUrl } else { "" }
-        $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName -ProxyUrl $newVmProxy
+        $newVmProxy = if ($cachingProxyUrl) { $cachingProxyUrl } else { "" }
+        $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName -CachingProxyUrl $newVmProxy
         if ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
             Write-Output "  $GuestKey New-VM: PASS"

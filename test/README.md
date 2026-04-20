@@ -161,22 +161,22 @@ Each check prints `[PASS]`, `[WARN]`, or `[FAIL]` with diagnostic detail.
 pwsh test/Test-Config.ps1 -SkipSend
 ```
 
-## Using a remote squid-cache
+## Using a remote caching proxy
 
-By default the runner looks for a local `squid-cache` VM (see
-[SquidCache.md](SquidCache.md)). To point a test host at an **existing
-remote squid-cache** on the LAN — e.g. a shared cache VM on another
+By default the runner looks for a local `squid-cache` VM (caching proxy) (see
+[CachingProxy.md](CachingProxy.md)). To point a test host at an **existing
+remote caching proxy** on the LAN — e.g. a shared cache VM on another
 machine — set one environment variable before launching the runner:
 
 ```powershell
 # Windows
-$Env:ExternalProxyCacheIpAddress = '10.0.0.5'
+$Env:CachingProxyIpAddress = '10.0.0.5'
 pwsh test\Invoke-TestRunner.ps1
 ```
 
 ```bash
 # macOS
-export ExternalProxyCacheIpAddress=10.0.0.5
+export CachingProxyIpAddress=10.0.0.5
 pwsh test/Invoke-TestRunner.ps1
 ```
 
@@ -187,20 +187,20 @@ When set, the variable short-circuits local cache discovery in both
 `http://<remote>:3128` (HTTP) + `http://<remote>:3129` (HTTPS). Un-set
 the variable to fall back to local discovery.
 
-The remote host must run the same squid-cache image — see the
-[external cache override](SquidCache.md#external-cache-override) and
-[serving remote clients](SquidCache.md#serving-remote-clients) sections
-of `SquidCache.md` for the host-side setup (Windows: elevated
-`Start-SquidCache.ps1`; macOS: `sudo -E pwsh ./Start-SquidCache.ps1`).
+The remote host must run the same caching proxy image — see the
+[external cache override](CachingProxy.md#external-cache-override) and
+[serving remote clients](CachingProxy.md#serving-remote-clients) sections
+of `CachingProxy.md` for the host-side setup (Windows: elevated
+`Start-CachingProxy.ps1`; macOS: `sudo -E pwsh ./Start-CachingProxy.ps1`).
 
 **Validate the remote cache before a full cycle:**
 
 ```powershell
-$Env:ExternalProxyCacheIpAddress = '10.0.0.5'
-pwsh test/Test-ProxyCache.ps1
+$Env:CachingProxyIpAddress = '10.0.0.5'
+pwsh test/Test-CachingProxy.ps1
 ```
 
-[Test-ProxyCache.ps1](Test-ProxyCache.ps1) TCP-probes `:3128`, `:3129`,
+[Test-CachingProxy.ps1](Test-CachingProxy.ps1) TCP-probes `:3128`, `:3129`,
 `:80`, `:3000` and HTTP-fetches the CA cert. PASS/FAIL/WARN per check,
 exit code `1` on any required-port failure — suitable for a preflight
 `&&` chain. With no env var it falls back to local discovery, same
@@ -336,7 +336,7 @@ pwsh test/Stop-StatusServer.ps1
 Guest VMs and peer hosts can reach the test machine over SSH/SCP (e.g. to
 push artifacts or pull logs) once an SSH server is running on the host.
 This is **not installed automatically** — `Start-StatusServer.ps1` only
-reports the current state on startup (similar to the "Proxy cache:
+reports the current state on startup (similar to the "Caching proxy:
 detected/not detected" line). To install, run once:
 
 ```powershell

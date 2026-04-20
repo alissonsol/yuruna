@@ -19,12 +19,12 @@
 param(
     [string]$VMName = "ubuntu-desktop01",
     # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM) so
-    # every guest in a run agrees on a single squid-cache URL. When bound
+    # every guest in a run agrees on a single caching proxy URL. When bound
     # (even to ""), the local discovery is skipped and this value is used
     # verbatim: "" means "no cache, go direct"; a URL means "use this".
     # When NOT bound (standalone / manual run), fall back to the discovery
     # block below.
-    [string]$ProxyUrl
+    [string]$CachingProxyUrl
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -148,18 +148,18 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 #     doesn't answer within a few seconds → ERROR, exit 1 (don't guess;
 #                                            the cache owner should fix it
 #                                            before launching guest installs)
-if ($PSBoundParameters.ContainsKey('ProxyUrl')) {
+if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
     # URL was forwarded by the caller (test runner). Skip discovery so this
     # script and the runner agree on a single cache URL. On Hyper-V the
     # race is narrower than on UTM (MAC-scoped neighbor lookup, not subnet
     # scan), but keeping one source of truth still simplifies debugging.
-    if ($ProxyUrl) {
-        Write-Output "  squid-cache URL forwarded by caller: $ProxyUrl — skipping local discovery."
+    if ($CachingProxyUrl) {
+        Write-Output "  caching proxy URL forwarded by caller: $CachingProxyUrl — skipping local discovery."
     } else {
         Write-Output "  No proxy forwarded by caller — guest will download directly."
     }
 } else {
-$ProxyUrl = ""
+$CachingProxyUrl = ""
 $cacheVM = Get-VM -Name "squid-cache" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
     Write-Warning "  No squid-cache VM exists on this host. Guest will download packages directly from Ubuntu mirrors — expect 429 rate-limit failures on linux-firmware under load."
@@ -169,14 +169,14 @@ if (-not $cacheVM) {
     Write-Warning "  To enable caching: Start-VM squid-cache ; then wait for cloud-init to finish."
 } else {
     # KVP+ARP dual-strategy discovery + :3128 probe live in VM.common.psm1
-    # (Get-WorkingSquidProxyUrl). Keeping the discovery in one module means
+    # (Get-WorkingCachingProxyUrl). Keeping the discovery in one module means
     # this consumer, the producer (guest.squid-cache/New-VM.ps1), and the
-    # Start-SquidCache.ps1 summary line all see the same answer — prior
+    # Start-CachingProxy.ps1 summary line all see the same answer — prior
     # drift had Start-SquidCache's KVP-only summary reporting "discovery
     # failed" while this script's ARP path was finding the cache fine.
-    $ProxyUrl = Get-WorkingSquidProxyUrl -VMName "squid-cache"
-    if ($ProxyUrl) {
-        Write-Output "  squid-cache VM detected at $ProxyUrl — guest will use local proxy."
+    $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName "squid-cache"
+    if ($CachingProxyUrl) {
+        Write-Output "  squid-cache VM detected at $CachingProxyUrl — guest will use local proxy."
     } else {
         $cacheIps = Get-CacheVmCandidateIp -VM $cacheVM
         $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
@@ -250,13 +250,13 @@ first:  Stop-VM squid-cache   (guest will then WARN and download direct).
 # 429'd against security.ubuntu.com) route through squid. When no cache,
 # omit the block entirely — subiquity then behaves exactly as before.
 # Single `  apt:` key (2-space indent matches sibling keys under `autoinstall:`).
-if ($ProxyUrl) {
-    $AptProxyBlock = "  apt:`n    proxy: $ProxyUrl"
+if ($CachingProxyUrl) {
+    $AptProxyBlock = "  apt:`n    proxy: $CachingProxyUrl"
 } else {
     $AptProxyBlock = ""
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('PROXY_URL_PLACEHOLDER', $ProxyUrl)
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

@@ -66,7 +66,7 @@ function CreateIso {
 # Prior state had the same KVP+ARP dual-strategy copy-pasted across
 # guest.squid-cache/New-VM.ps1, guest.ubuntu.server/New-VM.ps1,
 # guest.ubuntu.desktop/New-VM.ps1, and a KVP-only variant in
-# test/Start-SquidCache.ps1. The variants drifted — Start-SquidCache's
+# test/Start-CachingProxy.ps1. The variants drifted — Start-SquidCache's
 # KVP-only summary would print "(discovery failed)" even when the ARP
 # path inside the inner New-VM.ps1 had already succeeded and the cache
 # was serving. These three functions are the single source of truth so
@@ -138,7 +138,7 @@ function Get-CacheVmCandidateIp {
     ($kvpIps + $arpIps) | Select-Object -Unique
 }
 
-function Test-SquidPort {
+function Test-CachingProxyPort {
     <#
     .SYNOPSIS
         Non-blocking TCP probe returning $true iff the port accepts a
@@ -167,14 +167,14 @@ function Test-SquidPort {
     }
 }
 
-function Get-WorkingSquidProxyUrl {
+function Get-WorkingCachingProxyUrl {
     <#
     .SYNOPSIS
         "http://<ip>:3128" of a squid-cache VM that actually answers on
         port 3128, or $null if none of the candidate IPs respond.
     .DESCRIPTION
         One-shot helper for consumers (ubuntu guests) and the
-        Start-SquidCache.ps1 summary. Does NOT wait for the cache VM to
+        Start-CachingProxy.ps1 summary. Does NOT wait for the cache VM to
         boot or for squid to come up — callers expect the VM to already
         be running and squid listening. The producer side
         (guest.squid-cache/New-VM.ps1) uses Get-CacheVmCandidateIp
@@ -194,7 +194,7 @@ function Get-WorkingSquidProxyUrl {
     if (-not $cacheVM -or $cacheVM.State -ne 'Running') { return $null }
 
     foreach ($ip in (Get-CacheVmCandidateIp -VM $cacheVM)) {
-        if (Test-SquidPort -IpAddress $ip -TimeoutMs $ProbeTimeoutMs) {
+        if (Test-CachingProxyPort -IpAddress $ip -TimeoutMs $ProbeTimeoutMs) {
             return "http://${ip}:3128"
         }
     }

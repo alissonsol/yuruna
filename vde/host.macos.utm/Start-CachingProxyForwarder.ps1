@@ -38,9 +38,9 @@
     Pure PowerShell implementation (TcpListener + runspace pool per
     connection) so there is no brew/socat dependency.
 
-    Typically launched as a detached subprocess by Start-SquidCache.ps1
-    (via VM.common.psm1's Start-SquidForwarder) and killed by
-    Stop-SquidCache.ps1. The PID is written to -PidFile so the stopper
+    Typically launched as a detached subprocess by Start-CachingProxy.ps1
+    (via VM.common.psm1's Start-CachingProxyForwarder) and killed by
+    Stop-CachingProxy.ps1. The PID is written to -PidFile so the stopper
     can find it without pgrep.
 
 .PARAMETER CacheIp
@@ -65,10 +65,10 @@
     forwarded / closed). Stdout is still written either way.
 
 .EXAMPLE
-    pwsh Start-SquidForwarder.ps1 -CacheIp 192.168.64.3
+    pwsh Start-CachingProxyForwarder.ps1 -CacheIp 192.168.64.3
 
 .EXAMPLE
-    # How Start-SquidCache.ps1 launches it (detached):
+    # How Start-CachingProxy.ps1 launches it (detached):
     Start-Process pwsh -ArgumentList @(
         '-NoProfile','-File', $forwarderScript,
         '-CacheIp', '192.168.64.3',

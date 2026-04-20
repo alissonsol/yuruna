@@ -207,7 +207,7 @@ try {
 # Add-WindowsCapability. That install is now externalized to
 # test/Start-SshServer.ps1, which the admin runs once explicitly. Here we
 # just probe the state and log it — same pattern as Invoke-TestRunner's
-# "Proxy cache: detected/not detected" line — so the user knows on startup
+# "Caching proxy: detected/not detected" line — so the user knows on startup
 # whether SSH is ready without waiting for the detached HTTP server.
 #
 # $detectedHost is also threaded into the detached server's here-string so
@@ -238,7 +238,7 @@ try {
     Write-Warning "SSH-server check failed (continuing with HTTP status server): $_"
 }
 
-# --- Probe for proxy cache and record state to status/log/proxy-cache.txt ---
+# --- Probe for proxy cache and record state to status/log/caching-proxy.txt ---
 # The UI banner appends this string to the status text so a viewer can see
 # at a glance whether the harness is behind a local squid. The file holds
 # ready-to-embed HTML (including an <a href> to the cachemgr URL) so the
@@ -246,45 +246,45 @@ try {
 # Start-StatusServer time — restart the server to refresh after bringing
 # the squid cache up or down. Needs $detectedHost, so runs AFTER the SSH
 # block that performs host detection.
-$ProxyCacheFile = Join-Path $LogDir "proxy-cache.txt"
+$CachingProxyFile = Join-Path $LogDir "caching-proxy.txt"
 try {
-    $proxyCacheModPath = Join-Path $ModulesDir "Test.ProxyCache.psm1"
-    if ((Test-Path $proxyCacheModPath) -and $detectedHost) {
-        Import-Module -Name $proxyCacheModPath -Force
-        $proxyCacheUrl = Test-ProxyCacheAvailable -HostType $detectedHost
-        if ($proxyCacheUrl) {
+    $cachingProxyModPath = Join-Path $ModulesDir "Test.CachingProxy.psm1"
+    if ((Test-Path $cachingProxyModPath) -and $detectedHost) {
+        Import-Module -Name $cachingProxyModPath -Force
+        $cachingProxyUrl = Test-CachingProxyAvailable -HostType $detectedHost
+        if ($cachingProxyUrl) {
             # Attempt port mapping so the status-page banner reports the
             # same success/failure state Invoke-TestRunner prints. Add-
-            # SquidCachePortMap dispatches per-platform via Test.PortMap
+            # CachingProxyPortMap dispatches per-platform via Test.PortMap
             # — netsh portproxy on Hyper-V, detached TcpListener
             # forwarders on macOS/UTM. Both channels end up reading the
-            # same proxy-cache.txt so the status-page banner is in lock-
+            # same caching-proxy.txt so the status-page banner is in lock-
             # step with the console.
             #
             # Port list @(80, 3128, 3129, 3000) on both platforms MUST
-            # match Invoke-TestRunner.ps1 and Start-SquidCache.ps1 — Add-
-            # SquidCachePortMap runs Clear-AllSquidCachePortMapping first,
+            # match Invoke-TestRunner.ps1 and Start-CachingProxy.ps1 — Add-
+            # CachingProxyPortMap runs Clear-AllCachingProxyPortMapping first,
             # so a narrower list here would tear down ports the other
             # callers just set up.
             #
-            # External-cache branch: when $Env:ExternalProxyCacheIpAddress
-            # is set, Test-ProxyCacheAvailable returns the remote URL and
+            # External-cache branch: when $Env:CachingProxyIpAddress
+            # is set, Test-CachingProxyAvailable returns the remote URL and
             # the remote host exposes all its ports itself. Skip the
             # local portproxy/forwarder entirely — the dashboard link
             # points straight at the remote IP.
-            $proxyCacheContent = $null
+            $cachingProxyContent = $null
             $portMapModPath = Join-Path $ModulesDir "Test.PortMap.psm1"
             $mapOk = $false
             $bestIp = $null
-            $isExternal = [bool]$Env:ExternalProxyCacheIpAddress
+            $isExternal = [bool]$Env:CachingProxyIpAddress
             if (Test-Path $portMapModPath) {
                 Import-Module -Name $portMapModPath -Force
                 if ($isExternal) {
                     # Remote serves its own ports; surface the remote IP
                     # directly in the dashboard link. Clear any stale
                     # local mapping from a prior local-cache cycle.
-                    [void](Remove-SquidCachePortMap)
-                    $bestIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+                    [void](Remove-CachingProxyPortMap)
+                    $bestIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
                     $mapOk = [bool]$bestIp
                 } else {
                     # Local-cache port-map target IP: on Windows, Test-
@@ -293,13 +293,13 @@ try {
                     # so parsing it out works. On macOS the URL is
                     # http://192.168.64.1:3128 — the VZ-gateway URL
                     # guests use, NOT the cache VM — and feeding
-                    # 192.168.64.1 to Start-SquidForwarder would make the
+                    # 192.168.64.1 to Start-CachingProxyForwarder would make the
                     # forwarder tunnel to its own listen socket (self-
                     # loop: TCP accepts succeed, nothing reaches squid,
                     # subiquity sees "Connection failed [IP: 192.168.64.1
                     # 3128]" and falls back to an offline install). Read
                     # the real VM IP from cache-ip.txt written by
-                    # Start-SquidCache.ps1.
+                    # Start-CachingProxy.ps1.
                     if ($IsMacOS) {
                         $vmIp = $null
                         $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
@@ -308,11 +308,11 @@ try {
                             if ($candidate -match '^\d+\.\d+\.\d+\.\d+$') { $vmIp = $candidate }
                         }
                     } else {
-                        $vmIp = if ($proxyCacheUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+                        $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
                     }
                     $squidPorts = @(80, 3128, 3129, 3000)
                     if ($vmIp) {
-                        $mapResult = Add-SquidCachePortMap -VMIp $vmIp -Port $squidPorts
+                        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp -Port $squidPorts
                         $mapOk = [bool]$mapResult
                     }
                     if ($mapOk) {
@@ -328,17 +328,17 @@ try {
                 # parsers work either way, but strict ones may trip on
                 # bare `&` adjacent to entity-like sequences.
                 $hrefUrl = $dashboardUrl -replace '&', '&amp;'
-                $proxyCacheContent = 'Proxy cache: <a href="' + $hrefUrl + '" target="_blank">detected</a>'
-                Write-Output "Proxy cache: detected, port map OK, dashboard=$dashboardUrl — written to $ProxyCacheFile"
+                $cachingProxyContent = 'Caching proxy: <a href="' + $hrefUrl + '" target="_blank">detected</a>'
+                Write-Output "Caching proxy: detected, port map OK, dashboard=$dashboardUrl — written to $CachingProxyFile"
             } else {
-                $proxyCacheContent = 'Proxy cache: detected (port map failed)'
-                Write-Output "Proxy cache: detected, port map failed — written to $ProxyCacheFile"
+                $cachingProxyContent = 'Caching proxy: detected (port map failed)'
+                Write-Output "Caching proxy: detected, port map failed — written to $CachingProxyFile"
             }
         } else {
-            $proxyCacheContent = 'Proxy cache: not detected'
-            Write-Output "Proxy cache: not detected — written to $ProxyCacheFile"
+            $cachingProxyContent = 'Caching proxy: not detected'
+            Write-Output "Caching proxy: not detected — written to $CachingProxyFile"
         }
-        [System.IO.File]::WriteAllText($ProxyCacheFile, $proxyCacheContent, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($CachingProxyFile, $cachingProxyContent, [System.Text.UTF8Encoding]::new($false))
     } else {
         Write-Warning "Proxy-cache probe skipped — module missing or host not detected."
     }

@@ -295,22 +295,22 @@
       console.warn('Could not load log/ipaddresses.txt:', e.message);
     }
   }
-  // Raw HTML from status/log/proxy-cache.txt. The server rewrites this
+  // Raw HTML from status/log/caching-proxy.txt. The server rewrites this
   // file at the start of every test cycle (Start-StatusServer.ps1 runs
   // with -Restart from Invoke-TestRunner.ps1 on each cycle, and its
   // proxy-cache probe re-runs then). The UI re-fetches on every
   // loadStatus() poll so a page left open sees the new cycle's proxy
   // state without a manual reload.
   // Appended to the "Latest Cycle" section title (see renderStatus).
-  // Declared before any init call so the loadProxyCacheText() invocation
+  // Declared before any init call so the loadCachingProxyText() invocation
   // below can't hit the temporal-dead-zone.
-  let proxyCacheHtml = '';
+  let cachingProxyHtml = '';
 
   loadIpAddresses();
-  // loadProxyCacheText() is called again inside loadStatus() on every
-  // poll — this first call just populates proxyCacheHtml before the
+  // loadCachingProxyText() is called again inside loadStatus() on every
+  // poll — this first call just populates cachingProxyHtml before the
   // first renderStatus fires so the section title has it immediately.
-  loadProxyCacheText();
+  loadCachingProxyText();
 
   function cls(status) {
     return ['idle','running','pass','fail','skipped','pending','paused'].includes(status) ? status : 'idle';
@@ -330,27 +330,27 @@
   }
 
   // Refresh the "Latest Cycle" section title with proxy-cache HTML.
-  // Split out from renderStatus so the first loadProxyCacheText() can
+  // Split out from renderStatus so the first loadCachingProxyText() can
   // update the UI even before the first status.json poll lands.
   function refreshCycleTitle() {
     const el = document.getElementById('sec-meta-title');
     if (!el) return;
-    // proxyCacheHtml is trusted server-generated HTML (may include an
+    // cachingProxyHtml is trusted server-generated HTML (may include an
     // <a href> to the cachemgr URL). "Latest Cycle" is a literal
     // constant so there's nothing to escape on the left side.
-    el.innerHTML = proxyCacheHtml
-      ? ('Latest Cycle - ' + proxyCacheHtml)
+    el.innerHTML = cachingProxyHtml
+      ? ('Latest Cycle - ' + cachingProxyHtml)
       : 'Latest Cycle';
   }
 
-  async function loadProxyCacheText() {
+  async function loadCachingProxyText() {
     try {
-      const res = await fetch('log/proxy-cache.txt?_=' + Date.now(), { cache: 'no-store' });
+      const res = await fetch('log/caching-proxy.txt?_=' + Date.now(), { cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      proxyCacheHtml = (await res.text()).trim();
+      cachingProxyHtml = (await res.text()).trim();
     } catch (e) {
-      proxyCacheHtml = '';
-      console.warn('Could not load log/proxy-cache.txt:', e.message);
+      cachingProxyHtml = '';
+      console.warn('Could not load log/caching-proxy.txt:', e.message);
     }
     refreshCycleTitle();
   }
@@ -647,12 +647,12 @@
     // crashing, etc.) show up without needing a full page reload. Fire-and-
     // forget — loadSshStatus handles its own errors.
     loadSshStatus();
-    // Re-read proxy-cache.txt every poll. Start-StatusServer.ps1 rewrites
+    // Re-read caching-proxy.txt every poll. Start-StatusServer.ps1 rewrites
     // it at the beginning of every test cycle (Invoke-TestRunner runs
-    // it with -Restart, which re-triggers the Test-ProxyCacheAvailable
+    // it with -Restart, which re-triggers the Test-CachingProxyAvailable
     // probe), so the UI picks up a new cycle's cache state within one
     // poll interval even if the page was left open across cycles.
-    loadProxyCacheText();
+    loadCachingProxyText();
   }
 
   setInterval(() => {

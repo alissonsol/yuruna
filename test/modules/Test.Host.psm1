@@ -1022,7 +1022,7 @@ function Invoke-GitPull {
     # Fetch latest from remote without modifying the working tree. Retry
     # with linear backoff on failure: on macOS, the Application Firewall
     # briefly stalls a process's outbound TCP connects right after it
-    # opens a new listening socket (status server, squid-cache forwarders).
+    # opens a new listening socket (status server, caching proxy forwarders).
     # That shows up as "Couldn't connect to server after 1 ms / No route
     # to host" on the very first fetches of a freshly-launched runner and
     # has recovered later than a 5s wait in observed runs. 5 retries with

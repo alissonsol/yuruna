@@ -4,7 +4,7 @@ Canonical documentation — setup, cache configuration, monitoring (Grafana
 + Prometheus + cachemgr.cgi), access / credentials, and management — now
 lives at:
 
-**[test/SquidCache.md](../../../test/SquidCache.md)**
+**[test/CachingProxy.md](../../../test/CachingProxy.md)**
 
 Scripts and config in this folder:
 

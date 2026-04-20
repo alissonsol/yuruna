@@ -573,11 +573,22 @@ try {
 } finally { `$listener.Stop() }
 "@
 
-$encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($serverScript))
+# Write the server script to a file and launch with -File rather than
+# base64-encoding it onto the command line. The server script grew past
+# ~23 KB of source, which becomes ~61 KB when base64(UTF-16LE) encoded --
+# that plus the pwsh.exe path (on Windows Store installs, pwsh resolves
+# to a 100+ char Microsoft.PowerShell_*_8wekyb3d8bbwe\pwsh.exe path)
+# pushes the command line past the Windows CreateProcess 32,767-char
+# limit. The failure mode is a Start-Process error reading
+# "The filename or extension is too long" which is obscure and easy to
+# misread as a path problem. -File sidesteps the size limit entirely:
+# pwsh reads the script from disk instead of its command line.
+$serverScriptFile = Join-Path $StatusDir ".status-server.ps1"
+Set-Content -Path $serverScriptFile -Value $serverScript -Encoding UTF8
 
 if ($IsWindows) {
     $proc = Start-Process -FilePath "pwsh" `
-        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-EncodedCommand", $encodedCommand `
+        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $serverScriptFile `
         -PassThru
     Set-Content -Path $PidFile -Value $proc.Id
 } else {
@@ -585,7 +596,7 @@ if ($IsWindows) {
     # The subshell (...) + & backgrounds the process in a new process group,
     # and nohup prevents SIGHUP from killing it when the caller exits.
     $stdErr = Join-Path $StatusDir "server.err"
-    & bash -c "nohup pwsh -NoProfile -EncodedCommand $encodedCommand > /dev/null 2>'$stdErr' & echo `$!"  | Set-Variable -Name bgPid
+    & bash -c "nohup pwsh -NoProfile -File '$serverScriptFile' > /dev/null 2>'$stdErr' & echo `$!"  | Set-Variable -Name bgPid
     Set-Content -Path $PidFile -Value $bgPid
 }
 

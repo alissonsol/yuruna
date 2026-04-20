@@ -29,11 +29,17 @@
       * machine inactivity lock → disabled
       * lock screen on resume → disabled
       * inbound ICMPv4 echo allowed (guest VMs + LAN can ping the host)
+      * inbound TCP on the status-server port allowed (LAN can see status)
+      * display scale / text scale → 100% (prevents Tesseract OCR failures
+        on VM screenshots caused by HiDPI up-scaling on fresh Win11 laptops)
     Requires Administrator elevation. Idempotent — safe to re-run.
 
     Run this before Invoke-TestRunner.ps1 when Assert-HostConditionSet
     reports that display timeout or lock screen settings will interfere
-    with test runs.
+    with test runs. If the scale reset fires on a machine that was at
+    125% or 150%, sign out and back in (or reboot) before the next run
+    so the compositor picks up the new DPI — OCR otherwise still sees
+    the old scale.
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.

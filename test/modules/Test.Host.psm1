@@ -662,8 +662,12 @@ function Set-WindowsHostConditionSet {
     <#
     .SYNOPSIS
     Configures Windows host settings needed for unattended VM testing:
-    starts the Hyper-V service, disables display timeout, and disables the
-    inactivity lock screen.  Requires Administrator elevation.  Idempotent.
+    starts the Hyper-V service, disables display timeout, disables the
+    inactivity lock screen, opens ICMPv4 + the status-server TCP port in
+    the firewall, and resets display/text scale to 100% (so OCR on VM
+    screenshots isn't defeated by HiDPI up-scaling). Requires
+    Administrator elevation. Idempotent. Scale changes take effect on
+    next sign-in.
     .EXAMPLE
     Set-WindowsHostConditionSet          # apply all settings
     Set-WindowsHostConditionSet -WhatIf  # show what would change without applying
@@ -960,6 +964,120 @@ function Set-WindowsHostConditionSet {
             Write-Warning "  $($r.DisplayName) [profile: $($r.Profile)]"
         }
         Write-Warning "If remote clients still get 'connection timed out' on port $statusPort, disable these or ask your admin — GPO may be pushing them."
+    }
+
+    # ── 7. Display text scale → 100% ─────────────────────────────────────
+    # OCR on VM screenshots (Tesseract, Get-VMWindowScreenshot path) degrades
+    # when the host display is scaled above 100%. The vmconnect window
+    # renders the guest framebuffer through the DPI-scaled compositor,
+    # and the upscaled bitmap defeats Tesseract's character segmentation —
+    # waitForText silently times out on text that a human reads fine. New
+    # Windows 11 machines (HiDPI laptops, 4K monitors) commonly ship
+    # defaulting to 125% or 150%, not 100%.
+    #
+    # Three independent scaling knobs, all reset to 100% for the current
+    # user (HKCU). All three require a sign-out to take effect; the
+    # warning at the end tells the user when one fired.
+    #
+    #   7a. Per-monitor DPI (Settings → System → Display → Scale).
+    #       HKCU:\Control Panel\Desktop\PerMonitorSettings\<id>\DpiValue
+    #       is an offset from RecommendedDpiValue (0 = recommended,
+    #       negative = smaller). Forcing 100% regardless of the monitor's
+    #       recommended scale means DpiValue = -RecommendedDpiValue.
+    #   7b. System-wide DPI fallback used by non-per-monitor-aware
+    #       processes: HKCU:\Control Panel\Desktop\LogPixels = 96
+    #       (96 DPI = 100%) + Win8DpiScaling = 1.
+    #   7c. Windows 11 text size (Settings → Accessibility → Text size),
+    #       separate from display scale:
+    #       HKCU:\Software\Microsoft\Accessibility\TextScaleFactor
+    #       (100 = 100%, up to 225).
+
+    $scaleChanged = $false
+
+    # REG_DWORD -> signed int32: Windows writes DpiValue as a signed integer
+    # (e.g. -2 for "two steps below recommended"), but PowerShell surfaces
+    # REG_DWORD as UInt32, so -2 arrives as 4294967294 and a bare [int] cast
+    # OverflowExceptions. Reinterpret bits: values with the high bit set map
+    # to their two's-complement signed equivalent.
+    $asSignedDword = {
+        param($raw)
+        if ($null -eq $raw) { return 0 }
+        $u = [uint32]$raw
+        if ($u -gt [int32]::MaxValue) { return [int32]($u - 0x100000000) } else { return [int32]$u }
+    }
+
+    # 7a. Per-monitor DPI
+    $perMonPath = 'HKCU:\Control Panel\Desktop\PerMonitorSettings'
+    if (Test-Path -LiteralPath $perMonPath) {
+        Get-ChildItem -LiteralPath $perMonPath -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.PSIsContainer } |
+            ForEach-Object {
+                $props = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+                if ($null -eq $props) { return }
+                if (-not ($props.PSObject.Properties.Name -contains 'DpiValue')) { return }
+                $current     = & $asSignedDword $props.DpiValue
+                $recommended = if ($props.PSObject.Properties.Name -contains 'RecommendedDpiValue') {
+                                   & $asSignedDword $props.RecommendedDpiValue
+                               } else { 0 }
+                # DpiValue is an offset from recommended; target 100% = -recommended.
+                $target = -$recommended
+                if ($current -ne $target) {
+                    $label = $_.PSChildName
+                    if ($PSCmdlet.ShouldProcess("Monitor $label", "Set DpiValue $current -> $target (100% display scale)")) {
+                        Set-ItemProperty -LiteralPath $_.PSPath -Name 'DpiValue' -Value $target -Type DWord
+                        Write-Output "Set display scale to 100% for monitor $label (DpiValue: $current -> $target)."
+                        $scaleChanged = $true
+                    }
+                }
+            }
+    } else {
+        Write-Verbose "HKCU:\Control Panel\Desktop\PerMonitorSettings absent; skipping per-monitor DPI override."
+    }
+
+    # 7b. System-wide DPI (LogPixels fallback for non-per-monitor-aware apps).
+    # We only touch LogPixels when it's actually overriding the default (96).
+    # Win8DpiScaling=1 is only meaningful alongside a non-96 LogPixels — it
+    # tells Windows to honor that value. Default state (LogPixels=96,
+    # Win8DpiScaling=0) is 100%, so skip the write and avoid churning the
+    # registry on a pristine system.
+    $desktopPath = 'HKCU:\Control Panel\Desktop'
+    $dp = Get-ItemProperty -LiteralPath $desktopPath -ErrorAction SilentlyContinue
+    $currentLogPixels = if ($dp -and ($dp.PSObject.Properties.Name -contains 'LogPixels'))      { & $asSignedDword $dp.LogPixels }      else { 96 }
+    $currentWin8      = if ($dp -and ($dp.PSObject.Properties.Name -contains 'Win8DpiScaling')) { & $asSignedDword $dp.Win8DpiScaling } else { 0 }
+    if ($currentLogPixels -ne 96) {
+        if ($PSCmdlet.ShouldProcess($desktopPath, "Set LogPixels=96, Win8DpiScaling=1 (100% system DPI)")) {
+            Set-ItemProperty -LiteralPath $desktopPath -Name 'LogPixels'      -Value 96 -Type DWord
+            Set-ItemProperty -LiteralPath $desktopPath -Name 'Win8DpiScaling' -Value 1  -Type DWord
+            Write-Output "Set system DPI to 96 (100%) for the current user (LogPixels=$currentLogPixels -> 96, Win8DpiScaling=$currentWin8 -> 1)."
+            $scaleChanged = $true
+        }
+    } else {
+        Write-Output "System DPI (LogPixels) is already 96 (100%)."
+    }
+
+    # 7c. Windows 11 Accessibility "Text size"
+    $accPath = 'HKCU:\Software\Microsoft\Accessibility'
+    if (-not (Test-Path -LiteralPath $accPath)) {
+        if ($PSCmdlet.ShouldProcess($accPath, 'Create Accessibility key')) {
+            $null = New-Item -Path $accPath -Force
+        }
+    }
+    $ap = Get-ItemProperty -LiteralPath $accPath -ErrorAction SilentlyContinue
+    $currentTsf = if ($ap -and ($ap.PSObject.Properties.Name -contains 'TextScaleFactor')) { [int]$ap.TextScaleFactor } else { 100 }
+    if ($currentTsf -ne 100) {
+        if ($PSCmdlet.ShouldProcess($accPath, "Set TextScaleFactor $currentTsf -> 100")) {
+            Set-ItemProperty -LiteralPath $accPath -Name 'TextScaleFactor' -Value 100 -Type DWord
+            Write-Output "Set accessibility TextScaleFactor to 100 ($currentTsf -> 100)."
+            $scaleChanged = $true
+        }
+    } else {
+        Write-Output "Accessibility TextScaleFactor is already 100."
+    }
+
+    if ($scaleChanged) {
+        Write-Warning "Display/text scale changes take effect on next sign-in."
+        Write-Warning "Sign out and back in (or reboot) before running Invoke-TestRunner.ps1 again, or OCR will still see the old scale."
+        $changed = $true
     }
 
     if ($changed) {

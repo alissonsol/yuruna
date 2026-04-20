@@ -1383,7 +1383,7 @@ function Wait-ForAndClickButton {
                 if ($coord) {
                     $clickX = $coord.centerX + $OffsetX
                     $clickY = $coord.centerY + $OffsetY
-                    Write-Debug "      Found '$candidate' at ($($coord.x),$($coord.y)) ${($coord.w)}x${($coord.h)} → click ($clickX, $clickY)"
+                    Write-Debug "      Found '$candidate' at ($($coord.x),$($coord.y)) $($coord.w)x$($coord.h) → click ($clickX, $clickY)"
                     $ok = Send-Click -HostType $HostType -VMName $VMName -X $clickX -Y $clickY
                     # Preserve a diagnostic capture so a failed click can be inspected
                     $debugCopy = Join-Path $logDir "clickbutton_${VMName}_last.png"

@@ -57,6 +57,22 @@
     Useful for ad-hoc probes against a candidate remote cache before
     exporting the env var.
 
+.PARAMETER SetHostProxy
+    When all FAIL-level checks pass, promote the resolved proxy to the
+    machine-wide host proxy (user scope) via Test.HostProxy.psm1:
+      * Windows: HKCU WinINet ProxyEnable/ProxyServer/ProxyOverride plus
+        user HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars. No elevation
+        required.
+      * macOS: networksetup against the auto-detected active network
+        service. Requires sudo (re-run via `sudo -E pwsh ...`).
+    Previous proxy state is snapshotted to $HOME/.yuruna/host-proxy.backup.json
+    BEFORE writing, so Stop-CachingProxy.ps1 / Clear-HostProxy restores it.
+
+.PARAMETER NetworkService
+    macOS only: override the auto-detected active network service name
+    (e.g. "Wi-Fi", "Ethernet"). Pass this when -SetHostProxy can't figure
+    out which service to target. Ignored on Windows.
+
 .EXAMPLE
     # External — set the env var the runner will read, then probe.
     $Env:CachingProxyIpAddress = '10.0.0.5'
@@ -69,10 +85,21 @@
 .EXAMPLE
     # Local — no env var, discover whatever Start-SquidCache just brought up.
     pwsh test/Test-CachingProxy.ps1
+
+.EXAMPLE
+    # Probe + promote to host-wide proxy on success (Windows, user scope).
+    $Env:CachingProxyIpAddress = '192.168.1.50'
+    pwsh test/Test-CachingProxy.ps1 -SetHostProxy
+
+.EXAMPLE
+    # Same, on macOS (sudo required for networksetup).
+    sudo -E pwsh test/Test-CachingProxy.ps1 -SetHostProxy
 #>
 
 param(
-    [string]$CacheIp
+    [string]$CacheIp,
+    [switch]$SetHostProxy,
+    [string]$NetworkService
 )
 
 $global:InformationPreference = "Continue"
@@ -228,4 +255,36 @@ if ($script:FailCount -gt 0) {
     Write-Output "One or more required ports did not answer. Invoke-TestRunner would treat this cache as broken."
     exit 1
 }
+
+# === Optional: promote to machine-wide host proxy =======================
+# Only runs when every FAIL-level check passed -- WARN-level (missing :80 /
+# missing CA cert) is compatible with a working HTTP proxy, so we don't
+# block promotion on it. Test.HostProxy.psm1 snapshots the user's prior
+# proxy state into $HOME/.yuruna/host-proxy.backup.json before writing,
+# so Stop-CachingProxy.ps1 can restore it exactly rather than blindly
+# wiping whatever proxy the user had before.
+
+if ($SetHostProxy) {
+    Write-Output ""
+    Write-Output "=== Promoting to machine-wide host proxy ==="
+    $hostProxyMod = Join-Path $PSScriptRoot 'modules/Test.HostProxy.psm1'
+    if (-not (Test-Path -LiteralPath $hostProxyMod)) {
+        Write-Warning "-SetHostProxy: $hostProxyMod not found -- skipping promotion."
+        exit 0
+    }
+    Import-Module $hostProxyMod -Force
+    try {
+        $params = @{ Url = "http://${resolvedIp}:3128" }
+        if ($NetworkService) { $params.NetworkService = $NetworkService }
+        Set-HostProxy @params
+        Write-Output ""
+        Write-Output "Host proxy is now http://${resolvedIp}:3128."
+        Write-Output "Run 'pwsh test/Stop-CachingProxy.ps1' to restore the previous proxy state."
+    } catch {
+        Write-Output ""
+        Write-Output "[FAIL] Set-HostProxy threw: $($_.Exception.Message)"
+        exit 1
+    }
+}
+
 exit 0

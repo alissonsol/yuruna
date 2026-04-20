@@ -632,4 +632,48 @@ if ($ip) {
 }
 Write-Output "  Host:   http://${machineName}:$Port/status/"
 Write-Output ""
+
+# --- LAN reachability pre-check (Windows only) ---
+# The server binds to http://*:$Port so the socket is on every interface,
+# but on a fresh Windows 11 install the Defender Firewall drops inbound
+# TCP on non-loopback interfaces unless an Allow rule was created. The
+# local probe above only hit http://localhost which never exercises the
+# firewall -- so the Remote: URL above could look valid and still time
+# out from a LAN browser. Peek at the firewall rules Enable-TestAutomation
+# creates; if the Allow rule is missing or disabled, warn loudly and
+# print the remediation command before the user notices the silence.
+# Get-NetFirewallRule is a read operation and does not require admin.
+if ($IsWindows -and $ip) {
+    try {
+        $ruleName = "Yuruna: Allow inbound TCP :$Port (Status server)"
+        $statusRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
+        $remoteReachable = $false
+        if ($statusRule -and $statusRule.Enabled -eq 'True') {
+            $portFilter = $statusRule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
+            if ($portFilter -and $portFilter.Protocol -eq 'TCP' -and $portFilter.LocalPort -eq "$Port") {
+                $remoteReachable = $true
+            }
+        }
+        if (-not $remoteReachable) {
+            # Distinguish "never configured" from "wrong port". Both paths
+            # recommend re-running Enable-TestAutomation.ps1 because that
+            # script is the single owner of these firewall rules.
+            if (-not $statusRule) {
+                Write-Warning "LAN reachability: no Windows Firewall rule found for inbound TCP :$Port."
+            } elseif ($statusRule.Enabled -ne 'True') {
+                Write-Warning "LAN reachability: firewall rule '$ruleName' exists but is DISABLED."
+            } else {
+                Write-Warning "LAN reachability: firewall rule '$ruleName' does not match TCP :$Port (test-config.json port may have changed)."
+            }
+            Write-Warning "  http://localhost:$Port/status/ will work, but LAN clients hitting"
+            Write-Warning "  http://${ip}:$Port/status/ will time out."
+            Write-Warning "  To fix, open a new elevated pwsh and run:"
+            Write-Warning "    cd $(Split-Path -Parent $TestRoot)"
+            Write-Warning "    pwsh vde\host.windows.hyper-v\Enable-TestAutomation.ps1"
+        }
+    } catch {
+        Write-Verbose "Firewall-rule reachability check skipped: $($_.Exception.Message)"
+    }
+}
+
 Write-Output "Stop with: .\Stop-StatusServer.ps1"

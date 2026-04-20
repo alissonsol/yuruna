@@ -1138,6 +1138,24 @@ while ($true) {
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output "  UNHANDLED ERROR in cycle $CycleCount"
     Write-Output "  $_"
+    # Print the origin of the error. Without these the operator sees only
+    # the message (e.g. "Cannot convert value ' Install ' to type
+    # 'System.Int32'") and has to grep ten modules to guess where it came
+    # from. PositionMessage gives the file:line of the throwing statement,
+    # and ScriptStackTrace gives the call chain -- together they pin the
+    # source down on a single re-run.
+    if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
+        Write-Output "  Origin:"
+        foreach ($line in ($_.InvocationInfo.PositionMessage -split "`n")) {
+            Write-Output "    $line"
+        }
+    }
+    if ($_.ScriptStackTrace) {
+        Write-Output "  Stack:"
+        foreach ($line in ($_.ScriptStackTrace -split "`n")) {
+            Write-Output "    $line"
+        }
+    }
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 
     # Stop/remove the active VM if one was in progress

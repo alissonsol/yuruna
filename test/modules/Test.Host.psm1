@@ -875,6 +875,93 @@ function Set-WindowsHostConditionSet {
         Write-Warning "If ping still fails, disable these or ask your admin — GPO may be pushing them."
     }
 
+    # ── 6. Allow inbound TCP on the status-server port ───────────────────
+    # Start-StatusServer.ps1 binds the HttpListener to http://*:$Port/,
+    # which covers every interface at the socket level -- but Windows
+    # Firewall still drops inbound TCP on non-loopback interfaces unless
+    # an explicit Allow rule exists. On a fresh install, localhost works
+    # (loopback is never filtered) while a LAN browser hitting
+    # http://<host-ip>:8080/ just hangs. Add an Allow rule here so that
+    # case works out of the box. Port is read from test-config.json
+    # (same source Start-StatusServer uses), defaulting to 8080 when the
+    # file is missing or the key is unset.
+    $statusPort = 8080
+    $configPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test-config.json'
+    if (Test-Path -LiteralPath $configPath) {
+        try {
+            $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+            if ($cfg.statusServer -and $cfg.statusServer.port) { $statusPort = [int]$cfg.statusServer.port }
+        } catch {
+            Write-Verbose "test-config.json parse failed: $($_.Exception.Message)"
+        }
+    }
+
+    $statusRuleName = "Yuruna: Allow inbound TCP :$statusPort (Status server)"
+    $existingStatusRule = Get-NetFirewallRule -DisplayName $statusRuleName -ErrorAction SilentlyContinue
+    if ($existingStatusRule) {
+        # A pre-existing rule might have the right display name but wrong
+        # port (e.g. the user changed statusServer.port in test-config.json
+        # after running this once). Verify + rebuild rather than silently
+        # leaving the old rule in place.
+        $portFilter = $existingStatusRule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
+        $rulePortMatches = $portFilter -and ($portFilter.Protocol -eq 'TCP') -and ($portFilter.LocalPort -eq "$statusPort")
+        if (-not $rulePortMatches) {
+            if ($PSCmdlet.ShouldProcess($statusRuleName, "Recreate with port $statusPort")) {
+                Write-Output "Rebuilding firewall rule for status server on port $statusPort..."
+                Remove-NetFirewallRule -DisplayName $statusRuleName -ErrorAction SilentlyContinue
+                $null = New-NetFirewallRule `
+                    -DisplayName $statusRuleName `
+                    -Description "Allow inbound TCP on the yuruna status-server port so LAN clients can reach http://<host>:$statusPort/status/. Created by Yuruna Enable-TestAutomation (test/modules/Test.Host.psm1)." `
+                    -Direction Inbound `
+                    -Action Allow `
+                    -Protocol TCP `
+                    -LocalPort $statusPort `
+                    -Profile Any
+                $changed = $true
+            }
+        } elseif ($existingStatusRule.Enabled -ne 'True') {
+            if ($PSCmdlet.ShouldProcess($statusRuleName, 'Enable existing firewall rule')) {
+                Enable-NetFirewallRule -DisplayName $statusRuleName
+                Write-Output "Enabled firewall rule: $statusRuleName"
+                $changed = $true
+            }
+        } else {
+            Write-Output "Firewall rule already present and enabled: $statusRuleName"
+        }
+    } else {
+        if ($PSCmdlet.ShouldProcess($statusRuleName, "Create TCP :$statusPort inbound allow rule (all profiles)")) {
+            Write-Output "Creating firewall rule: $statusRuleName (all profiles)..."
+            $null = New-NetFirewallRule `
+                -DisplayName $statusRuleName `
+                -Description "Allow inbound TCP on the yuruna status-server port so LAN clients can reach http://<host>:$statusPort/status/. Created by Yuruna Enable-TestAutomation (test/modules/Test.Host.psm1)." `
+                -Direction Inbound `
+                -Action Allow `
+                -Protocol TCP `
+                -LocalPort $statusPort `
+                -Profile Any
+            $changed = $true
+        }
+    }
+
+    # 6b. Diagnostic: any enabled TCP Block rule covering this port would
+    # veto the Allow above -- surface it immediately instead of leaving
+    # the user wondering why LAN clients still can't connect.
+    $tcpBlockRules = Get-NetFirewallRule -Direction Inbound -Action Block -ErrorAction SilentlyContinue |
+        Where-Object { $_.Enabled -eq 'True' } |
+        Where-Object {
+            $f = $_ | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
+            $null -ne $f -and $f.Protocol -eq 'TCP' -and (
+                $f.LocalPort -eq "$statusPort" -or $f.LocalPort -eq 'Any'
+            )
+        }
+    if ($tcpBlockRules) {
+        Write-Warning "Found enabled TCP Block rules that may override the status-server Allow rule:"
+        foreach ($r in $tcpBlockRules) {
+            Write-Warning "  $($r.DisplayName) [profile: $($r.Profile)]"
+        }
+        Write-Warning "If remote clients still get 'connection timed out' on port $statusPort, disable these or ask your admin — GPO may be pushing them."
+    }
+
     if ($changed) {
         Write-Output ""
         Write-Output "Settings updated. Re-run Assert-HostConditionSet to verify:"

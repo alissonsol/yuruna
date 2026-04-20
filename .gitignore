@@ -410,3 +410,4 @@ Fido.ps1
 MODULE.bazel.lock
 .bazel-cache
 test/status/server.heartbeat
+test/status/.status-server.ps1

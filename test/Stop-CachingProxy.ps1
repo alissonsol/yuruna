@@ -53,6 +53,26 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
+# === Revert machine-wide host proxy (if it was promoted) ===================
+# Symmetric with Test-CachingProxy.ps1 -SetHostProxy. Runs UNCONDITIONALLY:
+# the module's Clear-HostProxy restores from $HOME/.yuruna/host-proxy.backup.json
+# when it exists and no-ops (with a disable-only fallback) when it doesn't,
+# so calling it here is safe even if -SetHostProxy was never used. Done
+# first so a failure tearing down the VM doesn't leave the host pointing at
+# a dead proxy for the rest of the session.
+$hostProxyMod = Join-Path $PSScriptRoot 'modules/Test.HostProxy.psm1'
+if (Test-Path -LiteralPath $hostProxyMod) {
+    Import-Module $hostProxyMod -Force
+    try {
+        Clear-HostProxy
+    } catch {
+        # Don't let a proxy-restore failure (e.g. missing sudo on macOS)
+        # abort the VM teardown -- surface it and keep going. The user
+        # can re-run Clear-HostProxy manually.
+        Write-Warning "Clear-HostProxy failed: $($_.Exception.Message). VM teardown will continue."
+    }
+}
+
 if ($IsMacOS) {
     $MachineName = $(hostname -s)
     $UtmDir      = "$HOME/Desktop/Yuruna.VDE/$MachineName.nosync/$VMName.utm"

@@ -8,15 +8,16 @@ Open **Windows PowerShell** (or `pwsh`) on a fresh Windows machine and
 paste this line:
 
 ```powershell
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows-install.ps1?nocache=$(Get-Date -Format yyyyMMddHHmmss)" | iex
+$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows-install.ps1$nc" | iex
 ```
 
-The `?nocache=<timestamp>` query parameter is a cache-buster: GitHub's
-raw content host ignores unknown query strings, but any intermediate
-HTTP proxy or Windows WinINet cache on the machine treats a new URL
-as a distinct resource and fetches a fresh copy. Without it, a second
-paste of the one-liner can re-run a stale installer that was cached
-earlier in the session.
+The `$nc` suffix is driven by the `YurunaCacheContent` environment
+variable. Leave it unset (or empty) to let caching proxies serve the
+stored copy; set it to a unique value — typically a datetime — to force
+a fresh fetch. See [docs/caching.md](../../docs/caching.md) for how to
+set, persist, and clear the variable on Windows or macOS, and for the
+optional Squid cache VM that consumes it.
 
 It installs PowerShell 7, Git, the Windows ADK Deployment Tools
 (for `oscdimg.exe`), and Tesseract OCR via `winget`; enables the
@@ -110,9 +111,13 @@ needed. The Ubuntu Desktop `New-VM.ps1` automatically detects it and
 injects the proxy URL into the autoinstall seed ISO. Stop or delete
 the cache VM at any time to revert to direct CDN downloads.
 
-See [test/CachingProxy.md](../../test/CachingProxy.md) for details on how
-it works, including the Grafana dashboard, cache tuning, and offline
-replay.
+See [docs/caching.md](../../docs/caching.md) for details on how it
+works, including the Grafana dashboard, cache tuning, and offline
+replay. The test-harness-specific wrappers
+(`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`, and the
+`CachingProxyIpAddress` override consumed by `Invoke-TestRunner.ps1`)
+are documented separately in
+[test/CachingProxy.md](../../test/CachingProxy.md).
 
 ## Next: Create a Guest VM
 

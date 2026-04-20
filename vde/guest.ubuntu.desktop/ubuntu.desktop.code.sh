@@ -66,7 +66,7 @@ sudo apt-get install -y wget gpg
 MSFT_KEY="/usr/share/keyrings/microsoft.gpg"
 if [ ! -f "$MSFT_KEY" ]; then
   MSFT_KEY="/etc/apt/keyrings/packages.microsoft.gpg"
-  wget -qO- "https://packages.microsoft.com/keys/microsoft.asc?nocache=$(date +%s)" | gpg --dearmor > packages.microsoft.gpg
+  wget -qO- "https://packages.microsoft.com/keys/microsoft.asc${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | gpg --dearmor > packages.microsoft.gpg
   sudo install -D -o root -g root -m 644 packages.microsoft.gpg "$MSFT_KEY"
   rm -f packages.microsoft.gpg
 fi
@@ -84,7 +84,7 @@ case "$ARCH" in
   aarch64) PS_ARCH="arm64" ;;
 esac
 wget -q -O /tmp/powershell.tar.gz \
-  "https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-${PS_ARCH}.tar.gz?nocache=$(date +%s)"
+  "https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-${PS_ARCH}.tar.gz${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
 sudo mkdir -p /opt/microsoft/powershell/7
 sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
 sudo chmod +x /opt/microsoft/powershell/7/pwsh

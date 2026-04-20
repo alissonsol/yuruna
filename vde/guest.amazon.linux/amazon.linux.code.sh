@@ -41,7 +41,7 @@ echo -e "\e[1;36m>>> Installing .NET SDK...\e[0m"
 # Install libicu dependency required by .NET for globalization support.
 sudo dnf install -y libicu
 sudo mkdir -p /usr/local/dotnet
-curl -sSL "https://dot.net/v1/dotnet-install.sh?nocache=$(date +%s)" -o /tmp/dotnet-install.sh
+curl -sSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
 sudo bash /tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
 rm -f /tmp/dotnet-install.sh

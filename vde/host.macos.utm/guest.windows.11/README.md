@@ -50,8 +50,14 @@ After Windows installation completes (~15 min):
 You should be logged in automatically on first boot. The default user is `User` and the initial password is `password`. You will be prompted to change the password on the next login after the first boot. Open an elevated PowerShell terminal and run:
 
 ```powershell
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1?nocache=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" | iex
+$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1$nc" | iex
 ```
+
+> Set `$env:YurunaCacheContent` (in the guest) to a unique string — typically a
+> datetime — when you want to bypass a caching proxy and force a fresh fetch.
+> Leave it unset to let caches serve the stored copy. On the macOS host the
+> equivalent is `export YurunaCacheContent=$(date +%Y%m%d%H%M%S)`.
 
 Restart after updates complete.
 

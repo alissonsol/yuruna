@@ -27,8 +27,13 @@ Open a terminal and run the following command.
 Open an elevated PowerShell terminal and run the following command.
 
 ```powershell
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.k8s.ps1?nocache=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" | iex
+$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.k8s.ps1$nc" | iex
 ```
+
+> Set `$env:YurunaCacheContent` to a unique datetime string to bypass a caching
+> proxy; leave it unset to allow caching. See
+> [docs/caching.md](../../docs/caching.md).
 
 You can now follow the instructions to install the Yuruna-based [Kubernetes](../../docs/kubernetes.md) examples.
 

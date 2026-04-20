@@ -163,7 +163,7 @@ pwsh .\New-VM.ps1        # creates + starts the cache VM
 ```
 
 The Ubuntu Desktop `New-VM.ps1` detects the running cache VM
-automatically. See [test/CachingProxy.md](../../test/CachingProxy.md) for
+automatically. See [docs/caching.md](../../docs/caching.md) for
 details.
 
 ## 12) Run the Test Harness

@@ -16,8 +16,16 @@ Open an **elevated PowerShell terminal** in the guest and run the command for ea
 ### Update
 
 ```powershell
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1?nocache=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" | iex
+$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1$nc" | iex
 ```
+
+> The `$nc` suffix is driven by `$env:YurunaCacheContent`. Leave it unset (or
+> empty) to let a caching proxy serve the stored copy. Set it to a unique
+> value — typically a datetime — to force a fresh fetch, e.g.
+> `$env:YurunaCacheContent = (Get-Date -Format yyyyMMddHHmmss)`. See
+> [docs/caching.md](../../docs/caching.md) for the full story and persistence
+> options (`setx`, macOS equivalents).
 
 **After the initial update, the [Latest Stable PowerShell](https://aka.ms/powershell-release?tag=stable) release should be available.** Open a new Administrator console with the latest PowerShell to guarantee compatibility with the workload scripts.
 
@@ -26,13 +34,15 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/gue
 - [Code](../docs/code.md) - Java (JDK), .NET SDK, Git, and Visual Studio Code
 
 ```powershell
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.code.ps1?nocache=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" | iex
+$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.code.ps1$nc" | iex
 ```
 
 - [k8s](../docs/k8s.md) - All Kubernetes requirements (Docker, Kubernetes, Helm, OpenTofu, Cloud CLIs, and more)
 
 ```powershell
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.k8s.ps1?nocache=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" | iex
+$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.k8s.ps1$nc" | iex
 ```
 
 **Please read:** While installing all the Kubernetes requirements for Windows will succeed, starting Docker will demand a coordinated change of virtualization settings for both the host (Hyper-V or mac UTM) and the guest. Those instructions are too long and unreliable to be automated at this time. For now, ask your favorite AI assistant using the prompts below:

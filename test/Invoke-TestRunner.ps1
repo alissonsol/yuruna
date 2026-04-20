@@ -43,8 +43,9 @@
       New-VM.ps1 invocations inherit the remote URL, fetch the CA from
       http://<ip>/yuruna-squid-ca.crt, and wire apt to http://<ip>:3128
       (HTTP) + http://<ip>:3129 (HTTPS). The remote host must run the
-      same caching proxy image; see test/CachingProxy.md for the host-side
-      setup. Un-set or empty to fall back to local discovery.
+      same caching proxy image; see docs/caching.md for the image itself
+      and test/CachingProxy.md for the harness-facing override.
+      Un-set or empty to fall back to local discovery.
 
       Validate a candidate cache BEFORE launching a full cycle with:
           $Env:CachingProxyIpAddress = '10.0.0.5'

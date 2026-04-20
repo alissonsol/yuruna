@@ -37,8 +37,14 @@ Start the VM from Hyper-V Manager. The Windows installer will run automatically 
 You should be logged in automatically on first boot. The default user is `User` and the initial password is `password`. You will be prompted to change the password on the next login after the first boot. Open an elevated PowerShell terminal and run:
 
 ```powershell
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1?nocache=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" | iex
+$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1$nc" | iex
 ```
+
+> Set `$env:YurunaCacheContent` (or `setx YurunaCacheContent ...`) to a unique
+> string — typically a datetime — when you want to bypass a caching proxy and
+> force a fresh fetch. Leave it unset to let caches serve the stored copy. See
+> [docs/caching.md](../../../docs/caching.md) for details.
 
 Restart after updates complete.
 

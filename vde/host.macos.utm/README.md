@@ -118,10 +118,13 @@ silently falling back. This prevents the exact 429 failures the cache
 was meant to prevent. Wait for cloud-init to finish (5-15 min on first
 boot) or check the VM before retrying.
 
-See [test/CachingProxy.md](../../test/CachingProxy.md) for details —
-including the Grafana dashboard at `http://<squid-cache-ip>:3000`
-(anonymous Viewer, no login) and the cachemgr.cgi fallback at
-`http://<squid-cache-ip>/cgi-bin/cachemgr.cgi`.
+See [docs/caching.md](../../docs/caching.md) for details — including
+the Grafana dashboard at `http://<squid-cache-ip>:3000` (anonymous
+Viewer, no login) and the cachemgr.cgi fallback at
+`http://<squid-cache-ip>/cgi-bin/cachemgr.cgi`. The test-harness
+wrappers (`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`, and the
+`CachingProxyIpAddress` override) are documented separately in
+[test/CachingProxy.md](../../test/CachingProxy.md).
 
 ## Next: Create a Guest VM
 

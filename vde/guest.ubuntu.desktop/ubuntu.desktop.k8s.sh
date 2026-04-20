@@ -93,7 +93,7 @@ case "$ARCH" in
   aarch64) PS_ARCH="arm64" ;;
 esac
 wget -q -O /tmp/powershell.tar.gz \
-  "https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-${PS_ARCH}.tar.gz?nocache=$(date +%s)"
+  "https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-${PS_ARCH}.tar.gz${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
 sudo mkdir -p /opt/microsoft/powershell/7
 sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
 sudo chmod +x /opt/microsoft/powershell/7/pwsh
@@ -112,7 +112,7 @@ echo ""
 echo -e "\e[1;36m>>> Installing Docker...\e[0m"
 # Add Docker's official repository
 sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL "https://download.docker.com/linux/ubuntu/gpg?nocache=$(date +%s)" -o /etc/apt/keyrings/docker.asc
+sudo curl -fsSL "https://download.docker.com/linux/ubuntu/gpg${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /etc/apt/keyrings/docker.asc
 sudo chmod a+r /etc/apt/keyrings/docker.asc
 
 sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
@@ -195,7 +195,7 @@ else
     echo "WARNING: Unsupported architecture '$ARCH' for Docker Desktop"
 fi
 if [ -n "$DOCKER_DESKTOP_URL" ]; then
-    curl -fsSL "${DOCKER_DESKTOP_URL}?nocache=$(date +%s)" -o /tmp/docker-desktop.deb
+    curl -fsSL "${DOCKER_DESKTOP_URL}${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/docker-desktop.deb
     apt_retry sudo apt-get install -y /tmp/docker-desktop.deb
     rm -f /tmp/docker-desktop.deb
 fi
@@ -252,7 +252,7 @@ echo ""
 echo -e "\e[1;36m>>> Installing Kubernetes...\e[0m"
 # Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL "https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key?nocache=$(date +%s)" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+curl -fsSL "https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
 
 apt_retry sudo apt-get update -y
@@ -384,7 +384,7 @@ echo ""
 echo -e "\e[1;36m>>> Installing Azure CLI...\e[0m"
 install_azure_cli() {
     sudo mkdir -p /etc/apt/keyrings
-    curl -sLS "https://packages.microsoft.com/keys/microsoft.asc?nocache=$(date +%s)" |
+    curl -sLS "https://packages.microsoft.com/keys/microsoft.asc${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" |
         gpg --batch --yes --dearmor |
         sudo tee /etc/apt/keyrings/microsoft.gpg > /dev/null
     sudo chmod go+r /etc/apt/keyrings/microsoft.gpg
@@ -414,7 +414,7 @@ install_aws_cli() {
         arm64) aws_cli_url="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" ;;
         *)     echo "Unsupported architecture '$arch' for AWS CLI"; return 1 ;;
     esac
-    curl -fsSL "${aws_cli_url}?nocache=$(date +%s)" -o /tmp/awscliv2.zip
+    curl -fsSL "${aws_cli_url}${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/awscliv2.zip
     unzip -qo /tmp/awscliv2.zip -d /tmp
     sudo /tmp/aws/install --update
     rm -rf /tmp/aws /tmp/awscliv2.zip
@@ -455,7 +455,7 @@ fi
 # Helm (official install script)
 echo ""
 echo -e "\e[1;36m>>> Installing Helm...\e[0m"
-curl -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3?nocache=$(date +%s)" | bash || true
+curl -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash || true
 echo -e "\e[1;32m<<< Helm installation complete.\e[0m"
 
 # OpenTofu: deb install (primary) with standalone fallback, then verify.
@@ -468,7 +468,7 @@ echo -e "\e[1;32m<<< Helm installation complete.\e[0m"
 # touch get.opentofu.org, so it routes around the outage entirely.
 echo ""
 echo -e "\e[1;36m>>> Installing OpenTofu...\e[0m"
-curl --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh?nocache=$(date +%s)" -o /tmp/install-opentofu.sh
+curl --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
 if ! /tmp/install-opentofu.sh --install-method deb; then
     echo "WARNING: OpenTofu deb install failed (often a GPG-key fetch from get.opentofu.org). Falling back to standalone method..."
@@ -495,7 +495,7 @@ else
     echo "WARNING: Unsupported architecture '$ARCH' for mkcert"
 fi
 if [ -n "$MKCERT_ARCH" ]; then
-    curl -fsSL "https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}&nocache=$(date +%s)" -o /tmp/mkcert
+    curl -fsSL "https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}${YurunaCacheContent:+&nocache=${YurunaCacheContent}}" -o /tmp/mkcert
     chmod +x /tmp/mkcert
     sudo mv /tmp/mkcert /usr/local/bin/mkcert
     # Run mkcert -install as the desktop user so rootCA.pem lands in their

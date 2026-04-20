@@ -21,9 +21,18 @@ param(
     [string]$FilePath
 )
 
-# Configuration with environment overrides
+# Configuration with environment overrides. The cache-busting query string is
+# controlled by two environment variables, in priority order:
+#   1. EXEC_QUERY_PARAMS  — explicit override, used verbatim (include leading '?').
+#   2. YurunaCacheContent — systemwide cache-buster (any unique string, typically a
+#      timestamp). Leave unset so caching proxies can serve stored copies; set to a
+#      unique value to force a fresh fetch. Examples:
+#          $env:YurunaCacheContent = (Get-Date -Format yyyyMMddHHmmss)  # current session
+#          setx YurunaCacheContent (Get-Date -Format yyyyMMddHHmmss)    # persist user-wide
+# When both are unset or empty, the suffix is empty and the URL stays cacheable.
 $BaseUrl = $env:EXEC_BASE_URL ?? "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
-$QueryParams = $env:EXEC_QUERY_PARAMS ?? "?nocache=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+$NoCache = if ([string]::IsNullOrEmpty($env:YurunaCacheContent)) { '' } else { "?nocache=$($env:YurunaCacheContent)" }
+$QueryParams = $env:EXEC_QUERY_PARAMS ?? $NoCache
 
 # Construct and execute
 $FullUrl = "${BaseUrl}${FilePath}${QueryParams}"

@@ -164,9 +164,11 @@ pwsh test/Test-Config.ps1 -SkipSend
 ## Using a remote caching proxy
 
 By default the runner looks for a local `squid-cache` VM (caching proxy) (see
-[CachingProxy.md](CachingProxy.md)). To point a test host at an **existing
-remote caching proxy** on the LAN — e.g. a shared cache VM on another
-machine — set one environment variable before launching the runner:
+[docs/caching.md](../docs/caching.md) for the cache VM itself, and
+[CachingProxy.md](CachingProxy.md) for the harness-facing wrappers). To
+point a test host at an **existing remote caching proxy** on the LAN —
+e.g. a shared cache VM on another machine — set one environment variable
+before launching the runner:
 
 ```powershell
 # Windows

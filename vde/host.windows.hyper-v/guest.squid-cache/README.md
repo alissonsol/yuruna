@@ -1,10 +1,16 @@
 # Squid Cache VM (Hyper-V)
 
 Canonical documentation — setup, cache configuration, monitoring (Grafana
-+ Prometheus + cachemgr.cgi), access / credentials, and management — now
-lives at:
++ Prometheus + cachemgr.cgi), access / credentials, and management — lives
+at:
 
-**[test/CachingProxy.md](../../../test/CachingProxy.md)**
+**[docs/caching.md](../../../docs/caching.md)**
+
+The test-harness wrappers that expose the cache to remote clients
+(`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`, and the
+`CachingProxyIpAddress` override consumed by `Invoke-TestRunner.ps1`)
+are documented in
+**[test/CachingProxy.md](../../../test/CachingProxy.md)**.
 
 Scripts and config in this folder:
 

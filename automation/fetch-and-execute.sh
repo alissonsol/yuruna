@@ -1,8 +1,15 @@
 #!/bin/bash
 
-# Configuration with environment overrides
+# Configuration with environment overrides. The cache-busting query string is
+# controlled by two environment variables, in priority order:
+#   1. EXEC_QUERY_PARAMS — explicit override, used verbatim (include leading '?').
+#   2. YurunaCacheContent — systemwide cache-buster (any unique string, typically a
+#      timestamp). Leave unset so caching proxies (e.g. the optional squid VM) can
+#      serve stored copies; set to a unique value to force a fresh fetch:
+#          export YurunaCacheContent="$(date +%Y%m%d%H%M%S)"
+# When both are unset or empty, the suffix is empty and the URL stays cacheable.
 BASE_URL="${EXEC_BASE_URL:-https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/}"
-QUERY_PARAMS="${EXEC_QUERY_PARAMS:-?nocache=$(date +%s)}"
+QUERY_PARAMS="${EXEC_QUERY_PARAMS:-${YurunaCacheContent:+?nocache=${YurunaCacheContent}}}"
 FILE_PATH="$1"
 
 if [ -z "$FILE_PATH" ]; then

@@ -133,8 +133,8 @@ pwsh ./New-VM.ps1        # assembles the UTM bundle
 Then double-click `~/Desktop/Yuruna.VDE/<hostname>.nosync/squid-cache.utm`
 to register the bundle with UTM, and start the VM. The Ubuntu Desktop
 `New-VM.ps1` detects the running cache automatically. See
-[test/CachingProxy.md](../../test/CachingProxy.md) for details, including
-the Grafana dashboard and the cachemgr.cgi fallback.
+[docs/caching.md](../../docs/caching.md) for details, including the
+Grafana dashboard and the cachemgr.cgi fallback.
 
 ## 9) Run the Test Harness
 

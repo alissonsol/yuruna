@@ -363,7 +363,7 @@ write_files:
             "type": "timeseries",
             "title": "Client HTTP(S) requests/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 0, "y": 0, "w": 12, "h": 6},
+            "gridPos": {"x": 0, "y": 0, "w": 24, "h": 6},
             "fieldConfig": {
               "defaults": {},
               "overrides": [
@@ -380,7 +380,7 @@ write_files:
             "type": "timeseries",
             "title": "Client HTTP(S) hits/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 12, "y": 0, "w": 12, "h": 6},
+            "gridPos": {"x": 0, "y": 6, "w": 24, "h": 6},
             "fieldConfig": {
               "defaults": {},
               "overrides": [
@@ -397,7 +397,7 @@ write_files:
             "type": "timeseries",
             "title": "Client HTTP(S) data served (kB/s): total vs cached",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 0, "y": 6, "w": 24, "h": 8},
+            "gridPos": {"x": 0, "y": 12, "w": 24, "h": 8},
             "fieldConfig": {
               "defaults": {},
               "overrides": [

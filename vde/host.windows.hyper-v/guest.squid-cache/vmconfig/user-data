@@ -354,7 +354,7 @@ write_files:
         "uid": "yuruna-squid",
         "title": "Squid Cache (yuruna)",
         "schemaVersion": 39,
-        "version": 7,
+        "version": 1,
         "refresh": "30s",
         "time": {"from": "now-1h", "to": "now"},
         "panels": [

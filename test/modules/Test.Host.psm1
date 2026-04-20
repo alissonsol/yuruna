@@ -689,9 +689,31 @@ function Set-WindowsHostConditionSet {
     # ── 1. Hyper-V service ───────────────────────────────────────────────
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc) {
-        Write-Warning "Hyper-V service (vmms) is not installed."
-        Write-Warning "  Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
-        Write-Warning "Then reboot and re-run this script."
+        # vmms missing splits into two cases with very different fixes:
+        #   a) Hyper-V feature was never enabled  -> enable it, then reboot.
+        #   b) Hyper-V was enabled via DISM but the reboot is still pending
+        #      (DISM reports State=Enabled after /Enable-Feature /NoRestart
+        #      even though components don't deploy until the reboot) -> just
+        #      reboot; don't run Enable-WindowsOptionalFeature again.
+        # Distinguish by asking DISM directly instead of guessing.
+        $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
+        $featureState = 'Unknown'
+        if (Test-Path -LiteralPath $dismExe) {
+            $dismOut = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                foreach ($line in $dismOut) {
+                    if ($line -match '^State\s*:\s*(\S+)') { $featureState = $Matches[1]; break }
+                }
+            }
+        }
+        if ($featureState -eq 'Enabled') {
+            Write-Warning "Hyper-V feature is Enabled but components (vmms) are not deployed yet."
+            Write-Warning "  A Windows RESTART is pending. Reboot, then re-run this script."
+        } else {
+            Write-Warning "Hyper-V service (vmms) is not installed (feature state: $featureState)."
+            Write-Warning "  Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
+            Write-Warning "  Then reboot and re-run this script."
+        }
     } elseif ($svc.Status -ne 'Running') {
         if ($PSCmdlet.ShouldProcess("Hyper-V service (vmms)", "Start")) {
             Write-Output "Starting Hyper-V Virtual Machine Management service..."

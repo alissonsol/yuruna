@@ -352,7 +352,34 @@ if ($infoExit -ne 0) {
         if ($line -match '^State\s*:\s*(\S+)') { $state = $Matches[1]; break }
     }
     if ($state -eq 'Enabled') {
-        Write-Step '  Hyper-V already enabled'
+        # DISM flips State to "Enabled" immediately after /Enable-Feature,
+        # but the Hyper-V *components* (vmms service, virtmgmt.msc) are
+        # only deployed once the pending reboot runs. On a second pass
+        # before that reboot, /Get-FeatureInfo still says "Enabled" even
+        # though nothing actually works -- which is why a second run of
+        # this installer used to plough past this block, call Enable-
+        # TestAutomation.ps1 (which complained "vmms not installed -- run
+        # Enable-WindowsOptionalFeature..."), and then fail to launch
+        # virtmgmt.msc with "file not found". Three contradictory signals
+        # for one underlying condition: reboot pending.
+        #
+        # So: cross-check DISM's "Enabled" against the presence of vmms
+        # and virtmgmt.msc. If either is missing, treat it the same as
+        # just-enabled and set RestartNeeded -- the rest of the script
+        # (the skip of Enable-TestAutomation.ps1, the finally-block
+        # RESTART REQUIRED path) then gives the user one clear message.
+        $vmmsExists     = [bool](Get-Service -Name vmms -ErrorAction SilentlyContinue)
+        $virtmgmtExists = Test-Path -LiteralPath (Join-Path $env:WINDIR 'System32\virtmgmt.msc')
+        if ($vmmsExists -and $virtmgmtExists) {
+            Write-Step '  Hyper-V already enabled and deployed'
+        } else {
+            Write-Warn '  Hyper-V reports Enabled but the components are not deployed yet'
+            if (-not $vmmsExists)     { Write-Warn '    (vmms service is missing)' }
+            if (-not $virtmgmtExists) { Write-Warn '    (virtmgmt.msc is missing)' }
+            Write-Warn '  This means a Windows RESTART from a previous run of this'
+            Write-Warn '  installer is still pending. Reboot and re-run to finish.'
+            $script:RestartNeeded = $true
+        }
     } else {
         Write-Step "  current state: $state -- enabling"
         $enableOut  = & $dismExe /English /Online /Enable-Feature /FeatureName:Microsoft-Hyper-V-All /All /NoRestart /Quiet 2>&1
@@ -474,7 +501,9 @@ $script:InstallSucceeded = $true
         # (same reason). Keep guidance to the single thing that matters:
         # reboot, then re-run.
         Write-Warning 'RESTART REQUIRED'
-        Write-Warning '  Hyper-V was just enabled and needs a Windows restart.'
+        Write-Warning '  Hyper-V needs a Windows restart to finish activation.'
+        Write-Warning '  (Either it was just enabled in this run, or a previous'
+        Write-Warning '   run enabled it and the reboot is still pending.)'
         Write-Warning '  After the reboot, re-run this installer -- it will finish'
         Write-Warning '  the host configuration step, open Hyper-V Manager and'
         Write-Warning '  notepad for test-config.json if needed, and drop you at'

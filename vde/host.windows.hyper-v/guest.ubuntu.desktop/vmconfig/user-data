@@ -100,6 +100,19 @@ APT_PROXY_BLOCK_PLACEHOLDER
           rm -f /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
         fi
       fi
+    # --- Cap systemd-networkd-wait-online so first boot doesn't hang ---
+    # See guest.ubuntu.server/vmconfig/user-data for the full rationale.
+    # Short version: Ubuntu 24.04 default is "wait for ALL interfaces to
+    # reach routable with no timeout"; on Hyper-V Default Switch the IPv6
+    # path eventually resolves but adds minutes to first boot. --any
+    # --timeout=30 caps it.
+    - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
+    - |
+      cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf << 'EOF'
+      [Service]
+      ExecStart=
+      ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
+      EOF
     # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu
     # --- SSH: install yuruna test-harness authorized key for the ubuntu user ---

@@ -83,6 +83,24 @@ APT_PROXY_BLOCK_PLACEHOLDER
           rm -f /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
         fi
       fi
+    # --- Cap systemd-networkd-wait-online so first boot doesn't hang ---
+    # Ubuntu 24.04's networkd-wait-online defaults to "wait for ALL
+    # configured interfaces to reach 'routable' with no timeout." On
+    # Hyper-V Default Switch the IPv6 path eventually resolves so the
+    # wait completes, just slowly — visible on the serial console as:
+    #   Job systemd-networkd-wait-online.service/start running ([TIME] / no limit)
+    # Cloud-init's first-boot run depends (transitively) on
+    # network-online.target, so a slow wait-online delays the first
+    # ubuntu-desktop login screen by minutes. --any --timeout=30 means
+    # "ANY one interface is routable OR 30s elapsed, whichever first" —
+    # which is what the harness actually needs anyway.
+    - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
+    - |
+      cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf << 'EOF'
+      [Service]
+      ExecStart=
+      ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
+      EOF
     # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu
     # --- Sudo: grant the ubuntu user passwordless sudo for the test harness ---

@@ -104,6 +104,19 @@ APT_PROXY_BLOCK_PLACEHOLDER
           echo 'Acquire::https::Proxy "http://192.168.64.1:3129";' >> /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         fi
       fi
+    # --- Cap systemd-networkd-wait-online so first boot doesn't hang ---
+    # See guest.ubuntu.server/vmconfig/user-data for the full rationale.
+    # Short version: Ubuntu 24.04 default is "wait for ALL interfaces to
+    # reach routable with no timeout", which on Apple Virtualization's
+    # shared NAT blocks forever on a non-arriving IPv6 RA. --any --timeout=30
+    # caps it.
+    - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
+    - |
+      cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf << 'EOF'
+      [Service]
+      ExecStart=
+      ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
+      EOF
     # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu
     # --- SSH: install yuruna test-harness authorized key for the ubuntu user ---

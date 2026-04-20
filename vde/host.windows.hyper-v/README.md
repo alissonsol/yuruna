@@ -8,8 +8,15 @@ Open **Windows PowerShell** (or `pwsh`) on a fresh Windows machine and
 paste this line:
 
 ```powershell
-irm https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows-install.ps1 | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows-install.ps1?nocache=$(Get-Date -Format yyyyMMddHHmmss)" | iex
 ```
+
+The `?nocache=<timestamp>` query parameter is a cache-buster: GitHub's
+raw content host ignores unknown query strings, but any intermediate
+HTTP proxy or Windows WinINet cache on the machine treats a new URL
+as a distinct resource and fetches a fresh copy. Without it, a second
+paste of the one-liner can re-run a stale installer that was cached
+earlier in the session.
 
 It installs PowerShell 7, Git, the Windows ADK Deployment Tools
 (for `oscdimg.exe`), and Tesseract OCR via `winget`; enables the

@@ -20,10 +20,17 @@
     },
     {
       "action": "waitForAndClickButton",
-      "label": ["Install Ubuntu", "Install", "lnstall"],
+      "label": ["Ready to install"],
       "timeoutSeconds": 600,
       "pollSeconds": 9,
-      "description": "Install Ubuntu"
+      "description": "Wait for Ready to install dialog"
+    },
+    {
+      "action": "tabsAndEnter",
+      "tabCount": 2,
+      "delaySeconds": 1,
+       "text": "",
+      "description": "Tab to Install button and enter"
     },
     {
       "action": "waitForAndEnter",

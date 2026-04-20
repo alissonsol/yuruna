@@ -82,6 +82,8 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 #   key              — Send a single keystroke.
 #   type             — Type a text string into the VM (charDelayMs configurable, default from test-config.json, fallback 20ms).
 #   typeAndEnter     — Type a text string, wait, then press Enter (charDelayMs/delaySeconds configurable).
+#   tabsAndEnter     — Send N Tab keystrokes, then press Enter. Useful when focus must be advanced
+#                       to a default button (tabCount, delaySeconds configurable).
 #   screenshot       — Capture a screenshot for debugging.
 #   waitForText      — Capture + OCR the VM screen until pattern appears (supports array of alternate patterns).
 #                       freshMatch: if true, captures a baseline, then waits for the screen
@@ -1205,6 +1207,16 @@ public class HyperVMouse {
         return found;
     }
 
+    // Translate a client-area point to screen coordinates, for debug logging
+    // and diagnostics that need to report where a click actually landed.
+    // Returns null if the translation fails (e.g. invalid window handle).
+    public static int[] GetScreenPoint(IntPtr hWnd, int clientX, int clientY) {
+        EnsureDpiAware();
+        POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
+        if (!ClientToScreen(hWnd, ref pt)) return null;
+        return new int[] { pt.X, pt.Y };
+    }
+
     // Left-click at a client-area pixel (clientX, clientY) inside hWnd.
     // Restores the host cursor afterwards so the operator's mouse isn't
     // "stolen" mid-test. Returns false if the window cannot be targeted.
@@ -1243,8 +1255,15 @@ function Send-ClickHyperV {
         Write-Warning "vmconnect window not found for '$VMName'. Click requires an open vmconnect session."
         return $false
     }
+    # Pre-compute screen-space target so debug_mode can report where the
+    # click was actually dispatched, not just where we think the button is.
+    $screenPoint = [HyperVMouse]::GetScreenPoint($hWnd, $X, $Y)
     $ok = [HyperVMouse]::ClickClientPoint($hWnd, $X, $Y)
-    Write-Debug "      Hyper-V click at client ($X, $Y) ok=$ok"
+    if ($screenPoint) {
+        Write-Debug "      Hyper-V click at client ($X, $Y) -> screen ($($screenPoint[0]), $($screenPoint[1])) ok=$ok"
+    } else {
+        Write-Debug "      Hyper-V click at client ($X, $Y) screen=<ClientToScreen failed> ok=$ok"
+    }
     return $ok
 }
 
@@ -1345,6 +1364,52 @@ function Find-TextLocation {
 
 <#
 .SYNOPSIS
+    Copies a screenshot to $DestPath with a red X drawn at ($X, $Y).
+.DESCRIPTION
+    The X marks the pixel the click was dispatched to, so the operator
+    can eyeball whether OCR coordinates landed on the intended button.
+    A white halo stroke underneath keeps the marker readable on both
+    dark and light installer backgrounds.
+#>
+function Save-ScreenshotWithClickMarker {
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][string]$DestPath,
+        [Parameter(Mandatory)][int]$X,
+        [Parameter(Mandatory)][int]$Y,
+        [int]$Size = 20
+    )
+    try {
+        Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+        # GDI+ locks the source file for the lifetime of the bitmap, so we
+        # clone into an independent in-memory bitmap and release the source
+        # before saving — otherwise SourcePath stays locked until GC runs.
+        $src  = [System.Drawing.Bitmap]::FromFile($SourcePath)
+        $copy = New-Object System.Drawing.Bitmap $src
+        $src.Dispose()
+
+        $g      = [System.Drawing.Graphics]::FromImage($copy)
+        $halo   = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 5)
+        $marker = New-Object System.Drawing.Pen([System.Drawing.Color]::Red,   3)
+        $g.DrawLine($halo,   $X - $Size, $Y - $Size, $X + $Size, $Y + $Size)
+        $g.DrawLine($halo,   $X - $Size, $Y + $Size, $X + $Size, $Y - $Size)
+        $g.DrawLine($marker, $X - $Size, $Y - $Size, $X + $Size, $Y + $Size)
+        $g.DrawLine($marker, $X - $Size, $Y + $Size, $X + $Size, $Y - $Size)
+        $g.Dispose(); $halo.Dispose(); $marker.Dispose()
+
+        $copy.Save($DestPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $copy.Dispose()
+        return $true
+    } catch {
+        Write-Warning "Save-ScreenshotWithClickMarker failed: $_"
+        # Fall back to plain copy so the operator still has a screenshot.
+        Copy-Item -Path $SourcePath -Destination $DestPath -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
     Waits for a labelled button to appear on the VM screen and clicks it.
 .DESCRIPTION
     Loops: capture the VM window at the host's coordinate space, OCR for
@@ -1397,10 +1462,21 @@ function Wait-ForAndClickButton {
                     $clickX = $coord.centerX + $OffsetX
                     $clickY = $coord.centerY + $OffsetY
                     Write-Debug "      Found '$candidate' at ($($coord.x),$($coord.y)) $($coord.w)x$($coord.h) → click ($clickX, $clickY)"
+                    # debug_mode: preserve a per-detection screenshot under a UTC
+                    # timestamp so the operator can correlate a stuck installer
+                    # with exactly what OCR saw and where we aimed the click.
+                    if ($env:YURUNA_DEBUG -eq '1') {
+                        $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
+                        $stampedPath = Join-Path $logDir "waitForAndClickButton.$stamp.png"
+                        Save-ScreenshotWithClickMarker -SourcePath $capture.ImagePath -DestPath $stampedPath -X $clickX -Y $clickY | Out-Null
+                        Write-Debug "      debug_mode: saved detection screenshot $stampedPath"
+                        Write-Debug "      debug_mode: button '$candidate' box=($($coord.x),$($coord.y)) size=$($coord.w)x$($coord.h) click=($clickX, $clickY) offset=($OffsetX, $OffsetY) image=$($capture.Width)x$($capture.Height)"
+                    }
                     $ok = Send-Click -HostType $HostType -VMName $VMName -X $clickX -Y $clickY
-                    # Preserve a diagnostic capture so a failed click can be inspected
+                    # Preserve a diagnostic capture so a failed click can be inspected;
+                    # the X marker shows where the click actually landed in image space.
                     $debugCopy = Join-Path $logDir "clickbutton_${VMName}_last.png"
-                    Copy-Item -Path $capture.ImagePath -Destination $debugCopy -Force -ErrorAction SilentlyContinue
+                    Save-ScreenshotWithClickMarker -SourcePath $capture.ImagePath -DestPath $debugCopy -X $clickX -Y $clickY | Out-Null
                     return $ok
                 }
             }
@@ -1984,6 +2060,27 @@ function Invoke-Sequence {
                 Write-Debug "      Typing: '$masked' (charDelay=${charDelay}ms)"
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
             }
+            "tabsAndEnter" {
+                $tabCount = $step.tabCount ? [int]$step.tabCount : 1
+                $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 1
+                Write-Debug "      Sending $tabCount Tab(s) + Enter (delay ${delaySeconds}s)"
+                $ok = $true
+                for ($t = 0; $t -lt $tabCount; $t++) {
+                    $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Tab"
+                    if ($ok -eq $false) { break }
+                    Start-Sleep -Milliseconds 300
+                }
+                if ($ok -ne $false) {
+                    $delaySecsInt = [int][math]::Ceiling($delaySeconds)
+                    for ($r = $delaySecsInt; $r -gt 0; $r--) {
+                        $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
+                        Write-ProgressTick -Activity "tabsAndEnter" -Status "drain ${r}s" -PercentComplete $pct
+                        Start-Sleep -Seconds 1
+                    }
+                    Write-ProgressTick -Activity "tabsAndEnter" -Completed
+                    $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
+                }
+            }
             "typeAndEnter" {
                 $text = Expand-Variable $step.text $vars
                 $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
@@ -2253,6 +2350,7 @@ function Invoke-Sequence {
                 "key"              { $actionLabel = "key: $($step.name)" }
                 "type"             { $actionLabel = "type" }
                 "typeAndEnter"     { $actionLabel = "typeAndEnter" }
+                "tabsAndEnter"     { $actionLabel = "tabsAndEnter: $($step.tabCount ?? 1)" }
                 "waitForAndEnter" {
                     $rawPatterns = $step.pattern
                     if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {

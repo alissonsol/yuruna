@@ -354,7 +354,7 @@ write_files:
         "uid": "yuruna-squid",
         "title": "Squid Cache (yuruna)",
         "schemaVersion": 39,
-        "version": 6,
+        "version": 7,
         "refresh": "30s",
         "time": {"from": "now-1h", "to": "now"},
         "panels": [
@@ -364,6 +364,15 @@ write_files:
             "title": "Client HTTP(S) requests/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 0, "w": 12, "h": 6},
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": [
+                {
+                  "matcher": {"id": "byFrameRefID", "options": "A"},
+                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+                }
+              ]
+            },
             "targets": [{"expr": "rate(squid_client_http_requests_total[5m])", "refId": "A"}]
           },
           {
@@ -372,6 +381,15 @@ write_files:
             "title": "Client HTTP(S) hits/sec",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 0, "w": 12, "h": 6},
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": [
+                {
+                  "matcher": {"id": "byFrameRefID", "options": "A"},
+                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+                }
+              ]
+            },
             "targets": [{"expr": "rate(squid_client_http_hits_total[5m])", "refId": "A"}]
           },
           {
@@ -380,6 +398,19 @@ write_files:
             "title": "Client HTTP(S) data served (kB/s): total vs cached",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 6, "w": 24, "h": 8},
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": [
+                {
+                  "matcher": {"id": "byName", "options": "Total"},
+                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+                },
+                {
+                  "matcher": {"id": "byName", "options": "Cached"},
+                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+                }
+              ]
+            },
             "targets": [
               {"expr": "rate(squid_client_http_kbytes_out_kbytes_total[5m])",     "refId": "A", "legendFormat": "Total"},
               {"expr": "rate(squid_client_http_hit_kbytes_out_bytes_total[5m])", "refId": "B", "legendFormat": "Cached"}

@@ -46,12 +46,21 @@ function Write-ProgressTick {
         [int]$PercentComplete = -1,
         [switch]$Completed
     )
+    # The marker uses '|' as delimiter. If a caller's Activity or Status
+    # happens to contain '|', the parent's .Split('|') would shift columns and
+    # parts[2] (meant to be PercentComplete) would parse as non-numeric, e.g.
+    # Wait-ForAndClickButton once built `'Install Ubuntu' | 'Install' | 'lnstall'`
+    # and the parent crashed with "Cannot convert ' 'Install' ' to Int32".
+    # Replace with '/' here so callers can freely embed any character in their
+    # progress text and the on-screen Write-Progress keeps the original string.
+    $safeActivity = $Activity -replace '\|', '/'
+    $safeStatus   = $Status   -replace '\|', '/'
     if ($Completed) {
         Write-Progress -Activity $Activity -Completed
-        $Host.UI.WriteLine("##YURUNA-PROGRESS##|$Activity|done|-1|1")
+        $Host.UI.WriteLine("##YURUNA-PROGRESS##|$safeActivity|done|-1|1")
     } else {
         Write-Progress -Activity $Activity -Status $Status -PercentComplete $PercentComplete
-        $Host.UI.WriteLine("##YURUNA-PROGRESS##|$Activity|$Status|$PercentComplete|0")
+        $Host.UI.WriteLine("##YURUNA-PROGRESS##|$safeActivity|$safeStatus|$PercentComplete|0")
     }
 }
 $_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test-config.json"
@@ -1361,7 +1370,11 @@ function Wait-ForAndClickButton {
 
     $logDir = Get-YurunaLogDir
     $capturePath = Join-Path $logDir "clickbutton_${VMName}.png"
-    $labelDisplay = $Label -join "' | '"
+    # Avoid '|' as the join separator — Write-ProgressTick's marker uses '|'
+    # as its field delimiter, and embedding one here would shift parsing on the
+    # parent side. Write-ProgressTick sanitizes defensively, but keep the
+    # display clean at the source too.
+    $labelDisplay = $Label -join "' / '"
     $elapsed = 0
 
     try {
@@ -1422,8 +1435,26 @@ function Wait-ForText {
         [int]$PollSeconds = 5,
         [bool]$FreshMatch = $false,
         [int]$FreshMatchTailLines = 12,
-        [int]$ResetAfterMisses = 2
+        [int]$ResetAfterMisses = 2,
+        # Anti-patterns: if ANY of these fuzzy-matches on screen OCR,
+        # abort the wait immediately and return $false. Canonical use
+        # case is subiquity's "install_fail.crash" / "An error occurred.
+        # Press enter to start a shell" output -- at that point the
+        # positive pattern (e.g. "Not listed?" from the GDM login screen)
+        # is never going to appear, so polling until $TimeoutSeconds
+        # wastes up to an hour before the runner gets a misleading
+        # "pattern not found" failure. On match this function also sets
+        # the module-scoped $script:WaitForTextMatchedFailurePattern so
+        # the caller's failure-label builder can surface *which* anti-
+        # pattern fired, producing a banner like
+        #   waitForAndEnter: "Not listed?" -- matched failurePattern "install_fail.crash"
+        # instead of the opaque timeout message.
+        [string[]]$FailurePattern = @()
     )
+    # Reset the cross-function signal so a prior call's match can't leak
+    # into the next Wait-ForText invocation.
+    $script:WaitForTextMatchedFailurePattern = $null
+
     # Display label uses first pattern for log messages
     $patternLabel = $Pattern[0]
     $elapsed = 0
@@ -1584,6 +1615,40 @@ function Wait-ForText {
                     Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
                     Start-Sleep -Seconds $PollSeconds
                     continue
+                }
+            }
+
+            # Anti-pattern (early-fail) check: abort the wait the moment
+            # any FailurePattern fuzzy-matches the current frame. Runs
+            # AFTER the positive-match check above (so a positive match
+            # wins ties in the very rare case both appear on one screen)
+            # and reuses Test-OCRMatch's normalized fuzzy compare so a
+            # few OCR glitches don't mask the signature. Uses $lastOcrText
+            # because that's the freshest OCR output from every branch
+            # above, including the "no new pixels" path where the screen
+            # hasn't changed since the last poll.
+            if ($FailurePattern -and $FailurePattern.Count -gt 0 -and $lastOcrText) {
+                foreach ($fp in $FailurePattern) {
+                    if ([string]::IsNullOrWhiteSpace($fp)) { continue }
+                    if (Test-OCRMatch -Text $lastOcrText -Pattern $fp) {
+                        $script:WaitForTextMatchedFailurePattern = $fp
+                        Write-Warning "      Failure pattern matched: '$fp' -- aborting wait early (elapsed ${elapsed}s / ${TimeoutSeconds}s)"
+                        # Mirror the timeout path's artefact capture so
+                        # the post-mortem has the same screenshot + OCR
+                        # text whether we timed out or short-circuited.
+                        $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
+                        $failOcrPath    = Join-Path $logDir "failure_ocr_${VMName}.txt"
+                        $lastScreenPath = if (Test-Path $currentScreenPath) { $currentScreenPath }
+                                          elseif (Test-Path $previousScreenPath) { $previousScreenPath }
+                                          else { $null }
+                        if ($lastScreenPath) {
+                            Copy-Item -Path $lastScreenPath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
+                            Write-Information "      Failure screenshot saved: $failScreenPath"
+                        }
+                        Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
+                        Write-Information "      Failure OCR text saved: $failOcrPath"
+                        return $false
+                    }
                 }
             }
 
@@ -1951,16 +2016,30 @@ function Invoke-Sequence {
                 } else {
                     [string[]]$patterns = @(Expand-Variable $rawPatterns $vars)
                 }
+                # Anti-patterns for early-fail. Accept the same shapes as
+                # `pattern` (string or array-of-strings); omitting the
+                # field leaves failurePatterns empty and Wait-ForText
+                # behaves exactly as before.
+                $rawFailurePatterns = $step.failurePatterns
+                [string[]]$failurePatterns = @()
+                if ($null -ne $rawFailurePatterns) {
+                    if ($rawFailurePatterns -is [System.Collections.IEnumerable] -and $rawFailurePatterns -isnot [string]) {
+                        $failurePatterns = @($rawFailurePatterns | ForEach-Object { Expand-Variable $_ $vars })
+                    } else {
+                        $failurePatterns = @(Expand-Variable $rawFailurePatterns $vars)
+                    }
+                }
                 $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 120
                 $poll = $step.pollSeconds ? [int]$step.pollSeconds : 5
                 $fresh = $step.freshMatch -eq $true
                 $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
                 $resetMisses = $step.resetAfterMisses ? [int]$step.resetAfterMisses : 3
                 $patternDisplay = $patterns -join "' | '"
-                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
+                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' })$(if ($failurePatterns.Count) { ", $($failurePatterns.Count) failurePatterns" }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
-                    -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses
+                    -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses `
+                    -FailurePattern $failurePatterns
             }
             "waitForAndEnter" {
                 # Composite: waitForText then typeAndEnter
@@ -1970,16 +2049,26 @@ function Invoke-Sequence {
                 } else {
                     [string[]]$patterns = @(Expand-Variable $rawPatterns $vars)
                 }
+                $rawFailurePatterns = $step.failurePatterns
+                [string[]]$failurePatterns = @()
+                if ($null -ne $rawFailurePatterns) {
+                    if ($rawFailurePatterns -is [System.Collections.IEnumerable] -and $rawFailurePatterns -isnot [string]) {
+                        $failurePatterns = @($rawFailurePatterns | ForEach-Object { Expand-Variable $_ $vars })
+                    } else {
+                        $failurePatterns = @(Expand-Variable $rawFailurePatterns $vars)
+                    }
+                }
                 $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 120
                 $poll = $step.pollSeconds ? [int]$step.pollSeconds : 5
                 $fresh = $step.freshMatch -eq $true
                 $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
                 $resetMisses = $step.resetAfterMisses ? [int]$step.resetAfterMisses : 3
                 $patternDisplay = $patterns -join "' | '"
-                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' }))"
+                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' })$(if ($failurePatterns.Count) { ", $($failurePatterns.Count) failurePatterns" }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
-                    -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses
+                    -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses `
+                    -FailurePattern $failurePatterns
                 if ($ok -ne $false) {
                     # Send Tab keystrokes before typing, if requested. This is
                     # needed when the target element (e.g. an "Install" button)
@@ -2177,6 +2266,17 @@ function Invoke-Sequence {
                 "sshWaitReady"     { $actionLabel = "sshWaitReady" }
                 "sshExec"          { $actionLabel = "sshExec: `"$(Expand-Variable $step.command $vars)`"" }
                 "sshFetchAndExecute" { $actionLabel = "sshFetchAndExecute: `"$(Expand-Variable $step.command $vars)`"" }
+            }
+
+            # If Wait-ForText short-circuited on a failurePattern, annotate
+            # the step label so the runner's ERROR banner and the per-run
+            # failure JSON both say *why* the step died instead of the
+            # generic "pattern not found within Ns". Only waitForText /
+            # waitForAndEnter set this signal; for other actions the
+            # variable is $null and the label is unchanged.
+            if (($step.action -eq 'waitForText' -or $step.action -eq 'waitForAndEnter') -and
+                $script:WaitForTextMatchedFailurePattern) {
+                $actionLabel = $actionLabel + " -- matched failurePattern `"$($script:WaitForTextMatchedFailurePattern)`""
             }
 
             $failureInfo = @{

@@ -27,8 +27,14 @@
       "description": "Continue with autoinstall?"
     },
     {
+      "$failurePatterns": "Abort the wait the moment subiquity's crash signatures appear on screen instead of polling the full 3600s. 'install_fail.crash' is subiquity writing /var/crash/NNN.install_fail.crash when curtin fails. 'Press enter to start a shell' is the fallback UI subiquity drops to on crash. 'returned non-zero exit status' is the surfaced Python traceback from the failed curtin subprocess (e.g. `apt ... ubuntu-desktop` exit 100). Any match fails the step in ~20s with a label pointing at the real cause rather than the misleading timeout banner.",
       "action": "waitForAndEnter",
       "pattern": "Not listed?",
+      "failurePatterns": [
+        "install_fail.crash",
+        "Press enter to start a shell",
+        "returned non-zero exit status"
+      ],
       "timeoutSeconds": 3600,
       "pollSeconds": 15,
       "text": "",

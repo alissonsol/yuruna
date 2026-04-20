@@ -77,7 +77,7 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
-function Write-Die  { param([string]$m) Write-Error $m; exit 1 }
+function Write-Die  { param([string]$m) Write-Error $m }  # Write-Error under $ErrorActionPreference='Stop' already throws; no `exit 1` so an uncaught Die-path error doesn't close the user's hosting shell.
 
 # -- Preflight: Windows only -------------------------------------------------
 if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
@@ -135,7 +135,13 @@ Invoke-RestMethod `$u | Invoke-Expression
         Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList @(
             '-NoProfile','-ExecutionPolicy','Bypass','-Command', $bootstrap)
     }
-    exit 0
+    # `return` instead of `exit` -- `exit` at the script's top level
+    # terminates the hosting PowerShell process, which would close the
+    # user's own shell when the script is invoked via `irm | iex` in
+    # their non-admin console. `return` exits only the script scope,
+    # leaving the user's window intact while the self-spawned admin
+    # window does the real work.
+    return
 }
 
 Write-Step "Yuruna Windows installer starting"
@@ -204,22 +210,25 @@ re-run this installer.
     # Same param-forwarding dance as the elevation block. When invoked via
     # `irm | iex` there is no $PSCommandPath, so we re-download the script
     # to a temp file and hand THAT to pwsh. Synchronous `&` call so the
-    # user sees all further output in this single console, and exit code
-    # propagates. Run the rest under the child pwsh and terminate here.
+    # user sees all further output in this single console. Using `return`
+    # instead of `exit` so that if this block runs in the user's own
+    # admin PS 5.x shell (not a self-spawned one), the script ends but
+    # their session stays open; $LASTEXITCODE is already set by the
+    # `&` invocation above and remains visible to the caller.
     if ($PSCommandPath) {
         $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"")
         if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
         if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
         if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
         & $pwshCmd.Source $argList
-        exit $LASTEXITCODE
+        return
     } else {
         $tmp = Join-Path $env:TEMP ("yuruna-windows-install-" + [guid]::NewGuid().ToString('N') + '.ps1')
         $u   = 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows-install.ps1'
         Invoke-RestMethod $u | Set-Content -Path $tmp -Encoding UTF8
         try {
             & $pwshCmd.Source -NoProfile -ExecutionPolicy Bypass -File $tmp
-            exit $LASTEXITCODE
+            return
         } finally {
             Remove-Item -Path $tmp -Force -ErrorAction SilentlyContinue
         }
@@ -450,7 +459,12 @@ $script:InstallSucceeded = $true
         Write-Output 'The installer did not complete. Review the messages above,'
         Write-Output 'address the problem, and re-run this script. Re-running is'
         Write-Output 'safe -- completed steps are skipped.'
-        exit 1
+        # No `exit 1` here -- that would terminate the hosting PowerShell
+        # process, closing the user's own window when they invoked this
+        # script directly (e.g. `.\install\windows-install.ps1`). The
+        # if/elseif/else already skips the other branches, so falling
+        # through leaves the finally block cleanly and returns the user
+        # to their shell prompt.
     }
     elseif ($script:RestartNeeded) {
         # ---- Reboot-blocked path ---------------------------------------
@@ -469,22 +483,24 @@ $script:InstallSucceeded = $true
     else {
         # ---- Full success path -- automate the handoff ----------------
         # The admin console this script is running in was spawned by the
-        # self-elevation block via Start-Process -Verb RunAs and will
-        # close the moment we return. Instead of asking the user to open
-        # a new window, edit a config, and launch Hyper-V Manager by
-        # hand, we do all three here -- the new windows inherit the
-        # up-to-date Machine PATH and stay open after this one closes,
-        # giving the user a working environment without a Read-Host
-        # pause that could be hit by an accidental Enter.
+        # self-elevation block via Start-Process -Verb RunAs and closes
+        # the moment we return. Anything we Write-Output AFTER that exit
+        # is unreadable -- which is why the previous revision's NEXT
+        # STEPS block vanished before the user could read it. So:
+        # all NEXT STEPS guidance lives INSIDE the spawned pwsh window's
+        # welcome banner. This window can close right after the spawn;
+        # nothing critical is lost.
 
         Write-Step 'Finishing up -- opening handoff windows'
 
         # 1. Hyper-V Manager. First-run dialog registration still has to
         #    happen interactively (per-user MMC snap-in setup), so we
         #    launch the console and let the user dismiss it.
+        $hypervOpened = $false
         try {
             Write-Step '  launching Hyper-V Manager (virtmgmt.msc)'
             Start-Process -FilePath 'virtmgmt.msc' | Out-Null
+            $hypervOpened = $true
         } catch {
             Write-Warn ('  could not launch virtmgmt.msc: ' + $_.Exception.Message)
         }
@@ -515,51 +531,84 @@ $script:InstallSucceeded = $true
             }
         }
 
-        # 3. New pwsh window positioned at the test directory. Without
-        #    this, the user is left with no working shell (admin or
-        #    otherwise) once the self-elevated console closes. The new
-        #    process reads Machine PATH fresh, so pwsh / git / oscdimg
-        #    / qemu-img are all visible without a manual refresh.
+        # 3. Build the welcome banner for the spawned pwsh window. All
+        #    NEXT STEPS guidance goes HERE, not in the admin console,
+        #    because the admin console closes right after we spawn.
+        #    Build the banner as a list of Write-Host statements, one
+        #    per line, each using single-quoted strings to avoid any
+        #    $-expansion surprises inside the spawned shell.
+        $testDirForScript = $testDirFinal -replace "'", "''"
+        $lines = New-Object System.Collections.Generic.List[string]
+        $null = $lines.Add("Set-Location -LiteralPath '$testDirForScript'")
+        $null = $lines.Add("Write-Host ''")
+        $null = $lines.Add("Write-Host '================================================================' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '  Yuruna installer finished -- continue working here.' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '================================================================' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host ''")
+        $null = $lines.Add("Write-Host 'NEXT STEPS:' -ForegroundColor Cyan")
+        if ($hypervOpened) {
+            $null = $lines.Add("Write-Host '  * Hyper-V Manager is open -- dismiss the first-run dialog,' -ForegroundColor Cyan")
+            $null = $lines.Add("Write-Host '    then close that window.' -ForegroundColor Cyan")
+        }
+        if ($notepadOpened) {
+            $null = $lines.Add("Write-Host '  * notepad is open on test-config.json -- edit values for' -ForegroundColor Cyan")
+            $null = $lines.Add("Write-Host '    your environment, then save and close notepad.' -ForegroundColor Cyan")
+        }
+        $null = $lines.Add("Write-Host '  * Run the test harness from THIS window:' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '      pwsh .\Invoke-TestRunner.ps1' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host ''")
+        $null = $lines.Add("Write-Host 'Re-running the installer is safe; it upgrades winget packages' -ForegroundColor DarkGray")
+        $null = $lines.Add("Write-Host 'and fast-forwards the Yuruna checkout.' -ForegroundColor DarkGray")
+        $null = $lines.Add("Write-Host ''")
+        $welcomeScript = $lines -join "`r`n"
+
+        # -EncodedCommand sidesteps every shell-quoting pitfall for the
+        # spawned process -- pwsh.exe expects the base64 payload as
+        # UTF-16LE (Unicode) bytes.
+        $encoded = [Convert]::ToBase64String(
+            [System.Text.Encoding]::Unicode.GetBytes($welcomeScript))
+
         $shellOpened = $false
         $pwshCmd3 = Get-Command pwsh -ErrorAction SilentlyContinue
         if ($pwshCmd3) {
             Write-Step ('  opening a new pwsh window at ' + $testDirFinal)
-            $welcome = @"
-Set-Location -LiteralPath "$testDirFinal"
-Write-Host ''
-Write-Host 'Yuruna installer finished -- you are in test\.' -ForegroundColor Cyan
-Write-Host 'To run the test harness:' -ForegroundColor Cyan
-Write-Host '  pwsh .\Invoke-TestRunner.ps1' -ForegroundColor Cyan
-Write-Host ''
-"@
             try {
                 Start-Process -FilePath $pwshCmd3.Source -ArgumentList @(
-                    '-NoExit','-NoLogo','-Command', $welcome
+                    '-NoExit','-NoLogo','-EncodedCommand', $encoded
                 ) | Out-Null
                 $shellOpened = $true
             } catch {
                 Write-Warn ('  could not open a new pwsh window: ' + $_.Exception.Message)
             }
         } else {
-            Write-Warn '  pwsh not on PATH -- could not open a new shell. Open one manually and cd to test\.'
+            Write-Warn '  pwsh not on PATH -- could not open a new shell.'
         }
 
-        Write-Output ''
-        Write-Output '================================================================'
-        Write-Output '   NEXT STEPS -- see the windows that just opened:'
-        Write-Output '     * Hyper-V Manager -- dismiss any first-run dialog, close it'
-        if ($notepadOpened) {
-            Write-Output '     * notepad (test-config.json) -- edit for your environment,'
-            Write-Output '       then save and close'
+        if (-not $shellOpened) {
+            # Rare: the handoff pwsh window didn't open, so the NEXT
+            # STEPS banner that lives inside it never ran. Print the
+            # same guidance here in the admin console and hold the
+            # window open long enough to read it -- timed auto-close
+            # (no Read-Host, so an accidental Enter cannot end things).
+            Write-Output ''
+            Write-Output '================================================================'
+            Write-Output '   HANDOFF WINDOW DID NOT OPEN -- DO THIS MANUALLY:'
+            Write-Output '================================================================'
+            if ($hypervOpened) {
+                Write-Output '   * Hyper-V Manager is open -- dismiss the first-run dialog,'
+                Write-Output '     then close that window.'
+            }
+            if ($notepadOpened) {
+                Write-Output '   * notepad is open on test-config.json -- edit values for'
+                Write-Output '     your environment, then save and close notepad.'
+            }
+            Write-Output '   * Open a new pwsh window, then run:'
+            Write-Output ("       cd `"$testDirFinal`"")
+            Write-Output  '       pwsh .\Invoke-TestRunner.ps1'
+            Write-Output '================================================================'
+            Write-Output ''
+            Write-Output 'This window will close automatically in 60 seconds.'
+            Start-Sleep -Seconds 60
         }
-        if ($shellOpened) {
-            Write-Output '     * new pwsh window at test\ -- run:'
-            Write-Output '           pwsh .\Invoke-TestRunner.ps1'
-        }
-        Write-Output '================================================================'
-        Write-Output ''
-        Write-Output 'Re-running this installer is safe; it will upgrade winget'
-        Write-Output 'packages and fast-forward the Yuruna checkout when possible.'
-        Write-Output ''
     }
 }

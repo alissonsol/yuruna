@@ -85,23 +85,32 @@ APT_PROXY_BLOCK_PLACEHOLDER
         # --- HTTPS caching opt-in (macOS host path) ---
         # Windows hyper-v guest.ubuntu.* user-data fetches the CA inside
         # the installer via wget because guests reach the cache VM
-        # directly on the Default Switch. On macOS the guest cannot —
-        # Apple VZ shared-NAT isolates guests — so guest.ubuntu.*/New-VM.ps1
-        # on the HOST fetches the CA at provision time and base64-embeds
-        # it here via CA_CERT_BASE64_PLACEHOLDER.
+        # directly on the Default Switch. On macOS the guest cannot
+        # fetch from a co-tenant VM — Apple VZ shared-NAT isolates
+        # guests — so guest.ubuntu.*/New-VM.ps1 on the HOST fetches the
+        # CA at provision time and base64-embeds it here via
+        # CA_CERT_BASE64_PLACEHOLDER.
         #
-        # The :3129 ssl-bump listener is reached through the host-side
-        # forwarder at 192.168.64.1:3129 (one of the ports Start-SquidCache
-        # maps alongside :3128). If the CA fetch failed or was skipped,
-        # CA_CERT_BASE64_PLACEHOLDER comes through empty and this block
-        # becomes a no-op — guest keeps the plain-HTTP :3128 proxy and
-        # lets HTTPS apt calls go direct (same as before ssl-bump).
+        # Acquire::https::Proxy points at the :3129 ssl-bump listener
+        # on the SAME host as the HTTP proxy (derived from
+        # CACHING_PROXY_URL_PLACEHOLDER). The guest reaches it over the
+        # standard shared-NAT route that the HTTP side already proves
+        # works. Earlier revisions hardcoded 192.168.64.1:3129 assuming
+        # a host-side forwarder created by Start-CachingProxy.ps1; that
+        # forwarder only exists when squid runs on THIS macOS host, not
+        # when the cache is a LAN peer — and in the peer case every
+        # HTTPS apt call died with "Connection refused," silently
+        # aborting the Docker install downstream. If the CA fetch
+        # failed or was skipped CA_CERT_BASE64_PLACEHOLDER comes
+        # through empty and this block becomes a no-op — HTTPS apt
+        # bypasses the cache and goes direct (same as before ssl-bump).
         if [ -n "CA_CERT_BASE64_PLACEHOLDER" ]; then
           mkdir -p /target/usr/local/share/ca-certificates
           printf '%s' "CA_CERT_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
           chmod 0644 /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
           curtin in-target --target=/target -- update-ca-certificates
-          echo 'Acquire::https::Proxy "http://192.168.64.1:3129";' >> /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+          CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+          echo "Acquire::https::Proxy \"http://${CACHE_HOST}:3129\";" >> /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         fi
       fi
     # --- Cap systemd-networkd-wait-online so first boot doesn't hang ---

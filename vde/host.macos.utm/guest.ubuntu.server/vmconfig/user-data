@@ -83,20 +83,27 @@ APT_PROXY_BLOCK_PLACEHOLDER
       if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
         echo 'Acquire::http::Proxy "CACHING_PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
-        # --- HTTPS caching opt-in (macOS host path) ---
+        # --- HTTPS caching opt-in ---
         # guest.ubuntu.server/New-VM.ps1 runs on the host and fetches the
-        # squid-cache CA directly (VZ shared-NAT blocks guest↔guest so the
-        # guest itself can't). When the fetch succeeds the CA bytes arrive
-        # here base64-encoded; this block decodes them into the target,
-        # updates the trust store, and points Acquire::https::Proxy at the
-        # :3129 ssl-bump listener (reached via the host forwarder at
-        # 192.168.64.1:3129). Empty placeholder → no-op, HTTPS apt bypasses.
+        # squid-cache CA directly (VZ shared-NAT blocks guest↔guest for
+        # the CA-fetch scenario where the cache is a co-tenant VM). When
+        # the fetch succeeds the CA bytes arrive here base64-encoded;
+        # this block decodes them into the target, updates the trust
+        # store, and points Acquire::https::Proxy at the :3129 ssl-bump
+        # listener on the same host as the HTTP proxy — the guest reaches
+        # it over the standard shared-NAT route the HTTP side already
+        # uses. (Earlier revisions indirected through a host-side port
+        # forwarder at 192.168.64.1:3129; that forwarder never existed
+        # on this setup, so every HTTPS apt call died with "Connection
+        # refused," silently aborting the Docker install.) Empty
+        # placeholder → no-op, HTTPS apt bypasses.
         if [ -n "CA_CERT_BASE64_PLACEHOLDER" ]; then
           mkdir -p /target/usr/local/share/ca-certificates
           printf '%s' "CA_CERT_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
           chmod 0644 /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
           curtin in-target --target=/target -- update-ca-certificates
-          echo 'Acquire::https::Proxy "http://192.168.64.1:3129";' >> /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+          CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+          echo "Acquire::https::Proxy \"http://${CACHE_HOST}:3129\";" >> /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         fi
       fi
     # --- Cap systemd-networkd-wait-online so first boot doesn't hang ---

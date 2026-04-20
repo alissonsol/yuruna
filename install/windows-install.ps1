@@ -438,42 +438,8 @@ $script:InstallSucceeded = $true
     Write-Output '================================================================'
     Write-Output ''
 
-    if ($script:InstallSucceeded) {
-        @"
-Yuruna is ready.
-
-Next steps (in order):
-
-  1. Open a NEW PowerShell window (so the updated PATH and any freshly
-     installed pwsh.exe / git.exe / oscdimg.exe are picked up). Inside that
-     new window you can use 'pwsh' instead of 'powershell' from here on.
-
-"@ | Write-Output
-
-        if ($script:RestartNeeded) {
-            Write-Warning '  2. RESTART Windows -- Hyper-V was just enabled and needs a reboot.'
-            Write-Warning '     After the reboot, re-run this installer once to finish the'
-            Write-Warning '     host configuration step (Enable-TestAutomation.ps1), then'
-            Write-Warning '     continue with step 3.'
-            Write-Output ''
-        }
-
-        @"
-  3. Review and edit the test config:
-       notepad $cfg
-
-  4. Launch the Hyper-V Manager once so it registers with your account and
-     surfaces any first-run dialogs:
-       Start-Process virtmgmt.msc
-
-  5. Run the test harness from the new pwsh window:
-       cd $testDir
-       pwsh .\Invoke-TestRunner.ps1
-
-Re-running this installer is safe; it will upgrade winget packages and
-fast-forward the Yuruna checkout when possible.
-"@ | Write-Output
-    } else {
+    if (-not $script:InstallSucceeded) {
+        # ---- Failure path ----------------------------------------------
         if ($script:InstallError) {
             Write-Warning ("Installer error: " + $script:InstallError.Exception.Message)
             if ($script:InstallError.InvocationInfo -and $script:InstallError.InvocationInfo.PositionMessage) {
@@ -484,19 +450,116 @@ fast-forward the Yuruna checkout when possible.
         Write-Output 'The installer did not complete. Review the messages above,'
         Write-Output 'address the problem, and re-run this script. Re-running is'
         Write-Output 'safe -- completed steps are skipped.'
+        exit 1
     }
-
-    # Keep the window open so the user can read the final status. Without
-    # this pause, the admin console spawned by Start-Process -Verb RunAs
-    # closes the moment this script returns. If there is no interactive
-    # console (rare; e.g. piped stdin), Read-Host fails -- fall back to a
-    # long sleep so automated callers are not blocked forever.
-    Write-Output ''
-    try {
-        $null = Read-Host 'Press Enter to close this window'
-    } catch {
-        Start-Sleep -Seconds 60
+    elseif ($script:RestartNeeded) {
+        # ---- Reboot-blocked path ---------------------------------------
+        # Don't automate Hyper-V Manager (vmms isn't running yet), don't
+        # open a notepad for test-config.json (the user cannot run tests
+        # before the reboot anyway), don't spawn a fresh pwsh window
+        # (same reason). Keep guidance to the single thing that matters:
+        # reboot, then re-run.
+        Write-Warning 'RESTART REQUIRED'
+        Write-Warning '  Hyper-V was just enabled and needs a Windows restart.'
+        Write-Warning '  After the reboot, re-run this installer -- it will finish'
+        Write-Warning '  the host configuration step, open Hyper-V Manager and'
+        Write-Warning '  notepad for test-config.json if needed, and drop you at'
+        Write-Warning '  a pwsh prompt in the test directory.'
     }
+    else {
+        # ---- Full success path -- automate the handoff ----------------
+        # The admin console this script is running in was spawned by the
+        # self-elevation block via Start-Process -Verb RunAs and will
+        # close the moment we return. Instead of asking the user to open
+        # a new window, edit a config, and launch Hyper-V Manager by
+        # hand, we do all three here -- the new windows inherit the
+        # up-to-date Machine PATH and stay open after this one closes,
+        # giving the user a working environment without a Read-Host
+        # pause that could be hit by an accidental Enter.
 
-    if (-not $script:InstallSucceeded) { exit 1 }
+        Write-Step 'Finishing up -- opening handoff windows'
+
+        # 1. Hyper-V Manager. First-run dialog registration still has to
+        #    happen interactively (per-user MMC snap-in setup), so we
+        #    launch the console and let the user dismiss it.
+        try {
+            Write-Step '  launching Hyper-V Manager (virtmgmt.msc)'
+            Start-Process -FilePath 'virtmgmt.msc' | Out-Null
+        } catch {
+            Write-Warn ('  could not launch virtmgmt.msc: ' + $_.Exception.Message)
+        }
+
+        # 2. test-config.json review. The earlier seed step copied the
+        #    template over if the file was absent, but the user still
+        #    has to fill in environment-specific values. Only open
+        #    notepad when the file is still byte-identical to the
+        #    template -- if they already customized it, leave it alone
+        #    so we do not nag on every re-run.
+        $notepadOpened = $false
+        $testDirFinal = Join-Path $YurunaDir 'test'
+        $cfgFinal     = Join-Path $testDirFinal 'test-config.json'
+        $tplFinal     = Join-Path $testDirFinal 'test-config.json.template'
+        if ((Test-Path -LiteralPath $cfgFinal) -and (Test-Path -LiteralPath $tplFinal)) {
+            $cfgHash = (Get-FileHash -LiteralPath $cfgFinal -Algorithm SHA256).Hash
+            $tplHash = (Get-FileHash -LiteralPath $tplFinal -Algorithm SHA256).Hash
+            if ($cfgHash -eq $tplHash) {
+                Write-Step '  test-config.json is unchanged from the template -- opening notepad for review'
+                try {
+                    Start-Process -FilePath 'notepad.exe' -ArgumentList ('"' + $cfgFinal + '"') | Out-Null
+                    $notepadOpened = $true
+                } catch {
+                    Write-Warn ('  could not launch notepad: ' + $_.Exception.Message)
+                }
+            } else {
+                Write-Step '  test-config.json already customized -- leaving as-is'
+            }
+        }
+
+        # 3. New pwsh window positioned at the test directory. Without
+        #    this, the user is left with no working shell (admin or
+        #    otherwise) once the self-elevated console closes. The new
+        #    process reads Machine PATH fresh, so pwsh / git / oscdimg
+        #    / qemu-img are all visible without a manual refresh.
+        $shellOpened = $false
+        $pwshCmd3 = Get-Command pwsh -ErrorAction SilentlyContinue
+        if ($pwshCmd3) {
+            Write-Step ('  opening a new pwsh window at ' + $testDirFinal)
+            $welcome = @"
+Set-Location -LiteralPath "$testDirFinal"
+Write-Host ''
+Write-Host 'Yuruna installer finished -- you are in test\.' -ForegroundColor Cyan
+Write-Host 'To run the test harness:' -ForegroundColor Cyan
+Write-Host '  pwsh .\Invoke-TestRunner.ps1' -ForegroundColor Cyan
+Write-Host ''
+"@
+            try {
+                Start-Process -FilePath $pwshCmd3.Source -ArgumentList @(
+                    '-NoExit','-NoLogo','-Command', $welcome
+                ) | Out-Null
+                $shellOpened = $true
+            } catch {
+                Write-Warn ('  could not open a new pwsh window: ' + $_.Exception.Message)
+            }
+        } else {
+            Write-Warn '  pwsh not on PATH -- could not open a new shell. Open one manually and cd to test\.'
+        }
+
+        Write-Output ''
+        Write-Output '================================================================'
+        Write-Output '   NEXT STEPS -- see the windows that just opened:'
+        Write-Output '     * Hyper-V Manager -- dismiss any first-run dialog, close it'
+        if ($notepadOpened) {
+            Write-Output '     * notepad (test-config.json) -- edit for your environment,'
+            Write-Output '       then save and close'
+        }
+        if ($shellOpened) {
+            Write-Output '     * new pwsh window at test\ -- run:'
+            Write-Output '           pwsh .\Invoke-TestRunner.ps1'
+        }
+        Write-Output '================================================================'
+        Write-Output ''
+        Write-Output 'Re-running this installer is safe; it will upgrade winget'
+        Write-Output 'packages and fast-forward the Yuruna checkout when possible.'
+        Write-Output ''
+    }
 }

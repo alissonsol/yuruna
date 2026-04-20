@@ -63,17 +63,11 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Check if Hyper-V services are installed and running
-$hypervFeature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All
-if ($hypervFeature.State -ne 'Enabled') {
-    Write-Output "Hyper-V is not enabled. Please enable Hyper-V from Windows Features."
-    Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"
-    exit 1
-}
-
-$service = Get-Service -Name vmms -ErrorAction SilentlyContinue
-if (!$service -or $service.Status -ne 'Running') {
-    Write-Output "Hyper-V Virtual Machine Management service (vmms) is not running. Please start the service."
+# Check Hyper-V. Assert-HyperVEnabled (VM.common.psm1) calls dism.exe
+# directly instead of Get-WindowsOptionalFeature, which avoids the
+# "Class not registered" COM failure that breaks the first post-install
+# run on a fresh Windows 11 machine.
+if (-not (Assert-HyperVEnabled)) {
     Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"
     exit 1
 }

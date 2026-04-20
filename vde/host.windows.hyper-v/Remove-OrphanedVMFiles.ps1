@@ -46,6 +46,9 @@ foreach ($guest in $guestFolders) {
     $baseImageNames += "$hostFolder.$($guest.Name)"
 }
 
+# Shared Hyper-V / vmms precondition helper.
+Import-Module -Name (Join-Path $ScriptDir 'VM.common.psm1') -Force
+
 # === Check prerequisites ===
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -53,17 +56,9 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-$hypervFeature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All
-if ($hypervFeature.State -ne 'Enabled') {
-    Write-Output "Hyper-V is not enabled. Please enable Hyper-V from Windows Features."
-    exit 1
-}
-
-$service = Get-Service -Name vmms -ErrorAction SilentlyContinue
-if (!$service -or $service.Status -ne 'Running') {
-    Write-Output "Hyper-V Virtual Machine Management service (vmms) is not running."
-    exit 1
-}
+# Hyper-V check via dism.exe (not Get-WindowsOptionalFeature) — the cmdlet
+# fails with "Class not registered" on some fresh pwsh 7 sessions.
+if (-not (Assert-HyperVEnabled)) { exit 1 }
 
 # === Scan for VM files ===
 $vmHost = Get-VMHost

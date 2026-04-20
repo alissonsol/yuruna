@@ -200,3 +200,74 @@ function Get-WorkingSquidProxyUrl {
     }
     return $null
 }
+
+function Assert-HyperVEnabled {
+    <#
+    .SYNOPSIS
+        Returns $true when Hyper-V is enabled AND vmms is running; $false
+        with a diagnostic Write-Output otherwise.
+
+    .DESCRIPTION
+        Verifies the Hyper-V preconditions every New-VM and tear-down
+        script depends on. Bypasses Get-WindowsOptionalFeature deliberately:
+        that cmdlet dispatches to the DISM provider through a COM shim
+        (CompatiblePSEdition proxy in pwsh 7) that, on fresh Windows 11
+        installs or immediately after Enable-WindowsOptionalFeature
+        completes, can fail with "Class not registered" (HRESULT
+        0x80040154) even when Hyper-V is actually enabled and healthy.
+        The failure was seen on the very first post-install run of
+        Start-SquidCache -> guest.squid-cache/New-VM.ps1. dism.exe is a
+        plain Win32 tool that the cmdlet itself wraps; calling it directly
+        sidesteps the COM failure and is the same workaround used by
+        install/windows-install.ps1.
+
+        Home editions: if Microsoft-Hyper-V-All is not present on the SKU
+        at all, dism.exe emits error 0x800f080c / "Feature name ... is
+        unknown." We surface that as a distinct message so the operator
+        knows the issue is the edition, not a transient state.
+
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
+    if (-not (Test-Path $dismExe)) {
+        Write-Output "dism.exe not found at $dismExe. Cannot verify Hyper-V state."
+        return $false
+    }
+    $infoOut = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All 2>&1
+    $infoExit = $LASTEXITCODE
+    if ($infoExit -ne 0) {
+        if ($infoOut -match '0x800f080c' -or $infoOut -match 'Feature name .* is unknown') {
+            Write-Output 'Microsoft-Hyper-V-All feature not available on this SKU (Home edition?). Hyper-V VMs cannot run here.'
+        } else {
+            Write-Output "dism.exe /Get-FeatureInfo exited $infoExit."
+            Write-Output ($infoOut -join [Environment]::NewLine)
+        }
+        return $false
+    }
+
+    $state = 'Unknown'
+    foreach ($line in $infoOut) {
+        if ($line -match '^State\s*:\s*(\S+)') { $state = $Matches[1]; break }
+    }
+    if ($state -ne 'Enabled') {
+        Write-Output "Hyper-V is not enabled (state: $state). Run install\windows-install.ps1 and reboot, then retry."
+        return $false
+    }
+
+    $service = Get-Service -Name vmms -ErrorAction SilentlyContinue
+    if (-not $service) {
+        Write-Output "Hyper-V Virtual Machine Management service (vmms) not found. Hyper-V likely needs a reboot after enabling."
+        return $false
+    }
+    if ($service.Status -ne 'Running') {
+        Write-Output "Hyper-V Virtual Machine Management service (vmms) is not running (status: $($service.Status)). Try: Start-Service vmms"
+        return $false
+    }
+
+    return $true
+}

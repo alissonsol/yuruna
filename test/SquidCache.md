@@ -382,15 +382,24 @@ pre-provisioned "Squid Cache (yuruna)" dashboard includes:
 - **Client HTTP(S) data served (kB/s): total vs cached** —
   full-width timeseries with two series plotted on one axis:
   - `Total` — `rate(squid_client_http_kbytes_out_kbytes_total[5m])`
-  - `Cached` — `rate(squid_client_http_hit_kbytes_out_kbytes_total[5m])`
+  - `Cached` — `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`
 
   The vertical gap between the two lines at any point in time is the
   traffic that went through the host's outside pipe to origin. Squid's
   cachemgr exposes the hit bytes directly as `client_http.hit_kbytes_out`
-  — no hit-ratio multiplication, no guessing. Note both metrics follow
-  the exporter's `_kbytes_total` suffix convention;
-  `_hit_kbytes_out_total` (without the extra `_kbytes_`) does not exist
-  and will render "No data".
+  — no hit-ratio multiplication, no guessing.
+
+  Watch the suffix: boynux/squid-exporter is inconsistent about unit
+  labels. `client_http.kbytes_out` → `_kbytes_total` (what the Total
+  query uses), but `client_http.hit_kbytes_out` →
+  `_bytes_total` (what the Cached query uses), despite the underlying
+  value still being reported in kbytes by squid. Both series are on the
+  same kB/s scale and the "(kB/s)" title is correct for both. Writing
+  the Cached query as `..._hit_kbytes_out_kbytes_total` is the fast-path
+  mistake — the series doesn't exist, the panel renders only the Total
+  line, and the Cached legend shows "No data." Verify the actual metric
+  name on a live cache with:
+  `curl -s http://127.0.0.1:9301/metrics | grep hit_kbytes_out`.
 
 To edit dashboards, log in with `admin` / `admin` (Grafana's default;
 the install doesn't rotate it because the VM is reachable only on the

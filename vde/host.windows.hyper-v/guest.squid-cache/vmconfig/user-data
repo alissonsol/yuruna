@@ -354,7 +354,7 @@ write_files:
         "uid": "yuruna-squid",
         "title": "Squid Cache (yuruna)",
         "schemaVersion": 39,
-        "version": 5,
+        "version": 6,
         "refresh": "30s",
         "time": {"from": "now-1h", "to": "now"},
         "panels": [
@@ -382,7 +382,7 @@ write_files:
             "gridPos": {"x": 0, "y": 6, "w": 24, "h": 8},
             "targets": [
               {"expr": "rate(squid_client_http_kbytes_out_kbytes_total[5m])",     "refId": "A", "legendFormat": "Total"},
-              {"expr": "rate(squid_client_http_hit_kbytes_out_kbytes_total[5m])", "refId": "B", "legendFormat": "Cached"}
+              {"expr": "rate(squid_client_http_hit_kbytes_out_bytes_total[5m])", "refId": "B", "legendFormat": "Cached"}
             ]
           }
         ]

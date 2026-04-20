@@ -96,11 +96,13 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
   +---------------------------------------------------------------+
   |  This installer needs Administrator privileges for:           |
   |    * winget package installs (PowerShell 7, Git, ADK, ...)    |
-  |    * Enable-WindowsOptionalFeature -FeatureName Hyper-V       |
+  |    * enabling the Hyper-V Windows Feature (via DISM.exe)      |
   |    * powercfg / registry edits in                             |
   |      vde\host.windows.hyper-v\Enable-TestAutomation.ps1       |
-  |  You will see ONE UAC prompt if the script was not already    |
-  |  launched from an elevated shell.                             |
+  |  All of the above are run automatically -- you do NOT need    |
+  |  to type any command yourself. You will see ONE UAC prompt    |
+  |  if the script was not already launched from an elevated      |
+  |  shell.                                                       |
   +---------------------------------------------------------------+
 
 '@ | Write-Output
@@ -249,6 +251,17 @@ function Stop-YurunaProcess {
     } catch { Write-Verbose "port 8080 check skipped: $($_.Exception.Message)" }
 }
 
+# Everything from here to the matching finally runs the actual install.
+# Wrapped in try/catch/finally so that ANY failure (Write-Die, a winget
+# non-zero exit, a DISM failure, a throw from a called module, ...) still
+# lands in the finally block where we print a clear SUCCESS / FAILED
+# summary and pause with Read-Host. Without this wrap, the admin window
+# spawned by Start-Process -Verb RunAs closes the instant the script
+# exits, and the user never gets to read the final status.
+$script:InstallSucceeded = $false
+$script:InstallError     = $null
+try {
+
 Write-Step 'Stopping anything that would block an upgrade'
 Stop-YurunaProcess
 
@@ -379,8 +392,17 @@ if (-not (Test-Path $cfg) -and (Test-Path $tpl)) {
 }
 
 # -- Host configuration (display timeout, screen lock, etc.) ---------------
+# Skip this block when Hyper-V was just enabled in THIS run: the vmms
+# service only exists after the pending reboot, and Set-WindowsHostConditionSet
+# reacts to its absence by printing "Enable-WindowsOptionalFeature ... Then
+# reboot and re-run" -- a misleading message to greet the user with two
+# lines after we already said we just enabled Hyper-V. Enable-TestAutomation
+# will run cleanly after the reboot, either on the next installer run or on
+# first use of Invoke-TestRunner.ps1.
 $setHost = Join-Path $YurunaDir 'vde\host.windows.hyper-v\Enable-TestAutomation.ps1'
-if (Test-Path $setHost) {
+if ($script:RestartNeeded) {
+    Write-Warn 'Skipping vde\host.windows.hyper-v\Enable-TestAutomation.ps1 until after the pending Hyper-V restart.'
+} elseif (Test-Path $setHost) {
     # Same PS 5.1-safe resolution pattern as $gitExe above. By this point
     # we are guaranteed to be under pwsh (the PS 7 bootstrap re-exec'd if
     # we weren't), so this will always find pwsh.exe; the fallback is
@@ -398,9 +420,27 @@ if (Test-Path $setHost) {
 }
 
 # -- Done -------------------------------------------------------------------
-@"
+$script:InstallSucceeded = $true
 
-==> Yuruna is ready.
+} catch {
+    # Any terminating error from the main install body lands here. Keep the
+    # exception around so the finally block can decide what to print; do NOT
+    # rethrow, or the process would die before the finally-block pause runs.
+    $script:InstallError = $_
+} finally {
+    Write-Output ''
+    Write-Output '================================================================'
+    if ($script:InstallSucceeded) {
+        Write-Output '   INSTALL RESULT: SUCCESS'
+    } else {
+        Write-Output '   INSTALL RESULT: FAILED'
+    }
+    Write-Output '================================================================'
+    Write-Output ''
+
+    if ($script:InstallSucceeded) {
+        @"
+Yuruna is ready.
 
 Next steps (in order):
 
@@ -410,13 +450,15 @@ Next steps (in order):
 
 "@ | Write-Output
 
-if ($script:RestartNeeded) {
-    Write-Warning '  2. RESTART Windows -- Hyper-V was just enabled and needs a reboot.'
-    Write-Warning '     After the reboot, continue with step 3.'
-    Write-Output ''
-}
+        if ($script:RestartNeeded) {
+            Write-Warning '  2. RESTART Windows -- Hyper-V was just enabled and needs a reboot.'
+            Write-Warning '     After the reboot, re-run this installer once to finish the'
+            Write-Warning '     host configuration step (Enable-TestAutomation.ps1), then'
+            Write-Warning '     continue with step 3.'
+            Write-Output ''
+        }
 
-@"
+        @"
   3. Review and edit the test config:
        notepad $cfg
 
@@ -431,3 +473,30 @@ if ($script:RestartNeeded) {
 Re-running this installer is safe; it will upgrade winget packages and
 fast-forward the Yuruna checkout when possible.
 "@ | Write-Output
+    } else {
+        if ($script:InstallError) {
+            Write-Warning ("Installer error: " + $script:InstallError.Exception.Message)
+            if ($script:InstallError.InvocationInfo -and $script:InstallError.InvocationInfo.PositionMessage) {
+                Write-Warning $script:InstallError.InvocationInfo.PositionMessage
+            }
+        }
+        Write-Output ''
+        Write-Output 'The installer did not complete. Review the messages above,'
+        Write-Output 'address the problem, and re-run this script. Re-running is'
+        Write-Output 'safe -- completed steps are skipped.'
+    }
+
+    # Keep the window open so the user can read the final status. Without
+    # this pause, the admin console spawned by Start-Process -Verb RunAs
+    # closes the moment this script returns. If there is no interactive
+    # console (rare; e.g. piped stdin), Read-Host fails -- fall back to a
+    # long sleep so automated callers are not blocked forever.
+    Write-Output ''
+    try {
+        $null = Read-Host 'Press Enter to close this window'
+    } catch {
+        Start-Sleep -Seconds 60
+    }
+
+    if (-not $script:InstallSucceeded) { exit 1 }
+}

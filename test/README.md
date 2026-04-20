@@ -71,6 +71,9 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
   },
   "maxHistoryRuns": 30,
   "charDelayMs": 20,
+  "keystrokeMechanism": "GUI",
+  "vncPort": 5900,
+  "verifyScreenshotThreshold": 0.85,
   "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.ubuntu.server", "guest.windows.11"]
 }
 ```

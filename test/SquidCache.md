@@ -392,6 +392,16 @@ pre-provisioned "Squid Cache (yuruna)" dashboard includes:
   the last hour" at a glance. `increase()` can under-read by roughly one
   scrape interval at the window edges — fine for an operator dashboard,
   not for billing.
+- **Cached HTTP(S) data served (last 1h)** — stat panel,
+  `increase(squid_client_http_hit_kbytes_out_kbytes_total[1h])`, same
+  unit. Counterpart to the previous panel: only bytes served from cache
+  hits. The difference between the two is the traffic that still went
+  through the host's outside pipe to origin. Squid's cachemgr exposes
+  this directly as `client_http.hit_kbytes_out` — no hit-ratio
+  multiplication, no guessing. Note the metric name follows the
+  exporter's `_kbytes_total` suffix convention; `_hit_kbytes_out_total`
+  (without the extra `_kbytes_`) does not exist and will render "No
+  data".
 
 To edit dashboards, log in with `admin` / `admin` (Grafana's default;
 the install doesn't rotate it because the VM is reachable only on the

@@ -1,3 +1,19 @@
+<#PSScriptInfo
+.VERSION 0.1
+.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456700
+.AUTHOR Alisson Sol
+.COPYRIGHT (c) 2026 Alisson Sol et al.
+.TAGS
+.LICENSEURI http://www.yuruna.com
+.PROJECTURI http://www.yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
 <#
 .SYNOPSIS
     Yuruna Windows + Hyper-V bootstrap installer.
@@ -289,18 +305,44 @@ foreach ($cmd in 'git','pwsh') {
 }
 
 # -- Hyper-V feature --------------------------------------------------------
+# Call DISM.exe directly rather than Get-/Enable-WindowsOptionalFeature.
+# Those cmdlets dispatch to the DISM provider via COM, and on some pwsh 7
+# sessions the COM class fails to resolve with "Class not registered"
+# (HRESULT 0x80040154). That terminates the script on re-runs; and when
+# -ErrorAction SilentlyContinue silences it on the first run, $feature
+# becomes $null and the enable step is skipped without the user noticing
+# -- which is why the first run of this installer can leave Hyper-V off.
+# DISM.exe is a plain Win32 tool with no COM dependency and is what the
+# cmdlets wrap internally.
 Write-Step 'Enabling Hyper-V Windows Feature (if not already enabled)'
-$feature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
-if (-not $feature) {
-    Write-Warn 'Microsoft-Hyper-V-All feature not available on this SKU (Home edition?). Skipping.'
-} elseif ($feature.State -ne 'Enabled') {
-    $result = Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -NoRestart
-    if ($result.RestartNeeded) {
-        Write-Warn 'Hyper-V was just enabled -- a RESTART is required before Invoke-TestRunner will work.'
-        $script:RestartNeeded = $true
+$dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
+$infoOut  = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All 2>&1
+$infoExit = $LASTEXITCODE
+if ($infoExit -ne 0) {
+    if ($infoOut -match '0x800f080c' -or $infoOut -match 'Feature name .* is unknown') {
+        Write-Warn 'Microsoft-Hyper-V-All feature not available on this SKU (Home edition?). Skipping.'
+    } else {
+        Write-Die "dism.exe /Get-FeatureInfo exited $infoExit. Output:`n$($infoOut -join [Environment]::NewLine)"
     }
 } else {
-    Write-Step '  Hyper-V already enabled'
+    $state = 'Unknown'
+    foreach ($line in $infoOut) {
+        if ($line -match '^State\s*:\s*(\S+)') { $state = $Matches[1]; break }
+    }
+    if ($state -eq 'Enabled') {
+        Write-Step '  Hyper-V already enabled'
+    } else {
+        Write-Step "  current state: $state -- enabling"
+        $enableOut  = & $dismExe /English /Online /Enable-Feature /FeatureName:Microsoft-Hyper-V-All /All /NoRestart /Quiet 2>&1
+        $enableExit = $LASTEXITCODE
+        # DISM: 0 = success, 3010 = success + reboot required.
+        if ($enableExit -eq 0 -or $enableExit -eq 3010) {
+            Write-Warn 'Hyper-V was just enabled -- a RESTART is required before Invoke-TestRunner will work.'
+            $script:RestartNeeded = $true
+        } else {
+            Write-Die "dism.exe /Enable-Feature exited $enableExit. Output:`n$($enableOut -join [Environment]::NewLine)"
+        }
+    }
 }
 
 # -- Clone / update the repo ------------------------------------------------

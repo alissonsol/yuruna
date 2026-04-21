@@ -327,18 +327,36 @@ To intentionally skip the cache for this install:
 #              is set) and can stall on CONNECT, keeping subiquity's mirror-
 #              election retry loop alive and producing the "_send_update
 #              CHANGE enp0s1" console spam.
-#   * sources_list: the Desktop 24.04 arm64 squashfs ships
-#              /etc/apt/sources.list.d/ubuntu.sources (deb822) with ONLY a
-#              file:/cdrom entry and no network URI. Curtin's apt-config
-#              does a "modifymirrors" substitution — it can only rewrite an
-#              existing URI, not add one. Writing a classic /etc/apt/
-#              sources.list via `sources_list` bypasses the no-op; apt
-#              merges both files, so packages not on the cdrom (e.g.
-#              openssh-server, HWE kernel) are reachable via ports.ubuntu.com
-#              through squid during the install step — not just post-install.
+#   * sources_list: legacy /etc/apt/sources.list with ports.ubuntu.com
+#              entries. See `sources:` below for the deb822 sibling that
+#              actually lands on noble 24.04 arm64.
+#   * preserve_sources_list: false — tell curtin it owns the sources,
+#              i.e. write what we specify instead of leaving the installer's
+#              cdrom-only ubuntu.sources alone.
+#   * sources.yuruna-ports: curtin writes this entry to
+#              /etc/apt/sources.list.d/yuruna-ports.list (curtin auto-appends
+#              .list to the key name, and apt expects legacy one-liner format
+#              in *.list — we use that format here rather than deb822). The
+#              24.04 arm64 Desktop squashfs ships ubuntu.sources with ONLY
+#              a file:/cdrom entry, and curtin's `primary` modifymirrors
+#              step only *rewrites* an existing URI — it cannot add one.
+#              With no network URI in ubuntu.sources, curtin's mirror
+#              config never reaches the target, so any non-cdrom package
+#              pulled during install (openssh-server, HWE kernel, whatever
+#              autoinstall.packages adds later) 404s. A separate file
+#              under sources.list.d/ bypasses that no-op: apt merges
+#              ubuntu.sources (cdrom) + yuruna-ports.list (network), so
+#              non-cdrom packages resolve via ports.ubuntu.com through the
+#              squid proxy during the install step — not just post-install.
+#              An earlier revision used a background early-commands watcher
+#              that raced to overwrite ubuntu.sources before postinstall
+#              ran; the race lost on arm64 Server and the install failed,
+#              so the watcher is gone. Curtin-owned sources land
+#              synchronously and deterministically.
 #              (Unpinning `kernel: linux-generic` to HWE, and re-enabling
-#              ssh.install-server, should now be safe; but those are separate
-#              decisions — leaving the existing workarounds in place.)
+#              ssh.install-server, should now be safe; but those are
+#              separate decisions — leaving the existing workarounds in
+#              place.)
 if ($CachingProxyUrl) {
     # `$PRIMARY / `$SECURITY / `$RELEASE are curtin template tokens —
     # the backtick escapes the `$` so the here-string doesn't expand them.
@@ -349,11 +367,19 @@ if ($CachingProxyUrl) {
       - arches: [default]
         uri: http://ports.ubuntu.com/ubuntu-ports
     proxy: $CachingProxyUrl
+    preserve_sources_list: false
     sources_list: |
       deb `$PRIMARY `$RELEASE main restricted universe multiverse
       deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
       deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
       deb `$SECURITY `$RELEASE-security main restricted universe multiverse
+    sources:
+      yuruna-ports:
+        source: |
+          deb `$PRIMARY `$RELEASE main restricted universe multiverse
+          deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
+          deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
+          deb `$SECURITY `$RELEASE-security main restricted universe multiverse
 "@
 } else {
     $AptProxyBlock = ""

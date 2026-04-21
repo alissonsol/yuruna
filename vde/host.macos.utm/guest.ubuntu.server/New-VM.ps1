@@ -318,19 +318,32 @@ To intentionally skip the cache:
 #              apt.proxy is set: subiquity/server/controllers/proxy.py:43-44)
 #              and can stall on the squid CONNECT path, keeping subiquity's
 #              mirror-election retry loop (mirror.py:200-227) alive.
-#   * sources_list: write a classic /etc/apt/sources.list with ports.ubuntu.com
-#              entries into the target. The Server 24.04 arm64 squashfs ships
-#              /etc/apt/sources.list.d/ubuntu.sources (deb822 format) with ONLY
-#              a file:/cdrom entry and no network URI. Curtin's apt-config
-#              does a "modifymirrors" substitution — it can only *rewrite* an
-#              existing URI, not add a new one. With no archive/ports URL to
-#              substitute, the ports.ubuntu.com mirror never lands on the
-#              target, and the postinstall "apt-get install --download-only
-#              ubuntu-desktop" fails with E: Unable to locate package. Writing
-#              sources.list directly bypasses the modifymirrors no-op. The
-#              cdrom entries in ubuntu.sources continue to serve the base
-#              install; apt merges both files, so ubuntu-desktop resolves via
-#              ports.ubuntu.com through the squid proxy.
+#   * sources_list: legacy /etc/apt/sources.list with ports.ubuntu.com
+#              entries. See `sources:` below for the deb822 sibling that
+#              actually carries the install on noble 24.04 arm64 Server.
+#   * preserve_sources_list: false — tell curtin it owns the sources,
+#              i.e. write what we specify instead of leaving the installer's
+#              cdrom-only ubuntu.sources alone.
+#   * sources.yuruna-ports: curtin writes this entry to
+#              /etc/apt/sources.list.d/yuruna-ports.list (curtin auto-appends
+#              .list to the key name, and apt expects legacy one-liner format
+#              in *.list — we use that format here rather than deb822). The
+#              24.04 arm64 Server squashfs ships ubuntu.sources with ONLY a
+#              file:/cdrom entry, and curtin's `primary` modifymirrors step
+#              only *rewrites* an existing URI — it cannot add one. With no
+#              network URI in ubuntu.sources, curtin's mirror config never
+#              reaches the target and the postinstall `apt install
+#              ubuntu-desktop` fails with `E: Unable to locate package`
+#              (ubuntu-desktop is not on the Server cdrom). Writing a
+#              separate file under sources.list.d/ bypasses that no-op:
+#              apt merges ubuntu.sources (cdrom) + yuruna-ports.list
+#              (network), so ubuntu-desktop resolves via ports.ubuntu.com
+#              through the squid proxy during the install's postinstall
+#              step. An earlier implementation used a background
+#              early-commands watcher that raced to overwrite ubuntu.sources
+#              before postinstall ran; that race lost on one observed arm64
+#              Server install and the install failed. Curtin-owned sources
+#              land synchronously and deterministically.
 #
 # The retry loop is the actual driver of the "subiquity/Network/_send_update
 # CHANGE enp0s1" console spam — each retry's netplan re-apply fires
@@ -349,11 +362,19 @@ if ($CachingProxyUrl) {
       - arches: [default]
         uri: http://ports.ubuntu.com/ubuntu-ports
     proxy: $CachingProxyUrl
+    preserve_sources_list: false
     sources_list: |
       deb `$PRIMARY `$RELEASE main restricted universe multiverse
       deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
       deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
       deb `$SECURITY `$RELEASE-security main restricted universe multiverse
+    sources:
+      yuruna-ports:
+        source: |
+          deb `$PRIMARY `$RELEASE main restricted universe multiverse
+          deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
+          deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
+          deb `$SECURITY `$RELEASE-security main restricted universe multiverse
 "@
 } else {
     $AptProxyBlock = ""

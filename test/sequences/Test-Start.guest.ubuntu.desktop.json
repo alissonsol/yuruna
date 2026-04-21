@@ -19,6 +19,16 @@
       "description": "Try or Install Ubuntu"
     },
     {
+      "action": "delay",
+      "seconds": 15,
+      "description": "HACK: Delay"
+    },    
+    {
+      "action": "typeAndEnter",
+      "text": "",
+      "description": "HACK: Enter to dismiss empty screen, if it appears."
+    },
+    {
       "action": "waitForAndClickButton",
       "label": ["Ready to install"],
       "timeoutSeconds": 600,

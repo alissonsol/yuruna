@@ -2,33 +2,31 @@
 autoinstall:
   version: 1
   # apt.proxy (scoped — not top-level `proxy:`) routes only apt/apt-get
-  # through the local squid-cache when one is running. Scope matters: the
-  # top-level `proxy:` also exports http_proxy/https_proxy into late-
-  # commands' env, which previously broke late-command `wget https://...`
-  # calls against proxies that refused CONNECT. apt-scoped proxy avoids
-  # that. The block is injected by New-VM.ps1 only when a squid-cache VM
-  # is reachable at creation time; otherwise it stays absent and subiquity
-  # fetches packages direct from Ubuntu mirrors.
+  # through the local squid-cache. Scope matters: top-level `proxy:`
+  # also exports http_proxy/https_proxy into late-commands' env, which
+  # previously broke `wget https://...` against proxies that refused
+  # CONNECT. The block below is injected by New-VM.ps1 — includes
+  # `apt: proxy:` plus `sources_list:` and a matching `sources:` entry;
+  # New-VM.ps1 omits the whole block when no squid-cache is reachable.
   #
-  # Why the Server ISO instead of the Desktop ISO: the Desktop 24.04 ISO's
-  # base image ships /etc/apt/sources.list.d/ubuntu.sources with a
-  # cdrom-only entry, and the cdrom holds no kernel meta-package. curtin's
-  # install_kernel therefore fails with "Unable to locate package
-  # linux-generic[-hwe-24.04]" because the target chroot has no network
-  # source and the cdrom doesn't carry the kernel. The Server ISO ships
-  # a network-configured ubuntu.sources AND linux-generic on the cdrom, so
-  # autoinstall completes cleanly. We bolt ubuntu-desktop on top via the
-  # autoinstall.packages list below — subiquity fetches it through the
-  # squid-cache during install, so the first boot lands straight in GDM.
+  # Why Server ISO instead of Desktop: the Desktop 24.04 ISO ships
+  # /etc/apt/sources.list.d/ubuntu.sources with a cdrom-only entry, and
+  # the cdrom carries no kernel meta-package — curtin's install_kernel
+  # fails with "Unable to locate package linux-generic[-hwe-24.04]". The
+  # Server ISO ships a network-configured ubuntu.sources AND
+  # linux-generic on the cdrom, so autoinstall completes cleanly. We
+  # bolt ubuntu-desktop on via autoinstall.packages below — subiquity
+  # fetches it through squid-cache during install, first boot lands in
+  # GDM.
 APT_PROXY_BLOCK_PLACEHOLDER
   locale: en_US.UTF-8
   keyboard:
     layout: us
   packages:
-    # Desktop environment. Installed by subiquity during the install step,
-    # via apt against archive.ubuntu.com — through squid-cache when available.
-    # ~2 GB of .deb payload; caching makes guest rebuilds dramatically
-    # faster and dodges 429s on repeated pulls of libreoffice / gnome-shell.
+    # Desktop environment. Installed by subiquity via apt against
+    # archive.ubuntu.com — through squid-cache when available. ~2 GB
+    # payload; caching makes rebuilds dramatically faster and dodges
+    # 429s on repeated libreoffice / gnome-shell pulls.
     - ubuntu-desktop
     - console-setup
     - keyboard-configuration
@@ -40,36 +38,34 @@ APT_PROXY_BLOCK_PLACEHOLDER
     layout:
       name: lvm
   ssh:
-    # The Server cdrom DOES ship openssh-server, so install-server: true
-    # works here (unlike the Desktop ISO variant, where openssh-server has
-    # to be deferred to first-boot cloud-init).
+    # Server cdrom ships openssh-server, so install-server: true works
+    # (Desktop ISO defers this to first-boot cloud-init).
     install-server: true
     allow-pw: true
     authorized-keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
-  # Server autoinstall typically presents a confirmation prompt in the
-  # text installer. interactive-sections: [] disables every interactive
-  # step, so the install runs fully unattended — no "Install" button
-  # click or Tab-to-focus dance like the Desktop ISO required.
+  # Server autoinstall normally presents a confirmation prompt;
+  # interactive-sections: [] disables every interactive step so the
+  # install runs fully unattended — no "Install" click / Tab dance
+  # that the Desktop ISO required.
   interactive-sections: []
   late-commands:
     # --- Apt cache: persist proxy into the installed system ---
-    # Belt-and-suspenders with autoinstall.apt.proxy: subiquity already
-    # writes an apt proxy config into the target when apt.proxy is set,
-    # but we explicitly write 99yuruna-apt-cache so (a) the file name is
-    # predictable for debugging, and (b) behavior is unchanged if
-    # subiquity's apt-persistence logic ever drifts.
+    # Belt-and-suspenders with autoinstall.apt.proxy: subiquity writes
+    # an apt proxy config into the target when apt.proxy is set, but
+    # we explicitly write 99yuruna-apt-cache so (a) the file name is
+    # predictable for debugging and (b) behavior is unchanged if
+    # subiquity's apt-persistence logic drifts.
     - |
       if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
         echo 'Acquire::http::Proxy "CACHING_PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         # --- HTTPS caching opt-in: trust the squid-cache CA, point
         # Acquire::https::Proxy at the ssl-bump listener on :3129.
-        # Best-effort: any failure here (CA fetch, trust-update) leaves
-        # the plain-HTTP proxy in place and lets HTTPS apt calls go
-        # direct — same behavior as before ssl-bump existed, so a cache
-        # without the new CA endpoint (older build) degrades gracefully
-        # instead of aborting the install.
+        # Best-effort: any failure (CA fetch, trust-update) leaves the
+        # plain-HTTP proxy in place and HTTPS apt goes direct — same
+        # behavior as pre-ssl-bump, so an older cache without the CA
+        # endpoint degrades gracefully instead of aborting.
         CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
         mkdir -p /target/usr/local/share/ca-certificates
         if wget --no-cache --tries=3 --timeout=15 -q \
@@ -85,15 +81,13 @@ APT_PROXY_BLOCK_PLACEHOLDER
       fi
     # --- Cap systemd-networkd-wait-online so first boot doesn't hang ---
     # Ubuntu 24.04's networkd-wait-online defaults to "wait for ALL
-    # configured interfaces to reach 'routable' with no timeout." On
-    # Hyper-V Default Switch the IPv6 path eventually resolves so the
-    # wait completes, just slowly — visible on the serial console as:
+    # interfaces routable, no timeout". On Hyper-V Default Switch the
+    # IPv6 path eventually resolves, just slowly — visible as:
     #   Job systemd-networkd-wait-online.service/start running ([TIME] / no limit)
-    # Cloud-init's first-boot run depends (transitively) on
-    # network-online.target, so a slow wait-online delays the first
-    # ubuntu-desktop login screen by minutes. --any --timeout=30 means
-    # "ANY one interface is routable OR 30s elapsed, whichever first" —
-    # which is what the harness actually needs anyway.
+    # Cloud-init's first-boot run transitively depends on
+    # network-online.target, so slow wait-online delays first login by
+    # minutes. --any --timeout=15 = "ANY interface routable OR 15s,
+    # whichever first" — what the harness actually needs.
     - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
     - |
       cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf << 'EOF'
@@ -103,7 +97,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
       EOF
     # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu
-    # --- Sudo: grant the ubuntu user passwordless sudo for the test harness ---
+    # --- Sudo: passwordless for the ubuntu user (test harness) ---
     - curtin in-target --target=/target -- bash -c 'echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-yuruna-ubuntu && chmod 440 /etc/sudoers.d/90-yuruna-ubuntu && chown root:root /etc/sudoers.d/90-yuruna-ubuntu'
     # --- System: disable swap ---
     - sed -i '/ swap / s/^/#/' /target/etc/fstab
@@ -128,14 +122,14 @@ APT_PROXY_BLOCK_PLACEHOLDER
       X-GNOME-Autostart-enabled=true
       NoDisplay=true
       DESKTOP
-    # --- IBus: stub out ibus-daemon to avoid the gdm greeter input-method race ---
-    # On Ubuntu 24.04 + GNOME 46, the gdm greeter's gnome-shell spawns two
-    # ibus-daemon instances back-to-back and the second replaces the first,
-    # orphaning gnome-shell's InputContext D-Bus proxy. Key presses to the
-    # greeter text entry are then silently swallowed. dpkg-divert +
-    # ln -s /bin/true makes gnome-shell's ibus-daemon exec return immediately,
-    # bypassing the race. ubuntu-desktop is in autoinstall.packages so
-    # /usr/bin/ibus-daemon exists by the time late-commands run.
+    # --- IBus: stub ibus-daemon to avoid the gdm greeter IM race ---
+    # On Ubuntu 24.04 + GNOME 46, the gdm greeter's gnome-shell spawns
+    # two ibus-daemon instances back-to-back; the second replaces the
+    # first, orphaning gnome-shell's InputContext D-Bus proxy. Greeter
+    # key presses are then silently swallowed. dpkg-divert + ln -s
+    # /bin/true makes ibus-daemon exec return immediately, bypassing the
+    # race. ubuntu-desktop is in autoinstall.packages so
+    # /usr/bin/ibus-daemon exists when late-commands run.
     - curtin in-target --target=/target -- dpkg-divert --local --add --rename /usr/bin/ibus-daemon
     - curtin in-target --target=/target -- ln -sf /bin/true /usr/bin/ibus-daemon
     # --- GNOME: enable automatic timezone (requires dconf, installed with ubuntu-desktop) ---
@@ -149,14 +143,14 @@ APT_PROXY_BLOCK_PLACEHOLDER
       enabled=true
       DCONF
     # --- GDM greeter: never blank the display ---
-    # ubuntu.desktop.update.sh disables idle/lock for the ubuntu USER, but
-    # that profile does NOT apply to the GDM greeter — which runs under the
-    # `gdm` system-db profile. With the default idle-delay, the greeter
-    # blanks after ~3 min, Hyper-V screen captures return pure black, OCR
-    # extracts no text, and Test-Workload step 1 ("Not listed?") times out
-    # even though the greeter would render correctly if anyone touched the
-    # VM. A dconf drop-in in /etc/dconf/db/gdm.d/ + dconf update is the
-    # Canonical-documented way to override greeter settings at install time.
+    # ubuntu.desktop.update.sh disables idle/lock for the ubuntu USER,
+    # but that profile does NOT apply to the GDM greeter, which runs
+    # under the `gdm` system-db profile. With default idle-delay the
+    # greeter blanks after ~3 min, Hyper-V screen captures return black,
+    # OCR finds no text, and Test-Workload step 1 ("Not listed?") times
+    # out even though the greeter renders fine if anyone touches the VM.
+    # /etc/dconf/db/gdm.d/ + dconf update is Canonical's documented way
+    # to override greeter settings at install time.
     - mkdir -p /target/etc/dconf/db/gdm.d
     - |
       cat > /target/etc/dconf/db/gdm.d/99-yuruna-no-idle << 'DCONF'
@@ -175,8 +169,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
       DCONF
     - curtin in-target --target=/target -- dconf update
     # --- System: denylist hv_balloon to prevent console messages ---
-    # Hyper-V-specific — the hv_balloon kernel module spams the console
-    # with memory-pressure messages that are harmless but pollute OCR.
+    # hv_balloon spams the console with harmless memory-pressure
+    # messages that pollute OCR.
     - |
       cat > /target/etc/modprobe.d/denylist-hv-balloon.conf << 'MODPROBE'
       blacklist hv_balloon

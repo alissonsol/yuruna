@@ -55,30 +55,28 @@ git clone https://github.com/alissonsol/yuruna.git ~/git/yuruna
 
 ## 4) macOS Permissions for the Test Harness
 
-The automated test harness sends keystrokes to UTM VMs without
-requiring window focus. This uses the macOS Accessibility API
-(`AXUIElementPostKeyboardEvent`), which requires explicit permission.
+The test harness sends keystrokes to UTM VMs without requiring
+window focus via the macOS Accessibility API
+(`AXUIElementPostKeyboardEvent`), which needs explicit permission.
 
 Grant **Accessibility** access to your terminal app (Terminal.app,
-iTerm2, etc.):
+iTerm2, etc.) at **System Settings > Privacy & Security >
+Accessibility**.
 
-**System Settings > Privacy & Security > Accessibility** — add and
-enable your terminal application.
+Without this permission, the harness falls back to
+AppleScript/CGEvent keystroke delivery, which requires UTM to be
+focused and is fragile when other windows steal focus.
 
-Without this permission, the harness falls back to AppleScript /
-CGEvent keystroke delivery, which requires UTM to be the focused
-application and is fragile when other windows steal focus.
-
-For QEMU-backend guests (Windows 11), an additional VNC transport is
-available that sends keystrokes over TCP to the VM's built-in VNC
-server, bypassing the GUI entirely.
+For QEMU-backend guests (Windows 11), an additional VNC transport
+sends keystrokes over TCP to the VM's built-in VNC server,
+bypassing the GUI entirely.
 
 ## 5) Disable Display Sleep and Screen Lock
 
-When the display blanks, UTM screen captures return a black image and
-OCR verification fails. The repo ships a PowerShell helper that
-disables display sleep, the screen saver idle trigger, and the screen
-lock password requirement via `pmset` and `defaults`:
+When the display blanks, UTM screen captures return black and OCR
+verification fails. The PowerShell helper disables display sleep,
+the screen-saver idle trigger, and the screen-lock password
+requirement via `pmset` and `defaults`:
 
 ```bash
 cd ~/git/yuruna/vde/host.macos.utm
@@ -110,17 +108,16 @@ open -a UTM
 
 ## 8) Optional: Set up the local HTTP cache VM (squid)
 
-Each Ubuntu Desktop install downloads ~900 MB of packages from
-Ubuntu's CDN. When the test harness runs cycles back-to-back, the
-CDN may rate-limit requests (HTTP 429), causing the install to fail.
-This bites harder on UTM than on Hyper-V: all Apple Virtualization
-Shared-mode VMs egress through the host's single public IP, so every
-parallel install adds to the *same* per-source rate limit. A local
-**squid** VM caches every HTTP response — including the installer's
-own kernel and linux-firmware fetches — so subsequent installs drop
-to ~2 minutes and rate-limit failures stop entirely. (Squid replaces
-the older apt-cacher-ng cache, which only caught .deb URLs and missed
-the pre-install kernel step where the 429 originated.)
+Each Ubuntu Desktop install downloads ~900 MB from Ubuntu's CDN.
+Back-to-back cycles can get HTTP 429 rate-limits. This bites harder
+on UTM than on Hyper-V: all Apple Virtualization Shared-mode VMs
+egress through the host's single public IP, so every parallel install
+adds to the *same* per-source rate limit. A local **squid** VM caches
+every HTTP response — including the installer's own kernel and
+linux-firmware fetches — so subsequent installs drop to ~2 minutes
+and rate-limit failures stop. (Squid replaces the older apt-cacher-ng
+cache, which only caught .deb URLs and missed the pre-install kernel
+step where the 429 originated.)
 
 This step is optional — skip it if you prefer direct CDN downloads.
 

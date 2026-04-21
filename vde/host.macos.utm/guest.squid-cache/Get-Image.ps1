@@ -16,24 +16,22 @@
 
 #requires -version 7
 
-# Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
+# Honor debug/verbose flags from Invoke-TestRunner.ps1. Silence
+# Write-Progress when the runner (non-interactive) set either flag.
 if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
 if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
-# Silence Write-Progress under the test runner.
 if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
 
 # === Configuration ===
-# arm64 cloud image — macOS UTM runs on Apple Silicon via Apple Virtualization.
+# arm64 cloud image -- macOS UTM runs on Apple Silicon via Apple Virtualization.
 $sourceUrl = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img"
 $downloadDir = "$HOME/virtual/squid-cache"
 $baseImageName = "host.macos.utm.guest.squid-cache"
-# Final artifact is RAW, not qcow2: Apple Virtualization.framework only
-# accepts raw-format block device images. The qemu-img call below converts
-# once here so New-VM.ps1 can copy the ready-to-boot disk directly into
-# the .utm bundle.
+# Final artifact is RAW: Apple Virtualization.framework accepts only raw
+# block-device images. Convert once here so New-VM.ps1 can copy the
+# ready-to-boot disk directly into the .utm bundle.
 $baseImageFile = Join-Path $downloadDir "$baseImageName.raw"
 
-# === Download ===
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
@@ -65,9 +63,9 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Resize to 144 GB (sparse on APFS — apparent 144 GB, actual ~2.5 GB until
-# used). Sized to fit squid's 128 GB cache_dir plus ~16 GB of OS/logs/swap
-# headroom — see vmconfig/user-data `cache_dir ufs /var/spool/squid 131072`.
+# Resize to 144 GB (sparse on APFS: apparent 144 GB, actual ~2.5 GB
+# until used). Sized for squid's 128 GB cache_dir + ~16 GB OS/logs/swap
+# headroom -- see vmconfig/user-data `cache_dir ufs /var/spool/squid 131072`.
 Write-Output "Resizing raw image to 144GB..."
 & qemu-img resize -f raw $convertedFile 144G
 if ($LASTEXITCODE -ne 0) {
@@ -86,7 +84,7 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $convertedFile -Destination $baseImageFile
 
-# Clean up the downloaded qcow2 — we only need the raw now.
+# Only the raw is needed now.
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 
 Write-Output "Download complete: $baseImageFile"

@@ -21,23 +21,21 @@ param(
     [string]$FilePath
 )
 
-# Configuration with environment overrides. The cache-busting query string is
-# controlled by two environment variables, in priority order:
-#   1. EXEC_QUERY_PARAMS  — explicit override, used verbatim (include leading '?').
-#   2. YurunaCacheContent — systemwide cache-buster (any unique string, typically a
-#      timestamp). Leave unset so caching proxies can serve stored copies; set to a
-#      unique value to force a fresh fetch. Examples:
-#          $env:YurunaCacheContent = (Get-Date -Format yyyyMMddHHmmss)  # current session
-#          setx YurunaCacheContent (Get-Date -Format yyyyMMddHHmmss)    # persist user-wide
-# When both are unset or empty, the suffix is empty and the URL stays cacheable.
+# Cache-busting via environment variables, in priority order:
+#   1. EXEC_QUERY_PARAMS  — explicit override, used verbatim (include '?').
+#   2. YurunaCacheContent — systemwide cache-buster (unique string, usually a
+#      timestamp). Leave unset so caching proxies serve stored copies; set it
+#      to force a fresh fetch:
+#          $env:YurunaCacheContent = (Get-Date -Format yyyyMMddHHmmss)
+#          setx YurunaCacheContent (Get-Date -Format yyyyMMddHHmmss)    # persist
+# Both unset/empty → empty suffix, URL stays cacheable.
 $BaseUrl = $env:EXEC_BASE_URL ?? "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
 $NoCache = if ([string]::IsNullOrEmpty($env:YurunaCacheContent)) { '' } else { "?nocache=$($env:YurunaCacheContent)" }
 $QueryParams = $env:EXEC_QUERY_PARAMS ?? $NoCache
 
-# Construct and execute
 $FullUrl = "${BaseUrl}${FilePath}${QueryParams}"
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 Invoke-DynamicExpression -Command (Invoke-RestMethod -Uri $FullUrl)
 
-# End tag
-Write-Output "`n    FETCHED AND EXECUTED:`n    $FilePath)`n"
+# End tag — mirrors fetch-and-execute.sh so OCR/keystroke harness matches
+Write-Output "`n    FETCHED AND EXECUTED:`n    $FilePath`n"

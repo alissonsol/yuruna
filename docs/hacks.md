@@ -4,19 +4,19 @@ Some notes and hacks learned during the development process.
 
 ## Getting log data from inside a VM
 
-At times, copy and paste works directly. When it doesn't, the best approach, if the GUI is available, is to use <https://privatebin.at>. That works like <https://pastebin.com> but allows data beyond 512KB.
+Copy and paste often works directly. When it doesn't, and a GUI is available, use <https://privatebin.at>. It works like <https://pastebin.com> but allows data beyond 512KB.
 
 ## Files not changed
 
-Some files are set `assume-unchanged` by scripts that modify the values saved into them. Revert that with the command `git update-index --really-refresh`.
+Scripts set some files to `assume-unchanged` so that locally-modified values aren't picked up by git. Revert with `git update-index --really-refresh`.
 
 ## Note about Docker registry names
 
-It is common for cloud providers to demand a unique registry name and corresponding [FQDN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name). Changing the registry name may require changes in the file `config/deployment.yml`.
+Cloud providers commonly demand a unique registry name and corresponding [FQDN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name). Changing the registry name may require changes in `config/deployment.yml`.
 
 ## Hack to workaround Kubernetes context collision
 
-You can keep contexts simultaneously pointing to the clusters in different clouds by using the [config rename-context](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#-em-rename-context-em-) option for `kubectl`.
+Keep contexts pointing to clusters in different clouds simultaneously with [`kubectl config rename-context`](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#-em-rename-context-em-).
 
 ```shell
 kubectl config rename-context old-name new-name
@@ -26,52 +26,50 @@ kubectl config rename-context old-name new-name
 
 - Check the [cert-manager.io FAQ](https://cert-manager.io/docs/faq/acme/)
   - Under the cluster `Custom Resources`, check the `certificaterequests`
-  - Notice this sentence from [Syncing Secrets Across Namespaces](https://cert-manager.io/docs/faq/kubed/): "Wildcard certificates are not supported with HTTP01 validation and require DNS01"
-    - See documentation on [Challenge Types](https://letsencrypt.org/docs/challenge-types/)
+  - Per [Syncing Secrets Across Namespaces](https://cert-manager.io/docs/faq/kubed/): "Wildcard certificates are not supported with HTTP01 validation and require DNS01". See the [Challenge Types](https://letsencrypt.org/docs/challenge-types/) docs.
 
 ## Hack to debug issues from container
 
-The containers have minimal software installed. Even to ping you have to install it.
+The containers have minimal software — even `ping` must be installed.
 
 ```shell
 apt-get update
 apt-get install -y iputils-ping
 ```
 
-Then, if you want to build a project outside, you may need to use `dotnet restore`, then `dotnet build` and `dotnet run`. For the restore step to work, you may need to have [`nuget`](https://learn.microsoft.com/en-us/nuget/install-nuget-client-tools) installed and in the path. Then, in what is really the reason for the information to be here in the "hacks" page: at times you first have to execute `nuget restore [name].proj` ahead of `dotnet restore [name].proj`.
+To build a project outside the container you may need `dotnet restore`, `dotnet build`, then `dotnet run`. The restore step may need [`nuget`](https://learn.microsoft.com/en-us/nuget/install-nuget-client-tools) in the path. The real reason this is in "hacks": at times you first have to run `nuget restore [name].proj` before `dotnet restore [name].proj`.
 
-See also [kubernetes/ingress-nginx](https://github.com/kubernetes/ingress-nginx/tree/master/docs/examples/grpc) for debugging instructions.
+See also [kubernetes/ingress-nginx](https://github.com/kubernetes/ingress-nginx/tree/master/docs/examples/grpc) for debugging.
 
 ## Docker and Kubernetes issues
 
-Usually, the Docker functionality to `Reset to factory defaults` is the best path to a solution. It is under the "Troubleshoot" menu (which somehow looks like a question mark, and more like a help button!).
+`Reset to factory defaults` in Docker is usually the quickest fix. It is under the "Troubleshoot" menu (icon looks like a bug, but acts like a help button).
 
-Afterward, remove the `~/.kube` folder and enable Kubernetes again (this loses at least some configuration and possibly data).
+Afterward, remove `~/.kube` and enable Kubernetes again (this loses at least some configuration and possibly data).
 
-For the error
+For the error:
+
 ```shell
 docker-credential-desktop executable file not found in $PATH
 ```
 
-In `~/.docker/config.json`, change `credsStore` to `credStore`. This switches from the desktop credential store to file-based credential storage.
-
-You can either remove the `credsStore` entry to store credentials directly in the config file or install a suitable credential helper (like osxkeychain or wincred) and update the `credsStore` value accordingly.
+In `~/.docker/config.json`, change `credsStore` to `credStore` — this switches from the desktop credential store to file-based credential storage. Alternatively remove the `credsStore` entry to store credentials in the config file, or install a suitable credential helper (osxkeychain, wincred).
 
 ## Azure deletes static IP when deleting an ingress using it
 
-This is an unexpected Azure behavior, confirmed by this post: [How to make Azure not delete Public IP when deleting service / ingress-controller?](https://stackoverflow.com/questions/66435282/how-to-make-azure-not-delete-public-ip-when-deleting-service-ingress-controlle). Following the workaround also has its side-effects. It is better to `clear`, and then rebuild everything (`resources`, `components`, and `workloads`).
+Unexpected Azure behavior, confirmed [here](https://stackoverflow.com/questions/66435282/how-to-make-azure-not-delete-public-ip-when-deleting-service-ingress-controlle). The workaround has side-effects; better to `clear` and rebuild everything (`resources`, `components`, `workloads`).
 
 ## Invoke-Expression: Cannot bind argument to parameter 'Command' because it is an empty string.
 
-Usually due to an executed `shell` expression that doesn't return anything. Add `$true` to the end of the expression.
+Usually a `shell` expression that doesn't return anything. Add `$true` to the end of the expression.
 
 ## Debug service
 
-Edit until it works using `kubectl edit svc [service-name] -n [namespace-name]`. The same is valid for other kinds of artifacts (configMaps, pods, etc.). Then try to create the sequence of `kubectl patch` statements to guarantee the artifact will get to the right state.
+Iterate with `kubectl edit svc [service-name] -n [namespace-name]` (also works for configMaps, pods, etc.). Then build the sequence of `kubectl patch` statements to reach the right state.
 
 ## Debugging localhost issues
 
-A workaround after deploying resources and components is to reset the Kubernetes cluster in Docker and reconnect the contexts. Use the `automation/context-copy.ps1` script for this. The context names that may need to be reconnected are listed in the `resources.output.yml` file; deleting those contexts ahead of time avoids issues. Then, run `automation/context-copy.ps1 -sourceContext <source> -destinationContext <dest>`.
+After deploying resources and components, resetting the Docker Kubernetes cluster and reconnecting contexts often helps. Use `automation/context-copy.ps1` — the context names that may need to be reconnected are listed in `resources.output.yml`; deleting those ahead of time avoids issues. Then run `automation/context-copy.ps1 -sourceContext <source> -destinationContext <dest>`.
 
 GitHub issue documenting need to restart Docker: <https://github.com/docker/for-mac/issues/4903>
 

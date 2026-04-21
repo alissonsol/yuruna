@@ -21,17 +21,16 @@
     Removes a UTM .utm bundle from disk with retry-on-EACCES.
 
 .DESCRIPTION
-    After `utmctl delete`, UTM.app (and its QEMUHelper.xpc subprocess) can
-    still hold file handles on the bundle's contents — most commonly on
-    the mmap'd sparse disk.img or on efi_vars.fd — for a few seconds.
-    A single-shot `Remove-Item -Recurse -Force` during that window fails
-    with "Access to the path '…' is denied" even though the bundle is no
-    longer registered with UTM and would remove cleanly seconds later.
+    After `utmctl delete`, UTM.app (and its QEMUHelper.xpc) can hold file
+    handles on bundle contents for a few seconds — most commonly on the
+    mmap'd sparse disk.img or on efi_vars.fd. A single-shot
+    `Remove-Item -Recurse -Force` during that window fails with "Access
+    to the path '…' is denied" even though the bundle is deregistered
+    and would remove cleanly moments later.
 
-    This helper retries with 2,4,6,8s backoff (≈20s total), absorbing the
-    handle-release race. Returns $true on success (or if the bundle was
-    already gone), $false if all retries fail. Callers decide whether to
-    treat persistent failure as fatal.
+    Retries with 2,4,6,8s backoff (~20s total), absorbing the handle-
+    release race. Returns $true on success (or if the bundle was already
+    gone), $false if all retries fail.
 
 .PARAMETER Path
     Filesystem path of the .utm bundle directory to remove.
@@ -70,7 +69,7 @@ function Remove-UtmBundleWithRetry {
                 Write-Warning "  Quitting UTM.app (pkill -f QEMUHelper ; killall UTM) usually clears it."
                 return $false
             }
-            $sleepSec = 2 * $attempt  # 2,4,6,8s
+            $sleepSec = 2 * $attempt
             Write-Warning "Remove-Item attempt $attempt/$MaxAttempts on '$Path' failed: $($_.Exception.Message). Retrying in ${sleepSec}s..."
             Start-Sleep -Seconds $sleepSec
         }
@@ -83,25 +82,23 @@ function Remove-UtmBundleWithRetry {
     Launches (or stops) the squid-cache TCP forwarder on the Mac host.
 
 .DESCRIPTION
-    Apple Virtualization.framework's shared-NAT isolates guest↔guest
-    traffic on 192.168.64.0/24. Guests can reach the gateway
-    (192.168.64.1 = the host) but not another guest's IP — ARP between
-    guests is not forwarded. Without a host-side shim, guests cannot
-    reach a squid-cache VM at 192.168.64.X and subiquity fails over
-    to an offline install.
+    Apple Virtualization.framework's shared-NAT isolates guest-to-guest
+    traffic on 192.168.64.0/24 — guests can reach the gateway
+    (192.168.64.1 = the host) but not another guest's IP (ARP between
+    guests is not forwarded). Without a host-side shim, guests cannot
+    reach a squid-cache VM and subiquity falls back to an offline install.
 
-    Start-CachingProxyForwarder spawns vde/host.macos.utm/Start-CachingProxyForwarder.ps1
+    Start-CachingProxyForwarder spawns Start-CachingProxyForwarder.ps1
     as a detached `pwsh` subprocess that binds :3128 on the host and
-    tunnels every connection to $CacheIp:3128. Guests then use
-    http://192.168.64.1:3128. The subprocess is detached so the forwarder
-    outlives the Start-CachingProxy.ps1 invocation that launched it.
+    tunnels to $CacheIp:3128. Guests then use http://192.168.64.1:3128.
+    Detached so the forwarder outlives Start-CachingProxy.ps1.
 
-    The PID goes into $HOME/virtual/squid-cache/forwarder.pid.
-    Stop-CachingProxyForwarder reads that PID and sends SIGTERM. Get-CachingProxyForwarder
-    reports whether the forwarder is up without killing it.
+    PID is written to $HOME/virtual/squid-cache/forwarder.<Port>.pid.
+    Stop-CachingProxyForwarder reads it and sends SIGTERM.
+    Get-CachingProxyForwarder reports liveness without signalling.
 
-    Returns $true when the forwarder is verified listening on :3128
-    (Start), terminated (Stop), or currently running (Get).
+    Returns $true when the forwarder is verified listening (Start),
+    terminated (Stop), or currently running (Get).
 
 .PARAMETER CacheIp
     IP of the squid-cache VM (Start-CachingProxyForwarder only). Typically
@@ -126,24 +123,20 @@ function Start-CachingProxyForwarder {
     if (-not (Test-Path $stateDir)) {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
-    # Pidfile/log are PER PORT so concurrent forwarders (one for the
-    # squid proxy at :3128, one for the Grafana dashboard at :3000, and
-    # potentially more) never fight over the same path. The old single-
-    # forwarder scheme used `forwarder.pid`/`forwarder.log`; naming by
-    # port makes discovery and selective teardown trivial from
-    # Stop-CachingProxyForwarder / Stop-AllCachingProxyForwarder.
+    # Pidfile/log are PER PORT so concurrent forwarders (squid :3128,
+    # Grafana :3000, etc.) never fight over the same path. Port-named
+    # files make discovery and selective teardown trivial.
     $pidFile = Join-Path $stateDir "forwarder.$Port.pid"
     $logFile = Join-Path $stateDir "forwarder.$Port.log"
 
-    # If a stale pid is still alive for THIS port, kill it first. Other
-    # ports' forwarders stay up untouched.
+    # Kill any stale pid for THIS port first; other ports' forwarders
+    # stay up untouched.
     [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
 
     Write-Output "  Launching host-side forwarder: 0.0.0.0:${Port} → ${CacheIp}:${Port}"
-    # Start-Process launches pwsh detached. RedirectStandard* is required
-    # because without them pwsh inherits the parent's TTY and dies when
-    # Start-CachingProxy.ps1 exits. The forwarder's own log file gets the
-    # live traffic; stdout/stderr go to /dev/null equivalents.
+    # RedirectStandard* is required: without them pwsh inherits the
+    # parent TTY and dies when Start-CachingProxy.ps1 exits. The
+    # forwarder's own log gets live traffic; stdout/stderr go to files.
     $procArgs = @(
         '-NoProfile','-NoLogo','-File', $forwarderScript,
         '-CacheIp', $CacheIp,
@@ -162,7 +155,7 @@ function Start-CachingProxyForwarder {
         return $false
     }
     # Wait briefly for the listener to bind and the pidfile to be written.
-    # 3s is generous — PowerShell startup plus TcpListener.Start() is sub-second.
+    # 3s is generous; pwsh startup + TcpListener.Start() is sub-second.
     $deadline = (Get-Date).AddSeconds(3)
     while ((Get-Date) -lt $deadline) {
         $tcp = [System.Net.Sockets.TcpClient]::new()
@@ -175,9 +168,8 @@ function Start-CachingProxyForwarder {
                 return $true
             }
         } catch {
-            # Probe-time connection failure is expected while the child
-            # forwarder is still booting (pwsh startup + TcpListener.Start
-            # takes a moment). Retry until the deadline below.
+            # Expected while the child is still booting (pwsh startup +
+            # TcpListener.Start). Retry until the deadline.
             $null = $_
         } finally { $tcp.Close() }
         Start-Sleep -Milliseconds 100
@@ -192,14 +184,13 @@ function Start-CachingProxyForwarder {
     Terminates the host-side squid-cache TCP forwarder if it is running.
 
 .DESCRIPTION
-    Reads $HOME/virtual/squid-cache/forwarder.pid and verifies the PID
-    belongs to Start-CachingProxyForwarder.ps1 (via /bin/ps -o command=) before
-    signalling — a stale pidfile pointing at an unrelated process must
-    NOT be killed. Sends SIGTERM first and waits up to 2 s for the
-    process to exit; escalates to SIGKILL if the forwarder doesn't
-    respond. The pidfile is removed on either success path and on
-    stale-pidfile detection so the next Start-CachingProxyForwarder call
-    starts clean.
+    Reads $HOME/virtual/squid-cache/forwarder.<Port>.pid and verifies the
+    PID belongs to Start-CachingProxyForwarder.ps1 (via /bin/ps -o
+    command=) before signalling — a stale pidfile pointing at an
+    unrelated process must NOT be killed. Sends SIGTERM and waits up to
+    2s; escalates to SIGKILL if no response. The pidfile is removed on
+    every success path and on stale-pidfile detection so the next Start
+    call is clean.
 
 .PARAMETER Quiet
     Suppress the informational Write-Output lines. Start-CachingProxyForwarder
@@ -229,12 +220,11 @@ function Stop-CachingProxyForwarder {
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
-    # Verify the process exists and looks like our forwarder before killing.
-    # `/bin/ps -p <pid> -o command=` (path-qualified so PSScriptAnalyzer's
-    # PSAvoidUsingCmdletAliases doesn't confuse this with the `ps` alias
-    # for Get-Process) prints the full argv so we can confirm it's the
-    # Start-CachingProxyForwarder.ps1 we launched — not some unrelated pid that
-    # happens to match a stale pidfile.
+    # Verify the process looks like our forwarder before killing.
+    # `/bin/ps` path-qualified so PSScriptAnalyzer's PSAvoidUsingCmdletAliases
+    # doesn't confuse it with the `ps` alias for Get-Process. -o command=
+    # prints full argv so we can match Start-CachingProxyForwarder.ps1 and
+    # avoid killing an unrelated pid that matches a stale pidfile.
     $cmd = (& '/bin/ps' -p $forwarderPid -o command= 2>$null) -join ""
     if ($LASTEXITCODE -ne 0 -or -not $cmd) {
         if (-not $Quiet) { Write-Output "  Forwarder pid $forwarderPid not running — cleaning pidfile." }
@@ -250,12 +240,10 @@ function Stop-CachingProxyForwarder {
         return $false
     }
     if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid)..." }
-    # /bin/kill for SIGTERM (default). Stop-Process in PowerShell 7 on
-    # Unix maps to Process.Kill() which sends SIGKILL unconditionally --
-    # bypassing graceful shutdown, so we must invoke the external binary
-    # to get the two-phase TERM-then-KILL sequence below.
+    # /bin/kill sends SIGTERM (default). PowerShell 7's Stop-Process on
+    # Unix maps to Process.Kill() == SIGKILL unconditionally, bypassing
+    # graceful shutdown — hence the external binary for TERM-then-KILL.
     & '/bin/kill' $forwarderPid 2>$null | Out-Null
-    # Wait for the process to actually exit before declaring success.
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Milliseconds 100
         & '/bin/ps' -p $forwarderPid -o pid= 2>$null | Out-Null
@@ -264,7 +252,6 @@ function Stop-CachingProxyForwarder {
             return $true
         }
     }
-    # Didn't die with SIGTERM — escalate.
     if (-not $Quiet) { Write-Warning "Forwarder $forwarderPid did not exit after SIGTERM — sending SIGKILL." }
     & '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
     Start-Sleep -Milliseconds 200
@@ -278,12 +265,10 @@ function Stop-CachingProxyForwarder {
 
 .DESCRIPTION
     Pure observer — never signals, never removes files. Returns $true
-    iff $HOME/virtual/squid-cache/forwarder.pid exists, parses as an
-    int, and refers to a live process (checked via /bin/ps). Does NOT
-    verify that the process is actually our Start-CachingProxyForwarder.ps1;
-    Stop-CachingProxyForwarder handles that stricter identity check on the
-    write path. Callers that only need a liveness hint (status UI,
-    should-I-launch-one decisions) can rely on this cheaper check.
+    iff $HOME/virtual/squid-cache/forwarder.<Port>.pid exists, parses as
+    an int, and refers to a live process (via /bin/ps). Does NOT verify
+    the process is actually our forwarder; Stop-CachingProxyForwarder
+    handles that stricter identity check on the write path.
 
 .OUTPUTS
     [bool] $true if the pidfile points at a live process, $false
@@ -307,15 +292,14 @@ function Get-CachingProxyForwarder {
 
 .DESCRIPTION
     Enumerates $HOME/virtual/squid-cache/forwarder.<Port>.pid entries
-    and sends SIGTERM to each (SIGKILL escalation via Stop-Squid-
-    Forwarder per port). Missing directory / no pidfiles is a no-op.
-    Safe to call from Stop-CachingProxy.ps1 even when no forwarders are
-    running.
+    and sends SIGTERM to each (SIGKILL escalation per port via
+    Stop-CachingProxyForwarder). Missing directory / no pidfiles is a
+    no-op; safe to call even when nothing is running.
 
     Cross-platform `Add-CachingProxyPortMap` / `Remove-CachingProxyPortMap`
-    (see test/modules/Test.PortMap.psm1) dispatch to Start-CachingProxyForwarder
-    + this function on macOS. The high-level symbols live there — only
-    platform-specific primitives stay here.
+    (test/modules/Test.PortMap.psm1) dispatch to
+    Start-CachingProxyForwarder + this function on macOS. High-level
+    symbols live there; only platform primitives stay here.
 
 .OUTPUTS
     [int[]] — ports whose forwarder was stopped (may be empty).
@@ -327,8 +311,8 @@ function Stop-AllCachingProxyForwarder {
     $stateDir = Join-Path $HOME "virtual/squid-cache"
     if (-not (Test-Path $stateDir)) { return @() }
     $stopped = @()
-    # Glob each forwarder.<N>.pid under the state dir. BaseName strips the
-    # trailing ".pid" so the regex just needs to match the middle token.
+    # Glob forwarder.<N>.pid; BaseName strips ".pid" so the regex only
+    # needs the middle token.
     Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue |
         ForEach-Object {
             if ($_.BaseName -match '^forwarder\.(\d+)$') {

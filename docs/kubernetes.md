@@ -29,32 +29,25 @@ Deploy a sample .NET website to Docker Desktop Kubernetes in minutes. No cloud a
 
 ### Deploy the Example Website
 
-Execute these commands in a PowerShell command line (`pwsh`).
+Run these commands in a PowerShell prompt (`pwsh`).
 
-Clone the repository
+Clone the repository:
 
 ```powershell
 git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
 ```
 
-Add automation folder to your path (or run from automation folder). Ensure this is executed from a PowerShell command line. Keep using that command line from now on.
+Add the automation folder to your PATH (or run scripts from there). Keep using the same PowerShell prompt for the following steps.
 
 ```powershell
 ./Add-AutomationToPath.ps1
 ```
 
-Phase 1: Create local resources (registry, Kubernetes context)
-
-First, ensure you are at the examples folder.
+Phase 1: Create local resources (registry, Kubernetes context). Move to the examples folder first:
 
 ```powershell
 cd examples
-```
-
-Then, create resources.
-
-```powershell
 Set-Resource.ps1 website localhost -debug_mode $true -verbose_mode $true
 ```
 
@@ -68,27 +61,27 @@ openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.ke
 Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
 ```
 
-Commands to test and display runtime readiness
+Test and display runtime readiness:
 
 ```powershell
 Test-Runtime.ps1
 ```
 
-Phase 2: Build and push the Docker image
+Phase 2: Build and push the Docker image:
 
 ```powershell
 Set-Component.ps1 website localhost -debug_mode $true -verbose_mode $true
 ```
 
-Can check status with the same commands previously shared. At this point, the registry should be running, and there are images ready for the website.
+Re-run `Test-Runtime.ps1` to check status. The registry should now be running with website images ready.
 
-Phase 3: Deploy to Kubernetes
+Phase 3: Deploy to Kubernetes:
 
 ```powershell
 Set-Workload.ps1 website localhost -debug_mode $true -verbose_mode $true
 ```
 
-Once complete, visit the URL shown in the output to see your deployed website.
+Visit the URL shown in the output to see your deployed website.
 
 ## Cloud Deployment
 

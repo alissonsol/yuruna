@@ -19,11 +19,8 @@
 function Invoke-DynamicExpression {
     <#
     .SYNOPSIS
-        Wrapper around Invoke-Expression that centralises the PSScriptAnalyzer suppression.
-    .DESCRIPTION
-        Executes a string as a PowerShell command. This thin wrapper exists so that
-        every call site in the automation folder does not individually trigger the
-        PSAvoidUsingInvokeExpression rule. The suppression is applied once here.
+        Wrapper around Invoke-Expression that centralises the PSScriptAnalyzer
+        suppression so callers don't each trigger PSAvoidUsingInvokeExpression.
     .PARAMETER Command
         The command string to execute.
     #>

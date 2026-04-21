@@ -41,13 +41,12 @@ function Get-HostType {
 function Get-GuestList {
     <#
     .SYNOPSIS
-    Returns the ordered list of guest keys to test, as declared in $Config.guestOrder.
+    Returns the ordered list of guest keys from $Config.guestOrder.
     .DESCRIPTION
-    Returns the list verbatim — whether any of those guests is actually implemented
-    for the current host is decided at runtime by Test-GuestFolder (the runner then
-    logs a per-guest failure for any missing folder). This replaces the old hardcoded
-    allow-list that had to be updated every time a new guest.<name> was added.
-    If guestOrder is missing or empty, returns an empty list and emits a warning.
+    Returns verbatim — whether a guest is implemented on the current
+    host is decided at runtime by Test-GuestFolder; the runner logs a
+    per-guest failure for missing folders. Replaces the old hardcoded
+    allow-list. Empty/missing guestOrder returns an empty list with a warning.
     #>
     param([System.Collections.IDictionary]$Config = @{})
 
@@ -62,14 +61,13 @@ function Get-GuestList {
 function Test-GuestFolder {
     <#
     .SYNOPSIS
-    Returns $true when the guest-specific scripts folder exists for a given host.
+    Returns $true when the guest's scripts folder exists for a host.
     .DESCRIPTION
-    Layout convention: <repo>/vde/<hostType>/<guestKey>/ contains Get-Image.ps1 and
-    New-VM.ps1 for that host+guest combination. A guest is considered available on a
-    host iff that folder exists. Some guests are host-specific by design (e.g. a
-    hypothetical macOS-only guest), so a single guestOrder can legitimately name
-    guests that exist on only one host; callers treat a missing folder as a failure
-    for that guest on the current host, not a config error.
+    Layout: <repo>/vde/<hostType>/<guestKey>/ holds Get-Image.ps1 and
+    New-VM.ps1 for that host+guest. Guest is available on a host iff
+    the folder exists. guestOrder can legitimately name host-specific
+    guests; callers treat missing folder as a per-guest failure, not a
+    config error.
     #>
     param(
         [Parameter(Mandatory)] [string]$VdeRoot,
@@ -83,21 +81,19 @@ function Test-GuestFolder {
 function Get-TestVMName {
     <#
     .SYNOPSIS
-    Derives the test VM name for a given guest key + prefix.
+    Derives the test VM name from guest key + prefix.
     .DESCRIPTION
-    Pure algorithmic derivation: strip the "guest." prefix, replace remaining dots
-    with hyphens, append "-01" as the instance suffix, and add the configured prefix.
-    Examples with prefix "test-":
+    Strip "guest.", replace remaining dots with hyphens, append "-01",
+    add the prefix. Examples with prefix "test-":
         guest.ubuntu.server  →  test-ubuntu-server-01
         guest.amazon.linux   →  test-amazon-linux-01
         guest.windows.11     →  test-windows-11-01
-    No hardcoded allow-list — any guest key the harness is asked to run produces a
-    deterministic VM name without requiring code changes.
-    Note on migration: this convention differs from the pre-2026-04 harness which
-    used "test-amazon-linux01", "test-ubuntu-desktop01", "test-windows11-01".
-    Test VMs from the old convention are orphaned (Remove-TestVM keys off the new
-    name); clean them up manually once with `Get-VM test-* | Remove-VM` on Hyper-V
-    or `utmctl list | grep test-` on UTM.
+    Any guest key produces a deterministic VM name without code changes.
+    Migration note: pre-2026-04 harness used "test-amazon-linux01",
+    "test-ubuntu-desktop01", "test-windows11-01". VMs from the old
+    convention are orphaned (Remove-TestVM keys off the new name); clean
+    them up once with `Get-VM test-* | Remove-VM` on Hyper-V or
+    `utmctl list | grep test-` on UTM.
     #>
     param(
         [Parameter(Mandatory)] [string]$GuestKey,
@@ -134,18 +130,18 @@ function Assert-Elevation {
 function Assert-ScreenLock {
     <#
     .SYNOPSIS
-    On macOS, checks that screen saver lock and display sleep are configured so
-    they won't blank the screen during long-running VM tests.  Returns $true if
-    settings are acceptable or not on macOS.  Prints instructions and returns
-    $false if the screen will lock/blank.
+    macOS: verify screen saver lock and display sleep won't blank the
+    screen during long-running VM tests. Returns $true if settings are
+    acceptable (or not on macOS). Prints instructions and returns $false
+    otherwise.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
 
     $issues = @()
 
-    # 1. Display sleep idle time (pmset -g custom → displaysleep value)
-    #    0 = never sleep (good).  Anything > 0 means the display will blank.
+    # 1. Display sleep idle time (pmset -g custom → displaysleep).
+    #    0 = never sleep (good); > 0 means display will blank.
     try {
         $pmsetLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
         if ($pmsetLine -and $pmsetLine.Matches[0].Groups[1].Value -ne "0") {
@@ -156,13 +152,12 @@ function Assert-ScreenLock {
         Write-Debug "pmset check failed: $_"
     }
 
-    # 2. Screen saver idle time (defaults read com.apple.screensaver idleTime).
-    #    0 = disabled (good). A MISSING key is NOT safe — macOS falls back
-    #    to a built-in default (~1200s), which is what lets the screensaver
-    #    engage after 20 minutes despite the script reporting "already
-    #    disabled". Flag both missing AND non-zero as issues. Check the
-    #    per-host domain too; either being unsafe is enough for the saver
-    #    to engage.
+    # 2. Screen saver idleTime (defaults read com.apple.screensaver idleTime).
+    #    0 = disabled. A MISSING key is NOT safe — macOS falls back to
+    #    a built-in default (~1200s), which lets the screensaver engage
+    #    after 20 min despite the script reporting "already disabled".
+    #    Flag both missing AND non-zero. Check per-host domain too;
+    #    either being unsafe engages the saver.
     try {
         $idleTime     = & defaults read              com.apple.screensaver idleTime 2>$null
         $idleTimeHead = $LASTEXITCODE
@@ -182,9 +177,9 @@ function Assert-ScreenLock {
         Write-Debug "Screen saver check failed: $_"
     }
 
-    # 3. Password requirement after screen saver (com.apple.screensaver
-    #    askForPassword). Missing key on some macOS versions defaults to
-    #    1 (on) — flag both missing AND explicit 1. Check both domains.
+    # 3. Password after screen saver (askForPassword). Missing key on
+    #    some macOS versions defaults to 1 (on) — flag missing AND
+    #    explicit 1. Check both domains.
     try {
         $askPw     = & defaults read              com.apple.screensaver askForPassword 2>$null
         $askPwHead = $LASTEXITCODE
@@ -204,9 +199,9 @@ function Assert-ScreenLock {
         Write-Debug "Screen lock password check failed: $_"
     }
 
-    # 4. Hot corners bound to Start Screen Saver / Display Sleep / Lock
+    # 4. Hot corners bound to Start Screen Saver / Sleep Display / Lock
     #    Screen. A drifting cursor during an unattended run can trigger
-    #    these and cause the UTM window to drop out of CGWindowList.
+    #    these and drop the UTM window from CGWindowList.
     try {
         $dangerousCorners = @{ '5' = 'Start Screen Saver'; '10' = 'Put Display to Sleep'; '13' = 'Lock Screen' }
         foreach ($corner in @('tl','tr','bl','br')) {
@@ -222,9 +217,9 @@ function Assert-ScreenLock {
         Write-Debug "Hot-corner check failed: $_"
     }
 
-    # 5. App Nap not suppressed for UTM.app — macOS can throttle UTM's UI
-    #    thread and drop its window from CGWindowList even though the VM
-    #    is running. Matches the "UTM window for '<vm>' not found" symptom.
+    # 5. App Nap suppressed for UTM.app — else macOS throttles UTM's UI
+    #    thread and drops its window from CGWindowList even while the VM
+    #    runs. Matches "UTM window for '<vm>' not found" symptom.
     try {
         $nap = & defaults read com.utmapp.UTM NSAppSleepDisabled 2>$null
         if ($LASTEXITCODE -ne 0 -or "$nap".Trim() -ne '1') {
@@ -234,17 +229,16 @@ function Assert-ScreenLock {
         Write-Debug "App Nap check failed: $_"
     }
 
-    # 6. sysadminctl unified screen lock (Ventura+). This overrides the
-    #    legacy askForPassword* keys — the machine can still lock even
-    #    when every individual defaults key is already "safe".
-    #    Accepted "disabled" forms from sysadminctl -screenLock status:
+    # 6. sysadminctl unified screen lock (Ventura+). Overrides legacy
+    #    askForPassword* keys — the machine can still lock even when
+    #    every individual defaults key is "safe". Accepted "disabled"
+    #    forms from sysadminctl -screenLock status:
     #      • "screenLock delay is -1(.000000) seconds"
     #      • "screenLock is off"
-    #    Anything else (e.g. "screenLock delay is 300 seconds") means a
-    #    lock delay is active.
+    #    Anything else (e.g. "delay is 300 seconds") means a lock delay is active.
     try {
-        # Strip the macOS NSLog prefix ("YYYY-MM-DD HH:MM:SS.mmm sysadminctl[pid:tid] ")
-        # so both the match and the user-facing message are clean.
+        # Strip macOS NSLog prefix ("YYYY-MM-DD ... sysadminctl[pid:tid] ")
+        # so the match and user-facing message are clean.
         $slStatus = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace '^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+sysadminctl\[\d+:\w+\]\s+', ''
         $slDisabled = ("$slStatus" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)')
         if (-not $slDisabled) {
@@ -255,9 +249,9 @@ function Assert-ScreenLock {
     }
 
     # 7. Auto-logout after inactivity ("Log out after N minutes" in
-    #    Security / Advanced). When set, macOS kicks the user back to
-    #    loginwindow — the password-demand symptom is identical to a
-    #    lock. System-level pref; read without sudo (world-readable).
+    #    Security / Advanced). Kicks user to loginwindow — same
+    #    password-demand symptom as a lock. System-level pref;
+    #    world-readable, no sudo.
     try {
         $autoLogout = & defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
         if ($LASTEXITCODE -eq 0 -and "$autoLogout".Trim() -ne "0") {
@@ -315,12 +309,12 @@ function Set-MacHostConditionSet {
 
     # ── 1. Display sleep → Never (requires sudo) ─────────────────────────
     $changed = $false
-    foreach ($source in @("-c", "-b")) {   # -c = charger, -b = battery
+    foreach ($source in @("-c", "-b")) {   # -c charger, -b battery
         $pmLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
-        # Re-read per source is overkill, but pmset -g custom shows the active profile.
-        # We just set both unconditionally — it's harmless if -b doesn't exist.
+        # pmset -g custom shows the active profile; set both unconditionally —
+        # harmless if -b doesn't exist.
     }
-    # Read current AC value
+    # Current AC value
     $currentSleep = "unknown"
     $pmLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
     if ($pmLine) { $currentSleep = $pmLine.Matches[0].Groups[1].Value }
@@ -337,14 +331,12 @@ function Set-MacHostConditionSet {
     }
 
     # ── 2. Screen saver idle time → 0 (disabled) ─────────────────────────
-    # A MISSING idleTime key is NOT the same as 0: macOS falls back to a
-    # built-in non-zero default (~1200s). The old
-    # `LASTEXITCODE -eq 0 -and value -ne "0"` check skipped the write when
-    # the key was absent and printed "already disabled", letting the
-    # screensaver engage after ~20min despite the script appearing to
-    # succeed. Skip the write only when the key EXISTS and is exactly "0";
-    # every other case (missing, empty, any other number) triggers an
-    # explicit write.
+    # MISSING idleTime key is NOT the same as 0: macOS falls back to
+    # ~1200s built-in default. The old "exit 0 AND value != 0" check
+    # skipped the write when absent and printed "already disabled",
+    # letting the screensaver engage after ~20min. Skip write only when
+    # the key EXISTS and is exactly "0"; any other case (missing, empty,
+    # other number) triggers an explicit write.
     $ssIdle = & defaults read com.apple.screensaver idleTime 2>$null
     $ssIdleRead = ($LASTEXITCODE -eq 0)
     if ($ssIdleRead -and "$ssIdle".Trim() -eq "0") {
@@ -359,9 +351,8 @@ function Set-MacHostConditionSet {
     }
 
     # ── 3. Screen lock (password after screen saver) → OFF ───────────────
-    # Same "missing key != safe" reasoning as §2: on some macOS versions
-    # the built-in default for askForPassword is 1, not 0. Write 0 unless
-    # the key is explicitly set to "0".
+    # Same "missing key != safe" as §2: some macOS versions default
+    # askForPassword to 1. Write 0 unless the key is explicitly "0".
     $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
     $askPwRead = ($LASTEXITCODE -eq 0)
     if ($askPwRead -and "$askPw".Trim() -eq "0") {
@@ -376,10 +367,9 @@ function Set-MacHostConditionSet {
     }
 
     # ── 2b. Screen saver idle — per-host variant (Ventura+) ──────────────
-    # Modern macOS stores screensaver prefs under the ByHost domain. Without
-    # this, the System Settings UI still shows a non-zero idle time even after
-    # section 2 above, and the screen saver will still kick in.
-    # Same missing-key-is-unsafe logic as §2.
+    # Modern macOS stores screensaver prefs in the ByHost domain. Without
+    # this, System Settings still shows non-zero idle time after §2 and
+    # the saver still kicks in. Same missing-key-is-unsafe logic as §2.
     $ssIdleHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
     $ssIdleHostRead = ($LASTEXITCODE -eq 0)
     if ($ssIdleHostRead -and "$ssIdleHost".Trim() -eq "0") {
@@ -409,15 +399,14 @@ function Set-MacHostConditionSet {
     }
 
     # ── 3c. "Require password after sleep/screen saver begins" delay ─────
-    # Sonoma+ lock-screen pane: "Require password ... after X". Setting a
-    # very large delay effectively prevents the lock from engaging even if
-    # some other process re-enables askForPassword.
+    # Sonoma+ lock-screen pane. A very large delay prevents lock from
+    # engaging even if something re-enables askForPassword.
     & defaults write com.apple.screensaver askForPasswordDelay -int 2147483647 2>$null | Out-Null
     & defaults -currentHost write com.apple.screensaver askForPasswordDelay -int 2147483647 2>$null | Out-Null
 
     # ── 3d. System sleep → Never (requires sudo) ─────────────────────────
-    # Display-sleep alone isn't enough: if the whole system sleeps, the
-    # display locks on wake regardless of screensaver settings.
+    # Display-sleep alone isn't enough: system sleep → display locks on
+    # wake regardless of screensaver settings.
     $currentSysSleep = "unknown"
     $sysLine = & pmset -g custom 2>$null | Select-String '^\s*[^d]\s*sleep\s+(\d+)' | Select-Object -First 1
     if ($sysLine) { $currentSysSleep = $sysLine.Matches[0].Groups[1].Value }
@@ -425,11 +414,10 @@ function Set-MacHostConditionSet {
     if ($currentSysSleep -ne "0") {
         if ($PSCmdlet.ShouldProcess("System sleep (currently $currentSysSleep min)", "Set to 0 (Never) via sudo pmset")) {
             Write-Output "Setting system sleep to Never (all power sources)..."
-            # -a applies to AC + battery + UPS in one shot; previously we
-            # only set disksleep on -c, which left laptops on battery with
-            # disksleep=10. A disk-sleep transition wakes with the display
-            # re-checking the lock state, which on Ventura+ can trigger
-            # the unified screen lock even when askForPassword=0.
+            # -a covers AC + battery + UPS. Previously we set disksleep
+            # only on -c; laptops on battery kept disksleep=10. Disk-sleep
+            # wake re-checks lock state and on Ventura+ can trigger the
+            # unified screen lock even with askForPassword=0.
             & sudo pmset -a sleep 0
             & sudo pmset -a disksleep 0
             $changed = $true
@@ -439,23 +427,21 @@ function Set-MacHostConditionSet {
     }
 
     # ── 3e. Prevent idle sleep explicitly ─────────────────────────────────
-    # Belt-and-suspenders: disable the idle-sleep assertion even if some
-    # other subsystem tries to re-enable it. -a (not -c) so battery is
-    # covered too.
+    # Belt-and-suspenders: disable idle-sleep even if another subsystem
+    # re-enables it. -a (not -c) so battery is covered too.
     & sudo pmset -a disablesleep 1 2>$null | Out-Null
 
     # ── 3f. Extended pmset guards (Power Nap, standby, hibernation, etc.) ─
-    # Even with sleep=0, macOS can perform transitions that briefly blank
-    # the display or suspend UTM: Power Nap (dark wake for Mail/Backup),
-    # standby (deep sleep after sleep threshold), auto-poweroff (shut the
-    # machine off after N hours of sleep), and hibernation (writes RAM to
-    # disk, then powers off). During a multi-hour test run any of these
-    # can hide the UTM window from CG enumeration — symptom: "UTM window
-    # for '<vm>' not found. CG: not_found, bounds: not_found".
+    # Even with sleep=0, macOS can perform transitions that blank the
+    # display or suspend UTM: Power Nap (dark wake for Mail/Backup),
+    # standby (deep sleep), auto-poweroff (power-off after N hours of
+    # sleep), hibernation (RAM to disk, power off). Any of these during
+    # a multi-hour run can hide the UTM window from CG enumeration —
+    # symptom: "UTM window for '<vm>' not found. CG: not_found, bounds:
+    # not_found".
     #
-    # ttyskeepawake=1 keeps the system awake while a tty session is
-    # active (SSH, screen capture tools). tcpkeepalive=1 keeps sockets
-    # responsive. womp=1 allows wake-on-LAN but doesn't force sleep.
+    # ttyskeepawake=1 keeps system awake with an active tty (SSH, screen
+    # capture). tcpkeepalive=1 keeps sockets responsive.
     Write-Output "Applying extended pmset guards (powernap, standby, autopoweroff, hibernatemode, ttyskeepawake, tcpkeepalive)..."
     & sudo pmset -a powernap       0 2>$null | Out-Null
     & sudo pmset -a standby        0 2>$null | Out-Null
@@ -464,16 +450,15 @@ function Set-MacHostConditionSet {
     & sudo pmset -a hibernatemode  0 2>$null | Out-Null
     & sudo pmset -a ttyskeepawake  1 2>$null | Out-Null
     & sudo pmset -a tcpkeepalive   1 2>$null | Out-Null
-    # proximitywake (handoff wake) is Apple-Silicon-only and not exposed
-    # on every model; swallow errors so older/Intel hosts don't fail here.
+    # proximitywake (handoff wake) is Apple-Silicon-only; swallow errors
+    # so older/Intel hosts don't fail here.
     & sudo pmset -a proximitywake  0 2>$null | Out-Null
 
     # ── 3g. Hot corners — neutralize screen-saver / sleep / lock triggers ──
-    # The Dock stores four hot-corner actions under
-    # wvous-{tl,tr,bl,br}-corner. During an unattended test a drifting
-    # mouse can land in one of these corners and trigger a screensaver /
-    # display-sleep / lock — which makes the UTM window vanish from the
-    # CG window list. Dangerous action codes we neutralize:
+    # Dock stores hot-corner actions under wvous-{tl,tr,bl,br}-corner.
+    # A drifting mouse during an unattended test can land in a corner
+    # and trigger screensaver / display-sleep / lock — making the UTM
+    # window vanish from the CG window list. Dangerous codes neutralized:
     #   5  = Start Screen Saver
     #   10 = Put Display to Sleep
     #   13 = Lock Screen   (Sonoma+)
@@ -491,9 +476,9 @@ function Set-MacHostConditionSet {
                 if ($PSCmdlet.ShouldProcess("Hot corner $corner (currently '$action' = $valTrim)", "Set to 0 (none)")) {
                     Write-Output "Neutralizing hot corner '$corner' ($action → none)..."
                     & defaults write com.apple.dock $key -int 0 2>$null | Out-Null
-                    # Clear the modifier-key requirement too, so the corner
-                    # isn't merely hidden behind a modifier that a wandering
-                    # cursor might hit alongside a stuck Shift key.
+                    # Clear the modifier too — otherwise the corner is
+                    # merely hidden behind a modifier a wandering cursor
+                    # might hit alongside a stuck Shift.
                     & defaults write com.apple.dock "wvous-$corner-modifier" -int 0 2>$null | Out-Null
                     $dockReloadNeeded = $true
                     $changed = $true
@@ -502,20 +487,19 @@ function Set-MacHostConditionSet {
         }
     }
     if ($dockReloadNeeded) {
-        # Dock only re-reads these at launch; kick it so the change takes
-        # effect immediately (the Dock auto-relaunches).
+        # Dock re-reads these only at launch; kick it so the change
+        # takes effect immediately (Dock auto-relaunches).
         & killall Dock 2>$null | Out-Null
     } else {
         Write-Output "Hot corners: no dangerous bindings (screen-saver / sleep / lock) detected."
     }
 
     # ── 3h. App Nap suppression for UTM.app ──────────────────────────────
-    # macOS App Nap throttles background apps that haven't received user
-    # input for a while. For UTM specifically this can freeze the UI
-    # thread, stop updating the window server, and drop the window out of
-    # CGWindowListCopyWindowInfo — which is exactly the
-    # "UTM window for '<vm>' not found" symptom the harness reports even
-    # when the VM itself is running fine. Opt UTM out unconditionally.
+    # macOS App Nap throttles background apps that haven't received
+    # input. For UTM this can freeze the UI thread, stop updating the
+    # window server, and drop the window from CGWindowListCopyWindowInfo
+    # — exactly the "UTM window for '<vm>' not found" symptom even when
+    # the VM is fine. Opt UTM out unconditionally.
     $utmBundleId = 'com.utmapp.UTM'
     $napState = & defaults read $utmBundleId NSAppSleepDisabled 2>$null
     $napAlreadyOff = ($LASTEXITCODE -eq 0 -and "$napState".Trim() -eq '1')
@@ -530,42 +514,40 @@ function Set-MacHostConditionSet {
     }
 
     # ── 3i. Clear any stuck ScreenSaverEngine ────────────────────────────
-    # If a prior aborted run left the screen saver engaged, the engine
-    # process may still be running when this script applies settings.
-    # Killing it is idempotent and harmless when nothing is running;
-    # exit codes are swallowed so "no such process" isn't reported as a
-    # script failure.
+    # If a prior aborted run left the saver engaged, the engine process
+    # may still be running when this script applies settings. Killing
+    # is idempotent and harmless when nothing runs; swallow exit codes
+    # so "no such process" isn't reported as failure.
     & killall ScreenSaverEngine 2>$null | Out-Null
 
     # ── 3j. sysadminctl unified screen lock (Ventura+) ───────────────────
     # `sysadminctl -screenLock` is the modern (macOS 13+) unified control
     # that System Settings > Lock Screen > "Require password after screen
-    # saver begins or display is turned off" now actually writes to.
-    # CRITICAL: it overrides the legacy `askForPassword` / `askForPasswordDelay`
-    # keys. A machine can have idleTime=0, askForPassword=0, and
-    # askForPasswordDelay=MAX_INT yet still lock after a few minutes
-    # because sysadminctl reports e.g. "screenLock delay is 300 seconds".
+    # saver begins or display is turned off" writes to.
+    # CRITICAL: overrides legacy askForPassword / askForPasswordDelay.
+    # A machine with idleTime=0, askForPassword=0, and
+    # askForPasswordDelay=MAX_INT can still lock after minutes because
+    # sysadminctl reports e.g. "screenLock delay is 300 seconds".
     #
-    # "off" sets the delay to -1 (effectively disabled). sysadminctl
-    # requires the current user's password (not just sudo) because it
-    # touches the secure keyring entry backing the lock-screen policy.
-    # `-password -` reads the password from stdin — the script user will
-    # see a second prompt after the earlier sudo prompt.
-    # sysadminctl logs to stderr with an NSLog prefix; strip it so both
-    # the "currently: ..." breadcrumb and the regex match see clean text.
-    # Accepted "off" forms: "screenLock is off" OR "screenLock delay is -1".
+    # "off" sets delay to -1 (disabled). sysadminctl requires the user's
+    # password (not sudo) because it touches the secure keyring entry
+    # backing lock-screen policy. `-password -` reads from stdin — a
+    # second prompt appears after the sudo prompt.
+    # sysadminctl logs to stderr with an NSLog prefix; strip it so the
+    # breadcrumb and regex match see clean text.
+    # Accepted "off" forms: "screenLock is off" OR "delay is -1".
     $slNsLog  = '^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+sysadminctl\[\d+:\w+\]\s+'
     $slStatus = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace $slNsLog, ''
     $slAlreadyOff = "$slStatus" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)'
     if (-not $slAlreadyOff) {
         if ($PSCmdlet.ShouldProcess("sysadminctl $slStatus", "Disable (sysadminctl -screenLock off)")) {
             Write-Output "Disabling sysadminctl unified screen lock (you may be prompted for your account password)..."
-            # Redirect stderr → stdout so the "password:" prompt and any
-            # diagnostics both appear on the tty where the user expects.
+            # 2>&1 so "password:" prompt and diagnostics both land on
+            # the tty where the user expects them.
             & sudo sysadminctl -screenLock off -password - 2>&1
-            # Re-check: if we couldn't disable it (wrong password, policy
-            # override, MDM enforcement), surface the state so the user
-            # knows the legacy keys won't save them.
+            # Re-check: if we couldn't disable (wrong password, policy
+            # override, MDM), surface the state so the user knows legacy
+            # keys won't save them.
             $slAfter = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace $slNsLog, ''
             if ("$slAfter" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)') {
                 Write-Output "sysadminctl screen lock is now disabled."
@@ -582,12 +564,11 @@ function Set-MacHostConditionSet {
 
     # ── 3k. Auto-logout after inactivity (Security → Advanced) ───────────
     # `com.apple.autologout.AutoLogOutDelay` (system-level) is the
-    # "Log out after N minutes of inactivity" toggle in the Lock Screen /
-    # Security pane. When set, macOS kicks the user back to loginwindow
-    # after the delay — the symptom is indistinguishable from a lock
-    # ("machine demands a password"), but no individual screen-saver /
-    # pmset key we control would prevent it. Stored at system level
-    # (/Library/Preferences/.GlobalPreferences), so requires sudo.
+    # "Log out after N minutes of inactivity" toggle in Lock Screen /
+    # Security. macOS kicks the user back to loginwindow after the
+    # delay — indistinguishable from a lock ("demands password"), but
+    # no screen-saver / pmset key we control would prevent it. System
+    # level (/Library/Preferences/.GlobalPreferences); requires sudo.
     $autoLogoutDelay = & sudo defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
     $autoLogoutOff = ($LASTEXITCODE -ne 0 -or "$autoLogoutDelay".Trim() -eq "0")
     if (-not $autoLogoutOff) {
@@ -601,11 +582,11 @@ function Set-MacHostConditionSet {
     }
 
     # ── 3l. Managed Configuration Profile detection (MDM override) ───────
-    # If the Mac is MDM-managed, a Configuration Profile can enforce
-    # screen lock / password delay / auto-logout at a level that OVERRIDES
-    # everything we set above — `defaults write` writes are silently
-    # ignored, or reverted on next mcxrefresh. We can't bypass a profile;
-    # we CAN warn the user so they don't chase a ghost.
+    # If MDM-managed, a Configuration Profile can enforce screen lock /
+    # password delay / auto-logout at a level that OVERRIDES everything
+    # above — `defaults write` is silently ignored or reverted on next
+    # mcxrefresh. We can't bypass a profile; warn the user so they
+    # don't chase a ghost.
     try {
         $profOutput = & profiles list 2>&1
         $hasProfiles = ($LASTEXITCODE -eq 0 -and "$profOutput" -notmatch 'no configuration profiles')
@@ -632,7 +613,7 @@ function Set-MacHostConditionSet {
             Write-Output "Accessibility permission is already granted."
         } else {
             Write-Output "Requesting Accessibility permission (a system dialog should appear)..."
-            # AXIsProcessTrustedWithOptions with kAXTrustedCheckOptionPrompt = true
+            # AXIsProcessTrustedWithOptions + kAXTrustedCheckOptionPrompt=true
             # triggers the macOS consent dialog.
             $jxaPrompt = @"
 ObjC.import('CoreFoundation');
@@ -661,13 +642,11 @@ $.AXIsProcessTrustedWithOptions(opts);
 function Set-WindowsHostConditionSet {
     <#
     .SYNOPSIS
-    Configures Windows host settings needed for unattended VM testing:
-    starts the Hyper-V service, disables display timeout, disables the
-    inactivity lock screen, opens ICMPv4 + the status-server TCP port in
-    the firewall, and resets display/text scale to 100% (so OCR on VM
-    screenshots isn't defeated by HiDPI up-scaling). Requires
-    Administrator elevation. Idempotent. Scale changes take effect on
-    next sign-in.
+    Configures Windows for unattended VM testing: starts Hyper-V service,
+    disables display timeout, disables inactivity lock, opens ICMPv4 +
+    the status-server TCP port, and resets display/text scale to 100%
+    (so HiDPI up-scaling doesn't defeat OCR on VM screenshots). Requires
+    Admin. Idempotent. Scale changes take effect on next sign-in.
     .EXAMPLE
     Set-WindowsHostConditionSet          # apply all settings
     Set-WindowsHostConditionSet -WhatIf  # show what would change without applying
@@ -693,12 +672,12 @@ function Set-WindowsHostConditionSet {
     # ── 1. Hyper-V service ───────────────────────────────────────────────
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc) {
-        # vmms missing splits into two cases with very different fixes:
-        #   a) Hyper-V feature was never enabled  -> enable it, then reboot.
-        #   b) Hyper-V was enabled via DISM but the reboot is still pending
-        #      (DISM reports State=Enabled after /Enable-Feature /NoRestart
-        #      even though components don't deploy until the reboot) -> just
-        #      reboot; don't run Enable-WindowsOptionalFeature again.
+        # vmms missing has two cases with different fixes:
+        #   a) Hyper-V feature never enabled  → enable, reboot.
+        #   b) Hyper-V enabled via DISM but reboot pending (DISM reports
+        #      State=Enabled after /Enable-Feature /NoRestart even though
+        #      components don't deploy until reboot) → just reboot; don't
+        #      re-run Enable-WindowsOptionalFeature.
         # Distinguish by asking DISM directly instead of guessing.
         $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
         $featureState = 'Unknown'
@@ -765,7 +744,7 @@ function Set-WindowsHostConditionSet {
     }
 
     # ── 4. Lock screen on resume → disabled ──────────────────────────────
-    # Check the power-plan consolelock setting via powercfg
+    # power-plan consolelock via powercfg
     $consoleLock = powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null |
         Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
         Select-Object -First 1
@@ -783,29 +762,27 @@ function Set-WindowsHostConditionSet {
         Write-Output "Lock screen on resume is already disabled (or not applicable)."
     }
 
-    # ── 5. Allow ICMPv4 echo (ping) from both VM guests and the LAN ──────
-    # Two things have to be true for `ping <host>` to work:
-    #   (a) An explicit Allow rule for inbound ICMPv4 Echo Request must
-    #       exist and be enabled for EVERY profile whose interface you
-    #       want ping to work on. Windows ships with built-in rules
+    # ── 5. Allow ICMPv4 echo (ping) from VM guests and the LAN ──────────
+    # For `ping <host>` to work:
+    #   (a) An Allow rule for inbound ICMPv4 Echo Request must exist and
+    #       be enabled for every profile whose interface you want ping
+    #       on. Windows ships built-in rules
     #       ('File and Printer Sharing (Echo Request - ICMPv4-In)') in
     #       all three profiles (Domain, Private, Public) but DISABLED.
-    #   (b) Any block rule with higher precedence must not match.
+    #   (b) No higher-precedence block rule matches.
     #
-    # The earlier approach of creating a single -InterfaceAlias-scoped
-    # rule for 'vEthernet (Default Switch)' didn't work in practice,
-    # because disabled built-in rules coexist with it without being
-    # triggered — Windows Firewall doesn't merge them. The reliable
-    # fix is to enable the built-in echo-request rules across all
-    # profiles. This opens ping on the LAN NIC too (expected — the
-    # user also wants to ping the host from peer machines for
-    # diagnostics). No TCP service is exposed; ping is a liveness probe.
+    # The earlier -InterfaceAlias-scoped rule for 'vEthernet (Default
+    # Switch)' didn't work — disabled built-ins coexist without being
+    # triggered; Windows Firewall doesn't merge them. Reliable fix: enable
+    # the built-in echo-request rules across all profiles. This opens
+    # ping on the LAN NIC too (expected — operators also want to ping
+    # the host from peers for diagnostics). No TCP is exposed; ping is
+    # just a liveness probe.
     #
-    # A custom scoped rule is still created as a belt-and-suspenders in
-    # case the built-in rules are missing (stripped server SKUs, GPO
-    # override, etc.).
+    # A custom scoped rule is still created as belt-and-suspenders in
+    # case built-ins are missing (stripped server SKUs, GPO, etc.).
 
-    # 5a. Enable all built-in Allow + Inbound + ICMPv4 Echo Request rules.
+    # 5a. Enable built-in Allow + Inbound + ICMPv4 Echo Request rules.
     $icmpAllowRules = Get-NetFirewallRule -Direction Inbound -Action Allow -ErrorAction SilentlyContinue |
         Where-Object {
             $fltr = $_ | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
@@ -863,8 +840,8 @@ function Set-WindowsHostConditionSet {
     }
 
     # 5c. Diagnostic: surface any enabled *Block* rule on ICMPv4 Echo that
-    # would veto our allow, so the user sees the blocker immediately
-    # instead of wondering why ping still fails.
+    # would veto our allow, so the user sees the blocker instead of
+    # wondering why ping still fails.
     $icmpBlockRules = Get-NetFirewallRule -Direction Inbound -Action Block -ErrorAction SilentlyContinue |
         Where-Object { $_.Enabled -eq 'True' } |
         Where-Object {
@@ -880,15 +857,13 @@ function Set-WindowsHostConditionSet {
     }
 
     # ── 6. Allow inbound TCP on the status-server port ───────────────────
-    # Start-StatusServer.ps1 binds the HttpListener to http://*:$Port/,
-    # which covers every interface at the socket level -- but Windows
-    # Firewall still drops inbound TCP on non-loopback interfaces unless
-    # an explicit Allow rule exists. On a fresh install, localhost works
-    # (loopback is never filtered) while a LAN browser hitting
-    # http://<host-ip>:8080/ just hangs. Add an Allow rule here so that
-    # case works out of the box. Port is read from test-config.json
-    # (same source Start-StatusServer uses), defaulting to 8080 when the
-    # file is missing or the key is unset.
+    # Start-StatusServer.ps1 binds HttpListener to http://*:$Port/ which
+    # covers every interface at the socket level — but Windows Firewall
+    # drops inbound TCP on non-loopback interfaces without an Allow
+    # rule. On a fresh install localhost works (loopback is never
+    # filtered) while a LAN browser on http://<host-ip>:8080/ hangs.
+    # Port is read from test-config.json (same source as Start-StatusServer),
+    # default 8080 when missing/unset.
     $statusPort = 8080
     $configPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test-config.json'
     if (Test-Path -LiteralPath $configPath) {
@@ -903,10 +878,9 @@ function Set-WindowsHostConditionSet {
     $statusRuleName = "Yuruna: Allow inbound TCP :$statusPort (Status server)"
     $existingStatusRule = Get-NetFirewallRule -DisplayName $statusRuleName -ErrorAction SilentlyContinue
     if ($existingStatusRule) {
-        # A pre-existing rule might have the right display name but wrong
-        # port (e.g. the user changed statusServer.port in test-config.json
-        # after running this once). Verify + rebuild rather than silently
-        # leaving the old rule in place.
+        # Pre-existing rule may have the right name but wrong port (user
+        # changed statusServer.port in test-config.json after running
+        # this once). Verify + rebuild instead of silently leaving it.
         $portFilter = $existingStatusRule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
         $rulePortMatches = $portFilter -and ($portFilter.Protocol -eq 'TCP') -and ($portFilter.LocalPort -eq "$statusPort")
         if (-not $rulePortMatches) {
@@ -947,9 +921,9 @@ function Set-WindowsHostConditionSet {
         }
     }
 
-    # 6b. Diagnostic: any enabled TCP Block rule covering this port would
-    # veto the Allow above -- surface it immediately instead of leaving
-    # the user wondering why LAN clients still can't connect.
+    # 6b. Diagnostic: any enabled TCP Block rule covering this port
+    # vetoes the Allow above — surface it instead of leaving the user
+    # wondering why LAN clients can't connect.
     $tcpBlockRules = Get-NetFirewallRule -Direction Inbound -Action Block -ErrorAction SilentlyContinue |
         Where-Object { $_.Enabled -eq 'True' } |
         Where-Object {
@@ -967,26 +941,24 @@ function Set-WindowsHostConditionSet {
     }
 
     # ── 7. Display text scale → 100% ─────────────────────────────────────
-    # OCR on VM screenshots (Tesseract, Get-VMWindowScreenshot path) degrades
-    # when the host display is scaled above 100%. The vmconnect window
-    # renders the guest framebuffer through the DPI-scaled compositor,
-    # and the upscaled bitmap defeats Tesseract's character segmentation —
-    # waitForText silently times out on text that a human reads fine. New
-    # Windows 11 machines (HiDPI laptops, 4K monitors) commonly ship
-    # defaulting to 125% or 150%, not 100%.
+    # OCR on VM screenshots (Tesseract, Get-VMWindowScreenshot) degrades
+    # when the host display scales above 100%. vmconnect renders the
+    # guest framebuffer through the DPI-scaled compositor; the upscaled
+    # bitmap defeats Tesseract segmentation — waitForText silently times
+    # out on text a human reads fine. Fresh Windows 11 (HiDPI, 4K) ships
+    # at 125% or 150%.
     #
-    # Three independent scaling knobs, all reset to 100% for the current
-    # user (HKCU). All three require a sign-out to take effect; the
-    # warning at the end tells the user when one fired.
+    # Three independent scaling knobs, all reset to 100% (HKCU). All
+    # require sign-out to take effect; a warning fires if any changed.
     #
     #   7a. Per-monitor DPI (Settings → System → Display → Scale).
     #       HKCU:\Control Panel\Desktop\PerMonitorSettings\<id>\DpiValue
     #       is an offset from RecommendedDpiValue (0 = recommended,
-    #       negative = smaller). Forcing 100% regardless of the monitor's
-    #       recommended scale means DpiValue = -RecommendedDpiValue.
-    #   7b. System-wide DPI fallback used by non-per-monitor-aware
-    #       processes: HKCU:\Control Panel\Desktop\LogPixels = 96
-    #       (96 DPI = 100%) + Win8DpiScaling = 1.
+    #       negative = smaller). 100% = -RecommendedDpiValue regardless
+    #       of the monitor's recommended scale.
+    #   7b. System-wide DPI fallback for non-per-monitor-aware processes:
+    #       HKCU:\Control Panel\Desktop\LogPixels = 96 (= 100%) +
+    #       Win8DpiScaling = 1.
     #   7c. Windows 11 text size (Settings → Accessibility → Text size),
     #       separate from display scale:
     #       HKCU:\Software\Microsoft\Accessibility\TextScaleFactor
@@ -994,11 +966,11 @@ function Set-WindowsHostConditionSet {
 
     $scaleChanged = $false
 
-    # REG_DWORD -> signed int32: Windows writes DpiValue as a signed integer
-    # (e.g. -2 for "two steps below recommended"), but PowerShell surfaces
-    # REG_DWORD as UInt32, so -2 arrives as 4294967294 and a bare [int] cast
-    # OverflowExceptions. Reinterpret bits: values with the high bit set map
-    # to their two's-complement signed equivalent.
+    # REG_DWORD → signed int32: Windows writes DpiValue as signed (e.g.
+    # -2 for "two steps below recommended") but PowerShell surfaces
+    # REG_DWORD as UInt32 — -2 arrives as 4294967294 and a bare [int]
+    # cast throws OverflowException. Reinterpret bits: values with the
+    # high bit set map to their two's-complement signed equivalent.
     $asSignedDword = {
         param($raw)
         if ($null -eq $raw) { return 0 }
@@ -1007,9 +979,9 @@ function Set-WindowsHostConditionSet {
     }
 
     # 7a. Per-monitor DPI
-    # foreach statement (not ForEach-Object pipeline) so $scaleChanged writes
-    # hit the function scope — ForEach-Object's scriptblock runs in a child
-    # scope where the assignment would be silently local.
+    # foreach statement (not ForEach-Object) so $scaleChanged writes
+    # reach function scope — ForEach-Object's scriptblock runs in a
+    # child scope where the assignment would be silently local.
     $perMonPath = 'HKCU:\Control Panel\Desktop\PerMonitorSettings'
     if (Test-Path -LiteralPath $perMonPath) {
         $monKeys = Get-ChildItem -LiteralPath $perMonPath -Recurse -ErrorAction SilentlyContinue |
@@ -1022,7 +994,7 @@ function Set-WindowsHostConditionSet {
             $recommended = if ($props.PSObject.Properties.Name -contains 'RecommendedDpiValue') {
                                & $asSignedDword $props.RecommendedDpiValue
                            } else { 0 }
-            # DpiValue is an offset from recommended; target 100% = -recommended.
+            # DpiValue is offset from recommended; target 100% = -recommended.
             $target = -$recommended
             if ($current -ne $target) {
                 $label = $mon.PSChildName
@@ -1037,12 +1009,12 @@ function Set-WindowsHostConditionSet {
         Write-Verbose "HKCU:\Control Panel\Desktop\PerMonitorSettings absent; skipping per-monitor DPI override."
     }
 
-    # 7b. System-wide DPI (LogPixels fallback for non-per-monitor-aware apps).
-    # We only touch LogPixels when it's actually overriding the default (96).
-    # Win8DpiScaling=1 is only meaningful alongside a non-96 LogPixels — it
-    # tells Windows to honor that value. Default state (LogPixels=96,
-    # Win8DpiScaling=0) is 100%, so skip the write and avoid churning the
-    # registry on a pristine system.
+    # 7b. System-wide DPI (LogPixels fallback for non-per-monitor-aware
+    # apps). Touch only when LogPixels overrides the default (96).
+    # Win8DpiScaling=1 is meaningful only alongside a non-96 LogPixels
+    # — tells Windows to honor it. Default state (LogPixels=96,
+    # Win8DpiScaling=0) is 100%; skip the write to avoid churning
+    # the registry on a pristine system.
     $desktopPath = 'HKCU:\Control Panel\Desktop'
     $dp = Get-ItemProperty -LiteralPath $desktopPath -ErrorAction SilentlyContinue
     $currentLogPixels = if ($dp -and ($dp.PSObject.Properties.Name -contains 'LogPixels'))      { & $asSignedDword $dp.LogPixels }      else { 96 }
@@ -1093,14 +1065,15 @@ function Set-WindowsHostConditionSet {
 function Assert-Accessibility {
     <#
     .SYNOPSIS
-    On macOS, checks that the terminal has Accessibility permission (required for
-    AXUIElementPostKeyboardEvent). Returns $true if granted or not on macOS.
-    Prints setup instructions and returns $false if the permission is missing.
+    macOS: verify the terminal has Accessibility permission (needed
+    for AXUIElementPostKeyboardEvent). Returns $true if granted (or
+    not on macOS). Prints setup instructions and returns $false on
+    missing permission.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
 
-    # AXIsProcessTrusted() returns true when the calling process has Accessibility access.
+    # AXIsProcessTrusted() true when the process has Accessibility access.
     try {
         $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
         $result = & osascript -l JavaScript -e $jxa 2>&1
@@ -1131,10 +1104,10 @@ function Assert-Accessibility {
 function Assert-MacHostConditionSet {
     <#
     .SYNOPSIS
-    Single gate for all macOS host prerequisites: Accessibility permission and
-    screen lock / display sleep settings.  Returns $true on non-macOS hosts or
-    when all conditions pass.  Returns $false and prints diagnostics on failure.
-    Callers should invoke this once at startup and again before each test cycle.
+    Single gate for macOS prerequisites: Accessibility permission and
+    screen lock / display sleep settings. Returns $true on non-macOS
+    or when all conditions pass; $false with diagnostics on failure.
+    Invoke once at startup and again before each test cycle.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
@@ -1148,9 +1121,9 @@ function Assert-MacHostConditionSet {
 function Assert-WindowsHostConditionSet {
     <#
     .SYNOPSIS
-    Single gate for all Windows host prerequisites: Administrator elevation and
-    Hyper-V service availability.  Returns $true on non-Windows hosts or when all
-    conditions pass.  Returns $false and prints diagnostics on failure.
+    Single gate for Windows prerequisites: Administrator elevation and
+    Hyper-V service. Returns $true on non-Windows or when all pass;
+    $false with diagnostics on failure.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.windows.hyper-v") { return $true }
@@ -1249,15 +1222,14 @@ function Invoke-GitPull {
     #>
     param([string]$RepoRoot)
 
-    # Fetch latest from remote without modifying the working tree. Retry
-    # with linear backoff on failure: on macOS, the Application Firewall
-    # briefly stalls a process's outbound TCP connects right after it
-    # opens a new listening socket (status server, caching proxy forwarders).
-    # That shows up as "Couldn't connect to server after 1 ms / No route
-    # to host" on the very first fetches of a freshly-launched runner and
-    # has recovered later than a 5s wait in observed runs. 5 retries with
-    # 10/20/30/40/50s waits cover up to ~2.5 min of blip without masking a
-    # genuine outage.
+    # Fetch without modifying working tree. Linear-backoff retry on
+    # failure: on macOS the Application Firewall stalls outbound TCP
+    # connects right after a process opens a new listening socket
+    # (status server, caching-proxy forwarders). Shows up as "Couldn't
+    # connect / No route to host" on the first fetches of a fresh
+    # runner and has recovered past a 5s wait in observed runs. 5
+    # retries with 10/20/30/40/50s waits cover ~2.5 min of blip without
+    # masking a genuine outage.
     $maxRetries  = 5
     $attempt     = 0
     while ($true) {
@@ -1292,15 +1264,15 @@ function Invoke-GitPull {
     $mergeBase = & git -C $RepoRoot merge-base $local $remote 2>$null
 
     if ($mergeBase -eq $remote) {
-        # Local is ahead of remote — local commits not yet pushed; that's fine
+        # Local ahead of remote — unpushed commits; fine
         Write-Information "Local branch is ahead of remote. Proceeding with local changes." -InformationAction Continue
         return $true
     }
 
-    # Local is behind or diverged from remote
+    # Behind or diverged from remote
     $behind = & git -C $RepoRoot rev-list --count "$local..$remote" 2>$null
     if ($mergeBase -eq $local) {
-        # Local is behind — safe to fast-forward pull
+        # Local behind — safe to fast-forward pull
         Write-Information "Local branch is behind remote by $behind commit(s). Pulling..." -InformationAction Continue
         $pullOutput = & git -C $RepoRoot pull --ff-only 2>&1
         if ($LASTEXITCODE -eq 0) {
@@ -1311,7 +1283,7 @@ function Invoke-GitPull {
         return $false
     }
 
-    # Diverged — local has commits not on remote AND remote has commits not on local
+    # Diverged — both sides have unique commits
     $ahead = & git -C $RepoRoot rev-list --count "$remote..$local" 2>$null
     Write-Error "Local branch has diverged from remote ($ahead ahead, $behind behind). Rebase or merge manually."
     return $false

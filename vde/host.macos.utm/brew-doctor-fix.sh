@@ -1,14 +1,9 @@
 #!/bin/bash
-# brew-doctor-fix.sh
-# Fixes common issues reported by "brew doctor" on Apple Silicon Macs:
-#   1. PATH ordering: ensures /opt/homebrew/bin and /opt/homebrew/sbin precede /usr/bin
-#   2. Shadowed tools: removes system-provided binaries that duplicate Homebrew-installed ones
-#   3. Persists the corrected PATH across reboots via ~/.zshrc
-#
-# Usage:  chmod +x brew-doctor-fix.sh && ./brew-doctor-fix.sh
-# Re-run: safe to run multiple times (idempotent)
-#
-# Requires: macOS with Homebrew on Apple Silicon (/opt/homebrew)
+# brew-doctor-fix.sh -- fixes common `brew doctor` issues on Apple Silicon:
+#   1. PATH order: /opt/homebrew/{bin,sbin} before /usr/bin
+#   2. Shadowed tools: verifies Homebrew versions take precedence
+#   3. Persists the corrected PATH in ~/.zshrc
+# Idempotent. Requires macOS + Homebrew at /opt/homebrew.
 
 set -euo pipefail
 
@@ -17,7 +12,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
@@ -54,7 +49,6 @@ PATH_BLOCK_END="# <<< brew-doctor-fix PATH <<<"
 fix_path_in_zshrc() {
     info "Fixing PATH configuration in ${ZSHRC} ..."
 
-    # Create ~/.zshrc if it doesn't exist
     touch "$ZSHRC"
 
     # Remove any previous block we inserted (idempotent)
@@ -63,10 +57,8 @@ fix_path_in_zshrc() {
         sed -i '' "/${PATH_BLOCK_START}/,/${PATH_BLOCK_END}/d" "$ZSHRC"
     fi
 
-    # The block we inject:
-    #   - Puts /opt/homebrew/bin and /opt/homebrew/sbin FIRST
-    #   - Strips them from later positions to avoid duplicates
-    #   - Keeps everything else in original order
+    # Block injected: put /opt/homebrew/{bin,sbin} FIRST, strip them
+    # from later positions to dedupe, keep everything else in order.
     cat >> "$ZSHRC" <<'BLOCK'
 
 # >>> brew-doctor-fix PATH >>>
@@ -92,18 +84,15 @@ BLOCK
 fix_path_in_zshrc
 
 # ── Step 2: Shadow removal ────────────────────────────────────────────────
-# For tools that exist in BOTH /usr/bin and Homebrew, we ensure the
-# Homebrew version takes precedence. Since /usr/bin is SIP-protected,
-# we can't (and shouldn't) remove system binaries. Instead we verify
-# Homebrew's PATH priority handles it. But if there are non-SIP duplicates
-# in other writable directories, we can handle those.
+# /usr/bin and /usr/sbin are SIP-protected, so we can't (and shouldn't)
+# remove system binaries. Instead we verify PATH order makes the Homebrew
+# copy win for every tool present in both places.
 
 info "Checking for shadowed tools ..."
 
 SHADOWED_TOOLS=()
 SYSTEM_DIRS=(/usr/bin /usr/sbin)
 
-# Collect Homebrew-installed tool names
 for tool_path in "${BREW_BIN}"/* "${BREW_SBIN}"/*; do
     [[ -e "$tool_path" ]] || continue
     tool="$(basename "$tool_path")"
@@ -120,9 +109,8 @@ if [[ ${#SHADOWED_TOOLS[@]} -gt 0 ]]; then
     printf "       %s\n" "${SHADOWED_TOOLS[@]}"
     echo ""
     info "Since /usr/bin and /usr/sbin are SIP-protected, they cannot be modified."
-    info "With Homebrew paths FIRST in PATH, the Homebrew versions will take precedence."
+    info "With Homebrew paths FIRST in PATH, the Homebrew versions take precedence."
 
-    # Verify precedence is correct for each
     ALL_RESOLVED=true
     for tool in "${SHADOWED_TOOLS[@]}"; do
         resolved="$(command -v "$tool" 2>/dev/null || true)"
@@ -172,8 +160,8 @@ else
 fi
 
 echo ""
-# If running in a subshell, spawn a new shell with the updated PATH
-# so the parent terminal picks up the changes automatically.
+# If running as a script (not sourced), exec a fresh zsh so the
+# updated PATH is active without opening a new terminal.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     info "Launching a new shell with the updated PATH ..."
     exec zsh -l

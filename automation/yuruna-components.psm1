@@ -30,11 +30,9 @@ function Publish-ComponentList {
 
     if (!(Confirm-ComponentList $project_root $config_subfolder)) { return $false; }
     Write-Debug "---- Publishing Components"
-    # For each component in components.yml
-    #   apply resources global variables, resources.output variables, global variables, components variables
-    #   execute build command in the folder
-    #     command is parameter in components.yml
-    #   tag and push component to registry
+    # For each component: merge variables (resources global + resources.output
+    # + component-level globals + component locals), run buildCommand from the
+    # folder, then tag and push to the registry. Commands come from components.yml.
 
     $componentsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/components.yml"
     if (-Not (Test-Path -Path $componentsFile)) { Write-Information "File not found: $componentsFile"; return $false; }
@@ -42,7 +40,7 @@ function Publish-ComponentList {
     if ($null -eq $componentsYaml) { Write-Information "Components null or empty in file: $componentsFile"; return $true; }
     if ($null -eq $componentsYaml.components) { Write-Information "Components null or empty in file: $componentsFile"; return $true; }
 
-    # copy componentsFile to work folder under .yuruna
+    # Backup componentsFile to the .yuruna work folder
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/components"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
     $workFolder = Resolve-Path -Path $workFolder
@@ -50,7 +48,7 @@ function Publish-ComponentList {
     $backupFile = Join-Path -Path $workFolder -ChildPath "components.$dtTime.yml"
     Copy-Item "$componentsFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
     Write-Verbose "Backup of: $componentsFile copied to: $backupFile"
-    # TODO: Decide on copying all code also
+    # TODO: decide whether to copy all code too
 
     $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
     $resourcesOutputYaml = $null
@@ -58,7 +56,7 @@ function Publish-ComponentList {
         $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
     }
 
-    # Debug info
+    # Debug dump of resources.output
     if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
         foreach ($resource in $resourcesOutputYaml.Keys) {
             if ($resource -eq "globalVariables") {
@@ -89,9 +87,7 @@ function Publish-ComponentList {
     }
 
     $componentsPath = Join-Path -Path $project_root -ChildPath "components/"
-    # For each component in components.yml
     foreach ($component in $componentsYaml.components) {
-        # Component project
         $projectName = $component['project']
         if ([string]::IsNullOrEmpty($projectName)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return $false; }
         $projectNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($projectName)
@@ -108,9 +104,10 @@ function Publish-ComponentList {
         if (-Not (Test-Path -Path $buildFolder)) { Write-Information "Components folder not found: $buildFolder`nUsed in file: $componentsFile"; return $false; }
         Write-Information "-- Component: $projectName from $buildFolder"
 
-        # Notice how there is not string expansion for the components script
+        # No string expansion for the components script here; values are
+        # layered in order: resources globals, resources.output, components
+        # globals, component locals.
         $componentVars = [ordered]@{}
-        # apply resources global variables, resources.output variables, global variables, components variables
         if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
             foreach ($resource in $resourcesOutputYaml.Keys) {
                 if ($resource -eq "globalVariables") {
@@ -149,8 +146,7 @@ function Publish-ComponentList {
             }
         }
 
-        # execute build command in the folder
-        # command is parameter in components.yml
+        # buildCommand comes from components.yml
         $buildCommand = $component['buildCommand']
         if ([string]::IsNullOrEmpty($buildCommand)) { $buildCommand = $componentsYaml.globalVariables['buildCommand'] }
         if ([string]::IsNullOrEmpty($buildCommand)) { Write-Information "buildCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
@@ -171,7 +167,6 @@ function Publish-ComponentList {
         }
 
         Push-Location $componentsPath
-        # preProcessor
         $preProcessor = $componentVars['preProcessor']
         if ([string]::IsNullOrEmpty($preProcessor)) { $preProcessor = $componentsYaml.globalVariables['preProcessor'] }
         if (-Not ([string]::IsNullOrEmpty($preProcessor))) {
@@ -184,7 +179,6 @@ function Publish-ComponentList {
             }
         }
 
-        # build
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($buildCommand)
         Write-Debug "Build: $executionCommand"
         Invoke-DynamicExpression -Command $executionCommand
@@ -193,7 +187,6 @@ function Publish-ComponentList {
             return ($ErrorActionPreference -eq "Continue");
         }
 
-        # postProcessor
         $postProcessor = $componentVars['postProcessor']
         if ([string]::IsNullOrEmpty($postProcessor)) { $postProcessor = $componentsYaml.globalVariables['postProcessor'] }
         if (-Not ([string]::IsNullOrEmpty($postProcessor))) {
@@ -207,7 +200,7 @@ function Publish-ComponentList {
         }
         Pop-Location
 
-        # tag and push component to registry
+        # Tag and push component to registry
         $tagCommand = $component['tagCommand']
         if ([string]::IsNullOrEmpty($tagCommand)) { $tagCommand = $componentsYaml.globalVariables['tagCommand']; }
         if ([string]::IsNullOrEmpty($tagCommand)) { Write-Information "tagCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }

@@ -6,7 +6,7 @@ Copyright (c) 2019-2026 by Alisson Sol et al.
 
 What can you do during [The Long Dark Tea-Time of the Soul](https://en.wikipedia.org/wiki/The_Long_Dark_Tea-Time_of_the_Soul)?
 
-This is the macOS counterpart of the [Hyper-V version](../../host.windows.hyper-v/guest.amazon.linux/). It uses [UTM](https://mac.getutm.app/) to run an Amazon Linux ARM64 VM on Apple Silicon Macs. See [requirements and limitations](https://docs.aws.amazon.com/linux/al2023/ug/hyperv-supported-configurations.html). Instructions here were tested using Amazon Linux 2023 (not Amazon Linux 1 or Amazon Linux 2).
+macOS counterpart of the [Hyper-V version](../../host.windows.hyper-v/guest.amazon.linux/). Uses [UTM](https://mac.getutm.app/) to run an Amazon Linux ARM64 VM on Apple Silicon Macs. See [requirements and limitations](https://docs.aws.amazon.com/linux/al2023/ug/hyperv-supported-configurations.html). Tested with Amazon Linux 2023 (not Amazon Linux 1 or 2).
 
 ### 1.1) Installing UTM
 
@@ -22,7 +22,7 @@ brew install qemu
 
 ### 1.2) Downloading the Amazon Linux image
 
-The script [`Get-Image.ps1`](./Get-Image.ps1) fetches the Amazon Linux 2023 KVM ARM64 qcow2 image from the official CDN. The image is downloaded as a `.qcow2` file and saved to `~/virtual/amazon.linux/`.
+[`Get-Image.ps1`](./Get-Image.ps1) fetches the Amazon Linux 2023 KVM ARM64 qcow2 image from the official CDN and saves it under `~/virtual/amazon.linux/`.
 
 ```bash
 pwsh ./Get-Image.ps1

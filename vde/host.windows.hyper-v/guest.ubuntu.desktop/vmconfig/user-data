@@ -2,21 +2,20 @@
 autoinstall:
   version: 1
   # apt.proxy (scoped — not top-level `proxy:`) routes only apt/apt-get
-  # through the local squid-cache when one is running. Scope matters: the
-  # top-level `proxy:` also exports http_proxy/https_proxy into late-
-  # commands' env, which previously broke late-command `wget https://...`
-  # calls against proxies that refused CONNECT. apt-scoped proxy avoids
-  # that. The block is injected by New-VM.ps1 only when a squid-cache VM
-  # is reachable at creation time; otherwise it stays absent and subiquity
-  # fetches packages direct from Ubuntu mirrors.
+  # through the local squid-cache. Scope matters: top-level `proxy:`
+  # also exports http_proxy/https_proxy into late-commands' env, which
+  # previously broke `wget https://...` against proxies that refused
+  # CONNECT. The block below is injected by New-VM.ps1 — includes
+  # `apt: proxy:` plus a `sources_list:` override and a matching
+  # `sources:` entry; New-VM.ps1 omits the whole block when no
+  # squid-cache is reachable and subiquity fetches direct.
   #
-  # Why this matters for kernel install specifically: subiquity's
-  # `apt-get --download-only linux-generic-hwe-24.04` step ran before any
-  # of our late-commands, so under the old apt-cacher-ng setup those
-  # packages went direct — and security.ubuntu.com's 429 rate limit
-  # periodically failed the install. apt.proxy is applied before the
-  # kernel step, so those downloads now flow through squid and are
-  # cacheable across subsequent installs.
+  # Why this matters for kernel install: subiquity's
+  # `apt-get --download-only linux-generic-hwe-24.04` runs before our
+  # late-commands, so under apt-cacher-ng those went direct and
+  # security.ubuntu.com's 429 periodically failed the install. apt.proxy
+  # applies before the kernel step, so downloads flow through squid and
+  # are cacheable across subsequent installs.
 APT_PROXY_BLOCK_PLACEHOLDER
   locale: en_US.UTF-8
   keyboard:
@@ -31,32 +30,30 @@ APT_PROXY_BLOCK_PLACEHOLDER
   storage:
     layout:
       name: lvm
-  # Pin the kernel to linux-generic. Ubuntu Desktop 24.04 defaults to the
-  # HWE meta-package linux-generic-hwe-24.04, which lives in noble-updates
-  # — NOT on the installer cdrom. During curtin's install_kernel step the
-  # target chroot's sources.list still only references file:/cdrom (the
-  # network-mirror rewrite curtin does earlier doesn't reach the chroot at
-  # this point), so `apt-get install --download-only linux-generic-hwe-24.04`
-  # returns "Unable to locate package" and fails the install. linux-generic
-  # ships on the cdrom, so the step succeeds without network round-trip.
+  # Pin the kernel to linux-generic. Ubuntu Desktop 24.04 defaults to
+  # HWE meta linux-generic-hwe-24.04 in noble-updates — NOT on the
+  # installer cdrom. During curtin's install_kernel the target chroot's
+  # sources.list still only references file:/cdrom (the earlier
+  # network-mirror rewrite doesn't reach the chroot yet), so
+  # `apt-get install --download-only linux-generic-hwe-24.04` returns
+  # "Unable to locate package" and fails the install. linux-generic
+  # ships on the cdrom, so the step succeeds without network.
   kernel:
     package: linux-generic
   ssh:
     allow-pw: true
-  # ssh.install-server intentionally omitted: the Ubuntu Desktop ISO ships no
-  # openssh-server package on /cdrom, and during install subiquity's target
-  # apt only sees file:/cdrom (the http mirror it configures applies post-
-  # install, not to subiquity's own package step). Setting install-server: true
-  # therefore fails the install with "openssh-server has no installation
-  # candidate". We install openssh-server on first boot via cloud-init's
-  # packages: list below — by then 99yuruna-apt-cache is in place and the
-  # download flows through the apt-cache proxy.
-  # Pass-through cloud-init for the INSTALLED target. Subiquity does not parse
-  # this block; it copies it to the installed system, where cloud-init runs it
-  # on first boot. Top-level ssh_authorized_keys attaches to the default user
-  # (ubuntu) after subiquity has committed the identity section, which avoids
-  # the earlier failure modes where ssh.authorized-keys or raw SSH-related
-  # late-commands silently broke identity application.
+  # ssh.install-server intentionally omitted: the Desktop ISO ships no
+  # openssh-server on /cdrom, and subiquity's target apt only sees
+  # file:/cdrom during install (the http mirror it configures applies
+  # post-install). install-server: true fails with "openssh-server has no
+  # installation candidate". Installed via first-boot cloud-init below —
+  # by then 99yuruna-apt-cache routes the download through the proxy.
+  # Pass-through cloud-init for the INSTALLED target. Subiquity doesn't
+  # parse this block; it copies it to the installed system for first
+  # boot. Top-level ssh_authorized_keys attaches to the default user
+  # (ubuntu) after subiquity commits identity — avoids earlier failure
+  # modes where ssh.authorized-keys or raw SSH-related late-commands
+  # silently broke identity application.
   user-data:
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
@@ -65,28 +62,26 @@ APT_PROXY_BLOCK_PLACEHOLDER
       - openssh-server
   late-commands:
     # --- Apt cache: persist proxy into the installed system ---
-    # Belt-and-suspenders with autoinstall.apt.proxy: subiquity already
-    # writes an apt proxy config into the target when apt.proxy is set,
-    # but we explicitly write 99yuruna-apt-cache so (a) the file name is
-    # predictable for debugging, and (b) behavior is unchanged if
-    # subiquity's apt-persistence logic ever drifts.
-    # New-VM.ps1 substitutes CACHING_PROXY_URL_PLACEHOLDER with either the
-    # detected URL (e.g. http://172.x.y.z:3128) or the empty string. On
-    # empty, [ -n "" ] is false and the file is not created. On hit,
-    # every post-install apt-get in the guest (cloud-init's first-boot
-    # openssh-server install, test-workload, VS Code, .NET SDK,
-    # Kubernetes packages, etc.) flows through the cache.
+    # Belt-and-suspenders with autoinstall.apt.proxy: subiquity writes
+    # an apt proxy config into the target when apt.proxy is set, but we
+    # explicitly write 99yuruna-apt-cache so (a) the file name is
+    # predictable for debugging and (b) behavior is unchanged if
+    # subiquity's apt-persistence logic drifts.
+    # New-VM.ps1 substitutes CACHING_PROXY_URL_PLACEHOLDER with the
+    # detected URL or "". On "", [ -n "" ] is false and the file isn't
+    # created. On hit, every post-install apt-get (openssh-server,
+    # test-workload, VS Code, .NET SDK, Kubernetes packages) flows
+    # through the cache.
     - |
       if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
         echo 'Acquire::http::Proxy "CACHING_PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
         # --- HTTPS caching opt-in: trust the squid-cache CA, point
         # Acquire::https::Proxy at the ssl-bump listener on :3129.
-        # Best-effort: any failure here (CA fetch, trust-update) leaves
-        # the plain-HTTP proxy in place and lets HTTPS apt calls go
-        # direct — same behavior as before ssl-bump existed, so a cache
-        # without the new CA endpoint (older build) degrades gracefully
-        # instead of aborting the install.
+        # Best-effort: any failure (CA fetch, trust-update) leaves the
+        # plain-HTTP proxy in place and HTTPS apt goes direct — same
+        # behavior as pre-ssl-bump, so an older cache build without the
+        # CA endpoint degrades gracefully instead of aborting.
         CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
         mkdir -p /target/usr/local/share/ca-certificates
         if wget --no-cache --tries=3 --timeout=15 -q \
@@ -101,11 +96,10 @@ APT_PROXY_BLOCK_PLACEHOLDER
         fi
       fi
     # --- Cap systemd-networkd-wait-online so first boot doesn't hang ---
-    # See guest.ubuntu.server/vmconfig/user-data for the full rationale.
-    # Short version: Ubuntu 24.04 default is "wait for ALL interfaces to
-    # reach routable with no timeout"; on Hyper-V Default Switch the IPv6
-    # path eventually resolves but adds minutes to first boot. --any
-    # --timeout=30 caps it.
+    # See guest.ubuntu.server/vmconfig/user-data for full rationale.
+    # Ubuntu 24.04 default is "wait for ALL interfaces routable, no
+    # timeout"; on Hyper-V Default Switch the IPv6 path eventually
+    # resolves but adds minutes. --any --timeout=15 caps it.
     - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
     - |
       cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf << 'EOF'
@@ -115,17 +109,15 @@ APT_PROXY_BLOCK_PLACEHOLDER
       EOF
     # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu
-    # --- SSH: install yuruna test-harness authorized key for the ubuntu user ---
-    # Single curtin-in-target command, mirroring the passwd --expire pattern that
-    # has always been safe. Previous attempts using either autoinstall.ssh.authorized-keys
-    # or multi-line raw shell late-commands silently broke subiquity's identity
-    # application (empty /etc/shadow). This form runs in the installed target
-    # chroot after identity is committed, keeping the install path untouched.
+    # --- SSH: install yuruna test-harness key for the ubuntu user ---
+    # Single curtin-in-target, mirroring the passwd --expire pattern.
+    # Previous attempts (autoinstall.ssh.authorized-keys, multi-line raw
+    # shell late-commands) silently broke subiquity's identity (empty
+    # /etc/shadow). This form runs after identity is committed.
     - curtin in-target --target=/target -- bash -c 'install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh && echo "SSH_AUTHORIZED_KEY_PLACEHOLDER" > /home/ubuntu/.ssh/authorized_keys && chmod 600 /home/ubuntu/.ssh/authorized_keys && chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys'
-    # --- Sudo: grant the ubuntu user passwordless sudo for the test harness ---
-    # Needed so the SSH-driven workload can invoke /automation/fetch-and-execute.sh
-    # with sudo (no TTY, no askpass under BatchMode). Dropped as a sudoers.d file
-    # with 0440 perms per sudo's requirements.
+    # --- Sudo: passwordless for the ubuntu user (test harness) ---
+    # Lets the SSH-driven workload call /automation/fetch-and-execute.sh
+    # with sudo (no TTY, no askpass under BatchMode). 0440 per sudoers.d.
     - curtin in-target --target=/target -- bash -c 'echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-yuruna-ubuntu && chmod 440 /etc/sudoers.d/90-yuruna-ubuntu && chown root:root /etc/sudoers.d/90-yuruna-ubuntu'
     # --- System: disable swap ---
     - sed -i '/ swap / s/^/#/' /target/etc/fstab
@@ -150,25 +142,21 @@ APT_PROXY_BLOCK_PLACEHOLDER
       X-GNOME-Autostart-enabled=true
       NoDisplay=true
       DESKTOP
-    # --- IBus: stub out ibus-daemon to avoid the gdm greeter input-method race ---
-    # On Ubuntu 24.04 + GNOME 46, the gdm greeter's gnome-shell spawns two
-    # ibus-daemon instances back-to-back: one normal, then one with
-    # "-r --xim" that replaces the first to add XIM support for Xwayland.
-    # The replace handshake orphans gnome-shell's InputContext D-Bus proxy.
-    # Every subsequent key press to a greeter text entry calls
-    # org/freedesktop/IBus/InputContext_N.ProcessKeyEvent on the dead path,
-    # gets UnknownMethod, and is silently swallowed by gnome-shell's IM
-    # filter. The login fields look focused but accept no input, while
-    # Enter/Tab/Escape and tty switches still work (those bypass the IM
-    # filter). Setting GTK_IM_MODULE/QT_IM_MODULE was verified NOT to help:
-    # gnome-shell's Wayland IM layer uses libibus directly, bypassing the
-    # GTK module abstraction. The only reliable fix is to prevent
-    # ibus-daemon from running at all. Divert the real binary and symlink
-    # to /bin/true so gnome-shell's exec returns immediately; gnome-shell
-    # then proceeds without an IBus backend and key events reach text
-    # entries via the direct libinput → mutter → clutter path. For yuruna
-    # test VMs (ASCII passwords and shell commands only) losing IBus is a
-    # non-issue. dpkg-divert survives apt upgrades.
+    # --- IBus: stub ibus-daemon to avoid the gdm greeter IM race ---
+    # On Ubuntu 24.04 + GNOME 46, the gdm greeter's gnome-shell spawns
+    # two ibus-daemon instances back-to-back (the second with "-r --xim"
+    # for Xwayland XIM). The replace handshake orphans gnome-shell's
+    # InputContext D-Bus proxy; subsequent key presses call
+    # ProcessKeyEvent on the dead path, get UnknownMethod, and are
+    # swallowed by the IM filter. Login fields look focused but accept
+    # no input; Enter/Tab/Escape and tty switches still work (they
+    # bypass IM). GTK_IM_MODULE/QT_IM_MODULE verified NOT to help:
+    # gnome-shell's Wayland IM uses libibus directly, bypassing GTK.
+    # Only reliable fix is to prevent ibus-daemon from running at all:
+    # divert the real binary and symlink to /bin/true so gnome-shell's
+    # exec returns immediately. Key events then reach text entries via
+    # libinput → mutter → clutter. For yuruna test VMs (ASCII passwords
+    # only) losing IBus is a non-issue. dpkg-divert survives apt upgrades.
     - curtin in-target --target=/target -- dpkg-divert --local --add --rename /usr/bin/ibus-daemon
     - curtin in-target --target=/target -- ln -sf /bin/true /usr/bin/ibus-daemon
     # --- GNOME: enable automatic timezone (requires dconf) ---
@@ -182,14 +170,14 @@ APT_PROXY_BLOCK_PLACEHOLDER
       enabled=true
       DCONF
     # --- GDM greeter: never blank the display ---
-    # ubuntu.desktop.update.sh disables idle/lock for the ubuntu USER, but
-    # that profile does NOT apply to the GDM greeter — which runs under the
-    # `gdm` system-db profile. With the default idle-delay, the greeter
-    # blanks after ~3 min, hypervisor screen captures return pure black, OCR
-    # extracts no text, and Test-Workload step 1 ("Not listed?") times out
-    # even though the greeter would render correctly if anyone touched the
-    # VM. A dconf drop-in in /etc/dconf/db/gdm.d/ + dconf update is the
-    # Canonical-documented way to override greeter settings at install time.
+    # ubuntu.desktop.update.sh disables idle/lock for the ubuntu USER,
+    # but that profile does NOT apply to the GDM greeter, which runs
+    # under the `gdm` system-db profile. With default idle-delay the
+    # greeter blanks after ~3 min, screen captures return black, OCR
+    # finds no text, and Test-Workload step 1 ("Not listed?") times out
+    # even though the greeter renders fine if anyone touches the VM.
+    # /etc/dconf/db/gdm.d/ + dconf update is Canonical's documented way
+    # to override greeter settings at install time.
     - mkdir -p /target/etc/dconf/db/gdm.d
     - |
       cat > /target/etc/dconf/db/gdm.d/99-yuruna-no-idle << 'DCONF'

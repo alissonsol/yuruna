@@ -16,10 +16,10 @@
 
 #requires -version 7
 
-# Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
+# Honor debug/verbose flags from Invoke-TestRunner.ps1. Silence
+# Write-Progress when the runner (non-interactive) set either flag.
 if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
 if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
-# Silence Write-Progress under the test runner.
 if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
 
 # === Configuration ===
@@ -28,7 +28,6 @@ $downloadDir = "$HOME/virtual/amazon.linux"
 $baseImageName = "host.macos.utm.guest.amazon.linux"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
-# === Find the file to download ===
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
 $html = Invoke-WebRequest -Uri $sourceUrl
@@ -46,7 +45,7 @@ try {
     exit 1
 }
 
-# Verify download integrity using SHA256 checksum
+# SHA256 integrity check.
 $checksumLink = ($html.Links | Where-Object { $_.href -match "\.qcow2\.sha256$" })
 if ($checksumLink) {
     $checksumUrl = $sourceUrl + $checksumLink[0].href

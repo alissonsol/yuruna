@@ -186,29 +186,23 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Detect the squid-cache VM and inject its proxy URL if available.
-# Detect the squid-cache forwarder and inject its proxy URL if available.
-#
-# On macOS/VZ the guests cannot reach the squid-cache VM's IP directly —
-# Apple Virtualization shared-NAT isolates guest↔guest traffic. Instead,
-# Start-CachingProxy.ps1 spins up a TCP forwarder on the Mac HOST that binds
-# :3128 and tunnels to the squid VM. Guests point at the VZ gateway
-# (192.168.64.1:3128), which always resolves to the host's listener.
-# So here we only need to check one place: is anything answering on :3128
-# of the host? If yes, the forwarder is up → hand 192.168.64.1:3128 to
-# the guest. Discovering the cache VM's direct IP is no longer useful.
+# Detect the squid-cache forwarder and inject its URL if available.
+# On macOS/VZ, guests cannot reach the squid-cache VM's IP directly --
+# Apple Virtualization shared-NAT isolates guest-to-guest traffic.
+# Instead, Start-CachingProxy.ps1 runs a TCP forwarder on the Mac
+# HOST binding :3128, tunneling to the squid VM. Guests use the VZ
+# gateway (192.168.64.1:3128), always reachable. So we only check
+# the host's :3128 listener -- the cache VM's direct IP is no longer
+# useful.
 #
 # Severity policy:
-#   * Forwarder up          → inject http://192.168.64.1:3128 (PROXY)
-#   * utmctl sees VM started
-#     but no listener on :3128
-#     locally on the host    → ERROR, exit 1 (Start-CachingProxy.ps1 wasn't
-#                              re-run; the forwarder is the critical piece)
-#   * VM not registered /
-#     not started            → WARNING, proceed (direct CDN, expect 429s)
+#   * Forwarder up          -> inject http://192.168.64.1:3128
+#   * VM started, no :3128  -> ERROR exit 1 (Start-CachingProxy.ps1
+#                              wasn't re-run; the forwarder is critical)
+#   * VM not registered     -> WARNING, proceed direct (expect 429s)
 if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
-    # URL was forwarded by the caller (test runner). Skip the probe so this
-    # script and the runner's detection agree on a single cache URL.
+    # URL forwarded by the caller (test runner). Skip the probe so the
+    # runner and this script agree on a single cache URL.
     if ($CachingProxyUrl) {
         Write-Output "  caching proxy URL forwarded by caller: $CachingProxyUrl — skipping local probe."
     } else {
@@ -216,9 +210,8 @@ if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
     }
 } else {
 $CachingProxyUrl = ""
-# Resolve utmctl. The brew cask install puts it on PATH; a plain UTM.app
-# install (Mac App Store or direct .dmg) does not, so fall back to the
-# canonical path inside the bundle.
+# Resolve utmctl: brew cask puts it on PATH; plain UTM.app installs
+# (App Store / .dmg) don't, so fall back to the bundle path.
 $utmctl = (Get-Command utmctl -ErrorAction SilentlyContinue)?.Source
 if (-not $utmctl -and (Test-Path "/Applications/UTM.app/Contents/MacOS/utmctl")) {
     $utmctl = "/Applications/UTM.app/Contents/MacOS/utmctl"
@@ -235,9 +228,8 @@ if ($utmctl) {
     }
 }
 
-# Probe :3128 on the host's loopback — this is where Start-CachingProxy.ps1's
-# forwarder binds (0.0.0.0:3128, so 127.0.0.1 and 192.168.64.1 both work).
-# 127.0.0.1 is the most portable check.
+# Probe :3128 on loopback -- Start-CachingProxy.ps1's forwarder binds
+# 0.0.0.0:3128 so 127.0.0.1 works and is portable.
 $forwarderUp = $false
 $tcp = New-Object System.Net.Sockets.TcpClient
 try {
@@ -312,51 +304,42 @@ To intentionally skip the cache for this install:
 }
 }
 
-# Build the autoinstall apt-proxy block. When a cache is reachable, inject
-# a top-level `apt: proxy: http://...` under autoinstall so subiquity's own
-# in-installer apt-get calls (including the kernel/linux-firmware step that
-# 429'd against security.ubuntu.com) route through squid. When no cache,
-# omit the block entirely — subiquity then behaves exactly as before.
+# Autoinstall apt block. When a cache is reachable, inject a scoped
+# `apt:` block under autoinstall so subiquity's in-installer apt-get
+# (including the linux-firmware step that 429'd against
+# security.ubuntu.com) routes through squid. When no cache, omit the
+# block -- subiquity behaves as before.
 #
-# Kept in sync with host.macos.utm/guest.ubuntu.server/New-VM.ps1:
-#   * primary: pin the arm64 mirror to ports.ubuntu.com. Apple Silicon UTM
-#              is arm64-only, so the amd64 default (archive.ubuntu.com)
+# Kept in sync with guest.ubuntu.server/New-VM.ps1:
+#   * primary: pin the arm64 mirror to ports.ubuntu.com. Apple Silicon
+#              UTM is arm64-only; the amd64 default (archive.ubuntu.com)
 #              would 404 behind the proxy.
-#   * geoip:   false — skip the HTTPS geoip.ubuntu.com lookup that would go
-#              through squid (http_proxy is exported globally when apt.proxy
-#              is set) and can stall on CONNECT, keeping subiquity's mirror-
-#              election retry loop alive and producing the "_send_update
-#              CHANGE enp0s1" console spam.
-#   * sources_list: legacy /etc/apt/sources.list with ports.ubuntu.com
-#              entries. See `sources:` below for the deb822 sibling that
-#              actually lands on noble 24.04 arm64.
-#   * preserve_sources_list: false — tell curtin it owns the sources,
-#              i.e. write what we specify instead of leaving the installer's
-#              cdrom-only ubuntu.sources alone.
-#   * sources.yuruna-ports: curtin writes this entry to
-#              /etc/apt/sources.list.d/yuruna-ports.list (curtin auto-appends
-#              .list to the key name, and apt expects legacy one-liner format
-#              in *.list — we use that format here rather than deb822). The
-#              24.04 arm64 Desktop squashfs ships ubuntu.sources with ONLY
-#              a file:/cdrom entry, and curtin's `primary` modifymirrors
-#              step only *rewrites* an existing URI — it cannot add one.
+#   * geoip: false -- skip the HTTPS geoip.ubuntu.com lookup. apt.proxy
+#              exports http_proxy globally, so the lookup goes through
+#              squid and can stall on CONNECT, keeping subiquity's
+#              mirror-election retry loop alive ("_send_update CHANGE
+#              enp0s1" console spam).
+#   * preserve_sources_list: false -- curtin owns the sources, writes
+#              what we specify instead of the installer's cdrom-only
+#              ubuntu.sources.
+#   * sources_list: legacy /etc/apt/sources.list with ports.ubuntu.com.
+#              See `sources:` below for the deb822 sibling that actually
+#              lands on noble 24.04 arm64.
+#   * sources.yuruna-ports: curtin writes this to
+#              /etc/apt/sources.list.d/yuruna-ports.list (curtin appends
+#              .list; apt expects legacy one-liner format in *.list).
+#              The 24.04 arm64 Desktop squashfs ships ubuntu.sources
+#              with ONLY file:/cdrom, and curtin's `primary` modifymirrors
+#              step can only *rewrite* an existing URI, not add one.
 #              With no network URI in ubuntu.sources, curtin's mirror
 #              config never reaches the target, so any non-cdrom package
-#              pulled during install (openssh-server, HWE kernel, whatever
-#              autoinstall.packages adds later) 404s. A separate file
-#              under sources.list.d/ bypasses that no-op: apt merges
-#              ubuntu.sources (cdrom) + yuruna-ports.list (network), so
-#              non-cdrom packages resolve via ports.ubuntu.com through the
-#              squid proxy during the install step — not just post-install.
-#              An earlier revision used a background early-commands watcher
-#              that raced to overwrite ubuntu.sources before postinstall
-#              ran; the race lost on arm64 Server and the install failed,
-#              so the watcher is gone. Curtin-owned sources land
-#              synchronously and deterministically.
-#              (Unpinning `kernel: linux-generic` to HWE, and re-enabling
-#              ssh.install-server, should now be safe; but those are
-#              separate decisions — leaving the existing workarounds in
-#              place.)
+#              added later 404s. A separate file under sources.list.d/
+#              bypasses the no-op: apt merges ubuntu.sources (cdrom) +
+#              yuruna-ports.list (network). An earlier revision used a
+#              background early-commands watcher to overwrite
+#              ubuntu.sources; the race lost on arm64 Server and the
+#              install failed -- the watcher is gone. Curtin-owned
+#              sources land synchronously and deterministically.
 if ($CachingProxyUrl) {
     # `$PRIMARY / `$SECURITY / `$RELEASE are curtin template tokens —
     # the backtick escapes the `$` so the here-string doesn't expand them.
@@ -385,23 +368,20 @@ if ($CachingProxyUrl) {
     $AptProxyBlock = ""
 }
 
-# Fetch the squid-cache CA so it can be base64-embedded in the autoinstall
-# seed. The guest itself cannot reach the cache VM directly (VZ isolates
-# guests), but this script runs on the HOST which CAN reach the VM on the
-# VZ bridge. Start-CachingProxy.ps1 persists the cache VM IP at
-# $HOME/virtual/squid-cache/cache-ip.txt; if present and Apache is serving
-# the CA, we pull the bytes here and hand them to user-data. Any failure
-# (missing file, HTTP error, unreadable cert) leaves $CaCertBase64 empty
-# so the guest's HTTPS proxy block stays a no-op and HTTP-only caching
-# still works.
+# Fetch the squid-cache CA for base64 embedding in the autoinstall
+# seed. Guests cannot reach the cache VM directly (VZ isolates guests),
+# but this script runs on the HOST, which can. Start-CachingProxy.ps1
+# persists the cache VM IP at $HOME/virtual/squid-cache/cache-ip.txt;
+# if Apache serves the CA, we pull the bytes and hand them to user-data.
+# Any failure leaves $CaCertBase64 empty; the guest's HTTPS proxy
+# block becomes a no-op and HTTP-only caching still works.
 $CaCertBase64 = ""
 $cacheVmIp = $null
 if ($Env:YURUNA_CACHING_PROXY_IP -and $Env:YURUNA_CACHING_PROXY_IP -match '^\d+\.\d+\.\d+\.\d+$') {
-    # External cache: $CachingProxyUrl already points at the remote IP (no VZ-
-    # gateway rewrite), and the remote image is identical to the local one
-    # — same Apache on :80 serving /yuruna-squid-ca.crt. cache-ip.txt is
-    # not written for external caches, so read the IP straight from the
-    # environment variable.
+    # External cache: $CachingProxyUrl already points at the remote IP
+    # (no VZ-gateway rewrite), remote image is identical (same Apache :80
+    # serving /yuruna-squid-ca.crt). cache-ip.txt isn't written for
+    # external caches, so read from the env var.
     $cacheVmIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
 } elseif ($CachingProxyUrl) {
     $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
@@ -439,14 +419,13 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Generate UTM config.plist from template (Apple Virtualization backend)
+# === config.plist (Apple Virtualization backend) ===
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
     exit 1
 }
 
-# Generate UUIDs, MAC address, and machine identifier for this VM
 $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $IsoId = [guid]::NewGuid().ToString().ToUpper()
@@ -457,8 +436,8 @@ $rng.NextBytes($MacBytes)
 $MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
 $MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
 
-# Generate machineIdentifier (16 random bytes, base64-encoded) for GenericPlatform
-# Required by Apple Virtualization.framework for nested virtualization support
+# GenericPlatform.machineIdentifier: 16 random bytes, base64 (required
+# by Apple Virtualization.framework for nested virtualization).
 $MachineIdBytes = [byte[]]::new(16)
 $rng.NextBytes($MachineIdBytes)
 $MachineIdentifier = [Convert]::ToBase64String($MachineIdBytes)

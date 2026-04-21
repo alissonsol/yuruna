@@ -44,7 +44,6 @@ function Confirm-GlobalVariableList {
         $filePath
     )
 
-    # Validate globalVariables
     if (-Not ($null -eq  $yaml.globalVariables)) {
         foreach ($key in $yaml.globalVariables.Keys) {
             $value = $yaml.globalVariables[$key]
@@ -69,7 +68,6 @@ function Confirm-ResourceList {
 
     if (!(Confirm-GlobalVariableList $yaml $resourcesFile)) { return $false; }
 
-    # Validate resources list
     if ($null -eq $yaml.resources) { Write-Information "Resources cannot be null or empty in file: $resourcesFile"; return $false; }
     foreach ($resource in $yaml.resources) {
         $resourceName = $resource['name']
@@ -87,7 +85,6 @@ function Confirm-ResourceList {
                 return $false;
             }
         }
-        # Variables
         if (-Not ($null -eq  $resource.variables)) {
             foreach ($key in $resource.variables.Keys) {
                 $value = $resource.variables[$key]
@@ -96,8 +93,7 @@ function Confirm-ResourceList {
         }
     }
 
-    # Secrets, if defined, shouldn't be empty.
-    # For resources, that is informed but resource creation proceeds.
+    # Non-empty secrets are informational for resources — creation proceeds.
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
     if (Test-Path -Path $secrets_folder) {
         $files = Get-ChildItem -Path $secrets_folder -Filter *.txt
@@ -119,11 +115,10 @@ function Confirm-ResourceOutputList {
     )
 
     $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
-    # If is valid for the resources output not to exist yet
+    # Valid for the resources output not to exist yet
     if (-Not (Test-Path -Path $resourcesOutputFile)) { Write-Verbose "Resources output file not found: $resourcesOutputFile"; return $true; }
     $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
 
-    # Validate resources output list
     if ($null -eq $resourcesOutputYaml) { Write-Information "resources output cannot be null or empty in file: $resourcesOutputFile"; return $false; }
     if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
         foreach ($resource in $resourcesOutputYaml.Keys) {
@@ -164,7 +159,6 @@ function Confirm-ComponentList {
 
     if (!(Confirm-GlobalVariableList $yaml $componentsFile)) { return $false; }
 
-    # Validate components list
     if ($null -eq $yaml.components) { Write-Information "Components null or empty in file: $componentsFile"; }
     foreach ($component in $yaml.components) {
         $project = $component['project']
@@ -204,10 +198,8 @@ function Confirm-WorkloadList {
 
     if (!(Confirm-GlobalVariableList $yaml $workloadsFile)) { return $false; }
 
-    # Validate workloads list
     if ($null -eq $yaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; }
     foreach ($workload in $yaml.workloads) {
-        # context should exist
         $contextName = $ExecutionContext.InvokeCommand.ExpandString($workload['context'])
         if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return $false; }
         $originalContext = kubectl config current-context
@@ -215,9 +207,8 @@ function Confirm-WorkloadList {
         $currentContext = kubectl config current-context
         kubectl config use-context $originalContext *>&1 | Write-Verbose
         if ($currentContext -ne $contextName) { Write-Debug "K8S context not found: $contextName`nFile: $workloadsFile"; }
-        # deployments shouldn't be null or empty
         foreach ($deployment in $workload.deployments) {
-            # valid deployments are chart, kubectl, helm and shell
+            # valid deployments: chart, kubectl, helm, shell
             $isChart = !([string]::IsNullOrEmpty($deployment['chart']))
             $isKubectl = !([string]::IsNullOrEmpty($deployment['kubectl']))
             $isHelm = !([string]::IsNullOrEmpty($deployment['helm']))
@@ -235,13 +226,11 @@ function Confirm-WorkloadList {
                 $installName = $deployment.variables['installName']
                 if ([string]::IsNullOrEmpty($installName)) { Write-Information "workload[$contextName]chart[$chartName]variables['installName'] cannot be null or empty in file: $workloadsFile"; return $false; }
             }
-            # if ($isKubectl -or $isHelm -or $isShell)
-            # only possibility: verify it is not null or empty, what has already been done!
+            # For kubectl/helm/shell the null/empty check above is sufficient.
         }
     }
 
-    # Secrets, if defined, shouldn't be empty.
-    # For workloads, that blocks execution.
+    # Non-empty secrets are required — missing content blocks workload execution.
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
     if (Test-Path -Path $secrets_folder) {
         Write-Debug "---- Validating Secrets folder: $secrets_folder"
@@ -253,7 +242,7 @@ function Confirm-WorkloadList {
             git update-index --assume-unchanged $file
         }
     }
-    # Try also peer folder: that is possible for workloads
+    # Also check peer folder (workloads may reference a shared secrets dir)
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/../secrets"
     if (Test-Path -Path $secrets_folder) {
         Write-Debug "---- Validating Secrets folder: $secrets_folder"

@@ -24,13 +24,8 @@ function ConvertFrom-Content {
     if (-Not (Get-Module -ListAvailable -Name powershell-yaml)) { Write-Information "Need to install powershell-yaml using:`nInstall-Module -Name powershell-yaml" -InformationAction Stop; Exit -1 }
 
     $lines = ''
-    # Convert a string array to a string
     foreach ($line in $Content) { $lines = $lines + "`n" + $line }
-    # Deserialize a string to the PowerShell object
-    $yaml = ConvertFrom-YAML -Ordered $lines
-
-    # Return the object
-    return $yaml
+    return ConvertFrom-YAML -Ordered $lines
 }
 
 function ConvertFrom-File {
@@ -38,12 +33,8 @@ function ConvertFrom-File {
         $FileName
     )
 
-    # Load file content to a string array containing all YML file lines
     [string[]]$fileContent = Get-Content $FileName
-    $yaml = ConvertFrom-Content $fileContent
-
-    # Return the object
-    return $yaml
+    return ConvertFrom-Content $fileContent
 }
 
 function Find-KeyValue {

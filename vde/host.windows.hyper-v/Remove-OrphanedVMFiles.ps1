@@ -69,32 +69,31 @@ Write-Output "Hyper-V VirtualHardDiskPath: $vhdPath"
 Write-Output "Hyper-V VirtualMachinePath:  $vmPath"
 Write-Output ""
 
-# Hyper-V's VirtualMachinePath root contains service-owned metadata that
-# vmms keeps open for the lifetime of the service: data.vmcx at the root,
-# Resource Types\<GUID>.vmcx (one per registered resource provider), plus
-# a set of empty placeholder subdirs for planned/snapshot/undo state.
-# Earlier, this script walked the whole tree, found those files "unclaimed"
-# on a machine with no registered VMs, and tried to delete them -- vmms
-# refused every delete with "file in use", producing ~26 warnings per
-# cycle on a fresh Windows install. Never surface those paths as
-# candidates, and never touch them during the empty-folder sweep below.
-# The canonical VM-data subtree under VirtualMachinePath is "Virtual
-# Machines\" -- that stays in scope along with all of VirtualHardDiskPath.
+# Hyper-V's VirtualMachinePath root contains service-owned metadata vmms
+# keeps open for its lifetime: data.vmcx at the root, Resource Types\<GUID>.vmcx
+# per registered provider, plus empty placeholder subdirs for
+# planned/snapshot/undo state. An earlier version walked the whole tree,
+# flagged those files as "unclaimed" on a no-VMs host, and tried to delete
+# them — vmms refused every delete with "file in use", producing ~26
+# warnings per cycle on a fresh install. Never surface those paths as
+# candidates, and don't touch them during the empty-folder sweep. The
+# canonical VM-data subtree is "Virtual Machines\"; that stays in scope
+# along with all of VirtualHardDiskPath.
 $vmPathNormalized = $vmPath.TrimEnd('\', '/')
 $hyperVVmDataPath = (Join-Path $vmPathNormalized 'Virtual Machines').TrimEnd('\', '/')
 function Test-IsHyperVSystemPath {
     param([string]$Path)
     $p = $Path.TrimEnd('\', '/')
-    # Only paths under VirtualMachinePath are candidates for "system".
-    # Anything under VirtualHardDiskPath is user VHDX/ISO data.
+    # Only VirtualMachinePath entries are "system" candidates;
+    # VirtualHardDiskPath content is user VHDX/ISO.
     if (-not $p.StartsWith($vmPathNormalized, [System.StringComparison]::OrdinalIgnoreCase)) {
         return $false
     }
-    # Under VirtualMachinePath, only the "Virtual Machines\" subtree
-    # contains user VM data. Everything else (data.vmcx at the root,
-    # Resource Types\*, the *Cache / Planned / Snapshots / UndoLog /
-    # Persistent Tasks / Groups placeholders) is vmms-owned state.
-    if ($p -eq $vmPathNormalized) { return $false }  # the dir itself isn't deletable anyway
+    # Under VirtualMachinePath, only "Virtual Machines\" contains user VM
+    # data. Everything else (data.vmcx at root, Resource Types\*, the
+    # *Cache / Planned / Snapshots / UndoLog / Persistent Tasks / Groups
+    # placeholders) is vmms-owned state.
+    if ($p -eq $vmPathNormalized) { return $false }  # dir itself isn't deletable anyway
     if ($p.StartsWith($hyperVVmDataPath, [System.StringComparison]::OrdinalIgnoreCase) -and
         ($p.Length -eq $hyperVVmDataPath.Length -or $p[$hyperVVmDataPath.Length] -eq '\')) {
         return $false
@@ -110,7 +109,6 @@ foreach ($p in $scanPaths) {
     }
 }
 
-# Enumerate all files under the scan paths
 $allFiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 foreach ($scanPath in $scanPaths) {
     $files = Get-ChildItem -Path $scanPath -Recurse -File -ErrorAction SilentlyContinue
@@ -225,7 +223,7 @@ $protectedFiles = [System.Collections.Generic.List[string]]::new()
 foreach ($f in $allFiles) {
     if ($claimedFiles.Contains($f)) { continue }
 
-    # Check if this file matches a base image name (e.g., host.windows.hyper-v.guest.amazon.linux.vhdx)
+    # Match against base-image names (e.g. host.windows.hyper-v.guest.amazon.linux.vhdx).
     $fileName = [System.IO.Path]::GetFileNameWithoutExtension($f)
     $isBaseImage = $false
     foreach ($baseImageName in $baseImageNames) {
@@ -306,13 +304,12 @@ foreach ($filePath in $orphanedFiles) {
     }
 }
 
-# Remove empty subfolders (deepest first so parents become empty after children are removed).
+# Remove empty subfolders, deepest first so parents empty as children go.
 # Hyper-V's system subdirs under VirtualMachinePath (Planned Virtual Machines,
-# Snapshots Cache, Resource Types, ...) are normally empty on a no-VMs host
-# but are part of vmms's expected directory layout -- removing them showed
-# up in earlier logs as "Removed empty folder: ..." for 15+ Hyper-V system
-# dirs per cycle. Skip anything Test-IsHyperVSystemPath flags so we don't
-# mess with Hyper-V's internal layout.
+# Snapshots Cache, Resource Types, ...) are normally empty on a no-VMs
+# host but are part of vmms's expected layout — earlier logs showed
+# "Removed empty folder: ..." for 15+ system dirs per cycle. Skip
+# anything Test-IsHyperVSystemPath flags.
 foreach ($scanPath in $scanPaths) {
     $dirs = Get-ChildItem -Path $scanPath -Recurse -Directory -ErrorAction SilentlyContinue |
         Sort-Object { $_.FullName.Length } -Descending

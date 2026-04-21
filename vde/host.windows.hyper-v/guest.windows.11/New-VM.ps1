@@ -39,10 +39,9 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Check Hyper-V. Assert-HyperVEnabled (VM.common.psm1) calls dism.exe
-# directly instead of Get-WindowsOptionalFeature, which avoids the
-# "Class not registered" COM failure that breaks the first post-install
-# run on a fresh Windows 11 machine.
+# Assert-HyperVEnabled calls dism.exe directly instead of
+# Get-WindowsOptionalFeature — avoids the "Class not registered" COM
+# failure on first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) {
     Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"
     exit 1
@@ -63,12 +62,11 @@ if (!(Test-Path -Path $baseImageFile)) {
 }
 
 Write-Output "Creating VM '$VMName' using image: $baseImageFile"
-# Provenance side-channel for operators reading the transcript. Emits
-# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
+# Provenance side-channel for the transcript. Emits "Provenance: <url>"
+# when the sidecar is healthy; warns otherwise.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# Check if VM exists and force delete it
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
@@ -79,7 +77,7 @@ if ($existingVM) {
 
 # === Create copies and files for VM ===
 
-# Create blank VHDX for installation (512GB, dynamically expanding)
+# 512GB dynamically expanding VHDX
 $vmDir = Join-Path $downloadDir $VMName
 if (!(Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
@@ -91,7 +89,7 @@ if (Test-Path -Path $vhdxFile) {
 Write-Output "Creating 512GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 512GB -Dynamic | Out-Null
 
-# Generate autounattend seed ISO
+# Autounattend seed ISO
 $SeedDir = Join-Path $env:TEMP "seed_$VMName"
 if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -103,7 +101,6 @@ if (-not (Test-Path $AnswerFileTemplate)) {
     exit 1
 }
 
-# Replace placeholders in autounattend.xml
 $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
     -replace 'COMPUTERNAME_PLACEHOLDER', $VMName
 Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline

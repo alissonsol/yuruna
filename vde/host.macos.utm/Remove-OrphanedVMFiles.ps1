@@ -43,7 +43,6 @@ foreach ($guest in $guestFolders) {
     $baseImageNames += "$hostFolder.$($guest.Name)"
 }
 
-# === Check prerequisites ===
 if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
     Write-Error "utmctl not found. Ensure UTM is installed and utmctl is in your PATH."
     Write-Error "UTM.app ships utmctl at: /Applications/UTM.app/Contents/MacOS/utmctl"
@@ -58,14 +57,13 @@ if (-not (Test-Path $scanPath)) {
     exit 0
 }
 
-# Get all UTM-registered VMs via utmctl
 $utmOutput = & utmctl list 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to query UTM VMs. Is UTM running? Output: $utmOutput"
     exit 1
 }
 
-# Parse utmctl list output (format: "UUID  Name  Status")
+# Parse utmctl list (format: "UUID  Name  Status")
 $registeredVMs = @{}
 $registeredUUIDs = @{}
 foreach ($line in $utmOutput) {
@@ -81,9 +79,8 @@ foreach ($line in $utmOutput) {
     }
 }
 
-# Helper: read the VM UUID from a .utm bundle's config.plist.
-# utmctl list may only return running VMs; UUID-based checks via utmctl status
-# work for stopped VMs as well.
+# Read VM UUID from a bundle's config.plist. utmctl list may only return
+# running VMs; UUID-based `utmctl status` works for stopped VMs too.
 function Get-UTMBundleUUID {
     param([string]$BundlePath)
     $configPlist = Join-Path $BundlePath "config.plist"
@@ -104,7 +101,6 @@ function Get-UTMBundleUUID {
 Write-Output "UTM registered VMs: $($registeredVMs.Count)"
 Write-Output ""
 
-# Find all .utm bundles in the scan path
 $utmBundles = Get-ChildItem -Path $scanPath -Directory -Filter "*.utm" -ErrorAction SilentlyContinue
 $bundleMap = @{}
 foreach ($bundle in $utmBundles) {
@@ -144,8 +140,8 @@ foreach ($vmName in $bundleMap.Keys) {
 
     $bundlePath = $bundleMap[$vmName]
 
-    # Check by UUID to catch stopped VMs that utmctl list may not return by name.
-    # utmctl status <uuid> succeeds (exit 0) for any registered VM regardless of state.
+    # UUID check catches stopped VMs utmctl list may omit by name;
+    # `utmctl status <uuid>` exits 0 for any registered VM.
     $bundleUUID = Get-UTMBundleUUID -BundlePath $bundlePath
     if ($bundleUUID) {
         if ($registeredUUIDs.ContainsKey($bundleUUID)) { continue }
@@ -157,7 +153,6 @@ foreach ($vmName in $bundleMap.Keys) {
         Measure-Object -Property Length -Sum).Sum
     $itemSize = $bundleSize ?? 0
 
-    # Check if this bundle name matches a base image name
     $isBaseImage = $false
     foreach ($baseImageName in $baseImageNames) {
         if ($vmName -eq $baseImageName) {
@@ -209,7 +204,6 @@ Write-Output ""
 Write-Output ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
 Write-Output ""
 
-# Ask for confirmation (skip if -Force)
 if ($Force) {
     Write-Output "Force mode enabled — skipping confirmation."
 } else {
@@ -223,7 +217,7 @@ if ($Force) {
 $errors = 0
 foreach ($item in $orphanedItems) {
     try {
-        # Attempt to deregister from UTM first (by UUID if available, then by name)
+        # Deregister from UTM first (by UUID if available, else by name).
         $bundleUUID = Get-UTMBundleUUID -BundlePath $item.Path
         $deregistered = $false
         if ($bundleUUID) {
@@ -234,7 +228,7 @@ foreach ($item in $orphanedItems) {
             & utmctl delete $item.Name 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) { $deregistered = $true }
         }
-        # Verify the VM is no longer registered before removing files
+        # Verify no longer registered before removing files.
         $stillRegistered = $false
         if ($bundleUUID) {
             $null = & utmctl status $bundleUUID 2>&1

@@ -45,9 +45,9 @@ $TestRoot   = $PSScriptRoot
 $StatusDir  = Join-Path $TestRoot "status"
 $ModulesDir = Join-Path $TestRoot "modules"
 
-# Resolve $env:YURUNA_TRACK_DIR (runtime state) and $env:YURUNA_LOG_DIR
-# (transcripts / debug artifacts). Both default to subdirs of status/ so
-# the status HTTP server can serve them directly at /track/* and /log/*.
+# $env:YURUNA_TRACK_DIR (runtime state) + $env:YURUNA_LOG_DIR (transcripts/
+# debug artifacts). Default to status/ subdirs so the HTTP server serves
+# them at /track/* and /log/*.
 Import-Module (Join-Path $ModulesDir "Test.TrackDir.psm1") -Force
 Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1")   -Force
 $null = Initialize-YurunaTrackDir
@@ -89,9 +89,9 @@ if (Test-Path $PidFile) {
     $serverAlive = $false
     if ($oldPid) {
         $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-        # Verify the PID belongs to a pwsh process (not a recycled PID from something else)
+        # Verify PID is a pwsh process (not a recycled PID)
         if ($proc -and $proc.ProcessName -match 'pwsh|PowerShell') {
-            # Confirm the port is actually responding
+            # Confirm port responds
             try {
                 $null = Invoke-WebRequest -Uri "http://localhost:$Port/status.json" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
                 $serverAlive = $true
@@ -110,30 +110,27 @@ if (Test-Path $PidFile) {
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
-# --- Resolve port conflicts from un-tracked orphan detached servers ---
-# The pid-file checks above only know about the server we last launched. If
-# an older Start-StatusServer.ps1 survived a terminal close, or a failed
-# launch overwrote $PidFile with a stillborn PID, a prior detached pwsh can
-# still hold the HttpListener on :$Port. New launches then die with:
-#   Failed to listen on prefix 'http://*:$Port/' because it conflicts with
-#   an existing registration on the machine.
+# --- Resolve port conflicts from untracked orphan detached servers ---
+# The pid-file checks above know only about the server we last launched.
+# A prior detached pwsh can still hold the HttpListener on :$Port if an
+# older Start-StatusServer.ps1 survived a terminal close, or a failed
+# launch overwrote $PidFile with a stillborn PID. New launches then die:
+#   Failed to listen on prefix 'http://*:$Port/' because it conflicts
+#   with an existing registration on the machine.
 # The detached child logs that to $TrackDir/server.err and exits, so the
-# outer script appears to start cleanly — but nothing is serving, and any
-# existing orphan (often a pre-refactor build) keeps writing control files
-# to the wrong place (e.g. $StatusDir vs. $TrackDir), which breaks the UI's
-# Pause/Cycle buttons silently.
+# outer script appears to start cleanly — nothing is serving, and any
+# pre-refactor orphan keeps writing control files to the wrong place
+# ($StatusDir vs. $TrackDir), silently breaking Pause/Cycle buttons.
 #
-# Probe the port with a throwaway HttpListener. If the probe succeeds, we
-# know the detached launch below will succeed too. If it fails, resolve the
-# real owner via OS-appropriate tools and stop it — but ONLY if it's a pwsh
-# process we can plausibly claim as our own orphan. Unknown owners (e.g. a
-# dev server, another tool) get a clear error and we bail; we don't want to
-# kill an unrelated listener.
+# Probe with a throwaway HttpListener. If it succeeds, the detached
+# launch will too. If not, resolve the real owner via OS tools and stop
+# it — but ONLY if it's a pwsh process plausibly ours. Unknown owners
+# (dev server, another tool) get a clear error and we bail.
 function Get-PortListenerPid {
     param([int]$Port)
 
     if ($PSVersionTable.Platform -eq 'Unix') {
-        # lsof is standard on macOS and most Linux distros.
+        # lsof is standard on macOS and most Linux.
         if (-not (Get-Command lsof -ErrorAction SilentlyContinue)) { return @() }
         $out = & lsof -nP -iTCP:$Port -sTCP:LISTEN -Fp 2>$null
         if (-not $out) { return @() }
@@ -141,14 +138,14 @@ function Get-PortListenerPid {
     }
 
     # Windows: HTTP.sys hides the real owner from Get-NetTCPConnection
-    # (OwningProcess reports 4, the System kernel account), so netsh is the
-    # only reliable source for url-group-to-PID mapping. Output is grouped
-    # per "Request queue name:" block; within a block, `Processes: ID: <pid>`
-    # lines list the attached user-mode PIDs and `Registered URLs:` lists
-    # the URL prefixes. We flush a block's PIDs into the result set whenever
-    # its URL list contains :$Port. `:${Port}(?:[:/]|\b)` matches both the
-    # common "HTTP://*:8080/" form and the less common
-    # "HTTP://127.0.0.1:8080:127.0.0.1/" host-binding form.
+    # (OwningProcess reports 4, the System kernel account), so netsh is
+    # the only reliable source for url-group → PID mapping. Output is
+    # grouped per "Request queue name:" block; within a block,
+    # `Processes: ID: <pid>` lists user-mode PIDs and `Registered URLs:`
+    # lists URL prefixes. Flush a block's PIDs to the result set when
+    # its URL list contains :$Port. The regex matches both
+    # "HTTP://*:8080/" and the rarer "HTTP://127.0.0.1:8080:127.0.0.1/"
+    # host-binding form.
     $raw = @(netsh http show servicestate 2>$null)
     if (-not $raw) { return @() }
 
@@ -172,13 +169,13 @@ function Get-PortListenerPid {
 function Resolve-PortOrphan {
     param([int]$Port, [string]$PidFile)
 
-    # Probe once. The cheapest test that guarantees the detached launch will
-    # succeed is attempting the same HttpListener it will use.
+    # Cheapest test that the detached launch will succeed: attempt the
+    # same HttpListener it will use.
     $probe = [System.Net.HttpListener]::new()
     $probe.Prefixes.Add("http://*:$Port/")
     try {
         $probe.Start(); $probe.Stop(); $probe.Close()
-        return   # port is free, nothing more to do
+        return   # port is free
     } catch {
         try { $probe.Close() } catch { Write-Debug $_ }
     }
@@ -194,7 +191,7 @@ function Resolve-PortOrphan {
 
     foreach ($holderPid in $holderPids) {
         $proc = Get-Process -Id $holderPid -ErrorAction SilentlyContinue
-        if (-not $proc) { continue }   # exited between the OS query and now
+        if (-not $proc) { continue }   # exited since the OS query
         if ($proc.ProcessName -notmatch '^(pwsh|PowerShell|powershell)$') {
             Write-Warning "Port $Port is held by PID $holderPid ($($proc.ProcessName)) — not a pwsh process."
             Write-Warning "Refusing to kill an unrelated listener. Stop it manually (Stop-Process -Id $holderPid) and rerun."
@@ -204,8 +201,8 @@ function Resolve-PortOrphan {
         Stop-Process -Id $holderPid -Force -ErrorAction SilentlyContinue
     }
 
-    # HTTP.sys releases the URL reservation asynchronously after the owning
-    # process exits — poll briefly until the probe succeeds.
+    # HTTP.sys releases the URL reservation async after the owner exits;
+    # poll briefly until the probe succeeds.
     for ($i = 0; $i -lt 10; $i++) {
         Start-Sleep -Milliseconds 300
         $probe = [System.Net.HttpListener]::new()
@@ -263,14 +260,13 @@ if (Test-Path $StatusFile) {
 }
 
 # --- Clean up leftovers from older layouts ---
-# server.heartbeat: the server no longer reads this file; just tidy it up
-# so inspectors don't think it's load-bearing.
+# server.heartbeat: server no longer reads this; tidy up so inspectors
+# don't think it's load-bearing.
 # Legacy paths directly under test/status/: pre-track-dir layout wrote
 # server.pid, runner.pid, status.json, server.err, current-action.json,
-# control.*-pause, .status-server.ps1 there. An upgrade from that layout
-# leaves those as untracked files (no longer .gitignored) which would
-# clutter `git status`. Drop them on every start so the next operator run
-# lands on a clean status dir.
+# control.*-pause, .status-server.ps1 there. An upgrade leaves those as
+# untracked (no longer .gitignored), cluttering `git status`. Drop them
+# on every start so operator runs land on a clean status dir.
 Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $TrackDir  'server.heartbeat') -Force -ErrorAction SilentlyContinue
 foreach ($legacyName in @('server.pid','runner.pid','status.json','server.err','current-action.json',
@@ -278,22 +274,19 @@ foreach ($legacyName in @('server.pid','runner.pid','status.json','server.err','
     Remove-Item (Join-Path $StatusDir $legacyName) -Force -ErrorAction SilentlyContinue
 }
 
-# --- Enumerate host IP addresses and write them to $env:YURUNA_TRACK_DIR/ipaddresses.txt ---
-# The UI footer reads this file to show where the server is reachable from
-# other machines. Loopback (127.0.0.1, ::1) is excluded because it's
-# trivially useless for remote clients — if you're reading the page from
-# somewhere you already know the address you used to reach it.
+# --- Enumerate host IPs → $env:YURUNA_TRACK_DIR/ipaddresses.txt ---
+# UI footer reads this to show reachable addresses. Loopback
+# (127.0.0.1, ::1) excluded — useless for remote clients.
 #
 # File format:
-#   * No addresses detected  → single line "No IP addresses detected"
-#   * Addresses detected     → up to two lines:
-#       line 1: IPv4 addresses, comma-separated (omitted if none)
-#       line 2: IPv6 addresses, comma-separated (omitted if none)
+#   * No addresses  → single line "No IP addresses detected"
+#   * Addresses     → up to two lines:
+#       line 1: IPv4, comma-separated (omitted if none)
+#       line 2: IPv6, comma-separated (omitted if none)
 #
-# Splitting IPv4 / IPv6 onto their own lines lets the UI render them as
-# two short rows instead of one long run, and the file is overwritten on
-# every Start-StatusServer invocation so stale entries from a previous
-# host/network are not preserved.
+# Split IPv4/IPv6 so the UI renders two short rows instead of one long
+# run. File is overwritten on every Start-StatusServer invocation so
+# stale entries from a previous host/network are not preserved.
 $IpAddressesFile = Join-Path $TrackDir "ipaddresses.txt"
 try {
     $collectedAddresses = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
@@ -318,9 +311,8 @@ try {
         $lines = @()
         if ($ipv4.Count -gt 0) { $lines += ($ipv4 -join ',') }
         if ($ipv6.Count -gt 0) { $lines += ($ipv6 -join ',') }
-        # LF, not CRLF — browsers treat the whole thing as text and the UI
-        # splits on \n; keeping a single line terminator style avoids
-        # \r leaking into the rendered strings.
+        # LF not CRLF — UI splits on \n; single line terminator avoids
+        # \r leaking into rendered strings.
         $fileContent = ($lines -join "`n")
         $reportCount = $ipv4.Count + $ipv6.Count
     }
@@ -329,21 +321,20 @@ try {
     Write-Output "IP addresses ($reportCount): written to $IpAddressesFile"
 } catch {
     Write-Warning "Failed to enumerate/write IP addresses: $_"
-    # Best-effort: leave a previous file intact if there was one.
+    # Best-effort: leave a previous file intact.
 }
 
 
-# --- Report SSH-server availability (no install attempted here) ---
-# Start-StatusServer used to auto-install OpenSSH, which made the first
+# --- Report SSH-server availability (no install here) ---
+# Start-StatusServer used to auto-install OpenSSH, making the first
 # invocation on a fresh host feel hung for several minutes inside
-# Add-WindowsCapability. That install is now externalized to
-# test/Start-SshServer.ps1, which the admin runs once explicitly. Here we
-# just probe the state and log it — same pattern as Invoke-TestRunner's
-# "Caching proxy: detected/not detected" line — so the user knows on startup
-# whether SSH is ready without waiting for the detached HTTP server.
+# Add-WindowsCapability. Install is now in test/Start-SshServer.ps1 —
+# the admin runs it once explicitly. Here we just probe + log — same
+# pattern as "Caching proxy: detected/not detected" — so the user
+# knows on startup whether SSH is ready.
 #
-# $detectedHost is also threaded into the detached server's here-string so
-# the control/ssh/* endpoints know which dispatcher arm to call.
+# $detectedHost is threaded into the detached server's here-string so
+# /control/ssh/* endpoints know which dispatcher arm to call.
 $detectedHost = ''
 try {
     $hostModPath = Join-Path $ModulesDir "Test.Host.psm1"
@@ -370,14 +361,13 @@ try {
     Write-Warning "SSH-server check failed (continuing with HTTP status server): $_"
 }
 
-# --- Probe for proxy cache and record state to $env:YURUNA_TRACK_DIR/caching-proxy.txt ---
-# The UI banner appends this string to the status text so a viewer can see
-# at a glance whether the harness is behind a local squid. The file holds
-# ready-to-embed HTML (including an <a href> to the cachemgr URL) so the
-# UI can inject it without knowing the URL format. Written once at
-# Start-StatusServer time — restart the server to refresh after bringing
-# the squid cache up or down. Needs $detectedHost, so runs AFTER the SSH
-# block that performs host detection.
+# --- Probe proxy cache → $env:YURUNA_TRACK_DIR/caching-proxy.txt ---
+# UI banner appends this string to the status text so viewers see at a
+# glance whether the harness is behind a local squid. File holds
+# ready-to-embed HTML (including <a href> to cachemgr URL) so the UI
+# injects it without knowing the URL format. Written once at
+# Start-StatusServer — restart to refresh after bringing squid up/down.
+# Needs $detectedHost, so runs AFTER the SSH block's host detection.
 $CachingProxyFile = Join-Path $TrackDir "caching-proxy.txt"
 try {
     $cachingProxyModPath = Join-Path $ModulesDir "Test.CachingProxy.psm1"
@@ -385,19 +375,18 @@ try {
         Import-Module -Name $cachingProxyModPath -Force
         $cachingProxyUrl = Test-CachingProxyAvailable -HostType $detectedHost
         if ($cachingProxyUrl) {
-            # Attempt port mapping so the status-page banner reports the
-            # same success/failure state Invoke-TestRunner prints. Add-
-            # CachingProxyPortMap dispatches per-platform via Test.PortMap
-            # — netsh portproxy on Hyper-V, detached TcpListener
-            # forwarders on macOS/UTM. Both channels end up reading the
-            # same caching-proxy.txt so the status-page banner is in lock-
-            # step with the console.
+            # Port mapping so the status-page banner reports the same
+            # state as Invoke-TestRunner's console output.
+            # Add-CachingProxyPortMap dispatches per-platform via
+            # Test.PortMap (netsh portproxy on Hyper-V, detached
+            # TcpListener forwarders on macOS/UTM). Both channels read
+            # the same caching-proxy.txt so banner and console stay
+            # in lock-step.
             #
-            # Port list @(80, 3128, 3129, 3000) on both platforms MUST
-            # match Invoke-TestRunner.ps1 and Start-CachingProxy.ps1 — Add-
-            # CachingProxyPortMap runs Clear-AllCachingProxyPortMapping first,
-            # so a narrower list here would tear down ports the other
-            # callers just set up.
+            # Ports @(80, 3128, 3129, 3000) MUST match Invoke-TestRunner
+            # and Start-CachingProxy — Add-CachingProxyPortMap runs
+            # Clear-AllCachingProxyPortMapping first, so a narrower list
+            # here would tear down ports the other callers set up.
             #
             # External-cache branch: when $Env:YURUNA_CACHING_PROXY_IP
             # is set, Test-CachingProxyAvailable returns the remote URL and
@@ -413,23 +402,23 @@ try {
                 Import-Module -Name $portMapModPath -Force
                 if ($isExternal) {
                     # Remote serves its own ports; surface the remote IP
-                    # directly in the dashboard link. Clear any stale
-                    # local mapping from a prior local-cache cycle.
+                    # in the dashboard link. Clear any stale local
+                    # mapping from a prior local-cache cycle.
                     [void](Remove-CachingProxyPortMap)
                     $bestIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
                     $mapOk = [bool]$bestIp
                 } else {
-                    # Local-cache port-map target IP: on Windows, Test-
-                    # ProxyCacheAvailable returns the VM's direct IP
-                    # (Hyper-V Default Switch is reachable from the host),
-                    # so parsing it out works. On macOS the URL is
+                    # Local-cache port-map target IP: on Windows
+                    # Test-CachingProxyAvailable returns the VM's direct
+                    # IP (Hyper-V Default Switch is reachable from the
+                    # host), so parsing works. On macOS the URL is
                     # http://192.168.64.1:3128 — the VZ-gateway URL
-                    # guests use, NOT the cache VM — and feeding
-                    # 192.168.64.1 to Start-CachingProxyForwarder would make the
+                    # guests use, NOT the cache VM. Feeding 192.168.64.1
+                    # to Start-CachingProxyForwarder would make the
                     # forwarder tunnel to its own listen socket (self-
                     # loop: TCP accepts succeed, nothing reaches squid,
                     # subiquity sees "Connection failed [IP: 192.168.64.1
-                    # 3128]" and falls back to an offline install). Read
+                    # 3128]" and falls back to offline install). Read
                     # the real VM IP from cache-ip.txt written by
                     # Start-CachingProxy.ps1.
                     if ($IsMacOS) {
@@ -455,10 +444,10 @@ try {
             }
             if ($mapOk) {
                 $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-2h&to=now&timezone=browser&refresh=1m"
-                # Escape & in the query string for strict HTML-attribute
-                # correctness — the injection is via .innerHTML so lenient
-                # parsers work either way, but strict ones may trip on
-                # bare `&` adjacent to entity-like sequences.
+                # Escape & for strict HTML-attribute correctness — we
+                # inject via .innerHTML so lenient parsers work either
+                # way, but strict ones trip on bare `&` next to
+                # entity-like sequences.
                 $hrefUrl = $dashboardUrl -replace '&', '&amp;'
                 $cachingProxyContent = 'Caching proxy: <a href="' + $hrefUrl + '" target="_blank">detected</a>'
                 Write-Output "Caching proxy: detected, port map OK, dashboard=$dashboardUrl — written to $CachingProxyFile"
@@ -491,11 +480,11 @@ $serverScript = @"
 `$cyclePauseFile = Join-Path `$trackDir 'control.cycle-pause'
 `$statusJsonFile = Join-Path `$trackDir 'status.json'
 `$serverLogFile  = Join-Path `$trackDir 'server.err'
-# --- SSH-toggle endpoints: need Test.SshServer in this process too ---
-# control/ssh/{status,enable,disable} is handled inline below; importing the
-# module at listener start means each request is just a function call, not
-# a child pwsh spawn. $sshHostType is captured from Get-HostType at parent
-# startup and baked into this script via the here-string.
+# --- SSH-toggle endpoints: Test.SshServer imported here too ---
+# control/ssh/{status,enable,disable} handled inline below; importing
+# at listener start means each request is a function call, not a child
+# pwsh spawn. $sshHostType captured from Get-HostType at parent startup
+# and baked into this script via the here-string.
 `$sshModPath  = Join-Path '$($ModulesDir -replace "'","''")' 'Test.SshServer.psm1'
 `$sshHostType = '$detectedHost'
 `$sshReady    = `$false
@@ -504,22 +493,21 @@ if (Test-Path `$sshModPath) {
         Import-Module -Name `$sshModPath -Force -ErrorAction Stop
         `$sshReady = `$true
     } catch {
-        # Can't use Write-ServerErr yet — it's defined below. Defer log.
+        # Can't use Write-ServerErr yet — defined below. Defer log.
         `$sshImportErr = `$_.Exception.Message
     }
 }
-# NOTE: the server used to self-exit when server.heartbeat went stale. That
-# was removed because legitimate runner states can outlast ANY threshold —
-# e.g. a prompt-for-confirmation that pauses the runner for hours, or a
-# single waitForText with timeoutSeconds:3600. The UI must stay up across
-# those cases, so the ONLY valid stop path is now Stop-StatusServer.ps1
-# (which kills the PID recorded in server.pid). A truly orphaned server
-# has to be killed manually — the trade-off is explicit and deliberate.
-# Log any per-iteration exception so we can actually see why the server died.
-# On Windows, Start-Process -WindowStyle Hidden has no stderr redirection, so
-# without this file an unhandled throw in the loop dies silently — which was
-# exactly the prior failure mode where the server vanished mid-run with no
-# trace. Keep the log bounded so it can't fill the status dir indefinitely.
+# NOTE: server used to self-exit on stale server.heartbeat. Removed
+# because legitimate runner states outlast ANY threshold — a
+# prompt-for-confirmation pausing the runner for hours, or a single
+# waitForText with timeoutSeconds:3600. UI must stay up, so the ONLY
+# stop path is Stop-StatusServer.ps1 (kills server.pid). A truly
+# orphaned server must be killed manually — deliberate trade-off.
+# Log per-iteration exceptions so we can see why the server died. On
+# Windows, Start-Process -WindowStyle Hidden has no stderr redirection,
+# so without this file an unhandled throw dies silently — the exact
+# prior failure mode where the server vanished mid-run with no trace.
+# Bounded so it can't fill the status dir indefinitely.
 function Write-ServerErr {
     param([string]`$msg)
     try {
@@ -535,13 +523,13 @@ try {
     if (`$sshImportErr) { Write-ServerErr "Test.SshServer import failed: `$sshImportErr" }
     Write-ServerErr "ssh support: hostType='`$sshHostType' moduleReady=`$sshReady"
     while (`$listener.IsListening) {
-      # Outer try/catch: any throw below MUST NOT kill the server. Previously
-      # `$listener.EndGetContext(...)` sat outside the inner try, so transient
-      # HttpListenerException (client reset, malformed request, http.sys
-      # hiccup) unwound to the outer try/finally and exited the process with
-      # no log. Wrap the whole iteration here; log + continue.
+      # Outer try/catch: any throw below MUST NOT kill the server.
+      # Previously `$listener.EndGetContext(...)` sat outside the inner
+      # try, so transient HttpListenerException (client reset, malformed
+      # request, http.sys hiccup) unwound to the outer try/finally and
+      # exited with no log. Wrap the whole iteration; log + continue.
       try {
-        # Block indefinitely for the next request. No periodic wake-up is
+        # Block indefinitely for the next request. No periodic wake-up
         # needed now that the heartbeat-stale self-exit is gone.
         `$ctx = `$listener.GetContext()
         try {
@@ -553,22 +541,20 @@ try {
             `$path = `$path -replace '^status[/\\]', ''
 
             # --- SSH-toggle back-channel ---
-            # Three endpoints, one handler: status reads current state, enable
-            # and disable mutate it. The JSON response always carries the full
-            # {supported, enabled, ok, message} quadruple so the UI can settle
-            # the button on a single reply (no follow-up status fetch needed).
-            # supported=false short-circuits any mutate attempt — the UI
-            # already disables the button in that case, so this is belt-and-
-            # braces against direct curl hits.
+            # Three endpoints, one handler: status reads state;
+            # enable/disable mutate. JSON response always carries
+            # {supported, enabled, ok, message} so the UI settles the
+            # button on a single reply. supported=false short-circuits
+            # any mutate attempt — belt-and-braces against direct curl.
             if (`$path -eq 'control/ssh/status' -or `$path -eq 'control/ssh/enable' -or `$path -eq 'control/ssh/disable') {
                 # Three axes drive the UI button:
-                #   supported — host-type has an implementation at all
-                #   installed — OpenSSH is present on this machine
-                #   enabled   — sshd service is currently Running
-                # The button is disabled unless (supported && installed), and
-                # its label flips on `enabled`. enable/disable endpoints are
-                # short-circuited when OpenSSH isn't installed, because the
-                # user must run test/Start-SshServer.ps1 to install first.
+                #   supported — host-type has an implementation
+                #   installed — OpenSSH is present
+                #   enabled   — sshd is currently Running
+                # Button is disabled unless (supported && installed),
+                # label flips on `enabled`. enable/disable short-circuit
+                # when OpenSSH isn't installed — user must run
+                # test/Start-SshServer.ps1 to install first.
                 `$supported = `$false
                 `$installed = `$false
                 `$enabled   = `$false
@@ -619,18 +605,17 @@ try {
                 continue
             }
 
-            # --- Control endpoints: Pause/Continue back-channel from the UI ---
-            # Two independent pause switches, each backed by its own flag file
-            # and mirrored into status.json so the next UI poll flips the
-            # banner immediately:
-            #   control.step-pause  — checked by Invoke-Sequence at every step
-            #                         boundary; stops the test after the
-            #                         currently running step finishes.
-            #   control.cycle-pause — checked by Invoke-TestRunner at the
-            #                         cycle boundary; stops the runner after
-            #                         the current cycle finishes cleanup.
-            # The normal parent-side Write-StatusJson keeps both flags in
-            # sync thereafter by re-reading the files on each write.
+            # --- Control endpoints: Pause/Continue back-channel from UI ---
+            # Two pause switches, each backed by a flag file, mirrored
+            # into status.json so the next UI poll flips the banner:
+            #   control.step-pause  — Invoke-Sequence checks at every
+            #                         step boundary; stops after the
+            #                         running step finishes.
+            #   control.cycle-pause — Invoke-TestRunner checks at the
+            #                         cycle boundary; stops after the
+            #                         current cycle finishes cleanup.
+            # Parent-side Write-StatusJson keeps both in sync by
+            # re-reading the files on each write.
             if (`$path -eq 'control/step-pause' -or `$path -eq 'control/step-resume' -or
                 `$path -eq 'control/cycle-pause' -or `$path -eq 'control/cycle-resume') {
                 `$isCycle = (`$path -like 'control/cycle-*')
@@ -663,16 +648,16 @@ try {
             }
 
             # Dispatch by URL prefix:
-            #   track/<name> -> `$trackDir  (pids, status.json, control flags,
-            #                              ipaddresses.txt, caching-proxy.txt,
+            #   track/<name> -> `$trackDir  (pids, status.json, control
+            #                              flags, ipaddresses.txt,
+            #                              caching-proxy.txt,
             #                              current-action.json, server.err)
-            #   log/<name>   -> `$logDir    (HTML transcripts, OCR / screenshot
-            #                              debug artifacts, failure captures)
-            #   <anything>   -> `$statusDir (index.html, status.json.template,
-            #                              other committed static assets)
-            # Each branch pins the resolved file under its mount root via a
-            # StartsWith check so a traversal like track/../../../etc/passwd
-            # can't escape into the repo or the filesystem.
+            #   log/<name>   -> `$logDir    (HTML transcripts, OCR /
+            #                              screenshot debug, failure captures)
+            #   <anything>   -> `$statusDir (index.html, template, static assets)
+            # Each branch pins the resolved file under its mount root
+            # via a StartsWith check — traversal like
+            # track/../../../etc/passwd can't escape.
             if (`$path -like 'track/*') {
                 `$rel  = `$path.Substring(6)
                 `$root = `$trackDir
@@ -704,16 +689,15 @@ try {
                     '.png'  { 'image/png' }
                     default { 'application/octet-stream' }
                 }
-                # No-cache on anything a proxy could stick a stale copy of.
+                # No-cache on anything a proxy might stash stale.
                 # .json (status.json, current-action.json, caching-proxy
-                # probe results) always mutates per cycle; .html and .txt
-                # (index.html, ipaddresses.txt, caching-proxy.txt) change on
-                # git pull or Start-StatusServer restart. Without these
-                # headers a host behind a shared squid sees an arbitrarily
-                # old UI while LAN peers without the proxy get fresh
-                # content. .css / .js / images aren't shipped today but
-                # pinning them to no-cache pre-emptively keeps the story
-                # consistent if they're ever added.
+                # results) mutates per cycle; .html/.txt (index.html,
+                # ipaddresses.txt, caching-proxy.txt) change on git pull
+                # or Start-StatusServer restart. Without these headers,
+                # a host behind a shared squid sees an old UI while LAN
+                # peers without the proxy see fresh content. .css/.js/
+                # images aren't shipped today but pinning them no-cache
+                # keeps the story consistent if they're ever added.
                 if (`$ext -in '.html','.json','.txt','.css','.js') {
                     `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
                     `$res.Headers.Add('Pragma', 'no-cache')
@@ -740,9 +724,9 @@ try {
             try { `$ctx.Response.Abort() } catch { Write-Debug `$_ }
         }
       } catch {
-        # Log any unhandled iteration-level failure (EndGetContext throws,
-        # listener kicked out by http.sys, etc.) and keep serving. Without
-        # this the server used to die silently on the first transient blip.
+        # Log unhandled iteration-level failures (EndGetContext throws,
+        # listener kicked out by http.sys) and keep serving. Without
+        # this the server died silently on the first transient blip.
         Write-ServerErr "iteration error: `$(`$_.Exception.GetType().FullName): `$(`$_.Exception.Message)"
         Start-Sleep -Milliseconds 200
       }

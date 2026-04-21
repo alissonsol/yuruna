@@ -16,28 +16,25 @@
 
 ### Why does browsing to a container work via port forward but not via the ingress in a localhost deployment?
 
-  - Before deploying workloads, make sure that ports to be used are not held by other processes. It is also common that, in the `localhost`, the Docker Desktop process itself holds on to the ports, preventing the local load balancer from binding (see an example of [issue](https://github.com/docker/for-mac/issues/4903) repeatedly reported).
-  - Solving that may require quitting and starting Docker again (surprisingly, the Restart item in the menu doesn't have the same effect).
+  - Before deploying workloads, confirm the required ports aren't held by other processes. On `localhost`, Docker Desktop itself commonly holds these ports, preventing the local load balancer from binding (see [this repeatedly-reported issue](https://github.com/docker/for-mac/issues/4903)).
+  - Fixing it usually requires quitting and restarting Docker (the Restart menu item does not have the same effect).
 
 ### Why doesn't an example work if executed twice or after another example?
 
-  - If you run an example, clear it, and port 80 is still in use, try quitting Docker and starting again.
-  - Check if the ports are exposed to the external IP address: `kubectl get svc --all-namespaces`
+  - If you run an example, clear it, and port 80 is still in use, quit Docker and start again.
+  - Check which ports are exposed: `kubectl get svc --all-namespaces`
 
 ### Why is the local registry not working on macOS?
 
-  - For macOS Monterey, confirm that port 5000 is not in use and stop any service using it. See Stack Overflow [issue](https://stackoverflow.com/questions/69818376/localhost5000-unavailable-in-macos-v12-monterey).
-    - See instructions on how to check port usage in the macOS in this [article](https://stackoverflow.com/questions/4421633/who-is-listening-on-a-given-tcp-port-on-mac-os-x).
-      - Recent versions of macOS: `lsof -nP -iTCP -sTCP:LISTEN | grep 80`
+  - On macOS Monterey, confirm port 5000 is not in use and stop any service using it. See Stack Overflow [issue](https://stackoverflow.com/questions/69818376/localhost5000-unavailable-in-macos-v12-monterey).
+    - To check port usage on macOS, see this [article](https://stackoverflow.com/questions/4421633/who-is-listening-on-a-given-tcp-port-on-mac-os-x). Recent macOS: `lsof -nP -iTCP -sTCP:LISTEN | grep 80`
 
 ### Why can't applications inside the container connect to the outside?
 
-  - Many possibilities. Start by verifying that the `kube-proxy` can connect to the local IP address.
-  - Find the IP address of the localhost (`ipconfig` or `ifconfig`).
-  - Connect to a terminal in the `kube-proxy` container.
-  - You may need to install `ping`
-    - `apt-get update && apt-get install -y net-tools iputils-ping dnsutils`
-  - Ping to the localhost address or any other in the local network or remote as the first debugging step.
+  - Many possibilities. Start by verifying `kube-proxy` can reach the host IP.
+  - Find the localhost IP (`ipconfig` or `ifconfig`).
+  - Connect to a terminal in the `kube-proxy` container. You may need to install `ping`: `apt-get update && apt-get install -y net-tools iputils-ping dnsutils`
+  - Ping the localhost address or another local/remote host as the first debugging step.
 
 ---
 
@@ -47,9 +44,9 @@
 
   - `42`. That is why every example has the easy to find and replace prefixes starting with `yrn42`.
 
-### I've created cloud resources and components in a machine and moved to develop in another one. Is that possible?
+### I've created cloud resources and components on one machine and moved to develop on another. Is that possible?
 
-  - Yes. You need to import the cluster context and the resources.output.yml. The command to import the cluster context should be in the `cluster.tf` for the resource template. You may also try to [merge the Kubernetes configuration](https://kubernetes.io/docs/concepts/configuration/organize-cluster-access-kubeconfig/).
+  - Yes. Import the cluster context and the `resources.output.yml`. The cluster-context import command is in the `cluster.tf` for the resource template. You can also [merge the Kubernetes configuration](https://kubernetes.io/docs/concepts/configuration/organize-cluster-access-kubeconfig/).
 
 ### Why do I get the error message: `Error: can't find external program "pwsh"`
 

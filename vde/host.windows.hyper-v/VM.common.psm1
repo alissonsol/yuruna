@@ -63,32 +63,29 @@ function CreateIso {
 }
 
 # --- squid-cache IP discovery (shared by producer + consumers) --------------
-# Prior state had the same KVP+ARP dual-strategy copy-pasted across
-# guest.squid-cache/New-VM.ps1, guest.ubuntu.server/New-VM.ps1,
-# guest.ubuntu.desktop/New-VM.ps1, and a KVP-only variant in
+# Prior state copy-pasted the KVP+ARP dual strategy across squid-cache,
+# ubuntu.server, ubuntu.desktop New-VM.ps1s plus a KVP-only variant in
 # test/Start-CachingProxy.ps1. The variants drifted — Start-SquidCache's
-# KVP-only summary would print "(discovery failed)" even when the ARP
-# path inside the inner New-VM.ps1 had already succeeded and the cache
-# was serving. These three functions are the single source of truth so
-# a host-side answer here matches what any guest will see next.
+# KVP-only summary printed "(discovery failed)" even while the inner
+# ARP path had already succeeded and the cache was serving. These three
+# functions are the single source of truth.
 
 function Get-CacheVmCandidateIp {
     <#
     .SYNOPSIS
         Candidate IPv4 addresses for a running Hyper-V VM.
     .DESCRIPTION
-        Combines two lookups; duplicates removed, KVP-preferred order:
-          1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) — requires
-             hv_kvp_daemon inside the guest; empty until the guest has
-             installed hyperv-daemons and the daemon is running.
-          2. Default-Switch ARP cache (Get-NetNeighbor filtered by the
-             VM's MAC and the Default-Switch InterfaceIndex) — works as
-             soon as the guest sends any packet, independent of guest
-             agents. Stale 'Permanent' entries across VM rebuilds can
-             make the same MAC map to multiple IPs; all are returned so
-             the caller's :3128 TCP probe can pick the live one.
+        Combines two lookups, dedup, KVP first:
+          1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) — needs
+             hv_kvp_daemon inside the guest; empty until hyperv-daemons
+             is installed and the daemon running.
+          2. Default-Switch ARP cache (Get-NetNeighbor filtered by VM
+             MAC + Default-Switch InterfaceIndex) — works as soon as the
+             guest sends any packet. Stale 'Permanent' entries across VM
+             rebuilds can map one MAC to multiple IPs; all returned so
+             the caller's :3128 probe picks the live one.
     .OUTPUTS
-        System.String[] — zero or more IPv4 addresses, KVP entries first.
+        System.String[] — zero or more IPv4, KVP entries first.
     #>
     [CmdletBinding()]
     [OutputType([System.String])]
@@ -117,36 +114,31 @@ function Get-CacheVmCandidateIp {
     }
 
     # Emit individual strings into the pipeline. Callers that need a
-    # guaranteed array wrap with @(); foreach and -join handle scalar/
-    # $null/array inputs uniformly.
+    # guaranteed array wrap with @().
     #
-    # Three traps this shape specifically avoids:
-    # 1. Do NOT add a leading `,` array-wrap. It made the function emit
-    #    ONE String[] object, which @(Get-CacheVmCandidateIp ...) at a
-    #    call site then wrapped into Object[1] whose sole element was
-    #    the array — breaking downstream `foreach ($ip in ...)` with
-    #    "Cannot convert value to type System.String".
-    # 2. Do NOT use `[string[]](pipeline)` as the return expression. On
-    #    an empty input the cast emits a single $null into the pipeline
-    #    instead of zero items, so callers end up with a ghost element.
-    # 3. Do NOT wrap in an outer `@(...)`. PSScriptAnalyzer statically
-    #    infers the return type as System.Array from the @-subexpression
-    #    even when the runtime contents are strings — tripping
-    #    PSUseOutputTypeCorrectly. The bare pipeline below emits strings
-    #    directly; static analysis sees System.String emission matching
-    #    the [OutputType] above.
+    # Three traps this shape avoids:
+    # 1. No leading `,` array-wrap — made the function emit ONE String[];
+    #    @(Get-CacheVmCandidateIp ...) then wrapped into Object[1] whose
+    #    sole element was the array, breaking `foreach ($ip in ...)`
+    #    with "Cannot convert value to type System.String".
+    # 2. No `[string[]](pipeline)` as the return expression — on empty
+    #    input the cast emits a single $null instead of zero items, so
+    #    callers get a ghost element.
+    # 3. No outer `@(...)` — PSScriptAnalyzer statically infers
+    #    System.Array from the @-subexpression even with string content,
+    #    tripping PSUseOutputTypeCorrectly. The bare pipeline emits
+    #    strings directly.
     ($kvpIps + $arpIps) | Select-Object -Unique
 }
 
 function Test-CachingProxyPort {
     <#
     .SYNOPSIS
-        Non-blocking TCP probe returning $true iff the port accepts a
-        connection within $TimeoutMs.
+        Non-blocking TCP probe: $true iff the port accepts within $TimeoutMs.
     .DESCRIPTION
-        Synchronous TcpClient.Connect() can block ~20s on a filtered or
-        silently-dropped port, which starves outer progress loops; the
-        async BeginConnect + WaitOne pattern caps the wait predictably.
+        Synchronous TcpClient.Connect() blocks ~20s on a filtered or
+        silently-dropped port and starves outer progress loops; async
+        BeginConnect + WaitOne caps the wait predictably.
     #>
     [CmdletBinding()]
     [OutputType([System.Boolean])]
@@ -170,16 +162,16 @@ function Test-CachingProxyPort {
 function Get-WorkingCachingProxyUrl {
     <#
     .SYNOPSIS
-        "http://<ip>:3128" of a squid-cache VM that actually answers on
-        port 3128, or $null if none of the candidate IPs respond.
+        "http://<ip>:3128" of a squid-cache VM that answers on :3128,
+        or $null if none of the candidate IPs respond.
     .DESCRIPTION
-        One-shot helper for consumers (ubuntu guests) and the
-        Start-CachingProxy.ps1 summary. Does NOT wait for the cache VM to
-        boot or for squid to come up — callers expect the VM to already
-        be running and squid listening. The producer side
+        One-shot helper for consumers (ubuntu guests) and
+        Start-CachingProxy.ps1's summary. Does NOT wait for the cache VM
+        to boot or for squid to come up — callers expect the VM already
+        running and squid listening. The producer
         (guest.squid-cache/New-VM.ps1) uses Get-CacheVmCandidateIp
-        directly because it provisions the cache itself and must poll
-        while cloud-init is running.
+        directly because it provisions the cache and must poll while
+        cloud-init runs.
     .OUTPUTS
         System.String or $null.
     #>
@@ -209,22 +201,21 @@ function Assert-HyperVEnabled {
 
     .DESCRIPTION
         Verifies the Hyper-V preconditions every New-VM and tear-down
-        script depends on. Bypasses Get-WindowsOptionalFeature deliberately:
-        that cmdlet dispatches to the DISM provider through a COM shim
-        (CompatiblePSEdition proxy in pwsh 7) that, on fresh Windows 11
-        installs or immediately after Enable-WindowsOptionalFeature
-        completes, can fail with "Class not registered" (HRESULT
-        0x80040154) even when Hyper-V is actually enabled and healthy.
-        The failure was seen on the very first post-install run of
-        Start-SquidCache -> guest.squid-cache/New-VM.ps1. dism.exe is a
-        plain Win32 tool that the cmdlet itself wraps; calling it directly
-        sidesteps the COM failure and is the same workaround used by
-        install/windows-install.ps1.
+        script depends on. Bypasses Get-WindowsOptionalFeature: that
+        cmdlet dispatches through a COM shim (CompatiblePSEdition proxy
+        in pwsh 7) that, on fresh Windows 11 installs or right after
+        Enable-WindowsOptionalFeature completes, can fail with "Class
+        not registered" (HRESULT 0x80040154) even when Hyper-V is
+        enabled and healthy. Seen on the first post-install run of
+        Start-SquidCache → guest.squid-cache/New-VM.ps1. dism.exe is
+        the plain Win32 tool the cmdlet wraps; calling it directly
+        sidesteps the COM failure (same workaround as
+        install/windows-install.ps1).
 
-        Home editions: if Microsoft-Hyper-V-All is not present on the SKU
-        at all, dism.exe emits error 0x800f080c / "Feature name ... is
-        unknown." We surface that as a distinct message so the operator
-        knows the issue is the edition, not a transient state.
+        Home editions: if Microsoft-Hyper-V-All isn't on the SKU at all,
+        dism.exe emits 0x800f080c / "Feature name ... is unknown". We
+        surface that as a distinct message so the operator knows the
+        issue is the edition, not transient state.
 
     .OUTPUTS
         [bool]

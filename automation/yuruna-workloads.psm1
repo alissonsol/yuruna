@@ -29,20 +29,19 @@ function Publish-WorkloadList {
 
     if (!(Confirm-WorkloadList $project_root $config_subfolder)) { return $false; }
     Write-Debug "---- Publish Workloads"
-    # For each workload in workloads.yml
-    #   switch to context
-    #     apply deployments: chart, kubectl, helm, or shell
-    #       copy chart to work folder under .yuruna
-    #       apply resources global variables, resources.output variables, global variables, workload variables
-    #         execute helm install in work folder
-    #       other expressions use ${env:vars}
+    # For each workload: switch to its kube context, run each deployment
+    # (chart | kubectl | helm | shell). For `chart`, copy to the .yuruna work
+    # folder, merge variables (resources globals + resources.output + workload
+    # globals + workload locals + deployment locals), write values.yaml, run
+    # helm install. Non-chart deployments read the same merged variables via
+    # ${env:vars}.
     $workloadsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/workloads.yml"
     if (-Not (Test-Path -Path $workloadsFile)) { Write-Information "File not found: $workloadsFile"; return $false; }
     $workloadsYaml = ConvertFrom-File $workloadsFile
     if ($null -eq $workloadsYaml) { Write-Information "Workloads null or empty in file: $workloadsFile"; return $true; }
     if ($null -eq $workloadsYaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; return $true; }
 
-    # copy workloadsFile to work folder under .yuruna
+    # Backup workloadsFile to the .yuruna work folder
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
     $workFolder = Resolve-Path -Path $workFolder
@@ -57,15 +56,14 @@ function Publish-WorkloadList {
         $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
     }
     else {
-        # Allow deployment of workloads in phases, reusing upper resource output
+        # Allow phased workload deployment by reusing an upper-level resource output
         $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/../resources.output.yml"
         if (Test-Path -Path $resourcesOutputFile) {
             $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
         }
     }
 
-    # Debug info
-    # Resources output expanded, but not "saved"
+    # Resources output is expanded for env lookup but not persisted back
     if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
         foreach ($resource in $resourcesOutputYaml.Keys) {
             if ($resource -eq "globalVariables") {
@@ -87,21 +85,18 @@ function Publish-WorkloadList {
         }
     }
 
-    # Global variables are saved expanded after first time
+    # Global variables saved expanded for reuse after first pass
     if ((-Not ($null -eq $workloadsYaml.globalVariables)) -and (-Not ($null -eq $workloadsYaml.globalVariables.Keys))) {
         $keys = @($workloadsYaml.globalVariables.Keys)
         foreach ($key in $keys) {
             $value = $ExecutionContext.InvokeCommand.ExpandString($workloadsYaml.globalVariables[$key])
             Write-Debug "globalVariables[$key] = $value"
             Set-Item -Path Env:$key -Value ${value}
-            # Expanded already
             $workloadsYaml.globalVariables[$key] = $value
         }
     }
 
-    # For each workload in workloads.yml
     foreach ($workload in $workloadsYaml.workloads) {
-        # new work folder
         $contextName = $ExecutionContext.InvokeCommand.ExpandString($workload['context'])
         Write-Information "-- Workloads for context: $contextName"
         if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return $false; }
@@ -126,7 +121,7 @@ function Publish-WorkloadList {
 
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
         $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
-        #context should exist
+        # Context must exist
         $originalContext = kubectl config current-context
         kubectl config use-context $contextName *>&1 | Write-Verbose
         $currentContext = kubectl config current-context
@@ -134,18 +129,16 @@ function Publish-WorkloadList {
         if ($currentContext -ne $contextName) { Write-Information "K8S context not found: $contextName`nFile: $workloadsFile"; return $false; }
         kubectl config use-context $contextName *>&1 | Write-Verbose
 
-        # deployments shouldn't be null or empty
         foreach ($deployment in $workload.deployments) {
-            # apply deployments: chart, kubectl, helm, or shell
+            # Deployment kinds: chart | kubectl | helm | shell
             $isChart = !([string]::IsNullOrEmpty($deployment['chart']))
             $isKubectl = !([string]::IsNullOrEmpty($deployment['kubectl']))
             $isHelm = !([string]::IsNullOrEmpty($deployment['helm']))
             $isShell = !([string]::IsNullOrEmpty($deployment['shell']))
             if (!($isChart -or $isKubectl -or $isHelm -or $isShell)) { Write-Information "context.deployment should be 'chart', 'kubectl', 'helm' or 'shell' in file: $workloadsFile"; return $false; }
 
+            # Build merged variable set (the earlier loops only printed debug info)
             $deploymentVars = [ordered]@{}
-            # apply resources global variables, resources.output variables, global variables, components variables
-            # previous loops just presented values for debugging
             if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
                 foreach ($resource in $resourcesOutputYaml.Keys) {
                     if ($resource -eq "globalVariables") {
@@ -203,19 +196,19 @@ function Publish-WorkloadList {
                 if ([string]::IsNullOrEmpty($installName)) {
                     Write-Information "Chart[$chartName] missing variables['installName'] in file: $workloadsFile"; return $false;
                 }
-                # copy chart to work folder under .yuruna
                 $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName/$installName"
                 $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
                 $workFolder = Resolve-Path -Path $workFolder
                 Write-Debug "Copying chart from: $chartFolder to $workFolder"
                 Copy-Item "$chartFolder/*" -Destination $workFolder -Recurse -Container -ErrorAction SilentlyContinue
 
-                # deploymentVars to values.yaml
+                # Write deploymentVars to values.yaml. Backslashes are stripped
+                # per helm's --set format constraints:
+                # https://helm.sh/docs/intro/using_helm/#the-format-and-limitations-of---set
                 $helmValuesFile = Join-Path -Path $workFolder -ChildPath "values.yaml"
                 $null = New-Item -Path $helmValuesFile -ItemType File -Force
                 foreach ($key in $deploymentVars.Keys) {
                     $value = $deploymentVars[$key]
-                    # https://helm.sh/docs/intro/using_helm/#the-format-and-limitations-of---set
                     $value =  $value -replace '\\', ''
                     $line = "${key}: `"$value`""
                     if (($value.ToString().StartsWith("`"")) -and ($value.ToString().EndsWith("`""))) {
@@ -225,7 +218,6 @@ function Publish-WorkloadList {
                 }
                 $line = "contextName: `"$contextName`""
                 Add-Content -Path $helmValuesFile -Value $line
-                # execute helm install in work folder
                 Write-Debug "Helm execute from: $workFolder"
                 Push-Location $workFolder
                 Write-Debug "Helm lint"
@@ -240,7 +232,7 @@ function Publish-WorkloadList {
                 Pop-Location
             }
             else {
-                # deploymentVars to environment
+                # Push deploymentVars to the environment for command expansion
                 foreach ($key in $deploymentVars.Keys) {
                     $value = $deploymentVars[$key]
                     Set-Item -Path Env:$key -Value ${value}
@@ -257,7 +249,7 @@ function Publish-WorkloadList {
                 Push-Location $workFolder
                 $expression = $ExecutionContext.InvokeCommand.ExpandString($expression)
                 Write-Debug "$expression"
-                # Shell could be used to Write-Information back to user
+                # Shell can Write-Information back to the user, so stream visibly
                 if ($isShell) {
                     $result = Invoke-DynamicExpression -Command $expression *>&1 | Write-Information
                 }

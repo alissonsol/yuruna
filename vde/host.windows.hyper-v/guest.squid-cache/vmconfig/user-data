@@ -1,12 +1,11 @@
 #cloud-config
 hostname: squid-cache
-# Default 'ubuntu' user gets a known password AND the yuruna harness SSH key.
-# Both paths matter because this VM is usually debugged when it HASN'T
-# finished cloud-init — at which point SSH may not be up yet, only the
-# text console via vmconnect. Console login needs a password; post-boot
-# automation uses the key. Password reset is NOT forced (expire: false)
-# so repeated `ssh ubuntu@...` calls from the harness keep working without
-# an interactive first-login step.
+# Default 'ubuntu' user gets both a known password AND the yuruna harness
+# SSH key. This VM is usually debugged when it HASN'T finished cloud-init —
+# SSH may not be up yet, only the text console via vmconnect. Console login
+# needs the password; post-boot automation uses the key. expire: false keeps
+# repeated `ssh ubuntu@...` calls from the harness working without an
+# interactive first-login step.
 chpasswd:
   expire: false
   users:
@@ -17,9 +16,8 @@ ssh_pwauth: true
 ssh_authorized_keys:
   - SSH_AUTHORIZED_KEY_PLACEHOLDER
 # Grafana OSS repo for the Prometheus+Grafana monitoring stack. Key fetched
-# from keyserver.ubuntu.com (cloud-init's default, reliable); fingerprint
-# pinned per Grafana's install docs. Grafana Cloud is NOT used — this is
-# the self-hosted OSS build, free forever, no sign-in.
+# from keyserver.ubuntu.com (cloud-init's default); fingerprint pinned per
+# Grafana's install docs. Self-hosted OSS build — not Grafana Cloud.
 apt:
   sources:
     grafana.list:
@@ -27,90 +25,77 @@ apt:
       keyid: B53AE77BADB630A683046005963FA27710458545
 package_update: true
 packages:
-  # squid-openssl is the OpenSSL-linked build of squid. On Ubuntu Noble
-  # the default `squid` package is built WITHOUT --with-openssl (a
-  # long-standing Debian packaging split, originally driven by OpenSSL
-  # vs GPL licensing concerns), so its http_port parser rejects
-  # `ssl-bump`, `tls-cert=`, etc. with a "Bungled" FATAL at config-load
-  # time — the `squid.service` never binds a socket. `squid-openssl`
-  # installs the same /usr/sbin/squid path and the same squid.service
-  # unit, and conflicts with `squid` via Debian `Conflicts:` metadata,
-  # so depending on it here is both sufficient and idempotent.
+  # squid-openssl: OpenSSL-linked build. Ubuntu Noble's default `squid`
+  # package is built WITHOUT --with-openssl (Debian packaging split over
+  # OpenSSL vs GPL licensing), so its http_port parser rejects `ssl-bump`,
+  # `tls-cert=`, etc. with a "Bungled" FATAL at config-load and
+  # squid.service never binds a socket. squid-openssl ships the same
+  # /usr/sbin/squid and squid.service unit, and Conflicts: squid.
   - squid-openssl
-  # squid-cgi provides cachemgr.cgi, the CGI front-end to Squid's cache
-  # manager. apache2 hosts it; cgi-bin/ is already wired up by Apache's
-  # default conf.d/serve-cgi-bin.conf after we enable mod_cgi in runcmd.
-  # Kept alongside the Prometheus+Grafana stack as a low-overhead fallback
-  # for raw cachemgr queries when the richer UI is down or being debugged.
+  # squid-cgi provides cachemgr.cgi, hosted by apache2 (cgi-bin/ is wired
+  # up by the default conf.d/serve-cgi-bin.conf once runcmd enables
+  # mod_cgi). Low-overhead fallback to the Prometheus+Grafana UI for raw
+  # cachemgr queries.
   - squid-cgi
-  # squid-cli provides /usr/bin/squidclient, the CLI for cache-manager
-  # queries and, more importantly for this cache, on-demand purges:
+  # squid-cli provides /usr/bin/squidclient for cache-manager queries and
+  # on-demand purges:
   #   squidclient -m PURGE http://<origin>:<port>/<path>
-  # A paired PURGE ACL in the yuruna.conf drop-in below allows the request
-  # from RFC1918 sources (same set already trusted for read access). On
-  # Ubuntu Noble the squidclient binary lives in squid-cli (split out of
-  # squid in 24.04) — older names like squidclient/squid3 are jammy/focal.
+  # A paired PURGE ACL in yuruna.conf below allows RFC1918 sources. On
+  # Ubuntu Noble squidclient moved into squid-cli (split out of squid in
+  # 24.04); squidclient/squid3 names are jammy/focal only.
   - squid-cli
   - apache2
-  # Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301)
-  # and renders through Grafana (port 3000, anonymous Viewer). squid-
-  # exporter has no apt package and no stable GitHub release-asset URL
-  # pattern, so golang-go is pulled in just long enough to `go install`
-  # it; both build tools are purged at the end of runcmd to reclaim
-  # ~400 MB — the compiled /usr/local/bin/squid-exporter binary stays.
+  # Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301);
+  # Grafana on :3000 (anonymous Viewer). squid-exporter has no apt package
+  # and no stable GitHub release-asset URL, so golang-go is pulled in just
+  # long enough to `go install` it; both build tools are purged at the end
+  # of runcmd (~400 MB reclaimed). The compiled binary stays.
   - prometheus
   - grafana
   - golang-go
-  # Network debugging tools for interactive triage of the cache VM from
-  # its console/SSH. Noble's server cloud image ships `ip` (from iproute2)
-  # but NOT `ifconfig` or `ping`, so muscle-memory commands fail during a
-  # post-boot diagnostic session. Cheap to install, big quality-of-life win.
+  # Network debugging tools for interactive triage via console/SSH.
+  # Noble's server cloud image ships `ip` but not `ifconfig` or `ping`;
+  # cheap to install, big quality-of-life win.
   - net-tools       # ifconfig, netstat, route, arp
   - iputils-ping    # ping, ping6
-  # openssl for the one-shot CA-generation step in runcmd. The Ubuntu
-  # cloud image ships libssl but not the /usr/bin/openssl CLI, so a
-  # `req -x509` call would fail with "command not found" and leave
-  # squid's http_port 3129 unable to load tls-cert/tls-key. Cheap to
-  # install; kept as a top-level package (not apt-get in runcmd) so
-  # failure surfaces in the normal package-install phase rather than
-  # silently halfway through cache setup.
+  # openssl for the CA-generation step in runcmd. The cloud image ships
+  # libssl but not the /usr/bin/openssl CLI, so `req -x509` would fail
+  # with "command not found" and leave squid's http_port 3129 unable to
+  # load tls-cert/tls-key. Kept top-level (not apt-get in runcmd) so
+  # failure surfaces in the package-install phase, not halfway through
+  # cache setup.
   - openssl
   # NOTE: hyperv-daemons (hv_kvp_daemon) is installed via runcmd with
-  # `|| true` instead of being listed here. The package's dep on a
-  # linux-cloud-tools-$(uname -r) that exactly matches the running
-  # cloud-image kernel can't always be satisfied until the first
-  # `apt-get update` catches up, and a hard failure at package-install
-  # time was failing the ENTIRE cloud-init packages phase (including
-  # grafana/prometheus/squid). If hv-kvp-daemon doesn't come up, the
-  # host's Get-VMNetworkAdapter returns an empty IPAddresses list and
-  # discovery falls back to ARP — slower but still works.
+  # `|| true`, not here. Its dep on linux-cloud-tools-$(uname -r) matching
+  # the running cloud-image kernel isn't always satisfiable until a fresh
+  # `apt-get update` lands, and a hard failure was aborting the ENTIRE
+  # packages phase (grafana/prometheus/squid included). If hv-kvp-daemon
+  # doesn't come up, Get-VMNetworkAdapter on the host returns empty and
+  # discovery falls back to ARP — slower but works.
 write_files:
   # Retry apt fetches on transient network errors. Cloud-init's default is
-  # one-shot; a single timeout against archive.ubuntu.com or an intermittent
-  # TCP reset will fail the whole package install and leave the VM without
-  # squid — the exact "Exit code: 100 / Stdout: -" failure reported against
-  # `apt-get install apache2 squid`. Retries=5 covers transient hiccups;
-  # it does NOT paper over a 4xx (429/404) which apt treats as fatal — those
-  # still need operator attention via /var/log/cloud-init-output.log.
+  # one-shot; a single timeout or TCP reset against archive.ubuntu.com
+  # fails the whole package install and leaves the VM without squid — the
+  # exact "Exit code: 100 / Stdout: -" failure seen against `apt-get
+  # install apache2 squid`. Retries=5 covers transient hiccups; does NOT
+  # paper over 4xx (429/404) — apt treats those as fatal and they need
+  # operator attention via /var/log/cloud-init-output.log.
   - path: /etc/apt/apt.conf.d/80-yuruna-retries
     permissions: '0644'
     owner: root:root
     content: |
       Acquire::Retries "5";
       Acquire::Retries::Delay-Max "60";
-  # NOTE: the 99yuruna-prewarm-proxy apt dropin used to live here — that was
-  # a bootstrap bug. cloud-init runs write_files BEFORE the `packages:` apt
-  # install, so if this dropin already exists at package-install time, apt
-  # tries to fetch squid itself through 127.0.0.1:3128 — which of course
-  # fails ("Unable to connect to 127.0.0.1:3128"), the whole install bombs
-  # with Exit code 100, and squid never gets installed at all. The proxy
-  # dropin is now written LATER in runcmd, only after squid is confirmed
-  # listening on :3128. (The cleanup at the end of runcmd still applies.)
-  # Restrict cachemgr.cgi to RFC1918 sources, matching the squid ACL.
-  # Apache's default cgi-bin/ serve is open to all — in practice the VM
-  # is only reachable from the Hyper-V Default Switch (not externally
-  # routable), but aligning policy with squid means a misconfigured host
-  # network can't accidentally expose the cache manager to the internet.
+  # NOTE: the 99yuruna-prewarm-proxy apt dropin used to live here — a
+  # bootstrap bug. write_files runs BEFORE the `packages:` apt install, so
+  # if the dropin exists at install time, apt tries to fetch squid itself
+  # through 127.0.0.1:3128, fails ("Unable to connect..."), and the whole
+  # install bombs (Exit code 100) with squid never installed. The dropin
+  # is now written LATER in runcmd, only after squid is listening on :3128.
+  # Restrict cachemgr.cgi to RFC1918, matching the squid ACL. Apache's
+  # default cgi-bin/ is open to all; in practice the VM is only reachable
+  # from Hyper-V's Default Switch, but aligning policy with squid means a
+  # misconfigured host network can't accidentally expose cachemgr.
   - path: /etc/apache2/conf-available/yuruna-cachemgr.conf
     permissions: '0644'
     owner: root:root
@@ -122,53 +107,47 @@ write_files:
           Require ip 192.168.0.0/16
       </Location>
   # Drop-in overrides on top of Ubuntu's stock /etc/squid/squid.conf.
-  # conf.d files are included after the main config, so same-named directives
+  # conf.d files include after the main config so same-named directives
   # here win. Keeping this a drop-in (not a full replacement) means future
   # squid package upgrades still get their default refresh_pattern and ACL
-  # baseline — we only override what's specific to yuruna's use case.
+  # baseline — we only override what's specific to yuruna.
   - path: /etc/squid/conf.d/yuruna.conf
     permissions: '0644'
     owner: root:root
     content: |
       # yuruna squid-cache — generic HTTP proxy/cache for test-VM installs.
-      # Replaces the previous apt-cacher-ng approach, which only cached .deb
-      # URLs and still let security.ubuntu.com 429s bubble up to subiquity
-      # because its pre-install kernel fetch went direct. Squid caches any
-      # cacheable HTTP response, so the installer's own apt-get --download-only
-      # of linux-firmware etc. goes through the cache on every subsequent
-      # install and no longer races the CDN rate limiter.
+      # Replaces apt-cacher-ng, which only cached .deb URLs and still let
+      # security.ubuntu.com 429s bubble up to subiquity (its pre-install
+      # kernel fetch went direct). Squid caches any cacheable HTTP
+      # response, so the installer's own apt-get --download-only of
+      # linux-firmware etc. hits cache on subsequent installs.
 
-      # NOTE: we do NOT set `http_port 3128` here. Ubuntu's stock
+      # NOTE: do NOT declare `http_port 3128` here. Ubuntu's stock
       # /etc/squid/squid.conf already declares it, and /etc/squid/conf.d/*
-      # is INCLUDED (not overlaid) into the main config. Declaring the
-      # same `http_port 3128` twice makes squid try to bind the port
-      # twice — the second bind fails with EADDRINUSE and you get
-      # "listen (..., 256) system call failed: (98) Address already in
-      # use" in squid's log while squid still appears 'running'.
-      # The default binding is what we want (all interfaces, port 3128).
+      # is INCLUDED (not overlaid) — a duplicate makes squid try to bind
+      # twice, the second fails with EADDRINUSE ("listen ... (98) Address
+      # already in use") while squid still appears 'running'. The default
+      # binding (all interfaces, :3128) is what we want.
 
       # Permit only RFC1918 sources. Hyper-V Default Switch hands out
-      # 172.x.x.x; the 10/8 and 192.168/16 entries cover other private
-      # switches so this config is reusable.
+      # 172.x.x.x; 10/8 and 192.168/16 cover other private switches.
       acl yuruna_local src 10.0.0.0/8
       acl yuruna_local src 172.16.0.0/12
       acl yuruna_local src 192.168.0.0/16
 
-      # --- Cache purge: enable the PURGE method for local operators ---
-      # squidclient -m PURGE lets an admin invalidate a single cached entry
-      # (e.g. after fixing a stale status/index.html behind the proxy)
-      # without reloading the whole cache. Usage:
+      # --- Cache purge: enable PURGE for RFC1918 operators ---
+      # squidclient -m PURGE invalidates a single cached entry without
+      # reloading. Usage:
       #   From the cache VM:
       #     sudo squidclient -m PURGE http://<origin>:<port>/<path>
       #   From any RFC1918 workstation:
       #     curl -x http://<cache>:3128 -X PURGE http://<origin>:<port>/<path>
-      # Rules MUST appear before `http_access allow yuruna_local` below:
-      # Squid walks http_access top-down, first-match-wins, and the generic
+      # Rules MUST appear before `http_access allow yuruna_local`: squid
+      # walks http_access top-down, first-match-wins, and the generic
       # allow would otherwise match PURGE-from-yuruna_local before the
-      # method-scoped rule gets a chance — the explicit deny would become
-      # dead code, and tightening later (e.g. swapping yuruna_local for
-      # localhost) would silently do nothing. Keep the PURGE block above
-      # the generic allow.
+      # method-scoped rule — the explicit deny would become dead code, and
+      # tightening later (e.g. yuruna_local → localhost) would silently do
+      # nothing.
       acl yuruna_purge method PURGE
       http_access allow yuruna_purge yuruna_local
       http_access deny yuruna_purge
@@ -176,59 +155,53 @@ write_files:
       http_access allow yuruna_local
 
       # --- Snapshot-cache tuning ---
-      # This cache is tuned to behave as a replayable snapshot:
-      #   1. cached objects stay until the disk is nearly full (never
-      #      proactively released)
-      #   2. the cache keeps serving even when origin is unreachable or
-      #      sends cache-hostile headers
-      #   3. combined with offline_mode (flipped on by runcmd after
-      #      prewarm), a fully-populated cache supports guest installs
-      #      with zero internet access.
+      # Tuned as a replayable snapshot:
+      #   1. objects stay until the disk is nearly full (no proactive
+      #      release)
+      #   2. cache keeps serving when origin is unreachable or sends
+      #      cache-hostile headers
+      #   3. with offline_mode (flipped by runcmd after prewarm), a full
+      #      cache supports guest installs with zero internet.
       #
       # cache_replacement_policy MUST appear before cache_dir — squid
-      # binds the policy at cache_dir-parse time, so a later override has
-      # no effect. heap LFUDA keeps frequently-used large objects
-      # (linux-firmware, kernels) in preference to many small ones; GDSF
-      # does the same for the in-memory cache. When eviction finally
-      # fires, rarely-touched small objects are dropped first — the big
-      # expensive-to-refetch blobs survive, which is what offline replay
-      # needs.
+      # binds the policy at cache_dir parse time; a later override has no
+      # effect. heap LFUDA keeps frequently-used large objects
+      # (linux-firmware, kernels) over many small ones; GDSF does the
+      # same in-memory. When eviction fires, rarely-touched small objects
+      # drop first — the big expensive-to-refetch blobs survive, which is
+      # what offline replay needs.
       cache_replacement_policy heap LFUDA
       memory_replacement_policy heap GDSF
 
-      # Disk cache sized for a 144 GB VHDX: 128 GB for squid + ~16 GB
-      # OS/logs headroom. ufs is the simplest store format and fine for a
-      # single-host dev cache; switch to aufs/diskd only if we see squid
-      # blocking on disk I/O under concurrent installs.
+      # Disk cache sized for a 144 GB VHDX: 128 GB squid + ~16 GB OS/logs.
+      # ufs is fine for a single-host dev cache; switch to aufs/diskd only
+      # if squid blocks on disk I/O under concurrent installs.
       cache_dir ufs /var/spool/squid 131072 16 256
       maximum_object_size 4 GB
       maximum_object_size_in_memory 32 MB
       cache_mem 512 MB
 
-      # Never release unless forced: only start evicting when the disk is
-      # >99% full, stopping at 98%. Default 90/95 would start releasing
-      # objects as soon as ~5 GB of free space remained — aggressive, and
-      # the wrong default for a sticky snapshot cache.
+      # Never release unless forced: evict only when disk >99% full,
+      # stopping at 98%. Default 90/95 would evict with ~5 GB free —
+      # wrong for a sticky snapshot cache.
       cache_swap_high 99
       cache_swap_low  98
 
-      # Don't cache failures (404, 5xx). A transient network blip during
-      # one install must not become a poisoned 504 returned forever for
-      # an object squid could otherwise fetch successfully next time.
+      # Don't cache failures (404, 5xx). A transient blip must not become
+      # a poisoned 504 returned forever for an object squid could fetch
+      # successfully next time.
       negative_ttl 0 seconds
 
-      # Never abort a partial download. If a client disconnects mid-fetch
-      # (e.g. guest reboot), squid finishes the fetch so the next client
-      # gets a cache hit instead of re-downloading from scratch. -1 KB
-      # disables the quick-abort threshold entirely.
+      # Never abort partial downloads. If a client disconnects mid-fetch
+      # (e.g. guest reboot), squid finishes so the next client hits
+      # cache. -1 KB disables the quick-abort threshold entirely.
       quick_abort_min -1 KB
 
-      # Package files are content-addressable (version is in the URL), so
-      # a new version would be a different URL — there is no value in
-      # revalidating the URL we already have. The override/ignore flags
-      # force squid to keep serving these regardless of origin or
+      # Package files are content-addressable (version in URL), so a new
+      # version is a different URL — no value revalidating what we have.
+      # override/ignore flags keep squid serving regardless of origin or
       # intermediate cache-control hints (no-store, must-revalidate,
-      # private, reload-from-client). 525600 minutes = 1 year.
+      # private, reload-from-client). 525600 min = 1 year.
       refresh_pattern -i \.deb$      525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
       refresh_pattern -i \.udeb$     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
       refresh_pattern -i \.tar\.xz$  525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
@@ -245,47 +218,43 @@ write_files:
       logfile_rotate 2
 
       # --- HTTPS caching via SSL-bump (second listener on :3129) ---
-      # The stock http_port 3128 above stays a pure CONNECT-tunnel for
-      # HTTPS — no MITM, no caching, no cert trust required. That keeps
-      # any legacy client (and subiquity's pre-install HTTPS calls,
-      # which run before our CA gets into the target chroot) working
-      # exactly as it did before ssl-bump was added.
+      # Stock http_port 3128 stays a pure CONNECT-tunnel for HTTPS — no
+      # MITM, no caching, no trust required. Keeps legacy clients and
+      # subiquity's pre-install HTTPS calls (which run before our CA
+      # lands in the target chroot) working as before ssl-bump existed.
       #
-      # Port 3129 is the opt-in ssl-bump listener. Guests whose trust
-      # store contains /etc/squid/ssl_cert/ca.pem (published at
-      # http://<cache>/yuruna-squid-ca.crt by Apache below) can point
-      # `Acquire::https::Proxy` there and get their HTTPS apt traffic
+      # Port 3129 is the opt-in ssl-bump listener. Guests that trust
+      # /etc/squid/ssl_cert/ca.pem (published at
+      # http://<cache>/yuruna-squid-ca.crt by Apache below) point
+      # Acquire::https::Proxy there and get HTTPS apt traffic
       # intercepted, cached, and replayed through the same
-      # refresh_pattern + offline_mode pipeline as plain HTTP.
+      # refresh_pattern + offline_mode pipeline as HTTP.
       #
-      # peek-step1-then-bump-all is the minimum viable SSL-bump recipe:
-      # squid reads the TLS ClientHello to learn the SNI hostname, then
-      # generates a per-host leaf cert signed by the yuruna CA and
+      # peek-step1-then-bump-all: squid reads the TLS ClientHello for the
+      # SNI hostname, mints a per-host leaf signed by the yuruna CA, and
       # terminates the client side. If a pin-checking client (snap, Go
-      # binaries) ever ends up on the install path, add an
-      # `acl nobump dstdomain ...` + `ssl_bump splice nobump` pair ABOVE
-      # the bump-all line rather than disabling bumping wholesale.
+      # binaries) ever hits the install path, add `acl nobump dstdomain
+      # ...` + `ssl_bump splice nobump` ABOVE bump-all rather than
+      # disabling bumping wholesale.
       #
       # The `step1` acl MUST be declared explicitly — squid does not
-      # auto-define at_step ACLs, so `ssl_bump peek step1` without this
-      # line fails with a FATAL "Bungled ... ssl_bump peek step1" at
-      # config-load time and squid never binds 3128/3129.
+      # auto-define at_step ACLs; without it, `ssl_bump peek step1` FATALs
+      # with "Bungled ... ssl_bump peek step1" and squid never binds
+      # 3128/3129.
       acl step1 at_step SslBump1
       #
-      # NOTE: dynamic_cert_mem_cache_size is a TOP-LEVEL directive in
-      # Squid 6 (Ubuntu Noble's squid 6.x), NOT an http_port option. An
-      # earlier revision inlined it on the http_port line and tripped a
-      # parser "Bungled" error that prevented squid from starting at
-      # all. 4 MB is the default anyway, so we just let the default stand
-      # rather than restate it as a separate directive.
+      # NOTE: dynamic_cert_mem_cache_size is TOP-LEVEL in Squid 6 (Noble),
+      # NOT an http_port option. An earlier revision inlined it on the
+      # http_port line and tripped a "Bungled" parser error that kept
+      # squid from starting. 4 MB is the default; we let it stand.
       http_port 3129 ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
       sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/lib/squid/ssl_db -M 4MB
       sslcrtd_children 5
       ssl_bump peek step1
       ssl_bump bump all
-  # --- Prometheus: bind loopback only; Grafana runs in the same VM and
-  # scrapes via localhost. Keeps Prometheus's open-access UI off the host
-  # LAN — the Grafana dashboard on :3000 is the only exposed entry point.
+  # --- Prometheus: bind loopback only; Grafana scrapes via localhost.
+  # Keeps Prometheus's open-access UI off the LAN — Grafana on :3000 is
+  # the only exposed entry point.
   - path: /etc/default/prometheus
     permissions: '0644'
     owner: root:root
@@ -304,9 +273,9 @@ write_files:
         - job_name: squid
           static_configs:
             - targets: ['localhost:9301']
-  # --- squid-exporter systemd unit. Binary installed in runcmd via
-  # `go install`; the unit starts on boot after network + squid are up.
-  # Bound to loopback — Prometheus (same VM) is the only consumer.
+  # --- squid-exporter systemd unit. Binary installed via `go install` in
+  # runcmd; starts on boot after network + squid. Loopback-bound —
+  # Prometheus (same VM) is the only consumer.
   - path: /etc/systemd/system/squid-exporter.service
     permissions: '0644'
     owner: root:root
@@ -324,11 +293,10 @@ write_files:
       RestartSec=5
       [Install]
       WantedBy=multi-user.target
-  # --- Grafana: anonymous Viewer so operators hit the dashboard without
-  # any login step (and no sign-up, no Grafana Cloud). Admin login still
-  # works (default admin/admin) if someone wants to edit dashboards. The
-  # drop-in path is the standard systemd override location; Grafana's
-  # binary reads GF_* env vars natively.
+  # --- Grafana: anonymous Viewer so operators hit the dashboard with no
+  # login (and no sign-up, no Grafana Cloud). Admin login still works
+  # (default admin/admin) for editing. Standard systemd override path;
+  # Grafana reads GF_* env vars natively.
   - path: /etc/systemd/system/grafana-server.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -336,9 +304,8 @@ write_files:
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-  # --- Grafana datasource provisioning. UID pinned so the provisioned
-  # dashboard below can reference Prometheus without knowing Grafana's
-  # auto-generated UID.
+  # --- Grafana datasource. UID pinned so the dashboard below can
+  # reference Prometheus without knowing Grafana's auto-generated UID.
   - path: /etc/grafana/provisioning/datasources/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -353,8 +320,8 @@ write_files:
           isDefault: true
           editable: false
   # --- Grafana dashboard provider: scan /var/lib/grafana/dashboards for
-  # JSON files and import them. updateIntervalSeconds keeps them in sync
-  # if an operator edits the on-disk file post-boot.
+  # JSON and import. updateIntervalSeconds keeps them in sync with
+  # post-boot edits to on-disk files.
   - path: /etc/grafana/provisioning/dashboards/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -368,11 +335,8 @@ write_files:
           updateIntervalSeconds: 30
           options:
             path: /var/lib/grafana/dashboards
-  # --- Minimal squid dashboard. The 'up' panel confirms all Prometheus
-  # scrape targets (prometheus itself + squid-exporter) are reachable —
-  # that alone answers "is the stack healthy?" even if squid-exporter
-  # metric names drift between releases. The squid_client_* panels
-  # render once the exporter is serving; if a metric name changes, the
+  # --- Minimal squid dashboard. squid_client_* panels render once the
+  # exporter is serving; if a metric name drifts between releases, the
   # panel shows "No data" but the rest of the dashboard still loads.
   - path: /var/lib/grafana/dashboards/squid.json
     permissions: '0644'
@@ -447,37 +411,33 @@ write_files:
         ]
       }
 runcmd:
-  # cache_dir requires the store be initialized before squid will start.
-  # apt's postinst calls swap-state init already, but re-running is idempotent
-  # and guards against the case where our write_files dropped in a different
-  # cache_dir size than the package default squid tried to initialize against.
+  # cache_dir needs the store initialized before squid will start. apt's
+  # postinst runs swap-state init, but re-running is idempotent and guards
+  # against our write_files dropping in a different cache_dir size than
+  # the package default.
   - systemctl stop squid
   - squid -z -N || true
-  # --- SSL-bump bootstrap: generate a self-signed CA and initialize the
-  # per-hostname cert DB that squid's sslcrtd helper uses to mint leaf
-  # certs on the fly. Both steps are idempotent (file/dir checks) so a
-  # cloud-init re-run does not rotate the CA — that would orphan every
-  # guest that had already trusted the previous one.
+  # --- SSL-bump bootstrap: self-signed CA + per-hostname cert DB for
+  # sslcrtd to mint leaf certs on the fly. Both steps idempotent (file/dir
+  # checks) so a cloud-init re-run doesn't rotate the CA — rotating would
+  # orphan every guest that trusted the previous one.
   #
-  # The CA's private key lives ONLY inside this VM (/etc/squid/ssl_cert/
-  # is proxy:proxy 700). The public cert is copied to /var/www/html/
-  # further down so Apache can serve it to guests over plain HTTP.
+  # CA private key lives ONLY inside this VM (/etc/squid/ssl_cert/ is
+  # proxy:proxy 700). Public cert is copied to /var/www/html/ below so
+  # Apache can serve it over HTTP.
   #
-  # CN embeds the VM hostname + a build timestamp so if an operator
-  # deliberately rebuilds the cache VM and re-provisions guests, the
-  # distinct CN makes it obvious in a browser / `openssl x509` dump
-  # which cache instance signed a given leaf.
+  # CN embeds VM hostname + build timestamp so a deliberate rebuild is
+  # obvious in `openssl x509` — shows which cache instance signed a leaf.
   - |
     set -e
     CA_DIR=/etc/squid/ssl_cert
     if [ ! -f "$CA_DIR/ca.pem" ]; then
       mkdir -p "$CA_DIR"
-      # -addext (self-contained) instead of -extensions v3_ca (which
+      # -addext (self-contained) instead of -extensions v3_ca, which
       # silently produces a non-CA cert when /etc/ssl/openssl.cnf on the
-      # installed openssl 3.x build doesn't carry a [ v3_ca ] section).
-      # The resulting cert without basicConstraints=CA:true is loadable
-      # but Squid rejects it with "No valid signing certificate
-      # configured for HTTP_port [::]:3129" and never binds the port.
+      # installed openssl 3.x build lacks a [ v3_ca ] section. The result
+      # loads but Squid rejects it ("No valid signing certificate
+      # configured for HTTP_port [::]:3129") and never binds the port.
       # keyCertSign is required for ssl-bump's per-host leaf minting.
       openssl req -new -newkey rsa:2048 -sha256 -days 3650 -nodes -x509 \
         -addext "basicConstraints=critical,CA:true" \
@@ -491,21 +451,18 @@ runcmd:
       chmod 600 "$CA_DIR/ca.key"
       chmod 644 "$CA_DIR/ca.pem"
     fi
-  # security_file_certgen's `-c` is create-new; it errors if the DB
-  # already exists, so the existence check guards re-runs. The DB holds
-  # the leaf certs squid generates for each SNI hostname — 4 MB is
-  # generous for a single-host dev cache (each entry is ~1 KB).
+  # security_file_certgen's `-c` is create-new and errors if the DB
+  # already exists, so the existence check guards re-runs. DB holds leaf
+  # certs minted per SNI hostname — 4 MB is generous (each entry ~1 KB).
   #
-  # The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu
-  # Noble the squid-openssl postinst does NOT guarantee this directory
-  # exists, and security_file_certgen's Create() makes only the leaf
-  # `ssl_db/` dir, not its parent — so without the `install -d` the
-  # helper FATALs with "Cannot create /var/lib/squid/ssl_db". Squid
-  # then launches, sslcrtd children crash-loop on every spawn, squid
-  # bails with "The sslcrtd_program helpers are crashing too rapidly,
-  # need help!" and squid-parent blocks restart for 3600s. Running the
-  # helper as `proxy` avoids a follow-up chown and confirms that user
-  # can write the tree.
+  # The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu Noble
+  # the squid-openssl postinst doesn't guarantee this directory, and
+  # security_file_certgen's Create() makes only the leaf `ssl_db/` dir,
+  # not the parent. Without `install -d` the helper FATALs with "Cannot
+  # create /var/lib/squid/ssl_db", sslcrtd children crash-loop on every
+  # spawn, squid bails with "The sslcrtd_program helpers are crashing too
+  # rapidly, need help!" and squid-parent blocks restart for 3600s.
+  # Running as `proxy` avoids a follow-up chown and confirms write access.
   - |
     set -e
     SSL_DB=/var/lib/squid/ssl_db
@@ -515,77 +472,70 @@ runcmd:
     fi
   - systemctl enable squid
   - systemctl start squid
-  # Install hyperv-daemons tolerantly (see packages: note). `apt-get update`
-  # has already been implicitly run by cloud-init's package phase; run it
-  # again here because hyperv-daemons' linux-cloud-tools-$(uname -r) dep
-  # can show up after a refresh. If it still fails, discovery falls back
-  # to ARP — don't abort the rest of runcmd.
+  # Install hyperv-daemons tolerantly (see packages: note). Re-run
+  # apt-get update because hyperv-daemons' linux-cloud-tools-$(uname -r)
+  # dep can show up after a refresh. If it still fails, discovery falls
+  # back to ARP — don't abort the rest of runcmd.
   - DEBIAN_FRONTEND=noninteractive apt-get update || true
-  # Single-quoted so YAML doesn't see the `yuruna:` inside the echo as a
+  # Single-quoted so YAML doesn't parse `yuruna:` inside the echo as a
   # mapping key and abort runcmd with a shellify TypeError.
   - 'DEBIAN_FRONTEND=noninteractive apt-get install -y hyperv-daemons || echo "yuruna: hyperv-daemons install failed - host IP discovery will fall back to ARP"'
-  # Start the Hyper-V KVP daemon so the host can discover our IP. `|| true`
-  # because hv-kvp-daemon.service only exists if the package install above
-  # actually succeeded.
+  # Start hv-kvp-daemon so the host can discover our IP. `|| true` because
+  # the service only exists if the install above succeeded.
   - systemctl enable hv-kvp-daemon.service || true
   - systemctl start hv-kvp-daemon.service || true
   # --- Enable cachemgr.cgi monitoring ---
   # a2enmod cgi wires mod_cgi into Apache; a2enconf enables the RFC1918
-  # ACL dropin written above. Squid's default squid.conf already has
-  # `http_access allow manager localhost` + `http_access deny manager`,
-  # so manager queries from 127.0.0.1 (where Apache runs) succeed while
-  # remote mgr: URLs are rejected — no extra squid ACL work needed.
+  # ACL dropin. Squid's default squid.conf has `http_access allow manager
+  # localhost` + `http_access deny manager`, so manager queries from
+  # 127.0.0.1 (Apache) succeed while remote mgr: URLs are rejected.
   - a2enmod cgi
   - a2enconf yuruna-cachemgr
   # Publish the CA public cert at http://<cache>/yuruna-squid-ca.crt so
-  # guests can fetch and trust it during their own install. Only the
-  # public cert is copied — ca.key stays inside /etc/squid/ssl_cert/.
-  # The mode-644 public cert under /var/www/html/ is intentionally
-  # world-readable; RFC1918 reachability is enforced at the network
-  # layer (Hyper-V Default Switch) rather than via Apache ACLs here,
-  # so trust distribution works without an extra cachemgr-style
-  # `Require ip` dropin.
+  # guests can fetch and trust it during install. Only the public cert
+  # is copied — ca.key stays in /etc/squid/ssl_cert/. Mode 644 is
+  # intentional: RFC1918 reachability is enforced at the network layer
+  # (Hyper-V Default Switch), so trust distribution works without an
+  # extra cachemgr-style `Require ip` dropin.
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
   - systemctl enable apache2
   - systemctl restart apache2
   # --- Pre-warm the cache ---
-  # security.ubuntu.com rate-limits `linux-firmware` (~330 MB) hard enough
-  # that every cold guest install 429s on it. Pre-fetching it here — via
-  # the local proxy — means squid has it before any guest asks, so the
-  # first-ever guest install serves from cache instead of hitting the
-  # rate-limited origin. We pull the HWE meta too so the kernel, modules-
-  # extra, headers, and microcode .debs land in cache alongside it.
+  # security.ubuntu.com rate-limits linux-firmware (~330 MB) hard enough
+  # that every cold guest install 429s on it. Pre-fetching via the local
+  # proxy means squid has it before any guest asks, so the first-ever
+  # install serves from cache. Pull the HWE meta too so kernel, modules-
+  # extra, headers, and microcode .debs land alongside.
   #
-  # Wait up to 60s for squid's listener before starting. apt's postinst
-  # usually has squid up by this point, but we re-check defensively because
-  # the preceding `squid -z` can take a moment on first boot to initialize
-  # the 40 GB swap state.
+  # Wait up to 60s for squid's listener. apt's postinst usually has it up,
+  # but re-check because the preceding `squid -z` can take time on first
+  # boot to initialize the 40 GB swap state.
   - |
     for i in $(seq 1 60); do
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
       sleep 1
     done
-    # Diagnostic safety net: if squid never bound :3128, dump its journal
-    # into the cloud-init-output.log so the operator's first
+    # Diagnostic safety net: if squid never bound :3128, dump journal
+    # into cloud-init-output.log so the operator's first
     # `grep ERROR /var/log/cloud-init-output.log` surfaces the real cause
-    # (e.g. EADDRINUSE from a duplicate http_port). Without this, the host
-    # just sees "can't TCP-connect to the cache" without knowing why.
+    # (e.g. EADDRINUSE from a duplicate http_port). Otherwise the host
+    # just sees "can't TCP-connect" without knowing why.
     if ! ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128; then
       echo "=== YURUNA: squid did not bind :3128 within 60s ==="
       systemctl --no-pager -l status squid || true
       journalctl --no-pager -u squid -n 80 || true
     fi
-  # Only NOW route this VM's own apt through the local squid — squid is
-  # confirmed listening, so the self-proxy loop is safe. Writing this file
-  # before package install would have (and did) cause apt to try fetching
-  # squid itself through a proxy that didn't exist yet.
+  # Only NOW route this VM's own apt through local squid — squid is
+  # confirmed listening, so the self-proxy loop is safe. Writing this
+  # before package install (which we did, once) makes apt try to fetch
+  # squid itself through a proxy that doesn't exist yet.
   - echo 'Acquire::http::Proxy "http://127.0.0.1:3128";' > /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
   - apt-get update
-  # Each call: try --reinstall --download-only first (forces re-fetch of
-  # already-installed packages like linux-firmware on the cloud image);
-  # fall back to plain --download-only for packages not yet installed
-  # (linux-generic-hwe-24.04 and friends on a minimal server image).
-  # `|| true` on the fallback so a single miss doesn't abort the loop.
+  # Each call: --reinstall --download-only first (forces re-fetch of
+  # already-installed packages like linux-firmware); fall back to plain
+  # --download-only for not-yet-installed packages (linux-generic-hwe-24.04
+  # and friends). `|| true` on the fallback so one miss doesn't abort the
+  # loop.
   - |
     for pkg in linux-firmware linux-generic-hwe-24.04 intel-microcode amd64-microcode firmware-sof-signed; do
       echo "=== yuruna prewarm: $pkg ==="
@@ -594,47 +544,41 @@ runcmd:
         || echo "yuruna prewarm: skipped $pkg"
     done
   # Squid now has the large .debs cached under /var/spool/squid.
-  # Clear the local /var/cache/apt copy (squid's store is separate) to
-  # reclaim ~1 GB inside the VM.
+  # Clear /var/cache/apt (squid's store is separate) to reclaim ~1 GB.
   - apt-get clean
-  # Remove the apt proxy dropin so future apt usage inside the squid VM
-  # itself doesn't loop through its own squid instance. Guests continue
-  # to reach squid at 3128 over the network as normal.
+  # Remove the apt proxy dropin so future apt inside this VM doesn't loop
+  # through its own squid. Guests still reach squid at 3128 over network.
   - rm -f /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
-  # --- Flip squid into offline_mode NOW that prewarm is done. With
-  # offline_mode on, squid serves cached objects without ever contacting
-  # origin — a cache hit returns stored content, a cache miss returns a
-  # 504. That's what makes the "fully disconnected if everything needed
-  # is cached" workflow work: guests can run apt installs against this
-  # proxy with no internet available on the host.
+  # --- Flip squid into offline_mode now prewarm is done. With
+  # offline_mode on, squid serves cached objects without contacting
+  # origin — hit returns stored content, miss returns 504. Enables the
+  # "fully disconnected if everything is cached" workflow: guests can
+  # apt-install against this proxy with no internet on the host.
   #
-  # Must be flipped AFTER prewarm because with offline_mode on, the very
-  # first request (cold cache) would return 504 and prewarm would never
-  # populate anything. Dropped in as a separate conf.d file so an
-  # operator can refresh the cache against origin by removing the single
-  # file and running `squid -k reconfigure` — no other config affected.
+  # Must be AFTER prewarm — with offline_mode on, a cold-cache first
+  # request returns 504 and prewarm populates nothing. Dropped as a
+  # separate conf.d file so an operator can refresh against origin by
+  # removing the one file and running `squid -k reconfigure`.
   - |
     cat > /etc/squid/conf.d/yuruna-offline.conf << 'EOF'
-    # Serve only from cache; do not contact origin for any object. A
-    # cache miss returns 504. To refresh against origin: delete this file
-    # and run `squid -k reconfigure` (or `systemctl reload squid`).
+    # Serve only from cache; never contact origin. Miss returns 504. To
+    # refresh against origin: delete this file and `squid -k reconfigure`
+    # (or `systemctl reload squid`).
     offline_mode on
     EOF
   - squid -k reconfigure
-  # Single-quote the whole echo so YAML doesn't parse `cache:` as a
-  # mapping key. Cloud-init's shellify() chokes on a dict in runcmd and
-  # aborts the ENTIRE runcmd phase — which happened here once and left
-  # a VM with Apache's default page, no cachemgr, no offline_mode, and
-  # no monitoring stack even though write_files and packages had run.
+  # Single-quote the echo so YAML doesn't parse `cache:` as a mapping key.
+  # cloud-init's shellify() chokes on a dict in runcmd and aborts the
+  # ENTIRE runcmd phase — which happened once, leaving a VM with Apache's
+  # default page, no cachemgr, no offline_mode, no monitoring even though
+  # write_files and packages ran.
   - 'echo "squid-cache offline_mode ON - serving cached content only"'
   # --- Build and install squid-exporter. No apt package and no stable
-  # GitHub release asset URL, so `go install` from source is the only
-  # reliable cross-arch path: produces an amd64 binary on Hyper-V and an
-  # arm64 binary on UTM without any URL-pattern guessing. Pinned to
-  # v1.10.5 for reproducible boots; bump when we need new metrics. Runs
-  # AFTER the prewarm proxy cleanup so the Go module fetch (HTTPS to
-  # proxy.golang.org and GitHub) doesn't try to traverse squid — squid
-  # can't cache HTTPS without SSL-bump.
+  # GitHub release-asset URL, so `go install` is the reliable cross-arch
+  # path: amd64 on Hyper-V, arm64 on UTM, no URL guessing. Pinned to
+  # v1.10.5 for reproducibility. Runs AFTER the prewarm proxy cleanup so
+  # the Go module fetch (HTTPS to proxy.golang.org + GitHub) doesn't
+  # traverse squid — HTTP squid can't cache HTTPS without SSL-bump.
   - |
     export GOPATH=/root/go HOME=/root
     if /usr/bin/go install github.com/boynux/squid-exporter@v1.10.5; then
@@ -644,28 +588,26 @@ runcmd:
         echo "=== YURUNA: squid-exporter build failed — Grafana squid panels will stay empty until the binary is provided by hand ==="
     fi
     rm -rf /root/go
-  # Reclaim ~400 MB: the Go toolchain is only needed for the build above.
-  # squid-exporter itself is a static binary that runs without Go installed.
+  # Reclaim ~400 MB: Go toolchain is only needed for the build above;
+  # squid-exporter itself is a static binary.
   - DEBIAN_FRONTEND=noninteractive apt-get purge -y golang-go || true
   - DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
   # --- Start the monitoring stack. daemon-reload picks up the
-  # squid-exporter unit + the grafana-server drop-in that were written
-  # via write_files. Grafana is restarted (rather than just enabled) to
-  # ensure the anonymous-Viewer env vars take effect even if the deb's
-  # postinst already started it.
+  # squid-exporter unit + grafana-server drop-in written via write_files.
+  # Grafana is restarted (not just enabled) so the anonymous-Viewer env
+  # vars take effect even if the deb postinst already started it.
   - systemctl daemon-reload
   - systemctl enable --now squid-exporter.service
   - systemctl enable --now prometheus.service
   - systemctl enable grafana-server.service
   - systemctl restart grafana-server.service
-  # Wait for grafana-server to finish binding :3000 and dump journal if
-  # it doesn't. On a slow first boot (fresh cache VM, disk still warming
-  # up) grafana can take ~15s to come up after `restart` returns. Without
-  # this check, a failed start is only visible when an operator tries the
-  # dashboard URL and gets "connection refused" — by which time the
-  # cloud-init logs may have been rotated. Matches the diagnostic net
-  # used for squid:3128 earlier in runcmd so both failure modes surface
-  # the same way in /var/log/cloud-init-output.log.
+  # Wait for grafana-server to bind :3000 and dump journal if it doesn't.
+  # On a slow first boot, grafana can take ~15s to come up after
+  # `restart` returns. Without this check, a failed start only surfaces
+  # when an operator tries the dashboard and gets "connection refused" —
+  # by which time cloud-init logs may be rotated. Mirrors the squid:3128
+  # diagnostic net so both failure modes surface the same way in
+  # /var/log/cloud-init-output.log.
   - |
     for i in $(seq 1 60); do
       systemctl is-active --quiet grafana-server.service && \
@@ -684,11 +626,10 @@ runcmd:
     echo "  Prometheus: http://127.0.0.1:9090 (loopback only — scrape via Grafana)"
     echo "  cachemgr:   http://${vm_ip}/cgi-bin/cachemgr.cgi (raw cachemgr fallback)"
     echo "  CA cert:    http://${vm_ip}/yuruna-squid-ca.crt (trust to enable :3129 HTTPS caching)"
-  # Single-quoted for the same reason as the other echo lines in this
-  # runcmd: the bare `: ` after "ready" makes YAML parse the whole scalar
-  # as a mapping, cloud-init's shellify() gets a dict instead of a string
-  # and aborts the ENTIRE runcmd phase — so nothing (CA gen, ssl_db init,
-  # prewarm, squid-exporter, monitoring) runs. That failure mode is
-  # silent in the VM's systemctl output because write_files still runs;
-  # only `cloud-init status --long` surfaces the TypeError.
+  # Single-quoted: the bare `: ` after "ready" makes YAML parse the
+  # scalar as a mapping; shellify() gets a dict instead of a string and
+  # aborts the ENTIRE runcmd phase (CA gen, ssl_db init, prewarm,
+  # squid-exporter, monitoring — none run). Silent in systemctl output
+  # because write_files still ran; only `cloud-init status --long`
+  # surfaces the TypeError.
   - 'echo "squid-cache ready: :3128 HTTP + CONNECT, :3129 HTTPS SSL-bump (pre-warmed)"'

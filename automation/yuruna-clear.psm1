@@ -35,33 +35,29 @@ function Clear-Configuration {
     if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
     $yaml = ConvertFrom-File $resourcesFile
 
-    # Global variables are saved expanded after first time
+    # Global variables saved expanded for reuse
     if ((-Not ($null -eq $yaml.globalVariables)) -and (-Not ($null -eq $yaml.globalVariables.Keys))) {
         $keys = @($yaml.globalVariables.Keys)
         foreach ($key in $keys) {
             $value = $ExecutionContext.InvokeCommand.ExpandString($yaml.globalVariables[$key])
             Write-Debug "globalVariables[$key] = $value"
             Set-Item -Path Env:$key -Value ${value}
-            # Expanded already
             $yaml.globalVariables[$key] = $value
         }
     }
 
-    # For each resource in resources.yml
     if ($null -eq $yaml.resources) { Write-Information "Resources null or empty in file: $resourcesFile"; return $true; }
     foreach ($resource in $yaml.resources) {
         $resourceName = $ExecutionContext.InvokeCommand.ExpandString($resource['name'])
         $resourceTemplate = $resource['template']
         Write-Debug "resource: $resourceName - template: $resourceTemplate"
         if ([string]::IsNullOrEmpty($resourceName)) { Write-Information "Resource without name in file: $resourcesFile"; return $false; }
-        # resource template can be empty: just naming already existing resource
+        # Empty template: just naming an already-existing resource, nothing to destroy
         if (![string]::IsNullOrEmpty($resourceTemplate)) {
-            # go to work folder under .yuruna
             $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources/$resourceName"
             if (-Not ([string]::IsNullOrEmpty($workFolder))) {
                 $workFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
                 if (-Not ([string]::IsNullOrEmpty($workFolder))) {
-                    # execute tofu destroy from work folder
                     Push-Location $workFolder
                     Write-Information "-- Clear: $workFolder"
                     $result = tofu destroy -auto-approve -refresh=false

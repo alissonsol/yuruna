@@ -35,12 +35,11 @@
 
 param(
     [string]$VMName = "ubuntu-server01",
-    # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM) so
-    # every guest in a run agrees on a single caching proxy URL. When bound
-    # (even to ""), the local discovery is skipped and this value is used
-    # verbatim: "" means "no cache, go direct"; a URL means "use this".
-    # When NOT bound (standalone / manual run), fall back to the discovery
-    # block below.
+    # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM)
+    # so every guest in a run agrees on one caching proxy URL. When
+    # bound (even to ""), local discovery is skipped and this value is
+    # used verbatim: "" = no cache, go direct; URL = use this. When NOT
+    # bound (standalone run), fall back to the discovery block below.
     [string]$CachingProxyUrl
 )
 
@@ -63,10 +62,9 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Check Hyper-V. Assert-HyperVEnabled (VM.common.psm1) calls dism.exe
-# directly instead of Get-WindowsOptionalFeature, which avoids the
-# "Class not registered" COM failure that breaks the first post-install
-# run on a fresh Windows 11 machine.
+# Assert-HyperVEnabled calls dism.exe directly instead of
+# Get-WindowsOptionalFeature — avoids the "Class not registered" COM
+# failure on first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) {
     Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"
     exit 1
@@ -86,7 +84,7 @@ if (!(Test-Path -Path $baseImageFile)) {
     exit 1
 }
 
-# Find OpenSSL with SHA-512 passwd support (for autoinstall password hash)
+# Find OpenSSL with SHA-512 passwd for autoinstall password hash
 $PasswordHash = $null
 foreach ($path in @("$env:ProgramFiles\Git\usr\bin\openssl.exe", "$env:ProgramFiles\Git\mingw64\bin\openssl.exe", "$env:ProgramFiles\OpenSSL-Win64\bin\openssl.exe", "${env:ProgramFiles(x86)}\OpenSSL-Win32\bin\openssl.exe", "openssl")) {
     try {
@@ -105,12 +103,11 @@ if (-not $PasswordHash) {
 }
 
 Write-Output "Creating VM '$VMName' using image: $baseImageFile"
-# Provenance side-channel for operators reading the transcript. Emits
-# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
+# Provenance side-channel for the transcript. Emits "Provenance: <url>"
+# when the sidecar is healthy; warns otherwise.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# Check if VM exists and force delete it
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
@@ -121,7 +118,7 @@ if ($existingVM) {
 
 # === Create copies and files for VM ===
 
-# Create blank VHDX for installation (512GB, dynamically expanding)
+# 512GB dynamically expanding VHDX
 $vmDir = Join-Path $downloadDir $VMName
 if (!(Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
@@ -133,7 +130,7 @@ if (Test-Path -Path $vhdxFile) {
 Write-Output "Creating 512GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 512GB -Dynamic | Out-Null
 
-# Generate autoinstall seed ISO
+# Autoinstall seed ISO
 $SeedDir = Join-Path $env:TEMP "seed_$VMName"
 if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -146,7 +143,7 @@ if (-not (Test-Path $UserDataTemplate)) {
     exit 1
 }
 
-# Load the SSH public key used by the test harness to drive the VM over SSH.
+# SSH public key used by the test harness.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
@@ -154,20 +151,19 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 
 # Detect the squid-cache VM and inject its proxy URL if available. Same
 # severity policy as guest.ubuntu.desktop:
-#   * No squid-cache VM on this host      → WARNING, proceed (direct CDN)
-#   * squid-cache VM exists but stopped   → WARNING, proceed (direct CDN)
-#   * squid-cache VM running but :3128
-#     doesn't answer within a few seconds → ERROR, exit 1
+#   * No cache VM         → WARNING, proceed (direct CDN)
+#   * Cache VM stopped    → WARNING, proceed (direct CDN)
+#   * Cache running, :3128
+#     doesn't answer      → ERROR, exit 1
 #
-# For the server-based install the squid-cache is even more valuable than
-# for the desktop-ISO flow: installing ubuntu-desktop on first boot pulls
-# ~2 GB of .deb packages through apt, and caching them across guest
-# rebuilds is a very large cycle-time win.
+# Cache is even more valuable here than for the desktop-ISO flow:
+# ubuntu-desktop on first boot pulls ~2 GB through apt — caching across
+# rebuilds is a large cycle-time win.
 if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
-    # URL was forwarded by the caller (test runner). Skip discovery so this
-    # script and the runner agree on a single cache URL. On Hyper-V the
-    # race is narrower than on UTM (MAC-scoped neighbor lookup, not subnet
-    # scan), but keeping one source of truth still simplifies debugging.
+    # URL forwarded by the test runner. Skip discovery so this script
+    # and the runner agree on one cache URL. On Hyper-V the race is
+    # narrower than UTM (MAC-scoped neighbor lookup, not subnet scan),
+    # but one source of truth still simplifies debugging.
     if ($CachingProxyUrl) {
         Write-Output "  caching proxy URL forwarded by caller: $CachingProxyUrl — skipping local discovery."
     } else {
@@ -183,20 +179,19 @@ if (-not $cacheVM) {
     Write-Warning "  squid-cache VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
     Write-Warning "  To enable caching: Start-VM squid-cache ; then wait for cloud-init to finish."
 } else {
-    # KVP+ARP dual-strategy discovery + :3128 probe live in VM.common.psm1
-    # (Get-WorkingCachingProxyUrl). Keeping the discovery in one module means
-    # this consumer, the producer (guest.squid-cache/New-VM.ps1), and the
-    # Start-CachingProxy.ps1 summary line all see the same answer — prior
-    # drift had Start-SquidCache's KVP-only summary reporting "discovery
-    # failed" while this script's ARP path was finding the cache fine.
+    # KVP+ARP discovery + :3128 probe live in VM.common.psm1
+    # (Get-WorkingCachingProxyUrl). One module means this consumer, the
+    # producer, and Start-CachingProxy.ps1's summary see the same
+    # answer — earlier drift had Start-SquidCache's KVP-only summary
+    # reporting "discovery failed" while ARP path found the cache.
     $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName "squid-cache"
     if ($CachingProxyUrl) {
         Write-Output "  squid-cache VM detected at $CachingProxyUrl — guest will use local proxy."
     } else {
         $cacheIps = Get-CacheVmCandidateIp -VM $cacheVM
         $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
-        # $Host.UI.WriteLine is the PSScriptAnalyzer-safe way to keep the
-        # color output Write-Host would give us.
+        # $Host.UI.WriteLine keeps Write-Host-style color without the
+        # PSScriptAnalyzer complaint.
         $detail = @"
 
 =========================================================================
@@ -227,22 +222,21 @@ To intentionally skip the cache:
 }
 }
 
-# Build the autoinstall apt-proxy block. When a cache is reachable, inject
-# `apt: proxy: http://...` under autoinstall so subiquity + first-boot
-# apt-get all route through squid.
+# Build the autoinstall apt-proxy block. Cache reachable = inject
+# `apt: proxy: http://...` so subiquity + first-boot apt-get route
+# through squid.
 #
 # sources_list: the Server 24.04 amd64 squashfs ships
 # /etc/apt/sources.list.d/ubuntu.sources (deb822) with ONLY a file:/cdrom
-# entry and no network URI. Curtin's apt-config does a "modifymirrors"
-# substitution — it can only rewrite an existing URI, not add a new one.
-# With no archive.ubuntu.com URL to substitute, the proxied mirror never
-# lands on the target, and the postinstall
-#   apt-get install --download-only ubuntu-desktop
-# fails with E: Unable to locate package. Writing a classic /etc/apt/
-# sources.list via `sources_list` bypasses the no-op: apt merges both files
-# and ubuntu-desktop resolves via archive.ubuntu.com through the squid proxy.
-# (`$PRIMARY/`$SECURITY/`$RELEASE are curtin template tokens — backtick
-# escapes the $ so PowerShell doesn't expand them.)
+# entry and no network URI. Curtin's apt-config does "modifymirrors" —
+# it rewrites an existing URI, not adds one. No archive.ubuntu.com to
+# substitute = the proxied mirror never lands on the target, and
+# `apt-get install --download-only ubuntu-desktop` postinstall fails
+# with E: Unable to locate package. A classic /etc/apt/sources.list via
+# sources_list bypasses the no-op: apt merges both files, ubuntu-desktop
+# resolves via archive.ubuntu.com through squid.
+# (`$PRIMARY/`$SECURITY/`$RELEASE are curtin tokens — backtick escapes
+# the $ so PowerShell doesn't expand them.)
 if ($CachingProxyUrl) {
     $AptProxyBlock = @"
   apt:
@@ -268,22 +262,21 @@ $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Output "Generating seed.iso with autoinstall configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
-# Create and configure Hyper-V VM
 Write-Output "Creating new VM '$VMName'..."
 New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 16384MB -SwitchName "Default Switch" -VHDPath $vhdxFile | Out-Null
 Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -MemoryMaximumBytes 16384MB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
-# Add DVD drives for Ubuntu ISO and seed ISO
+# DVD drives for Ubuntu ISO + seed ISO
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 
-# Set boot order: DVD (Ubuntu ISO) first for installation, then hard drive
+# Boot order: DVD (Ubuntu ISO) first, then hard drive
 $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
-# Set CPU count to half of host cores
+# CPU count = half host cores
 $Cores = (Get-CimInstance -ClassName Win32_Processor).NumberOfCores | Measure-Object -Sum
 $CoreCount = $Cores.Sum
 $vmCores = [math]::Floor($CoreCount / 2)

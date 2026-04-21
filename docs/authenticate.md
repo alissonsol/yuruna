@@ -6,54 +6,42 @@
 
 ## AWS
 
-- It is recommended that you create an administrator user for this application instead of using the root user, as per [guidance](https://docs.aws.amazon.com/IAM/latest/UserGuide/getting-started_create-admin-group.html).
-- Login to AWS using [CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html) (should be needed just once from PowerShell session).
-  - `aws configure`
-    - Enter `AWS Access Key ID`, `AWS Secret Access Key`, `Default region name`, and `Default output format`
-  - Show current [configuration](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)
-    - `aws configure list`
-      - Check if your account has completed creation with the command: `aws eks list-clusters`
+- Create an administrator user (not the root user) per [AWS guidance](https://docs.aws.amazon.com/IAM/latest/UserGuide/getting-started_create-admin-group.html).
+- Login with the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html) (once per PowerShell session):
+  - `aws configure` — enter `AWS Access Key ID`, `AWS Secret Access Key`, `Default region name`, `Default output format`.
+  - Show [current configuration](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html): `aws configure list`.
+  - Verify the account is ready: `aws eks list-clusters`.
 
 ## Azure
 
-- Login to Azure and select subscription (should be needed just once from PowerShell session).
+- Login and select a subscription (once per PowerShell session):
   - `az login --use-device-code`
-  - If needed: show available subscriptions and set default
+  - If needed: list and set a default subscription:
     - `az account list -o table`
     - `az account set --subscription xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxx`
-    - Show current subscription
-      - `az account show --query "{name:name, isDefault:isDefault, id:id, user:user.name}" -o tsv`
+    - Show current: `az account show --query "{name:name, isDefault:isDefault, id:id, user:user.name}" -o tsv`
 
 ## Google Cloud
 
-- Initialization (to be done once)
+- One-time initialization:
   - Check currently active configuration: `gcloud config list`
-  - Initialize the configuration and project
-    - It is recommended to start a new configuration and project with `gcloud init --skip-diagnostics`
-      - Create new configuration and project, so that you don't disrupt any other work
-  - Enable required APIs (change project name as needed)
-    - Navigate to <https://console.developers.google.com/apis/library/compute.googleapis.com?project=yuruna>. Click `Enable API`. If this is the first API enabled for the project, it will require enabling billing.
-    - Navigate to <https://console.developers.google.com/apis/library/containerregistry.googleapis.com?project=yuruna>. Click `Enable API`.
-  - Make sure that a default region is set for the project
-    - Execute: `gcloud compute project-info describe --project [project]`
-    - If needed, change the default region with: `gcloud compute project-info add-metadata --metadata google-compute-default-region=[region]`
-      - It is recommended that the default region match the one used in the resource configuration files (used by OpenTofu).
-  - GCP Docker Registry Access
-    - Create a service account with the role 'Container Registry Service Agent'. You can also use the one automatically added when you enabled the Container Registry API [link](https://cloud.google.com/container-registry/docs/overview#container_registry_service_account).
-    - Creating the JSON access key file
-      - Navigate to the [API credentials](https://console.cloud.google.com/apis/credentials?project=yuruna) page for your project.
-      - Select the service account (click on link) to take you to the "Service Account Details".
-      - Under "Keys", select "Add Key". Then, "Create new key" and select the "JSON" format. When pressing "CREATE", you will have a file downloaded.
-        - Save the file overwriting `config/gcp-access-key.json`
+  - `gcloud init --skip-diagnostics` — start a new configuration and project so you don't disrupt other work.
+  - Enable required APIs (adjust project name as needed). If this is the first API enabled for the project, billing must also be enabled.
+    - <https://console.developers.google.com/apis/library/compute.googleapis.com?project=yuruna> → `Enable API`
+    - <https://console.developers.google.com/apis/library/containerregistry.googleapis.com?project=yuruna> → `Enable API`
+  - Set a default region for the project (preferably the same region used in the OpenTofu resource config):
+    - Inspect: `gcloud compute project-info describe --project [project]`
+    - Change: `gcloud compute project-info add-metadata --metadata google-compute-default-region=[region]`
+  - GCP Docker Registry Access:
+    - Create a service account with the role 'Container Registry Service Agent' (or reuse the one [auto-added](https://cloud.google.com/container-registry/docs/overview#container_registry_service_account) when you enabled the Container Registry API).
+    - Create the JSON access key file:
+      - Open the [API credentials](https://console.cloud.google.com/apis/credentials?project=yuruna) page and click the service account.
+      - Under "Keys", select `Add Key` → `Create new key` → `JSON` → `CREATE`. Save the downloaded file as `config/gcp-access-key.json`.
 
-- Authentication (to be done per session)
-  - Verify the default values with: `gcloud config list`
-  - Set the active configuration
-    - Verify which configuration is active: `gcloud config configurations list`
-    - If needed, activate the desired configuration: `gcloud config configurations activate [configuration]`
-  - Set the active project
-    - List projects with: `gcloud projects list`
-    - Configure default project with: `gcloud config set project [project]`
-  - Authorize the SDK to access GCP: `gcloud auth application-default login`
+- Per-session authentication:
+  - Check defaults: `gcloud config list`
+  - Active configuration: `gcloud config configurations list`; activate with `gcloud config configurations activate [configuration]`.
+  - Active project: `gcloud projects list`; then `gcloud config set project [project]`.
+  - Authorize the SDK: `gcloud auth application-default login`.
 
 Back to [[Yuruna](../README.md)]

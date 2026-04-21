@@ -21,16 +21,16 @@
     Builds the squid HTTP-caching proxy VM bundle for macOS UTM.
 
 .DESCRIPTION
-    Creates a UTM .utm bundle (Apple Virtualization backend) that boots the
-    arm64 Ubuntu cloud image produced by Get-Image.ps1 and runs Squid on
-    port 3128. Cloud-init (via seed.iso) installs squid + apache2 + squid-cgi,
-    pre-warms the linux-firmware package through the proxy, and exposes
-    cachemgr.cgi at http://<vm-ip>/cgi-bin/cachemgr.cgi.
+    Creates a UTM .utm bundle (Apple Virtualization backend) that boots
+    the arm64 Ubuntu cloud image from Get-Image.ps1 and runs Squid on
+    port 3128. Cloud-init (seed.iso) installs squid-openssl + apache2 +
+    squid-cgi + squid-cli, pre-warms linux-firmware through the proxy,
+    and exposes cachemgr.cgi at http://<vm-ip>/cgi-bin/cachemgr.cgi.
 
-    Mirrors guest.ubuntu.desktop/New-VM.ps1 in structure, minus:
-      * nested-virt preflight (squid doesn't need KVM)
+    Mirrors guest.ubuntu.desktop/New-VM.ps1, minus:
+      * nested-virt preflight (squid needs no KVM)
       * installer ISO drive (cloud image is already bootable)
-      * blank qemu-img disk (we use the converted raw cloud image directly)
+      * blank qemu-img disk (we use the converted raw cloud image)
 
 .PARAMETER VMName
     Name of the UTM VM. Default: squid-cache
@@ -58,7 +58,7 @@ $UtmDir = "$VdeDir/$VMName.utm"
 $DataDir = "$UtmDir/Data"
 $downloadDir = "$HOME/virtual/squid-cache"
 
-# UTM presence check (skip the nested-virt + M3 checks — squid needs neither).
+# UTM presence check (no nested-virt / M3 check -- squid needs neither).
 $utmPlist = "/Applications/UTM.app/Contents/Info.plist"
 if (-not (Test-Path $utmPlist)) {
     Write-Error "UTM not found at /Applications/UTM.app. Install with: brew install --cask utm"
@@ -83,7 +83,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 if (Test-Path $UtmDir) { Remove-Item -Recurse -Force $UtmDir }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
-# EFI variable store — same swift snippet guest.ubuntu.desktop uses.
+# EFI variable store (same swift snippet as guest.ubuntu.desktop).
 $EfiVarsFile = "$DataDir/efi_vars.fd"
 Write-Output "Creating EFI variable store..."
 $swiftCode = @'
@@ -100,13 +100,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Copy the pre-built raw cloud image into the bundle as the boot disk.
-# Apple Virtualization.framework reads this directly; no conversion here —
-# Get-Image.ps1 already produced raw, resized to 144 GB.
+# Get-Image.ps1 already produced raw resized to 144 GB; no conversion here.
 $DiskImage = "$DataDir/disk.img"
 Write-Output "Copying cloud image into bundle as disk.img (sparse copy on APFS)..."
 # `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back
-# to Copy-Item if the destination isn't APFS (rare on modern macOS).
-# Full path bypasses the PowerShell `cp` alias for Copy-Item.
+# to Copy-Item if the destination isn't APFS (rare). Full path bypasses
+# the PowerShell `cp` alias for Copy-Item.
 & /bin/cp -c $baseImageFile $DiskImage
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "/bin/cp -c (APFS clone) failed; falling back to Copy-Item."
@@ -121,38 +120,33 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
 Copy-Item -Path (Join-Path $VmConfigDir "meta-data") -Destination "$SeedDir/meta-data"
 
-# Load the yuruna test-harness SSH public key — same module the Ubuntu
-# Desktop guest uses, so one keypair grants passwordless access to every
-# VM in the yuruna environment (including this cache VM, for debugging
-# when squid or cloud-init misbehave).
+# yuruna test-harness SSH public key (same module the Ubuntu Desktop
+# guest uses). One keypair grants passwordless access to every VM,
+# including this cache VM for debugging squid/cloud-init issues.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Generate a random 10-char alphanumeric password for the 'ubuntu' user.
-# Using a fresh password per rebuild (rather than the constant 'password')
-# prevents browsers from caching / auto-suggesting it when opening
-# cachemgr.cgi, which was triggering repeated password-manager popups.
-# Charset is ASCII alphanumerics only: no YAML-escape surprises, and no
-# shell-special characters when the user ssh's with the password.
+# Random 10-char alphanumeric password for the 'ubuntu' user. A fresh
+# password per rebuild (rather than constant 'password') stops browsers
+# from auto-suggesting on cachemgr.cgi. ASCII alphanumerics only: no
+# YAML-escape or shell-special surprises.
 $pwChars = [char[]]'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 $UbuntuPassword = -join (1..10 | ForEach-Object {
     $pwChars[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32(0, $pwChars.Length)]
 })
 
-# Stash the password next to the raw image so users can retrieve it long
-# after this script's console output has scrolled away. The file is
-# plaintext — the download dir lives under ~/virtual/squid-cache (owner-
-# only on default APFS home perms), and this is a dev-only credential
-# with RFC1918-only reachability.
+# Stash the password next to the raw image so users can retrieve it
+# long after the console output scrolls away. Plaintext is fine: dir
+# under ~/virtual/squid-cache is owner-only on default APFS home perms,
+# and this is a dev-only credential with RFC1918-only reachability.
 $PasswordFile = Join-Path $downloadDir "squid-cache-password.txt"
 Set-Content -Path $PasswordFile -Value $UbuntuPassword -NoNewline
 & chmod 600 $PasswordFile 2>&1 | Out-Null
 
-# Substitute the SSH key and password placeholders in user-data. `.Replace()`
-# (literal) rather than -replace (regex) because the key contains characters
-# regex would interpret (though ssh-rsa base64 usually doesn't, cheap insurance).
+# .Replace() (literal) rather than -replace (regex): keys can contain
+# characters regex would interpret. Cheap insurance.
 $UserData = (Get-Content -Raw (Join-Path $VmConfigDir "user-data")).
     Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
     Replace('PASSWORD_PLACEHOLDER', $UbuntuPassword)
@@ -187,13 +181,12 @@ $MachineIdBytes = [byte[]]::new(16)
 $rng.NextBytes($MachineIdBytes)
 $MachineIdentifier = [Convert]::ToBase64String($MachineIdBytes)
 
-# 4 GB RAM, 4 vCPU — same sizing the Hyper-V squid-cache uses. subiquity
-# opens 4-8 concurrent .deb downloads per install; with 1 vCPU + 512 MB
-# the cache became a bottleneck under the old apt-cacher-ng, making
-# proxied installs slower than direct. 4 cores cover the parallel streams.
-# 4 GB (up from 2 GB) gives headroom for squid's larger in-memory index as
-# the on-disk cache grows to 128 GB — squid keeps one metadata entry per
-# cached object in RAM (~400 bytes each).
+# 4 GB RAM, 4 vCPU -- same sizing as the Hyper-V squid-cache. subiquity
+# opens 4-8 concurrent .deb downloads per install; 1 vCPU + 512 MB made
+# the old apt-cacher-ng cache slower than direct. 4 cores cover the
+# parallel streams; 4 GB gives headroom for squid's in-memory index as
+# the 128 GB on-disk cache fills (one ~400-byte metadata entry per
+# cached object).
 $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VM_NAME__',            $VMName `
     -replace '__VM_UUID__',            $VmUuid `
@@ -212,14 +205,12 @@ Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
 
 # === Guidance ===
-# Use a LITERAL here-string (@'...'@ — single quotes) for the multi-line
-# block. The shell snippets below contain $(utmctl ...), "$ip", and other
-# bash syntax that MUST be passed through verbatim for the user to read,
-# NOT evaluated by PowerShell. Placeholders like __VM_NAME__ / __UTM_DIR__
-# are substituted after the fact with .Replace(). An earlier version tried
-# to escape $ with \$ — but \ is NOT a PowerShell string escape, so
-# `\$(utmctl ...)` actually ran utmctl and produced "Virtual machine not
-# found" in the middle of the guidance output.
+# LITERAL here-string (@'...'@) for the multi-line block. Shell snippets
+# below contain $(utmctl ...), "$ip", etc. — pass through verbatim, do
+# NOT let PowerShell evaluate. Placeholders like __VM_NAME__ are
+# substituted after the fact via .Replace(). (An earlier version tried
+# to escape $ with \$; \ is NOT a PowerShell string escape, so
+# `\$(utmctl ...)` actually ran utmctl mid-guidance.)
 Write-Output ""
 Write-Output "=== VM bundle created ==="
 Write-Output "  Path:      $UtmDir"

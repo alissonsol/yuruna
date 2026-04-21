@@ -93,7 +93,7 @@
     pwsh test/Invoke-TestRunner.ps1 -NoGitPull -NoServer
 #>
 
-# The global variable is the cross-module communication channel with yuruna-log.
+# Global variable is the cross-module channel with yuruna-log.
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '')]
 param(
     [string]$ConfigPath        = $null,
@@ -117,10 +117,9 @@ if ($verbose_mode) {
 }
 
 # === Resolve paths ===
-# Tracking and log directories are resolved via Test.TrackDir / Test.LogDir
-# so an operator can redirect them by setting $env:YURUNA_TRACK_DIR or
-# $env:YURUNA_LOG_DIR before launch. Defaults: test/status/track/ and
-# test/status/log/ respectively — both served by the status HTTP server.
+# Track/log dirs come from Test.TrackDir / Test.LogDir; override with
+# $env:YURUNA_TRACK_DIR / $env:YURUNA_LOG_DIR. Defaults: test/status/track/
+# and test/status/log/, both served by the status HTTP server.
 $TestRoot       = $PSScriptRoot
 $RepoRoot       = Split-Path -Parent $TestRoot
 $VdeRoot        = Join-Path $RepoRoot "vde"
@@ -140,29 +139,25 @@ if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 $TemplatePath = Join-Path $TestRoot "test-config.json.template"
 
 # === Single-instance guard ===
-# If another Invoke-TestRunner.ps1 is already running, stop it and wipe
-# any stranded test VMs before we start. Scenario: the operator launched
-# the runner in a second terminal without realising the first was still
-# going; both instances then race on the same VM names and shared status
-# files, and half the VMs end up stuck in Starting/Stopping state.
+# If another Invoke-TestRunner.ps1 is running, stop it and wipe stranded
+# test VMs. Two instances race on VM names and shared status files,
+# leaving VMs stuck in Starting/Stopping state.
 #
-# The YURUNA_RUNNER_RELAUNCH env var marks the source-change relaunch
-# branch below — that branch intentionally spawns a child Invoke-TestRunner.ps1
-# and we don't want the child to treat its own parent as a competitor.
+# YURUNA_RUNNER_RELAUNCH marks the source-change relaunch branch below —
+# that branch spawns a child Invoke-TestRunner.ps1; don't let the child
+# treat its own parent as a competitor.
 $RunnerPidFile = Join-Path $env:YURUNA_TRACK_DIR "runner.pid"
 if ($env:YURUNA_RUNNER_RELAUNCH -ne '1' -and (Test-Path $RunnerPidFile)) {
     $existingPid = 0
-    # Unreadable / malformed / missing pidfile is treated as "no prior
-    # runner" — the single-instance check below still runs on $existingPid
-    # = 0 (Get-Process of 0 returns null) so the branch is a safe no-op.
+    # Unreadable/malformed/missing pidfile treated as "no prior runner";
+    # Get-Process 0 returns null so the branch is a safe no-op.
     try { $existingPid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { $existingPid = 0 }
     if ($existingPid -gt 0 -and $existingPid -ne $PID -and (Get-Process -Id $existingPid -ErrorAction SilentlyContinue)) {
-        # Verify the PID belongs to an Invoke-TestRunner.ps1 process — don't
-        # kill an arbitrary process that happens to have recycled this PID.
-        # Windows uses CIM; macOS/Linux use /bin/ps (path-qualified so PSSA
-        # doesn't confuse this with the `ps` alias for Get-Process — we
-        # need the external binary for `-o args=` which Get-Process can't
-        # produce portably on Unix).
+        # Verify the PID is an Invoke-TestRunner.ps1 — don't kill a process
+        # that recycled this PID. Windows uses CIM; macOS/Linux use
+        # /bin/ps (path-qualified so PSSA doesn't confuse it with the `ps`
+        # alias for Get-Process — we need `-o args=` which Get-Process
+        # can't produce portably on Unix).
         $cmd = $null
         if ($IsWindows) {
             $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$existingPid" -ErrorAction SilentlyContinue).CommandLine
@@ -178,8 +173,8 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1' -and (Test-Path $RunnerPidFile)) {
             Write-Output "           Remove-TestVMFiles.ps1 before start"
             Write-Output "============================================="
             Stop-Process -Id $existingPid -Force -ErrorAction SilentlyContinue
-            # Wait briefly for the old process to die before cleanup so its
-            # Hyper-V/UTM VM ops can't race with ours.
+            # Wait for the old process to die so its Hyper-V/UTM VM ops
+            # can't race with ours.
             for ($i = 0; $i -lt 20; $i++) {
                 if (-not (Get-Process -Id $existingPid -ErrorAction SilentlyContinue)) { break }
                 Start-Sleep -Milliseconds 500
@@ -187,10 +182,9 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1' -and (Test-Path $RunnerPidFile)) {
             try {
                 $cleanup = Join-Path $TestRoot "Remove-TestVMFiles.ps1"
                 if (Test-Path $cleanup) {
-                    # 'test-' is the stock prefix and matches the template.
-                    # test-config.json hasn't been merged yet at this point,
-                    # so we can't read the user's override. Acceptable trade:
-                    # worst case the user picked a custom prefix and this
+                    # Use 'test-' (template default): test-config.json
+                    # hasn't been merged yet, so we can't read a user
+                    # override. If the user picked a custom prefix this
                     # cleanup is a no-op — same as if the guard didn't run.
                     & pwsh -NoProfile -File $cleanup -Prefix 'test-'
                 }
@@ -203,12 +197,12 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1' -and (Test-Path $RunnerPidFile)) {
     }
     Remove-Item $RunnerPidFile -Force -ErrorAction SilentlyContinue
 }
-# Record our PID regardless of the relaunch branch. On relaunch the child
-# overwrites the parent's entry; that's deliberate — the child is the one
-# doing real work, so it should own the lock.
+# Record our PID regardless of relaunch. On relaunch the child overwrites
+# the parent's entry — deliberate: the child does the real work and should
+# own the lock.
 $PID | Set-Content -Path $RunnerPidFile -Encoding ascii
 
-# === Publish debug/verbose preferences as env vars so child processes inherit them ===
+# === Publish debug/verbose preferences so child processes inherit them ===
 $env:YURUNA_DEBUG   = $debug_mode   ? '1' : '0'
 $env:YURUNA_VERBOSE = $verbose_mode ? '1' : '0'
 
@@ -240,19 +234,17 @@ if (-not (Test-Path $StatusFile)) {
 }
 
 # === Helpers: sync test-config.json against its template ===
-# At the start of each cycle the live config is overlaid on top of the
-# template so that new keys introduced in the template are added locally
-# without losing user-set values. The merged object is rewritten to disk
-# only when it differs from the on-disk copy outside the 'secrets' subtree
-# (user credentials always diverge from the template blanks — including
-# them in the diff would churn the file every cycle).
+# Each cycle overlays the live config on the template so new template keys
+# are picked up without losing user values. Rewrite to disk only when the
+# merge differs from disk outside the 'secrets' subtree (credentials
+# always diverge from template blanks; including them would churn the
+# file every cycle).
 
-# Recursively overlay $Current values onto $Template. Template shape wins
-# (which keys exist); current values win for overlapping scalar and array
-# entries. Keys that only exist in $Current are dropped — the template is
-# the schema source of truth. Output keys are emitted in alphabetical order
-# at every nesting level so regenerated test-config.json is stable and
-# independent of the template file's own key ordering.
+# Overlay $Current onto $Template. Template shape wins (which keys exist);
+# current values win for overlapping scalars/arrays. Keys only in $Current
+# are dropped — template is the schema source of truth. Keys emitted
+# alphabetically at every nesting level so regenerated test-config.json
+# is stable regardless of the template's own key ordering.
 function ConvertTo-MergedHashtable {
     param($Template, $Current)
 
@@ -274,8 +266,7 @@ function ConvertTo-MergedHashtable {
     return $result
 }
 
-# Return a shallow clone of $Config without its top-level 'secrets' key,
-# used only for diff comparison.
+# Shallow clone of $Config without top-level 'secrets' for diff comparison.
 function Copy-HashtableWithoutSecretNode {
     param($Config)
     if ($Config -isnot [System.Collections.IDictionary]) { return $Config }
@@ -308,9 +299,9 @@ function Update-TestConfigFromTemplate {
     $current  = Get-Content -Raw $ConfigPath   | ConvertFrom-Json -AsHashtable
 
     # TODO: remove this legacy shim once all active checkouts have migrated.
-    # notification.resend.{apiKey,from} used to live under notification; move
-    # any values we find there into secrets.resend so the merge below (which
-    # drops template-orphan keys) doesn't lose them.
+    # notification.resend.{apiKey,from} used to live under notification;
+    # move values into secrets.resend so the merge (which drops
+    # template-orphan keys) doesn't lose them.
     if ($current -is [System.Collections.IDictionary] -and
         $current.Contains('notification') -and
         $current['notification'] -is [System.Collections.IDictionary] -and
@@ -334,11 +325,10 @@ function Update-TestConfigFromTemplate {
 
     $merged = ConvertTo-MergedHashtable -Template $template -Current $current
 
-    # Validate keystrokeMechanism. Canonical values are "GUI" and "SSH";
-    # recognition is case-insensitive (so "gui"/"Ssh"/etc. are accepted) and
-    # the value is normalized to uppercase when written back. Any unrecognized
-    # value (including the legacy "hypervisor" from older checkouts) is
-    # discarded and replaced with the template default. No migration.
+    # Validate keystrokeMechanism. Canonical values "GUI"/"SSH";
+    # recognition is case-insensitive, value is normalized to uppercase.
+    # Unrecognized values (including legacy "hypervisor") are discarded
+    # and replaced with the template default. No migration.
     $validMechanisms = @('GUI', 'SSH')
     if ($merged -is [System.Collections.IDictionary] -and $merged.Contains('keystrokeMechanism')) {
         $original = "$($merged['keystrokeMechanism'])"
@@ -385,48 +375,44 @@ if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
 Write-Output "Track directory: $env:YURUNA_TRACK_DIR"
 Write-Output "Log directory:   $env:YURUNA_LOG_DIR"
 
-# Proxy-cache detection moved to Test.CachingProxy.psm1 so Start-StatusServer
-# can share the same probe — both writers (console banner here, status-page
-# banner via $env:YURUNA_TRACK_DIR/caching-proxy.txt) stay in lockstep with
-# whatever URL gets injected into autoinstall user-data by guest.ubuntu.desktop/New-VM.ps1.
+# Proxy-cache detection lives in Test.CachingProxy.psm1 so Start-StatusServer
+# shares the same probe — console banner here and the status-page banner
+# (via $env:YURUNA_TRACK_DIR/caching-proxy.txt) stay in lockstep with the
+# URL injected into autoinstall user-data by guest.ubuntu.desktop/New-VM.ps1.
 $cachingProxyUrl = Test-CachingProxyAvailable -HostType $HostType
 
-# When a local cache is detected, expose the VM's ports on the host so
-# LAN clients and operators on other machines can reach the proxy, the
-# ssl-bump listener, Apache's CA cert, and the Grafana dashboard without
-# reaching into the VM's NAT subnet directly. Add-CachingProxyPortMap
-# dispatches per-platform via Test.PortMap.psm1 — netsh portproxy +
-# firewall rule on Hyper-V, detached TcpListener forwarders on macOS/UTM.
-# When no cache is detected, undo any mapping a prior cycle left in place.
+# Local cache detected: expose the VM's ports on the host so LAN clients
+# and other machines can reach the proxy, ssl-bump listener, Apache CA
+# cert, and Grafana dashboard without reaching into the VM's NAT subnet.
+# Add-CachingProxyPortMap dispatches per-platform via Test.PortMap.psm1
+# (netsh portproxy + firewall rule on Hyper-V; detached TcpListener
+# forwarders on macOS/UTM). No cache: undo any mapping a prior cycle left.
 #
-# Port list is @(80, 3128, 3129, 3000) on both platforms and MUST match
-# the Start-CachingProxy.ps1 call site — Add-CachingProxyPortMap runs
-# Clear-AllCachingProxyPortMapping first, so a narrower list at either
-# caller would tear down ports the other just set up. Local guests
-# continue to reach the VM directly on their NAT subnet regardless of
-# what's mapped on the host.
+# Port list @(80, 3128, 3129, 3000) MUST match Start-CachingProxy.ps1 —
+# Add-CachingProxyPortMap runs Clear-AllCachingProxyPortMapping first,
+# so a narrower list at either caller would tear down the other's ports.
+# Local guests reach the VM directly on its NAT subnet regardless.
 #
 # External-cache branch: when $Env:YURUNA_CACHING_PROXY_IP is set,
-# Test-CachingProxyAvailable returns the remote URL and the remote host is
-# assumed to serve all four ports itself. Guests reach the remote IP via
-# the host's outbound NAT, so no local portproxy or forwarder is needed —
-# we skip Add-CachingProxyPortMap entirely and link the dashboard directly
-# at the remote IP. Remove any leftover mappings from a prior local-cache
-# cycle so the old VM IP doesn't keep answering stale proxy requests.
+# Test-CachingProxyAvailable returns the remote URL and the remote host
+# serves all four ports. Guests reach it via the host's outbound NAT —
+# no local portproxy/forwarder needed. Skip Add-CachingProxyPortMap and
+# link the dashboard directly at the remote IP. Remove leftover mappings
+# from a prior local-cache cycle so the old VM IP doesn't answer stale
+# proxy requests.
 #
-# The detection line renders the word "detected" as an ANSI OSC 8
-# hyperlink to the Grafana dashboard so operators in a modern terminal
-# (Windows Terminal, VS Code integrated) can ctrl-click straight to the
-# caching proxy view. Terminals without OSC 8 support drop the escapes
-# silently and just show "detected" as plain text — no regression.
+# The "detected" word is an ANSI OSC 8 hyperlink to the Grafana dashboard
+# so modern terminals (Windows Terminal, VS Code) can ctrl-click into the
+# caching-proxy view. Terminals without OSC 8 drop the escapes silently —
+# no regression.
 if ($cachingProxyUrl) {
     $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
     $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
     $mapOk = $false
     $bestIp = $null
     if ($isExternal) {
-        # Remote cache serves its own ports; clear any local mapping a
-        # prior cycle left, then point the dashboard at the remote.
+        # Remote cache serves its own ports; clear any local mapping left
+        # by a prior cycle, then point the dashboard at the remote.
         [void](Remove-CachingProxyPortMap)
         $mapOk = $true
         $bestIp = $vmIp
@@ -435,7 +421,7 @@ if ($cachingProxyUrl) {
         $mapResult = Add-CachingProxyPortMap -VMIp $vmIp -Port $CachingProxyExposedPorts
         $mapOk = [bool]$mapResult
         $bestIp = Get-BestHostIp
-        if (-not $bestIp) { $bestIp = $vmIp }  # fallback when no routable iface is found
+        if (-not $bestIp) { $bestIp = $vmIp }  # no routable iface — fall back
     }
     if ($mapOk) {
         $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-2h&to=now&timezone=browser&refresh=1m"
@@ -488,7 +474,7 @@ function Copy-FailureArtifactsToStatusLog {
         if (-not $LogFile) { return }
         $logId = [System.IO.Path]::GetFileNameWithoutExtension($LogFile)
         $statusLogDir = [System.IO.Path]::GetDirectoryName($LogFile)
-        # Include a UTC error timestamp so multiple failures within the same run don't overwrite each other
+        # UTC timestamp prevents multiple failures in one run from overwriting each other
         $errorTimestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
 
         $srcScreen = Join-Path $env:YURUNA_LOG_DIR "failure_screenshot_${VMName}.png"
@@ -497,7 +483,7 @@ function Copy-FailureArtifactsToStatusLog {
             $dest = Join-Path $statusLogDir $destName
             Copy-Item -Path $srcScreen -Destination $dest -Force
             Write-Output "  Failure screenshot saved: ./status/log/$destName"
-            # Write clickable HTML link directly to log file (bypasses proxy encoding)
+            # Clickable HTML link straight to log file (bypasses proxy encoding)
             if ($global:__YurunaLogFile) {
                 "  <a href=""$destName"">Failure screenshot: $destName</a>" |
                     Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
@@ -521,28 +507,26 @@ function Copy-FailureArtifactsToStatusLog {
 }
 
 # === Graceful shutdown support ===
-# The CancelKeyPress event handler runs in a separate SessionState (because
-# Register-ObjectEvent -Action creates its own scope). A plain $script:var
-# would not propagate back to the main runner. Use a thread-safe dictionary
-# as shared state so both the event action and the main loop see the same
-# flag without any scope or runspace issues.
+# CancelKeyPress handler runs in a separate SessionState (Register-ObjectEvent
+# -Action creates its own scope) so $script:var would not propagate back.
+# Use a thread-safe dictionary so the event action and main loop share state.
 $script:ShutdownState = [System.Collections.Concurrent.ConcurrentDictionary[string,bool]]::new()
 $script:ShutdownState['Requested'] = $false
 $script:ActiveVMName      = $null
-$script:CycleFinalized    = $true    # tracks whether Complete-Run/Stop-LogFile have been called
+$script:CycleFinalized    = $true    # have Complete-Run/Stop-LogFile been called?
 
 try {
-    # Use Register-ObjectEvent instead of [Console]::add_CancelKeyPress() so
-    # the handler runs on the PowerShell pipeline thread where a runspace
-    # exists. A raw .NET event delegate fires on a CLR thread-pool thread
-    # that has no runspace, which causes a fatal PSInvalidOperationException
-    # ("There is no Runspace available to run scripts in this thread") and
-    # kills the entire process — preventing graceful cleanup.
+    # Register-ObjectEvent (not [Console]::add_CancelKeyPress) so the
+    # handler runs on the PowerShell pipeline thread with a runspace.
+    # A raw .NET event delegate fires on a CLR thread-pool thread with
+    # no runspace, causing a fatal PSInvalidOperationException
+    # ("There is no Runspace available...") that kills the process and
+    # prevents graceful cleanup.
     $shutdownRef = $script:ShutdownState
-    # Clean up any subscriber/job left behind by a prior run that exited
-    # without reaching the bottom-of-script Unregister-Event (Ctrl+C, error,
-    # IDE-terminated session). Without this, re-running in the same shell
-    # fails with "A subscriber with the source identifier ... already exists".
+    # Clean up any subscriber/job left by a prior run that exited without
+    # reaching the bottom-of-script Unregister-Event (Ctrl+C, error,
+    # IDE-terminated). Otherwise re-running in the same shell fails with
+    # "A subscriber with the source identifier ... already exists".
     Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
     Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
     $null = Register-ObjectEvent -InputObject ([Console]) -EventName CancelKeyPress `
@@ -555,8 +539,9 @@ try {
     Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $_"
 }
 
-# === Source-change detection: capture mtimes so the next cycle can relaunch ===
-# if Invoke-TestRunner.ps1 or any module under test/modules is edited mid-run.
+# === Source-change detection ===
+# Capture mtimes so the next cycle relaunches if Invoke-TestRunner.ps1 or
+# any module under test/modules is edited mid-run.
 function Get-SourceFingerprint {
     param([string]$ScriptPath, [string]$ModulesDir)
     $files = @((Get-Item $ScriptPath))
@@ -580,10 +565,10 @@ $ConsecutiveCrashes  = 0
 $MaxConsecutiveCrashes = 3
 
 # === Notification gating ===
-# failuresBeforeAlert : consecutive cycle failures required before sending an alert.
-# successesBeforeRearm: consecutive successes (or a fresh Invoke-TestRunner start)
-#                       required before the alert can fire again.
-# State machine: Armed → (N consecutive failures) → Fired → (M consecutive successes) → Armed
+# failuresBeforeAlert : consecutive failures needed to send an alert.
+# successesBeforeRearm: consecutive successes (or a fresh runner start)
+#                       needed before the alert can fire again.
+# State: Armed → (N failures) → Fired → (M successes) → Armed
 $FailuresBeforeAlert  = [int]($Config.notification.failuresBeforeAlert  ?? 1)
 $SuccessesBeforeRearm = [int]($Config.notification.successesBeforeRearm ?? 1)
 $ConsecutiveFailures  = 0
@@ -596,16 +581,15 @@ while ($true) {
         break
     }
 
-    # Relaunch into a fresh process if the script or any module changed on disk
-    # since this process started. The currently running process has parsed
-    # sources cached in memory; only a new process will pick up edits.
+    # Relaunch in a fresh process if the script or any module changed
+    # on disk — the running process has sources cached in memory.
     $currentFingerprint = Get-SourceFingerprint -ScriptPath $PSCommandPath -ModulesDir $ModulesDir
     if ($currentFingerprint -ne $script:SourceFingerprint) {
         Write-Output "Source changed on disk — relaunching Invoke-TestRunner.ps1 for next cycle..."
         $pwshExe = (Get-Process -Id $PID).Path
-        # Signal the child to skip the single-instance guard — it would
-        # otherwise see this parent's runner.pid and kill the only process
-        # we actually want running.
+        # Signal the child to skip the single-instance guard; otherwise
+        # it would see this parent's runner.pid and kill the only process
+        # we want running.
         $env:YURUNA_RUNNER_RELAUNCH = '1'
         try {
             & $pwshExe -NoLogo -File $PSCommandPath @PSBoundParameters
@@ -615,8 +599,8 @@ while ($true) {
         exit $LASTEXITCODE
     }
 
-    # Re-check all host conditions before each cycle — settings can revert
-    # (e.g. after a system update or user change) between long-running cycles.
+    # Re-check host conditions each cycle — settings can revert (OS
+    # update, manual change) between long-running cycles.
     if (-not (Assert-HostConditionSet -HostType $HostType)) {
         Write-Warning "Host conditions failed. Fix the reported issues and restart."
         break
@@ -683,15 +667,14 @@ while ($true) {
     $GuestList = Get-GuestList -Config $Config
     $Prefix = $Config.testVmNamePrefix ?? "test-"
 
-    # Build VM name map — algorithmic derivation (see Get-TestVMName) so any
-    # guest key from guestOrder produces a stable VM name without requiring
-    # a hardcoded lookup per guest.
+    # Build VM name map via Get-TestVMName so any guestOrder key yields a
+    # stable VM name — no hardcoded per-guest lookup needed.
     $VMNames = @{}
     foreach ($GuestKey in $GuestList) {
         $VMNames[$GuestKey] = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix
     }
 
-    # Determine step list based on available extensions and screenshot schedules
+    # --- Derive step list from available extensions and screenshot schedules ---
     $BaseSteps = @("New-VM", "Start-VM", "Install-OS", "Verify-VM")
     $hasExtensions  = $false
     $hasScreenshots = $false
@@ -723,14 +706,12 @@ while ($true) {
         -GuestList      $GuestList `
         -StepNames      $StepNames
 
-    # --- Seed per-guest provenance so the UI can show the actual ISO filename
-    # on each guest card (e.g. "ubuntu-24.04.4-desktop-amd64.iso" instead of
-    # the generic "guest.ubuntu.desktop"). Each Get-Image.ps1 writes a
-    # two-line sidecar next to the base image — filename + source URL — and
-    # Get-BaseImageProvenance reads it. Missing sidecar or blank URL both
-    # leave provenance empty, and the UI falls back to guestKey in that
-    # case. Per-cycle (not per-run) so deleting the ISO + re-running
-    # Get-Image reflects immediately on the next cycle.
+    # --- Seed per-guest provenance so the UI shows the actual ISO filename
+    # (e.g. "ubuntu-24.04.4-desktop-amd64.iso") instead of "guest.ubuntu.desktop".
+    # Each Get-Image.ps1 writes a two-line sidecar (filename + source URL);
+    # Get-BaseImageProvenance reads it. Missing sidecar or blank URL leaves
+    # provenance empty and the UI falls back to guestKey. Per-cycle, so
+    # deleting the ISO + re-running Get-Image reflects next cycle.
     foreach ($gk in $GuestList) {
         $imgPath = Get-ImagePath -HostType $HostType -GuestKey $gk
         if ($imgPath) {
@@ -739,18 +720,17 @@ while ($true) {
         }
     }
 
-    # --- Start log file (transcript captures all console output) ---
+    # --- Start log file (transcript captures console output) ---
     $LogFile = Start-LogFile -TestRoot $TestRoot -CycleId $CycleId -Hostname (hostname) -GitCommit $GitCommit
     Write-Output "Log file: $LogFile"
 
     Write-Output "Cycle ID: $CycleId"
     Write-Output "Commit:   $GitCommit"
 
-    # --- Pre-flight: every guest-key in guestOrder must have a vde/host.<x>/<guest>/
-    #     folder on this host. There is no hardcoded known-guests allow-list; this
-    #     existence check IS the allow-list. Guests that don't exist on the current
-    #     host are marked fail and skipped for the rest of the cycle; stopOnFailure
-    #     ends the cycle immediately.
+    # --- Pre-flight: every guestOrder key needs a vde/host.<x>/<guest>/
+    #     folder on this host. No hardcoded allow-list — this existence
+    #     check IS the allow-list. Missing folders fail the guest and skip
+    #     it for the rest of the cycle; stopOnFailure ends the cycle now.
     $FailedGuests = [System.Collections.Generic.HashSet[string]]::new()
     foreach ($GuestKey in $GuestList) {
         if (Test-GuestFolder -VdeRoot $VdeRoot -HostType $HostType -GuestKey $GuestKey) { continue }
@@ -759,8 +739,8 @@ while ($true) {
         Write-Warning "  ERROR [$GuestKey / folder check]: $err"
         Write-Output "  (add a vde/$HostType/$GuestKey/ directory with Get-Image.ps1 + New-VM.ps1 to enable this guest on $HostType)"
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
-        # Attach the failure to the first step so the status UI shows it against
-        # this guest's row (the Discover/folder-check phase doesn't have its own step).
+        # Attach the failure to the first step so the status UI shows it
+        # on this guest's row (folder-check has no step of its own).
         if ($StepNames.Count -gt 0) {
             Set-StepStatus -GuestKey $GuestKey -StepName $StepNames[0] -Status "fail" -ErrorMessage $err
         }
@@ -769,6 +749,7 @@ while ($true) {
         if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "folder-check"; $FailureMessage = $err }
         if ($StopOnFailure) { break }
     }
+
 
     if ($StopOnFailure -and -not $OverallPassed) {
         Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns)
@@ -801,8 +782,8 @@ while ($true) {
             Write-Output "Get-Image complete. Timestamp updated."
         }
     } else {
-        # Timer not expired, but verify each image file actually exists.
-        # Re-download any that are missing (e.g. manually deleted or first run after a clean).
+        # Timer not expired, but verify each image exists. Re-download
+        # any missing (manually deleted, first run after clean).
         $missingAny = $false
         foreach ($GuestKey in $GuestList) {
             if ($FailedGuests.Contains($GuestKey)) { continue }
@@ -850,16 +831,16 @@ while ($true) {
         break
     }
 
-    # --- Test each guest sequentially (cleanup → create → start → verify → screenshots → pool test → stop) ---
-    # Only one guest VM exists at a time, so failures don't leave other VMs active.
+    # --- Test each guest sequentially: cleanup → create → start → verify → screenshots → pool test → stop ---
+    # One guest VM at a time, so failures don't leave other VMs active.
     foreach ($GuestKey in $GuestList) {
         if ($script:ShutdownState['Requested']) {
             Write-Output "Shutdown requested. Skipping remaining guests."
             $OverallPassed = $false; $FailedStep = "shutdown"
             break
         }
-        # Skip guests that already failed the pre-flight folder check or
-        # Get-Image step when stopOnFailure is false.
+        # Skip guests that already failed pre-flight or Get-Image
+        # (stopOnFailure=false path).
         if ($FailedGuests.Contains($GuestKey)) {
             Write-Output ""
             Write-Output "=== $GuestKey (skipped — earlier failure) ==="
@@ -881,14 +862,13 @@ while ($true) {
         Set-GuestStatus -GuestKey $GuestKey -Status "running"
 
         Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "running"
-        # Forward the cache URL detected once at runner startup so every
-        # guest in this run uses the same address. Omitting this lets
-        # each guest's New-VM.ps1 probe independently, which races with
-        # transient listeners (stale DHCP leases, torn-down sibling VMs)
-        # and can bake a dead IP into the cidata seed — observed on UTM
-        # where apt then fails with "No route to host" at install time.
-        # When no cache was detected, pass "" so guests skip their own
-        # probe and go direct: one detection event, one outcome.
+        # Forward the cache URL detected at runner startup so every guest
+        # uses the same address. Without this, each guest's New-VM.ps1
+        # probes independently and races with transient listeners (stale
+        # DHCP leases, torn-down sibling VMs), baking a dead IP into the
+        # cidata seed — seen on UTM where apt then fails with "No route
+        # to host" at install. No cache detected → pass "" so guests
+        # skip their probe: one detection event, one outcome.
         $newVmProxy = if ($cachingProxyUrl) { $cachingProxyUrl } else { "" }
         $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName -CachingProxyUrl $newVmProxy
         if ($r.success) {
@@ -922,7 +902,7 @@ while ($true) {
             continue
         }
 
-        # --- Install-OS (run Test-Start scripts to drive OS installation) ---
+        # --- Install-OS (Test-Start scripts drive OS installation) ---
         Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "running"
         $showExtOutput = -not $NoExtensionOutput
         $r = Invoke-StartTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir -ShowOutput $showExtOutput
@@ -1122,12 +1102,11 @@ while ($true) {
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output "  UNHANDLED ERROR in cycle $CycleCount"
     Write-Output "  $_"
-    # Print the origin of the error. Without these the operator sees only
-    # the message (e.g. "Cannot convert value ' Install ' to type
-    # 'System.Int32'") and has to grep ten modules to guess where it came
-    # from. PositionMessage gives the file:line of the throwing statement,
-    # and ScriptStackTrace gives the call chain -- together they pin the
-    # source down on a single re-run.
+    # Print the error origin. Otherwise the operator sees only the message
+    # (e.g. "Cannot convert value ' Install ' to 'System.Int32'") and has
+    # to grep ten modules to guess the source. PositionMessage gives
+    # file:line of the throwing statement; ScriptStackTrace gives the
+    # call chain — together they pin the source on a single re-run.
     if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
         Write-Output "  Origin:"
         foreach ($line in ($_.InvocationInfo.PositionMessage -split "`n")) {
@@ -1142,7 +1121,7 @@ while ($true) {
     }
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 
-    # Stop/remove the active VM if one was in progress
+    # Emergency-stop/remove any VM in progress
     if ($script:ActiveVMName) {
         try {
             Write-Output "  Emergency cleanup: stopping VM '$($script:ActiveVMName)'..."
@@ -1155,7 +1134,7 @@ while ($true) {
         $script:ActiveVMName = $null
     }
 
-    # Finalize the cycle if not already done
+    # Finalize cycle if not already done
     if (-not $script:CycleFinalized) {
         try {
             Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns) -ErrorAction SilentlyContinue
@@ -1180,14 +1159,13 @@ while ($true) {
     # Clean up all test VMs and files before the inter-cycle wait
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 
-    # Cycle-pause back-channel: the status server's /control/cycle-pause
-    # endpoint creates $env:YURUNA_TRACK_DIR/control.cycle-pause. We gate
-    # here, AFTER cleanup but BEFORE the inter-cycle wait, so pressing
-    # "Cycle pause" in the UI cleanly stops the runner at the cycle
-    # boundary with the previous cycle's VMs already torn down. Removing
-    # the file (via /control/cycle-resume) lets the loop proceed into the
-    # normal inter-cycle delay and on to the next cycle. ShutdownState is
-    # checked alongside the file so Ctrl-C can still break out of the wait.
+    # Cycle-pause back-channel: status server's /control/cycle-pause
+    # endpoint creates $env:YURUNA_TRACK_DIR/control.cycle-pause. Gate
+    # here — AFTER cleanup, BEFORE the inter-cycle wait — so the UI's
+    # "Cycle pause" stops the runner at the cycle boundary with VMs torn
+    # down. /control/cycle-resume removes the file and the loop proceeds
+    # to the normal wait. ShutdownState is checked alongside so Ctrl-C
+    # still breaks out of the wait.
     $cyclePauseFlagFile = Join-Path $env:YURUNA_TRACK_DIR 'control.cycle-pause'
     if (Test-Path $cyclePauseFlagFile) {
         Write-Output "Cycle pause set via status UI. Waiting for resume..."
@@ -1216,27 +1194,25 @@ while ($true) {
 Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
 Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
 
-# Release runner.pid on graceful exit. Only delete if it still points to
-# us — a competing runner may have taken over since (and rewritten the
-# file with its own PID) and we shouldn't clobber theirs. A crash / kill
-# -9 / power loss leaves a stale PID behind; that's fine, the next
-# startup's single-instance guard detects it and handles it.
+# Release runner.pid on graceful exit — only if it still points to us.
+# A competing runner may have taken over and rewritten the file with its
+# own PID; don't clobber theirs. Crash / kill -9 / power loss leaves a
+# stale PID; next startup's single-instance guard handles it.
 try {
     if (Test-Path $RunnerPidFile) {
         $filePid = 0
         # Malformed pidfile → leave it alone (don't remove something we
-        # can't identify as ours). $filePid stays 0 so the -eq $PID
-        # comparison below is false.
+        # can't identify as ours). $filePid stays 0 so the -eq $PID check
+        # below is false.
         try { $filePid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { $filePid = 0 }
         if ($filePid -eq $PID) {
             Remove-Item $RunnerPidFile -Force -ErrorAction SilentlyContinue
         }
     }
 } catch {
-    # Shutdown-path cleanup is strictly best-effort: any failure here
-    # (pidfile race with a competing runner, fs permission blip) leaves
-    # a possibly-stale file behind. That's fine — the single-instance
-    # guard at script start handles stale pidfiles on the next launch.
+    # Shutdown cleanup is best-effort: any failure (pidfile race with a
+    # competing runner, fs permission blip) leaves a possibly-stale file.
+    # Fine — the single-instance guard handles it on next launch.
     Write-Verbose "Shutdown pidfile cleanup swallowed error: $($_.Exception.Message)"
 }
 

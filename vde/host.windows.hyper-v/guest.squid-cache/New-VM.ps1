@@ -66,10 +66,9 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Check Hyper-V. Assert-HyperVEnabled (VM.common.psm1) calls dism.exe
-# directly instead of Get-WindowsOptionalFeature, which avoids the
-# "Class not registered" COM failure that breaks the first post-install
-# run of this script on a fresh Windows 11 machine.
+# Assert-HyperVEnabled (VM.common.psm1) calls dism.exe directly instead
+# of Get-WindowsOptionalFeature — avoids the "Class not registered" COM
+# failure that breaks first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
 # Remove existing VM
@@ -109,35 +108,33 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 Copy-Item -Path (Join-Path $vmConfigDir "meta-data") -Destination "$SeedDir/meta-data"
 
 # Load the yuruna test-harness SSH public key — same module the Ubuntu
-# Desktop guest uses, so one keypair grants passwordless access to every
-# VM in the yuruna environment (including this cache VM, for debugging
-# when squid or cloud-init misbehave).
+# Desktop guest uses; one keypair grants passwordless access to every VM
+# (including this cache VM, for debugging squid/cloud-init).
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Generate a random 10-char alphanumeric password for the 'ubuntu' user.
-# Using a fresh password per rebuild (rather than the constant 'password')
-# prevents browsers from caching / auto-suggesting it when opening
-# cachemgr.cgi, which was triggering repeated password-manager popups.
-# Charset is ASCII alphanumerics only: no YAML-escape surprises, and no
-# shell-special characters when the user ssh's with the password.
+# Random 10-char alphanumeric password for the 'ubuntu' user. Fresh per
+# rebuild (not a constant 'password') stops browsers caching / auto-
+# suggesting it when opening cachemgr.cgi, which was triggering password-
+# manager popups. ASCII alphanumerics only: no YAML-escape surprises, no
+# shell-special chars during ssh.
 $pwChars = [char[]]'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 $UbuntuPassword = -join (1..10 | ForEach-Object {
     $pwChars[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32(0, $pwChars.Length)]
 })
 
-# Stash the password next to the VHDX so users can retrieve it long after
-# this script's console output has scrolled away. The file is plaintext —
-# Hyper-V's VirtualHardDiskPath is not multi-user readable by default, and
-# this is a dev-only credential with RFC1918-only reachability.
+# Stash the password next to the VHDX so users can retrieve it after
+# console output has scrolled away. Plaintext — VirtualHardDiskPath is
+# not multi-user readable by default, and this is a dev-only credential
+# with RFC1918-only reachability.
 $PasswordFile = Join-Path $vmDir "squid-cache-password.txt"
 Set-Content -Path $PasswordFile -Value $UbuntuPassword -NoNewline
 
-# Substitute the SSH key and password placeholders in user-data. `.Replace()`
-# (literal) rather than -replace (regex) because the key contains characters
-# regex would interpret (though ssh-rsa base64 usually doesn't, cheap insurance).
+# Substitute SSH key and password placeholders. .Replace() (literal)
+# rather than -replace (regex) because keys can contain regex-special
+# chars (ssh-rsa base64 usually doesn't — cheap insurance).
 $UserData = (Get-Content -Raw (Join-Path $vmConfigDir "user-data")).
     Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
     Replace('PASSWORD_PLACEHOLDER', $UbuntuPassword)
@@ -147,13 +144,11 @@ $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Output "Generating seed.iso with cloud-init configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
-# Surface the credentials BEFORE the long VM-create/boot/cloud-init wait
-# below. If anything in those 20-35 minutes of waiting fails (cloud-init
-# stall, apt rate-limit, yuruna.conf parse error, etc.), the operator
-# needs to console-login via vmconnect to diagnose — and without the
-# password handy they'd have to dig seed.iso off disk to recover it. The
-# final "ready" banner at script end still prints the same credentials;
-# this is just an early-surface copy.
+# Surface credentials BEFORE the long VM-create/boot/cloud-init wait.
+# If anything in those 20-35 minutes fails (cloud-init stall, apt rate-
+# limit, yuruna.conf parse error), the operator needs to console-login
+# via vmconnect — without the password they'd have to dig seed.iso off
+# disk. The final "ready" banner reprints the same credentials.
 Write-Output ""
 Write-Output "=== squid-cache console/SSH login (available NOW) ==="
 Write-Output "  user:     ubuntu"
@@ -164,14 +159,11 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # === Create and configure Hyper-V VM ===
-# 4 GB RAM, 4 vCPU — sized for parallel squid streams. subiquity opens 4-8
-# concurrent .deb downloads per guest install; with 1 vCPU + 512 MB the
-# previous apt-cacher-ng cache became a bottleneck (receive + disk-write +
-# forward on a single core). Same sizing applies to squid: receive + cache
-# store + forward is similar per-stream work. 4 GB (up from 2 GB) gives
-# headroom for squid's larger in-memory index as the on-disk cache grows
-# to 128 GB — squid keeps one metadata entry per cached object in RAM
-# (~400 bytes each).
+# 4 GB RAM, 4 vCPU — sized for parallel squid streams. subiquity opens
+# 4-8 concurrent .deb downloads per guest install; with 1 vCPU + 512 MB
+# the old apt-cacher-ng cache bottlenecked on a single core (receive +
+# disk-write + forward). 4 GB (up from 2 GB) covers squid's in-memory
+# index as the on-disk cache grows to 128 GB (~400 bytes per object).
 Write-Output "Creating new VM '$VMName'..."
 New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 4GB -SwitchName "Default Switch" -VHDPath $vhdxFile | Out-Null
 Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMinimumBytes 4GB -MemoryMaximumBytes 4GB -AutomaticCheckpointsEnabled $false | Out-Null
@@ -191,23 +183,21 @@ Write-Output "Waiting for VM to obtain an IP address..."
 Write-Output "  (first boot runs cloud-init: apt update + install squid + hyperv-daemons;"
 Write-Output "   this can take 5-15 minutes on a slow connection — be patient)"
 
-# Discover the cache VM's IP. The KVP+ARP dual strategy lives in
-# VM.common.psm1 (Get-CacheVmCandidateIp) — this is the same primitive
-# consumers (guest.ubuntu.server/desktop) and the Start-CachingProxy.ps1
-# summary call, so the producer and its consumers never see different
-# answers about which IPs belong to this VM.
+# Discover the cache VM's IP via Get-CacheVmCandidateIp (VM.common.psm1,
+# KVP+ARP). Same primitive called by consumers (ubuntu guests) and
+# Start-CachingProxy.ps1's summary, so producer and consumers never see
+# different answers about which IPs belong to this VM.
 #
-# The :3128 probe does NOT run in this loop — squid isn't listening yet
-# (cloud-init is still running, which is what we're waiting for). A
-# downstream loop (starting at "Waiting for squid to listen on port 3128")
-# takes the $cacheCandidateIps we collect here and tiebreaks between
-# stale and live ARP entries by picking whichever one answers squid.
+# No :3128 probe in this loop — squid isn't listening yet (cloud-init is
+# what we're waiting for). A later loop ("Waiting for squid to listen on
+# port 3128") takes $cacheCandidateIps and tiebreaks stale vs live ARP
+# entries by picking whichever answers squid.
 $cacheIp = $null
 $cacheCandidateIps = @()
 $maxIterations = 240  # 240 * 5s = 20 minutes
 $vmDiscoveryLogged = $false
 
-# Re-enable Write-Progress for the wait loop (the script-level default is
+# Re-enable Write-Progress for the wait loop (script default is
 # SilentlyContinue so web-download progress doesn't spam non-interactive shells).
 $ProgressPreference = 'Continue'
 $activity  = "Waiting for '$VMName' cloud-init (squid install)"
@@ -217,8 +207,8 @@ $baselineSizeMB = [math]::Round((Get-Item $vhdxFile).Length / 1MB, 0)
 for ($i = 0; $i -lt $maxIterations; $i++) {
     Start-Sleep -Seconds 5
 
-    # Hyper-V assigns MAC and leases an IP asynchronously after Start-VM;
-    # the first few iterations normally return an empty candidate list.
+    # Hyper-V assigns MAC + leases an IP asynchronously after Start-VM;
+    # first few iterations normally return an empty candidate list.
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if ($vm) {
         $cacheCandidateIps = @(Get-CacheVmCandidateIp -VM $vm)
@@ -236,9 +226,9 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
         }
     }
 
-    # Single-line progress: elapsed, VM CPU%, and VHDX size growth
-    # (VHDX is dynamic — it grows as cloud-init apt-installs packages,
-    # so a rising size means the install is actually making progress).
+    # Single-line progress: elapsed, CPU%, VHDX size. VHDX is dynamic
+    # and grows as cloud-init apt-installs, so rising size means real
+    # progress.
     $elapsed  = [int]((Get-Date) - $startTime).TotalSeconds
     $pct      = [math]::Min(100, [math]::Round(($elapsed / ($maxIterations * 5)) * 100))
     $cpu      = (Get-VM -Name $VMName -ErrorAction SilentlyContinue).CPUUsage
@@ -301,12 +291,11 @@ $portMaxIterations = 180  # 180 * 5s = 15 minutes — matches the cloud-init bud
 $portStartTime = Get-Date
 
 for ($i = 0; $i -lt $portMaxIterations; $i++) {
-    # Probe EACH candidate on :3128. When ARP discovery returned stale +
-    # live IPs for the same MAC, only the live one will answer. Whichever
-    # responds first is adopted as the authoritative $cacheIp.
-    # Test-CachingProxyPort (VM.common.psm1) is the shared non-blocking probe;
-    # 1000 ms is generous enough to ride over momentary scheduler stalls
-    # during a heavy cloud-init apt-install without starving progress.
+    # Probe each candidate on :3128. When ARP returned stale + live IPs
+    # for one MAC, only the live one answers; whichever responds first
+    # becomes the authoritative $cacheIp. Test-CachingProxyPort
+    # (VM.common.psm1) is the shared non-blocking probe; 1000 ms rides
+    # over momentary scheduler stalls during heavy apt-install.
     $connected = $false
     foreach ($ip in $cacheCandidateIps) {
         if (Test-CachingProxyPort -IpAddress $ip -TimeoutMs 1000) {
@@ -341,8 +330,8 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
         exit 0
     }
 
-    # Progress: elapsed, VM CPU%, and total VHDX growth since script start.
-    # Rising VHDX / non-zero CPU means cloud-init is still apt-installing.
+    # Progress: elapsed, CPU%, VHDX growth since script start.
+    # Rising VHDX / non-zero CPU = cloud-init still apt-installing.
     $elapsed = [int]((Get-Date) - $portStartTime).TotalSeconds
     $pct     = [math]::Min(100, [math]::Round(($elapsed / ($portMaxIterations * 5)) * 100))
     $cpu     = (Get-VM -Name $VMName -ErrorAction SilentlyContinue).CPUUsage

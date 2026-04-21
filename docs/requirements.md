@@ -2,11 +2,11 @@
 
 Some examples assume that you have a registered domain and know how to create/edit DNS records in your registrar.
 
-Before installing certificates on localhost, run `mkcert -install` once to create the local certificate authority. Depending on the operating system, this may require elevated privileges.
+Before installing certificates on localhost, run `mkcert -install` once to create the local certificate authority. This may require elevated privileges.
 
 ## Required tools
 
-Install each of the tools linked below, following the instructions at each link. After installing PowerShell, you can verify whether a tool is already installed and whether your version is equal to or more recent than the one used in testing by running `Test-Requirements.ps1`.
+Install each of the tools linked below. After installing PowerShell, run `Test-Requirements.ps1` to check which tools are installed and whether their versions meet the ones used in testing.
 
 - Install [PowerShell Core](https://github.com/powershell/powershell), the cross-platform automation and configuration tool/framework, version 7.5+.
   - For Windows: learn about [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170)
@@ -58,13 +58,7 @@ Install each of the tools linked below, following the instructions at each link.
 
 - Instructions developed and tested with
   - Operating systems
-    - Windows 11 Professional.
-      - `ver`
-        - `Microsoft Windows [Version 10.0.26220.7872]`
-  - Required tools
-    - Check with the implemented command `Test-Requirements.ps1`
-      - It will show for each tool what was the version in the test environment and version locally found.
-      - Follow links above to install or update tools.
-      - While the scripts and examples may work with previous versions, the tests were performed with the indicated versions.
+    - Windows 11 Professional (`ver` → `Microsoft Windows [Version 10.0.26220.7872]`).
+  - Required tools — run `Test-Requirements.ps1` to compare the version in the test environment against the one locally installed; follow links above to install or update. Scripts may work with older versions, but tests were performed with the indicated versions.
 
 Back to [[Yuruna](../README.md)]

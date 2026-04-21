@@ -4,32 +4,30 @@ Yuruna has two complementary caching layers:
 
 1. **[`YurunaCacheContent`](#the-yurunacachecontent-cache-buster)** — an
    environment variable that controls cache-busting of the one-liner
-   `irm` / `wget` / `curl` commands throughout the repo. Leave it unset to
-   let proxies serve stored copies; set it to a unique datetime-like value
-   to force a fresh fetch.
-2. **[Squid cache VM](#squid-cache-vm)** — an optional lightweight VM that
-   runs Squid as an HTTP/HTTPS caching proxy for the test VMs. The first
-   install populates the cache; every subsequent install pulls from LAN at
-   disk speed.
+   `irm` / `wget` / `curl` commands throughout the repo. Leave it unset
+   to let proxies serve stored copies; set it to a unique datetime-like
+   value to force a fresh fetch.
+2. **[Squid cache VM](#squid-cache-vm)** — an optional lightweight VM
+   that runs Squid as an HTTP/HTTPS caching proxy for the test VMs.
+   First install populates the cache; every subsequent install pulls
+   from LAN at disk speed.
 
-The two layers are independent — either can be used on its own — but they
-compose cleanly: keeping `YurunaCacheContent` unset is exactly what lets
-the Squid VM serve cached copies of the very install scripts that set up
-the rest of the workloads.
+The two layers are independent but compose cleanly: keeping
+`YurunaCacheContent` unset is what lets the Squid VM serve cached copies
+of the install scripts themselves.
 
 ## The `YurunaCacheContent` cache-buster
 
-Every Yuruna one-liner in this repo builds its URL from an optional
-`?nocache=<value>` suffix driven by the **`YurunaCacheContent`**
-environment variable. When the variable is unset or empty, the suffix is
-empty and the URL is fully cacheable — so an intermediate HTTP proxy (for
-example, the Squid VM described below) can serve stored copies instead of
-re-hitting `raw.githubusercontent.com`.
+Every Yuruna one-liner builds its URL from an optional `?nocache=<value>`
+suffix driven by the **`YurunaCacheContent`** environment variable. Unset
+or empty → no suffix, fully cacheable URL, and an intermediate HTTP proxy
+(like the Squid VM below) can serve stored copies instead of re-hitting
+`raw.githubusercontent.com`.
 
-When you *want* a fresh fetch, set `YurunaCacheContent` to any unique
-string — typically a datetime — and every subsequent one-liner you paste
-in that shell (or on that host, if you persisted the variable) will carry
-that value and be treated by caches as a new resource.
+To force a fresh fetch, set `YurunaCacheContent` to any unique string —
+typically a datetime. Every subsequent one-liner in that shell (or on
+that host, if persisted) carries the value and caches treat it as a new
+resource.
 
 Pick whichever scope matches how long you want the override to last:
 
@@ -60,70 +58,65 @@ unset YurunaCacheContent
 - `irm "…<url>$nc" | iex` one-liners in the guest READMEs (PowerShell).
 - [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh) and
   [`automation/Invoke-FetchAndExecute.ps1`](../automation/Invoke-FetchAndExecute.ps1)
-  — the URL helpers used by the test harness and by guest scripts.
-- The `wget` / `curl` calls inside each install script under
+  — URL helpers used by the test harness and guest scripts.
+- `wget` / `curl` calls inside each install script under
   [`vde/guest.amazon.linux/`](../vde/guest.amazon.linux/) and
   [`vde/guest.ubuntu.desktop/`](../vde/guest.ubuntu.desktop/).
 
-In each of those places the suffix expands to `?nocache=<value>` when the
-variable is set, and to the empty string when it is not. The
+The suffix expands to `?nocache=<value>` when set, empty otherwise. The
 `automation/fetch-and-execute.*` wrappers also honor an explicit
-`EXEC_QUERY_PARAMS` override that, when set, takes precedence and is used
-verbatim — useful when you need to pin a specific query string rather
-than a cache-buster timestamp.
+`EXEC_QUERY_PARAMS` override that takes precedence and is used verbatim
+— useful for pinning a specific query string rather than a cache-buster
+timestamp.
 
 ### Propagating the variable into VMs
 
-`YurunaCacheContent` is read in the process that expands the URL — so
-whichever shell (host PowerShell, guest Bash, etc.) runs the one-liner
-needs to have it set. The variable is **not** automatically pushed into
-guest VMs; set it again inside the guest if you want the guest's install
-scripts to cache-bust when they fetch from the host-side caching proxy.
+`YurunaCacheContent` is read by whichever shell (host PowerShell, guest
+Bash, etc.) expands the URL. It is **not** automatically pushed into
+guest VMs; set it again inside the guest if you want guest install
+scripts to cache-bust when fetching from the host-side proxy.
 
 ---
 
 ## Squid cache VM
 
 Optional local HTTP caching proxy for Ubuntu Desktop (and other) test-VM
-installations, packaged as a standalone VM that runs alongside the test
-harness. Works identically on both Windows Hyper-V and macOS UTM hosts.
+installations, packaged as a standalone VM alongside the test harness.
+Works identically on Windows Hyper-V and macOS UTM hosts.
 
 ### What it does
 
 Runs [Squid](https://www.squid-cache.org/) inside a lightweight Ubuntu
-Server VM (4 GB RAM, 4 vCPU, 144 GB disk — 128 GB of which is squid's
-on-disk cache). The VM listens on port 3128 and transparently caches
-every cacheable HTTP response that flows through it — `.deb` packages,
-ISO metadata files, firmware blobs, and anything else the installer (or
-the workload running inside the guest) fetches over plain HTTP. The
-first install populates the cache; every subsequent install of the same
-package pulls from the local VM at disk speed.
+Server VM (4 GB RAM, 4 vCPU, 144 GB disk — 128 GB for squid's on-disk
+cache). The VM listens on port 3128 and transparently caches every
+cacheable HTTP response — `.deb` packages, ISO metadata, firmware blobs,
+anything the installer or guest workload fetches over plain HTTP. First
+install populates the cache; subsequent installs pull from the local VM
+at disk speed.
 
 ### Why it replaced apt-cacher-ng
 
 1. **Squid caches more.** apt-cacher-ng only recognizes apt-shaped URLs.
    Subiquity's kernel install step (`apt-get install linux-firmware`,
-   etc.) happens before the late-command that wires the cache into the
-   target system, so those downloads went direct and were the main
-   source of intermittent `429 Too Many Requests` errors from
+   etc.) happens before the late-command wires the cache into the target
+   system, so those downloads went direct and were the main source of
+   intermittent `429 Too Many Requests` errors from
    `security.ubuntu.com`. A generic HTTP proxy caches those too.
-2. **Squid tunnels HTTPS (CONNECT) by default** and — on Hyper-V —
-   also **caches HTTPS** via a second SSL-bump listener on `:3129` (see
+2. **Squid tunnels HTTPS (CONNECT) by default** and — on Hyper-V — also
+   **caches HTTPS** via a second SSL-bump listener on `:3129` (see
    [HTTPS caching](#https-caching)). apt-cacher-ng refused CONNECT and
    broke `wget https://...` in late-commands; Squid passes those through
-   unchanged on `:3128` and, for clients that trust the local CA,
-   transparently caches the bodies on `:3129`.
+   on `:3128` and, for clients that trust the local CA, transparently
+   caches the bodies on `:3129`.
 
 ### Why the cache matters more on macOS
 
-All UTM VMs running in Apple Virtualization's Shared network mode NAT
-out through the host's single public IP. When the test harness runs
-cycles back-to-back, every install hits `security.ubuntu.com` from that
-same IP and trips the CDN's per-source rate limit much faster than on
-Hyper-V (where the host also NATs, but typically there's one guest in
-flight). A local Squid intercepts those requests so the first install
-populates the cache and every subsequent install pulls `.deb` packages
-from LAN at disk speed.
+UTM VMs in Apple Virtualization's Shared network mode NAT out through
+the host's single public IP. Back-to-back test cycles hit
+`security.ubuntu.com` from the same IP and trip the CDN's per-source
+rate limit much faster than on Hyper-V (typically one guest in flight).
+A local Squid intercepts those requests so the first install populates
+the cache and subsequent installs pull `.deb` packages from LAN.
 
 ## Setup
 
@@ -181,10 +174,9 @@ After squid starts, cloud-init points the VM's own apt at
 `http://127.0.0.1:3128` and runs `apt-get install --download-only --reinstall`
 for `linux-firmware`, the HWE kernel meta, and (amd64 only)
 `intel-microcode`, `amd64-microcode`, `firmware-sof-signed`. Those .debs
-flow through squid on the way in and land in its cache. Without this
-step the *first* guest install still races `security.ubuntu.com`'s 429
-rate limiter for `linux-firmware` (~330 MB) — squid can't serve what it
-hasn't seen yet.
+flow through squid and land in its cache. Without this step the *first*
+guest install still races `security.ubuntu.com`'s 429 rate limiter for
+`linux-firmware` (~330 MB) — squid can't serve what it hasn't seen yet.
 
 Expect **5-15 minutes** for first-boot prewarm (depends on upstream
 bandwidth). Once prewarm finishes, cloud-init flips squid into
@@ -193,10 +185,10 @@ bandwidth). Once prewarm finishes, cloud-init flips squid into
 ## How guest VMs use it
 
 At seed-ISO creation time, each guest's `New-VM.ps1` discovers the cache
-and writes its URL into the autoinstall `apt.proxy` field **and** into a
+and writes its URL into the autoinstall `apt.proxy` field **and** a
 persistent apt proxy dropin inside the installed target. Subiquity's
 in-install apt calls, cloud-init's first-boot `openssh-server` install,
-and every subsequent `apt-get` in the guest flow through the cache.
+and every subsequent `apt-get` flow through the cache.
 
 ### Discovery
 
@@ -209,12 +201,11 @@ and every subsequent `apt-get` in the guest flow through the cache.
 
 Silent fallback-to-CDN can't mask a 429:
 
-- **No cache VM registered / not running** → **WARNING**, install proceeds
-  against Ubuntu's CDN.
-- **Cache VM running but :3128 unreachable** → **ERROR**, `exit 1`. The
-  operator must fix it (check cloud-init, squid, firewall) before
-  retrying. This prevents the exact 429 failures the cache was meant to
-  prevent.
+- **No cache VM registered / not running** → **WARNING**, install
+  proceeds against Ubuntu's CDN.
+- **Cache VM running but :3128 unreachable** → **ERROR**, `exit 1`. Fix
+  it (cloud-init, squid, firewall) before retrying. Prevents the exact
+  429 failures the cache was meant to prevent.
 
 No changes to `test-config.json` or the test sequences are needed.
 
@@ -226,26 +217,25 @@ candidate cache before a run.
 
 ## Cache configuration
 
-The squid config is tuned so the cache behaves as a **replayable
-snapshot**: once an object lands it stays, and the cache keeps serving
-even when origin is unreachable. Once fully populated, the cache
-supports guest installs with **zero internet access**.
+Squid is tuned as a **replayable snapshot**: once an object lands it
+stays, and the cache keeps serving even when origin is unreachable. Once
+fully populated it supports guest installs with **zero internet access**.
 
 The config lives in
 [vde/host.windows.hyper-v/guest.squid-cache/vmconfig/user-data](../vde/host.windows.hyper-v/guest.squid-cache/vmconfig/user-data)
 and
-[vde/host.macos.utm/guest.squid-cache/vmconfig/user-data](../vde/host.macos.utm/guest.squid-cache/vmconfig/user-data) —
-both files carry the same squid settings.
+[vde/host.macos.utm/guest.squid-cache/vmconfig/user-data](../vde/host.macos.utm/guest.squid-cache/vmconfig/user-data)
+— same squid settings in both.
 
 ### Never release unless needed
 
-- `cache_swap_high 99` / `cache_swap_low 98` — eviction only starts when
-  the disk is >99% full, stops once it's down to 98%. Default 90/95
-  would release objects as soon as ~5 GB of free space remained.
+- `cache_swap_high 99` / `cache_swap_low 98` — eviction only starts
+  above 99% full and stops at 98%. Default 90/95 would release objects
+  with ~5 GB free space remaining.
 - `cache_replacement_policy heap LFUDA` +
-  `memory_replacement_policy heap GDSF` — when eviction does run, LFUDA
-  / GDSF retain large, frequently-used blobs (linux-firmware, kernels)
-  and drop rarely-touched small objects first. The expensive-to-refetch
+  `memory_replacement_policy heap GDSF` — when eviction runs, LFUDA /
+  GDSF retain large, frequently-used blobs (linux-firmware, kernels)
+  and drop rarely-touched small objects first. Expensive-to-refetch
   content survives.
 - `quick_abort_min -1 KB` — if a client disconnects mid-download, squid
   finishes the fetch rather than discarding the partial object. The
@@ -255,40 +245,38 @@ both files carry the same squid settings.
 
 - `negative_ttl 0 seconds` — do not cache 4xx/5xx responses. A transient
   blip during one install must not turn into a poisoned 504 served
-  forever for an object squid could otherwise fetch successfully next
-  time.
+  forever for an object squid could otherwise fetch successfully.
 - Aggressive `refresh_pattern` overrides for content-addressable files
   (`.deb .udeb .tar.xz .tar.gz .tar.bz2 .iso`):
   `override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private`.
   These force squid to keep serving cached copies regardless of origin
-  `Cache-Control` or client `no-cache` hints. Apt metadata
-  (`InRelease`, `Packages`, `Release`, `Sources`) uses a shorter TTL so
-  that during prewarm apt still sees fresh package lists.
+  `Cache-Control` or client `no-cache` hints. Apt metadata (`InRelease`,
+  `Packages`, `Release`, `Sources`) uses a shorter TTL so apt still
+  sees fresh package lists during prewarm.
 
 ### offline_mode
 
-After the prewarm phase completes, cloud-init writes
-`/etc/squid/conf.d/yuruna-offline.conf`:
+After prewarm, cloud-init writes `/etc/squid/conf.d/yuruna-offline.conf`:
 
 ```
 offline_mode on
 ```
 
 and runs `squid -k reconfigure`. From that point on, **squid never
-contacts origin** for any object:
+contacts origin**:
 
 - Cache hit → served from disk.
 - Cache miss → `504 Gateway Timeout`.
 
 This is what makes the fully-disconnected workflow real: as long as
-every URL a guest install requests is already in the cache, the guest
-can install with no internet on the host. If something's missing (new
-package version, new repository entry), you get a clean 504 pointing at
-the exact URL — no confusion about whether it came from cache or origin.
+every URL is already cached, the guest can install with no internet on
+the host. If something's missing (new package version, new repo entry)
+you get a clean 504 pointing at the exact URL — no confusion about
+whether it came from cache or origin.
 
 `offline_mode` is flipped on **after** prewarm because an empty cache +
-offline_mode returns 504 on the very first request, which would prevent
-prewarm from populating anything.
+offline_mode returns 504 on the very first request, preventing prewarm
+from populating anything.
 
 ### Refreshing the cache against origin
 
@@ -347,35 +335,33 @@ pre-provisioned "Squid Cache (yuruna)" dashboard includes:
 - **Client HTTP(S) requests/sec** — `rate(squid_client_http_requests_total[5m])`
 - **Client HTTP(S) hits/sec** — `rate(squid_client_http_hits_total[5m])`
 
-  Note: there is no HTTPS-specific client counter — squid-exporter reads
-  squid's own `client_http.*` counters, which aggregate HTTP and HTTPS
-  (via CONNECT and ssl-bump) into the same family, which is why every
-  panel title uses "HTTP(S)". A true protocol split would need a
-  different exporter that parses `access.log`. Also: boynux/squid-
-  exporter appends `_kbytes_total` — not `_total` — for counters whose
-  units are kbytes, so the bytes-oriented panel below queries
-  `squid_client_http_kbytes_out_kbytes_total`; the simpler-looking
-  `_kbytes_out_total` does not exist and renders "No data".
-- **Client HTTP(S) data served (kB/s): total vs cached** —
-  full-width timeseries with two series plotted on one axis:
+  There is no HTTPS-specific client counter — squid-exporter reads
+  squid's own `client_http.*` counters which aggregate HTTP and HTTPS
+  (via CONNECT and ssl-bump) into the same family — hence "HTTP(S)" in
+  every panel title. A true protocol split would need a different
+  exporter that parses `access.log`. Also: boynux/squid-exporter
+  appends `_kbytes_total` — not `_total` — for kbyte counters, so the
+  bytes panel below queries `squid_client_http_kbytes_out_kbytes_total`;
+  the simpler-looking `_kbytes_out_total` does not exist and renders
+  "No data".
+- **Client HTTP(S) data served (kB/s): total vs cached** — full-width
+  timeseries, two series on one axis:
   - `Total` — `rate(squid_client_http_kbytes_out_kbytes_total[5m])`
   - `Cached` — `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`
 
-  The vertical gap between the two lines at any point in time is the
-  traffic that went through the host's outside pipe to origin. Squid's
-  cachemgr exposes the hit bytes directly as `client_http.hit_kbytes_out`
-  — no hit-ratio multiplication, no guessing.
+  The vertical gap between the lines is traffic that went through the
+  host's outside pipe to origin. Squid's cachemgr exposes the hit bytes
+  directly as `client_http.hit_kbytes_out` — no hit-ratio multiplication,
+  no guessing.
 
   Watch the suffix: boynux/squid-exporter is inconsistent about unit
-  labels. `client_http.kbytes_out` → `_kbytes_total` (what the Total
-  query uses), but `client_http.hit_kbytes_out` →
-  `_bytes_total` (what the Cached query uses), despite the underlying
-  value still being reported in kbytes by squid. Both series are on the
-  same kB/s scale and the "(kB/s)" title is correct for both. Writing
-  the Cached query as `..._hit_kbytes_out_kbytes_total` is the fast-path
-  mistake — the series doesn't exist, the panel renders only the Total
-  line, and the Cached legend shows "No data." Verify the actual metric
-  name on a live cache with:
+  labels. `client_http.kbytes_out` → `_kbytes_total` (Total query) but
+  `client_http.hit_kbytes_out` → `_bytes_total` (Cached query), despite
+  both values still being reported in kbytes by squid. Both series are
+  on the same kB/s scale. Writing the Cached query as
+  `..._hit_kbytes_out_kbytes_total` is the fast-path mistake — the
+  series doesn't exist, only the Total line renders, Cached shows "No
+  data." Verify the actual metric name with:
   `curl -s http://127.0.0.1:9301/metrics | grep hit_kbytes_out`.
 
 To edit dashboards, log in with `admin` / `admin` (Grafana's default;
@@ -405,17 +391,17 @@ ad-hoc PromQL without exposing Prometheus. The scrape config in
 ### squid-exporter
 
 The [boynux/squid-exporter](https://github.com/boynux/squid-exporter)
-binary runs as `squid-exporter.service` and speaks Squid's
-cache-manager protocol to `localhost:3128`. It's built from source
-during cloud-init via `go install` (no stable apt package, no stable
-GitHub release-asset URL), which is why `golang-go` briefly appears in
-the package list — the toolchain is purged at the end of runcmd once
-the static binary is in `/usr/local/bin/squid-exporter`.
+binary runs as `squid-exporter.service` and speaks Squid's cache-manager
+protocol to `localhost:3128`. Built from source during cloud-init via
+`go install` (no stable apt package, no stable GitHub release-asset URL)
+— that's why `golang-go` briefly appears in the package list; the
+toolchain is purged at end of runcmd once the static binary lands in
+`/usr/local/bin/squid-exporter`.
 
 ### cachemgr.cgi (fallback)
 
-The original raw cachemgr UI is still available as a debugging fallback
-when Prometheus or Grafana are down or being iterated on:
+The original raw cachemgr UI is available as a debugging fallback when
+Prometheus or Grafana are down:
 
 ```
 http://<squid-cache-vm-ip>/cgi-bin/cachemgr.cgi
@@ -433,7 +419,7 @@ form. Useful reports:
 
 Access is restricted to RFC1918 sources at the Apache layer, and
 Squid's default ACL allows the `manager` scheme only from `localhost` —
-so only host and local-network callers reach this page.
+only host and local-network callers reach this page.
 
 ### CLI
 
@@ -453,28 +439,31 @@ The third-to-last field of `access.log` is `TCP_HIT`, `TCP_MISS`,
 ### Purging a single cached entry
 
 The `yuruna.conf` drop-in (written by cloud-init) enables the `PURGE`
-method for RFC1918 sources via an explicit method-scoped ACL. That
-lets operators invalidate one URL without nuking the whole cache:
+method for RFC1918 sources via a method-scoped ACL. Invalidate one URL
+without nuking the whole cache, using either `squidclient` (installed
+by cloud-init) or plain `curl`:
 
 ```bash
 # From inside the cache VM:
 sudo squidclient -m PURGE http://<origin-host>:<port>/<path>
 
-# From any RFC1918 workstation on the same LAN (no squidclient needed):
+# From any RFC1918 workstation on the same LAN:
+squid-cli purge http://<cache-vm-ip>:3128 http://<origin-host>:<port>/<path>
+# or without squid-cli:
 curl -x http://<cache-vm-ip>:3128 -X PURGE http://<origin-host>:<port>/<path>
 ```
 
 A successful purge returns `HTTP/1.1 200 OK`. `404 Not Found` means the
-object wasn't in the cache to begin with (safe no-op). For total cache
-wipes, stop squid, `rm -rf /var/spool/squid/*`, and `squid -z` to
-re-initialize — see the init steps in the squid-cache user-data.
+object wasn't in the cache (safe no-op). For total cache wipes, stop
+squid, `rm -rf /var/spool/squid/*`, and `squid -z` to re-initialize —
+see the init steps in the squid-cache user-data.
 
 ## Access / credentials
 
 Cloud-init configures the default `ubuntu` user with:
 
 - **Password** — a fresh random 10-char alphanumeric string, generated
-  by `New-VM.ps1` on every rebuild. The password is:
+  by `New-VM.ps1` on every rebuild. It is:
   - printed in the script's output banner when the cache is ready,
   - saved to a local file:
     - **Hyper-V**: `<HyperVVHDPath>\squid-cache\squid-cache-password.txt`
@@ -497,11 +486,10 @@ Cloud-init configures the default `ubuntu` user with:
   `ssh ubuntu@<squid-cache-ip>` works passwordless from the host.
 
 Both paths exist because this VM is most often debugged when it
-*hasn't* finished cloud-init yet — SSH isn't up at that point, only the
-console. Treating the password as a secret is inappropriate: the VM is
-reachable only on the private Hyper-V Default Switch or UTM Shared NAT
-(not externally routable), and squid itself restricts access to RFC1918
-sources.
+*hasn't* finished cloud-init yet — SSH isn't up, only the console. The
+password isn't a secret: the VM is reachable only on the private
+Hyper-V Default Switch or UTM Shared NAT (not externally routable), and
+squid itself restricts access to RFC1918 sources.
 
 ## Management
 
@@ -546,17 +534,16 @@ Shipped on both Hyper-V and UTM.
 The cache VM runs a second squid listener on `:3129` that performs
 **SSL-bump** — squid terminates TLS with a locally-generated CA, caches
 the plaintext bodies through the same `refresh_pattern` and
-`offline_mode` pipeline used for HTTP, and re-encrypts on the way out
-with a per-SNI leaf cert it mints on the fly. Guests that trust the CA
-get HTTPS apt traffic cached; everything else (including any guest that
-doesn't trust the CA) keeps using `:3128` with CONNECT tunneling and no
-caching, so nothing regresses.
+`offline_mode` pipeline as HTTP, and re-encrypts on the way out with a
+per-SNI leaf cert it mints on the fly. Guests that trust the CA get
+HTTPS apt traffic cached; everything else (including guests that don't
+trust the CA) keeps using `:3128` with CONNECT tunneling and no caching
+— nothing regresses.
 
 ### Key / cert material
 
-Generated once by cloud-init on first boot of the squid-cache VM
-(idempotent — a re-run does **not** rotate the CA, which would orphan
-already-trusted guests):
+Generated once by cloud-init on first boot (idempotent — a re-run does
+**not** rotate the CA, which would orphan already-trusted guests):
 
 | Path                                 | Contents                                                    |
 |--------------------------------------|-------------------------------------------------------------|
@@ -566,21 +553,20 @@ already-trusted guests):
 | `/var/www/html/yuruna-squid-ca.crt`  | Copy of the public cert, served by Apache.                  |
 
 The public cert is published at
-`http://<cache-vm-ip>/yuruna-squid-ca.crt` on the same Apache that
+`http://<cache-vm-ip>/yuruna-squid-ca.crt` by the same Apache that
 serves `cachemgr.cgi`. Only the public cert is exposed — `ca.key`
 never leaves the cache VM.
 
 ### Guest trust flow
 
-The two platforms use different delivery paths for the CA because
-Apple VZ's shared-NAT blocks guest↔guest traffic — a UTM guest can't
-reach the cache VM's IP directly the way a Hyper-V guest can — so on
-macOS the host pre-fetches the CA and embeds it in the autoinstall
-seed instead of having the guest fetch it late-command-side.
+The two platforms use different delivery paths because Apple VZ's
+shared-NAT blocks guest↔guest traffic — a UTM guest can't reach the
+cache VM's IP directly. On macOS the host pre-fetches the CA and embeds
+it in the autoinstall seed instead of having the guest fetch it
+late-command-side.
 
-**Hyper-V (in-install wget):** `vmconfig/user-data` for each guest
-runs this inside `late-commands` when a proxy was injected by
-`New-VM.ps1`:
+**Hyper-V (in-install wget):** `vmconfig/user-data` for each guest runs
+this inside `late-commands` when a proxy was injected by `New-VM.ps1`:
 
 1. Derive the cache host from the proxy URL (strip `http://` and `:3128`).
 2. `wget http://<cache>/yuruna-squid-ca.crt` into
@@ -626,9 +612,9 @@ degrade-gracefully semantics as Hyper-V.
 
 ### ssl_bump rules
 
-The minimum viable recipe: `peek step1` → `bump all`. Squid reads the
-TLS ClientHello to learn the SNI hostname, then intercepts. If a
-pin-checking client (snap, Go HTTPS) ends up on the install path, add
-an `acl nobump dstdomain ...` + `ssl_bump splice nobump` pair **above**
+Minimum viable recipe: `peek step1` → `bump all`. Squid reads the TLS
+ClientHello for the SNI hostname, then intercepts. If a pin-checking
+client (snap, Go HTTPS) ends up on the install path, add an
+`acl nobump dstdomain ...` + `ssl_bump splice nobump` pair **above**
 the bump-all line rather than disabling bumping wholesale — see the
-`/etc/squid/conf.d/yuruna.conf` dropin for where to edit.
+`/etc/squid/conf.d/yuruna.conf` dropin.

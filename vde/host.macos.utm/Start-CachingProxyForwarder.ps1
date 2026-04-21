@@ -22,26 +22,24 @@
 
 .DESCRIPTION
     Apple Virtualization.framework's shared-NAT attachment (VZNATNetwork-
-    DeviceAttachment) isolates guest-to-guest traffic: two guests on
-    192.168.64.0/24 can each reach the gateway (192.168.64.1 = the host)
-    and the internet, but NOT each other. ARP between guests is not
-    forwarded, so `connect()` to another guest's IP fails with
-    EHOSTUNREACH.
+    DeviceAttachment) isolates guest-to-guest traffic: guests on
+    192.168.64.0/24 reach the gateway (192.168.64.1 = the host) and the
+    internet but NOT each other (ARP between guests is not forwarded;
+    connect() to another guest fails with EHOSTUNREACH).
 
-    The yuruna squid-cache architecture normally has new guests point
-    their apt proxy at the squid VM directly (e.g. 192.168.64.3:3128).
-    On Hyper-V's real vswitch this works; on macOS VZ it cannot. This
-    forwarder plugs the gap: it binds :3128 on the host and tunnels
-    every connection to the squid VM. Guests then use
+    Normally guests would point their apt proxy at the squid VM directly
+    (e.g. 192.168.64.3:3128). That works on Hyper-V's real vswitch but
+    not on macOS VZ. This forwarder binds :3128 on the host and tunnels
+    every connection to the squid VM, so guests use
     http://192.168.64.1:3128 -- always reachable via the VZ gateway.
 
-    Pure PowerShell implementation (TcpListener + runspace pool per
-    connection) so there is no brew/socat dependency.
+    Pure PowerShell (TcpListener + runspace pool per connection) so there
+    is no brew/socat dependency.
 
-    Typically launched as a detached subprocess by Start-CachingProxy.ps1
-    (via VM.common.psm1's Start-CachingProxyForwarder) and killed by
-    Stop-CachingProxy.ps1. The PID is written to -PidFile so the stopper
-    can find it without pgrep.
+    Typically launched detached by Start-CachingProxy.ps1 (via
+    VM.common.psm1's Start-CachingProxyForwarder) and killed by
+    Stop-CachingProxy.ps1. PID is written to -PidFile so the stopper can
+    find it without pgrep.
 
 .PARAMETER CacheIp
     IP of the squid-cache VM on the VZ shared-NAT subnet (typically
@@ -49,20 +47,19 @@
 
 .PARAMETER Port
     TCP port to listen on AND connect to on the cache (default 3128).
-    Listen and upstream ports are the same because apt / cloud-init
-    assume :3128 on both ends.
+    Same port on both sides because apt/cloud-init assume :3128 on
+    both ends.
 
 .PARAMETER BindAddress
-    Interface to bind the listener on. Default "0.0.0.0" (all
-    interfaces) -- picks up the VZ bridge IP (192.168.64.1)
-    automatically without having to enumerate interfaces.
+    Interface to bind on. Default "0.0.0.0" (all interfaces) picks up
+    the VZ bridge IP (192.168.64.1) without enumerating interfaces.
 
 .PARAMETER PidFile
     Optional path to write this process's PID for the stopper to read.
 
 .PARAMETER LogFile
-    Optional path to append per-connection log lines (accepted /
-    forwarded / closed). Stdout is still written either way.
+    Optional path to append per-connection log lines (accepted/
+    forwarded/closed). Stdout is still written either way.
 
 .EXAMPLE
     pwsh Start-CachingProxyForwarder.ps1 -CacheIp 192.168.64.3
@@ -87,10 +84,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Pin the log path to script scope so Write-ForwarderLog accesses it
-# explicitly rather than via dynamic scope. Also makes PSScriptAnalyzer's
-# lexical-scope review see $LogFile as consumed in the main body (the
-# helper function below is invisible to PSReviewUnusedParameter).
+# Pin log path to script scope so Write-ForwarderLog accesses it
+# explicitly (and PSScriptAnalyzer's PSReviewUnusedParameter sees
+# $LogFile as consumed — the helper function is invisible to that check).
 $script:ForwarderLogFile = $LogFile
 
 function Write-ForwarderLog {
@@ -99,9 +95,8 @@ function Write-ForwarderLog {
     Write-Output $line
     if ($script:ForwarderLogFile) {
         try { Add-Content -LiteralPath $script:ForwarderLogFile -Value $line } catch {
-            # Log append is best-effort -- stdout already received the line,
-            # and a disk-full / permission blip on the log file must NOT
-            # take down the forwarder. Keep running.
+            # Best-effort: stdout already got the line; a disk-full or
+            # permission blip must NOT take down the forwarder.
             $null = $_
         }
     }
@@ -123,15 +118,13 @@ try {
 }
 Write-ForwarderLog "listening on ${BindAddress}:${Port} -> ${CacheIp}:${Port} (pid $PID)"
 
-# Runspace pool so each forwarded connection runs on its own thread
-# without paying PowerShell job startup cost. Upper bound of 64
-# concurrent tunnels is plenty for apt / cloud-init traffic.
+# Runspace pool: each forwarded connection on its own thread without
+# PowerShell-job startup cost. 64 concurrent tunnels covers apt/cloud-init.
 $pool = [RunspaceFactory]::CreateRunspacePool(1, 64)
 $pool.Open()
 
-# Per-connection worker: given the accepted client socket plus the
-# upstream target, open a matching TcpClient and shuttle bytes in both
-# directions until either end closes.
+# Per-connection worker: accept client socket + upstream target, open
+# matching TcpClient, shuttle bytes both ways until either end closes.
 $workerScript = {
     param($client, $targetHost, $targetPort)
     $upstream = $null
@@ -140,15 +133,14 @@ $workerScript = {
         $upstream.Connect($targetHost, $targetPort)
         $cs = $client.GetStream()
         $us = $upstream.GetStream()
-        # CopyToAsync returns a Task; WaitAny returns when either side
-        # of the bidirectional copy finishes (EOF / reset / timeout),
-        # at which point we tear the pair down.
+        # WaitAny returns when either side of the bidirectional copy
+        # finishes (EOF/reset/timeout); tear the pair down.
         $t1 = $cs.CopyToAsync($us)
         $t2 = $us.CopyToAsync($cs)
         [System.Threading.Tasks.Task]::WaitAny(@($t1, $t2)) | Out-Null
     } catch {
-        # Connection-level errors are routine (e.g. upstream reset on
-        # long CONNECT tunnels). Swallow; the listener keeps running.
+        # Connection errors are routine (e.g. upstream reset on long
+        # CONNECT tunnels). Swallow; the listener keeps running.
         $null = $_
     } finally {
         if ($client)   { try { $client.Close()   } catch { $null = $_ } }
@@ -168,8 +160,8 @@ try {
         [void]$ps.BeginInvoke()
     }
 } finally {
-    # Shutdown-path cleanup: all best-effort. Errors here are irrelevant
-    # because the process is exiting; the OS reclaims sockets/fds either way.
+    # Shutdown-path cleanup: best-effort. Errors here are irrelevant —
+    # the process is exiting and the OS reclaims sockets/fds.
     try { $listener.Stop() } catch { $null = $_ }
     try { $pool.Close(); $pool.Dispose() } catch { $null = $_ }
     if ($PidFile -and (Test-Path -LiteralPath $PidFile)) {

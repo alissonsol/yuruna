@@ -18,20 +18,20 @@ to disable display sleep and the screen saver lock so UTM screen
 captures stay readable. The script is idempotent — it is safe to run
 it again to pick up updates.
 
-Consistent with the other Yuruna scripts that need elevation, the
-installer prints an up-front banner listing exactly what it needs
-`sudo` for (Homebrew cask post-install + `pmset` inside
-`Enable-TestAutomation.ps1`) and prompts for your macOS password
-**once** — the timestamp is then kept alive for the rest of the run.
+Like other Yuruna scripts that need elevation, the installer prints
+an up-front banner listing exactly what needs `sudo` (Homebrew cask
+post-install + `pmset` inside `Enable-TestAutomation.ps1`) and
+prompts for your macOS password **once** — the timestamp is kept
+alive for the rest of the run.
 
 After the script finishes, do these steps in order:
 
 1. **Make the new tools visible in your current terminal.** The
    installer ran in its own subshell, so the Terminal window where
-   you pasted the `curl` command still has no `brew`, `pwsh`, or
-   `git` on `PATH`. Either open a new Terminal window, or patch the
-   current shell by running the line the installer prints at the end
-   — on Apple Silicon this is:
+   you pasted `curl` has no `brew`, `pwsh`, or `git` on `PATH`.
+   Either open a new Terminal window, or patch the current shell
+   by running the line the installer prints at the end — on Apple
+   Silicon this is:
 
    ```bash
    eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -55,16 +55,14 @@ After the script finishes, do these steps in order:
 4. **Grant Accessibility permission to your terminal app.** The
    harness sends keystrokes to UTM VMs through the macOS
    Accessibility API (`AXUIElementPostKeyboardEvent`) so VMs stay
-   driven even when they are not the focused window. This step is
-   *not* automated by the installer: macOS's TCC (Transparency,
-   Consent, and Control) framework deliberately forbids any process
-   — even one running as root — from toggling Accessibility on
-   behalf of another app. Only a real human click in System Settings
-   will do it.
+   driven even when unfocused. The installer cannot automate this:
+   macOS's TCC framework forbids any process — even one running as
+   root — from toggling Accessibility for another app. Only a real
+   human click in System Settings works.
 
    Go to **System Settings > Privacy & Security > Accessibility**
-   and add (or enable) your terminal app: Terminal.app, iTerm2,
-   Ghostty, etc.
+   and add (or enable) your terminal app (Terminal.app, iTerm2,
+   Ghostty, etc.).
 
 5. **Run the test harness:**
 
@@ -79,23 +77,20 @@ See [read.more.md](read.more.md) for the step-by-step manual walk-through.
 ## Optional: Local HTTP cache VM (squid)
 
 The test harness creates and destroys Ubuntu Desktop VMs every cycle.
-Each fresh install downloads ~900 MB of packages (kernel, firmware,
-desktop tools) from Ubuntu's CDN. When cycles run back-to-back,
-Ubuntu's mirrors may return **429 Too Many Requests** for large files
-like `linux-firmware`, causing the install to fail. UTM VMs behind
-Apple Virtualization's Shared NAT all egress through the host's
-single public IP, which makes the per-source rate limit bite faster
-than on Hyper-V — so running a local cache matters more here.
+Each fresh install downloads ~900 MB from Ubuntu's CDN. Back-to-back
+cycles can get **429 Too Many Requests** for large files like
+`linux-firmware`. Apple Virtualization's Shared NAT egresses every
+UTM VM through the host's single public IP, so the per-source rate
+limit bites faster here than on Hyper-V.
 
-A small **squid** VM running on the same host eliminates both
-problems: the first install populates the local cache, and every
-subsequent install pulls the same packages from LAN at disk speed.
-Squid replaces the older apt-cacher-ng setup because it caches
-every HTTP response (not just .deb URLs), which covers subiquity's
-own kernel/firmware fetches — the step that was hitting the 429.
+A local **squid** VM eliminates both problems: the first install
+populates the cache, subsequent installs pull from LAN at disk speed.
+Squid replaces the older apt-cacher-ng setup because it caches every
+HTTP response (not just .deb URLs), including subiquity's own
+kernel/firmware fetches — the step that was hitting the 429.
 
 This step is **optional** — the test harness works without it, but
-install times drop from ~30 minutes to ~2 minutes on cache hits, and
+install times drop from ~30 minutes to ~2 minutes on cache hits and
 CDN rate-limit failures stop entirely.
 
 ```bash
@@ -106,17 +101,17 @@ pwsh ./New-VM.ps1        # assembles a UTM bundle; double-click it to register w
 ```
 
 Once the `squid-cache` VM is running, no further configuration is
-needed. The Ubuntu Desktop `New-VM.ps1` auto-detects it via
-`utmctl status squid-cache` (falling back to a 192.168.64.0/24:3128
-subnet probe) and injects the proxy URL into the autoinstall seed ISO.
-Stop the cache VM to revert to direct CDN downloads (a WARNING will
-print at the top of the guest-install run).
+needed. The Ubuntu Desktop `New-VM.ps1` probes the host-side
+forwarder on :3128 (launched by `test/Start-CachingProxy.ps1`) and
+injects `http://192.168.64.1:3128` into the autoinstall seed ISO.
+Stop the cache VM to revert to direct CDN downloads (a WARNING
+prints at the top of the guest-install run).
 
-**Important**: if the cache VM is `started` but port 3128 is unreachable,
-the Ubuntu Desktop `New-VM.ps1` now **errors out** (`exit 1`) instead of
-silently falling back. This prevents the exact 429 failures the cache
-was meant to prevent. Wait for cloud-init to finish (5-15 min on first
-boot) or check the VM before retrying.
+**Important**: if the cache VM is `started` but the host-side
+forwarder on :3128 is not running, the Ubuntu Desktop `New-VM.ps1`
+**errors out** (`exit 1`) instead of silently falling back. This
+prevents the 429 failures the cache exists to prevent. Re-run
+`test/Start-CachingProxy.ps1` (safe to re-invoke).
 
 See [docs/caching.md](../../docs/caching.md) for details — including
 the Grafana dashboard at `http://<squid-cache-ip>:3000` (anonymous

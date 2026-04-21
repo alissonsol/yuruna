@@ -16,15 +16,15 @@ Clearing the resources for the project `website` in the `Azure` cloud (assuming 
 Invoke-Clear.ps1 website azure
 ```
 
-If needed, you can delete resources by executing the command below from the folder with the initial deployment files (`.yuruna/resources/$resourceTemplate`)
+If needed, you can delete resources directly from the folder with the initial deployment files (`.yuruna/resources/$resourceTemplate`):
 
 ```shell
 tofu destroy -auto-approve -refresh=false
 ```
 
-In some cases, that command doesn't find the resources to destroy (`0 destroyed`). It needs the created `.terraform` folder to be still available. If that was removed, you should follow the instructions below for manually cleaning resources.
+This command needs the created `.terraform` folder to still be available. Without it you'll see `0 destroyed` — follow the manual cleanup instructions below instead.
 
-Don't forget to delete the cluster context from `[user]/.kube/config`. That can be easily done using the [Visual Studio Code](https://code.visualstudio.com/) extension for [Kubernetes](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools). It can also be done from the command line with [kubectl](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#-em-delete-context-em-).
+Don't forget to delete the cluster context from `[user]/.kube/config`. The [Visual Studio Code](https://code.visualstudio.com/) [Kubernetes extension](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools) or [`kubectl`](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#-em-delete-context-em-) can both do this.
 
 ## Manually cleaning up AWS resources
 

@@ -59,9 +59,7 @@ if ($true -eq $verbose_mode) { $global:VerbosePreference = "Continue" }
 
 $problems = [System.Collections.Generic.List[string]]::new()
 
-# ---------------------------------------------------------------------------
 # 1. Docker — running and healthy
-# ---------------------------------------------------------------------------
 Write-Verbose "Checking Docker..."
 $null = docker info 2>&1
 if ($LASTEXITCODE -ne 0) {
@@ -70,8 +68,8 @@ if ($LASTEXITCODE -ne 0) {
         $dockerDesktopExe = $null
         $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
         if ($dockerCmd) {
-            # docker.exe is typically at ...\Docker\Docker\resources\bin\docker.exe
-            # Docker Desktop.exe is at ...\Docker\Docker\Docker Desktop.exe
+            # docker.exe at ...\Docker\Docker\resources\bin\docker.exe,
+            # Docker Desktop.exe at ...\Docker\Docker\Docker Desktop.exe
             $candidate = Join-Path ($dockerCmd.Source | Split-Path | Split-Path | Split-Path) "Docker Desktop.exe"
             if (Test-Path $candidate) { $dockerDesktopExe = $candidate }
         }
@@ -97,9 +95,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Verbose "Docker is running and healthy."
 }
 
-# ---------------------------------------------------------------------------
 # 2. Kubectl — available and able to connect to the cluster
-# ---------------------------------------------------------------------------
 Write-Verbose "Checking kubectl..."
 $null = kubectl version --client 2>&1
 if ($LASTEXITCODE -ne 0) {
@@ -129,9 +125,7 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-# ---------------------------------------------------------------------------
 # 3. Kubernetes cluster — healthy nodes
-# ---------------------------------------------------------------------------
 Write-Verbose "Checking Kubernetes cluster health..."
 if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
     Write-Verbose "Skipping cluster health check because kubectl is not connected."
@@ -152,9 +146,7 @@ if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
     }
 }
 
-# ---------------------------------------------------------------------------
 # 4. mkcert — local CA installed
-# ---------------------------------------------------------------------------
 Write-Verbose "Checking mkcert local CA..."
 $mkcertAvailable = $null -ne (Get-Command mkcert -ErrorAction SilentlyContinue)
 if (-not $mkcertAvailable) {
@@ -162,7 +154,7 @@ if (-not $mkcertAvailable) {
     $problems.Add("  -> Install mkcert: https://github.com/FiloSottile/mkcert/releases")
     $problems.Add("  -> After installing, run: mkcert -install")
 } else {
-    # mkcert -CAROOT returns the CA root directory; check that rootCA.pem exists there
+    # mkcert -CAROOT returns the CA root directory; check rootCA.pem exists there
     $caRoot = mkcert -CAROOT 2>&1
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($caRoot)) {
         $problems.Add("MKCERT: Could not determine mkcert CA root directory.")
@@ -179,9 +171,7 @@ if (-not $mkcertAvailable) {
     }
 }
 
-# ---------------------------------------------------------------------------
 # Report
-# ---------------------------------------------------------------------------
 if ($problems.Count -gt 0) {
     Write-Information ""
     Write-Information "== Runtime Check: PROBLEMS FOUND =="
@@ -196,16 +186,12 @@ Write-Information ""
 Write-Information "== Runtime Check: ALL OK =="
 Write-Information ""
 
-# ---------------------------------------------------------------------------
 # List Docker images
-# ---------------------------------------------------------------------------
 Write-Information "-- Docker images --"
 docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedSince}}"
 Write-Information ""
 
-# ---------------------------------------------------------------------------
 # List all running containers (including system / infrastructure ones)
-# ---------------------------------------------------------------------------
 Write-Information "-- Running containers (all) --"
 docker ps --all --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
 Write-Information ""

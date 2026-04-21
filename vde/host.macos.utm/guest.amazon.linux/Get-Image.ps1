@@ -63,4 +63,8 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
+$baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+Set-Content -Path $baseImageOrigin -Value @($qcow2Link, $downloadUrl)
+Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+
 Write-Output "Download complete: $baseImageFile"

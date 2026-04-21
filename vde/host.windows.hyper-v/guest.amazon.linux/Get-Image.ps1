@@ -101,6 +101,10 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $extractedFile -Destination $baseImageFile
 
+$baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+Set-Content -Path $baseImageOrigin -Value @($zipLink, $downloadUrl)
+Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+
 # Clean up the downloaded zip file
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 

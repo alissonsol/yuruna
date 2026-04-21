@@ -61,7 +61,11 @@ if ($existingIso) {
         Move-Item -Path $baseImageFile -Destination $previousFile
         Write-Output "Previous image preserved as: $previousFile"
     }
+    $existingIsoOriginalPath = $existingIso.FullName
     Move-Item -Path $existingIso.FullName -Destination $baseImageFile
+    $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+    Set-Content -Path $baseImageOrigin -Value @($existingIso.Name, [System.Uri]::new($existingIsoOriginalPath).AbsoluteUri)
+    Write-Output "Recorded source filename and URL to: $baseImageOrigin"
     Write-Output "Done: $baseImageFile"
     exit 0
 }
@@ -140,6 +144,10 @@ try {
         Write-Output "  Previous image preserved as: $previousFile"
     }
     Move-Item -Path $downloadFile -Destination $baseImageFile -Force
+    $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+    $originalName = [System.IO.Path]::GetFileName(([System.Uri]$downloadUrl).LocalPath)
+    Set-Content -Path $baseImageOrigin -Value @($originalName, $downloadUrl)
+    Write-Output "Recorded source filename and URL to: $baseImageOrigin"
     Write-Output ""
     Write-Output "=== Download complete: $baseImageFile ==="
     exit 0

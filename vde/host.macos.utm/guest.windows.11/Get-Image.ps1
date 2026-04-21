@@ -68,7 +68,11 @@ if (Test-Path -Path $baseImageFile) {
             Move-Item -Path $baseImageFile -Destination $previousFile
             Write-Output "Previous image preserved as: $previousFile"
         }
+        $existingIsoOriginalPath = $existingIso.FullName
         Move-Item -Path $existingIso.FullName -Destination $baseImageFile
+        $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+        Set-Content -Path $baseImageOrigin -Value @($existingIso.Name, [System.Uri]::new($existingIsoOriginalPath).AbsoluteUri)
+        Write-Output "Recorded source filename and URL to: $baseImageOrigin"
         Write-Output "Done: $baseImageFile"
         $windowsOk = $true
     }
@@ -148,6 +152,10 @@ if (-not $windowsOk) {
             Write-Output "  Previous image preserved as: $previousFile"
         }
         Move-Item -Path $downloadFile -Destination $baseImageFile -Force
+        $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+        $originalName = [System.IO.Path]::GetFileName(([System.Uri]$downloadUrl).LocalPath)
+        Set-Content -Path $baseImageOrigin -Value @($originalName, $downloadUrl)
+        Write-Output "  Recorded source filename and URL to: $baseImageOrigin"
         Write-Output "  Saved as: $baseImageFile"
         $windowsOk = $true
 
@@ -205,6 +213,10 @@ if (Test-Path -Path $spiceImageFile) {
             Write-Output "  Previous SPICE image preserved as: $spicePreviousFile"
         }
         Move-Item -Path $spiceDownloadFile -Destination $spiceImageFile -Force
+        $spiceImageOrigin = Join-Path $downloadDir ([System.IO.Path]::GetFileNameWithoutExtension($spiceImageName) + ".txt")
+        $spiceOriginalName = [System.IO.Path]::GetFileName(([System.Uri]$spiceDownloadUrl).LocalPath)
+        Set-Content -Path $spiceImageOrigin -Value @($spiceOriginalName, $spiceDownloadUrl)
+        Write-Output "  Recorded source filename and URL to: $spiceImageOrigin"
         Write-Output "  Saved as: $spiceImageFile"
         $spiceOk = $true
     } catch {

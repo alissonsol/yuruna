@@ -37,6 +37,17 @@ param()
 # ── Write-Output ────────────────────────────────────────────────────────────
 
 function Write-Output {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Output that also appends each object to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Output and writes an
+        HTML-encoded copy of each $InputObject to $global:__YurunaLogFile.
+    .PARAMETER InputObject
+        Objects to emit to the pipeline and log.
+    .PARAMETER NoEnumerate
+        Passed through to the underlying Write-Output.
+    #>
     [CmdletBinding(DefaultParameterSetName = 'NoEnumerate')]
     param(
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
@@ -60,6 +71,13 @@ function Write-Output {
 # ── Write-Error ─────────────────────────────────────────────────────────────
 
 function Write-Error {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Error that also appends the error text to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Error and writes an
+        HTML-encoded "ERROR: ..." line to $global:__YurunaLogFile.
+    #>
     [CmdletBinding(DefaultParameterSetName = 'NoException')]
     param(
         [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'NoException', ValueFromPipeline = $true)]
@@ -108,6 +126,13 @@ function Write-Error {
 # ── Write-Warning ───────────────────────────────────────────────────────────
 
 function Write-Warning {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Warning that also appends the message to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Warning and writes an
+        HTML-encoded "WARNING: ..." line to $global:__YurunaLogFile.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
@@ -125,6 +150,13 @@ function Write-Warning {
 # ── Write-Debug ─────────────────────────────────────────────────────────────
 
 function Write-Debug {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Debug that also appends the message to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Debug and writes an
+        HTML-encoded "DEBUG: ..." line to $global:__YurunaLogFile.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
@@ -142,6 +174,13 @@ function Write-Debug {
 # ── Write-Verbose ───────────────────────────────────────────────────────────
 
 function Write-Verbose {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Verbose that also appends the message to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Verbose and writes an
+        HTML-encoded "    VERBOSE: ..." line (indented) to $global:__YurunaLogFile.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
@@ -161,6 +200,13 @@ function Write-Verbose {
 # ── Write-Information ───────────────────────────────────────────────────────
 
 function Write-Information {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Information that also appends the message to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Information and writes
+        an HTML-encoded "INFO: ..." line to $global:__YurunaLogFile.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]

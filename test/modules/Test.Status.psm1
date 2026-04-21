@@ -89,7 +89,8 @@ function Initialize-StatusDocument {
         startedAt      = $cycleId
         finishedAt     = $null
         overallStatus  = "running"
-        paused         = $false
+        stepPaused     = $false
+        cyclePaused    = $false
         gitCommit      = $GitCommit
         repoUrl        = $repoUrl
         lastGetImageAt = $lastGetImageAt
@@ -196,16 +197,20 @@ function Complete-Run {
 .SYNOPSIS
     Atomically writes the in-memory document to status.json.
 .DESCRIPTION
-    Before serializing, refreshes $script:Doc.paused from the presence of
-    control.pause next to status.json. That file is the source of truth for
-    the UI Pause/Continue button: the status server creates/removes it and
-    the sequence runner polls it. Mirroring the flag here keeps the parent's
-    periodic status writes from clobbering it.
+    Before serializing, refreshes $script:Doc.stepPaused and
+    $script:Doc.cyclePaused from the presence of control.step-pause and
+    control.cycle-pause next to status.json. Those files are the source of
+    truth for the two UI Pause/Continue buttons: the status server
+    creates/removes them and the runner + Invoke-Sequence poll them.
+    Mirroring the flags here keeps the parent's periodic status writes from
+    clobbering the server-written values.
 #>
 function Write-StatusJson {
     $statusDir = Split-Path -Parent $script:File
-    $pauseFlag = Join-Path $statusDir 'control.pause'
-    $script:Doc.paused = (Test-Path $pauseFlag)
+    $stepPauseFlag  = Join-Path $statusDir 'control.step-pause'
+    $cyclePauseFlag = Join-Path $statusDir 'control.cycle-pause'
+    $script:Doc.stepPaused  = (Test-Path $stepPauseFlag)
+    $script:Doc.cyclePaused = (Test-Path $cyclePauseFlag)
     $tmp = "$($script:File).tmp"
     $script:Doc | ConvertTo-Json -Depth 10 | Set-Content -Path $tmp -Encoding utf8
     Move-Item -Path $tmp -Destination $script:File -Force

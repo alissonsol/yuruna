@@ -1197,6 +1197,27 @@ while ($true) {
     # Clean up all test VMs and files before the inter-cycle wait
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 
+    # Cycle-pause back-channel: the status server's /control/cycle-pause
+    # endpoint creates test/status/control.cycle-pause. We gate here, AFTER
+    # cleanup but BEFORE the inter-cycle wait, so pressing "Cycle pause" in
+    # the UI cleanly stops the runner at the cycle boundary with the previous
+    # cycle's VMs already torn down. Removing the file (via
+    # /control/cycle-resume) lets the loop proceed into the normal
+    # inter-cycle delay and on to the next cycle. ShutdownState is checked
+    # alongside the file so Ctrl-C can still break out of the wait.
+    $cyclePauseFlagFile = Join-Path $StatusDir 'control.cycle-pause'
+    if (Test-Path $cyclePauseFlagFile) {
+        Write-Output "Cycle pause set via status UI. Waiting for resume..."
+        while ((Test-Path $cyclePauseFlagFile) -and (-not $script:ShutdownState['Requested'])) {
+            Start-Sleep -Seconds 1
+        }
+        if ($script:ShutdownState['Requested']) {
+            Write-Output "Shutdown requested during cycle pause. Exiting cycle loop."
+            break
+        }
+        Write-Output "Cycle pause released. Resuming."
+    }
+
     $delay = if ($CycleDelay) { $CycleDelay } else { $CycleDelaySeconds }
     for ($remaining = $delay; $remaining -gt 0; $remaining--) {
         $pct = [math]::Round((($delay - $remaining) / $delay) * 100)

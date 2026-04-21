@@ -62,6 +62,59 @@
     }
     .banner-btn:hover:not([disabled]) { background: rgba(255,255,255,0.28); }
     .banner-btn[disabled] { cursor: default; opacity: .35; }
+    /* When a pause is armed, the matching Continue button switches to amber so
+       its state is obvious against both the dark banner and the light meta
+       section. The banner itself also goes amber, but per design the
+       internal controls keep their normal look until the pause takes effect
+       — so we only recolor the button that was pressed. */
+    .banner-btn.paused-active,
+    .banner-btn.paused-active:hover:not([disabled]) {
+      background: #fbbf24; color: #111827; border-color: #b45309;
+    }
+
+    /* Meta-section button: same shape as .banner-btn but tuned for the white
+       meta-section background instead of the dark banner. Used for the
+       Cycle pause control on the Latest Cycle header row. */
+    .meta-btn {
+      background: #f3f4f6;
+      color: #111827;
+      border: 1px solid #d1d5db;
+      padding: .3rem .75rem;
+      border-radius: .375rem;
+      font-weight: 600; font-size: .8125rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    .meta-btn:hover:not([disabled]) { background: #e5e7eb; }
+    .meta-btn[disabled] { cursor: default; opacity: .45; }
+    .meta-btn.paused-active,
+    .meta-btn.paused-active:hover:not([disabled]) {
+      background: #fbbf24; color: #111827; border-color: #b45309;
+    }
+
+    /* Header row for sections that host a right-aligned control button
+       (Latest Cycle + Cycle pause). Keeps the bottom border of the original
+       .section-title but lets the button sit on the same baseline. The
+       normal .section-title (without .with-controls) keeps the plain
+       vertical-block layout it has always had. */
+    .section-title.with-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .75rem;
+      text-transform: none; /* contents are a mix of heading + button; styling
+                                lives on the inner #sec-meta-title span */
+      letter-spacing: normal;
+      color: inherit;
+      padding-bottom: .3rem;
+      margin-bottom: .875rem;
+    }
+    .section-title.with-controls #sec-meta-title {
+      font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #6b7280;
+      flex: 1 1 auto; min-width: 0;
+    }
 
     /* ── Main container ── */
     main { max-width: 860px; margin: 1.75rem auto; padding: 0 1.5rem; }
@@ -208,14 +261,17 @@
   <span id="banner-text">Loading…</span>
   <div id="banner-controls">
     <button id="ssh-btn" class="banner-btn" type="button" disabled>SSH</button>
-    <button id="pause-btn" class="banner-btn" type="button" disabled>Pause</button>
+    <button id="step-pause-btn" class="banner-btn" type="button" disabled>Step pause</button>
   </div>
 </div>
 
 <main>
 
   <section id="sec-meta" style="display:none">
-    <div class="section-title" id="sec-meta-title">Latest Cycle</div>
+    <div class="section-title with-controls">
+      <span id="sec-meta-title">Latest Cycle</span>
+      <button id="cycle-pause-btn" class="meta-btn" type="button" disabled>Cycle pause</button>
+    </div>
     <div class="meta-grid">
       <div class="meta-card"><div class="label">Cycle ID (UTC)</div><div class="value" id="m-cycleid">—</div></div>
       <div class="meta-card"><div class="label">Started (Local Time)</div><div class="value" id="m-started">—</div></div>
@@ -355,21 +411,33 @@
     refreshCycleTitle();
   }
 
-  // Update the Pause/Continue button label + enabled state based on
-  // the effective banner state ('running'|'paused'|other).
-  function updatePauseButton(effective) {
-    const btn = document.getElementById('pause-btn');
+  // Shared pause-button updater. Handles both the Step pause (banner) and
+  // Cycle pause (sec-meta) buttons, which share identical toggle mechanics
+  // but differ in placement, base CSS class, and control endpoint prefix:
+  //   kind === 'step'  → #step-pause-btn  on dark banner (.banner-btn base)
+  //   kind === 'cycle' → #cycle-pause-btn in meta section (.meta-btn base)
+  // `armed` reflects whether the matching pause flag is currently set
+  // (server-side source of truth, echoed in status.json). `cycleActive` is
+  // true whenever there is an in-flight cycle — the button is otherwise
+  // disabled. When armed, the button flips to "Continue" + amber, matches
+  // the banner's paused color without affecting the rest of the UI.
+  function updatePauseButton(kind, armed, cycleActive) {
+    const btn = document.getElementById(kind + '-pause-btn');
     if (!btn) return;
-    if (effective === 'paused') {
+    const pauseLabel = (kind === 'step') ? 'Step pause' : 'Cycle pause';
+    if (armed) {
       btn.textContent = 'Continue';
+      btn.classList.add('paused-active');
       btn.disabled = false;
-      btn.onclick = () => controlAction('resume');
-    } else if (effective === 'running') {
-      btn.textContent = 'Pause';
+      btn.onclick = () => controlAction(kind, 'resume');
+    } else if (cycleActive) {
+      btn.textContent = pauseLabel;
+      btn.classList.remove('paused-active');
       btn.disabled = false;
-      btn.onclick = () => controlAction('pause');
+      btn.onclick = () => controlAction(kind, 'pause');
     } else {
-      btn.textContent = 'Pause';
+      btn.textContent = pauseLabel;
+      btn.classList.remove('paused-active');
       btn.disabled = true;
       btn.onclick = null;
     }
@@ -377,13 +445,16 @@
 
   // Post to the control endpoint, then force an immediate status refresh so
   // the banner flips to yellow (or back) without waiting for the 30s poll.
-  async function controlAction(action) {
-    const btn = document.getElementById('pause-btn');
-    btn.disabled = true;
+  // action is 'pause' or 'resume'; kind is 'step' or 'cycle' — the endpoint
+  // is /control/<kind>-<action>, matching Start-StatusServer.ps1.
+  async function controlAction(kind, action) {
+    const btn = document.getElementById(kind + '-pause-btn');
+    if (btn) btn.disabled = true;
+    const endpoint = 'control/' + kind + '-' + action;
     try {
-      await fetch('control/' + action, { method: 'POST', cache: 'no-store' });
+      await fetch(endpoint, { method: 'POST', cache: 'no-store' });
     } catch (e) {
-      console.warn('control ' + action + ' failed:', e.message);
+      console.warn(endpoint + ' failed:', e.message);
     }
     loadStatus();
   }
@@ -537,7 +608,8 @@
     if (!data || (!liveCycleId && !data.guests?.length && !data.history?.length)) {
       banner.className = 'idle';
       setBannerText(BANNER.idle);
-      updatePauseButton('idle');
+      updatePauseButton('step',  false, false);
+      updatePauseButton('cycle', false, false);
       ['sec-meta','sec-guests','sec-history'].forEach(id => document.getElementById(id).style.display = 'none');
       noData.style.display = '';
       return;
@@ -545,14 +617,25 @@
     noData.style.display = 'none';
 
     const status = data.overallStatus || 'idle';
-    const paused = !!data.paused;
-    // When paused, the banner shows yellow + "Test run paused" regardless of
-    // the underlying overallStatus. The Pause/Continue button is driven by
-    // the same effective state.
-    const effective = paused ? 'paused' : cls(status);
+    const stepPaused  = !!data.stepPaused;
+    const cyclePaused = !!data.cyclePaused;
+    // The banner shows yellow + "Test paused" when EITHER pause is armed, so
+    // the overall state reads the same regardless of which button the user
+    // pressed. Each button tracks its own armed flag; internal controls
+    // (step pills, guest-action boxes) keep their normal colors until the
+    // pause actually takes effect inside Invoke-Sequence / Invoke-TestRunner.
+    const anyPaused = stepPaused || cyclePaused;
+    const effective = anyPaused ? 'paused' : cls(status);
     banner.className = effective;
-    setBannerText(paused ? BANNER.paused : (BANNER[status] || status));
-    updatePauseButton(effective);
+    setBannerText(anyPaused ? BANNER.paused : (BANNER[status] || status));
+    // Both buttons are enabled whenever a cycle is in flight (running, paused
+    // at step, or already paused at cycle boundary). Outside of that they're
+    // idle-disabled. "cycleActive" lumps running + either pause together so
+    // a user who just clicked Cycle pause can still arm Step pause (or vice
+    // versa) without waiting for the next poll.
+    const cycleActive = (status === 'running') || anyPaused;
+    updatePauseButton('step',  stepPaused,  cycleActive);
+    updatePauseButton('cycle', cyclePaused, cycleActive);
 
     // Meta
     if (liveCycleId) {
@@ -577,7 +660,12 @@
         const dur    = fmtDuration(g.steps?.[0]?.startedAt, g.steps?.slice(-1)[0]?.finishedAt);
         const errHtml = g.steps?.find(s => s.errorMessage)
           ? `<div class="guest-error">${g.steps.find(s=>s.errorMessage).errorMessage}</div>` : '';
-        const actHtml = guestActionHtml(g, actionData, paused);
+        // Pass stepPaused (not anyPaused): the amber "Paused (waiting for
+        // resume)" box is only meaningful for a step-level pause, which is
+        // what Invoke-Sequence actually blocks on. A cycle-level pause is
+        // armed-but-pending during the currently running steps and takes
+        // effect only at the cycle boundary.
+        const actHtml = guestActionHtml(g, actionData, stepPaused);
         return `<div class="guest-card">
           <div class="left">
             <div class="guest-name">${g.guestKey}</div>

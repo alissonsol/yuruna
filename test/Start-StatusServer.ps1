@@ -352,7 +352,8 @@ $serverScript = @"
 `$ErrorActionPreference = 'Stop'
 `$listener = [System.Net.HttpListener]::new()
 `$listener.Prefixes.Add('http://*:$Port/')
-`$pauseFile     = Join-Path '$($StatusDir -replace "'","''")' 'control.pause'
+`$stepPauseFile  = Join-Path '$($StatusDir -replace "'","''")' 'control.step-pause'
+`$cyclePauseFile = Join-Path '$($StatusDir -replace "'","''")' 'control.cycle-pause'
 `$statusJsonFile = Join-Path '$($StatusDir -replace "'","''")' 'status.json'
 `$serverLogFile = Join-Path '$($StatusDir -replace "'","''")' 'server.err'
 # --- SSH-toggle endpoints: need Test.SshServer in this process too ---
@@ -484,30 +485,41 @@ try {
             }
 
             # --- Control endpoints: Pause/Continue back-channel from the UI ---
-            # Creating/removing control.pause is the source of truth checked by
-            # Invoke-Sequence on every step iteration; we also mirror the flag
-            # into status.json so the next UI poll flips the banner immediately
-            # (the normal parent-side Write-StatusJson will keep it in sync
-            # thereafter by re-reading the file each write).
-            if (`$path -eq 'control/pause' -or `$path -eq 'control/resume') {
-                `$desiredPaused = (`$path -eq 'control/pause')
+            # Two independent pause switches, each backed by its own flag file
+            # and mirrored into status.json so the next UI poll flips the
+            # banner immediately:
+            #   control.step-pause  — checked by Invoke-Sequence at every step
+            #                         boundary; stops the test after the
+            #                         currently running step finishes.
+            #   control.cycle-pause — checked by Invoke-TestRunner at the
+            #                         cycle boundary; stops the runner after
+            #                         the current cycle finishes cleanup.
+            # The normal parent-side Write-StatusJson keeps both flags in
+            # sync thereafter by re-reading the files on each write.
+            if (`$path -eq 'control/step-pause' -or `$path -eq 'control/step-resume' -or
+                `$path -eq 'control/cycle-pause' -or `$path -eq 'control/cycle-resume') {
+                `$isCycle = (`$path -like 'control/cycle-*')
+                `$desiredPaused = (`$path -like 'control/*-pause')
+                `$targetFile = if (`$isCycle) { `$cyclePauseFile } else { `$stepPauseFile }
+                `$fieldName  = if (`$isCycle) { 'cyclePaused' } else { 'stepPaused' }
                 try {
                     if (`$desiredPaused) {
-                        Set-Content -Path `$pauseFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
+                        Set-Content -Path `$targetFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
                     } else {
-                        Remove-Item `$pauseFile -Force -ErrorAction SilentlyContinue
+                        Remove-Item `$targetFile -Force -ErrorAction SilentlyContinue
                     }
                 } catch { }
                 try {
                     `$doc = Get-Content -Raw `$statusJsonFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable
-                    `$doc['paused'] = `$desiredPaused
+                    `$doc[`$fieldName] = `$desiredPaused
                     `$tmp = "`$statusJsonFile.tmp"
                     `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
                     Move-Item -Path `$tmp -Destination `$statusJsonFile -Force
                 } catch { }
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
-                `$payload = if (`$desiredPaused) { '{"ok":true,"paused":true}' } else { '{"ok":true,"paused":false}' }
+                `$pausedJson = if (`$desiredPaused) { 'true' } else { 'false' }
+                `$payload = '{"ok":true,"' + `$fieldName + '":' + `$pausedJson + '}'
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)

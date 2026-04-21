@@ -1943,8 +1943,9 @@ function Invoke-Sequence {
     }
     Write-Information "    Steps: $($steps.Count)"
 
-    # Pause back-channel: the status server's /control/pause endpoint creates
-    # test/status/control.pause. We gate on that file in two places:
+    # Step-pause back-channel: the status server's /control/step-pause
+    # endpoint creates test/status/control.step-pause. We gate on that file
+    # in two places:
     #   1. Before sequence setup (here, below) — so Restart-VMConnect and any
     #      per-sequence work don't run while paused, and the very first
     #      action of a new sequence can't start while paused. This matters
@@ -1956,7 +1957,10 @@ function Invoke-Sequence {
     #      mid-sequence takes effect before the next action.
     # Empty-steps sequences have already returned above, so the sequence-
     # level wait here never triggers for a sequence that has nothing to do.
-    $pauseFlagFile = Join-Path (Split-Path -Parent $PSScriptRoot) "status/control.pause"
+    # Cycle-pause (control.cycle-pause) is gated separately in
+    # Invoke-TestRunner.ps1 at cycle boundaries — Invoke-Sequence is only
+    # concerned with step-level pauses.
+    $stepPauseFlagFile = Join-Path (Split-Path -Parent $PSScriptRoot) "status/control.step-pause"
 
     # Current-action sidecar: write the in-progress step to a small JSON file
     # that the status server can serve. The UI polls it alongside status.json
@@ -1984,15 +1988,15 @@ function Invoke-Sequence {
 
     # Shared pause-wait block. Used both at sequence start (Label='[sequence
     # start]') and at the top of each step (Label='[stepNum/Count]').
-    # Dynamic scoping resolves $pauseFlagFile and $writeCurrentAction from
-    # the caller's scope at invoke time, so the scriptblock doesn't need
-    # its own parameters for those.
+    # Dynamic scoping resolves $stepPauseFlagFile and $writeCurrentAction
+    # from the caller's scope at invoke time, so the scriptblock doesn't
+    # need its own parameters for those.
     $waitWhilePaused = {
         param([string]$Label)
-        if (Test-Path $pauseFlagFile) {
+        if (Test-Path $stepPauseFlagFile) {
             & $writeCurrentAction "$Label Paused (waiting for resume)"
             Write-Information "    $Label Paused (status-server request). Waiting for resume..."
-            while (Test-Path $pauseFlagFile) {
+            while (Test-Path $stepPauseFlagFile) {
                 Start-Sleep -Seconds 1
             }
             Write-Information "    $Label Resumed."

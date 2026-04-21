@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol
@@ -33,7 +33,7 @@ $languageFilter = "English"
 # Manual download fallback
 $downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11"
 
-function Show-ManualDownloadInstructions {
+function Show-ManualDownloadInstruction {
     param([string]$TargetPath, [string]$TargetDir)
     Write-Output ""
     Write-Output "--- Manual download required ---"
@@ -77,7 +77,7 @@ if (Test-Path -LiteralPath $defaultBaseFile) {
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Warning "Not elevated — cannot query Hyper-V or write to $defaultDownloadDir."
-    Show-ManualDownloadInstructions -TargetPath $defaultBaseFile -TargetDir $defaultDownloadDir
+    Show-ManualDownloadInstruction -TargetPath $defaultBaseFile -TargetDir $defaultDownloadDir
     exit 1
 }
 
@@ -93,7 +93,7 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Write-Output "Hyper-V default VHDX folder: $downloadDir"
 if (!(Test-Path -Path $downloadDir)) {
     Write-Warning "The Hyper-V default VHDX folder does not exist: $downloadDir"
-    Show-ManualDownloadInstructions -TargetPath $baseImageFile -TargetDir $downloadDir
+    Show-ManualDownloadInstruction -TargetPath $baseImageFile -TargetDir $downloadDir
     exit 1
 }
 
@@ -219,5 +219,5 @@ try {
 }
 
 # === Fallback: manual download instructions ===
-Show-ManualDownloadInstructions -TargetPath $baseImageFile -TargetDir $downloadDir
+Show-ManualDownloadInstruction -TargetPath $baseImageFile -TargetDir $downloadDir
 exit 1

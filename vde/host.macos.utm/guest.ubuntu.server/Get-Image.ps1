@@ -56,7 +56,7 @@ $downloadDir = "$HOME/virtual/ubuntu.env"
 $baseImageName = "host.macos.utm.guest.ubuntu.server"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 
-function Write-ExceptionDetails {
+function Write-ExceptionDetail {
     param($Record)
     Write-Verbose "Exception type: $($Record.Exception.GetType().FullName)"
     if ($Record.Exception.InnerException) {
@@ -74,7 +74,7 @@ function Resolve-StableIso {
         $page = (Invoke-WebRequest -Uri "$ReleaseBaseUrl/" -ErrorAction Stop).Content
     } catch {
         Write-Warning "Stable release index at $ReleaseBaseUrl not reachable: $($_.Exception.Message)"
-        Write-ExceptionDetails $_
+        Write-ExceptionDetail $_
         return $null
     }
     $found = [regex]::Matches($page, $IsoPattern)
@@ -99,7 +99,7 @@ function Resolve-DailyIso {
         Invoke-WebRequest -Uri $url -Method Head -ErrorAction Stop | Out-Null
     } catch {
         Write-Warning "Daily ISO at $url not reachable: $($_.Exception.Message)"
-        Write-ExceptionDetails $_
+        Write-ExceptionDetail $_
         return $null
     }
     return [pscustomobject]@{
@@ -110,7 +110,7 @@ function Resolve-DailyIso {
     }
 }
 
-function Write-ProxyEnvDiagnostics {
+function Write-ProxyEnvDiagnostic {
     param([string[]]$ProbeUrls = @())
     Write-Output "Proxy-related environment variables:"
     foreach ($v in 'http_proxy','https_proxy','HTTP_PROXY','HTTPS_PROXY','no_proxy','NO_PROXY','all_proxy','ALL_PROXY') {
@@ -186,7 +186,7 @@ if (-not $resolved) {
     $msg = "Could not resolve a usable Ubuntu live-server arm64 ISO. Stable ($stableReleaseUrl) and daily ($dailyBaseUrl) are both unreachable or missing the expected image."
     Write-Output $msg
     Write-Information $msg -InformationAction Continue
-    Write-ProxyEnvDiagnostics -ProbeUrls @("$stableReleaseUrl/", "$dailyBaseUrl/$dailyIsoFileName")
+    Write-ProxyEnvDiagnostic -ProbeUrls @("$stableReleaseUrl/", "$dailyBaseUrl/$dailyIsoFileName")
     Write-Error $msg
     exit 1
 }

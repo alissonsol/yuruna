@@ -16,6 +16,13 @@
 
 #requires -version 7
 
+# $global:__YurunaLogFile is the cross-module log-file communication channel
+# (owned by Test.Log.psm1 / consumed by yuruna-log.psm1's Write-* proxies).
+# Suppressing PSAvoidGlobalVars keeps analyzer clean without losing the
+# contract.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '')]
+param()
+
 <#
 .SYNOPSIS
     Returns the expected filesystem path of the base image for a given host+guest pair.

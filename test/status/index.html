@@ -698,15 +698,16 @@
         // armed-but-pending during the currently running steps and takes
         // effect only at the cycle boundary.
         const actHtml = guestActionHtml(g, actionData, stepPaused);
-        // Prefer the downloaded ISO filename (e.g. "ubuntu-24.04.4-desktop-amd64.iso")
-        // over the generic guestKey when the runner seeded provenance from
-        // the Get-Image sidecar. Blank provenanceFilename -> fall back to
-        // guestKey so older status.json docs keep rendering.
-        const title = (g.provenanceFilename && g.provenanceFilename.trim()) || g.guestKey;
+        // The guest-meta row sandwiches the downloaded ISO filename (from
+        // the Get-Image sidecar) between the VM name and the duration so
+        // operators can see at a glance which image version each VM is
+        // running. When provenanceFilename is blank (older status.json, or
+        // sidecar missing) the segment collapses out cleanly.
+        const provFilename = (g.provenanceFilename || '').trim();
         return `<div class="guest-card">
           <div class="left">
-            <div class="guest-name">${escHtml(title)}</div>
-            <div class="guest-meta">${g.vmName ? 'VM: '+g.vmName+' · ' : ''}${dur !== '—' ? 'Duration: '+dur : ''}</div>
+            <div class="guest-name">${escHtml(g.guestKey)}</div>
+            <div class="guest-meta">${g.vmName ? 'VM: '+escHtml(g.vmName)+' · ' : ''}${provFilename ? escHtml(provFilename)+' · ' : ''}${dur !== '—' ? 'Duration: '+dur : ''}</div>
             <div class="steps">${steps}</div>
             ${actHtml}
             ${errHtml}

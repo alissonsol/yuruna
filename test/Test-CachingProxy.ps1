@@ -224,7 +224,12 @@ foreach ($p in $ports) {
 
 $caUrl = "http://${resolvedIp}/yuruna-squid-ca.crt"
 try {
-    $resp = Invoke-WebRequest -Uri $caUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+    # -NoProxy: we're fetching the cache's own Apache on :80. If the host
+    # already has a proxy configured (including a stale yuruna one from a
+    # prior cycle), routing this request through it would either loop or
+    # fail against a dead endpoint -- the .42 fetch getting tunneled via a
+    # leftover .63:3128 setting is exactly how this bug was spotted.
+    $resp = Invoke-WebRequest -Uri $caUrl -UseBasicParsing -NoProxy -TimeoutSec 5 -ErrorAction Stop
     if ($resp.StatusCode -eq 200 -and $resp.RawContentLength -gt 0) {
         $raw = if ($resp.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($resp.Content) } else { [string]$resp.Content }
         if ($raw -match '-----BEGIN CERTIFICATE-----' -and $raw -match '-----END CERTIFICATE-----') {

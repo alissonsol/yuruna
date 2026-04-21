@@ -60,15 +60,31 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 # so calling it here is safe even if -SetHostProxy was never used. Done
 # first so a failure tearing down the VM doesn't leave the host pointing at
 # a dead proxy for the rest of the session.
+#
+# macOS gotcha: Clear-HostProxy throws without sudo when a backup exists,
+# because networksetup refuses to mutate system prefs as a regular user.
+# Warning-and-continuing (the prior behavior) leaves the system proxy
+# pointing at a freshly-deleted VM -- the next Test-CachingProxy cycle
+# against a DIFFERENT cache IP then fails its CA-cert fetch because
+# Invoke-WebRequest still routes through the dead proxy. Detect that
+# specific state up front and FAIL before teardown, so the user gets
+# "re-run with sudo" instead of a silently half-completed cycle.
 $hostProxyMod = Join-Path $PSScriptRoot 'modules/Test.HostProxy.psm1'
 if (Test-Path -LiteralPath $hostProxyMod) {
     Import-Module $hostProxyMod -Force
+    if ($IsMacOS) {
+        $backupPath = Get-HostProxyBackupPath
+        if ((Test-Path -LiteralPath $backupPath) -and ((& id -u).Trim() -ne '0')) {
+            Write-Error "Stop-CachingProxy on macOS needs sudo to revert the promoted host proxy at '$backupPath' via networksetup. Re-run with: sudo -E pwsh test/Stop-CachingProxy.ps1"
+            exit 1
+        }
+    }
     try {
         Clear-HostProxy
     } catch {
-        # Don't let a proxy-restore failure (e.g. missing sudo on macOS)
-        # abort the VM teardown -- surface it and keep going. The user
-        # can re-run Clear-HostProxy manually.
+        # Any other failure (e.g. a corrupt backup, a transient networksetup
+        # error) surfaces as a warning so the user can clean up manually,
+        # but doesn't block the VM teardown from finishing.
         Write-Warning "Clear-HostProxy failed: $($_.Exception.Message). VM teardown will continue."
     }
 }

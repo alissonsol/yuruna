@@ -16,6 +16,10 @@
 
 #requires -version 7
 
+# Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
+if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
+if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+
 # === Configuration (change these to customize the download) ===
 $downloadDir = "$HOME/virtual/windows.env"
 $baseImageName = "host.macos.utm.guest.windows.11"

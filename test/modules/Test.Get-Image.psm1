@@ -55,11 +55,27 @@ function Get-ImagePath {
     }
 }
 
+# Emits a line to the console and — if active — to the cycle's HTML log.
+# Write-Host bypasses the function output pipeline; without this, the caller's
+# "$r = Invoke-GetImage ..." captures every line alongside the return hashtable
+# and silently throws them away.
+function Write-GetImageLine {
+    param([string]$Line)
+    Microsoft.PowerShell.Utility\Write-Host $Line
+    if ($global:__YurunaLogFile) {
+        [System.Net.WebUtility]::HtmlEncode($Line) |
+            Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
+    }
+}
+
 <#
 .SYNOPSIS
     Runs Get-Image.ps1 for the given host+guest, or skips if the image exists.
 .DESCRIPTION
     Returns a hashtable: { success, skipped, errorMessage }
+    Subprocess stdout/stderr is streamed to the console and HTML log so
+    Get-Image.ps1 diagnostics (URL probes, fallback warnings, proxy issues)
+    remain visible when invoked through the test runner.
 #>
 function Invoke-GetImage {
     param(
@@ -76,15 +92,20 @@ function Invoke-GetImage {
     if (-not $AlwaysRedownload) {
         $imagePath = Get-ImagePath -HostType $HostType -GuestKey $GuestKey
         if ($imagePath -and (Test-Path $imagePath)) {
-            Write-Output "Image exists, skipping download: $imagePath"
+            Write-GetImageLine "Image exists, skipping download: $imagePath"
             return @{ success=$true; skipped=$true; errorMessage=$null }
         }
     }
 
-    Write-Output "Running: $scriptPath"
-    & pwsh -NoProfile -File $scriptPath
-    if ($LASTEXITCODE -ne 0) {
-        return @{ success=$false; skipped=$false; errorMessage="Get-Image.ps1 exited with code $LASTEXITCODE" }
+    Write-GetImageLine "Running: $scriptPath"
+    # 2>&1 merges stderr into stdout so Write-Warning / Write-Error output from
+    # Get-Image.ps1 is forwarded too.
+    & pwsh -NoProfile -File $scriptPath 2>&1 | ForEach-Object {
+        Write-GetImageLine ([string]$_)
+    }
+    $code = $LASTEXITCODE
+    if ($code -ne 0) {
+        return @{ success=$false; skipped=$false; errorMessage="Get-Image.ps1 exited with code $code" }
     }
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }

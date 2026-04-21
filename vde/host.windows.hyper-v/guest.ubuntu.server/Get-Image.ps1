@@ -55,12 +55,29 @@ $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.ubuntu.server"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 
+# Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
+if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
+if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+
+function Write-ExceptionDetails {
+    param($Record)
+    Write-Verbose "Exception type: $($Record.Exception.GetType().FullName)"
+    if ($Record.Exception.InnerException) {
+        Write-Verbose "Inner: $($Record.Exception.InnerException.GetType().FullName) - $($Record.Exception.InnerException.Message)"
+    }
+    if ($Record.Exception.Response) {
+        Write-Verbose "HTTP status: $([int]$Record.Exception.Response.StatusCode) $($Record.Exception.Response.StatusCode)"
+    }
+}
+
 function Resolve-StableIso {
     param([string]$ReleaseBaseUrl, [string]$IsoPattern)
+    Write-Verbose "Probing stable release index: $ReleaseBaseUrl/"
     try {
         $page = (Invoke-WebRequest -Uri "$ReleaseBaseUrl/" -ErrorAction Stop).Content
     } catch {
         Write-Warning "Stable release index at $ReleaseBaseUrl not reachable: $($_.Exception.Message)"
+        Write-ExceptionDetails $_
         return $null
     }
     $found = [regex]::Matches($page, $IsoPattern)
@@ -80,10 +97,12 @@ function Resolve-StableIso {
 function Resolve-DailyIso {
     param([string]$DailyBaseUrl, [string]$IsoFileName)
     $url = "$DailyBaseUrl/$IsoFileName"
+    Write-Verbose "HEAD-probing daily ISO: $url"
     try {
         Invoke-WebRequest -Uri $url -Method Head -ErrorAction Stop | Out-Null
     } catch {
         Write-Warning "Daily ISO at $url not reachable: $($_.Exception.Message)"
+        Write-ExceptionDetails $_
         return $null
     }
     return [pscustomobject]@{
@@ -91,6 +110,14 @@ function Resolve-DailyIso {
         SourceUrl   = $url
         ChecksumUrl = "$DailyBaseUrl/SHA256SUMS"
         Variant     = 'daily'
+    }
+}
+
+function Write-ProxyEnvDiagnostics {
+    Write-Output "Proxy-related environment variables:"
+    foreach ($v in 'http_proxy','https_proxy','HTTP_PROXY','HTTPS_PROXY','no_proxy','NO_PROXY','all_proxy','ALL_PROXY') {
+        $val = [System.Environment]::GetEnvironmentVariable($v)
+        Write-Output ("  " + $v + '=' + ($(if ($val) { $val } else { '(not set)' })))
     }
 }
 
@@ -121,6 +148,7 @@ if (-not $resolved) {
     $msg = "Could not resolve a usable Ubuntu live-server amd64 ISO. Stable ($stableReleaseUrl) and daily ($dailyBaseUrl) are both unreachable or missing the expected image."
     Write-Output $msg
     Write-Information $msg -InformationAction Continue
+    Write-ProxyEnvDiagnostics
     Write-Error $msg
     exit 1
 }

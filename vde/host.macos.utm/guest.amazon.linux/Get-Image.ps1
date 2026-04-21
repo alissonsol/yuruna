@@ -16,6 +16,10 @@
 
 #requires -version 7
 
+# Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
+if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
+if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+
 # === Configuration ===
 $sourceUrl = "https://cdn.amazonlinux.com/al2023/os-images/latest/kvm-arm64/"
 $downloadDir = "$HOME/virtual/amazon.linux"

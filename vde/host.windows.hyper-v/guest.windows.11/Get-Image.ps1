@@ -16,6 +16,10 @@
 
 #requires -version 7
 
+# Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
+if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
+if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+
 # Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {

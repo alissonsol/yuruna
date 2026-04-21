@@ -45,6 +45,11 @@ param(
 # Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
 if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
 if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+# Silence Write-Progress when invoked by the test runner — the runner sets these
+# env vars unconditionally, so their presence (any value) signals a non-interactive
+# context. Without this, Invoke-WebRequest -OutFile floods the HTML log the same
+# way curl --progress-bar did before.
+if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
 
 # === Configuration ===
 $downloadDir = "$HOME/virtual/ubuntu.env"
@@ -198,8 +203,16 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 $downloadFile = Join-Path $downloadDir "downloaded.iso"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceUrl to $downloadFile"
-& curl -L --progress-bar -o $downloadFile $sourceUrl
-if ($LASTEXITCODE -ne 0) { Write-Error "Download failed (curl exit code $LASTEXITCODE)"; exit 1 }
+# Invoke-WebRequest reports progress via Write-Progress, which honors
+# $ProgressPreference — quiet in the runner, visible when interactive. curl's
+# --progress-bar wrote carriage-return frames to stderr that the runner's
+# line-forwarding turned into one log line per frame.
+try {
+    Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile -ErrorAction Stop
+} catch {
+    Write-Error "Download failed: $($_.Exception.Message)"
+    exit 1
+}
 
 # Verify download integrity using SHA256 checksum
 Write-Output "Verifying download integrity..."

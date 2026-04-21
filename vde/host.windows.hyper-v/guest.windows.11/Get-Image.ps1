@@ -19,6 +19,8 @@
 # Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
 if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
 if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+# Silence Write-Progress under the test runner.
+if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
 
 # Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
@@ -125,9 +127,8 @@ try {
             throw "BITS ended in state: $($bitsJob.JobState)"
         }
     } catch {
-        Write-Output "  BITS unavailable or failed. Downloading with curl..."
-        & curl.exe -L --progress-bar -o $downloadFile $downloadUrl
-        if ($LASTEXITCODE -ne 0) { throw "Download failed (curl exit code $LASTEXITCODE)" }
+        Write-Output "  BITS unavailable or failed. Downloading with Invoke-WebRequest..."
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -ErrorAction Stop
     }
 
     if (-not (Test-Path $downloadFile)) {

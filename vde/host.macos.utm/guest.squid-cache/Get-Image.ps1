@@ -16,6 +16,12 @@
 
 #requires -version 7
 
+# Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
+if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
+if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+# Silence Write-Progress under the test runner.
+if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
+
 # === Configuration ===
 # arm64 cloud image — macOS UTM runs on Apple Silicon via Apple Virtualization.
 $sourceUrl = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img"
@@ -33,8 +39,12 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceUrl to $downloadFile"
-& curl -L --progress-bar -o $downloadFile $sourceUrl
-if ($LASTEXITCODE -ne 0) { Write-Error "Download failed (curl exit code $LASTEXITCODE)"; exit 1 }
+try {
+    Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile -ErrorAction Stop
+} catch {
+    Write-Error "Download failed: $($_.Exception.Message)"
+    exit 1
+}
 
 $fileSize = (Get-Item $downloadFile).Length
 if ($fileSize -lt 100MB) {

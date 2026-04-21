@@ -19,6 +19,8 @@
 # Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
 if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
 if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+# Silence Write-Progress under the test runner.
+if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
 
 # Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
@@ -49,8 +51,12 @@ $downloadUrl = $sourceUrl + $zipLink
 $downloadFile = Join-Path $downloadDir "downloaded.zip"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $downloadUrl to $downloadFile"
-& curl.exe -L --progress-bar -o $downloadFile $downloadUrl
-if ($LASTEXITCODE -ne 0) { Write-Error "Download failed (curl exit code $LASTEXITCODE)"; exit 1 }
+try {
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -ErrorAction Stop
+} catch {
+    Write-Error "Download failed: $($_.Exception.Message)"
+    exit 1
+}
 
 # Verify download integrity using SHA256 checksum
 $checksumLink = ($html.Links | Where-Object { $_.href -match "\.zip\.sha256$" })

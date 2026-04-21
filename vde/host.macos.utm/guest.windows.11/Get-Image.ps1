@@ -19,6 +19,8 @@
 # Honor debug/verbose flags propagated by Invoke-TestRunner.ps1 via env vars.
 if ($env:YURUNA_DEBUG -eq '1')   { $DebugPreference   = 'Continue' }
 if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
+# Silence Write-Progress under the test runner.
+if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
 
 # === Configuration (change these to customize the download) ===
 $downloadDir = "$HOME/virtual/windows.env"
@@ -134,9 +136,8 @@ if (-not $windowsOk) {
                 throw "BITS ended in state: $($bitsJob.JobState)"
             }
         } catch {
-            Write-Output "  BITS unavailable or failed. Downloading with curl..."
-            & curl -L --progress-bar -o $downloadFile $downloadUrl
-            if ($LASTEXITCODE -ne 0) { throw "Download failed (curl exit code $LASTEXITCODE)" }
+            Write-Output "  BITS unavailable or failed. Downloading with Invoke-WebRequest..."
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -ErrorAction Stop
         }
 
         if (-not (Test-Path $downloadFile)) {
@@ -201,8 +202,7 @@ if (Test-Path -Path $spiceImageFile) {
     $spiceDownloadFile = Join-Path $downloadDir "utm-guest-tools-download.iso"
     Remove-Item $spiceDownloadFile -Force -ErrorAction SilentlyContinue
     try {
-        & curl -L --progress-bar -o $spiceDownloadFile $spiceDownloadUrl
-        if ($LASTEXITCODE -ne 0) { throw "Download failed (curl exit code $LASTEXITCODE)" }
+        Invoke-WebRequest -Uri $spiceDownloadUrl -OutFile $spiceDownloadFile -ErrorAction Stop
         if (-not (Test-Path $spiceDownloadFile)) {
             throw "Download failed: file not found."
         }

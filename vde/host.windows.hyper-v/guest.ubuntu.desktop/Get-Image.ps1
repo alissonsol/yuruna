@@ -92,10 +92,49 @@ function Resolve-DailyIso {
 }
 
 function Write-ProxyEnvDiagnostics {
+    param([string[]]$ProbeUrls = @())
     Write-Output "Proxy-related environment variables:"
     foreach ($v in 'http_proxy','https_proxy','HTTP_PROXY','HTTPS_PROXY','no_proxy','NO_PROXY','all_proxy','ALL_PROXY') {
         $val = [System.Environment]::GetEnvironmentVariable($v)
         Write-Output ("  " + $v + '=' + ($(if ($val) { $val } else { '(not set)' })))
+    }
+    Write-Output "System-level proxy configuration:"
+    if ($IsMacOS) {
+        try {
+            $sc = (& scutil --proxy 2>&1) -join "`n"
+            Write-Output "  scutil --proxy:"
+            foreach ($line in ($sc -split "`n")) { if ($line) { Write-Output ("    " + $line.TrimEnd()) } }
+        } catch {
+            Write-Output "  scutil --proxy failed: $($_.Exception.Message)"
+        }
+    } elseif ($IsWindows) {
+        try {
+            $nw = (& netsh winhttp show proxy 2>&1) -join "`n"
+            Write-Output "  netsh winhttp show proxy:"
+            foreach ($line in ($nw -split "`n")) { if ($line) { Write-Output ("    " + $line.TrimEnd()) } }
+        } catch {
+            Write-Output "  netsh winhttp failed: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Output "  (no platform-specific system-proxy probe on this OS)"
+    }
+    if ($ProbeUrls.Count -gt 0) {
+        Write-Output ".NET DefaultWebProxy resolution (what Invoke-WebRequest actually uses):"
+        try {
+            Write-Output ("  Type: " + [System.Net.WebRequest]::DefaultWebProxy.GetType().FullName)
+        } catch {
+            Write-Output "  (DefaultWebProxy unavailable: $($_.Exception.Message))"
+        }
+        foreach ($u in $ProbeUrls) {
+            try {
+                $uri = [System.Uri]::new($u)
+                $resolved = [System.Net.WebRequest]::DefaultWebProxy.GetProxy($uri)
+                $bypassed = [System.Net.WebRequest]::DefaultWebProxy.IsBypassed($uri)
+                Write-Output ("  GetProxy('$u') = $resolved (bypassed=$bypassed)")
+            } catch {
+                Write-Output ("  GetProxy('$u') failed: $($_.Exception.Message)")
+            }
+        }
     }
 }
 
@@ -124,7 +163,7 @@ if (-not $resolved) {
     $msg = "Could not resolve a usable Ubuntu desktop amd64 ISO. Stable ($stableReleaseUrl) and daily ($dailyBaseUrl) are both unreachable or missing the expected image."
     Write-Output $msg
     Write-Information $msg -InformationAction Continue
-    Write-ProxyEnvDiagnostics
+    Write-ProxyEnvDiagnostics -ProbeUrls @("$stableReleaseUrl/", "$dailyBaseUrl/$dailyIsoFileName")
     Write-Error $msg
     exit 1
 }

@@ -250,6 +250,80 @@ try {
     Write-Warn "CA cert $caUrl fetch failed: $($_.Exception.Message)"
 }
 
+# === Host system-proxy check ===========================================
+# A stale system proxy (e.g. a previous Start-CachingProxy.ps1 -PromoteToHost
+# against an IP that has since moved) will silently redirect every
+# Invoke-WebRequest / curl in Invoke-TestRunner. .NET on macOS reads
+# networksetup; .NET on Windows reads WinINet per-user (what
+# Test.HostProxy.psm1 writes) and WinHTTP machine-wide. Env vars are
+# only consulted as a fallback, which is why a stale system setting
+# doesn't show up by dumping env vars alone.
+
+Write-Output ""
+Write-Output "=== Host system-proxy check ==="
+
+if ($IsMacOS) {
+    try {
+        $scText = (& scutil --proxy 2>&1) -join "`n"
+        Write-Output "  scutil --proxy:"
+        foreach ($line in ($scText -split "`n")) { if ($line) { Write-Output ("    " + $line.TrimEnd()) } }
+    } catch {
+        Write-Output "  scutil --proxy failed: $($_.Exception.Message)"
+    }
+} elseif ($IsWindows) {
+    try {
+        $nwText = (& netsh winhttp show proxy 2>&1) -join "`n"
+        Write-Output "  netsh winhttp show proxy:"
+        foreach ($line in ($nwText -split "`n")) { if ($line) { Write-Output ("    " + $line.TrimEnd()) } }
+    } catch {
+        Write-Output "  netsh winhttp show proxy failed: $($_.Exception.Message)"
+    }
+    try {
+        $is = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop
+        Write-Output "  WinINet (HKCU Internet Settings):"
+        Write-Output ("    ProxyEnable   = " + $is.ProxyEnable)
+        Write-Output ("    ProxyServer   = " + $is.ProxyServer)
+        Write-Output ("    ProxyOverride = " + $is.ProxyOverride)
+    } catch {
+        Write-Output "  WinINet registry probe failed: $($_.Exception.Message)"
+    }
+} else {
+    Write-Output "  (no platform-specific system-proxy probe on this OS)"
+}
+
+$probeUri = [System.Uri]::new('https://cdimage.ubuntu.com/')
+$dotnetResolved = $null
+try {
+    $dotnetProxy = [System.Net.WebRequest]::DefaultWebProxy
+    $dotnetResolved = $dotnetProxy.GetProxy($probeUri)
+    Write-Output ("  .NET DefaultWebProxy type: " + $dotnetProxy.GetType().FullName)
+    Write-Output ("  .NET GetProxy($probeUri) = $dotnetResolved")
+} catch {
+    Write-Output "  .NET DefaultWebProxy probe failed: $($_.Exception.Message)"
+}
+
+# If .NET returns the original URL, it means "go direct, no proxy".
+# Anything else is a proxy — compare it against the cache we just probed.
+if ($dotnetResolved -and $dotnetResolved.AbsoluteUri -ne $probeUri.AbsoluteUri) {
+    $dotnetHost = $dotnetResolved.Host
+    $dotnetPort = $dotnetResolved.Port
+    if ($dotnetHost -eq $resolvedIp -and $dotnetPort -eq 3128) {
+        Write-Pass "System proxy routes external requests via ${dotnetHost}:${dotnetPort} (matches probe target)"
+    } else {
+        $platformTool = if ($IsMacOS) { 'networksetup (scutil --proxy)' } else { 'WinINet / WinHTTP' }
+        $stopCmd = if ($IsMacOS) { 'sudo -E pwsh test/Stop-CachingProxy.ps1' } else { 'pwsh test/Stop-CachingProxy.ps1' }
+        $promoteCmd = if ($IsMacOS) { 'sudo -E pwsh test/Test-CachingProxy.ps1 -SetHostProxy' } else { 'pwsh test/Test-CachingProxy.ps1 -SetHostProxy' }
+        Write-Warn "System proxy routes external requests via ${dotnetHost}:${dotnetPort} but the caching proxy under test is ${resolvedIp}:3128 — Invoke-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${dotnetHost}:${dotnetPort}, not the proxy you're testing. Likely a stale $platformTool setting from a previous Start-CachingProxy cycle."
+        Write-Output ""
+        Write-Output "==== FIX ===="
+        Write-Output ""
+        Write-Output "  $stopCmd"
+        Write-Output "  $promoteCmd"
+    }
+} else {
+    Write-Pass "No system-level proxy configured (external HTTP/HTTPS clients go direct)"
+}
+
 # === Summary ============================================================
 
 Write-Output ""

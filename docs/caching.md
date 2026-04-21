@@ -450,6 +450,25 @@ sudo tail -f /var/log/squid/access.log   # per-request trace
 The third-to-last field of `access.log` is `TCP_HIT`, `TCP_MISS`,
 `TCP_OFFLINE_HIT`, etc. — a quick way to confirm the cache is serving.
 
+### Purging a single cached entry
+
+The `yuruna.conf` drop-in (written by cloud-init) enables the `PURGE`
+method for RFC1918 sources via an explicit method-scoped ACL. That
+lets operators invalidate one URL without nuking the whole cache:
+
+```bash
+# From inside the cache VM:
+sudo squidclient -m PURGE http://<origin-host>:<port>/<path>
+
+# From any RFC1918 workstation on the same LAN (no squidclient needed):
+curl -x http://<cache-vm-ip>:3128 -X PURGE http://<origin-host>:<port>/<path>
+```
+
+A successful purge returns `HTTP/1.1 200 OK`. `404 Not Found` means the
+object wasn't in the cache to begin with (safe no-op). For total cache
+wipes, stop squid, `rm -rf /var/spool/squid/*`, and `squid -z` to
+re-initialize — see the init steps in the squid-cache user-data.
+
 ## Access / credentials
 
 Cloud-init configures the default `ubuntu` user with:

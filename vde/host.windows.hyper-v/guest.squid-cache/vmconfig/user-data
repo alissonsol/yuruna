@@ -43,6 +43,14 @@ packages:
   # Kept alongside the Prometheus+Grafana stack as a low-overhead fallback
   # for raw cachemgr queries when the richer UI is down or being debugged.
   - squid-cgi
+  # squid-cli provides /usr/bin/squidclient, the CLI for cache-manager
+  # queries and, more importantly for this cache, on-demand purges:
+  #   squidclient -m PURGE http://<origin>:<port>/<path>
+  # A paired PURGE ACL in the yuruna.conf drop-in below allows the request
+  # from RFC1918 sources (same set already trusted for read access). On
+  # Ubuntu Noble the squidclient binary lives in squid-cli (split out of
+  # squid in 24.04) — older names like squidclient/squid3 are jammy/focal.
+  - squid-cli
   - apache2
   # Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301)
   # and renders through Grafana (port 3000, anonymous Viewer). squid-
@@ -145,6 +153,26 @@ write_files:
       acl yuruna_local src 10.0.0.0/8
       acl yuruna_local src 172.16.0.0/12
       acl yuruna_local src 192.168.0.0/16
+
+      # --- Cache purge: enable the PURGE method for local operators ---
+      # squidclient -m PURGE lets an admin invalidate a single cached entry
+      # (e.g. after fixing a stale status/index.html behind the proxy)
+      # without reloading the whole cache. Usage:
+      #   From the cache VM:
+      #     sudo squidclient -m PURGE http://<origin>:<port>/<path>
+      #   From any RFC1918 workstation:
+      #     curl -x http://<cache>:3128 -X PURGE http://<origin>:<port>/<path>
+      # Rules MUST appear before `http_access allow yuruna_local` below:
+      # Squid walks http_access top-down, first-match-wins, and the generic
+      # allow would otherwise match PURGE-from-yuruna_local before the
+      # method-scoped rule gets a chance — the explicit deny would become
+      # dead code, and tightening later (e.g. swapping yuruna_local for
+      # localhost) would silently do nothing. Keep the PURGE block above
+      # the generic allow.
+      acl yuruna_purge method PURGE
+      http_access allow yuruna_purge yuruna_local
+      http_access deny yuruna_purge
+
       http_access allow yuruna_local
 
       # --- Snapshot-cache tuning ---

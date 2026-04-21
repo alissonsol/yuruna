@@ -7,14 +7,18 @@ Extension scripts run custom tests against each guest VM. There are two phases:
 - **Test-Workload** scripts validate workloads, configurations, and features
   after the OS is installed and the VM is verified running.
 
-Sequence files in `../sequences/` come in two flavors, selected automatically by
-`Invoke-Sequence` based on `test-config.json`:
+Sequence files live in mode-specific subfolders, selected automatically by
+`Invoke-SequenceByName` based on `test-config.json`:
 
-- `Test-<phase>.<guest-key>.json` — keystroke path (OCR + scancode injection,
-  used when `keystrokeMechanism="GUI"`).
-- `Test-<phase>.<guest-key>.ssh.json` — SSH path (used when
-  `keystrokeMechanism="SSH"`, if the sibling file exists; otherwise the
-  keystroke variant is used).
+- `../sequences/gui/Test-<phase>.<guest-key>.json` — keystroke path (OCR +
+  scancode injection), used when `keystrokeMechanism="GUI"`.
+- `../sequences/ssh/Test-<phase>.<guest-key>.json` — SSH path, used when
+  `keystrokeMechanism="SSH"`. If the SSH file is missing for a guest, the
+  engine falls back to the `gui/` copy so unmigrated guests keep working.
+
+Filenames are identical across the two subfolders — the folder is what
+distinguishes the modes. `../sequences/actions.json` (the action-reference
+document) stays at the top level.
 
 ## Quick start
 

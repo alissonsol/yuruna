@@ -18,13 +18,17 @@
 
 <#
 .SYNOPSIS
-    Drives the Amazon Linux guest through first boot via a JSON sequence.
+    Drives the Amazon Linux guest through first boot via JSON sequences.
 
 .DESCRIPTION
-    Reads the interaction sequence from ../sequences/Test-Start.guest.amazon.linux.json.
+    Iterates over the sequence names in $sequences. Each name is resolved
+    to sequences/<mode>/<name>.json (mode = gui or ssh, picked from
+    test-config.json keystrokeMechanism) by Invoke-SequenceByName, with
+    fallback to the gui/ copy when no ssh/ variant exists.
+
     Amazon Linux boots from a pre-built image with cloud-init, so the
-    default sequence has no steps. Add steps to the JSON file if a future
-    image requires interaction.
+    default GUI sequence has no steps. Add steps to the JSON file if a
+    future image requires interaction.
 
 .NOTES
     Exit 0 = success, non-zero = failure (stops the runner).
@@ -43,18 +47,25 @@ param(
 # EXECUTION
 # ─────────────────────────────────────────────────────────────────────────────
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sequenceFile = Join-Path (Split-Path -Parent $ScriptDir) "sequences/Test-Start.$GuestKey.json"
+$SequencesDir = Join-Path (Split-Path -Parent $ScriptDir) "sequences"
 $engineModule = Join-Path $ScriptDir "Invoke-Sequence.psm1"
 
 Import-Module $engineModule -Force -Verbose:$false
 
-Write-Output "[$GuestKey] Install-OS on $HostType (VM: $VMName)"
-Write-Output "    Sequence file: $sequenceFile"
+# Ordered list of sequence names for this guest. A future generalisation
+# will load this list from test-config.json instead.
+$sequences = @(
+    "Test-Start.$GuestKey"
+)
 
-$ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile
-if ($ok -eq $false) {
-    Write-Warning "[$GuestKey] Sequence failed."
-    exit 1
+Write-Output "[$GuestKey] Install-OS on $HostType (VM: $VMName)"
+
+foreach ($seqName in $sequences) {
+    $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -Name $seqName
+    if ($ok -eq $false) {
+        Write-Warning "[$GuestKey] Sequence '$seqName' failed."
+        exit 1
+    }
 }
 
 Write-Output "[$GuestKey] Sequence complete."

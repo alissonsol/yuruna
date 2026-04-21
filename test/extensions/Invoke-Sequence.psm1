@@ -1975,6 +1975,100 @@ function Expand-Variable {
 
 <#
 .SYNOPSIS
+    Returns the active sequence mode (gui or ssh) from test-config.json.
+.DESCRIPTION
+    Maps test-config.json keystrokeMechanism to the sequence subfolder:
+    "SSH" -> "ssh", anything else -> "gui". Callers use this to build
+    mode-specific paths like <sequencesDir>/<mode>/<name>.json.
+#>
+function Get-SequenceMode {
+    if ($script:DefaultKeystrokeMechanism -eq "SSH") { return "ssh" }
+    return "gui"
+}
+
+<#
+.SYNOPSIS
+    Given a sequence path in one mode's subfolder, return the path in another mode's subfolder.
+.DESCRIPTION
+    Swaps the mode subfolder (gui <-> ssh) while keeping the sequence filename
+    and the parent sequences directory. Returns $null if the input path is not
+    under a recognised mode subfolder. Callers are responsible for Test-Path-ing
+    the result before using it.
+#>
+function Get-SequenceModePath {
+    param(
+        [Parameter(Mandatory)][string]$SequencePath,
+        [Parameter(Mandatory)][ValidateSet('gui', 'ssh')][string]$Mode
+    )
+    $leaf      = Split-Path -Leaf   $SequencePath
+    $parent    = Split-Path -Parent $SequencePath
+    $grandparent = Split-Path -Parent $parent
+    if (-not $grandparent) { return $null }
+    return (Join-Path (Join-Path $grandparent $Mode) $leaf)
+}
+
+<#
+.SYNOPSIS
+    Resolves a sequence name to the path under the active mode subfolder, with gui fallback.
+.DESCRIPTION
+    Returns <SequencesDir>/<mode>/<Name>.json for the active keystrokeMechanism.
+    Falls back to <SequencesDir>/gui/<Name>.json when the SSH variant does not
+    exist, preserving behaviour for guests that only have a GUI sequence.
+    The returned path is not guaranteed to exist (the gui fallback may also
+    be missing); callers decide how to handle that.
+.PARAMETER SequencesDir
+    Path to the sequences root (e.g. test/sequences). The gui/ and ssh/
+    subfolders live directly beneath this.
+.PARAMETER Name
+    Sequence basename without extension, e.g. "Test-Workload.guest.ubuntu.desktop".
+#>
+function Resolve-SequencePath {
+    param(
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $mode = Get-SequenceMode
+    $modePath = Join-Path (Join-Path $SequencesDir $mode) "$Name.json"
+    if (Test-Path $modePath) { return $modePath }
+    if ($mode -ne 'gui') {
+        $guiPath = Join-Path (Join-Path $SequencesDir 'gui') "$Name.json"
+        if (Test-Path $guiPath) { return $guiPath }
+    }
+    return $modePath
+}
+
+<#
+.SYNOPSIS
+    Resolves a sequence name to a mode-appropriate path and runs it.
+.DESCRIPTION
+    Thin wrapper around Invoke-Sequence: takes a sequence NAME plus the
+    sequences root, resolves to gui/<Name>.json or ssh/<Name>.json based on
+    keystrokeMechanism (with gui fallback), and delegates to Invoke-Sequence.
+    Extension scripts that iterate over a list of sequence names should call
+    this instead of building paths and calling Invoke-Sequence directly; the
+    future config-driven runner can then reuse this function unchanged.
+#>
+function Invoke-SequenceByName {
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [Parameter(Mandatory)][string]$Name,
+        [switch]$ShowSensitive
+    )
+    $sequenceFile = Resolve-SequencePath -SequencesDir $SequencesDir -Name $Name
+    if (-not (Test-Path $sequenceFile)) {
+        Write-Warning "[$GuestKey] Sequence file not found, skipping: $sequenceFile"
+        return $true
+    }
+    Write-Output "[$GuestKey] Running sequence: $Name on $HostType (VM: $VMName)"
+    Write-Output "    Sequence file: $sequenceFile"
+    return (Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -ShowSensitive:$ShowSensitive)
+}
+
+<#
+.SYNOPSIS
     Executes an interaction sequence from a JSON file against a VM.
 .DESCRIPTION
     Reads the steps array from the JSON file and executes each action
@@ -1991,18 +2085,19 @@ function Invoke-Sequence {
     )
 
     # ── SSH variant selection ──────────────────────────────────────────────
-    # When test-config.json sets keystrokeMechanism="SSH", prefer a sibling
-    # sequence file with a .ssh.json suffix (e.g. Test-Workload.guest.amazon.linux.ssh.json).
-    # This is the parallel-path switch: the existing keystroke-based file is
-    # untouched, and the SSH variant is picked up automatically when the flag
-    # is set. If no .ssh.json sibling exists, fall back to the original file
-    # so guests that haven't been migrated yet continue to work in both modes.
-    # Comparison is case-insensitive (PowerShell -eq default) so "ssh"/"SSH"
-    # both select this branch; the canonical uppercase form is written back
-    # to test-config.json by Invoke-TestRunner's validation step.
+    # Sequences live in mode-specific subfolders: sequences/gui/ and
+    # sequences/ssh/. When test-config.json sets keystrokeMechanism="SSH"
+    # and the caller passed a path under sequences/gui/, redirect to the
+    # sequences/ssh/ sibling with the same filename. If that sibling does
+    # not exist, fall back to the gui/ file so guests without an SSH
+    # sequence yet continue to work (same degrade path as the legacy
+    # .ssh.json sibling lookup). Comparison is case-insensitive so
+    # "ssh"/"SSH" both select this branch; the canonical uppercase form
+    # is written back to test-config.json by Invoke-TestRunner's
+    # validation step.
     if ($script:DefaultKeystrokeMechanism -eq "SSH") {
-        $sshVariant = [System.IO.Path]::ChangeExtension($SequencePath, $null).TrimEnd('.') + ".ssh.json"
-        if (Test-Path $sshVariant) {
+        $sshVariant = Get-SequenceModePath -SequencePath $SequencePath -Mode "ssh"
+        if ($sshVariant -and (Test-Path $sshVariant)) {
             Write-Information "    keystrokeMechanism=SSH → using SSH variant: $(Split-Path -Leaf $sshVariant)"
             $SequencePath = $sshVariant
         }
@@ -2536,4 +2631,4 @@ function Invoke-Sequence {
   }
 }
 
-Export-ModuleMember -Function Invoke-Sequence
+Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Resolve-SequencePath, Get-SequenceMode, Get-SequenceModePath

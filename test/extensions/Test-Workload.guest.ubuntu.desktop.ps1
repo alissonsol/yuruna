@@ -18,12 +18,13 @@
 
 <#
 .SYNOPSIS
-    Workload test for the Ubuntu Desktop guest via a JSON sequence.
+    Workload test for the Ubuntu Desktop guest via JSON sequences.
 
 .DESCRIPTION
-    Runs workload sequences for the Ubuntu Desktop guest:
-    1. Test-Workload.guest.ubuntu.desktop.json
-    2. Test-Workload.guest.ubuntu.desktop.k8s.website.json
+    Iterates over the sequence names in $sequences. Each name is resolved
+    to sequences/<mode>/<name>.json (mode = gui or ssh, picked from
+    test-config.json keystrokeMechanism) by Invoke-SequenceByName, with
+    fallback to the gui/ copy when no ssh/ variant exists.
 
     To customize the workload tests, edit the JSON files — not this script.
 
@@ -49,29 +50,19 @@ $engineModule = Join-Path $ScriptDir "Invoke-Sequence.psm1"
 
 Import-Module $engineModule -Force -Verbose:$false
 
-# Ordered list of sequences to run for this guest
+# Ordered list of sequence names for this guest. A future generalisation
+# will load this list from test-config.json instead.
 $sequences = @(
     "Test-Workload.$GuestKey"
     "Test-Workload.$GuestKey.k8s.website"
 )
 
 foreach ($seqName in $sequences) {
-    $sequenceFile = Join-Path $SequencesDir "$seqName.json"
-    if (-not (Test-Path $sequenceFile)) {
-        Write-Warning "[$GuestKey] Sequence file not found, skipping: $sequenceFile"
-        continue
-    }
-
-    Write-Output "[$GuestKey] Running sequence: $seqName on $HostType (VM: $VMName)"
-    Write-Output "    Sequence file: $sequenceFile"
-
-    $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile
+    $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -Name $seqName
     if ($ok -eq $false) {
         Write-Warning "[$GuestKey] Sequence '$seqName' failed."
         exit 1
     }
-
-    Write-Output "[$GuestKey] Sequence '$seqName' complete."
 }
 
 Write-Output "[$GuestKey] All workload sequences complete."

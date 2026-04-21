@@ -18,17 +18,18 @@
 
 <#
 .SYNOPSIS
-    Workload test for the Ubuntu Server guest via a JSON sequence.
+    Workload test for the Ubuntu Server guest via JSON sequences.
 
 .DESCRIPTION
-    Runs the base workload sequence for the Ubuntu Server guest:
-    1. Test-Workload.guest.ubuntu.server.json
+    Iterates over the sequence names in $sequences. Each name is resolved
+    to sequences/<mode>/<name>.json (mode = gui or ssh, picked from
+    test-config.json keystrokeMechanism) by Invoke-SequenceByName, with
+    fallback to the gui/ copy when no ssh/ variant exists.
 
-    Shares the extras-pattern with Test-Workload.guest.ubuntu.desktop.ps1: any
-    Test-Workload.guest.ubuntu.server.*.json sibling (e.g. a future
-    Test-Workload.guest.ubuntu.server.k8s.website.json) is picked up and run
-    after the base sequence. To customize the workload tests, edit the JSON
-    files — not this script.
+    The base sequence (Test-Workload.$GuestKey) runs first; any additional
+    sequences under sequences/gui/ matching Test-Workload.$GuestKey.*.json
+    are picked up in sorted order so new sequences are added by dropping
+    files instead of editing this script.
 
 .NOTES
     Exit 0 = pass, non-zero = fail (stops the runner and triggers notification).
@@ -53,44 +54,25 @@ $engineModule = Join-Path $ScriptDir "Invoke-Sequence.psm1"
 Import-Module $engineModule -Force -Verbose:$false
 
 # Base sequence always runs; additional Test-Workload.$GuestKey.<suffix>.json
-# siblings run in sorted order after the base sequence. This mirrors the
-# ubuntu.desktop variant but auto-discovers the extras instead of hardcoding
-# them, so adding a new sequence is a file-drop rather than a script edit.
-#
-# The ".ssh" suffix is reserved: any Test-Workload.$GuestKey[.*].ssh.json is
-# the parallel-path alternative that Invoke-Sequence substitutes for its
-# non-.ssh sibling when test-config.json has keystrokeMechanism="SSH". Such
-# files are NEVER additional workloads to run on top of the base — without
-# this filter the harness in GUI mode would also execute every SSH
-# variant, which correctly fails because sshd isn't up (Test-Start only
-# brought up GDM). The filter matches every ".ssh" basename, not just the
-# base sequence's own .ssh.json, so sub-variant pairs like
-# Test-Workload.$GuestKey.k8s.website{,.ssh}.json also resolve correctly.
-$baseSeq  = "Test-Workload.$GuestKey"
-$sequences = @($baseSeq)
-$extras = Get-ChildItem -Path $SequencesDir -Filter "$baseSeq.*.json" -ErrorAction SilentlyContinue |
-    Where-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -notlike '*.ssh' } |
+# siblings under sequences/gui/ run in sorted order after the base. Extras
+# are discovered from the gui/ folder because that is the canonical source
+# of truth for "which workloads exist for this guest"; Invoke-SequenceByName
+# then resolves each name to the active mode. A future generalisation will
+# load this list from test-config.json instead.
+$baseSeq    = "Test-Workload.$GuestKey"
+$sequences  = @($baseSeq)
+$guiDir     = Join-Path $SequencesDir 'gui'
+$extras = Get-ChildItem -Path $guiDir -Filter "$baseSeq.*.json" -ErrorAction SilentlyContinue |
     Sort-Object Name |
     ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) }
 if ($extras) { $sequences += $extras }
 
 foreach ($seqName in $sequences) {
-    $sequenceFile = Join-Path $SequencesDir "$seqName.json"
-    if (-not (Test-Path $sequenceFile)) {
-        Write-Warning "[$GuestKey] Sequence file not found, skipping: $sequenceFile"
-        continue
-    }
-
-    Write-Output "[$GuestKey] Running sequence: $seqName on $HostType (VM: $VMName)"
-    Write-Output "    Sequence file: $sequenceFile"
-
-    $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile
+    $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -Name $seqName
     if ($ok -eq $false) {
         Write-Warning "[$GuestKey] Sequence '$seqName' failed."
         exit 1
     }
-
-    Write-Output "[$GuestKey] Sequence '$seqName' complete."
 }
 
 Write-Output "[$GuestKey] All workload sequences complete."

@@ -146,13 +146,21 @@ if ($Config.statusServer.enabled) {
 }
 
 # === Resolve sequence file ===
-$SequencePath = Join-Path $SequencesDir "$SequenceName.json"
+# Sequences live in mode subfolders (sequences/gui/, sequences/ssh/).
+# Resolve-SequencePath returns the active-mode path with gui/ fallback; if
+# neither exists, we show a list drawn from both subfolders.
+$SequencePath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $SequenceName
 if (-not (Test-Path $SequencePath)) {
     Write-Error "Sequence file not found: $SequencePath"
     Write-Output ""
     Write-Output "Available sequences:"
-    Get-ChildItem -Path $SequencesDir -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
-        Write-Output "  $($_.BaseName)"
+    foreach ($mode in @('gui', 'ssh')) {
+        $modeDir = Join-Path $SequencesDir $mode
+        if (-not (Test-Path $modeDir)) { continue }
+        Write-Output "  [$mode]"
+        Get-ChildItem -Path $modeDir -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Output "    $($_.BaseName)"
+        }
     }
     exit 1
 }

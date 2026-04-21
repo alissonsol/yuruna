@@ -18,11 +18,13 @@
 
 <#
 .SYNOPSIS
-    Workload test for the Windows 11 guest via a JSON sequence.
+    Workload test for the Windows 11 guest via JSON sequences.
 
 .DESCRIPTION
-    Reads the interaction sequence from ../sequences/Test-Workload.guest.windows.11.json
-    and executes each step against the VM.
+    Iterates over the sequence names in $sequences. Each name is resolved
+    to sequences/<mode>/<name>.json (mode = gui or ssh, picked from
+    test-config.json keystrokeMechanism) by Invoke-SequenceByName, with
+    fallback to the gui/ copy when no ssh/ variant exists.
 
     To customize the workload test, edit the JSON file — not this script.
 
@@ -43,18 +45,25 @@ param(
 # EXECUTION
 # ─────────────────────────────────────────────────────────────────────────────
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sequenceFile = Join-Path (Split-Path -Parent $ScriptDir) "sequences/Test-Workload.$GuestKey.json"
+$SequencesDir = Join-Path (Split-Path -Parent $ScriptDir) "sequences"
 $engineModule = Join-Path $ScriptDir "Invoke-Sequence.psm1"
 
 Import-Module $engineModule -Force -Verbose:$false
 
-Write-Output "[$GuestKey] Workload test on $HostType (VM: $VMName)"
-Write-Output "    Sequence file: $sequenceFile"
+# Ordered list of sequence names for this guest. A future generalisation
+# will load this list from test-config.json instead.
+$sequences = @(
+    "Test-Workload.$GuestKey"
+)
 
-$ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile
-if ($ok -eq $false) {
-    Write-Warning "[$GuestKey] Workload sequence failed."
-    exit 1
+Write-Output "[$GuestKey] Workload test on $HostType (VM: $VMName)"
+
+foreach ($seqName in $sequences) {
+    $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -Name $seqName
+    if ($ok -eq $false) {
+        Write-Warning "[$GuestKey] Sequence '$seqName' failed."
+        exit 1
+    }
 }
 
 Write-Output "[$GuestKey] Workload sequence complete."

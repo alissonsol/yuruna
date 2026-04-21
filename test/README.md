@@ -91,7 +91,7 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `stopOnFailure` | `false` | When `true`, stop tests on first failure and preserve VM for investigation. When `false`, clean up the failed VM and continue to the next guest. Failure artifacts are always copied to `status/log/` for remote inspection |
 | `maxHistoryRuns` | `30` | Number of runs kept in status history |
 | `charDelayMs` | `20` | Default delay in ms between keystrokes in `type`/`typeAndEnter` actions |
-| `keystrokeMechanism` | `"GUI"` | How the harness drives guest VMs. `"GUI"` uses keystroke injection (Hyper-V scancodes or UTM VNC/CGEvent). `"SSH"` routes workload sequences over SSH using a per-host key under `test/.ssh/` that is injected into each guest's cloud-init `authorized_keys` at VM creation. In SSH mode, Invoke-Sequence prefers a sibling `.ssh.json` variant of each sequence file when one exists (e.g. `Test-Workload.guest.amazon.linux.ssh.json`) and falls back to the keystroke sequence otherwise. Comparison is case-insensitive and the value is normalized to uppercase on startup; any other value in `test-config.json` (including the legacy `"hypervisor"`) is replaced with the default |
+| `keystrokeMechanism` | `"GUI"` | How the harness drives guest VMs. `"GUI"` uses keystroke injection (Hyper-V scancodes or UTM VNC/CGEvent). `"SSH"` routes workload sequences over SSH using a per-host key under `test/.ssh/` that is injected into each guest's cloud-init `authorized_keys` at VM creation. The mode selects a subfolder under `test/sequences/`: `"GUI"` uses `sequences/gui/<name>.json`, `"SSH"` uses `sequences/ssh/<name>.json` and falls back to the gui copy when no ssh variant exists. Comparison is case-insensitive and the value is normalized to uppercase on startup; any other value in `test-config.json` (including the legacy `"hypervisor"`) is replaced with the default |
 | `vncPort` | `5900` | VNC port for QEMU-backend UTM VMs (display `:0` = 5900). Used by the focus-independent VNC keystroke transport |
 | `guestOrder` | _(required)_ | Array of guest keys to test, in execution order. Each entry must correspond to a `virtual/<hostType>/<guestKey>/` folder on this host — see below |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
@@ -272,7 +272,14 @@ pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux" 
 ```
 
 The script prints a numbered step list before execution, marking which steps will
-run. If the sequence file is not found, it lists all available sequences.
+run. If the sequence file is not found, it lists all available sequences from
+both `sequences/gui/` and `sequences/ssh/`.
+
+Sequence files live in `sequences/gui/` (keystroke path) and `sequences/ssh/`
+(SSH path). Pass the sequence **name** (no folder, no `.json`, no `.ssh.`
+suffix) — the script resolves it to the active-mode subfolder from
+`keystrokeMechanism` in `test-config.json`, falling back to `gui/` when no
+SSH variant exists.
 
 ### Parameters
 
@@ -488,13 +495,17 @@ test/
     Test.Tesseract.psm1           # Tesseract OCR utilities
   extensions/
     README.md                                       # Extension API documentation
-    Invoke-Sequence.psm1                            # JSON sequence interpreter
+    Invoke-Sequence.psm1                            # JSON sequence interpreter + helpers (Invoke-SequenceByName, Resolve-SequencePath)
     Test-Start.guest.amazon.linux.ps1               # Amazon Linux OS install
     Test-Start.guest.ubuntu.desktop.ps1             # Ubuntu Desktop OS install
     Test-Start.guest.windows.11.ps1                 # Windows 11 OS install
     Test-Workload.guest.amazon.linux.ps1            # Amazon Linux workload test
     Test-Workload.guest.ubuntu.desktop.ps1          # Ubuntu Desktop workload test
     Test-Workload.guest.windows.11.ps1              # Windows 11 workload test
+  sequences/
+    actions.json                                    # Action reference (stays at top level)
+    gui/                                            # Sequences used when keystrokeMechanism="GUI"
+    ssh/                                            # Sequences used when keystrokeMechanism="SSH"; falls back to gui/ when missing
   status/
     index.html                    # Status dashboard (committed)
     status.json.template          # Template for status data (committed)

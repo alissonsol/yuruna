@@ -221,7 +221,7 @@ No changes to `test-config.json` or the test sequences are needed.
 See [test/CachingProxy.md](../test/CachingProxy.md) for the test-harness
 operator reference — how `Invoke-TestRunner.ps1`,
 `Start-CachingProxy.ps1`, and `Test-CachingProxy.ps1` surface the cache
-to remote clients, consume `CachingProxyIpAddress`, and preflight a
+to remote clients, consume `YURUNA_CACHING_PROXY_IP`, and preflight a
 candidate cache before a run.
 
 ## Cache configuration
@@ -577,7 +577,7 @@ lets HTTPS apt go direct. No install abort.
 **UTM (host-side pre-fetch + base64 in seed):** `guest.ubuntu.*/New-VM.ps1`
 runs on the host, reads `$HOME/virtual/squid-cache/cache-ip.txt`
 (written by `Start-CachingProxy.ps1`) or
-`$Env:CachingProxyIpAddress` if set, fetches
+`$Env:YURUNA_CACHING_PROXY_IP` if set, fetches
 `http://<ip>/yuruna-squid-ca.crt`, base64-encodes it, and splices it
 into the autoinstall seed as `CA_CERT_BASE64_PLACEHOLDER`. The guest's
 `late-commands` then:

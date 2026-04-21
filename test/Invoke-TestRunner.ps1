@@ -38,7 +38,7 @@
 
     ENVIRONMENT VARIABLES:
 
-    $Env:CachingProxyIpAddress — point the runner at a remote
+    $Env:YURUNA_CACHING_PROXY_IP — point the runner at a remote
       squid-cache instead of looking for a local VM. When set, guest
       New-VM.ps1 invocations inherit the remote URL, fetch the CA from
       http://<ip>/yuruna-squid-ca.crt, and wire apt to http://<ip>:3128
@@ -48,7 +48,7 @@
       Un-set or empty to fall back to local discovery.
 
       Validate a candidate cache BEFORE launching a full cycle with:
-          $Env:CachingProxyIpAddress = '10.0.0.5'
+          $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
           pwsh test/Test-CachingProxy.ps1
       That script TCP-probes :3128, :3129, :80, :3000 and fetches the
       CA cert — PASS / FAIL / WARN per check, exit 1 if any required
@@ -84,7 +84,7 @@
 
 .EXAMPLE
     # Remote squid-cache at 10.0.0.5 — no local VM needed.
-    $Env:CachingProxyIpAddress = '10.0.0.5'
+    $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
     pwsh test/Test-CachingProxy.ps1          # preflight
     pwsh test/Invoke-TestRunner.ps1
 
@@ -378,8 +378,8 @@ $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
 Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
 $global:VerbosePreference = $savedVerbose
-$YurunaLogDir = Get-YurunaLogDir
-Write-Output "Log folder: $YurunaLogDir"
+$null = Initialize-YurunaLogDir
+Write-Output "Log directory: $env:YURUNA_LOG_DIR"
 
 # Proxy-cache detection moved to Test.CachingProxy.psm1 so Start-StatusServer
 # can share the same probe — both writers (console banner here, status-page
@@ -402,7 +402,7 @@ $cachingProxyUrl = Test-CachingProxyAvailable -HostType $HostType
 # continue to reach the VM directly on their NAT subnet regardless of
 # what's mapped on the host.
 #
-# External-cache branch: when $Env:CachingProxyIpAddress is set,
+# External-cache branch: when $Env:YURUNA_CACHING_PROXY_IP is set,
 # Test-CachingProxyAvailable returns the remote URL and the remote host is
 # assumed to serve all four ports itself. Guests reach the remote IP via
 # the host's outbound NAT, so no local portproxy or forwarder is needed —
@@ -417,7 +417,7 @@ $cachingProxyUrl = Test-CachingProxyAvailable -HostType $HostType
 # silently and just show "detected" as plain text — no regression.
 if ($cachingProxyUrl) {
     $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
-    $isExternal = [bool]$Env:CachingProxyIpAddress
+    $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
     $mapOk = $false
     $bestIp = $null
     if ($isExternal) {
@@ -487,7 +487,7 @@ function Copy-FailureArtifactsToStatusLog {
         # Include a UTC error timestamp so multiple failures within the same run don't overwrite each other
         $errorTimestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
 
-        $srcScreen = Join-Path $YurunaLogDir "failure_screenshot_${VMName}.png"
+        $srcScreen = Join-Path $env:YURUNA_LOG_DIR "failure_screenshot_${VMName}.png"
         if (Test-Path $srcScreen) {
             $destName = "$logId.$errorTimestamp.failure-screenshot.png"
             $dest = Join-Path $statusLogDir $destName
@@ -500,7 +500,7 @@ function Copy-FailureArtifactsToStatusLog {
             }
         }
 
-        $srcOcr = Join-Path $YurunaLogDir "failure_ocr_${VMName}.txt"
+        $srcOcr = Join-Path $env:YURUNA_LOG_DIR "failure_ocr_${VMName}.txt"
         if (Test-Path $srcOcr) {
             $destName = "$logId.$errorTimestamp.failure-ocr.txt"
             $dest = Join-Path $statusLogDir $destName
@@ -767,7 +767,7 @@ while ($true) {
             $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
             if (-not $r.success) {
                 Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
-                Write-Output "  Log folder: $YurunaLogDir"
+                Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
                 [void]$FailedGuests.Add($GuestKey)
                 $OverallPassed = $false
                 if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage }
@@ -793,7 +793,7 @@ while ($true) {
                 $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
                 if (-not $r.success) {
                     Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
-                    Write-Output "  Log folder: $YurunaLogDir"
+                    Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
                     [void]$FailedGuests.Add($GuestKey)
                     $OverallPassed = $false
                     if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage }
@@ -876,7 +876,7 @@ while ($true) {
             Write-Output "  $GuestKey New-VM: PASS"
         } else {
             Write-Warning "  ERROR [$GuestKey / New-VM]: $($r.errorMessage)"
-            Write-Output "  Log folder: $YurunaLogDir"
+            Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
             Set-StepStatus  -GuestKey $GuestKey -StepName "New-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "New-VM"; $FailureMessage = $r.errorMessage
@@ -893,7 +893,7 @@ while ($true) {
             Write-Output "  $GuestKey Start-VM: PASS"
         } else {
             Write-Warning "  ERROR [$GuestKey / Start-VM]: $($r.errorMessage)"
-            Write-Output "  Log folder: $YurunaLogDir"
+            Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
             Set-StepStatus  -GuestKey $GuestKey -StepName "Start-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Start-VM"; $FailureMessage = $r.errorMessage
@@ -913,7 +913,7 @@ while ($true) {
             Write-Output "  $GuestKey Install-OS: PASS"
         } else {
             Write-Warning "  ERROR [$GuestKey / Install-OS]: $($r.errorMessage)"
-            Write-Output "  Log folder: $YurunaLogDir"
+            Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
             Set-StepStatus  -GuestKey $GuestKey -StepName "Install-OS" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Install-OS"; $FailureMessage = $r.errorMessage
@@ -938,7 +938,7 @@ while ($true) {
         if (-not $ok) {
             $err = "VM '$VMName' did not reach running state after start."
             Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
-            Write-Output "  Log folder: $YurunaLogDir"
+            Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
             Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
@@ -969,7 +969,7 @@ while ($true) {
                 if (-not $cmp.match) {
                     $err = "Verify screenshot mismatch: similarity=$($cmp.similarity) threshold=$threshold"
                     Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
-                    Write-Output "  Log folder: $YurunaLogDir"
+                    Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
                     Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
                     Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                     $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
@@ -1006,7 +1006,7 @@ while ($true) {
                 Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "pass"
             } else {
                 Write-Warning "  ERROR [$GuestKey / Screenshots]: $($r.errorMessage)"
-                Write-Output "  Log folder: $YurunaLogDir"
+                Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Screenshots" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Screenshots"; $FailureMessage = $r.errorMessage
@@ -1036,7 +1036,7 @@ while ($true) {
                 Write-Output "  $GuestKey Invoke-PoolTest: PASS"
             } else {
                 Write-Warning "  ERROR [$GuestKey / Invoke-PoolTest]: $($r.errorMessage)"
-                Write-Output "  Log folder: $YurunaLogDir"
+                Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Invoke-PoolTest"; $FailureMessage = $r.errorMessage

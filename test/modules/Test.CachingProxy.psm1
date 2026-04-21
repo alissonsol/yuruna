@@ -47,7 +47,7 @@ function Test-CachingProxyAvailable {
     [OutputType([string])]
     param([Parameter(Mandatory)] [string]$HostType)
 
-    # External cache override. $Env:CachingProxyIpAddress short-circuits
+    # External cache override. $Env:YURUNA_CACHING_PROXY_IP short-circuits
     # the per-platform local-VM discovery and uses a remote caching proxy at the
     # given IP. The remote image is assumed identical to the local one —
     # Apache on :80 publishes /yuruna-squid-ca.crt, squid on :3128 / :3129,
@@ -61,10 +61,10 @@ function Test-CachingProxyAvailable {
     # variable deliberately, and silently switching to a local cache would
     # mask misconfiguration. Caller then logs "not detected" and guests run
     # direct against Ubuntu mirrors.
-    if ($Env:CachingProxyIpAddress) {
-        $externIp = $Env:CachingProxyIpAddress.Trim()
+    if ($Env:YURUNA_CACHING_PROXY_IP) {
+        $externIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
         if ($externIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-            Write-Warning "CachingProxyIpAddress='$externIp' is not a valid IPv4 address — ignoring."
+            Write-Warning "YURUNA_CACHING_PROXY_IP='$externIp' is not a valid IPv4 address — ignoring."
             return $null
         }
         $tcp = New-Object System.Net.Sockets.TcpClient
@@ -78,7 +78,7 @@ function Test-CachingProxyAvailable {
         } finally {
             $tcp.Close()
         }
-        Write-Warning "CachingProxyIpAddress=${externIp} set but ${externIp}:3128 did not answer. Guests will download directly for this cycle."
+        Write-Warning "YURUNA_CACHING_PROXY_IP=${externIp} set but ${externIp}:3128 did not answer. Guests will download directly for this cycle."
         return $null
     }
 

@@ -123,7 +123,7 @@ the Grafana dashboard at `http://<squid-cache-ip>:3000` (anonymous
 Viewer, no login) and the cachemgr.cgi fallback at
 `http://<squid-cache-ip>/cgi-bin/cachemgr.cgi`. The test-harness
 wrappers (`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`, and the
-`CachingProxyIpAddress` override) are documented separately in
+`YURUNA_CACHING_PROXY_IP` override) are documented separately in
 [test/CachingProxy.md](../../test/CachingProxy.md).
 
 ## Next: Create a Guest VM

@@ -108,7 +108,7 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 # action parameters using ${variableName} syntax. Built-in variables:
 # ${vmName}, ${hostType}, ${guestKey}.
 #
-# On step failure, diagnostics are written to the YurunaLog directory:
+# On step failure, diagnostics are written to $env:YURUNA_LOG_DIR:
 #   last_failure.json              — failed step details (read by the parent runner)
 #   failure_screenshot_<VM>.png    — last VM screenshot at time of failure
 #   failure_ocr_<VM>.txt           — last OCR text (waitForText failures only)
@@ -1279,7 +1279,7 @@ function Send-Click {
         [hashtable]$Capture = $null
     )
     if ($HostType -eq "host.windows.hyper-v") { return Send-ClickHyperV -VMName $VMName -X $X -Y $Y }
-    elseif ($HostType -eq "host.macos.utm") { return Send-ClickUtm -VMName $VMName -X $X -Y $Y -Capture $Capture }
+    elseif ($HostType -eq "host.macos.utm") { return Send-ClickUtm -X $X -Y $Y -Capture $Capture }
     else { Write-Warning "Unknown host for Send-Click: $HostType"; return $false }
 }
 
@@ -1303,7 +1303,6 @@ function Send-ClickUtm {
         warn loudly so the operator doesn't chase a phantom OCR bug.
     #>
     param(
-        [string]$VMName,
         [int]$X,
         [int]$Y,
         [hashtable]$Capture = $null
@@ -1530,7 +1529,7 @@ function Wait-ForAndClickButton {
     Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 
-    $logDir = Get-YurunaLogDir
+    $logDir = Initialize-YurunaLogDir
     $capturePath = Join-Path $logDir "clickbutton_${VMName}.png"
     # Avoid '|' as the join separator — Write-ProgressTick's marker uses '|'
     # as its field delimiter, and embedding one here would shift parsing on the
@@ -1645,7 +1644,7 @@ function Wait-ForText {
 
     # Rolling screenshot window: current and previous screen paths
     Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-    $logDir = Get-YurunaLogDir
+    $logDir = Initialize-YurunaLogDir
     $currentScreenPath  = Join-Path $logDir "waittext_${VMName}_current.png"
     $previousScreenPath = Join-Path $logDir "waittext_${VMName}_previous.png"
 
@@ -2018,7 +2017,7 @@ function Invoke-Sequence {
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")    -Force -ErrorAction SilentlyContinue -Verbose:$false
-    $logDir = Get-YurunaLogDir
+    $logDir = Initialize-YurunaLogDir
 
   try {
     $sequence = Get-Content -Raw $SequencePath | ConvertFrom-Json

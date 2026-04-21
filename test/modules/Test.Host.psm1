@@ -1007,29 +1007,32 @@ function Set-WindowsHostConditionSet {
     }
 
     # 7a. Per-monitor DPI
+    # foreach statement (not ForEach-Object pipeline) so $scaleChanged writes
+    # hit the function scope — ForEach-Object's scriptblock runs in a child
+    # scope where the assignment would be silently local.
     $perMonPath = 'HKCU:\Control Panel\Desktop\PerMonitorSettings'
     if (Test-Path -LiteralPath $perMonPath) {
-        Get-ChildItem -LiteralPath $perMonPath -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.PSIsContainer } |
-            ForEach-Object {
-                $props = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
-                if ($null -eq $props) { return }
-                if (-not ($props.PSObject.Properties.Name -contains 'DpiValue')) { return }
-                $current     = & $asSignedDword $props.DpiValue
-                $recommended = if ($props.PSObject.Properties.Name -contains 'RecommendedDpiValue') {
-                                   & $asSignedDword $props.RecommendedDpiValue
-                               } else { 0 }
-                # DpiValue is an offset from recommended; target 100% = -recommended.
-                $target = -$recommended
-                if ($current -ne $target) {
-                    $label = $_.PSChildName
-                    if ($PSCmdlet.ShouldProcess("Monitor $label", "Set DpiValue $current -> $target (100% display scale)")) {
-                        Set-ItemProperty -LiteralPath $_.PSPath -Name 'DpiValue' -Value $target -Type DWord
-                        Write-Output "Set display scale to 100% for monitor $label (DpiValue: $current -> $target)."
-                        $scaleChanged = $true
-                    }
+        $monKeys = Get-ChildItem -LiteralPath $perMonPath -Recurse -ErrorAction SilentlyContinue |
+                   Where-Object { $_.PSIsContainer }
+        foreach ($mon in $monKeys) {
+            $props = Get-ItemProperty -LiteralPath $mon.PSPath -ErrorAction SilentlyContinue
+            if ($null -eq $props) { continue }
+            if (-not ($props.PSObject.Properties.Name -contains 'DpiValue')) { continue }
+            $current     = & $asSignedDword $props.DpiValue
+            $recommended = if ($props.PSObject.Properties.Name -contains 'RecommendedDpiValue') {
+                               & $asSignedDword $props.RecommendedDpiValue
+                           } else { 0 }
+            # DpiValue is an offset from recommended; target 100% = -recommended.
+            $target = -$recommended
+            if ($current -ne $target) {
+                $label = $mon.PSChildName
+                if ($PSCmdlet.ShouldProcess("Monitor $label", "Set DpiValue $current -> $target (100% display scale)")) {
+                    Set-ItemProperty -LiteralPath $mon.PSPath -Name 'DpiValue' -Value $target -Type DWord
+                    Write-Output "Set display scale to 100% for monitor $label (DpiValue: $current -> $target)."
+                    $scaleChanged = $true
                 }
             }
+        }
     } else {
         Write-Verbose "HKCU:\Control Panel\Desktop\PerMonitorSettings absent; skipping per-monitor DPI override."
     }

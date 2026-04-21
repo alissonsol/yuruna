@@ -267,7 +267,7 @@ try {
             # so a narrower list here would tear down ports the other
             # callers just set up.
             #
-            # External-cache branch: when $Env:CachingProxyIpAddress
+            # External-cache branch: when $Env:YURUNA_CACHING_PROXY_IP
             # is set, Test-CachingProxyAvailable returns the remote URL and
             # the remote host exposes all its ports itself. Skip the
             # local portproxy/forwarder entirely — the dashboard link
@@ -276,7 +276,7 @@ try {
             $portMapModPath = Join-Path $ModulesDir "Test.PortMap.psm1"
             $mapOk = $false
             $bestIp = $null
-            $isExternal = [bool]$Env:CachingProxyIpAddress
+            $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
             if (Test-Path $portMapModPath) {
                 Import-Module -Name $portMapModPath -Force
                 if ($isExternal) {

@@ -106,7 +106,7 @@ function Invoke-StartTest {
         if ($LASTEXITCODE -ne 0) {
             $errMsg = "Start test '$($s.Name)' failed (exit code $LASTEXITCODE)"
             # Read failure details written by Invoke-Sequence (if available)
-            $logDir = Get-YurunaLogDir
+            $logDir = Initialize-YurunaLogDir
             $failFile = Join-Path $logDir "last_failure.json"
             if (Test-Path $failFile) {
                 try {

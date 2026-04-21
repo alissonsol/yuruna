@@ -64,7 +64,7 @@
       user's ~/virtual/squid-cache/ and not /var/root/virtual/...
 
     This script is a no-op for the test runner when
-    $Env:CachingProxyIpAddress is set: Invoke-TestRunner.ps1 will
+    $Env:YURUNA_CACHING_PROXY_IP is set: Invoke-TestRunner.ps1 will
     route to that remote IP regardless of any local cache this script
     brought up. Running Start-CachingProxy.ps1 with the variable set just
     creates a local "warm spare" the runner will ignore.

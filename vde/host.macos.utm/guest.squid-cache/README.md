@@ -8,7 +8,7 @@ at:
 
 The test-harness wrappers that expose the cache to remote clients
 (`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`, and the
-`CachingProxyIpAddress` override consumed by `Invoke-TestRunner.ps1`)
+`YURUNA_CACHING_PROXY_IP` override consumed by `Invoke-TestRunner.ps1`)
 are documented in
 **[test/CachingProxy.md](../../../test/CachingProxy.md)**.
 

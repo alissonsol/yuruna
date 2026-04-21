@@ -790,9 +790,9 @@ function Get-ProcessedScreenImage {
     # Background color (RGBA)
     $bgR = [byte]0; $bgG = [byte]0; $bgB = [byte]0; $bgA = [byte]255  # Black
 
-    # Use global YurunaLog directory for debug artifacts
+    # Use $env:YURUNA_LOG_DIR for debug artifacts
     Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-    $debugDir = Join-Path (Get-YurunaLogDir) 'NewText'
+    $debugDir = Join-Path (Initialize-YurunaLogDir) 'NewText'
     if (-not (Test-Path $debugDir)) {
         New-Item -ItemType Directory -Path $debugDir -Force | Out-Null
     }
@@ -916,9 +916,9 @@ function Get-NewTextContent {
     $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $CurrentScreenPath -PreviousScreenPath $PreviousScreenPath
     if (-not $processedPath) { return '' }
 
-    # Use global YurunaLog directory for debug artifacts
+    # Use $env:YURUNA_LOG_DIR for debug artifacts
     Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-    $debugDir = Join-Path (Get-YurunaLogDir) 'NewText'
+    $debugDir = Join-Path (Initialize-YurunaLogDir) 'NewText'
 
     # OCR the image using the first enabled provider (backward-compatible)
     $ocrText = (Invoke-PlatformOcr -ImagePath $processedPath).Trim()

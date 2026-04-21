@@ -363,13 +363,13 @@ if ($CachingProxyUrl) {
 # empty and the guest's HTTPS proxy block becomes a no-op.
 $CaCertBase64 = ""
 $cacheVmIp = $null
-if ($Env:CachingProxyIpAddress -and $Env:CachingProxyIpAddress -match '^\d+\.\d+\.\d+\.\d+$') {
+if ($Env:YURUNA_CACHING_PROXY_IP -and $Env:YURUNA_CACHING_PROXY_IP -match '^\d+\.\d+\.\d+\.\d+$') {
     # External cache: $CachingProxyUrl already points at the remote IP (no VZ-
     # gateway rewrite), and the remote image is identical to the local one
     # — same Apache on :80 serving /yuruna-squid-ca.crt. cache-ip.txt is
     # not written for external caches, so read the IP straight from the
     # environment variable.
-    $cacheVmIp = $Env:CachingProxyIpAddress.Trim()
+    $cacheVmIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
 } elseif ($CachingProxyUrl) {
     $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
     if (Test-Path $cacheIpFile) {

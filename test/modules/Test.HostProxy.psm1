@@ -67,7 +67,20 @@ $ErrorActionPreference = 'Stop'
 # (so a partial prior run can still be cleaned up).
 
 function Get-HostProxyBackupPath {
+    <#
+    .SYNOPSIS
+        Return the absolute path of the host-proxy backup JSON file, creating
+        its parent state directory if it doesn't already exist.
+    .DESCRIPTION
+        $HOME/.yuruna/host-proxy.backup.json is the source of truth for
+        Clear-HostProxy's restore; its mere existence is also the "are we
+        currently promoted?" flag used by Stop-CachingProxy.ps1 to decide
+        whether to hard-fail without sudo on macOS.
+    .OUTPUTS
+        System.String
+    #>
     [CmdletBinding()]
+    [OutputType([string])]
     param()
     $stateDir = Join-Path $HOME '.yuruna'
     if (-not (Test-Path -LiteralPath $stateDir)) {
@@ -118,6 +131,7 @@ $script:WinInetRegPathRaw = 'Software\Microsoft\Windows\CurrentVersion\Internet 
 
 function Read-WindowsProxyState {
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param()
     $wi = @{ ProxyEnable = 0; ProxyServer = $null; ProxyOverride = $null }
     if (Test-Path -LiteralPath $script:WinInetRegPath) {
@@ -158,7 +172,7 @@ public static class YurunaWinInet {
 }
 
 function Set-WindowsHostProxy {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)][hashtable]$ProxyParts   # from ConvertTo-ProxyHostPort
     )
@@ -166,6 +180,10 @@ function Set-WindowsHostProxy {
     $proxyUrl   = $ProxyParts.Url
     $bypassWi   = 'localhost;127.0.0.1;<local>'
     $bypassEnv  = 'localhost,127.0.0.1,::1'
+
+    if (-not $PSCmdlet.ShouldProcess("HKCU WinINet + HKCU\Environment", "Set host proxy to $proxyUrl")) {
+        return
+    }
 
     if (-not (Test-Path -LiteralPath $script:WinInetRegPath)) {
         New-Item -Path $script:WinInetRegPath -Force | Out-Null
@@ -282,7 +300,7 @@ function Get-MacActiveNetworkService {
 
 function Read-MacProxyState {
     param([Parameter(Mandatory)][string]$NetworkService)
-    function Parse-NetworksetupBlock {
+    function ConvertFrom-NetworksetupBlock {
         param([string[]]$Lines)
         $h = @{}
         foreach ($line in $Lines) {
@@ -308,8 +326,8 @@ function Read-MacProxyState {
     return @{
         platform       = 'macos'
         networkService = $NetworkService
-        webProxy       = Parse-NetworksetupBlock -Lines $webOut
-        secureWebProxy = Parse-NetworksetupBlock -Lines $sslOut
+        webProxy       = ConvertFrom-NetworksetupBlock -Lines $webOut
+        secureWebProxy = ConvertFrom-NetworksetupBlock -Lines $sslOut
         bypassDomains  = $bypassList
     }
 }
@@ -321,12 +339,15 @@ function Assert-MacRoot {
 }
 
 function Set-MacHostProxy {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)][hashtable]$ProxyParts,
         [Parameter(Mandatory)][string]$NetworkService
     )
     $h = $ProxyParts.Host; $p = $ProxyParts.Port
+    if (-not $PSCmdlet.ShouldProcess("macOS networksetup service '$NetworkService'", "Set web/securewebproxy to ${h}:${p} and enable")) {
+        return
+    }
     & networksetup -setwebproxy           $NetworkService $h $p | Out-Null
     & networksetup -setsecurewebproxy     $NetworkService $h $p | Out-Null
     & networksetup -setwebproxystate      $NetworkService on    | Out-Null
@@ -385,7 +406,7 @@ function Set-HostProxy {
         macOS only: override the auto-detected active network service name
         (e.g. "Wi-Fi", "Ethernet"). Ignored on Windows.
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)][string]$Url,
         [string]$NetworkService
@@ -394,6 +415,9 @@ function Set-HostProxy {
     $backupPath = Get-HostProxyBackupPath
 
     if ($IsWindows) {
+        if (-not $PSCmdlet.ShouldProcess("Windows host (HKCU)", "Promote host proxy to $($parts.Url)")) {
+            return
+        }
         if (-not (Test-Path -LiteralPath $backupPath)) {
             # Idempotency safeguard -- only snapshot BEFORE the first apply,
             # so a repeat Set-HostProxy doesn't overwrite the backup with
@@ -416,6 +440,9 @@ function Set-HostProxy {
         $svc = if ($NetworkService) { $NetworkService } else { Get-MacActiveNetworkService }
         if (-not $svc) {
             throw "Could not auto-detect the active macOS network service. Pass -NetworkService 'Wi-Fi' (or the name of your active service)."
+        }
+        if (-not $PSCmdlet.ShouldProcess("macOS network service '$svc'", "Promote host proxy to $($parts.Url)")) {
+            return
         }
         if (-not (Test-Path -LiteralPath $backupPath)) {
             $state = Read-MacProxyState -NetworkService $svc

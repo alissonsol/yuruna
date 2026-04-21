@@ -171,8 +171,8 @@ Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
 Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
 $global:VerbosePreference = $savedVerbose
 
-$YurunaLogDir = Get-YurunaLogDir
-Write-Output "Log folder: $YurunaLogDir"
+$null = Initialize-YurunaLogDir
+Write-Output "Log directory: $env:YURUNA_LOG_DIR"
 
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'

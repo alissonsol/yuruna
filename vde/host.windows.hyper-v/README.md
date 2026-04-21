@@ -115,7 +115,7 @@ See [docs/caching.md](../../docs/caching.md) for details on how it
 works, including the Grafana dashboard, cache tuning, and offline
 replay. The test-harness-specific wrappers
 (`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`, and the
-`CachingProxyIpAddress` override consumed by `Invoke-TestRunner.ps1`)
+`YURUNA_CACHING_PROXY_IP` override consumed by `Invoke-TestRunner.ps1`)
 are documented separately in
 [test/CachingProxy.md](../../test/CachingProxy.md).
 

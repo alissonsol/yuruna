@@ -172,13 +172,13 @@ before launching the runner:
 
 ```powershell
 # Windows
-$Env:CachingProxyIpAddress = '10.0.0.5'
+$Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
 pwsh test\Invoke-TestRunner.ps1
 ```
 
 ```bash
 # macOS
-export CachingProxyIpAddress=10.0.0.5
+export YURUNA_CACHING_PROXY_IP=10.0.0.5
 pwsh test/Invoke-TestRunner.ps1
 ```
 
@@ -198,7 +198,7 @@ of `CachingProxy.md` for the host-side setup (Windows: elevated
 **Validate the remote cache before a full cycle:**
 
 ```powershell
-$Env:CachingProxyIpAddress = '10.0.0.5'
+$Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
 pwsh test/Test-CachingProxy.ps1
 ```
 
@@ -479,7 +479,7 @@ test/
     Test.Notify.psm1              # Resend API email notifications
     Test.Get-Image.psm1           # Base image download and refresh
     Test.Log.psm1                 # Transcript logging to test/status/log/
-    Test.LogDir.psm1              # YurunaLog directory path management
+    Test.LogDir.psm1              # $env:YURUNA_LOG_DIR initialization
     Test.New-VM.psm1              # VM creation, verification, and cleanup
     Test.Install-OS.psm1          # OS installation sequence orchestration
     Test.Start-VM.psm1            # VM start, stop, boot verification
@@ -519,7 +519,7 @@ test/
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |
 | `Test.Get-Image` | Base image download/refresh | `Get-ImagePath`, `Invoke-GetImage` |
 | `Test.Log` | Transcript logging to `test/status/log/` | `Start-LogFile`, `Stop-LogFile` |
-| `Test.LogDir` | YurunaLog directory path management | `Get-YurunaLogDir` |
+| `Test.LogDir` | `$env:YURUNA_LOG_DIR` initialization | `Initialize-YurunaLogDir` |
 | `Test.New-VM` | VM create + verify creation + cleanup | `Invoke-NewVM`, `Confirm-VMCreated`, `Remove-TestVM` |
 | `Test.Install-OS` | OS installation sequence orchestration | `Get-StartTestScript`, `Invoke-StartTest`, `Get-VerifyScreenshot` |
 | `Test.Start-VM` | VM start/stop + verify running | `Invoke-StartVM`, `Stop-TestVM`, `Confirm-VMStarted` |

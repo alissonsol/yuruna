@@ -6,7 +6,7 @@
 
 2. **Create a branch and make code changes.** If you modify files that guest VMs retrieve via the "fetch and execute" pattern, you may need to push the branch before testing so the VM can download the updated scripts. In that case, temporarily change the base URL used for the fetch process to point to your branch (see [Testing script changes from a branch](#testing-script-changes-from-a-branch) below).
 
-3. **Run the full test loop.** Execute `test/Invoke-TestRunner.ps1` to run the continuous test cycle. It will print a `Log folder:` line at startup showing where debug artifacts (OCR screenshots, diff images, etc.) are written.
+3. **Run the full test loop.** Execute `test/Invoke-TestRunner.ps1` to run the continuous test cycle. It will print a `Log directory:` line at startup showing where debug artifacts (OCR screenshots, diff images, etc.) are written.
 
    ```powershell
    pwsh test/Invoke-TestRunner.ps1

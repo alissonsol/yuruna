@@ -88,12 +88,12 @@ setting a single environment variable before running the harness:
 
 ```powershell
 # Windows
-$Env:CachingProxyIpAddress = '10.0.0.5'   # IP of the remote caching proxy host
+$Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'   # IP of the remote caching proxy host
 ```
 
 ```bash
 # macOS
-export CachingProxyIpAddress=10.0.0.5
+export YURUNA_CACHING_PROXY_IP=10.0.0.5
 ```
 
 When this variable is set, [Invoke-TestRunner.ps1](Invoke-TestRunner.ps1)
@@ -119,7 +119,7 @@ machine, even without Hyper-V / UTM installed. Use it to confirm a
 candidate remote cache is healthy **before** starting a full test cycle:
 
 ```powershell
-$Env:CachingProxyIpAddress = '10.0.0.5'
+$Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
 pwsh test/Test-CachingProxy.ps1
 # === Summary: 5 PASS, 0 WARN, 0 FAIL ===
 ```

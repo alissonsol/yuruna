@@ -110,6 +110,120 @@ if (Test-Path $PidFile) {
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
+# --- Resolve port conflicts from un-tracked orphan detached servers ---
+# The pid-file checks above only know about the server we last launched. If
+# an older Start-StatusServer.ps1 survived a terminal close, or a failed
+# launch overwrote $PidFile with a stillborn PID, a prior detached pwsh can
+# still hold the HttpListener on :$Port. New launches then die with:
+#   Failed to listen on prefix 'http://*:$Port/' because it conflicts with
+#   an existing registration on the machine.
+# The detached child logs that to $TrackDir/server.err and exits, so the
+# outer script appears to start cleanly — but nothing is serving, and any
+# existing orphan (often a pre-refactor build) keeps writing control files
+# to the wrong place (e.g. $StatusDir vs. $TrackDir), which breaks the UI's
+# Pause/Cycle buttons silently.
+#
+# Probe the port with a throwaway HttpListener. If the probe succeeds, we
+# know the detached launch below will succeed too. If it fails, resolve the
+# real owner via OS-appropriate tools and stop it — but ONLY if it's a pwsh
+# process we can plausibly claim as our own orphan. Unknown owners (e.g. a
+# dev server, another tool) get a clear error and we bail; we don't want to
+# kill an unrelated listener.
+function Get-PortListenerPid {
+    param([int]$Port)
+
+    if ($PSVersionTable.Platform -eq 'Unix') {
+        # lsof is standard on macOS and most Linux distros.
+        if (-not (Get-Command lsof -ErrorAction SilentlyContinue)) { return @() }
+        $out = & lsof -nP -iTCP:$Port -sTCP:LISTEN -Fp 2>$null
+        if (-not $out) { return @() }
+        return @($out | Where-Object { $_ -like 'p*' } | ForEach-Object { [int]$_.Substring(1) } | Select-Object -Unique)
+    }
+
+    # Windows: HTTP.sys hides the real owner from Get-NetTCPConnection
+    # (OwningProcess reports 4, the System kernel account), so netsh is the
+    # only reliable source for url-group-to-PID mapping. Output is grouped
+    # per "Request queue name:" block; within a block, `Processes: ID: <pid>`
+    # lines list the attached user-mode PIDs and `Registered URLs:` lists
+    # the URL prefixes. We flush a block's PIDs into the result set whenever
+    # its URL list contains :$Port. `:${Port}(?:[:/]|\b)` matches both the
+    # common "HTTP://*:8080/" form and the less common
+    # "HTTP://127.0.0.1:8080:127.0.0.1/" host-binding form.
+    $raw = @(netsh http show servicestate 2>$null)
+    if (-not $raw) { return @() }
+
+    $pids           = [System.Collections.Generic.HashSet[int]]::new()
+    $blockPids      = [System.Collections.Generic.List[int]]::new()
+    $blockPortMatch = $false
+    foreach ($line in $raw) {
+        if ($line -match '^\s*Request queue name:') {
+            if ($blockPortMatch) { foreach ($p in $blockPids) { [void]$pids.Add($p) } }
+            $blockPids.Clear(); $blockPortMatch = $false
+        } elseif ($line -match '^\s*ID:\s*(\d+)\b') {
+            [void]$blockPids.Add([int]$Matches[1])
+        } elseif ($line -match "^\s*HTTPS?://[^\s]*:${Port}(?:[:/]|$)") {
+            $blockPortMatch = $true
+        }
+    }
+    if ($blockPortMatch) { foreach ($p in $blockPids) { [void]$pids.Add($p) } }
+    return @($pids)
+}
+
+function Resolve-PortOrphan {
+    param([int]$Port, [string]$PidFile)
+
+    # Probe once. The cheapest test that guarantees the detached launch will
+    # succeed is attempting the same HttpListener it will use.
+    $probe = [System.Net.HttpListener]::new()
+    $probe.Prefixes.Add("http://*:$Port/")
+    try {
+        $probe.Start(); $probe.Stop(); $probe.Close()
+        return   # port is free, nothing more to do
+    } catch {
+        try { $probe.Close() } catch { Write-Debug $_ }
+    }
+
+    $holderPids = @(Get-PortListenerPid -Port $Port)
+    if (-not $holderPids.Count) {
+        Write-Warning "Port $Port is in use but the OS did not expose a PID (netsh/lsof unavailable or empty)."
+        Write-Warning "Stop the conflicting listener manually and rerun:"
+        Write-Warning "  Windows: netsh http show servicestate"
+        Write-Warning "  Unix:    lsof -iTCP:$Port -sTCP:LISTEN"
+        exit 1
+    }
+
+    foreach ($holderPid in $holderPids) {
+        $proc = Get-Process -Id $holderPid -ErrorAction SilentlyContinue
+        if (-not $proc) { continue }   # exited between the OS query and now
+        if ($proc.ProcessName -notmatch '^(pwsh|PowerShell|powershell)$') {
+            Write-Warning "Port $Port is held by PID $holderPid ($($proc.ProcessName)) — not a pwsh process."
+            Write-Warning "Refusing to kill an unrelated listener. Stop it manually (Stop-Process -Id $holderPid) and rerun."
+            exit 1
+        }
+        Write-Output "Port $Port held by orphan pwsh PID $holderPid (started $($proc.StartTime)). Stopping it."
+        Stop-Process -Id $holderPid -Force -ErrorAction SilentlyContinue
+    }
+
+    # HTTP.sys releases the URL reservation asynchronously after the owning
+    # process exits — poll briefly until the probe succeeds.
+    for ($i = 0; $i -lt 10; $i++) {
+        Start-Sleep -Milliseconds 300
+        $probe = [System.Net.HttpListener]::new()
+        $probe.Prefixes.Add("http://*:$Port/")
+        try {
+            $probe.Start(); $probe.Stop(); $probe.Close()
+            Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+            return
+        } catch {
+            try { $probe.Close() } catch { Write-Debug $_ }
+        }
+    }
+    Write-Warning "Port $Port is still held after stopping the orphan pwsh holder(s)."
+    Write-Warning "Inspect with 'netsh http show servicestate' (or 'lsof -iTCP:$Port -sTCP:LISTEN') and retry."
+    exit 1
+}
+Resolve-PortOrphan -Port $Port -PidFile $PidFile
+
 # --- Ensure repoUrl is set in status.json ---
 $StatusFile = Join-Path $TrackDir "status.json"
 if (Test-Path $StatusFile) {

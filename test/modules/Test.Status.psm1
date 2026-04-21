@@ -207,16 +207,24 @@ function Complete-Run {
 .DESCRIPTION
     Before serializing, refreshes $script:Doc.stepPaused and
     $script:Doc.cyclePaused from the presence of control.step-pause and
-    control.cycle-pause next to status.json. Those files are the source of
-    truth for the two UI Pause/Continue buttons: the status server
-    creates/removes them and the runner + Invoke-Sequence poll them.
-    Mirroring the flags here keeps the parent's periodic status writes from
-    clobbering the server-written values.
+    control.cycle-pause in $env:YURUNA_TRACK_DIR. Those files are the
+    source of truth for the two UI Pause/Continue buttons: the status
+    server creates/removes them and the runner + Invoke-Sequence poll
+    them. Mirroring the flags here keeps the parent's periodic status
+    writes from clobbering the server-written values.
+
+    Reads the track dir directly from $env:YURUNA_TRACK_DIR rather than
+    deriving it from the status.json path (Split-Path -Parent $script:File)
+    so every consumer of the pause flags — status server, runner,
+    sequence interpreter, this module — uses the same single source of
+    truth. An earlier revision derived it from the file path and was
+    correct by coincidence; a caller that ever moved status.json outside
+    the track dir would have silently desynced.
 #>
 function Write-StatusJson {
-    $statusDir = Split-Path -Parent $script:File
-    $stepPauseFlag  = Join-Path $statusDir 'control.step-pause'
-    $cyclePauseFlag = Join-Path $statusDir 'control.cycle-pause'
+    $trackDir = $env:YURUNA_TRACK_DIR
+    $stepPauseFlag  = Join-Path $trackDir 'control.step-pause'
+    $cyclePauseFlag = Join-Path $trackDir 'control.cycle-pause'
     $script:Doc.stepPaused  = (Test-Path $stepPauseFlag)
     $script:Doc.cyclePaused = (Test-Path $cyclePauseFlag)
     $tmp = "$($script:File).tmp"

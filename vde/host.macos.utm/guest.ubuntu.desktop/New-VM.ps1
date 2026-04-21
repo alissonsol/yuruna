@@ -115,6 +115,10 @@ if (-not $PasswordHash) {
 }
 
 Write-Output "Creating VM '$VMName' using image: $baseImageFile"
+# Provenance side-channel for operators reading the transcript. Emits
+# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
+Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # === Create copies and files for VM ===
 

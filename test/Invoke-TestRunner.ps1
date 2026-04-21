@@ -222,7 +222,7 @@ if (Test-Path $yurunaLogModule) {
     Import-Module $yurunaLogModule -Global -Force
 }
 
-foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log", "Test.CachingProxy", "Test.PortMap")) {
+foreach ($mod in @("Test.Host", "Test.Status", "Test.Notify", "Test.Get-Image", "Test.Provenance", "Test.New-VM", "Test.Start-VM", "Test.Install-OS", "Test.Screenshot", "Test.Invoke-PoolTest", "Test.Log", "Test.CachingProxy", "Test.PortMap")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
@@ -723,6 +723,22 @@ while ($true) {
         -RepoUrl        $Config.repoUrl `
         -GuestList      $GuestList `
         -StepNames      $StepNames
+
+    # --- Seed per-guest provenance so the UI can show the actual ISO filename
+    # on each guest card (e.g. "ubuntu-24.04.4-desktop-amd64.iso" instead of
+    # the generic "guest.ubuntu.desktop"). Each Get-Image.ps1 writes a
+    # two-line sidecar next to the base image — filename + source URL — and
+    # Get-BaseImageProvenance reads it. Missing sidecar or blank URL both
+    # leave provenance empty, and the UI falls back to guestKey in that
+    # case. Per-cycle (not per-run) so deleting the ISO + re-running
+    # Get-Image reflects immediately on the next cycle.
+    foreach ($gk in $GuestList) {
+        $imgPath = Get-ImagePath -HostType $HostType -GuestKey $gk
+        if ($imgPath) {
+            $prov = Get-BaseImageProvenance -BaseImagePath $imgPath
+            Set-GuestProvenance -GuestKey $gk -Filename $prov.Filename -Url $prov.Url
+        }
+    }
 
     # --- Start log file (transcript captures all console output) ---
     $LogFile = Start-LogFile -TestRoot $TestRoot -CycleId $CycleId -Hostname (hostname) -GitCommit $GitCommit

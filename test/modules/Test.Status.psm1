@@ -73,11 +73,19 @@ function Initialize-StatusDocument {
         $steps = foreach ($sn in $StepNames) {
             [ordered]@{ name=$sn; status="pending"; startedAt=$null; finishedAt=$null; skipped=$false; errorMessage=$null }
         }
+        # provenanceFilename / provenanceUrl are populated later via
+        # Set-GuestProvenance (called by Invoke-TestRunner once per cycle
+        # after the status doc is initialized). Both default to empty so
+        # a cycle with missing sidecars still serializes cleanly — the UI
+        # falls back to `guestKey` for the card title when
+        # provenanceFilename is blank.
         [ordered]@{
-            guestKey = $key
-            vmName   = $null
-            status   = "pending"
-            steps    = @($steps)
+            guestKey           = $key
+            vmName             = $null
+            status             = "pending"
+            steps              = @($steps)
+            provenanceFilename = ''
+            provenanceUrl      = ''
         }
     }
 
@@ -245,4 +253,32 @@ function Set-LastGetImageTime {
     }
 }
 
-Export-ModuleMember -Function Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime
+<#
+.SYNOPSIS
+    Records the base-image provenance (downloaded filename + source URL) for
+    a guest and flushes status.json.
+.DESCRIPTION
+    The UI swaps the guest-card title from "guest.ubuntu.desktop" to the
+    actual ISO filename (e.g. "ubuntu-24.04.4-desktop-amd64.iso") when
+    provenanceFilename is populated; a blank value means fall back to
+    guestKey. provenanceUrl is informational (not rendered today; kept in
+    the document so operators inspecting track/status.json can see where
+    the ISO came from without cross-referencing vde/*/*.txt sidecars).
+#>
+function Set-GuestProvenance {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$GuestKey,
+        [string]$Filename = '',
+        [string]$Url      = ''
+    )
+    if (-not $script:Doc) { return }
+    if (-not $PSCmdlet.ShouldProcess($GuestKey, "Set provenance to filename='$Filename' url='$Url'")) { return }
+    $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
+    if (-not $g) { return }
+    $g.provenanceFilename = $Filename
+    $g.provenanceUrl      = $Url
+    Write-StatusJson
+}
+
+Export-ModuleMember -Function Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Set-GuestProvenance, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime

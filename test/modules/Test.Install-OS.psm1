@@ -123,24 +123,4 @@ function Invoke-StartTest {
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
 
-# ── Post-install verification via screenshot ─────────────────────────────────
-
-<#
-.SYNOPSIS
-    Checks if a verification screenshot exists for the given host+guest pair.
-.DESCRIPTION
-    Files are named <hostType>.<guestKey>.png under verify/expected/.
-    Returns the path to the expected screenshot, or $null if none exists.
-#>
-function Get-VerifyScreenshot {
-    param([string]$HostType, [string]$GuestKey, [string]$VerifyDir)
-    $fileName = "$HostType.$GuestKey.png"
-    $expectedFile = Join-Path $VerifyDir "expected/$fileName"
-    if (-not (Test-Path $expectedFile)) { return $null }
-    # Skip placeholder files (1x1 pixel PNGs shipped as defaults)
-    $fileSize = (Get-Item $expectedFile).Length
-    if ($fileSize -lt 200) { return $null }
-    return $expectedFile
-}
-
-Export-ModuleMember -Function Get-StartTestScript, Invoke-StartTest, Get-VerifyScreenshot
+Export-ModuleMember -Function Get-StartTestScript, Invoke-StartTest

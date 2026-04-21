@@ -24,7 +24,6 @@
   },
   "stopOnFailure": false,
   "testVmNamePrefix": "test-",
-  "verifyScreenshotThreshold": 0.85,
   "vmBootDelaySeconds": 15,
   "vmStartTimeoutSeconds": 120,
   "vncPort": 5900

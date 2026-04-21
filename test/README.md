@@ -73,7 +73,6 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
   "charDelayMs": 20,
   "keystrokeMechanism": "GUI",
   "vncPort": 5900,
-  "verifyScreenshotThreshold": 0.85,
   "guestOrder": ["guest.amazon.linux", "guest.ubuntu.desktop", "guest.ubuntu.server", "guest.windows.11"]
 }
 ```
@@ -94,7 +93,6 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `charDelayMs` | `20` | Default delay in ms between keystrokes in `type`/`typeAndEnter` actions |
 | `keystrokeMechanism` | `"GUI"` | How the harness drives guest VMs. `"GUI"` uses keystroke injection (Hyper-V scancodes or UTM VNC/CGEvent). `"SSH"` routes workload sequences over SSH using a per-host key under `test/.ssh/` that is injected into each guest's cloud-init `authorized_keys` at VM creation. In SSH mode, Invoke-Sequence prefers a sibling `.ssh.json` variant of each sequence file when one exists (e.g. `Test-Workload.guest.amazon.linux.ssh.json`) and falls back to the keystroke sequence otherwise. Comparison is case-insensitive and the value is normalized to uppercase on startup; any other value in `test-config.json` (including the legacy `"hypervisor"`) is replaced with the default |
 | `vncPort` | `5900` | VNC port for QEMU-backend UTM VMs (display `:0` = 5900). Used by the focus-independent VNC keystroke transport |
-| `verifyScreenshotThreshold` | `0.85` | Similarity threshold (0–1) for verify-screenshot comparison |
 | `guestOrder` | _(required)_ | Array of guest keys to test, in execution order. Each entry must correspond to a `vde/<hostType>/<guestKey>/` folder on this host — see below |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
 | `statusServer.port` | `8080` | Port for the status server |
@@ -497,9 +495,6 @@ test/
     Test-Workload.guest.amazon.linux.ps1            # Amazon Linux workload test
     Test-Workload.guest.ubuntu.desktop.ps1          # Ubuntu Desktop workload test
     Test-Workload.guest.windows.11.ps1              # Windows 11 workload test
-  verify/
-    expected/                     # Reference PNGs (committed)
-    actual/                       # Runtime captures (git-ignored)
   status/
     index.html                    # Status dashboard (committed)
     status.json.template          # Template for status data (committed)
@@ -540,7 +535,7 @@ server then maps those URL prefixes onto the overridden paths.
 | `Test.LogDir` | `$env:YURUNA_LOG_DIR` initialization (bulk logs) | `Initialize-YurunaLogDir` |
 | `Test.TrackDir` | `$env:YURUNA_TRACK_DIR` initialization (runtime state) | `Initialize-YurunaTrackDir` |
 | `Test.New-VM` | VM create + verify creation + cleanup | `Invoke-NewVM`, `Confirm-VMCreated`, `Remove-TestVM` |
-| `Test.Install-OS` | OS installation sequence orchestration | `Get-StartTestScript`, `Invoke-StartTest`, `Get-VerifyScreenshot` |
+| `Test.Install-OS` | OS installation sequence orchestration | `Get-StartTestScript`, `Invoke-StartTest` |
 | `Test.Start-VM` | VM start/stop + verify running | `Invoke-StartVM`, `Stop-TestVM`, `Confirm-VMStarted` |
 | `Test.Invoke-PoolTest` | Extension test discovery and execution | `Get-GuestTestScript`, `Invoke-PoolTest` |
 | `Test.Screenshot` | Screenshot capture, comparison, schedules | `Get-VMScreenshot`, `Compare-Screenshot`, `Invoke-ScreenshotTest` |

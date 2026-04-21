@@ -380,9 +380,6 @@ test/status/log/*
 # Training screenshots (captures are runtime, reference PNGs are committed)
 test/screenshots/*/captures/
 
-# Verify screenshots (actual captures are runtime, expected PNGs are committed)
-test/verify/actual/
-
 # Sequence debug screenshots (captured at runtime)
 test/sequences/captures/
 

@@ -129,7 +129,6 @@ $StatusTmpl     = Join-Path $StatusDir "status.json.template"
 $ModulesDir     = Join-Path $TestRoot "modules"
 $ExtensionsDir  = Join-Path $TestRoot "extensions"
 $ScreenshotsDir = Join-Path $TestRoot "screenshots"
-$VerifyDir      = Join-Path $TestRoot "verify"
 
 Import-Module (Join-Path $ModulesDir "Test.TrackDir.psm1") -Force
 Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1")   -Force
@@ -952,7 +951,7 @@ while ($true) {
             continue
         }
 
-        # --- Verify-VM (poll until running, wait boot delay, then verify screenshot) ---
+        # --- Verify-VM (poll until running, wait boot delay) ---
         Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "running"
         $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName `
             -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
@@ -976,44 +975,7 @@ while ($true) {
             $global:ProgressPreference = $savedProgress
             continue
         }
-        # Check verification screenshot if one exists for this host+guest
-        $verifyRef = Get-VerifyScreenshot -HostType $HostType -GuestKey $GuestKey -VerifyDir $VerifyDir
-        if ($verifyRef) {
-            $verifyFileName = "$HostType.$GuestKey.png"
-            $verifyCapture = Join-Path $VerifyDir "actual/$verifyFileName"
-            $actualDir = Join-Path $VerifyDir "actual"
-            if (-not (Test-Path $actualDir)) { New-Item -ItemType Directory -Force -Path $actualDir | Out-Null }
-            $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $verifyCapture
-            if ($captured) {
-                $threshold = $Config.verifyScreenshotThreshold ? [double]$Config.verifyScreenshotThreshold : 0.85
-                $cmp = Compare-Screenshot -ReferencePath $verifyRef -ActualPath $verifyCapture -Threshold $threshold
-                if (-not $cmp.match) {
-                    $err = "Verify screenshot mismatch: similarity=$($cmp.similarity) threshold=$threshold"
-                    Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
-                    Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
-                    Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
-                    Set-GuestStatus -GuestKey $GuestKey -Status "fail"
-                    $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
-                    if ($StopOnFailure) {
-                        Write-Output "  VM '$VMName' left running for investigation."
-                        break
-                    }
-                    Copy-FailureArtifactsToStatusLog -VMName $VMName
-                    Write-Output "  Cleaning up VM '$VMName' after failure..."
-                    $savedProgress = $global:ProgressPreference
-                    $global:ProgressPreference = 'SilentlyContinue'
-                    Stop-TestVM -HostType $HostType -VMName $VMName | Out-Null
-                    Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
-                    $global:ProgressPreference = $savedProgress
-                    continue
-                }
-                Write-Output "  $GuestKey Verify-VM: PASS (screenshot similarity=$($cmp.similarity))"
-            } else {
-                Write-Output "  $GuestKey Verify-VM: PASS (screenshot capture skipped)"
-            }
-        } else {
-            Write-Output "  $GuestKey Verify-VM: PASS"
-        }
+        Write-Output "  $GuestKey Verify-VM: PASS"
         Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "pass"
 
         # --- Screenshots (compare against trained references) ---

@@ -639,10 +639,7 @@ function Get-VMWindowScreenshot {
             return Get-HyperVWindowScreenshot -VMName $VMName -OutputPath $OutputPath
         }
         "host.macos.utm" {
-            Write-Warning "Get-VMWindowScreenshot is not yet implemented for host.macos.utm."
-            Write-Warning "  Click-by-OCR needs: window id + window origin + backing scale factor"
-            Write-Warning "  so imageXY → screenXY conversion works for CGEvent clicks."
-            return $null
+            return Get-UtmWindowScreenshot -VMName $VMName -OutputPath $OutputPath
         }
         default {
             Write-Error "Unknown host type for window screenshot: $HostType"
@@ -703,6 +700,129 @@ function Get-HyperVWindowScreenshot {
     } catch {
         Write-Warning "Get-HyperVWindowScreenshot failed: $_"
         return $null
+    }
+}
+
+function Get-UtmWindowScreenshot {
+    <#
+    .SYNOPSIS
+        Captures the UTM-hosted VM window and returns enough metadata for
+        click-by-OCR to map image pixel coords back to screen point coords.
+    .DESCRIPTION
+        Reuses the CGWindowID lookup from Get-UtmScreenshot but additionally
+        extracts the window's screen-point bounds (kCGWindowBounds, already in
+        the same coordinate space CGEventPost uses) and computes the backing
+        scale factor from captured-PNG pixels vs point-space width.
+
+        Scale matters because `screencapture -l <id>` records the window at
+        its backing store resolution (2x on retina), while CGEventPost takes
+        coordinates in screen points. Send-ClickUtm does the conversion:
+            screenX = OriginX + imageX / Scale
+            screenY = OriginY + imageY / Scale
+        Computing Scale from the actual captured PNG (rather than asking
+        NSScreen.backingScaleFactor) stays correct when the VM window is
+        dragged to a display with a different scale factor mid-test.
+    .OUTPUTS
+        Hashtable @{ ImagePath; WindowId; OriginX; OriginY; Width; Height;
+                     PointWidth; PointHeight; Scale } on success, or $null.
+    #>
+    param([string]$VMName, [string]$OutputPath)
+
+    # Piggyback on Get-UtmScreenshot's one-time Screen-Recording probe (sets
+    # $script:ScreencaptureWorks). If it already concluded screencapture is
+    # broken, don't bother hitting osascript first — fail fast with the same
+    # permission message the caller has already seen.
+    if ($script:ScreencaptureWorks -eq $false) { return $null }
+
+    # One JXA query pulls window ID + bounds together. kCGWindowBounds is in
+    # screen points (origin top-left of main display) — exactly what
+    # CGEventPost consumes, so no extra coord-system conversion is needed
+    # downstream for the click dispatch.
+    $safeVMName = $VMName -replace '\\', '\\\\' -replace "'", "\\'"
+    $windowScript = @"
+ObjC.import('CoreGraphics');
+var winList = ObjC.unwrap(
+    `$.CGWindowListCopyWindowInfo(`$.kCGWindowListOptionOnScreenOnly, 0));
+var vmName = '__VMNAME__';
+var result = 'not_found';
+for (var i = 0; i < winList.length; i++) {
+    var w = winList[i];
+    var owner = ObjC.unwrap(w.kCGWindowOwnerName) || '';
+    var name  = ObjC.unwrap(w.kCGWindowName)      || '';
+    if (owner.indexOf('UTM') >= 0 && name.indexOf(vmName) >= 0) {
+        var id = ObjC.unwrap(w.kCGWindowNumber);
+        var b  = ObjC.unwrap(w.kCGWindowBounds);
+        result = '' + id + ',' + b.X + ',' + b.Y + ',' + b.Width + ',' + b.Height;
+        break;
+    }
+}
+result;
+"@
+    $windowScript = $windowScript -replace '__VMNAME__', $safeVMName
+    $windowResult = & osascript -l JavaScript -e $windowScript 2>&1
+    # Expected shape: "id,x,y,w,h" with floats tolerated on the coord fields
+    # (Cocoa routinely returns half-pixel origins on retina).
+    if ($LASTEXITCODE -ne 0 -or "$windowResult" -notmatch '^\d+,-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+(\.\d+)?,\d+(\.\d+)?$') {
+        Write-Warning "UTM window for '$VMName' not found (CG query returned: $windowResult)."
+        Write-Warning "  Open the VM in UTM.app before using waitForAndClickButton."
+        return $null
+    }
+    $parts    = "$windowResult".Split(',')
+    $windowId = [int]$parts[0]
+    $originX  = [double]$parts[1]
+    $originY  = [double]$parts[2]
+    $pointW   = [double]$parts[3]
+    $pointH   = [double]$parts[4]
+
+    # screencapture -l captures only the target window even if obscured. -o
+    # suppresses the shadow; -x suppresses the shutter sound.
+    $captureErr = & screencapture -x -o -l "$windowId" "$OutputPath" 2>&1
+    if (-not (Test-Path $OutputPath)) {
+        Write-Warning "screencapture -l $windowId failed for '$VMName': $captureErr"
+        return $null
+    }
+    $fileSize = (Get-Item $OutputPath).Length
+    if ($fileSize -lt 100) {
+        Write-Warning "screencapture -l produced a ${fileSize}-byte PNG — likely Screen Recording permission missing."
+        Write-Warning "  System Settings > Privacy & Security > Screen Recording > enable your terminal"
+        Remove-Item $OutputPath -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+
+    # Parse the PNG's IHDR chunk to read pixel dimensions. Bytes 16-19 are
+    # width (big-endian uint32), 20-23 are height. Using raw byte parsing
+    # rather than System.Drawing.Common because the latter is not in the
+    # default pwsh 7 install on macOS.
+    try {
+        $fs = [IO.File]::OpenRead($OutputPath)
+        try {
+            $buf = New-Object byte[] 24
+            [void]$fs.Read($buf, 0, 24)
+        } finally { $fs.Dispose() }
+        $pixelW = ([int]$buf[16] -shl 24) -bor ([int]$buf[17] -shl 16) -bor ([int]$buf[18] -shl 8) -bor [int]$buf[19]
+        $pixelH = ([int]$buf[20] -shl 24) -bor ([int]$buf[21] -shl 16) -bor ([int]$buf[22] -shl 8) -bor [int]$buf[23]
+    } catch {
+        Write-Warning "Failed to read PNG dimensions from '$OutputPath': $_"
+        return $null
+    }
+
+    # Scale = pixels-per-point on whatever display the window currently sits
+    # on. Retina reports ~2.0; non-retina 1.0. If the window reports zero
+    # point-space width (shouldn't happen for a visible CGWindow, but guard
+    # so downstream divisions don't NaN out), fall back to 1.0.
+    $scale = if ($pointW -gt 0) { $pixelW / $pointW } else { 1.0 }
+    Write-Debug "      UTM window: id=$windowId origin=($originX,$originY) point=${pointW}x${pointH} pixel=${pixelW}x${pixelH} scale=$scale"
+
+    return @{
+        ImagePath   = $OutputPath
+        WindowId    = $windowId
+        OriginX     = $originX
+        OriginY     = $originY
+        Width       = $pixelW
+        Height      = $pixelH
+        PointWidth  = $pointW
+        PointHeight = $pointH
+        Scale       = $scale
     }
 }
 

@@ -1268,17 +1268,114 @@ function Send-ClickHyperV {
 }
 
 function Send-Click {
-    param([string]$HostType, [string]$VMName, [int]$X, [int]$Y)
+    param(
+        [string]$HostType,
+        [string]$VMName,
+        [int]$X,
+        [int]$Y,
+        # UTM branch reads OriginX / OriginY / Scale from this hashtable
+        # (produced by Get-UtmWindowScreenshot). Hyper-V ignores it and
+        # resolves the window via ClientToScreen at click time.
+        [hashtable]$Capture = $null
+    )
     if ($HostType -eq "host.windows.hyper-v") { return Send-ClickHyperV -VMName $VMName -X $X -Y $Y }
-    elseif ($HostType -eq "host.macos.utm") {
-        # UTM click needs: locate UTM window, read frame origin + backing scale,
-        # send CGEventCreateMouseEvent at (window.x + imageX/scale, window.y +
-        # imageY/scale). Retina screenshots are 2x, CGEvent coords are in points.
-        # Not yet implemented.
-        Write-Warning "Send-Click is not yet implemented for host.macos.utm — falling back to key-based navigation."
+    elseif ($HostType -eq "host.macos.utm") { return Send-ClickUtm -VMName $VMName -X $X -Y $Y -Capture $Capture }
+    else { Write-Warning "Unknown host for Send-Click: $HostType"; return $false }
+}
+
+function Send-ClickUtm {
+    <#
+    .SYNOPSIS
+        Dispatches a left-click at (X, Y) in the UTM VM window's image
+        coordinate space.
+    .DESCRIPTION
+        X/Y arrive in PNG pixel coords (what Tesseract reports). The capture
+        hashtable carries the window's screen-point origin and the backing
+        scale factor so we can map image pixels -> screen points:
+            screenX = OriginX + X / Scale
+            screenY = OriginY + Y / Scale
+        kCGWindowBounds (source of OriginX/OriginY) and CGEventPost both use
+        the same global screen-point coordinate space (origin top-left of the
+        main display), so no axis flip is needed.
+
+        Requires Accessibility permission for the invoking process. Without
+        it CGEventPost silently drops clicks — we probe once per session and
+        warn loudly so the operator doesn't chase a phantom OCR bug.
+    #>
+    param(
+        [string]$VMName,
+        [int]$X,
+        [int]$Y,
+        [hashtable]$Capture = $null
+    )
+    if (-not $IsMacOS) {
+        Write-Warning "Send-ClickUtm called on non-macOS host."
         return $false
     }
-    else { Write-Warning "Unknown host for Send-Click: $HostType"; return $false }
+    if (-not $Capture -or
+        -not $Capture.ContainsKey('OriginX') -or
+        -not $Capture.ContainsKey('OriginY') -or
+        -not $Capture.ContainsKey('Scale')   -or
+        [double]$Capture.Scale -le 0) {
+        Write-Warning "Send-ClickUtm requires a -Capture hashtable with OriginX / OriginY / Scale (from Get-UtmWindowScreenshot)."
+        return $false
+    }
+
+    $originX = [double]$Capture.OriginX
+    $originY = [double]$Capture.OriginY
+    $scale   = [double]$Capture.Scale
+    $screenX = [int][math]::Round($originX + ($X / $scale))
+    $screenY = [int][math]::Round($originY + ($Y / $scale))
+    Write-Debug "      UTM click: image ($X, $Y) scale=$scale origin=($originX, $originY) -> screen ($screenX, $screenY)"
+
+    # Bring UTM to the front before clicking. Some GNOME / GTK widgets only
+    # respond to input when the host window is key; `activate` is a no-op
+    # when UTM already has focus.
+    & osascript -e 'tell application "UTM" to activate' 2>&1 | Out-Null
+
+    # One-time Accessibility permission probe. AXIsProcessTrusted() returns
+    # false without prompting the user (we don't want a dialog popping up
+    # mid-test run). If denied, the first click-by-OCR call surfaces the
+    # fix instructions clearly; subsequent calls short-circuit.
+    if (-not $script:YurunaAxChecked) {
+        $script:YurunaAxChecked = $true
+        $axResult = & osascript -l JavaScript -e @'
+ObjC.import('ApplicationServices');
+$.AXIsProcessTrusted() ? 'yes' : 'no';
+'@ 2>&1
+        if ("$axResult".Trim() -ne 'yes') {
+            Write-Warning "Accessibility permission not granted for this terminal — CGEventPost clicks will be silently dropped."
+            Write-Warning "  System Settings > Privacy & Security > Accessibility > enable your terminal"
+            Write-Warning "  Then restart the terminal and re-run the test."
+            $script:YurunaAxWorks = $false
+        } else {
+            $script:YurunaAxWorks = $true
+        }
+    }
+    if ($script:YurunaAxWorks -eq $false) { return $false }
+
+    # Synthesize move + down + up. The move event ensures hover-triggered
+    # widgets (tooltips, hover-highlight buttons) settle on the target
+    # before the mousedown, matching a real user's cursor motion. Without
+    # the move some GTK buttons in GDM 46 ignore the first mousedown.
+    $clickScript = @"
+ObjC.import('CoreGraphics');
+var pt = { x: __X__, y: __Y__ };
+var mv = `$.CGEventCreateMouseEvent(null, `$.kCGEventMouseMoved,   pt, `$.kCGMouseButtonLeft);
+var dn = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseDown, pt, `$.kCGMouseButtonLeft);
+var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMouseButtonLeft);
+`$.CGEventPost(`$.kCGHIDEventTap, mv);
+`$.CGEventPost(`$.kCGHIDEventTap, dn);
+`$.CGEventPost(`$.kCGHIDEventTap, up);
+'ok';
+"@
+    $clickScript = ($clickScript -replace '__X__', $screenX) -replace '__Y__', $screenY
+    $clickResult = & osascript -l JavaScript -e $clickScript 2>&1
+    if ($LASTEXITCODE -ne 0 -or "$clickResult".Trim() -ne 'ok') {
+        Write-Warning "osascript CGEventPost failed: $clickResult"
+        return $false
+    }
+    return $true
 }
 
 <#
@@ -1472,7 +1569,7 @@ function Wait-ForAndClickButton {
                         Write-Debug "      debug_mode: saved detection screenshot $stampedPath"
                         Write-Debug "      debug_mode: button '$candidate' box=($($coord.x),$($coord.y)) size=$($coord.w)x$($coord.h) click=($clickX, $clickY) offset=($OffsetX, $OffsetY) image=$($capture.Width)x$($capture.Height)"
                     }
-                    $ok = Send-Click -HostType $HostType -VMName $VMName -X $clickX -Y $clickY
+                    $ok = Send-Click -HostType $HostType -VMName $VMName -X $clickX -Y $clickY -Capture $capture
                     # Preserve a diagnostic capture so a failed click can be inspected;
                     # the X marker shows where the click actually landed in image space.
                     $debugCopy = Join-Path $logDir "clickbutton_${VMName}_last.png"

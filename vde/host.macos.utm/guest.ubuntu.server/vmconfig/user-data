@@ -90,8 +90,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
   # the legacy /etc/apt/sources.list). On noble, apt treats ubuntu.sources as
   # authoritative, so the chroot never sees ports.ubuntu.com and the postinstall
   # `apt install ubuntu-desktop` fails with "Unable to locate package" (not on
-  # the Server cdrom). See the full diagnosis in the block comment above the
-  # APT_PROXY_BLOCK_PLACEHOLDER line.
+  # the Server cdrom). See the full diagnosis in the block comment at the top
+  # of this file (the Caveat paragraph).
   #
   # /target doesn't exist at early-commands time (storage + extract happen
   # later), so this backgrounds a watcher that waits for ubuntu.sources to

@@ -34,8 +34,6 @@ param()
     Remove-Module yuruna-log restores the original cmdlets.
 #>
 
-# ── Write-Output ────────────────────────────────────────────────────────────
-
 function Write-Output {
     <#
     .SYNOPSIS
@@ -67,8 +65,6 @@ function Write-Output {
         Microsoft.PowerShell.Utility\Write-Output -InputObject $InputObject -NoEnumerate:$NoEnumerate
     }
 }
-
-# ── Write-Error ─────────────────────────────────────────────────────────────
 
 function Write-Error {
     <#
@@ -123,8 +119,6 @@ function Write-Error {
     }
 }
 
-# ── Write-Warning ───────────────────────────────────────────────────────────
-
 function Write-Warning {
     <#
     .SYNOPSIS
@@ -147,8 +141,6 @@ function Write-Warning {
     }
 }
 
-# ── Write-Debug ─────────────────────────────────────────────────────────────
-
 function Write-Debug {
     <#
     .SYNOPSIS
@@ -170,8 +162,6 @@ function Write-Debug {
         Microsoft.PowerShell.Utility\Write-Debug -Message $Message
     }
 }
-
-# ── Write-Verbose ───────────────────────────────────────────────────────────
 
 function Write-Verbose {
     <#
@@ -196,8 +186,6 @@ function Write-Verbose {
         Microsoft.PowerShell.Utility\Write-Verbose -Message $Message
     }
 }
-
-# ── Write-Information ───────────────────────────────────────────────────────
 
 function Write-Information {
     <#

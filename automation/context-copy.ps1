@@ -38,7 +38,6 @@ Write-Information "destinationContext: $destinationContext"
 $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/import-yaml"
 Import-Module -Name $modulePath
 
-# Basic checks for initial configuration
 $currentConfig =  Resolve-Path -Path "~/.kube/config"
 if (-Not (Test-Path -Path $currentConfig)) { Write-Information "K8S configuration not found: $currentConfig"; return $false; }
 if ((Get-Item $currentConfig).Length -eq 0) { Write-Information "K8S current configuration is empty: $currentConfig"; return $false; }
@@ -64,7 +63,6 @@ $yaml.contexts[0].name = $destinationContext
 $yaml.contexts[0].context.cluster = $destinationContext
 $yaml.contexts[0].context.user = $destinationContext
 
-# Create temporary file with information
 $tempFile = New-TemporaryFile
 Add-Content -Path $tempFile.FullName -Value $(ConvertTo-Yaml $yaml)
 
@@ -78,12 +76,10 @@ Remove-Item -Path $combinedConfig -Force -ErrorAction SilentlyContinue
 $result = $(kubectl config view --flatten >> $combinedConfig)
 if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
 
-# Basic checks for combined configuration
 Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
 if (-Not (Test-Path -Path $combinedConfig)) { Write-Information "K8S configuration problems. Try deleting invalid contexts: $currentConfig"; return $false; }
 if ((Get-Item $combinedConfig).Length -eq 0) { Write-Information "K8S configuration problems. Try deleting invalid contexts: $currentConfig"; return $false; }
 
-# Replace current configuration
 Move-Item -Path $combinedConfig -Destination $currentConfig -Force
 
 # Back to original values

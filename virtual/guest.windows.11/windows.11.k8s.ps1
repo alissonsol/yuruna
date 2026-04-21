@@ -61,7 +61,6 @@ if (-not $pwshPath) {
 }
 Write-Output "PowerShell 7 found at $($pwshPath.Source)"
 
-# Install powershell-yaml module
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
 pwsh -NoProfile -Command "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false" 2>$null
@@ -70,19 +69,16 @@ Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # ===== Cloud CLIs =====
 
-# Azure CLI
 Write-Output ""
 Write-Output ">>> Installing Azure CLI..."
 winget install --id Microsoft.AzureCLI --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Azure CLI installation complete."
 
-# AWS CLI
 Write-Output ""
 Write-Output ">>> Installing AWS CLI..."
 winget install --id Amazon.AWSCLI --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< AWS CLI installation complete."
 
-# Google Cloud SDK
 Write-Output ""
 Write-Output ">>> Installing Google Cloud SDK..."
 winget install --id Google.CloudSDK --accept-source-agreements --accept-package-agreements --silent

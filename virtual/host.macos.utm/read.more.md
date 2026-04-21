@@ -106,32 +106,20 @@ Open UTM once by hand so macOS can present any first-run dialogs
 open -a UTM
 ```
 
-## 8) Optional: Set up the local HTTP cache VM (squid)
+## 8) Optional: Squid cache VM
 
-Each Ubuntu Desktop install downloads ~900 MB from Ubuntu's CDN.
-Back-to-back cycles can get HTTP 429 rate-limits. This bites harder
-on UTM than on Hyper-V: all Apple Virtualization Shared-mode VMs
-egress through the host's single public IP, so every parallel install
-adds to the *same* per-source rate limit. A local **squid** VM caches
-every HTTP response — including the installer's own kernel and
-linux-firmware fetches — so subsequent installs drop to ~2 minutes
-and rate-limit failures stop. (Squid replaces the older apt-cacher-ng
-cache, which only caught .deb URLs and missed the pre-install kernel
-step where the 429 originated.)
-
-This step is optional — skip it if you prefer direct CDN downloads.
+See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
+[../../docs/caching.md](../../docs/caching.md):
 
 ```bash
 cd ~/git/yuruna/virtual/host.macos.utm/guest.squid-cache
-pwsh ./Get-Image.ps1    # downloads + converts Ubuntu Server cloud image (arm64)
-pwsh ./New-VM.ps1        # assembles the UTM bundle
+pwsh ./Get-Image.ps1
+pwsh ./New-VM.ps1
 ```
 
-Then double-click `~/Desktop/Yuruna.VDE/<hostname>.nosync/squid-cache.utm`
-to register the bundle with UTM, and start the VM. The Ubuntu Desktop
-`New-VM.ps1` detects the running cache automatically. See
-[docs/caching.md](../../docs/caching.md) for details, including the
-Grafana dashboard and the cachemgr.cgi fallback.
+Then double-click
+`~/Desktop/Yuruna.VDE/<hostname>.nosync/squid-cache.utm` to register
+the bundle with UTM and start the VM.
 
 ## 9) Run the Test Harness
 
@@ -140,17 +128,6 @@ cd ~/git/yuruna/test
 pwsh ./Invoke-TestRunner.ps1
 ```
 
-## Next: Create a Guest VM
-
-After completing the host setup, follow the instructions for your
-guest operating system:
-
-- [Amazon Linux](guest.amazon.linux/README.md)
-- [Ubuntu Desktop](guest.ubuntu.desktop/README.md)
-- [Windows 11](guest.windows.11/README.md)
-
-## Troubleshooting
-
-If you run into problems, see [common issues and solutions](troubleshooting.md).
-
-Back to [[macOS UTM Host Setup](README.md)] · [[Yuruna](../../README.md)]
+[Guest VMs](README.md#next-create-a-guest-vm) ·
+[Troubleshooting](troubleshooting.md) ·
+Back to [[UTM setup](README.md)] · [[Yuruna](../../README.md)]

@@ -1,61 +1,47 @@
 # Windows 11 guest on Windows Hyper-V host
 
-Copyright (c) 2019-2026 by Alisson Sol et al.
+Minimal commands. See [read.more.md](read.more.md) for the full
+walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
 
-Minimal commands for creating the VM. See [details](read.more.md) for full documentation.
+## One-time
 
-## One-time setup
-
-**On the Windows host (Administrator PowerShell): Getting the base image**
-
-From the `yuruna\virtual\host.windows.hyper-v\guest.windows.11` folder:
+From `yuruna\virtual\host.windows.hyper-v\guest.windows.11` in an
+elevated PowerShell:
 
 ```powershell
 .\Get-Image.ps1
 ```
 
-The script automates the Windows 11 ISO download from [Microsoft](https://www.microsoft.com/software-download/windows11). It may fail due to network and automation filters set by Microsoft, and it will then present instructions to perform the steps manually.
+Automates the Windows 11 ISO download from
+[Microsoft](https://www.microsoft.com/software-download/windows11).
+Network/automation filters can block it; the script then prints manual
+instructions.
 
 ## For each VM
 
-**On the Windows host (Administrator PowerShell): Create VM**
-
 ```powershell
-.\New-VM.ps1
+.\New-VM.ps1                       # default hostname
+.\New-VM.ps1 -VMName myhost
 ```
 
-Or with a custom hostname:
+Start from Hyper-V Manager. The Windows installer runs unattended via
+`autounattend.xml` (~15 min).
 
-```powershell
-.\New-VM.ps1 -VMName myhostname
-```
+## Update
 
-Start the VM from Hyper-V Manager. The Windows installer will run automatically using the autounattend.xml answer file. **This step may take approximately 15 minutes.** The installation is fully unattended.
-
-**On the VM (after setup): Updating**
-
-You should be logged in automatically on first boot. The default user is `User` and the initial password is `password`. You will be prompted to change the password on the next login after the first boot. Open an elevated PowerShell terminal and run:
+Auto-logon to `User` / `password` on first boot (forced change next
+login). Elevated PowerShell:
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.update.ps1$nc" | iex
-```
-
-> Set `$env:YurunaCacheContent` (or `setx YurunaCacheContent ...`) to a unique
-> string — typically a datetime — when you want to bypass a caching proxy and
-> force a fresh fetch. Leave it unset to let caches serve the stored copy. See
-> [docs/caching.md](../../../docs/caching.md) for details.
-
-Restart after updates complete.
-
-```powershell
 Restart-Computer
 ```
 
-The Windows 11 guest is now ready!
+`$env:YurunaCacheContent` / `setx YurunaCacheContent …`: see
+[../../../docs/caching.md](../../../docs/caching.md).
 
-## Next Steps
+## Next
 
-Proceed to the [Windows 11 guest](../../guest.windows.11/README.md) instructions to install workloads.
-
-Read more [here](read.more.md) about the VM creation process details.
+Install workloads: [Windows 11 guest](../../guest.windows.11/README.md) ·
+Details: [read.more.md](read.more.md).

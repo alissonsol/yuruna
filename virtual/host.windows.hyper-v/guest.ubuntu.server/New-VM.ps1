@@ -54,7 +54,6 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "VM.common.psm1"
 Import-Module -Name $commonModulePath -Force
 
-# Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -268,7 +267,6 @@ Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -Me
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
-# DVD drives for Ubuntu ISO + seed ISO
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 

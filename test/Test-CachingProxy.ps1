@@ -18,82 +18,18 @@
 
 <#
 .SYNOPSIS
-    Smoke-tests a yuruna squid-cache (local or external) before running Invoke-TestRunner.
+    Smoke-tests a squid-cache (local or remote) before Invoke-TestRunner.
+    Probes :3128, :3129, :80, :3000 and GETs /yuruna-squid-ca.crt, PASS/
+    FAIL/WARN per check. See test/CachingProxy.md for the full story.
+    Falls back to local discovery when $Env:YURUNA_CACHING_PROXY_IP and
+    -CacheIp are unset.
 
-.DESCRIPTION
-    Probes every port the harness relies on and reports PASS / FAIL / WARN
-    per check, so a misconfigured cache surfaces here instead of failing
-    the middle of a guest install. Two modes:
-
-      * External — when $Env:YURUNA_CACHING_PROXY_IP is set, the script
-        targets that IP directly. This is the exact path Invoke-TestRunner
-        will take, so a PASS here means the runner will use that cache.
-        Runnable from any machine — no VM host, no Hyper-V / UTM modules
-        required.
-
-      * Local — falls back to Test-CachingProxyAvailable (from
-        test/modules/Test.CachingProxy.psm1), which finds the squid-cache VM
-        on Hyper-V's Default Switch or UTM's Shared NAT. Must be run on
-        the harness host.
-
-    Checks performed against the resolved cache IP:
-      * TCP :3128  — squid HTTP proxy + HTTPS CONNECT tunnel
-      * TCP :3129  — squid ssl-bump listener (HTTPS body caching)
-      * TCP :80    — Apache (serves the CA cert + cachemgr.cgi)
-      * TCP :3000  — Grafana dashboard
-      * HTTP GET http://<ip>/yuruna-squid-ca.crt — verifies the CA is
-        reachable and looks like a PEM-encoded certificate. Failure here
-        disables HTTPS body caching on guests but does not break HTTP
-        caching, so it's a WARN.
-
-    The script does NOT exercise the proxy as a client (no CONNECT probe,
-    no chained request through :3128). Those fail modes tend to surface
-    as subiquity 429s when they matter; catching them here would require
-    the script to speak squid's protocol, and the TCP probes already
-    answer "is anything listening".
-
-.PARAMETER CacheIp
-    Override both $Env:YURUNA_CACHING_PROXY_IP and local discovery.
-    Useful for ad-hoc probes against a candidate remote cache before
-    exporting the env var.
-
-.PARAMETER SetHostProxy
-    When all FAIL-level checks pass, promote the resolved proxy to the
-    machine-wide host proxy (user scope) via Test.HostProxy.psm1:
-      * Windows: HKCU WinINet ProxyEnable/ProxyServer/ProxyOverride plus
-        user HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars. No elevation
-        required.
-      * macOS: networksetup against the auto-detected active network
-        service. Requires sudo (re-run via `sudo -E pwsh ...`).
-    Previous proxy state is snapshotted to $HOME/.yuruna/host-proxy.backup.json
-    BEFORE writing, so Stop-CachingProxy.ps1 / Clear-HostProxy restores it.
-
-.PARAMETER NetworkService
-    macOS only: override the auto-detected active network service name
-    (e.g. "Wi-Fi", "Ethernet"). Pass this when -SetHostProxy can't figure
-    out which service to target. Ignored on Windows.
-
-.EXAMPLE
-    # External — set the env var the runner will read, then probe.
-    $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
-    pwsh test/Test-CachingProxy.ps1
-
-.EXAMPLE
-    # Ad-hoc probe of a candidate without setting the env var.
-    pwsh test/Test-CachingProxy.ps1 -CacheIp 10.0.0.5
-
-.EXAMPLE
-    # Local — no env var, discover whatever Start-SquidCache just brought up.
-    pwsh test/Test-CachingProxy.ps1
-
-.EXAMPLE
-    # Probe + promote to host-wide proxy on success (Windows, user scope).
-    $Env:YURUNA_CACHING_PROXY_IP = '192.168.1.50'
-    pwsh test/Test-CachingProxy.ps1 -SetHostProxy
-
-.EXAMPLE
-    # Same, on macOS (sudo required for networksetup).
-    sudo -E pwsh test/Test-CachingProxy.ps1 -SetHostProxy
+.PARAMETER CacheIp         Override the env var and local discovery.
+.PARAMETER SetHostProxy    On success, promote to host proxy (Windows:
+                           user WinINet; macOS: networksetup, needs sudo).
+                           Backs up previous state to
+                           $HOME/.yuruna/host-proxy.backup.json.
+.PARAMETER NetworkService  macOS: override auto-detected network service.
 #>
 
 param(

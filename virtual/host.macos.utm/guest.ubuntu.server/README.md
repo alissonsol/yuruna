@@ -1,20 +1,23 @@
-# Ubuntu Server guest on macOS UTM host (with ubuntu-desktop)
+# Ubuntu Server guest on macOS UTM (with `ubuntu-desktop`)
 
-Copyright (c) 2019-2026 by Alisson Sol et al.
+Server-first sister of
+[guest.ubuntu.desktop](../guest.ubuntu.desktop/). Boots the Ubuntu
+**Server** 24.04 live ISO for autoinstall and adds `ubuntu-desktop`
+during the same subiquity pass — first boot lands in GDM.
 
-Server-first sister of [guest.ubuntu.desktop](../guest.ubuntu.desktop/). Boots the Ubuntu **Server** 24.04 live ISO for autoinstall and adds `ubuntu-desktop` during the same subiquity pass, so the first boot lands in GDM.
+Use this when the Desktop ISO's `ubuntu-desktop-bootstrap` fails with
+`E: Unable to locate package linux-generic[-hwe-24.04]`: the Server ISO
+ships `linux-generic` on the cdrom and a network-configured
+`/etc/apt/sources.list.d/ubuntu.sources`; the Desktop ISO does not.
 
-Prefer this over `guest.ubuntu.desktop` when the Desktop ISO's `ubuntu-desktop-bootstrap` installer fails with `E: Unable to locate package linux-generic[-hwe-24.04]` — the Server ISO ships `linux-generic` on the cdrom and a network-configured `/etc/apt/sources.list.d/ubuntu.sources`, which the Desktop ISO does not.
+**Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
+Apple **M3+**, UTM v4.6+ — verified by `New-VM.ps1`.
 
-**Nested virtualization requirements:** macOS 15 Sequoia or later, Apple M3+ chip, UTM v4.6+. The `New-VM.ps1` script checks these automatically.
+See [../../CODE.md](../../CODE.md) for cross-host concepts.
 
-## One-time setup
+## One-time
 
-Do not run these scripts as root (`sudo`). Verify your identity with `whoami` first.
-
-**On the macOS host: Getting the base image**
-
-Assuming you are in the `yuruna/virtual/host.macos.utm/guest.ubuntu.server` folder.
+From `yuruna/virtual/host.macos.utm/guest.ubuntu.server` (do not `sudo`):
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -22,20 +25,14 @@ pwsh ./Get-Image.ps1
 
 ## For each VM
 
-**On the macOS host (Terminal): Create VM**
-
 ```bash
-pwsh ./New-VM.ps1
+pwsh ./New-VM.ps1                   # default ubuntu-server01
+pwsh ./New-VM.ps1 -VMName myhost
 ```
 
-Or with a custom hostname (default: `ubuntu-server01`):
+Double-click `HOSTNAME.utm` to import into UTM and start. Autoinstall
+is fully unattended. **Install takes ~20–30 min** — subiquity fetches
+`ubuntu-desktop` (~2 GB) through squid-cache; keep the
+`guest.squid-cache` VM running to make rebuilds dramatically faster.
 
-```bash
-pwsh ./New-VM.ps1 -VMName myhostname
-```
-
-Double-click `HOSTNAME.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to import it into UTM and start the VM. The Ubuntu installer runs unattended via autoinstall (`interactive-sections: []`). **This step may take approximately 20-30 minutes** — subiquity fetches `ubuntu-desktop` (~2 GB) through squid-cache during the install. Keep the `guest.squid-cache` VM running to make this dramatically faster on rebuilds.
-
-**On the VM (after setup): Updating**
-
-You should be prompted to change the password on first login. The default user is `ubuntu` and the initial password is `password`.
+Default `ubuntu` / `password`, change prompted on first login.

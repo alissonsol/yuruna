@@ -1,59 +1,39 @@
 # Windows 11 Guest - Workloads
 
-Workload scripts and tools for Windows 11 guests.
+See [../CODE.md](../CODE.md) for the guest workload pattern (one-liner
+convention, `YurunaCacheContent`).
 
-## VM Setup
-
-Create the guest VM on your host first:
-
-- [macOS UTM host](../host.macos.utm/guest.windows.11/README.md)
-- [Windows Hyper-V host](../host.windows.hyper-v/guest.windows.11/README.md)
+Create the guest VM first:
+[macOS UTM](../host.macos.utm/guest.windows.11/README.md) ·
+[Windows Hyper-V](../host.windows.hyper-v/guest.windows.11/README.md).
 
 ## Post-VDE Setup
 
-Open an **elevated PowerShell terminal** in the guest and run the command for each desired workload.
-
-### Update
+Open an **elevated PowerShell terminal** in the guest. The one-liner is
+the same shape for every workload — only the script name changes:
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.update.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/<script>$nc" | iex
 ```
 
-> The `$nc` suffix is driven by `$env:YurunaCacheContent`. Leave it unset (or
-> empty) to let a caching proxy serve the stored copy. Set it to a unique
-> value — typically a datetime — to force a fresh fetch, e.g.
-> `$env:YurunaCacheContent = (Get-Date -Format yyyyMMddHHmmss)`. See
-> [docs/caching.md](../../docs/caching.md) for the full story and persistence
-> options (`setx`, macOS equivalents).
-
-**After the initial update, the [Latest Stable PowerShell](https://aka.ms/powershell-release?tag=stable) release should be available.** Open a new Administrator console with the latest PowerShell to guarantee compatibility with the workload scripts.
+Run `windows.11.update.ps1` first. After the initial update the
+[latest stable PowerShell](https://aka.ms/powershell-release?tag=stable)
+is installed — open a new elevated console to guarantee compatibility
+before running other workloads.
 
 ### Available workloads
 
-- [Code](../docs/code.md) - Java (JDK), .NET SDK, Git, and Visual Studio Code
+| Script | Workload |
+|--------|----------|
+| `windows.11.update.ps1` | System update |
+| `windows.11.code.ps1` | [Code](../docs/code.md): Java JDK, .NET SDK, Git, VS Code |
+| `windows.11.k8s.ps1` | [k8s](../docs/k8s.md): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
 
-```powershell
-$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.code.ps1$nc" | iex
-```
+**Docker note**: installing k8s requirements succeeds, but starting
+Docker needs coordinated virtualization settings on both host and guest.
+Those instructions are too long and unreliable to automate yet. Until
+they stabilize, ask an AI assistant for the current recipe for
+(macOS UTM + ARM64 host) or (Windows Hyper-V host).
 
-- [k8s](../docs/k8s.md) - All Kubernetes requirements (Docker, Kubernetes, Helm, OpenTofu, Cloud CLIs, and more)
-
-```powershell
-$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.k8s.ps1$nc" | iex
-```
-
-**Please read:** While installing all the Kubernetes requirements for Windows will succeed, starting Docker will demand a coordinated change of virtualization settings for both the host (Hyper-V or mac UTM) and the guest. Those instructions are too long and unreliable to be automated at this time. For now, ask your favorite AI assistant using the prompts below:
-
-- **macOS UTM**: _Provide detailed instructions on how to configure a macOS UTM and a Windows 11 guest so that Docker can be started in the guest environment using ARM64 host CPUs._
-- **Windows Hyper-V**: _Provide detailed instructions on how to configure a Windows Hyper-V host and a Windows 11 guest so that Docker can be started in the guest environment._
-
-TODO: Create scripts that will configure the settings for both the host and the guest, after instructions become more reliable.
-
-## Troubleshooting
-
-If you run into problems, see [common issues and solutions](troubleshooting.md).
-
-Back to [[Yuruna](../../README.md)]
+[Troubleshooting](troubleshooting.md) · Back to [[Yuruna](../../README.md)]

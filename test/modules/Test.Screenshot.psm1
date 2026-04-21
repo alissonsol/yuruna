@@ -530,7 +530,6 @@ public class HyperVCapture {
         Write-Warning "Failed to load HyperVCapture type: $_"
     }
 
-    # Debug directory for inspecting captures
     Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     $debugDir = Join-Path (Initialize-YurunaLogDir) "Screenshot"
     if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }

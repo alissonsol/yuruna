@@ -1,14 +1,12 @@
 # Ubuntu Desktop guest on Windows Hyper-V host
 
-Copyright (c) 2019-2026 by Alisson Sol et al.
+Minimal commands. See [read.more.md](read.more.md) for the full
+walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
 
-Minimal commands for creating the VM. See [details](read.more.md) for full documentation.
+## One-time
 
-## One-time setup
-
-**On the Windows host (Administrator PowerShell): Getting the base image**
-
-Assuming you are in the `yuruna\virtual\host.windows.hyper-v\guest.ubuntu.desktop` folder.
+From `yuruna\virtual\host.windows.hyper-v\guest.ubuntu.desktop` in an
+elevated PowerShell:
 
 ```powershell
 .\Get-Image.ps1
@@ -16,40 +14,25 @@ Assuming you are in the `yuruna\virtual\host.windows.hyper-v\guest.ubuntu.deskto
 
 ## For each VM
 
-**On the Windows host (Administrator PowerShell): Create VM**
-
 ```powershell
-.\New-VM.ps1
+.\New-VM.ps1                       # default hostname
+.\New-VM.ps1 -VMName myhost
 ```
 
-Or with a custom hostname:
+Start from Hyper-V Manager. Autoinstall runs unattended (~15 min;
+screen may stay dark — if nothing after 15 min, stop and restart).
 
-```powershell
-.\New-VM.ps1 -VMName myhostname
-```
+## Update
 
-Start the VM from Hyper-V Manager. The Ubuntu installer will run automatically using autoinstall. **This step may take approximately 15 minutes.** The screen may not be shown. If not shown after 15 minutes, stop and restart the VM.
-
-**On the VM (after setup): Updating**
-
-The default user is `ubuntu` and the initial password is `password`. Autoinstall expires the password, so you will be forced to change it on first interactive login; you can also change it later with `passwd`.
-
-Open a terminal and run the following command.
+Default `ubuntu` / `password`; autoinstall expires the password so a
+change is forced on first login (`passwd` thereafter).
 
 ```bash
 /automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh
-```
-
-Confirm all installations finished correctly, and then reboot.
-
-```bash
 sudo reboot now
 ```
 
-The Ubuntu Desktop guest is now ready!
+## Next
 
-## Next Steps
-
-Proceed to the [Ubuntu Desktop guest](../../guest.ubuntu.desktop/README.md) instructions to install workloads.
-
-Read more [here](read.more.md) about the VM creation process details.
+Install workloads: [Ubuntu Desktop guest](../../guest.ubuntu.desktop/README.md) ·
+Details: [read.more.md](read.more.md).

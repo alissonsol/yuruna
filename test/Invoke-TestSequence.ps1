@@ -18,55 +18,17 @@
 
 <#
 .SYNOPSIS
-    Development helper to run a single test sequence starting at a specific step.
+    Dev helper: run one test sequence from a chosen step. No image
+    download; reuses an existing VM if present. See test/README.md
+    (Developing test sequences) for usage and naming.
 
-.DESCRIPTION
-    Runs a named test sequence (e.g. "Test-Workload.guest.ubuntu.desktop") from a
-    given step number. Unlike Invoke-TestRunner.ps1:
-    - Does NOT download images.
-    - Reuses an existing VM if one is already created; only creates a new VM if needed.
-    - Runs a single pass (no continuous loop).
-
-    This is intended for iterating on sequence JSON files during development.
-
-.PARAMETER SequenceName
-    The base name of the sequence to run, without the .json extension.
-    Examples: "Test-Start.guest.ubuntu.desktop", "Test-Workload.guest.amazon.linux"
-
-.PARAMETER StartStep
-    The 1-based step number at which to begin execution. Steps before this number
-    are skipped. Defaults to 1 (run from the beginning).
-
-.PARAMETER StopStep
-    The 1-based step number at which to stop execution (inclusive). Steps after
-    this number are skipped and the VM is left running for inspection. Must be
-    greater than or equal to StartStep. If not specified, runs to the end.
-
-.PARAMETER ConfigPath
-    Path to the test config JSON file. Defaults to test/test-config.json.
-
-.PARAMETER VMName
-    Override the VM name instead of deriving it from the guest key. Useful
-    when targeting a VM that was created outside the test runner (e.g.
-    "private-ubuntu").
-
-.PARAMETER debug_mode
-    Set to $true to see debug messages.
-
-.PARAMETER verbose_mode
-    Set to $true to see verbose messages.
-
-.EXAMPLE
-    pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 5
-
-.EXAMPLE
-    pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -StartStep 3 -StopStep 7
-
-.EXAMPLE
-    pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Start.guest.amazon.linux"
-
-.EXAMPLE
-    pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -VMName "private-ubuntu"
+.PARAMETER SequenceName   Base name (no .json, e.g. "Test-Workload.guest.ubuntu.desktop"). Required.
+.PARAMETER StartStep      1-based start step. Default 1.
+.PARAMETER StopStep       1-based stop (inclusive). VM left running after.
+.PARAMETER ConfigPath     Default: test/test-config.json.
+.PARAMETER VMName         Override the VM name (default: derived from guest key).
+.PARAMETER debug_mode     $true = debug messages.
+.PARAMETER verbose_mode   $true = verbose messages.
 #>
 
 param(
@@ -293,7 +255,6 @@ Write-Output "  VM:       $VMName"
 Write-Output "  Guest:    $GuestKey"
 Write-Output "============================================="
 
-# List all steps with their descriptions
 Write-Output ""
 Write-Output "Step list:"
 $stepIdx = 0

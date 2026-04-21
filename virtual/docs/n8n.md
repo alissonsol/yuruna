@@ -2,41 +2,19 @@
 
 Installs [n8n](https://n8n.io/) workflow automation.
 
-| Guest | Script |
+| Guest | Command |
 |---|---|
-| **Amazon Linux** | `amazon.linux.n8n.sh` |
-| **Ubuntu Desktop** | `ubuntu.desktop.n8n.sh` |
+| **Amazon Linux** | `/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.n8n.sh` |
+| **Ubuntu Desktop** | `/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.n8n.sh` |
 
-**Amazon Linux**
-
-Open a terminal and run the following command.
-
-```bash
-/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.n8n.sh
-```
-
-**Ubuntu Desktop**
-
-Open a terminal and run the following command.
-
-```bash
-/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.n8n.sh
-```
-
-**Verify the installation**
+Verify + run:
 
 ```bash
 n8n --version
+n8n start     # open http://localhost:5678
 ```
 
-**Start n8n**
+Full docs: [n8n.io/docs](https://docs.n8n.io/).
 
-```bash
-n8n start
-```
-
-Then open `http://localhost:5678` in your browser.
-
-See the official [n8n documentation](https://docs.n8n.io/) for more details.
-
-Back to [[Amazon Linux Guest - Workloads](../guest.amazon.linux/README.md)] or [[Ubuntu Desktop Guest - Workloads](../guest.ubuntu.desktop/README.md)]
+Back to [[Amazon Linux](../guest.amazon.linux/README.md)] ·
+[[Ubuntu Desktop](../guest.ubuntu.desktop/README.md)]

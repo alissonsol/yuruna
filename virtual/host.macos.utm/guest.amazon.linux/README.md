@@ -1,16 +1,11 @@
 # Amazon Linux guest on macOS UTM host
 
-Copyright (c) 2019-2026 by Alisson Sol et al.
+Minimal commands. See [read.more.md](read.more.md) for the full
+walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
 
-Minimal commands for creating the VM. See [details](read.more.md) for full documentation.
+## One-time
 
-## One-time setup
-
-Do not run these scripts as root (`sudo`). Verify your identity with `whoami` first.
-
-**On the macOS host: Getting the base image**
-
-Assuming you are in the `yuruna/virtual/host.macos.utm/guest.amazon.linux` folder.
+From `yuruna/virtual/host.macos.utm/guest.amazon.linux` (do not `sudo`):
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -18,25 +13,20 @@ pwsh ./Get-Image.ps1
 
 ## For each VM
 
-**On the macOS host (Terminal): Create VM**
-
 ```bash
-pwsh ./New-VM.ps1
+pwsh ./New-VM.ps1                   # default hostname
+pwsh ./New-VM.ps1 -VMName myhost
 ```
 
-Or with a custom hostname:
+Double-click `HOSTNAME.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to
+import into UTM and start. Cloud-init sets hostname, default user, and
+password on first boot. The Display tab shows a text console until a
+GUI is installed.
 
-```bash
-pwsh ./New-VM.ps1 -VMName myhostname
-```
+## First login and GUI install
 
-Double-click `HOSTNAME.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to import it into UTM and start the VM. Cloud-init will configure the VM on first boot (hostname, default user, and password).
-
-**On the VM: First login and GUI install**
-
-Amazon Linux is a headless cloud image, so the Display tab in UTM will show a text console until a graphical desktop is installed.
-
-Unless you changed the defaults in the [vmconfig/user-data](./vmconfig/user-data) file, the user is `ec2-user` and the password is `amazonlinux`.
+Default `ec2-user` / `amazonlinux` (unless changed in
+[vmconfig/user-data](./vmconfig/user-data)):
 
 ```bash
 sudo /automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh
@@ -44,10 +34,10 @@ sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```
 
-The Amazon Linux guest is now ready! Good time to create a UTM clone and leave a stable copy resting aside.
+Good moment to clone the VM in UTM and keep a stable copy aside.
 
-## Next Steps
+## Next
 
-Proceed to the [Amazon Linux guest](../../guest.amazon.linux/README.md) instructions to install workloads.
-
-Read more [here](read.more.md) about the VM creation process details.
+Install workloads:
+[Amazon Linux guest](../../guest.amazon.linux/README.md) ·
+Details: [read.more.md](read.more.md).

@@ -22,7 +22,6 @@ if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
 # Silence Write-Progress under the test runner.
 if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
 
-# Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -126,7 +125,6 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $convertedFile -Destination $baseImageFile
 
-# Clean up downloaded qcow2
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 
 Write-Output "Download complete: $baseImageFile"

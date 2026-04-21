@@ -1,53 +1,25 @@
 # Yuruna Template Project
 
-Folder structure template project.
+Folder scaffold for a new project. See [../../CODE.md](../../CODE.md) for
+the three-phase model and CLI entry points, and [FAQ](../../docs/faq.md)
+Connectivity section before deploying.
 
-## End-to-end deployment
+## Deploy
 
-Below are the end-to-end steps to deploy the `template` project to `localhost` (assuming Docker is installed and Kubernetes enabled). The execution below is from the `automation` folder. You may need to start PowerShell (`pwsh`).
-
-Before deploying, search for `TO-SET` in the config files and set the required values. See section "Cloud deployment instructions".
-
-**IMPORTANT**: Before proceeding, read the Connectivity section of the [Frequently Asked Questions](../../docs/faq.md).
-
-- Create resources
+Search for `TO-SET` in `config/<cloud>/*.yml` and fill required values,
+then from the `automation/` folder:
 
 ```shell
-Set-Resource.ps1 TO-SET localhost
-```
-
-- Build the components
-
-```shell
+Set-Resource.ps1  TO-SET localhost
 Set-Component.ps1 TO-SET localhost
+Set-Workload.ps1  TO-SET localhost
 ```
 
-- Deploy the workloads
+## Fill in
 
-```shell
-Set-Workload.ps1 TO-SET localhost
-```
-
-## Resources
-
-OpenTofu will be used to create the following resources:
-
-- Project resources description.
-
-As output, the following values will become available for later steps:
-
-- Project resources output description.
-
-## Components
-
-- Project components description.
-
-## Workloads
-
-- Project workloads description.
-
-## Validation
-
-- How to validate the system functionality.
+- **Resources** — project resources description and OpenTofu outputs.
+- **Components** — project components description.
+- **Workloads** — project workloads description.
+- **Validation** — how to validate the system functionality.
 
 Back to [[Yuruna](../../README.md)].

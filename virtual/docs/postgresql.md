@@ -2,33 +2,19 @@
 
 Installs [PostgreSQL](https://www.postgresql.org/).
 
-| Guest | Script |
+| Guest | Command |
 |---|---|
-| **Amazon Linux** | `amazon.linux.postgresql.sh` |
-| **Ubuntu Desktop** | `ubuntu.desktop.postgresql.sh` |
+| **Amazon Linux** | `/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.postgresql.sh` |
+| **Ubuntu Desktop** | `/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.postgresql.sh` |
 
-**Amazon Linux**
-
-Open a terminal and run the following command.
-
-```bash
-/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.postgresql.sh
-```
-
-**Ubuntu Desktop**
-
-Open a terminal and run the following command.
-
-```bash
-/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.postgresql.sh
-```
-
-**Verify the installation**
+Verify:
 
 ```bash
 sudo -u postgres psql -c "SELECT version();"
 ```
 
-See the official PostgreSQL documentation for [Ubuntu](https://www.postgresql.org/download/linux/ubuntu/) and [Red Hat](https://www.postgresql.org/download/linux/redhat/) for more details.
+Upstream: [Ubuntu](https://www.postgresql.org/download/linux/ubuntu/) ·
+[Red Hat](https://www.postgresql.org/download/linux/redhat/).
 
-Back to [[Amazon Linux Guest - Workloads](../guest.amazon.linux/README.md)] or [[Ubuntu Desktop Guest - Workloads](../guest.ubuntu.desktop/README.md)]
+Back to [[Amazon Linux](../guest.amazon.linux/README.md)] ·
+[[Ubuntu Desktop](../guest.ubuntu.desktop/README.md)]

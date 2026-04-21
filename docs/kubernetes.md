@@ -1,57 +1,28 @@
 # Kubernetes Deployment
 
-**Deploy containerized applications to Kubernetes across multiple clouds with a single workflow.**
+Deploy containerized applications to Kubernetes across localhost, Azure,
+AWS, and GCP with a single workflow. Write the configuration once; switch
+target clouds by changing a parameter.
 
-Yuruna automates the complexity of provisioning infrastructure, building containers, and deploying to Kubernetes. Write your configuration once, then deploy to localhost, Azure, AWS, or Google Cloud by changing a single parameter.
+See [../CODE.md](../CODE.md) for the three-phase model
+(Resources→Components→Workloads), the CLI entry points, and the project
+layout. This doc is the user-facing quick start for Kubernetes itself.
 
-## How It Works
-
-Yuruna uses a **three-phase deployment model**:
-
-```text
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Resources  │ ==> │ Components  │ ==> │  Workloads  │
-│ (OpenTofu)  │     │  (Docker)   │     │   (Helm)    │
-└─────────────┘     └─────────────┘     └─────────────┘
-```
-
-1. **Resources** - Provision cloud infrastructure (Kubernetes clusters, container registries, databases) using OpenTofu
-2. **Components** - Build Docker images and push them to your container registry
-3. **Workloads** - Deploy applications to Kubernetes using Helm charts
-
-Each phase reads from YAML configuration files and passes outputs to the next phase.
-
-See [full requirements](requirements.md) for detailed setup instructions.
+Prerequisites are in [requirements.md](requirements.md).
 
 ## Quick Start (Localhost)
 
-Deploy a sample .NET website to Docker Desktop Kubernetes in minutes. No cloud account required.
-
-### Deploy the Example Website
-
-Run these commands in a PowerShell prompt (`pwsh`).
-
-Clone the repository:
+Deploy the sample `.NET` website to Docker Desktop Kubernetes. No cloud
+account required.
 
 ```powershell
 git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
-```
-
-Add the automation folder to your PATH (or run scripts from there). Keep using the same PowerShell prompt for the following steps.
-
-```powershell
 ./Add-AutomationToPath.ps1
 ```
 
-Phase 1: Create local resources (registry, Kubernetes context). Move to the examples folder first:
-
-```powershell
-cd examples
-Set-Resource.ps1 website localhost -debug_mode $true -verbose_mode $true
-```
-
-Create the HTTPS development certificate (required by the website example). On Ubuntu desktops provisioned with `ubuntu.desktop.k8s.sh`, this certificate is created automatically.
+Create the HTTPS dev certificate (the Ubuntu `ubuntu.desktop.k8s.sh`
+workload does this automatically on that guest):
 
 ```powershell
 $pfxDir = Join-Path $HOME ".aspnet/https"
@@ -61,120 +32,43 @@ openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.ke
 Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
 ```
 
-Test and display runtime readiness:
+Deploy:
 
 ```powershell
+cd examples
+Set-Resource.ps1  website localhost -debug_mode $true -verbose_mode $true
 Test-Runtime.ps1
-```
-
-Phase 2: Build and push the Docker image:
-
-```powershell
 Set-Component.ps1 website localhost -debug_mode $true -verbose_mode $true
+Set-Workload.ps1  website localhost -debug_mode $true -verbose_mode $true
 ```
 
-Re-run `Test-Runtime.ps1` to check status. The registry should now be running with website images ready.
-
-Phase 3: Deploy to Kubernetes:
-
-```powershell
-Set-Workload.ps1 website localhost -debug_mode $true -verbose_mode $true
-```
-
-Visit the URL shown in the output to see your deployed website.
+The output of `Set-Workload.ps1` prints the URL.
 
 ## Cloud Deployment
 
-To deploy to a cloud provider instead of localhost, authenticate with your cloud CLI, then replace `localhost` with your target cloud.
-
-### Azure
+Authenticate once, then swap `localhost` for your cloud:
 
 ```powershell
-# Authenticate (once per session)
+# Azure
 az login --use-device-code
-az account set --subscription <your-subscription-id>  # if you have multiple subscriptions
+az account set --subscription <your-subscription-id>
+Set-Resource.ps1 website azure; Set-Component.ps1 website azure; Set-Workload.ps1 website azure
 
-# Deploy to Azure
-Set-Resource.ps1 website azure
-Set-Component.ps1 website azure
-Set-Workload.ps1 website azure
-```
+# AWS
+aws configure
+Set-Resource.ps1 website aws;   Set-Component.ps1 website aws;   Set-Workload.ps1 website aws
 
-### AWS
-
-```powershell
-# Authenticate (configure once)
-aws configure  # Enter your Access Key ID, Secret Access Key, region, and output format
-
-# Deploy to AWS
-Set-Resource.ps1 website aws
-Set-Component.ps1 website aws
-Set-Workload.ps1 website aws
-```
-
-### Google Cloud
-
-```powershell
-# Authenticate (once per session)
+# GCP
 gcloud auth application-default login
-
-# Deploy to GCP
-Set-Resource.ps1 website gcp
-Set-Component.ps1 website gcp
-Set-Workload.ps1 website gcp
+Set-Resource.ps1 website gcp;   Set-Component.ps1 website gcp;   Set-Workload.ps1 website gcp
 ```
 
-See [authentication docs](authenticate.md) for detailed setup instructions including service accounts and API enablement.
-
-## Configuration
-
-Each project has three YAML configuration files in the `config/<cloud>/` folder:
-
-| File | Purpose |
-|------|---------|
-| `resources.yml` | Infrastructure to create (clusters, registries, IPs) |
-| `components.yml` | Docker images to build and push |
-| `workloads.yml` | Applications to deploy via Helm |
-
-See the [website example](../examples/website/) for a complete reference and the [syntax documentation](syntax.md) for configuration details.
-
-## Project Structure
-
-```text
-yuruna/
-├── automation/          # PowerShell scripts (Set-Resource.ps1, Set-Component.ps1, etc.)
-├── global/resources/    # OpenTofu templates for each cloud provider
-├── examples/            # Example projects (website, template)
-└── docs/                # Documentation
-```
+Details, service accounts, and API enablement: [authenticate.md](authenticate.md).
 
 ## Documentation
 
-- [Requirements](requirements.md) - Full tool installation guide
-- [Authentication](authenticate.md) - Cloud provider setup
-- [Syntax](syntax.md) - Configuration file reference
-- [FAQ](faq.md) - Troubleshooting common issues
-- [Cleanup](cleanup.md) - Removing deployed resources
-- [Examples](../examples/README.md) - Sample projects
-
-## Important Notes
-
-- **Cost warning**: Cloud resources incur charges. Always [clean up](cleanup.md) resources you're not using.
-- **Windows users**: Set `git config --global core.autocrlf input` before cloning to avoid line-ending issues with Linux containers.
-- Scripts and examples are provided "as is" without guarantees. See [license](../LICENSE.md).
-
-## Contributing
-
-Check the [contributing guidelines](contributing.md) and the list of [open tasks](todo.md).
-
-Thanks to all [contributors](contributors.md)!
-
-## Resources
-
-- [Yuruna YouTube channel](https://www.youtube.com/channel/UCl36lZ2MwZ0f6_QAUOmGNDw) - Video tutorials
-- [Latest version](https://github.com/alissonsol/yuruna)
-- [References](references.md) - Additional reading
-
----
-
-Copyright (c) 2019-2026 by Alisson Sol et al.
+- [Requirements](requirements.md) · [Authentication](authenticate.md) ·
+  [Syntax](syntax.md) · [FAQ](faq.md) · [Cleanup](cleanup.md)
+- [Website example](../examples/website/) · [Contributing](contributing.md) ·
+  [Contributors](contributors.md) · [References](references.md)
+- [Yuruna YouTube channel](https://www.youtube.com/channel/UCl36lZ2MwZ0f6_QAUOmGNDw)

@@ -18,80 +18,12 @@
 
 <#
 .SYNOPSIS
-    Brings up the squid-cache VM for the current host environment and
-    exposes its ports on the host so LAN clients can reach it.
+    Brings up the squid-cache VM and exposes its ports (80, 3128, 3129,
+    3000) on the host. See test/CachingProxy.md for remote-client setup,
+    elevation requirements (Windows admin; macOS `sudo -E` to bind :80),
+    and the YURUNA_CACHING_PROXY_IP override that makes this a no-op.
 
-.DESCRIPTION
-    Cross-platform driver that orchestrates the squid HTTP-caching proxy VM
-    the yuruna guest installers rely on. Detects the host (macOS/UTM or
-    Windows/Hyper-V) and runs the right Get-Image.ps1 + New-VM.ps1 pair
-    under virtual/host.*/guest.squid-cache/.
-
-    Flow:
-      1. Stop and delete any prior squid-cache VM + its disk.
-      2. Run Get-Image.ps1 only if the base cloud image is not already
-         present (the existence check lives here, not in Get-Image.ps1,
-         so Get-Image.ps1 stays a pure "(re)download" script).
-      3. Run New-VM.ps1 for the platform.
-      4. macOS only: register the .utm bundle with UTM (`open -g -a UTM`)
-         and `utmctl start` — Hyper-V's New-VM.ps1 already starts the VM
-         natively, so no equivalent step is needed there.
-      5. Wait for port 3128 to respond.
-      6. Add-CachingProxyPortMap: expose :80 (Apache + CA cert),
-         :3128 (squid HTTP), :3129 (squid ssl-bump), :3000 (Grafana)
-         on the host's interfaces — netsh portproxy + firewall rule on
-         Hyper-V, detached pwsh TcpListener forwarders on macOS/UTM.
-         This is what lets a client on a different machine use the cache.
-      7. Print IP, proxy URL, cachemgr URL, username, and password.
-
-    ELEVATION REQUIREMENTS for exposing the cache to remote clients:
-
-      Windows: Run from an ELEVATED PowerShell. netsh portproxy and
-      New-NetFirewallRule both require administrator. Without elevation
-      the VM still comes up and local Default-Switch guests still reach
-      it, but no ports are mapped onto the host's LAN interfaces —
-      Add-CachingProxyPortMap logs a warning and no-ops.
-
-      macOS: Run with `sudo -E pwsh ./Start-CachingProxy.ps1`. Port :80 is
-      privileged (<1024) on macOS, so a user-scope pwsh TcpListener
-      fails to bind it. Without sudo, the :3128 / :3129 / :3000
-      forwarders still launch and the cache serves guests on this host
-      as before; only :80 is skipped (with a warning) — remote clients
-      then can't download http://<mac-ip>/yuruna-squid-ca.crt, so
-      HTTPS body caching is unavailable for remote guests. HTTP
-      caching and local-host HTTPS caching are unaffected. `sudo -E`
-      preserves $HOME so the forwarder state files land under the
-      user's ~/virtual/squid-cache/ and not /var/root/virtual/...
-
-    This script is a no-op for the test runner when
-    $Env:YURUNA_CACHING_PROXY_IP is set: Invoke-TestRunner.ps1 will
-    route to that remote IP regardless of any local cache this script
-    brought up. Running Start-CachingProxy.ps1 with the variable set just
-    creates a local "warm spare" the runner will ignore.
-
-    See test/CachingProxy.md for the full "Serving remote clients" and
-    "External cache override" sections.
-
-.PARAMETER VMName
-    Name for the squid-cache VM. Default: squid-cache.
-
-.EXAMPLE
-    # Local-only cache (guests on this host use it; LAN clients don't
-    # need access). No elevation needed on macOS; Windows still needs
-    # admin for the local Hyper-V VM operations.
-    pwsh test/Start-CachingProxy.ps1
-
-.EXAMPLE
-    # Windows — elevated, exposing all four ports (80, 3128, 3129, 3000)
-    # to LAN clients.
-    # Open PowerShell as Administrator, then:
-    cd C:\path\to\yuruna
-    pwsh test\Start-CachingProxy.ps1
-
-.EXAMPLE
-    # macOS — sudo so the :80 Apache/CA-cert forwarder can bind.
-    cd ~/git/yuruna
-    sudo -E pwsh test/Start-CachingProxy.ps1
+.PARAMETER VMName   Name for the squid-cache VM. Default: squid-cache.
 #>
 
 param(

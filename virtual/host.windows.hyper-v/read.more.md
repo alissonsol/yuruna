@@ -142,29 +142,16 @@ profile and surface any first-run dialogs:
 Start-Process virtmgmt.msc
 ```
 
-## 11) Optional: Set up the local HTTP cache VM (squid)
+## 11) Optional: Squid cache VM
 
-Each Ubuntu Desktop install downloads ~900 MB of packages from
-Ubuntu's CDN. When the test harness runs cycles back-to-back, the
-CDN may rate-limit requests (HTTP 429), causing the install to fail.
-A local **squid** VM caches every HTTP response — including the
-installer's own kernel and linux-firmware fetches — so subsequent
-installs drop to ~2 minutes and rate-limit failures stop entirely.
-(Squid replaces the older apt-cacher-ng cache, which only cached
-.deb URLs and missed the pre-install kernel step where the 429
-originated.)
-
-This step is optional — skip it if you prefer direct CDN downloads.
+See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
+[../../docs/caching.md](../../docs/caching.md):
 
 ```powershell
 cd $HOME\git\yuruna\virtual\host.windows.hyper-v\guest.squid-cache
-pwsh .\Get-Image.ps1     # downloads Ubuntu Server cloud image
-pwsh .\New-VM.ps1        # creates + starts the cache VM
+pwsh .\Get-Image.ps1
+pwsh .\New-VM.ps1
 ```
-
-The Ubuntu Desktop `New-VM.ps1` detects the running cache VM
-automatically. See [docs/caching.md](../../docs/caching.md) for
-details.
 
 ## 12) Run the Test Harness
 
@@ -173,17 +160,6 @@ cd $HOME\git\yuruna\test
 pwsh .\Invoke-TestRunner.ps1
 ```
 
-## Next: Create a Guest VM
-
-After completing the host setup, follow the instructions for your
-guest operating system:
-
-- [Amazon Linux](guest.amazon.linux/README.md)
-- [Ubuntu Desktop](guest.ubuntu.desktop/README.md)
-- [Windows 11](guest.windows.11/README.md)
-
-## Troubleshooting
-
-If you run into problems, see [common issues and solutions](troubleshooting.md).
-
-Back to [[Windows Hyper-V Host Setup](README.md)] · [[Yuruna](../../README.md)]
+[Guest VMs](README.md#next-create-a-guest-vm) ·
+[Troubleshooting](troubleshooting.md) ·
+Back to [[Hyper-V setup](README.md)] · [[Yuruna](../../README.md)]

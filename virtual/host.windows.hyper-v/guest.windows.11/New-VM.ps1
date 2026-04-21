@@ -31,7 +31,6 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "VM.common.psm1"
 Import-Module -Name $commonModulePath -Force
 
-# Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -122,7 +121,6 @@ Set-VMFirmware -VMName $VMName -SecureBootTemplate MicrosoftWindows | Out-Null
 Set-VMKeyProtector -VMName $VMName -NewLocalKeyProtector
 Enable-VMTPM -VMName $VMName
 
-# Add DVD drives for Windows ISO and seed ISO
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 

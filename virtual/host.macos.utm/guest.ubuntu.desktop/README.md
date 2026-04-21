@@ -1,18 +1,14 @@
 # Ubuntu Desktop guest on macOS UTM host
 
-Copyright (c) 2019-2026 by Alisson Sol et al.
+Minimal commands. See [read.more.md](read.more.md) for the full
+walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
 
-Minimal commands for creating the VM. See [details](read.more.md) for full documentation.
+**Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
+Apple **M3+**, UTM v4.6+ — verified by `New-VM.ps1`.
 
-**Nested virtualization requirements (for Docker Desktop / KVM inside the VM):** macOS 15 Sequoia or later, Apple M3+ chip, UTM v4.6+. The `New-VM.ps1` script checks these automatically.
+## One-time
 
-## One-time setup
-
-Do not run these scripts as root (`sudo`). Verify your identity with `whoami` first.
-
-**On the macOS host: Getting the base image**
-
-Assuming you are in the `yuruna/virtual/host.macos.utm/guest.ubuntu.desktop` folder.
+From `yuruna/virtual/host.macos.utm/guest.ubuntu.desktop` (do not `sudo`):
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -20,41 +16,27 @@ pwsh ./Get-Image.ps1
 
 ## For each VM
 
-**On the macOS host (Terminal): Create VM**
-
 ```bash
-pwsh ./New-VM.ps1
+pwsh ./New-VM.ps1                   # default hostname
+pwsh ./New-VM.ps1 -VMName myhost
 ```
 
-Or with a custom hostname:
+Double-click `HOSTNAME.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to
+import into UTM and start. Autoinstall runs unattended (~15 min; screen
+may stay dark — if nothing after 15 min, stop and restart the VM).
 
-```bash
-pwsh ./New-VM.ps1 -VMName myhostname
-```
+## Update
 
-Double-click `HOSTNAME.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to import it into UTM and start the VM. The Ubuntu installer will run automatically using autoinstall. **This step may take approximately 15 minutes.** The screen may not be shown. If not shown after 15 minutes, stop and restart the VM.
-
-**On the VM (after setup): Updating**
-
-You should be prompted to change the password on first login. You can change the password at any time with the `passwd` command. The default user is `ubuntu` and the initial password is `password`.
-
-Open a terminal and run the following command.
+Default `ubuntu` / `password`; forced change on first login (or any
+time via `passwd`). In a guest terminal:
 
 ```bash
 /automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh
-```
-
-Confirm all installations finished correctly, and then reboot.
-
-```bash
 sudo reboot now
 ```
 
-The Ubuntu Desktop guest is now ready!
+## Next
 
-## Next Steps
-
-Proceed to the [Ubuntu Desktop guest](../../guest.ubuntu.desktop/README.md) instructions to install workloads.
-
-Read more [here](read.more.md) about the VM creation process details.
-
+Install workloads:
+[Ubuntu Desktop guest](../../guest.ubuntu.desktop/README.md) ·
+Details: [read.more.md](read.more.md).

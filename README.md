@@ -2,36 +2,36 @@
 
 **Tools and automation for development environments and cloud deployments.**
 
-Yuruna has three capabilities: Virtual Development Environments (VDE) for reproducible workspaces; Kubernetes deployment across multiple clouds; and a VM-based test harness that validates workloads via keystroke injection or SSH.
+Three capabilities: Virtual Development Environments (VDE) for reproducible
+workspaces, Kubernetes deployment across multiple clouds, and a VM-based
+test harness.
 
-- [macOS UTM host](virtual/host.macos.utm/README.md) Setup
-  - [Amazon Linux](virtual/host.macos.utm/guest.amazon.linux/README.md) guest
-  - [Ubuntu Desktop](virtual/host.macos.utm/guest.ubuntu.desktop/README.md) guest
-  - [Windows 11](virtual/host.macos.utm/guest.windows.11/README.md) guest
-- [Windows Hyper-V host](virtual/host.windows.hyper-v/README.md) Setup
-  - [Amazon Linux](virtual/host.windows.hyper-v/guest.amazon.linux/README.md) guest
-  - [Ubuntu Desktop](virtual/host.windows.hyper-v/guest.ubuntu.desktop/README.md) guest
-  - [Windows 11](virtual/host.windows.hyper-v/guest.windows.11/README.md) guest
-- [Kubernetes](docs/kubernetes.md) deployment
+See [CODE.md](CODE.md) for overall architecture and reusable conventions.
 
-After the guest operating system is ready, there are instructions on installing workloads.
+## VDE
 
-  - [Amazon Linux](virtual/guest.amazon.linux/README.md) workloads
-  - [Ubuntu Desktop](virtual/guest.ubuntu.desktop/README.md) workloads
-  - [Windows 11](virtual/guest.windows.11/README.md) workloads
+- macOS UTM host: [setup](virtual/host.macos.utm/README.md) · guests:
+  [Amazon Linux](virtual/host.macos.utm/guest.amazon.linux/README.md) ·
+  [Ubuntu Desktop](virtual/host.macos.utm/guest.ubuntu.desktop/README.md) ·
+  [Windows 11](virtual/host.macos.utm/guest.windows.11/README.md)
+- Windows Hyper-V host: [setup](virtual/host.windows.hyper-v/README.md) · guests:
+  [Amazon Linux](virtual/host.windows.hyper-v/guest.amazon.linux/README.md) ·
+  [Ubuntu Desktop](virtual/host.windows.hyper-v/guest.ubuntu.desktop/README.md) ·
+  [Windows 11](virtual/host.windows.hyper-v/guest.windows.11/README.md)
+
+After the guest OS is up, install workloads:
+[Amazon Linux](virtual/guest.amazon.linux/README.md) ·
+[Ubuntu Desktop](virtual/guest.ubuntu.desktop/README.md) ·
+[Windows 11](virtual/guest.windows.11/README.md)
 
 ## Read More
 
-- [VDE Overview](virtual/README.md) - Virtual Development Environment
-- [Kubernetes Deployment](docs/kubernetes.md) - Multi-cloud Kubernetes automation
-- [Requirements](docs/requirements.md) - Full tool installation guide
-- [FAQ](docs/faq.md) - Troubleshooting common issues
-- [Contributing](docs/contributing.md) - How to contribute
+- [VDE Overview](virtual/README.md) · [Kubernetes](docs/kubernetes.md) ·
+  [Requirements](docs/requirements.md) · [FAQ](docs/faq.md) ·
+  [Contributing](docs/contributing.md)
 
-## Important Notes
-
-- **Cost warning**: Cloud resources incur charges. Always [clean up](docs/cleanup.md) resources you're not using.
-- Scripts and examples are provided "as is" without guarantees. See [license](LICENSE.md).
+**Cost warning**: Cloud resources incur charges. Always
+[clean up](docs/cleanup.md) resources you're not using.
 
 ---
 

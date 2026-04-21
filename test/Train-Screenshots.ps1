@@ -64,14 +64,12 @@ $ScreenshotsDir = Join-Path $TestRoot "screenshots"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 
-# Import required modules
 foreach ($mod in @("Test.Host", "Test.Get-Image", "Test.New-VM", "Test.Start-VM", "Test.Screenshot")) {
     $modPath = Join-Path $ModulesDir "$mod.psm1"
     if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
     Import-Module -Name $modPath -Force
 }
 
-# Read config
 if (-not (Test-Path $ConfigPath)) { Write-Error "Config not found: $ConfigPath"; exit 1 }
 $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable
 
@@ -89,7 +87,6 @@ if (-not (Test-GuestFolder -VirtualRoot $VirtualRoot -HostType $HostType -GuestK
 $Prefix = if ($Config.testVmNamePrefix) { $Config.testVmNamePrefix } else { "test-" }
 $VMName = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix
 
-# Setup directories
 $guestDir = Join-Path $ScreenshotsDir $GuestKey
 $refDir   = Join-Path $guestDir "reference"
 if (-not (Test-Path $refDir)) { New-Item -ItemType Directory -Force -Path $refDir | Out-Null }
@@ -97,26 +94,21 @@ if (-not (Test-Path $refDir)) { New-Item -ItemType Directory -Force -Path $refDi
 Write-Output "Reference screenshots will be saved to: $refDir"
 Write-Output ""
 
-# Ensure image exists
 Write-Output "--- Checking base image ---"
 $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -AlwaysRedownload $false
 if (-not $r.success) { Write-Error "Get-Image failed: $($r.errorMessage)"; exit 1 }
 
-# Clean up any previous VM
 Write-Output "--- Cleaning previous VM ---"
 Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
 
-# Create VM
 Write-Output "--- Creating VM ---"
 $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -VMName $VMName
 if (-not $r.success) { Write-Error "New-VM failed: $($r.errorMessage)"; exit 1 }
 
-# Start VM
 Write-Output "--- Starting VM ---"
 $r = Invoke-StartVM -HostType $HostType -VMName $VMName
 if (-not $r.success) { Write-Error "Start-VM failed: $($r.errorMessage)"; exit 1 }
 
-# Wait for VM to be running
 Write-Output "--- Waiting for VM to reach running state ---"
 $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName -TimeoutSeconds 120
 if (-not $ok) { Write-Error "VM did not start"; exit 1 }
@@ -128,7 +120,6 @@ Write-Output "  Screenshot training mode is active."
 Write-Output "========================================="
 Write-Output ""
 
-# Interactive checkpoint capture loop
 $checkpoints = [System.Collections.Generic.List[object]]::new()
 $startTime   = Get-Date
 $cpIndex     = 0
@@ -152,7 +143,6 @@ while ($true) {
         if ($checkpoints.Count -eq 0) {
             Write-Output "No checkpoints captured. Nothing to save."
         } else {
-            # Write schedule.json
             $schedule = [ordered]@{
                 guestKey    = $GuestKey
                 hostType    = $HostType
@@ -177,7 +167,6 @@ while ($true) {
         $cpIndex++
         $cpName = $Matches[1].Trim()
         if (-not $cpName) { $cpName = "checkpoint-$cpIndex" }
-        # Sanitize name
         $cpName = $cpName -replace '[^a-zA-Z0-9._-]', '-'
 
         $delay = [Math]::Round(((Get-Date) - $startTime).TotalSeconds)
@@ -201,7 +190,6 @@ while ($true) {
     Write-Output "Unknown command. Use: c [name], d (done), q (quit)"
 }
 
-# Cleanup
 Write-Output ""
 Write-Output "--- Stopping VM ---"
 Stop-TestVM -HostType $HostType -VMName $VMName

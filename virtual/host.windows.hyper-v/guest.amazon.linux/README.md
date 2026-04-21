@@ -1,14 +1,12 @@
 # Amazon Linux guest on Windows Hyper-V host
 
-Copyright (c) 2019-2026 by Alisson Sol et al.
+Minimal commands. See [read.more.md](read.more.md) for the full
+walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
 
-Minimal commands for creating the VM. See [details](read.more.md) for full documentation.
+## One-time
 
-## One-time setup
-
-**On the Windows host (Administrator PowerShell): Getting the base image**
-
-Assuming you are in the `yuruna\virtual\host.windows.hyper-v\guest.amazon.linux` folder.
+From `yuruna\virtual\host.windows.hyper-v\guest.amazon.linux` in an
+elevated PowerShell:
 
 ```powershell
 .\Get-Image.ps1
@@ -16,21 +14,15 @@ Assuming you are in the `yuruna\virtual\host.windows.hyper-v\guest.amazon.linux`
 
 ## For each VM
 
-**On the Windows host (Administrator PowerShell): Create VM**
-
 ```powershell
-.\New-VM.ps1
+.\New-VM.ps1                       # default hostname
+.\New-VM.ps1 -VMName myhost
 ```
 
-Or with a custom hostname:
+## First login and GUI install
 
-```powershell
-.\New-VM.ps1 -VMName myhostname
-```
-
-**On the VM: First login and GUI install**
-
-Unless you changed the defaults in the [vmconfig/user-data](./vmconfig/user-data) file, the user is `ec2-user` and the password is `amazonlinux`.
+Default `ec2-user` / `amazonlinux` (unless changed in
+[vmconfig/user-data](./vmconfig/user-data)):
 
 ```bash
 sudo /automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh
@@ -38,11 +30,9 @@ sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```
 
-The Amazon Linux guest is now ready! Good time for a checkpoint.
+Good moment for a Hyper-V checkpoint.
 
-## Next Steps
+## Next
 
-Proceed to the [Amazon Linux guest](../../guest.amazon.linux/README.md) instructions to install workloads.
-
-Read more [here](read.more.md) about the VM creation process details.
-
+Install workloads: [Amazon Linux guest](../../guest.amazon.linux/README.md) ·
+Details: [read.more.md](read.more.md).

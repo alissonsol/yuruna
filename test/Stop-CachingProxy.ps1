@@ -18,26 +18,11 @@
 
 <#
 .SYNOPSIS
-    Stops and deletes the squid-cache VM for the current host environment.
+    Inverse of Start-CachingProxy.ps1 — stops the squid-cache VM and
+    removes its disk/bundle + stashed password. Base image is KEPT so
+    the next start doesn't re-download ~600 MB. Safe to re-run.
 
-.DESCRIPTION
-    Cross-platform inverse of Start-CachingProxy.ps1. Detects the host
-    (macOS/UTM or Windows/Hyper-V) and removes the squid-cache VM,
-    its disk/bundle, and the stashed password file. The base image
-    (host.*.guest.squid-cache.*) is intentionally KEPT so the next
-    Start-CachingProxy.ps1 run doesn't have to re-download ~600 MB.
-
-    Flow:
-      1. Stop and delete the VM registration (utmctl / Hyper-V).
-      2. Remove the VM-specific disk/bundle directory.
-
-    Safe to re-run: missing VM or bundle is treated as a no-op.
-
-.PARAMETER VMName
-    Name of the squid-cache VM. Default: squid-cache.
-
-.EXAMPLE
-    ./Stop-CachingProxy.ps1
+.PARAMETER VMName   Name of the squid-cache VM. Default: squid-cache.
 #>
 
 param(

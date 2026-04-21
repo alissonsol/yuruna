@@ -212,7 +212,6 @@ try {
 } catch {
     Write-Warning "Automated download failed: $_"
     Write-Output ""
-    # Clean up partial downloads
     if ($downloadFile -and (Test-Path $downloadFile)) {
         Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
     }

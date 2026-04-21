@@ -147,7 +147,6 @@ switch ($HostType) {
 
 Write-Output ""
 
-# === Run Remove-OrphanedVMFiles.ps1 with -Force ===
 $virtualDir = Join-Path $RepoRoot "virtual"
 $cleanupScript = Join-Path -Path $virtualDir -ChildPath "$HostType" -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
 

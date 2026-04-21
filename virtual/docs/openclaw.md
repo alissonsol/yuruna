@@ -2,30 +2,12 @@
 
 Installs Git, Node.js, and [OpenClaw](https://docs.openclaw.ai/start/getting-started).
 
-| Guest | Script |
+| Guest | Command |
 |---|---|
-| **Amazon Linux** | `amazon.linux.openclaw.sh` |
-| **Ubuntu Desktop** | `ubuntu.desktop.openclaw.sh` |
+| **Amazon Linux** | `/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.openclaw.sh` |
+| **Ubuntu Desktop** | `/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.openclaw.sh` |
 
-**Amazon Linux**
-
-Open a terminal and run the following command.
-
-```bash
-/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.openclaw.sh
-```
-
-**Ubuntu Desktop**
-
-Open a terminal and run the following command.
-
-```bash
-/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.openclaw.sh
-```
-
-**After reboot, configure OpenClaw**
-
-Open a terminal and run:
+After reboot, configure:
 
 ```bash
 openclaw onboard --install-daemon
@@ -35,6 +17,7 @@ openclaw onboard --install-daemon
 
 ![](images/001.openclaw.config.png)
 
-See the OpenClaw [Getting Started](https://docs.openclaw.ai/start/getting-started) guide for more details.
+See [Getting Started](https://docs.openclaw.ai/start/getting-started).
 
-Back to [[Amazon Linux Guest - Workloads](../guest.amazon.linux/README.md)] or [[Ubuntu Desktop Guest - Workloads](../guest.ubuntu.desktop/README.md)]
+Back to [[Amazon Linux](../guest.amazon.linux/README.md)] ·
+[[Ubuntu Desktop](../guest.ubuntu.desktop/README.md)]

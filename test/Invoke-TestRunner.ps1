@@ -18,79 +18,17 @@
 
 <#
 .SYNOPSIS
-    Continuous VDE test cycle. Creates guest VMs per test-config.json,
-    runs their test sequences, loops until a failure.
+    Continuous VDE test cycle entry point. See test/README.md for the
+    cycle flow, config schema, notifications, and YURUNA_CACHING_PROXY_IP;
+    see test/CODE.md for harness architecture.
 
-.DESCRIPTION
-    Primary harness entry point. Each cycle:
-      1. git pull (unless -NoGitPull)
-      2. re-read test-config.json
-      3. refresh base images if stale
-      4. detect the caching proxy (local VM or remote IP)
-      5. for each guest in guestOrder: cleanup → New-VM → Start-VM →
-         Verify-VM → Invoke-PoolTest
-      6. log, pause, next cycle
-      7. on first failure: leave the VM running, notify, exit
-
-    Full config schema, guest ordering, and notification setup live in
-    test/README.md. This help block only covers the command line and
-    the most load-bearing environment variables.
-
-    ENVIRONMENT VARIABLES:
-
-    $Env:YURUNA_CACHING_PROXY_IP — point the runner at a remote
-      squid-cache instead of looking for a local VM. When set, guest
-      New-VM.ps1 invocations inherit the remote URL, fetch the CA from
-      http://<ip>/yuruna-squid-ca.crt, and wire apt to http://<ip>:3128
-      (HTTP) + http://<ip>:3129 (HTTPS). The remote host must run the
-      same caching proxy image; see docs/caching.md for the image itself
-      and test/CachingProxy.md for the harness-facing override.
-      Un-set or empty to fall back to local discovery.
-
-      Validate a candidate cache BEFORE launching a full cycle with:
-          $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
-          pwsh test/Test-CachingProxy.ps1
-      That script TCP-probes :3128, :3129, :80, :3000 and fetches the
-      CA cert — PASS / FAIL / WARN per check, exit 1 if any required
-      port fails.
-
-.PARAMETER ConfigPath
-    Path to test-config.json. Defaults to test/test-config.json next to
-    this script.
-
-.PARAMETER NoGitPull
-    Skip the `git pull` at the start of each cycle. Useful during local
-    development when you want to iterate without pushing.
-
-.PARAMETER NoServer
-    Skip launching the built-in HTTP status server on port 8080.
-
-.PARAMETER NoExtensionOutput
-    Suppress extension script stdout/stderr in the runner's console.
-    Extensions still run and their output is written to the log file.
-
-.PARAMETER CycleDelaySeconds
-    Pause between cycles. Default 30.
-
-.PARAMETER debug_mode
-    Set to $true to raise $DebugPreference to Continue.
-
-.PARAMETER verbose_mode
-    Set to $true to raise $VerbosePreference to Continue.
-
-.EXAMPLE
-    # Local squid-cache (previously brought up by test/Start-CachingProxy.ps1)
-    pwsh test/Invoke-TestRunner.ps1
-
-.EXAMPLE
-    # Remote squid-cache at 10.0.0.5 — no local VM needed.
-    $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
-    pwsh test/Test-CachingProxy.ps1          # preflight
-    pwsh test/Invoke-TestRunner.ps1
-
-.EXAMPLE
-    # Iterate locally without pushing / without the status server.
-    pwsh test/Invoke-TestRunner.ps1 -NoGitPull -NoServer
+.PARAMETER ConfigPath           test-config.json path (default: next to this script)
+.PARAMETER NoGitPull             Skip `git pull` at cycle start
+.PARAMETER NoServer              Skip the built-in HTTP status server
+.PARAMETER NoExtensionOutput     Suppress extension stdout/stderr on console (still logged)
+.PARAMETER CycleDelaySeconds     Pause between cycles (default 30)
+.PARAMETER debug_mode            Raise $DebugPreference to Continue
+.PARAMETER verbose_mode          Raise $VerbosePreference to Continue
 #>
 
 # Global variable is the cross-module channel with yuruna-log.
@@ -1057,7 +995,6 @@ while ($true) {
         if ($StopOnFailure) {
             break
         }
-        # Send notification but continue to next cycle
         if ($FailedGuest) {
             Write-Output ""
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -1121,7 +1058,6 @@ while ($true) {
     }
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 
-    # Emergency-stop/remove any VM in progress
     if ($script:ActiveVMName) {
         try {
             Write-Output "  Emergency cleanup: stopping VM '$($script:ActiveVMName)'..."
@@ -1134,7 +1070,6 @@ while ($true) {
         $script:ActiveVMName = $null
     }
 
-    # Finalize cycle if not already done
     if (-not $script:CycleFinalized) {
         try {
             Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.maxHistoryRuns) -ErrorAction SilentlyContinue
@@ -1156,7 +1091,6 @@ while ($true) {
         break
     }
 
-    # Clean up all test VMs and files before the inter-cycle wait
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 
     # Cycle-pause back-channel: status server's /control/cycle-pause
@@ -1187,7 +1121,6 @@ while ($true) {
     }
     Write-Progress -Activity "Next cycle" -Completed
 
-    # Clean up all test VMs and files after the inter-cycle wait
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 }
 

@@ -19,7 +19,6 @@
 # --- Define Oscdimg Path (adjust '10' for your ADK version if necessary) ---
 $OscdimgPath = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\Oscdimg.exe"
 
-# CreateIso: build an ISO from a source directory using Oscdimg
 function CreateIso {
     param(
         [Parameter(Mandatory = $true)][string]$SourceDir,
@@ -27,7 +26,6 @@ function CreateIso {
         [string]$VolumeId = "cidata"
     )
 
-    # Resolve current working directory
     $cwd = (Get-Location).ProviderPath
 
     # Make SourceDir absolute if relative
@@ -46,7 +44,6 @@ function CreateIso {
     }
     $OutputFile = [System.IO.Path]::GetFullPath($OutputFile)
 
-    # Ensure output directory exists
     $outDir = Split-Path -Path $OutputFile -Parent
     if ($outDir -and -not (Test-Path -Path $outDir)) {
         New-Item -ItemType Directory -Path $outDir -Force | Out-Null

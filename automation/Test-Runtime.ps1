@@ -171,7 +171,6 @@ if (-not $mkcertAvailable) {
     }
 }
 
-# Report
 if ($problems.Count -gt 0) {
     Write-Information ""
     Write-Information "== Runtime Check: PROBLEMS FOUND =="
@@ -186,7 +185,6 @@ Write-Information ""
 Write-Information "== Runtime Check: ALL OK =="
 Write-Information ""
 
-# List Docker images
 Write-Information "-- Docker images --"
 docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedSince}}"
 Write-Information ""

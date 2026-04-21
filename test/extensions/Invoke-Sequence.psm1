@@ -2013,10 +2013,15 @@ function Invoke-Sequence {
         return $true
     }
 
-    # Initialize logDir early so the catch block can write diagnostics
+    # Initialize logDir + trackDir early so the catch block can write
+    # diagnostics and the pause-flag paths resolve below. Invoke-Sequence
+    # runs inside a child module scope when a test-start extension script
+    # imports it, so the parent runner's global Import-Module doesn't
+    # propagate here — each helper has to be re-imported on this path.
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-    Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")    -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1")   -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.TrackDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")      -Force -ErrorAction SilentlyContinue -Verbose:$false
     $logDir = Initialize-YurunaLogDir
 
   try {

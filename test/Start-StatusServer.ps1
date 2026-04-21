@@ -413,7 +413,7 @@ function Write-ServerErr {
             Move-Item -Path `$serverLogFile -Destination "`$serverLogFile.old" -Force -ErrorAction SilentlyContinue
         }
         Add-Content -Path `$serverLogFile -Value "[`$(Get-Date -Format o)] `$msg" -ErrorAction SilentlyContinue
-    } catch { }
+    } catch { Write-Debug `$_ }
 }
 try {
     `$listener.Start()
@@ -529,14 +529,14 @@ try {
                     } else {
                         Remove-Item `$targetFile -Force -ErrorAction SilentlyContinue
                     }
-                } catch { }
+                } catch { Write-Debug `$_ }
                 try {
                     `$doc = Get-Content -Raw `$statusJsonFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable
                     `$doc[`$fieldName] = `$desiredPaused
                     `$tmp = "`$statusJsonFile.tmp"
                     `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
                     Move-Item -Path `$tmp -Destination `$statusJsonFile -Force
-                } catch { }
+                } catch { Write-Debug `$_ }
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 `$pausedJson = if (`$desiredPaused) { 'true' } else { 'false' }
@@ -612,7 +612,7 @@ try {
             }
             `$res.OutputStream.Close()
         } catch {
-            try { `$ctx.Response.Abort() } catch { }
+            try { `$ctx.Response.Abort() } catch { Write-Debug `$_ }
         }
       } catch {
         # Log any unhandled iteration-level failure (EndGetContext throws,
@@ -639,7 +639,7 @@ try {
 # misread as a path problem. -File sidesteps the size limit entirely:
 # pwsh reads the script from disk instead of its command line.
 $serverScriptFile = Join-Path $TrackDir ".status-server.ps1"
-Set-Content -Path $serverScriptFile -Value $serverScript -Encoding UTF8
+Set-Content -Path $serverScriptFile -Value $serverScript -Encoding UTF8BOM
 
 if ($IsWindows) {
     $proc = Start-Process -FilePath "pwsh" `

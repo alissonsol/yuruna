@@ -3,6 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--
+    Cache-busting: operators often browse the status page through a shared
+    squid-cache (Test-CachingProxy -SetHostProxy, corp proxy, etc.). Without
+    these hints the index can stick around in the proxy long after a `git
+    pull` ships new renderer code, leaving different operators on different
+    hosts looking at different UI versions. The status server also emits
+    matching Cache-Control / Pragma / Expires headers for .html responses;
+    the meta tags here are the belt to those braces, covering intermediaries
+    that forward HTTP headers but not every client path.
+  -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Yuruna VDE Status</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

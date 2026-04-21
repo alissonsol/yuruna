@@ -590,9 +590,20 @@ try {
                     '.png'  { 'image/png' }
                     default { 'application/octet-stream' }
                 }
-                if (`$ext -eq '.json') {
+                # No-cache on anything a proxy could stick a stale copy of.
+                # .json (status.json, current-action.json, caching-proxy
+                # probe results) always mutates per cycle; .html and .txt
+                # (index.html, ipaddresses.txt, caching-proxy.txt) change on
+                # git pull or Start-StatusServer restart. Without these
+                # headers a host behind a shared squid sees an arbitrarily
+                # old UI while LAN peers without the proxy get fresh
+                # content. .css / .js / images aren't shipped today but
+                # pinning them to no-cache pre-emptively keeps the story
+                # consistent if they're ever added.
+                if (`$ext -in '.html','.json','.txt','.css','.js') {
                     `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
                     `$res.Headers.Add('Pragma', 'no-cache')
+                    `$res.Headers.Add('Expires', '0')
                 }
                 `$fileInfo = [System.IO.FileInfo]::new(`$file)
                 if (`$fileInfo.Length -gt 50MB) {

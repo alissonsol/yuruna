@@ -166,13 +166,16 @@ if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
 
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
-Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
+Import-Module (Join-Path $ModulesDir "Test.TrackDir.psm1") -Force
+Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1")   -Force
 Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
 Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
 $global:VerbosePreference = $savedVerbose
 
+$null = Initialize-YurunaTrackDir
 $null = Initialize-YurunaLogDir
-Write-Output "Log directory: $env:YURUNA_LOG_DIR"
+Write-Output "Track directory: $env:YURUNA_TRACK_DIR"
+Write-Output "Log directory:   $env:YURUNA_LOG_DIR"
 
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'

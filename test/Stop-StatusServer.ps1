@@ -21,11 +21,13 @@
     Stops the status HTTP server started by Start-StatusServer.ps1.
 
 .DESCRIPTION
-    Reads the PID from test/status/server.pid and terminates the process.
+    Reads the PID from $env:YURUNA_TRACK_DIR/server.pid and terminates
+    the process.
 #>
 
-$StatusDir = Join-Path $PSScriptRoot "status"
-$PidFile   = Join-Path $StatusDir "server.pid"
+Import-Module (Join-Path -Path $PSScriptRoot -ChildPath "modules" -AdditionalChildPath "Test.TrackDir.psm1") -Force
+$null = Initialize-YurunaTrackDir
+$PidFile = Join-Path $env:YURUNA_TRACK_DIR "server.pid"
 
 if (-not (Test-Path $PidFile)) {
     Write-Output "No server PID file found at '$PidFile'. Server may not be running."

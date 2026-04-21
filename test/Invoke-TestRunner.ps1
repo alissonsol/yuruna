@@ -117,16 +117,25 @@ if ($verbose_mode) {
 }
 
 # === Resolve paths ===
+# Tracking and log directories are resolved via Test.TrackDir / Test.LogDir
+# so an operator can redirect them by setting $env:YURUNA_TRACK_DIR or
+# $env:YURUNA_LOG_DIR before launch. Defaults: test/status/track/ and
+# test/status/log/ respectively — both served by the status HTTP server.
 $TestRoot       = $PSScriptRoot
 $RepoRoot       = Split-Path -Parent $TestRoot
 $VdeRoot        = Join-Path $RepoRoot "vde"
 $StatusDir      = Join-Path $TestRoot "status"
-$StatusFile     = Join-Path $StatusDir "status.json"
 $StatusTmpl     = Join-Path $StatusDir "status.json.template"
 $ModulesDir     = Join-Path $TestRoot "modules"
 $ExtensionsDir  = Join-Path $TestRoot "extensions"
 $ScreenshotsDir = Join-Path $TestRoot "screenshots"
 $VerifyDir      = Join-Path $TestRoot "verify"
+
+Import-Module (Join-Path $ModulesDir "Test.TrackDir.psm1") -Force
+Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1")   -Force
+$null = Initialize-YurunaTrackDir
+$null = Initialize-YurunaLogDir
+$StatusFile = Join-Path $env:YURUNA_TRACK_DIR "status.json"
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test-config.json" }
 $TemplatePath = Join-Path $TestRoot "test-config.json.template"
@@ -141,7 +150,7 @@ $TemplatePath = Join-Path $TestRoot "test-config.json.template"
 # The YURUNA_RUNNER_RELAUNCH env var marks the source-change relaunch
 # branch below — that branch intentionally spawns a child Invoke-TestRunner.ps1
 # and we don't want the child to treat its own parent as a competitor.
-$RunnerPidFile = Join-Path $StatusDir "runner.pid"
+$RunnerPidFile = Join-Path $env:YURUNA_TRACK_DIR "runner.pid"
 if ($env:YURUNA_RUNNER_RELAUNCH -ne '1' -and (Test-Path $RunnerPidFile)) {
     $existingPid = 0
     # Unreadable / malformed / missing pidfile is treated as "no prior
@@ -374,17 +383,13 @@ Write-Output "Host type: $HostType"
 
 if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
 
-$savedVerbose = $global:VerbosePreference
-$global:VerbosePreference = "SilentlyContinue"
-Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1") -Force
-$global:VerbosePreference = $savedVerbose
-$null = Initialize-YurunaLogDir
-Write-Output "Log directory: $env:YURUNA_LOG_DIR"
+Write-Output "Track directory: $env:YURUNA_TRACK_DIR"
+Write-Output "Log directory:   $env:YURUNA_LOG_DIR"
 
 # Proxy-cache detection moved to Test.CachingProxy.psm1 so Start-StatusServer
 # can share the same probe — both writers (console banner here, status-page
-# banner via status/log/caching-proxy.txt) stay in lockstep with whatever URL
-# gets injected into autoinstall user-data by guest.ubuntu.desktop/New-VM.ps1.
+# banner via $env:YURUNA_TRACK_DIR/caching-proxy.txt) stay in lockstep with
+# whatever URL gets injected into autoinstall user-data by guest.ubuntu.desktop/New-VM.ps1.
 $cachingProxyUrl = Test-CachingProxyAvailable -HostType $HostType
 
 # When a local cache is detected, expose the VM's ports on the host so
@@ -1198,14 +1203,14 @@ while ($true) {
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
 
     # Cycle-pause back-channel: the status server's /control/cycle-pause
-    # endpoint creates test/status/control.cycle-pause. We gate here, AFTER
-    # cleanup but BEFORE the inter-cycle wait, so pressing "Cycle pause" in
-    # the UI cleanly stops the runner at the cycle boundary with the previous
-    # cycle's VMs already torn down. Removing the file (via
-    # /control/cycle-resume) lets the loop proceed into the normal
-    # inter-cycle delay and on to the next cycle. ShutdownState is checked
-    # alongside the file so Ctrl-C can still break out of the wait.
-    $cyclePauseFlagFile = Join-Path $StatusDir 'control.cycle-pause'
+    # endpoint creates $env:YURUNA_TRACK_DIR/control.cycle-pause. We gate
+    # here, AFTER cleanup but BEFORE the inter-cycle wait, so pressing
+    # "Cycle pause" in the UI cleanly stops the runner at the cycle
+    # boundary with the previous cycle's VMs already torn down. Removing
+    # the file (via /control/cycle-resume) lets the loop proceed into the
+    # normal inter-cycle delay and on to the next cycle. ShutdownState is
+    # checked alongside the file so Ctrl-C can still break out of the wait.
+    $cyclePauseFlagFile = Join-Path $env:YURUNA_TRACK_DIR 'control.cycle-pause'
     if (Test-Path $cyclePauseFlagFile) {
         Write-Output "Cycle pause set via status UI. Waiting for resume..."
         while ((Test-Path $cyclePauseFlagFile) -and (-not $script:ShutdownState['Requested'])) {

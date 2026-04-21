@@ -2040,8 +2040,8 @@ function Invoke-Sequence {
     Write-Information "    Steps: $($steps.Count)"
 
     # Step-pause back-channel: the status server's /control/step-pause
-    # endpoint creates test/status/control.step-pause. We gate on that file
-    # in two places:
+    # endpoint creates $env:YURUNA_TRACK_DIR/control.step-pause. We gate
+    # on that file in two places:
     #   1. Before sequence setup (here, below) — so Restart-VMConnect and any
     #      per-sequence work don't run while paused, and the very first
     #      action of a new sequence can't start while paused. This matters
@@ -2056,15 +2056,17 @@ function Invoke-Sequence {
     # Cycle-pause (control.cycle-pause) is gated separately in
     # Invoke-TestRunner.ps1 at cycle boundaries — Invoke-Sequence is only
     # concerned with step-level pauses.
-    $stepPauseFlagFile = Join-Path (Split-Path -Parent $PSScriptRoot) "status/control.step-pause"
+    $trackDir = Initialize-YurunaTrackDir
+    $stepPauseFlagFile = Join-Path $trackDir 'control.step-pause'
 
     # Current-action sidecar: write the in-progress step to a small JSON file
-    # that the status server can serve. The UI polls it alongside status.json
-    # and renders the line under the matching guest card. We write at the top
-    # of each iteration (so the UI sees the step that's about to run, not the
-    # one that just finished) and once more at the end of a successful
-    # sequence with the "[All N steps completed]" summary.
-    $currentActionFile = Join-Path (Split-Path -Parent $PSScriptRoot) "status/current-action.json"
+    # that the status server can serve at /track/current-action.json. The UI
+    # polls it alongside status.json and renders the line under the matching
+    # guest card. We write at the top of each iteration (so the UI sees the
+    # step that's about to run, not the one that just finished) and once more
+    # at the end of a successful sequence with the "[All N steps completed]"
+    # summary.
+    $currentActionFile = Join-Path $trackDir 'current-action.json'
     $writeCurrentAction = {
         param([string]$Line)
         try {

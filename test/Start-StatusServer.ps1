@@ -23,8 +23,8 @@
 .DESCRIPTION
     Launches a detached pwsh process that serves the test/status/ directory
     over HTTP. The server keeps running even if the caller exits.
-    A PID file (status/server.pid) is written so Stop-StatusServer.ps1
-    can shut it down later.
+    A PID file ($env:YURUNA_TRACK_DIR/server.pid) is written so
+    Stop-StatusServer.ps1 can shut it down later.
 
 .PARAMETER Port
     TCP port to listen on. Defaults to the value in test-config.json,
@@ -41,10 +41,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$TestRoot  = $PSScriptRoot
-$StatusDir = Join-Path $TestRoot "status"
-$PidFile   = Join-Path $StatusDir "server.pid"
+$TestRoot   = $PSScriptRoot
+$StatusDir  = Join-Path $TestRoot "status"
 $ModulesDir = Join-Path $TestRoot "modules"
+
+# Resolve $env:YURUNA_TRACK_DIR (runtime state) and $env:YURUNA_LOG_DIR
+# (transcripts / debug artifacts). Both default to subdirs of status/ so
+# the status HTTP server can serve them directly at /track/* and /log/*.
+Import-Module (Join-Path $ModulesDir "Test.TrackDir.psm1") -Force
+Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1")   -Force
+$null = Initialize-YurunaTrackDir
+$null = Initialize-YurunaLogDir
+$TrackDir = $env:YURUNA_TRACK_DIR
+$LogDir   = $env:YURUNA_LOG_DIR
+
+$PidFile = Join-Path $TrackDir "server.pid"
 
 # --- Read port from config if not provided ---
 if ($Port -eq 0) {
@@ -100,7 +111,7 @@ if (Test-Path $PidFile) {
 }
 
 # --- Ensure repoUrl is set in status.json ---
-$StatusFile = Join-Path $StatusDir "status.json"
+$StatusFile = Join-Path $TrackDir "status.json"
 if (Test-Path $StatusFile) {
     try {
         $statusDoc = Get-Content -Raw $StatusFile | ConvertFrom-Json
@@ -137,12 +148,23 @@ if (Test-Path $StatusFile) {
     }
 }
 
-# --- Clear any leftover heartbeat file from an older build that used it ---
-# The server no longer reads this file; just tidy it up so inspectors don't
-# think it's load-bearing.
+# --- Clean up leftovers from older layouts ---
+# server.heartbeat: the server no longer reads this file; just tidy it up
+# so inspectors don't think it's load-bearing.
+# Legacy paths directly under test/status/: pre-track-dir layout wrote
+# server.pid, runner.pid, status.json, server.err, current-action.json,
+# control.*-pause, .status-server.ps1 there. An upgrade from that layout
+# leaves those as untracked files (no longer .gitignored) which would
+# clutter `git status`. Drop them on every start so the next operator run
+# lands on a clean status dir.
 Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $TrackDir  'server.heartbeat') -Force -ErrorAction SilentlyContinue
+foreach ($legacyName in @('server.pid','runner.pid','status.json','server.err','current-action.json',
+                          'control.pause','control.step-pause','control.cycle-pause','.status-server.ps1')) {
+    Remove-Item (Join-Path $StatusDir $legacyName) -Force -ErrorAction SilentlyContinue
+}
 
-# --- Enumerate host IP addresses and write them to status/log/ipaddresses.txt ---
+# --- Enumerate host IP addresses and write them to $env:YURUNA_TRACK_DIR/ipaddresses.txt ---
 # The UI footer reads this file to show where the server is reachable from
 # other machines. Loopback (127.0.0.1, ::1) is excluded because it's
 # trivially useless for remote clients — if you're reading the page from
@@ -158,11 +180,7 @@ Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction Silent
 # two short rows instead of one long run, and the file is overwritten on
 # every Start-StatusServer invocation so stale entries from a previous
 # host/network are not preserved.
-$LogDir = Join-Path $StatusDir "log"
-if (-not (Test-Path $LogDir)) {
-    New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
-}
-$IpAddressesFile = Join-Path $LogDir "ipaddresses.txt"
+$IpAddressesFile = Join-Path $TrackDir "ipaddresses.txt"
 try {
     $collectedAddresses = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
         Where-Object { $_.OperationalStatus -eq 'Up' } |
@@ -238,7 +256,7 @@ try {
     Write-Warning "SSH-server check failed (continuing with HTTP status server): $_"
 }
 
-# --- Probe for proxy cache and record state to status/log/caching-proxy.txt ---
+# --- Probe for proxy cache and record state to $env:YURUNA_TRACK_DIR/caching-proxy.txt ---
 # The UI banner appends this string to the status text so a viewer can see
 # at a glance whether the harness is behind a local squid. The file holds
 # ready-to-embed HTML (including an <a href> to the cachemgr URL) so the
@@ -246,7 +264,7 @@ try {
 # Start-StatusServer time — restart the server to refresh after bringing
 # the squid cache up or down. Needs $detectedHost, so runs AFTER the SSH
 # block that performs host detection.
-$CachingProxyFile = Join-Path $LogDir "caching-proxy.txt"
+$CachingProxyFile = Join-Path $TrackDir "caching-proxy.txt"
 try {
     $cachingProxyModPath = Join-Path $ModulesDir "Test.CachingProxy.psm1"
     if ((Test-Path $cachingProxyModPath) -and $detectedHost) {
@@ -352,10 +370,13 @@ $serverScript = @"
 `$ErrorActionPreference = 'Stop'
 `$listener = [System.Net.HttpListener]::new()
 `$listener.Prefixes.Add('http://*:$Port/')
-`$stepPauseFile  = Join-Path '$($StatusDir -replace "'","''")' 'control.step-pause'
-`$cyclePauseFile = Join-Path '$($StatusDir -replace "'","''")' 'control.cycle-pause'
-`$statusJsonFile = Join-Path '$($StatusDir -replace "'","''")' 'status.json'
-`$serverLogFile = Join-Path '$($StatusDir -replace "'","''")' 'server.err'
+`$statusDir = '$($StatusDir -replace "'","''")'
+`$trackDir  = '$($TrackDir  -replace "'","''")'
+`$logDir    = '$($LogDir    -replace "'","''")'
+`$stepPauseFile  = Join-Path `$trackDir 'control.step-pause'
+`$cyclePauseFile = Join-Path `$trackDir 'control.cycle-pause'
+`$statusJsonFile = Join-Path `$trackDir 'status.json'
+`$serverLogFile  = Join-Path `$trackDir 'server.err'
 # --- SSH-toggle endpoints: need Test.SshServer in this process too ---
 # control/ssh/{status,enable,disable} is handled inline below; importing the
 # module at listener start means each request is just a function call, not
@@ -527,9 +548,31 @@ try {
                 continue
             }
 
-            `$file = Join-Path '$($StatusDir -replace "'","''")' `$path
+            # Dispatch by URL prefix:
+            #   track/<name> -> `$trackDir  (pids, status.json, control flags,
+            #                              ipaddresses.txt, caching-proxy.txt,
+            #                              current-action.json, server.err)
+            #   log/<name>   -> `$logDir    (HTML transcripts, OCR / screenshot
+            #                              debug artifacts, failure captures)
+            #   <anything>   -> `$statusDir (index.html, status.json.template,
+            #                              other committed static assets)
+            # Each branch pins the resolved file under its mount root via a
+            # StartsWith check so a traversal like track/../../../etc/passwd
+            # can't escape into the repo or the filesystem.
+            if (`$path -like 'track/*') {
+                `$rel  = `$path.Substring(6)
+                `$root = `$trackDir
+            } elseif (`$path -like 'log/*') {
+                `$rel  = `$path.Substring(4)
+                `$root = `$logDir
+            } else {
+                `$rel  = `$path
+                `$root = `$statusDir
+            }
+            `$file = Join-Path `$root `$rel
             `$file = [System.IO.Path]::GetFullPath(`$file)
-            if (-not `$file.StartsWith('$($StatusDir -replace "'","''")')) {
+            `$rootFull = [System.IO.Path]::GetFullPath(`$root)
+            if (-not `$file.StartsWith(`$rootFull)) {
                 `$res.StatusCode = 403
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden')
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)
@@ -595,7 +638,7 @@ try {
 # "The filename or extension is too long" which is obscure and easy to
 # misread as a path problem. -File sidesteps the size limit entirely:
 # pwsh reads the script from disk instead of its command line.
-$serverScriptFile = Join-Path $StatusDir ".status-server.ps1"
+$serverScriptFile = Join-Path $TrackDir ".status-server.ps1"
 Set-Content -Path $serverScriptFile -Value $serverScript -Encoding UTF8
 
 if ($IsWindows) {
@@ -607,7 +650,7 @@ if ($IsWindows) {
     # On macOS/Linux, launch via bash to fully detach from the parent session.
     # The subshell (...) + & backgrounds the process in a new process group,
     # and nohup prevents SIGHUP from killing it when the caller exits.
-    $stdErr = Join-Path $StatusDir "server.err"
+    $stdErr = Join-Path $TrackDir "server.err"
     & bash -c "nohup pwsh -NoProfile -File '$serverScriptFile' > /dev/null 2>'$stdErr' & echo `$!"  | Set-Variable -Name bgPid
     Set-Content -Path $PidFile -Value $bgPid
 }
@@ -624,7 +667,7 @@ for ($i = 0; $i -lt 5; $i++) {
 }
 if (-not $serverReady) {
     Write-Warning "Status server process started but port $Port is not responding after 5 seconds."
-    Write-Warning "Check the server error log: $(Join-Path $StatusDir 'server.err')"
+    Write-Warning "Check the server error log: $(Join-Path $TrackDir 'server.err')"
 }
 
 # --- Display connection info ---

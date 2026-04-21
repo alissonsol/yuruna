@@ -1,0 +1,645 @@
+{
+  "schemaVersion": 1,
+  "host": "host.windows.hyper-v",
+  "hostname": "ALIUS-ALIEN01",
+  "cycleId": "2026-04-21T11:52:54Z",
+  "startedAt": "2026-04-21T11:52:54Z",
+  "finishedAt": "2026-04-21T12:18:19Z",
+  "overallStatus": "fail",
+  "stepPaused": false,
+  "cyclePaused": false,
+  "gitCommit": "c6fa674",
+  "repoUrl": "https://github.com/alissonsol/yuruna",
+  "lastGetImageAt": "2026-04-20T15:37:43Z",
+  "cycle": 1171,
+  "guests": [
+    {
+      "guestKey": "guest.ubuntu.desktop",
+      "vmName": "test-ubuntu-desktop-01",
+      "status": "fail",
+      "steps": [
+        {
+          "name": "New-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T11:52:54Z",
+          "finishedAt": "2026-04-21T11:53:02Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Start-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T11:53:02Z",
+          "finishedAt": "2026-04-21T11:53:05Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Install-OS",
+          "status": "fail",
+          "startedAt": "2026-04-21T11:53:05Z",
+          "finishedAt": "2026-04-21T11:54:21Z",
+          "skipped": false,
+          "errorMessage": "Step [/]  —  (test: Test-Start.guest.ubuntu.desktop.ps1)"
+        },
+        {
+          "name": "Verify-VM",
+          "status": "pending",
+          "startedAt": null,
+          "finishedAt": null,
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Invoke-PoolTest",
+          "status": "pending",
+          "startedAt": null,
+          "finishedAt": null,
+          "skipped": false,
+          "errorMessage": null
+        }
+      ]
+    },
+    {
+      "guestKey": "guest.ubuntu.server",
+      "vmName": "test-ubuntu-server-01",
+      "status": "pass",
+      "steps": [
+        {
+          "name": "New-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T11:54:27Z",
+          "finishedAt": "2026-04-21T11:54:35Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Start-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T11:54:35Z",
+          "finishedAt": "2026-04-21T11:54:37Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Install-OS",
+          "status": "pass",
+          "startedAt": "2026-04-21T11:54:37Z",
+          "finishedAt": "2026-04-21T12:04:51Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Verify-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:04:51Z",
+          "finishedAt": "2026-04-21T12:05:06Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Invoke-PoolTest",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:05:06Z",
+          "finishedAt": "2026-04-21T12:13:34Z",
+          "skipped": false,
+          "errorMessage": null
+        }
+      ]
+    },
+    {
+      "guestKey": "guest.amazon.linux",
+      "vmName": "test-amazon-linux-01",
+      "status": "pass",
+      "steps": [
+        {
+          "name": "New-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:13:40Z",
+          "finishedAt": "2026-04-21T12:13:47Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Start-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:13:47Z",
+          "finishedAt": "2026-04-21T12:13:51Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Install-OS",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:13:51Z",
+          "finishedAt": "2026-04-21T12:15:11Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Verify-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:15:11Z",
+          "finishedAt": "2026-04-21T12:15:27Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Invoke-PoolTest",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:15:27Z",
+          "finishedAt": "2026-04-21T12:17:55Z",
+          "skipped": false,
+          "errorMessage": null
+        }
+      ]
+    },
+    {
+      "guestKey": "guest.windows.11",
+      "vmName": "test-windows-11-01",
+      "status": "fail",
+      "steps": [
+        {
+          "name": "New-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:18:01Z",
+          "finishedAt": "2026-04-21T12:18:09Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Start-VM",
+          "status": "pass",
+          "startedAt": "2026-04-21T12:18:09Z",
+          "finishedAt": "2026-04-21T12:18:12Z",
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Install-OS",
+          "status": "fail",
+          "startedAt": "2026-04-21T12:18:12Z",
+          "finishedAt": "2026-04-21T12:18:13Z",
+          "skipped": false,
+          "errorMessage": "Start test 'Test-Start.guest.windows.11.ps1' failed (exit code 1)"
+        },
+        {
+          "name": "Verify-VM",
+          "status": "pending",
+          "startedAt": null,
+          "finishedAt": null,
+          "skipped": false,
+          "errorMessage": null
+        },
+        {
+          "name": "Invoke-PoolTest",
+          "status": "pending",
+          "startedAt": null,
+          "finishedAt": null,
+          "skipped": false,
+          "errorMessage": null
+        }
+      ]
+    }
+  ],
+  "history": [
+    {
+      "cycleId": "2026-04-21T11:52:54Z",
+      "startedAt": "2026-04-21T11:52:54Z",
+      "finishedAt": "2026-04-21T12:18:19Z",
+      "overallStatus": "fail",
+      "gitCommit": "c6fa674",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.ubuntu.desktop": "fail",
+        "guest.amazon.linux": "pass",
+        "guest.ubuntu.server": "pass",
+        "guest.windows.11": "fail"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T11:06:58Z",
+      "startedAt": "2026-04-21T11:06:58Z",
+      "finishedAt": "2026-04-21T11:47:37Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T10:21:09Z",
+      "startedAt": "2026-04-21T10:21:09Z",
+      "finishedAt": "2026-04-21T11:01:46Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T09:40:28Z",
+      "startedAt": "2026-04-21T09:40:28Z",
+      "finishedAt": "2026-04-21T10:15:57Z",
+      "overallStatus": "fail",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "fail",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T08:58:07Z",
+      "startedAt": "2026-04-21T08:58:07Z",
+      "finishedAt": "2026-04-21T09:35:16Z",
+      "overallStatus": "fail",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "fail"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T08:13:01Z",
+      "startedAt": "2026-04-21T08:13:01Z",
+      "finishedAt": "2026-04-21T08:52:55Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T07:27:57Z",
+      "startedAt": "2026-04-21T07:27:57Z",
+      "finishedAt": "2026-04-21T08:07:49Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T06:42:20Z",
+      "startedAt": "2026-04-21T06:42:20Z",
+      "finishedAt": "2026-04-21T07:22:45Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T05:57:00Z",
+      "startedAt": "2026-04-21T05:57:00Z",
+      "finishedAt": "2026-04-21T06:37:07Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T05:12:07Z",
+      "startedAt": "2026-04-21T05:12:07Z",
+      "finishedAt": "2026-04-21T05:51:48Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T04:27:13Z",
+      "startedAt": "2026-04-21T04:27:13Z",
+      "finishedAt": "2026-04-21T05:06:55Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T03:41:51Z",
+      "startedAt": "2026-04-21T03:41:51Z",
+      "finishedAt": "2026-04-21T04:22:01Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T03:00:17Z",
+      "startedAt": "2026-04-21T03:00:17Z",
+      "finishedAt": "2026-04-21T03:36:38Z",
+      "overallStatus": "fail",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "fail",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T02:14:29Z",
+      "startedAt": "2026-04-21T02:14:29Z",
+      "finishedAt": "2026-04-21T02:55:05Z",
+      "overallStatus": "pass",
+      "gitCommit": "1dd98c8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T01:28:54Z",
+      "startedAt": "2026-04-21T01:28:54Z",
+      "finishedAt": "2026-04-21T02:09:16Z",
+      "overallStatus": "pass",
+      "gitCommit": "63a9fcd",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-21T00:42:42Z",
+      "startedAt": "2026-04-21T00:42:42Z",
+      "finishedAt": "2026-04-21T01:23:42Z",
+      "overallStatus": "pass",
+      "gitCommit": "1720c1e",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T23:19:22Z",
+      "startedAt": "2026-04-20T23:19:22Z",
+      "finishedAt": "2026-04-20T23:59:56Z",
+      "overallStatus": "pass",
+      "gitCommit": "ebd0aa2",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.ubuntu.server": "pass",
+        "guest.amazon.linux": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.windows.11": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T22:29:38Z",
+      "startedAt": "2026-04-20T22:29:38Z",
+      "finishedAt": "2026-04-20T23:14:03Z",
+      "overallStatus": "pass",
+      "gitCommit": "14bbec9",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.desktop": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T21:01:42Z",
+      "startedAt": "2026-04-20T21:01:42Z",
+      "finishedAt": "2026-04-20T21:25:50Z",
+      "overallStatus": "pass",
+      "gitCommit": "14bbec9",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.windows.11": "pass",
+        "guest.ubuntu.server": "pass",
+        "guest.amazon.linux": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T20:32:43Z",
+      "startedAt": "2026-04-20T20:32:43Z",
+      "finishedAt": "2026-04-20T20:56:29Z",
+      "overallStatus": "pass",
+      "gitCommit": "14bbec9",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.windows.11": "pass",
+        "guest.ubuntu.server": "pass",
+        "guest.amazon.linux": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T20:04:21Z",
+      "startedAt": "2026-04-20T20:04:21Z",
+      "finishedAt": "2026-04-20T20:27:31Z",
+      "overallStatus": "pass",
+      "gitCommit": "14bbec9",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.windows.11": "pass",
+        "guest.ubuntu.server": "pass",
+        "guest.amazon.linux": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T19:34:26Z",
+      "startedAt": "2026-04-20T19:34:26Z",
+      "finishedAt": "2026-04-20T19:59:09Z",
+      "overallStatus": "pass",
+      "gitCommit": "14bbec9",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.windows.11": "pass",
+        "guest.ubuntu.server": "pass",
+        "guest.amazon.linux": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T19:00:20Z",
+      "startedAt": "2026-04-20T19:00:20Z",
+      "finishedAt": "2026-04-20T19:29:13Z",
+      "overallStatus": "fail",
+      "gitCommit": "14bbec9",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.windows.11": "pass",
+        "guest.ubuntu.server": "pass",
+        "guest.amazon.linux": "fail"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T18:31:16Z",
+      "startedAt": "2026-04-20T18:31:16Z",
+      "finishedAt": "2026-04-20T18:55:01Z",
+      "overallStatus": "pass",
+      "gitCommit": "329cedc",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.ubuntu.server": "pass",
+        "guest.windows.11": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T18:02:19Z",
+      "startedAt": "2026-04-20T18:02:19Z",
+      "finishedAt": "2026-04-20T18:26:03Z",
+      "overallStatus": "pass",
+      "gitCommit": "f061e65",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.ubuntu.server": "pass",
+        "guest.windows.11": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T17:33:05Z",
+      "startedAt": "2026-04-20T17:33:05Z",
+      "finishedAt": "2026-04-20T17:57:00Z",
+      "overallStatus": "pass",
+      "gitCommit": "6494608",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.ubuntu.server": "pass",
+        "guest.windows.11": "pass",
+        "guest.amazon.linux": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T17:03:54Z",
+      "startedAt": "2026-04-20T17:03:54Z",
+      "finishedAt": "2026-04-20T17:27:48Z",
+      "overallStatus": "pass",
+      "gitCommit": "6494608",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.amazon.linux": "pass",
+        "guest.windows.11": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T16:35:14Z",
+      "startedAt": "2026-04-20T16:35:14Z",
+      "finishedAt": "2026-04-20T16:58:36Z",
+      "overallStatus": "pass",
+      "gitCommit": "9770df8",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.windows.11": "pass",
+        "guest.amazon.linux": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T16:06:08Z",
+      "startedAt": "2026-04-20T16:06:08Z",
+      "finishedAt": "2026-04-20T16:30:03Z",
+      "overallStatus": "pass",
+      "gitCommit": "5994cc5",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.windows.11": "pass",
+        "guest.amazon.linux": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    },
+    {
+      "cycleId": "2026-04-20T15:34:47Z",
+      "startedAt": "2026-04-20T15:34:47Z",
+      "finishedAt": "2026-04-20T16:00:57Z",
+      "overallStatus": "pass",
+      "gitCommit": "65d424d",
+      "host": "host.windows.hyper-v",
+      "hostname": "ALIUS-ALIEN01",
+      "guestSummary": {
+        "guest.windows.11": "pass",
+        "guest.amazon.linux": "pass",
+        "guest.ubuntu.server": "pass"
+      }
+    }
+  ]
+}

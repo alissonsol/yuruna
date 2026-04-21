@@ -58,19 +58,23 @@
 $script:StateFileName = 'caching-proxy-port-map.json'
 $script:FirewallRulePrefix = 'Yuruna-CachingProxy-Port-'
 
+# Test.TrackDir.psm1 owns $env:YURUNA_TRACK_DIR; import it here so
+# Get-PortMapStatePath can resolve the state file even when a caller
+# (Start-CachingProxy.ps1, Stop-CachingProxy.ps1) hasn't bootstrapped
+# the full runner path.
+Import-Module (Join-Path $PSScriptRoot 'Test.TrackDir.psm1') -Force
+
 function Get-PortMapStatePath {
     [CmdletBinding()]
     [OutputType([string])]
-    param([string]$StatusLogDir)
+    param([string]$TrackDir)
 
-    if (-not $StatusLogDir) {
-        # Default: <repo>/test/status/log — $PSScriptRoot is <repo>/test/modules
-        $StatusLogDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'status\log'
+    if (-not $TrackDir) {
+        $TrackDir = Initialize-YurunaTrackDir
+    } elseif (-not (Test-Path $TrackDir)) {
+        New-Item -ItemType Directory -Path $TrackDir -Force | Out-Null
     }
-    if (-not (Test-Path $StatusLogDir)) {
-        New-Item -ItemType Directory -Path $StatusLogDir -Force | Out-Null
-    }
-    return (Join-Path $StatusLogDir $script:StateFileName)
+    return (Join-Path $TrackDir $script:StateFileName)
 }
 
 function Test-IsAdministrator {
@@ -191,8 +195,8 @@ function Clear-AllCachingProxyPortMapping {
     (Grafana). Callers can pass @(3000, 9090) to also expose Prometheus,
     etc. — no config changes required elsewhere.
 
-.PARAMETER StatusLogDir
-    Directory to write the state file to. Defaults to <repo>/test/status/log.
+.PARAMETER TrackDir
+    Directory to write the state file to. Defaults to $env:YURUNA_TRACK_DIR.
 
 .OUTPUTS
     Path to the state file written (for logging / diagnostic use).
@@ -203,7 +207,7 @@ function Add-CachingProxyPortMap {
     param(
         [Parameter(Mandatory)][string]$VMIp,
         [int[]]$Port = @(3000),
-        [string]$StatusLogDir
+        [string]$TrackDir
     )
 
     if ($VMIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
@@ -219,7 +223,7 @@ function Add-CachingProxyPortMap {
     # Invoke-TestRunner refreshes :3000 mid-cycle, it MUST NOT disturb
     # the already-running :3128 forwarder guests depend on. State here
     # is the live pidfile set under $HOME/virtual/squid-cache/, NOT a
-    # JSON file, so $StatusLogDir is ignored on this platform. Return a
+    # JSON file, so $TrackDir is ignored on this platform. Return a
     # sentinel string so callers that treat any non-null return as
     # success keep working uniformly across platforms.
     if ($IsMacOS) {
@@ -262,7 +266,7 @@ function Add-CachingProxyPortMap {
         return $null
     }
 
-    $statePath = Get-PortMapStatePath -StatusLogDir $StatusLogDir
+    $statePath = Get-PortMapStatePath -TrackDir $TrackDir
 
     # Undo EVERY prior Yuruna mapping before adding the new set. Critical
     # in three scenarios the test runner routinely hits:
@@ -324,14 +328,14 @@ function Add-CachingProxyPortMap {
 
 .DESCRIPTION
     Clears every Yuruna-named portproxy + firewall rule, drawing from both
-    the state file (test/status/log/caching-proxy-port-map.json) and the
-    live list of Yuruna-CachingProxy-Port-* rules on the host. Safe to call
-    when the state file is missing — rule-scanning still finds leftovers
-    from a prior boot, a crashed run, or a wiped status/log/ directory.
+    the state file ($env:YURUNA_TRACK_DIR/caching-proxy-port-map.json) and
+    the live list of Yuruna-CachingProxy-Port-* rules on the host. Safe to
+    call when the state file is missing — rule-scanning still finds
+    leftovers from a prior boot, a crashed run, or a wiped track dir.
     Also safe to call when no mappings exist at all; emits nothing then.
 
-.PARAMETER StatusLogDir
-    Directory the state file lives in. Defaults to <repo>/test/status/log.
+.PARAMETER TrackDir
+    Directory the state file lives in. Defaults to $env:YURUNA_TRACK_DIR.
 
 .OUTPUTS
     $true if anything was removed, $false if nothing was found.
@@ -339,7 +343,7 @@ function Add-CachingProxyPortMap {
 function Remove-CachingProxyPortMap {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
-    param([string]$StatusLogDir)
+    param([string]$TrackDir)
 
     if ($IsMacOS) {
         $macModule = Resolve-MacVmCommonModule
@@ -366,7 +370,7 @@ function Remove-CachingProxyPortMap {
         return $false
     }
 
-    $statePath = Get-PortMapStatePath -StatusLogDir $StatusLogDir
+    $statePath = Get-PortMapStatePath -TrackDir $TrackDir
     $cleared = @(Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
     foreach ($p in $cleared) {
         Write-Output "  Port map removed: host:${p}"

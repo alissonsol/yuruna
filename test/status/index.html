@@ -325,15 +325,16 @@
   // (armed after step, armed after cycle, actually paused).
 
   // Populate the footer with the host's IP addresses, written by
-  // Start-StatusServer.ps1 to status/log/ipaddresses.txt. Fetched once
-  // on load — the file only changes when the status server restarts,
-  // and a browser reload picks that up. The "Connecting to localhost:…"
-  // that used to live here is redundant with the URL bar.
+  // Start-StatusServer.ps1 to $env:YURUNA_TRACK_DIR/ipaddresses.txt and
+  // served at /track/ipaddresses.txt. Fetched once on load — the file only
+  // changes when the status server restarts, and a browser reload picks
+  // that up. The "Connecting to localhost:…" that used to live here is
+  // redundant with the URL bar.
   async function loadIpAddresses() {
     const el = document.getElementById('footer-ip-list');
     if (!el) return;
     try {
-      const res = await fetch('log/ipaddresses.txt?_=' + Date.now(), { cache: 'no-store' });
+      const res = await fetch('track/ipaddresses.txt?_=' + Date.now(), { cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       // Preserve the writer's two-line format (IPv4 on line 1, IPv6 on
       // line 2). Only trim trailing whitespace so a final \n doesn't
@@ -350,10 +351,11 @@
     } catch (e) {
       el.value = '—';
       el.rows = 1;
-      console.warn('Could not load log/ipaddresses.txt:', e.message);
+      console.warn('Could not load track/ipaddresses.txt:', e.message);
     }
   }
-  // Raw HTML from status/log/caching-proxy.txt. The server rewrites this
+  // Raw HTML from $env:YURUNA_TRACK_DIR/caching-proxy.txt (served at
+  // /track/caching-proxy.txt). The server rewrites this
   // file at the start of every test cycle (Start-StatusServer.ps1 runs
   // with -Restart from Invoke-TestRunner.ps1 on each cycle, and its
   // proxy-cache probe re-runs then). The UI re-fetches on every
@@ -403,12 +405,12 @@
 
   async function loadCachingProxyText() {
     try {
-      const res = await fetch('log/caching-proxy.txt?_=' + Date.now(), { cache: 'no-store' });
+      const res = await fetch('track/caching-proxy.txt?_=' + Date.now(), { cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       cachingProxyHtml = (await res.text()).trim();
     } catch (e) {
       cachingProxyHtml = '';
-      console.warn('Could not load log/caching-proxy.txt:', e.message);
+      console.warn('Could not load track/caching-proxy.txt:', e.message);
     }
     refreshCycleTitle();
   }
@@ -746,15 +748,15 @@
     let data = null;
     let actionData = null;
     try {
-      const res  = await fetch('status.json?_=' + Date.now());
+      const res  = await fetch('track/status.json?_=' + Date.now());
       if (!res.ok) throw new Error('HTTP ' + res.status);
       data = await res.json();
     } catch (e) {
-      console.warn('Could not load status.json:', e.message);
+      console.warn('Could not load track/status.json:', e.message);
     }
     try {
       // Soft fetch — 404 is normal when no sequence has run yet.
-      const aRes = await fetch('current-action.json?_=' + Date.now());
+      const aRes = await fetch('track/current-action.json?_=' + Date.now());
       if (aRes.ok) actionData = await aRes.json();
     } catch (e) { /* ignored: current-action.json is optional */ }
     renderStatus(data, actionData);

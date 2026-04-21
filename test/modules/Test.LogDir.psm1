@@ -23,8 +23,11 @@ function Initialize-YurunaLogDir {
         creating the directory if needed. Idempotent.
     .DESCRIPTION
         $env:YURUNA_LOG_DIR is the unified reference for Yuruna's log
-        folder across scripts and modules. If unset, defaults to
-        <TEMP>/YurunaLog. Callers should reference $env:YURUNA_LOG_DIR
+        directory: bulky HTML transcripts, OCR debug images, failure
+        screenshots, per-component debug subdirs (NewText, Screenshot).
+        Separate from $env:YURUNA_TRACK_DIR, which holds the small
+        operationally-interesting state files (pids, status.json,
+        control flags). Callers should reference $env:YURUNA_LOG_DIR
         directly after invoking this initializer at least once.
     .OUTPUTS
         System.String. The resolved $env:YURUNA_LOG_DIR path, for the
@@ -34,8 +37,15 @@ function Initialize-YurunaLogDir {
     [OutputType([string])]
     param()
     if (-not $env:YURUNA_LOG_DIR) {
-        $tempRoot = $env:TEMP ?? $env:TMPDIR ?? '/tmp'
-        $env:YURUNA_LOG_DIR = Join-Path $tempRoot 'YurunaLog'
+        # Default: <testRoot>/status/log/. Co-located with the track dir
+        # and served by the status HTTP server at /log/<name>, so bulky
+        # diagnostic artifacts (HTML transcripts, OCR debug images,
+        # failure screenshots) can be linked directly from the status
+        # page without copying them out of %TEMP%. Override by setting
+        # $env:YURUNA_LOG_DIR before import; the server maps /log/* onto
+        # the overridden path.
+        $testRoot = Split-Path -Parent $PSScriptRoot
+        $env:YURUNA_LOG_DIR = Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'log'
     }
     if (-not (Test-Path $env:YURUNA_LOG_DIR)) {
         New-Item -ItemType Directory -Path $env:YURUNA_LOG_DIR -Force | Out-Null

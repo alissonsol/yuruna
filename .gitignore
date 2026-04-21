@@ -364,15 +364,16 @@ crash.log
 # Test configuration (contains credentials)
 test/test-config.json
 
-# Test status (modified at runtime)
-test/status/status.json
-test/status/server.pid
-test/status/runner.pid
-test/status/server.err
-test/status/control.pause
-test/status/current-action.json
+# Runtime tracking files (pids, status.json, control flags, ipaddresses.txt,
+# caching-proxy.txt, server.err, .status-server.ps1, etc.)
+# See Test.TrackDir.psm1 — $env:YURUNA_TRACK_DIR defaults here so the status
+# server can serve /track/<name>.
+test/status/track/*
+!test/status/track/.gitkeep
 
-# Test run logs (generated at runtime)
+# Test run logs: HTML transcripts, OCR debug artifacts, failure screenshots.
+# See Test.LogDir.psm1 — $env:YURUNA_LOG_DIR defaults here so the status
+# server can serve /log/<name>.
 test/status/log/*
 !test/status/log/.gitkeep
 
@@ -409,5 +410,3 @@ Fido.ps1
 .bazelrc.user
 MODULE.bazel.lock
 .bazel-cache
-test/status/server.heartbeat
-test/status/.status-server.ps1

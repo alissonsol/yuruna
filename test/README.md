@@ -478,8 +478,9 @@ test/
     Test.SshServer.psm1           # Install/enable/disable OpenSSH Server (Windows; macOS placeholder)
     Test.Notify.psm1              # Resend API email notifications
     Test.Get-Image.psm1           # Base image download and refresh
-    Test.Log.psm1                 # Transcript logging to test/status/log/
-    Test.LogDir.psm1              # $env:YURUNA_LOG_DIR initialization
+    Test.Log.psm1                 # Transcript logging to $env:YURUNA_LOG_DIR
+    Test.LogDir.psm1              # $env:YURUNA_LOG_DIR initialization (bulk logs)
+    Test.TrackDir.psm1            # $env:YURUNA_TRACK_DIR initialization (runtime state)
     Test.New-VM.psm1              # VM creation, verification, and cleanup
     Test.Install-OS.psm1          # OS installation sequence orchestration
     Test.Start-VM.psm1            # VM start, stop, boot verification
@@ -500,12 +501,29 @@ test/
     expected/                     # Reference PNGs (committed)
     actual/                       # Runtime captures (git-ignored)
   status/
-    index.html                    # Status dashboard
-    status.json.template          # Template for status data
-    status.json                   # Written by the runner (auto-created, git-ignored)
-    server.pid                    # Status server PID (auto-created, git-ignored)
-    log/                          # Transcript logs per run (git-ignored .html files)
+    index.html                    # Status dashboard (committed)
+    status.json.template          # Template for status data (committed)
+    track/                        # $env:YURUNA_TRACK_DIR default (git-ignored)
+      status.json                 # Runner-maintained status document
+      runner.pid                  # Invoke-TestRunner.ps1 PID lock
+      server.pid                  # Status-server PID lock
+      .status-server.ps1          # Detached server script (auto-generated)
+      server.err                  # Detached server stderr log
+      control.step-pause          # Operator-set via UI "Step pause" button
+      control.cycle-pause         # Operator-set via UI "Cycle pause" button
+      current-action.json         # Written by Invoke-Sequence, polled by UI
+      ipaddresses.txt             # Host IPs, written by Start-StatusServer
+      caching-proxy.txt           # Squid-cache banner HTML
+      caching-proxy-port-map.json # Add-CachingProxyPortMap state file
+    log/                          # $env:YURUNA_LOG_DIR default (git-ignored)
+                                  # HTML transcripts, failure screenshots/OCR,
+                                  # per-component debug subdirs (NewText, Screenshot)
 ```
+
+Both directories are served by the status HTTP server at `/track/*` and
+`/log/*` respectively. Operators can redirect them by setting
+`$env:YURUNA_TRACK_DIR` or `$env:YURUNA_LOG_DIR` before launching; the
+server then maps those URL prefixes onto the overridden paths.
 
 ### Module responsibilities
 
@@ -518,8 +536,9 @@ test/
 | `Test.SshServer` | Host-side OpenSSH install/toggle (Hyper-V; macOS placeholder) | `Test-SshServerSupported`, `Test-SshServerInstalled`, `Test-SshServerEnabled`, `Install-SshServer`, `Uninstall-SshServer`, `Enable-SshServer`, `Disable-SshServer` |
 | `Test.Notify` | Email notifications via Resend API | `Send-Notification`, `Format-FailureMessage` |
 | `Test.Get-Image` | Base image download/refresh | `Get-ImagePath`, `Invoke-GetImage` |
-| `Test.Log` | Transcript logging to `test/status/log/` | `Start-LogFile`, `Stop-LogFile` |
-| `Test.LogDir` | `$env:YURUNA_LOG_DIR` initialization | `Initialize-YurunaLogDir` |
+| `Test.Log` | Transcript logging to `$env:YURUNA_LOG_DIR` | `Start-LogFile`, `Stop-LogFile` |
+| `Test.LogDir` | `$env:YURUNA_LOG_DIR` initialization (bulk logs) | `Initialize-YurunaLogDir` |
+| `Test.TrackDir` | `$env:YURUNA_TRACK_DIR` initialization (runtime state) | `Initialize-YurunaTrackDir` |
 | `Test.New-VM` | VM create + verify creation + cleanup | `Invoke-NewVM`, `Confirm-VMCreated`, `Remove-TestVM` |
 | `Test.Install-OS` | OS installation sequence orchestration | `Get-StartTestScript`, `Invoke-StartTest`, `Get-VerifyScreenshot` |
 | `Test.Start-VM` | VM start/stop + verify running | `Invoke-StartVM`, `Stop-TestVM`, `Confirm-VMStarted` |

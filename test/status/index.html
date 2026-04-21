@@ -318,9 +318,11 @@
     idle:    'No test data available',
     running: 'Test in progress',
     pass:    'All guests operational',
-    fail:    'Incident detected — see details below',
-    paused:  'Test paused'
+    fail:    'Incident detected — see details below'
   };
+  // Pause banner text is computed by pauseBannerText() below because a
+  // single 'Test paused' string doesn't capture the three real states
+  // (armed after step, armed after cycle, actually paused).
 
   // Populate the footer with the host's IP addresses, written by
   // Start-StatusServer.ps1 to status/log/ipaddresses.txt. Fetched once
@@ -557,6 +559,32 @@
     return new Date(iso).toLocaleString(undefined, { dateStyle:'short', timeStyle:'short' });
   }
 
+  // Resolve the banner text when a pause is armed or active. Distinguishes
+  // three real states behind a single amber banner:
+  //   'Test paused'                           — the runner is actually blocked
+  //   'Test will pause (after current step)'  — stepPaused armed, step still
+  //                                              running (happens next)
+  //   'Test will pause (after current cycle)' — cyclePaused armed, cycle still
+  //                                              running
+  // Effectiveness signals match what each runner writes:
+  //   step  — Invoke-Sequence writes "Paused (waiting for resume)" into
+  //           current-action.json while sitting in its wait loop.
+  //   cycle — Invoke-TestRunner hits its cycle-pause gate AFTER the cycle has
+  //           finalized, so overallStatus has already flipped off 'running'.
+  // When both are armed but neither effective, step wins because the step
+  // boundary is always reached before the cycle boundary.
+  // Returns null when no pause is armed — caller falls back to BANNER[status].
+  function pauseBannerText(stepPaused, cyclePaused, status, actionData) {
+    const stepEffective  = stepPaused &&
+      !!(actionData && actionData.line && /Paused \(waiting for resume\)/.test(actionData.line));
+    const cycleEffective = cyclePaused && status !== 'running';
+    if (stepEffective)  return 'Test paused';
+    if (stepPaused)     return 'Test will pause (after current step)';
+    if (cycleEffective) return 'Test paused';
+    if (cyclePaused)    return 'Test will pause (after current cycle)';
+    return null;
+  }
+
   function fmtDuration(a, b) {
     if (!a || !b) return '—';
     const s = Math.round((new Date(b) - new Date(a)) / 1000);
@@ -619,15 +647,17 @@
     const status = data.overallStatus || 'idle';
     const stepPaused  = !!data.stepPaused;
     const cyclePaused = !!data.cyclePaused;
-    // The banner shows yellow + "Test paused" when EITHER pause is armed, so
-    // the overall state reads the same regardless of which button the user
-    // pressed. Each button tracks its own armed flag; internal controls
-    // (step pills, guest-action boxes) keep their normal colors until the
-    // pause actually takes effect inside Invoke-Sequence / Invoke-TestRunner.
-    const anyPaused = stepPaused || cyclePaused;
+    // The banner turns amber whenever EITHER pause is armed, so the overall
+    // state reads the same color regardless of which button was pressed.
+    // The text, however, distinguishes three cases — see pauseBannerText().
+    // Internal controls (step pills, guest-action boxes) keep their normal
+    // colors until the pause actually takes effect inside Invoke-Sequence /
+    // Invoke-TestRunner.
+    const pauseText = pauseBannerText(stepPaused, cyclePaused, status, actionData);
+    const anyPaused = pauseText !== null;
     const effective = anyPaused ? 'paused' : cls(status);
     banner.className = effective;
-    setBannerText(anyPaused ? BANNER.paused : (BANNER[status] || status));
+    setBannerText(pauseText ?? (BANNER[status] || status));
     // Both buttons are enabled whenever a cycle is in flight (running, paused
     // at step, or already paused at cycle boundary). Outside of that they're
     // idle-disabled. "cycleActive" lumps running + either pause together so

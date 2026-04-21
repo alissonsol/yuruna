@@ -39,8 +39,40 @@ Fix:
    and relaunch. TCC grants don't apply to a running process.
 3. Re-run the harness.
 
-`Enable-TestAutomation.ps1` fires the first-run dialog for this
-permission. If you dismissed it, macOS won't ask again — only the
-manual toggle works.
+## `Assert-ScreenRecording` false positive — toggle IS on but harness refuses to start
+
+If System Settings shows the toggle ON for your terminal, you've
+fully quit and relaunched (or rebooted), and
+`Invoke-TestRunner.ps1` still refuses to start with "Screen Recording
+is not granted", the probe itself is misreporting state.
+
+Confirm with the ground-truth JXA call:
+
+```bash
+osascript -l JavaScript -e '
+ObjC.import("CoreGraphics");
+ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool", []]);
+$.CGPreflightScreenCaptureAccess();'
+```
+
+If that prints `true`, the grant is in place and the harness probe
+is wrong for your macOS version. As a temporary workaround, set:
+
+```bash
+export YURUNA_SKIP_SCREEN_RECORDING_CHECK=1
+pwsh test/Invoke-TestRunner.ps1
+```
+
+Then please open an issue with:
+- Output of `sw_vers -productVersion`
+- Output of `echo $TERM_PROGRAM $TERM_PROGRAM_VERSION`
+- Output of the JXA command above
+- Output of
+  ```bash
+  osascript -l JavaScript -e '
+  ObjC.import("CoreGraphics"); ObjC.import("Foundation");
+  var n = $.CFArrayGetCount($.CGWindowListCopyWindowInfo(1, 0));
+  n;'
+  ```
 
 Back to [[macOS UTM Host Setup](README.md)]

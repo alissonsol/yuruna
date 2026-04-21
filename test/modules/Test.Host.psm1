@@ -641,15 +641,21 @@ $.AXIsProcessTrustedWithOptions(opts);
     # <vm> not found". CGRequestScreenCaptureAccess prompts only on the
     # FIRST call per process; subsequent denied states need the user to
     # toggle System Settings manually and relaunch the terminal.
+    #
+    # ObjC.bindFunction is REQUIRED on some macOS releases — without it,
+    # $.CGPreflightScreenCaptureAccess() returns `undefined` (read as
+    # "not granted") even when the grant is in place, misreporting state.
     try {
         $jxa = @"
 ObjC.import('CoreGraphics');
+try { ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]); } catch (e) {}
+try { ObjC.bindFunction('CGRequestScreenCaptureAccess',  ['bool', []]); } catch (e) {}
 var granted = $.CGPreflightScreenCaptureAccess();
 if (!granted) { $.CGRequestScreenCaptureAccess(); }
-granted;
+(granted === true || granted === 1) ? 'true' : 'false'
 "@
-        $srResult = & osascript -l JavaScript -e $jxa 2>&1
-        if ("$srResult" -eq "true") {
+        $srResult = (& osascript -l JavaScript -e $jxa 2>&1 | Out-String).Trim()
+        if ($srResult -eq 'true') {
             Write-Output "Screen Recording permission is already granted."
         } else {
             Write-Output "Requesting Screen Recording permission (a system dialog may appear)..."
@@ -1145,25 +1151,72 @@ function Assert-ScreenRecording {
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
 
-    # CGPreflightScreenCaptureAccess: true when the process holds TCC
-    # approval for the ScreenCapture service. Does NOT prompt — purely
-    # a read.
+    # Ground-truth probe: enumerate every on-screen window and look
+    # for ANY non-empty kCGWindowName. Without the Screen Recording
+    # TCC grant, macOS returns windows (with kCGWindowOwnerName, size,
+    # layer, etc.) but strips kCGWindowName — the title — for every
+    # window not owned by the calling process. pwsh is a headless CLI
+    # process with no Cocoa windows of its own, so a positive title
+    # hit means the grant is live. This is the exact signal the
+    # harness relies on downstream, so a pass here guarantees the
+    # rest of the codepath works.
+    #
+    # Why not CGPreflightScreenCaptureAccess as the primary check:
+    # JavaScriptCore's $. bridge needs pre-registered signatures for
+    # C functions. AX* ship with them; CGPreflight/CGRequest do not
+    # in every macOS release — $.CGPreflightScreenCaptureAccess()
+    # returned `undefined` on a grant-in-place machine, blocking
+    # Invoke-TestRunner.ps1 with a false negative. CFArray /
+    # CFDictionary / CFString helpers are consistently bridged, so
+    # the enumeration approach avoids the uncertainty.
+    $jxa = @"
+ObjC.import('CoreGraphics');
+var list = $.CGWindowListCopyWindowInfo((1 << 0) | (1 << 4), 0);
+if (!list) { 'false' } else {
+    var n = $.CFArrayGetCount(list);
+    var nameKey = $.CFStringCreateWithCString(null, 'kCGWindowName', 0);
+    var found = false;
+    for (var i = 0; i < n && !found; i++) {
+        var d = $.CFArrayGetValueAtIndex(list, i);
+        var nm = $.CFDictionaryGetValue(d, nameKey);
+        if (nm && $.CFStringGetLength(nm) > 0) found = true;
+    }
+    found ? 'true' : 'false'
+}
+"@
     try {
-        $jxa = "ObjC.import('CoreGraphics'); $.CGPreflightScreenCaptureAccess();"
-        $result = & osascript -l JavaScript -e $jxa 2>&1
-        if ("$result" -eq "true") { return $true }
+        $result = (& osascript -l JavaScript -e $jxa 2>&1 | Out-String).Trim()
+        Write-Debug "Assert-ScreenRecording: window-title probe returned '$result'"
+        if ($result -eq 'true') { return $true }
     } catch {
-        Write-Debug "Screen Recording check failed: $_"
+        Write-Debug "Window-title probe failed: $_"
+    }
+
+    # Fallback: explicit ObjC.bindFunction so the bridge has the
+    # signature, then call CGPreflightScreenCaptureAccess. This catches
+    # the edge case where no foreign window happens to be on screen
+    # (e.g. a locked-down test account).
+    $jxaPre = @"
+ObjC.import('CoreGraphics');
+try { ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]); } catch (e) {}
+var r = $.CGPreflightScreenCaptureAccess();
+(r === true || r === 1) ? 'true' : 'false'
+"@
+    try {
+        $result = (& osascript -l JavaScript -e $jxaPre 2>&1 | Out-String).Trim()
+        Write-Debug "Assert-ScreenRecording: CGPreflight fallback returned '$result'"
+        if ($result -eq 'true') { return $true }
+    } catch {
+        Write-Debug "CGPreflight fallback failed: $_"
     }
 
     Write-Warning "═══════════════════════════════════════════════════════════════════"
-    Write-Warning " Screen Recording permission is NOT granted for this terminal."
-    Write-Warning ""
-    Write-Warning " The harness needs it to enumerate UTM's windows — CGWindowList"
-    Write-Warning " only returns titles to processes with this permission — and to"
-    Write-Warning " capture a specific VM window (screencapture -l <windowId>)."
-    Write-Warning " Without it, waitForAndClickButton loops on 'UTM window for"
-    Write-Warning " <vm> not found' and clicks land at the wrong coordinates."
+    Write-Warning " Screen Recording permission does NOT appear granted for this"
+    Write-Warning " terminal. The harness needs it to enumerate UTM's windows —"
+    Write-Warning " CGWindowList only returns titles to processes with this"
+    Write-Warning " permission — and to capture a specific VM window via"
+    Write-Warning " screencapture -l <windowId>. Without it, waitForAndClickButton"
+    Write-Warning " loops on 'UTM window for <vm> not found'."
     Write-Warning ""
     Write-Warning " To fix:"
     Write-Warning "   1. Open System Settings > Privacy & Security > Screen Recording"
@@ -1174,10 +1227,23 @@ function Assert-ScreenRecording {
     Write-Warning "      — macOS will NOT honor the grant in the running process."
     Write-Warning "   5. Re-run the test harness from the new terminal."
     Write-Warning ""
-    Write-Warning " This is a separate TCC bucket from Accessibility — both are"
-    Write-Warning " required. Enable-TestAutomation.ps1 triggers the first-run"
-    Write-Warning " prompt; if you dismissed it, macOS won't ask again."
+    Write-Warning " If the toggle IS on and you already relaunched the terminal,"
+    Write-Warning " run this diagnostic and report the output:"
+    Write-Warning ""
+    Write-Warning "   osascript -l JavaScript -e 'ObjC.import(\"CoreGraphics\");"
+    Write-Warning "     ObjC.bindFunction(\"CGPreflightScreenCaptureAccess\","
+    Write-Warning "     [\"bool\",[]]); `$.CGPreflightScreenCaptureAccess();'"
+    Write-Warning ""
+    Write-Warning " If that prints 'true', override this check with"
+    Write-Warning "   `$Env:YURUNA_SKIP_SCREEN_RECORDING_CHECK = '1'"
+    Write-Warning " and re-run — then please file an issue with the diagnostic"
+    Write-Warning " output so the probe can be tuned for your macOS version."
     Write-Warning "═══════════════════════════════════════════════════════════════════"
+
+    if ($env:YURUNA_SKIP_SCREEN_RECORDING_CHECK -eq '1') {
+        Write-Warning "YURUNA_SKIP_SCREEN_RECORDING_CHECK=1 — proceeding anyway."
+        return $true
+    }
     return $false
 }
 

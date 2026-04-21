@@ -58,7 +58,8 @@ Write-Output ""
 Write-Output "--- Windows 11 ARM64 ISO ---"
 
 if (Test-Path -Path $baseImageFile) {
-    Write-Output "Already exists: $baseImageFile"
+    Write-Output "Skipping Windows download since ISO for this host is already present"
+    Write-Output "  File: $baseImageFile"
     $windowsOk = $true
 } else {
     # Check if a Windows 11 ARM64 ISO was placed in the download directory with any name

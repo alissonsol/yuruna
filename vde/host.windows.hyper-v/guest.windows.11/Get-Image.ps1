@@ -1,4 +1,4 @@
-﻿<#PSScriptInfo
+<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol
@@ -22,37 +22,88 @@ if ($env:YURUNA_VERBOSE -eq '1') { $VerbosePreference = 'Continue' }
 # Silence Write-Progress under the test runner.
 if ($env:YURUNA_DEBUG -or $env:YURUNA_VERBOSE) { $ProgressPreference = 'SilentlyContinue' }
 
-# Inform and check for elevation
-Write-Output "This script requires elevation (Run as Administrator)."
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-	Write-Output "Please run this script as Administrator."
-	Write-Output "Be careful."
-	exit 1
-}
-
 # === Configuration (change these to customize the download) ===
-$downloadDir = (Get-VMHost).VirtualHardDiskPath
-$baseImageName = "host.windows.hyper-v.guest.windows.11"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
+$baseImageName      = "host.windows.hyper-v.guest.windows.11"
+$defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
 
 # Fido settings (change these to download a different edition/language)
-$fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1"
+$fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1"
 $languageFilter = "English"
 
 # Manual download fallback
 $downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11"
 
+function Show-ManualDownloadInstructions {
+    param([string]$TargetPath, [string]$TargetDir)
+    Write-Output ""
+    Write-Output "--- Manual download required ---"
+    Write-Output ""
+    Write-Output "  Please download the Windows 11 ISO manually:"
+    Write-Output ""
+    Write-Output "    1. Open: $downloadPageUrl"
+    Write-Output "    2. Select 'Windows 11 (multi-edition ISO for x64 devices)'"
+    Write-Output "    3. Click Confirm"
+    Write-Output "    4. Select 'English' as the language"
+    Write-Output "    5. Click Confirm"
+    Write-Output "    6. Click the '64-bit Download' button"
+    Write-Output "    7. Save the ISO file as: $TargetPath"
+    Write-Output "       Or save any Win11*.iso file to: $TargetDir"
+    Write-Output ""
+    Write-Output "  Then run this script again to continue."
+}
+
 Write-Output ""
-Write-Output "=== Windows 11 ISO Download ==="
-Write-Output "Hyper-V default VHDX folder: $downloadDir"
-if (!(Test-Path -Path $downloadDir)) {
-    Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
+Write-Output "=== Windows 11 ISO ==="
+
+# --- Short-circuit #1: default-path existence check (no admin needed) -------
+# Hyper-V's default VHD location is predictable, so check there FIRST
+# without loading the Hyper-V module or requiring elevation. Most hosts
+# keep the default; when it's been relocated we re-check the configured
+# path below after elevation clears Get-VMHost.
+$defaultBaseFile = Join-Path $defaultDownloadDir "$baseImageName.iso"
+if (Test-Path -LiteralPath $defaultBaseFile) {
+    Write-Output "Skipping Windows download since ISO for this host is already present"
+    Write-Output "  File: $defaultBaseFile"
+    exit 0
+}
+
+# --- Elevation check --------------------------------------------------------
+# Get-VMHost, BITS, and writing under ProgramData all need admin. When we
+# don't have it, the only way forward is a manual download — print the
+# fallback instructions instead of a terse "please run as admin" so the
+# operator sees the same guidance whether called directly or from
+# Invoke-TestRunner (which runs the script non-elevated and forwards its
+# exit code up).
+Write-Output "This script requires elevation (Run as Administrator)."
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Warning "Not elevated — cannot query Hyper-V or write to $defaultDownloadDir."
+    Show-ManualDownloadInstructions -TargetPath $defaultBaseFile -TargetDir $defaultDownloadDir
     exit 1
 }
 
-if (Test-Path -Path $baseImageFile) {
-    Write-Output "Windows 11 ISO already exists at: $baseImageFile"
-    Write-Output "To re-download, delete the file first and run this script again."
+# --- Resolve the configured VHD folder --------------------------------------
+try {
+    $downloadDir = (Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+} catch {
+    Write-Warning "Get-VMHost failed ($($_.Exception.Message)); falling back to default path."
+    $downloadDir = $defaultDownloadDir
+}
+$baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
+
+Write-Output "Hyper-V default VHDX folder: $downloadDir"
+if (!(Test-Path -Path $downloadDir)) {
+    Write-Warning "The Hyper-V default VHDX folder does not exist: $downloadDir"
+    Show-ManualDownloadInstructions -TargetPath $baseImageFile -TargetDir $downloadDir
+    exit 1
+}
+
+# --- Short-circuit #2: configured-path existence check ----------------------
+# Re-check under the Hyper-V-configured VHD path when it differs from the
+# default (we already covered the default above). Cheap, and catches the
+# "custom VHD path" case without another download.
+if ($downloadDir -ne $defaultDownloadDir -and (Test-Path -LiteralPath $baseImageFile)) {
+    Write-Output "Skipping Windows download since ISO for this host is already present"
+    Write-Output "  File: $baseImageFile"
     exit 0
 }
 
@@ -80,7 +131,8 @@ if ($existingIso) {
 Write-Output ""
 Write-Output "--- Attempting automated download via Fido ---"
 $fidoScript = Join-Path $PSScriptRoot "Fido.ps1"
-$downloadUrl = $null
+$downloadUrl  = $null
+$downloadFile = $null
 
 try {
     Write-Output "[Step 1/3] Downloading Fido script..."
@@ -167,18 +219,5 @@ try {
 }
 
 # === Fallback: manual download instructions ===
-Write-Output "--- Manual download required ---"
-Write-Output ""
-Write-Output "  Please download the Windows 11 ISO manually:"
-Write-Output ""
-Write-Output "    1. Open: $downloadPageUrl"
-Write-Output "    2. Select 'Windows 11 (multi-edition ISO for x64 devices)'"
-Write-Output "    3. Click Confirm"
-Write-Output "    4. Select 'English' as the language"
-Write-Output "    5. Click Confirm"
-Write-Output "    6. Click the '64-bit Download' button"
-Write-Output "    7. Save the ISO file as: $baseImageFile"
-Write-Output "       Or save any Win11*.iso file to: $downloadDir"
-Write-Output ""
-Write-Output "  Then run this script again to continue."
+Show-ManualDownloadInstructions -TargetPath $baseImageFile -TargetDir $downloadDir
 exit 1

@@ -31,13 +31,21 @@
       * Power Nap / standby / auto-poweroff / hibernation → all off
       * hot corners bound to Start Screen Saver / Display Sleep / Lock
         Screen → neutralized
-      * Accessibility permission prompt if not already granted
+      * Accessibility permission prompt (keystroke injection)
+      * Screen Recording permission prompt (window enumeration + per-window
+        screen capture — a separate TCC bucket from Accessibility)
     Requires sudo (pmset, defaults write /Library/Preferences, sysadminctl).
     Idempotent — safe to run multiple times.
 
-    Run this before Invoke-TestRunner.ps1 when Assert-HostConditionSet
-    reports that screen lock or display sleep settings will blank the VM
-    display during tests.
+    Run this before Invoke-TestRunner.ps1. Assert-HostConditionSet gates
+    every subsequent cycle on both permissions and on screen-lock /
+    display-sleep settings.
+
+    IMPORTANT: the Accessibility and Screen Recording prompts fire only on
+    the FIRST request per process. If you dismiss either one, macOS will
+    not ask again — you must toggle it manually in System Settings and
+    FULLY QUIT / relaunch the terminal (TCC grants don't apply to the
+    already-running process).
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.

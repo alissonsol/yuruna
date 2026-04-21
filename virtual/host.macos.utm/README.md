@@ -25,9 +25,20 @@ notes for each step:
 - Step 1 (new shell): Apple Silicon — `eval "$(/opt/homebrew/bin/brew shellenv)"`;
   Intel — `/usr/local` instead.
 - Step 4 (launch hypervisor): `open -a UTM`.
-- Step 5 (Accessibility) is **required**: the harness drives UTM VMs via
-  `AXUIElementPostKeyboardEvent` so they stay driven when unfocused. TCC
-  forbids automating the toggle.
+- Step 5 requires **both** TCC permissions (separate buckets):
+  - **Accessibility** — the harness drives UTM VMs via
+    `AXUIElementPostKeyboardEvent` so they stay driven when unfocused.
+  - **Screen Recording** — needed so `CGWindowListCopyWindowInfo`
+    returns window titles (the harness matches UTM's per-VM window by
+    title) and so `screencapture -l <windowId>` can capture a specific
+    VM window. Without this, `waitForAndClickButton` loops on "UTM
+    window for `<vm>` not found".
+
+  `Enable-TestAutomation.ps1` fires the first-run dialog for each.
+  TCC forbids automating the toggle itself; if you dismiss a dialog,
+  toggle the switch manually and **fully quit and relaunch the
+  terminal** (Cmd-Q) — macOS won't honor the grant for the running
+  process.
 
 Manual walk-through of the installer: [read.more.md](read.more.md).
 

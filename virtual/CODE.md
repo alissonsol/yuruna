@@ -36,9 +36,20 @@ After the installer finishes:
 3. Edit `test/test-config.json` for your environment.
 4. Launch the hypervisor UI once (Hyper-V Manager / UTM) to trigger any
    first-run dialogs.
-5. macOS only: grant your terminal app **Accessibility** permission in
-   **System Settings → Privacy & Security**. macOS's TCC framework
-   forbids automating this toggle.
+5. macOS only: grant your terminal app **both** TCC permissions in
+   **System Settings → Privacy & Security** — they are separate buckets
+   and both are required:
+   - **Accessibility** — keystroke injection to UTM VMs.
+   - **Screen Recording** — window enumeration
+     (`CGWindowListCopyWindowInfo` returns titles only to callers holding
+     this grant) and per-window screen capture. Without it,
+     `waitForAndClickButton` loops on "UTM window for `<vm>` not found".
+
+   `Enable-TestAutomation.ps1` fires the first-run consent dialog for
+   each permission, but macOS's TCC framework forbids automating the
+   toggle itself. If you dismiss either dialog, you must toggle the
+   switch manually and **fully quit and relaunch the terminal** — TCC
+   grants don't apply to the already-running process.
 6. Run `pwsh test/Invoke-TestRunner.ps1`.
 
 Host-specific reads that explain what the one-liner does by hand:

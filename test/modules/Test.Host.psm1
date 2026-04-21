@@ -292,9 +292,10 @@ function Set-MacHostConditionSet {
     <#
     .SYNOPSIS
     Configures macOS host settings needed for unattended VM testing:
-    disables display sleep, screen saver idle, and screen lock password.
-    Also triggers the Accessibility permission prompt if not already granted.
-    Requires sudo for pmset. Idempotent — safe to run multiple times.
+    disables display sleep, screen saver idle, and screen lock password;
+    triggers first-run prompts for the Accessibility and Screen Recording
+    TCC permissions (both required — keystroke injection + per-window
+    capture). Requires sudo for pmset. Idempotent.
     .EXAMPLE
     Set-MacHostConditionSet          # apply all settings
     Set-MacHostConditionSet -WhatIf  # show what would change without applying
@@ -630,6 +631,36 @@ $.AXIsProcessTrustedWithOptions(opts);
     } catch {
         Write-Debug "Accessibility prompt failed: $_"
         Write-Warning "Could not check Accessibility status. Grant it manually in System Settings."
+    }
+
+    # ── 5. Screen Recording — preflight + first-run prompt ────────────────
+    # Separate TCC bucket from Accessibility. Needed so
+    # CGWindowListCopyWindowInfo returns window titles (the harness matches
+    # UTM's per-VM window by title) and so `screencapture -l <windowId>`
+    # works. Without it, waitForAndClickButton loops on "UTM window for
+    # <vm> not found". CGRequestScreenCaptureAccess prompts only on the
+    # FIRST call per process; subsequent denied states need the user to
+    # toggle System Settings manually and relaunch the terminal.
+    try {
+        $jxa = @"
+ObjC.import('CoreGraphics');
+var granted = $.CGPreflightScreenCaptureAccess();
+if (!granted) { $.CGRequestScreenCaptureAccess(); }
+granted;
+"@
+        $srResult = & osascript -l JavaScript -e $jxa 2>&1
+        if ("$srResult" -eq "true") {
+            Write-Output "Screen Recording permission is already granted."
+        } else {
+            Write-Output "Requesting Screen Recording permission (a system dialog may appear)..."
+            Write-Output "  → If no dialog appears, macOS already remembered a previous denial."
+            Write-Output "    Open System Settings > Privacy & Security > Screen Recording,"
+            Write-Output "    enable your terminal app (Terminal.app, iTerm2, Ghostty, etc.),"
+            Write-Output "    then FULLY QUIT and relaunch it before re-running the test."
+        }
+    } catch {
+        Write-Debug "Screen Recording prompt failed: $_"
+        Write-Warning "Could not check Screen Recording status. Grant it manually in System Settings."
     }
 
     if ($changed) {
@@ -1101,19 +1132,69 @@ function Assert-Accessibility {
     return $false
 }
 
-function Assert-MacHostConditionSet {
+function Assert-ScreenRecording {
     <#
     .SYNOPSIS
-    Single gate for macOS prerequisites: Accessibility permission and
-    screen lock / display sleep settings. Returns $true on non-macOS
-    or when all conditions pass; $false with diagnostics on failure.
-    Invoke once at startup and again before each test cycle.
+    macOS: verify the terminal has Screen Recording permission (needed
+    for CGWindowListCopyWindowInfo to include window titles — the
+    harness matches UTM's per-VM window by title — and for
+    `screencapture -l <windowId>`). Returns $true if granted (or not on
+    macOS). Prints setup instructions and returns $false on missing
+    permission.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
 
-    if (-not (Assert-Accessibility -HostType $HostType)) { return $false }
-    if (-not (Assert-ScreenLock    -HostType $HostType)) { return $false }
+    # CGPreflightScreenCaptureAccess: true when the process holds TCC
+    # approval for the ScreenCapture service. Does NOT prompt — purely
+    # a read.
+    try {
+        $jxa = "ObjC.import('CoreGraphics'); $.CGPreflightScreenCaptureAccess();"
+        $result = & osascript -l JavaScript -e $jxa 2>&1
+        if ("$result" -eq "true") { return $true }
+    } catch {
+        Write-Debug "Screen Recording check failed: $_"
+    }
+
+    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning " Screen Recording permission is NOT granted for this terminal."
+    Write-Warning ""
+    Write-Warning " The harness needs it to enumerate UTM's windows — CGWindowList"
+    Write-Warning " only returns titles to processes with this permission — and to"
+    Write-Warning " capture a specific VM window (screencapture -l <windowId>)."
+    Write-Warning " Without it, waitForAndClickButton loops on 'UTM window for"
+    Write-Warning " <vm> not found' and clicks land at the wrong coordinates."
+    Write-Warning ""
+    Write-Warning " To fix:"
+    Write-Warning "   1. Open System Settings > Privacy & Security > Screen Recording"
+    Write-Warning "   2. Click + and add your terminal app"
+    Write-Warning "      (Terminal.app, iTerm2, Ghostty, or whichever you use)"
+    Write-Warning "   3. Ensure the toggle is ON"
+    Write-Warning "   4. FULLY QUIT the terminal (Cmd-Q or killall) and relaunch it"
+    Write-Warning "      — macOS will NOT honor the grant in the running process."
+    Write-Warning "   5. Re-run the test harness from the new terminal."
+    Write-Warning ""
+    Write-Warning " This is a separate TCC bucket from Accessibility — both are"
+    Write-Warning " required. Enable-TestAutomation.ps1 triggers the first-run"
+    Write-Warning " prompt; if you dismissed it, macOS won't ask again."
+    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    return $false
+}
+
+function Assert-MacHostConditionSet {
+    <#
+    .SYNOPSIS
+    Single gate for macOS prerequisites: Accessibility + Screen Recording
+    permissions and screen lock / display sleep settings. Returns $true
+    on non-macOS or when all conditions pass; $false with diagnostics on
+    failure. Invoke once at startup and again before each test cycle.
+    #>
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+
+    if (-not (Assert-Accessibility    -HostType $HostType)) { return $false }
+    if (-not (Assert-ScreenRecording  -HostType $HostType)) { return $false }
+    if (-not (Assert-ScreenLock       -HostType $HostType)) { return $false }
 
     return $true
 }

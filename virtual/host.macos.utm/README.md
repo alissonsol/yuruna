@@ -95,7 +95,7 @@ CDN rate-limit failures stop entirely.
 
 ```bash
 # One-time setup:
-cd ~/git/yuruna/vde/host.macos.utm/guest.squid-cache
+cd ~/git/yuruna/virtual/host.macos.utm/guest.squid-cache
 pwsh ./Get-Image.ps1    # downloads + converts Ubuntu Server cloud image (~600 MB, arm64)
 pwsh ./New-VM.ps1        # assembles a UTM bundle; double-click it to register with UTM
 ```

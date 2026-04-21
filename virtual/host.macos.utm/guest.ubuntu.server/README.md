@@ -14,7 +14,7 @@ Do not run these scripts as root (`sudo`). Verify your identity with `whoami` fi
 
 **On the macOS host: Getting the base image**
 
-Assuming you are in the `yuruna/vde/host.macos.utm/guest.ubuntu.server` folder.
+Assuming you are in the `yuruna/virtual/host.macos.utm/guest.ubuntu.server` folder.
 
 ```bash
 pwsh ./Get-Image.ps1

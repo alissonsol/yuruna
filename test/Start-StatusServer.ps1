@@ -833,7 +833,7 @@ if ($IsWindows -and $ip) {
             Write-Warning "  http://${ip}:$Port/status/ will time out."
             Write-Warning "  To fix, open a new elevated pwsh and run:"
             Write-Warning "    cd $(Split-Path -Parent $TestRoot)"
-            Write-Warning "    pwsh vde\host.windows.hyper-v\Enable-TestAutomation.ps1"
+            Write-Warning "    pwsh virtual\host.windows.hyper-v\Enable-TestAutomation.ps1"
         }
     } catch {
         Write-Verbose "Firewall-rule reachability check skipped: $($_.Exception.Message)"

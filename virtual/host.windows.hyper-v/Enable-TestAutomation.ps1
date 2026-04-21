@@ -53,10 +53,10 @@
 param()
 
 $ErrorActionPreference = "Stop"
-# This script lives under vde\host.windows.hyper-v\ ; the module it
+# This script lives under virtual\host.windows.hyper-v\ ; the module it
 # delegates to is at test\modules\Test.Host.psm1 (two directory levels
 # up plus the test\ subtree). The cross-folder import is the same
-# pattern already used by Test.New-VM.psm1 -> vde\host.*\VM.common.psm1.
+# pattern already used by Test.New-VM.psm1 -> virtual\host.*\VM.common.psm1.
 $ScriptDir  = $PSScriptRoot
 $RepoRoot   = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $ModulePath = Join-Path $RepoRoot 'test\modules\Test.Host.psm1'

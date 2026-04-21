@@ -95,7 +95,7 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
+      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
       "description": "ubuntu.desktop.update.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,

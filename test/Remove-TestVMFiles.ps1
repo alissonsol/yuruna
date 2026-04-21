@@ -148,8 +148,8 @@ switch ($HostType) {
 Write-Output ""
 
 # === Run Remove-OrphanedVMFiles.ps1 with -Force ===
-$vdeDir = Join-Path $RepoRoot "vde"
-$cleanupScript = Join-Path -Path $vdeDir -ChildPath "$HostType" -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
+$virtualDir = Join-Path $RepoRoot "virtual"
+$cleanupScript = Join-Path -Path $virtualDir -ChildPath "$HostType" -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
 
 if (-not (Test-Path $cleanupScript)) {
     Write-Error "Cleanup script not found: $cleanupScript"

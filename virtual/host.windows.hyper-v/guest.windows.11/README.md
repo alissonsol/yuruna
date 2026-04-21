@@ -8,7 +8,7 @@ Minimal commands for creating the VM. See [details](read.more.md) for full docum
 
 **On the Windows host (Administrator PowerShell): Getting the base image**
 
-From the `yuruna\vde\host.windows.hyper-v\guest.windows.11` folder:
+From the `yuruna\virtual\host.windows.hyper-v\guest.windows.11` folder:
 
 ```powershell
 .\Get-Image.ps1
@@ -38,7 +38,7 @@ You should be logged in automatically on first boot. The default user is `User` 
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.update.ps1$nc" | iex
 ```
 
 > Set `$env:YurunaCacheContent` (or `setx YurunaCacheContent ...`) to a unique

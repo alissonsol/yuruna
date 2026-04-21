@@ -8,7 +8,7 @@ Minimal commands for creating the VM. See [details](read.more.md) for full docum
 
 **On the Windows host (Administrator PowerShell): Getting the base image**
 
-Assuming you are in the `yuruna\vde\host.windows.hyper-v\guest.amazon.linux` folder.
+Assuming you are in the `yuruna\virtual\host.windows.hyper-v\guest.amazon.linux` folder.
 
 ```powershell
 .\Get-Image.ps1
@@ -33,7 +33,7 @@ Or with a custom hostname:
 Unless you changed the defaults in the [vmconfig/user-data](./vmconfig/user-data) file, the user is `ec2-user` and the password is `amazonlinux`.
 
 ```bash
-sudo /automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.update.sh
+sudo /automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh
 sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```

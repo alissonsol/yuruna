@@ -12,7 +12,7 @@ Do not run these scripts as root (`sudo`). Verify your identity with `whoami` fi
 
 **On the macOS host: Getting the base image**
 
-Assuming you are in the `yuruna/vde/host.macos.utm/guest.windows.11` folder.
+Assuming you are in the `yuruna/virtual/host.macos.utm/guest.windows.11` folder.
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -51,7 +51,7 @@ You should be logged in automatically on first boot. The default user is `User` 
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.update.ps1$nc" | iex
 ```
 
 > Set `$env:YurunaCacheContent` (in the guest) to a unique string — typically a

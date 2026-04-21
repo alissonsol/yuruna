@@ -32,7 +32,7 @@
     the trained references.
 
 .PARAMETER GuestKey
-    The guest to train. Any guest.<name> whose vde/<hostType>/<guestKey>/ folder
+    The guest to train. Any guest.<name> whose virtual/<hostType>/<guestKey>/ folder
     exists on the current host is accepted (e.g. guest.amazon.linux,
     guest.ubuntu.desktop, guest.ubuntu.server, guest.windows.11).
 
@@ -58,7 +58,7 @@ param(
 
 $TestRoot      = $PSScriptRoot
 $RepoRoot      = Split-Path -Parent $TestRoot
-$VdeRoot       = Join-Path $RepoRoot "vde"
+$VirtualRoot       = Join-Path $RepoRoot "virtual"
 $ModulesDir    = Join-Path $TestRoot "modules"
 $ScreenshotsDir = Join-Path $TestRoot "screenshots"
 
@@ -81,8 +81,8 @@ Write-Output "Host type: $HostType"
 Write-Output "Guest:     $GuestKey"
 Write-Output ""
 
-if (-not (Test-GuestFolder -VdeRoot $VdeRoot -HostType $HostType -GuestKey $GuestKey)) {
-    Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $(Join-Path $VdeRoot "$HostType/$GuestKey")"
+if (-not (Test-GuestFolder -VirtualRoot $VirtualRoot -HostType $HostType -GuestKey $GuestKey)) {
+    Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $(Join-Path $VirtualRoot "$HostType/$GuestKey")"
     exit 1
 }
 
@@ -99,7 +99,7 @@ Write-Output ""
 
 # Ensure image exists
 Write-Output "--- Checking base image ---"
-$r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $false
+$r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -AlwaysRedownload $false
 if (-not $r.success) { Write-Error "Get-Image failed: $($r.errorMessage)"; exit 1 }
 
 # Clean up any previous VM
@@ -108,7 +108,7 @@ Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
 
 # Create VM
 Write-Output "--- Creating VM ---"
-$r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName
+$r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -VMName $VMName
 if (-not $r.success) { Write-Error "New-VM failed: $($r.errorMessage)"; exit 1 }
 
 # Start VM

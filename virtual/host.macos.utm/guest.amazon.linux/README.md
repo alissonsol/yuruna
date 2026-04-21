@@ -10,7 +10,7 @@ Do not run these scripts as root (`sudo`). Verify your identity with `whoami` fi
 
 **On the macOS host: Getting the base image**
 
-Assuming you are in the `yuruna/vde/host.macos.utm/guest.amazon.linux` folder.
+Assuming you are in the `yuruna/virtual/host.macos.utm/guest.amazon.linux` folder.
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -39,7 +39,7 @@ Amazon Linux is a headless cloud image, so the Display tab in UTM will show a te
 Unless you changed the defaults in the [vmconfig/user-data](./vmconfig/user-data) file, the user is `ec2-user` and the password is `amazonlinux`.
 
 ```bash
-sudo /automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.update.sh
+sudo /automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh
 sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```

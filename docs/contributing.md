@@ -49,7 +49,7 @@
 Documentation and cloud-init files fetch scripts from the `main` branch via URLs like:
 
 ```
-https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh
+https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.ubuntu.desktop/ubuntu.desktop.code.sh
 ```
 
 Changes on a branch aren't visible at those URLs until merged. There are two approaches to test changes, depending on what you modify.
@@ -66,7 +66,7 @@ Clone the repository on the guest VM, checkout your branch, and run the script d
 git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
 git checkout your-branch-name
-bash vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh
+bash virtual/guest.ubuntu.desktop/ubuntu.desktop.code.sh
 ```
 
 For Windows 11 guests:
@@ -75,7 +75,7 @@ For Windows 11 guests:
 git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
 git checkout your-branch-name
-.\vde\guest.windows.11\windows.11.code.ps1
+.\virtual\guest.windows.11\windows.11.code.ps1
 ```
 
 **Option B: Fetch from your branch**
@@ -83,7 +83,7 @@ git checkout your-branch-name
 Push your branch and replace `main` with your branch name in the one-liner URL. For example:
 
 ```bash
-EXEC_BASE_URL="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/your-branch-name/" /automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.code.sh
+EXEC_BASE_URL="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/your-branch-name/" /automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.code.sh
 ```
 
 ### Cloud-init user-data files
@@ -98,10 +98,10 @@ To test changes to scripts cloud-init downloads:
 
 The `user-data` files that contain these URLs are:
 
-- `vde/host.macos.utm/guest.amazon.linux/vmconfig/user-data`
-- `vde/host.macos.utm/guest.ubuntu.desktop/vmconfig/user-data`
-- `vde/host.windows.hyper-v/guest.amazon.linux/vmconfig/user-data`
-- `vde/host.windows.hyper-v/guest.ubuntu.desktop/vmconfig/user-data`
+- `virtual/host.macos.utm/guest.amazon.linux/vmconfig/user-data`
+- `virtual/host.macos.utm/guest.ubuntu.desktop/vmconfig/user-data`
+- `virtual/host.windows.hyper-v/guest.amazon.linux/vmconfig/user-data`
+- `virtual/host.windows.hyper-v/guest.ubuntu.desktop/vmconfig/user-data`
 
 **Important:** Remember to revert the `user-data` changes before submitting a pull request, so the merged code continues to point to `main`.
 

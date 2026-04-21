@@ -101,7 +101,7 @@ CDN rate-limit failures stop entirely.
 
 ```powershell
 # One-time setup (elevated pwsh):
-cd $HOME\git\yuruna\vde\host.windows.hyper-v\guest.squid-cache
+cd $HOME\git\yuruna\virtual\host.windows.hyper-v\guest.squid-cache
 pwsh .\Get-Image.ps1     # downloads Ubuntu Server cloud image (~600 MB)
 pwsh .\New-VM.ps1        # creates 2 GB cache VM, waits for port 3128
 ```

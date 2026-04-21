@@ -60,8 +60,8 @@ unset YurunaCacheContent
   [`automation/Invoke-FetchAndExecute.ps1`](../automation/Invoke-FetchAndExecute.ps1)
   — URL helpers used by the test harness and guest scripts.
 - `wget` / `curl` calls inside each install script under
-  [`vde/guest.amazon.linux/`](../vde/guest.amazon.linux/) and
-  [`vde/guest.ubuntu.desktop/`](../vde/guest.ubuntu.desktop/).
+  [`virtual/guest.amazon.linux/`](../virtual/guest.amazon.linux/) and
+  [`virtual/guest.ubuntu.desktop/`](../virtual/guest.ubuntu.desktop/).
 
 The suffix expands to `?nocache=<value>` when set, empty otherwise. The
 `automation/fetch-and-execute.*` wrappers also honor an explicit
@@ -125,16 +125,16 @@ the cache and subsequent installs pull `.deb` packages from LAN.
 Run once from an elevated PowerShell:
 
 ```powershell
-cd $HOME\git\yuruna\vde\host.windows.hyper-v\guest.squid-cache
+cd $HOME\git\yuruna\virtual\host.windows.hyper-v\guest.squid-cache
 pwsh .\Get-Image.ps1
 pwsh .\New-VM.ps1
 ```
 
-- [Get-Image.ps1](../vde/host.windows.hyper-v/guest.squid-cache/Get-Image.ps1) —
+- [Get-Image.ps1](../virtual/host.windows.hyper-v/guest.squid-cache/Get-Image.ps1) —
   downloads the Ubuntu Server Noble cloud image (amd64), converts it
   from qcow2 to VHDX via `qemu-img`, and resizes it to 144 GB (128 GB
   squid cache + OS headroom).
-- [New-VM.ps1](../vde/host.windows.hyper-v/guest.squid-cache/New-VM.ps1) —
+- [New-VM.ps1](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1) —
   creates a Hyper-V Gen 2 VM named `squid-cache` on the Default Switch,
   attaches a cloud-init seed ISO that installs and configures squid,
   starts the VM, and waits until port 3128 responds. Prints the proxy
@@ -143,16 +143,16 @@ pwsh .\New-VM.ps1
 ### macOS UTM
 
 ```bash
-cd ~/git/yuruna/vde/host.macos.utm/guest.squid-cache
+cd ~/git/yuruna/virtual/host.macos.utm/guest.squid-cache
 pwsh ./Get-Image.ps1
 pwsh ./New-VM.ps1
 ```
 
-- [Get-Image.ps1](../vde/host.macos.utm/guest.squid-cache/Get-Image.ps1) —
+- [Get-Image.ps1](../virtual/host.macos.utm/guest.squid-cache/Get-Image.ps1) —
   downloads the Ubuntu Server Noble cloud image (arm64, qcow2),
   converts it to raw via `qemu-img convert`, and resizes to 144 GB. Raw
   format is required by Apple Virtualization.framework.
-- [New-VM.ps1](../vde/host.macos.utm/guest.squid-cache/New-VM.ps1) —
+- [New-VM.ps1](../virtual/host.macos.utm/guest.squid-cache/New-VM.ps1) —
   assembles a UTM bundle at
   `~/Desktop/Yuruna.VDE/<hostname>.nosync/squid-cache.utm/` containing
   `config.plist` (Apple Virtualization backend), `Data/efi_vars.fd`
@@ -222,9 +222,9 @@ stays, and the cache keeps serving even when origin is unreachable. Once
 fully populated it supports guest installs with **zero internet access**.
 
 The config lives in
-[vde/host.windows.hyper-v/guest.squid-cache/vmconfig/user-data](../vde/host.windows.hyper-v/guest.squid-cache/vmconfig/user-data)
+[virtual/host.windows.hyper-v/guest.squid-cache/vmconfig/user-data](../virtual/host.windows.hyper-v/guest.squid-cache/vmconfig/user-data)
 and
-[vde/host.macos.utm/guest.squid-cache/vmconfig/user-data](../vde/host.macos.utm/guest.squid-cache/vmconfig/user-data)
+[virtual/host.macos.utm/guest.squid-cache/vmconfig/user-data](../virtual/host.macos.utm/guest.squid-cache/vmconfig/user-data)
 — same squid settings in both.
 
 ### Never release unless needed

@@ -16,7 +16,7 @@ After your base VM is running, use these instructions to install workloads. Open
 ### Update
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.update.sh
+/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh
 ```
 
 ### Available workloads
@@ -24,25 +24,25 @@ After your base VM is running, use these instructions to install workloads. Open
 - [Code](../docs/code.md) - Java (JDK), .NET SDK, Git, and Visual Studio Code
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.code.sh
+/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.code.sh
 ```
 
 - [n8n](../docs/n8n.md) - n8n workflow automation
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.n8n.sh
+/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.n8n.sh
 ```
 
 - [OpenClaw](../docs/openclaw.md) - Git, Node.js, and the OpenClaw AI agent
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.openclaw.sh
+/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.openclaw.sh
 ```
 
 - [PostgreSQL](../docs/postgresql.md) - PostgreSQL database from the official PGDG repository
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.postgresql.sh
+/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.postgresql.sh
 ```
 
 ## Troubleshooting

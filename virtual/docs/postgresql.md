@@ -12,7 +12,7 @@ Installs [PostgreSQL](https://www.postgresql.org/).
 Open a terminal and run the following command.
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.postgresql.sh
+/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.postgresql.sh
 ```
 
 **Ubuntu Desktop**
@@ -20,7 +20,7 @@ Open a terminal and run the following command.
 Open a terminal and run the following command.
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.postgresql.sh
+/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.postgresql.sh
 ```
 
 **Verify the installation**

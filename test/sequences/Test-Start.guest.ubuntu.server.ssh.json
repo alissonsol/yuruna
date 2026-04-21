@@ -28,7 +28,7 @@
     },
     {
       "action": "sshFetchAndExecute",
-      "command": "/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
+      "command": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
       "timeoutSeconds": 1800,
       "description": "ubuntu.desktop.update.sh"
     },

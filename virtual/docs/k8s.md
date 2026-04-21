@@ -14,7 +14,7 @@ See the full list of [requirements](../../docs/requirements.md) for more details
 Open a terminal and run the following command.
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh
+/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh
 ```
 
 **Optional steps after the script completes (Ubuntu Desktop)**
@@ -28,7 +28,7 @@ Open an elevated PowerShell terminal and run the following command.
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.k8s.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.k8s.ps1$nc" | iex
 ```
 
 > Set `$env:YurunaCacheContent` to a unique datetime string to bypass a caching

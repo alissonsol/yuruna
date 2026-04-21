@@ -10,7 +10,7 @@ The runner loops continuously (until a failure), executing this cycle:
 2. **Re-reads configuration** (`test-config.json` — picks up changes from git pull or local edits)
 3. **Refresh images** (every 24 hours): downloads base images via `Get-Image.ps1`
 4. **For each guest** (listed in `guestOrder`):
-   - **Folder check** — verifies `vde/<hostType>/<guestKey>/` exists on this host.
+   - **Folder check** — verifies `virtual/<hostType>/<guestKey>/` exists on this host.
      Missing folder = per-guest failure; the cycle still proceeds with the remaining
      guests unless `stopOnFailure` is `true`.
    - **Cleanup** — removes the previous test VM for this guest (if any)
@@ -23,7 +23,7 @@ The runner loops continuously (until a failure), executing this cycle:
 
 ## Prerequisites
 
-The same prerequisites as the VDE scripts apply — see `vde/host.*/README.md` for each host.
+The same prerequisites as the VDE scripts apply — see `virtual/host.*/README.md` for each host.
 
 ### macOS (host.macos.utm)
 - PowerShell Core (`brew install powershell`)
@@ -93,14 +93,14 @@ Then edit `test/test-config.json` (it is git-ignored and will not be committed):
 | `charDelayMs` | `20` | Default delay in ms between keystrokes in `type`/`typeAndEnter` actions |
 | `keystrokeMechanism` | `"GUI"` | How the harness drives guest VMs. `"GUI"` uses keystroke injection (Hyper-V scancodes or UTM VNC/CGEvent). `"SSH"` routes workload sequences over SSH using a per-host key under `test/.ssh/` that is injected into each guest's cloud-init `authorized_keys` at VM creation. In SSH mode, Invoke-Sequence prefers a sibling `.ssh.json` variant of each sequence file when one exists (e.g. `Test-Workload.guest.amazon.linux.ssh.json`) and falls back to the keystroke sequence otherwise. Comparison is case-insensitive and the value is normalized to uppercase on startup; any other value in `test-config.json` (including the legacy `"hypervisor"`) is replaced with the default |
 | `vncPort` | `5900` | VNC port for QEMU-backend UTM VMs (display `:0` = 5900). Used by the focus-independent VNC keystroke transport |
-| `guestOrder` | _(required)_ | Array of guest keys to test, in execution order. Each entry must correspond to a `vde/<hostType>/<guestKey>/` folder on this host — see below |
+| `guestOrder` | _(required)_ | Array of guest keys to test, in execution order. Each entry must correspond to a `virtual/<hostType>/<guestKey>/` folder on this host — see below |
 | `statusServer.enabled` | `true` | Start the built-in HTTP status server |
 | `statusServer.port` | `8080` | Port for the status server |
 
 ### Guest ordering and skipping
 
 The `guestOrder` array in `test-config.json` controls which guests are tested and
-in what order. Any `guest.<name>` is valid as long as `vde/<hostType>/<guestKey>/`
+in what order. Any `guest.<name>` is valid as long as `virtual/<hostType>/<guestKey>/`
 exists on the current host — the runner discovers guests by looking for that
 folder at the start of each cycle, not by matching against a hardcoded list. This
 means **adding a new guest is purely a matter of creating the folder with
@@ -127,7 +127,7 @@ To run only a single guest:
 If a listed guest has no corresponding folder on the current host, that guest is
 marked as a failure for the cycle (the others still run unless `stopOnFailure` is
 `true`). This matters for guests that exist on only one host: listing
-`guest.ubuntu.server` on macOS works only if `vde/host.macos.utm/guest.ubuntu.server/`
+`guest.ubuntu.server` on macOS works only if `virtual/host.macos.utm/guest.ubuntu.server/`
 is present; otherwise it's reported as a missing-folder failure and the runner
 moves on.
 

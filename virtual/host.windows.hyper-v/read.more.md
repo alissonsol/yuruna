@@ -126,7 +126,7 @@ inactivity lock, and lock-screen-on-resume via `powercfg` and
 registry edits:
 
 ```powershell
-cd $HOME\git\yuruna\vde\host.windows.hyper-v
+cd $HOME\git\yuruna\virtual\host.windows.hyper-v
 pwsh .\Enable-TestAutomation.ps1
 ```
 
@@ -157,7 +157,7 @@ originated.)
 This step is optional — skip it if you prefer direct CDN downloads.
 
 ```powershell
-cd $HOME\git\yuruna\vde\host.windows.hyper-v\guest.squid-cache
+cd $HOME\git\yuruna\virtual\host.windows.hyper-v\guest.squid-cache
 pwsh .\Get-Image.ps1     # downloads Ubuntu Server cloud image
 pwsh .\New-VM.ps1        # creates + starts the cache VM
 ```

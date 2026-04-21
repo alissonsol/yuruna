@@ -79,7 +79,7 @@ the screen-saver idle trigger, and the screen-lock password
 requirement via `pmset` and `defaults`:
 
 ```bash
-cd ~/git/yuruna/vde/host.macos.utm
+cd ~/git/yuruna/virtual/host.macos.utm
 pwsh ./Enable-TestAutomation.ps1
 ```
 
@@ -122,7 +122,7 @@ step where the 429 originated.)
 This step is optional — skip it if you prefer direct CDN downloads.
 
 ```bash
-cd ~/git/yuruna/vde/host.macos.utm/guest.squid-cache
+cd ~/git/yuruna/virtual/host.macos.utm/guest.squid-cache
 pwsh ./Get-Image.ps1    # downloads + converts Ubuntu Server cloud image (arm64)
 pwsh ./New-VM.ps1        # assembles the UTM bundle
 ```

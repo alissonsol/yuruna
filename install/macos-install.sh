@@ -30,14 +30,14 @@ log "  target : $YURUNA_DIR"
 # Every script in this repo that needs elevation says so up front rather than
 # surprising the user midway through. Match that convention here and prime
 # sudo a single time so the Homebrew installer, cask post-installs, and the
-# pmset call in vde/host.macos.utm/Enable-TestAutomation.ps1 all reuse the same timestamp.
+# pmset call in virtual/host.macos.utm/Enable-TestAutomation.ps1 all reuse the same timestamp.
 cat <<'SUDO_NOTICE'
 
   ┌───────────────────────────────────────────────────────────────┐
   │  This installer needs sudo for:                               │
   │    • Homebrew install + cask post-install scripts             │
   │    • pmset / defaults in                                      │
-  │      vde/host.macos.utm/Enable-TestAutomation.ps1             │
+  │      virtual/host.macos.utm/Enable-TestAutomation.ps1             │
   │  You will be prompted for your macOS password ONCE, below.    │
   └───────────────────────────────────────────────────────────────┘
 
@@ -210,12 +210,12 @@ if [[ ! -f "$TEST_DIR/test-config.json" && -f "$TEST_DIR/test-config.json.templa
 fi
 
 # ── Host configuration (disable display sleep, screen saver, etc.) ──────────
-# The host-prep script lives under vde/host.macos.utm/ (not test/) because
+# The host-prep script lives under virtual/host.macos.utm/ (not test/) because
 # its logic is platform-specific; the test harness imports the underlying
 # module (test/modules/Test.Host.psm1) separately.
-HOST_SETUP="$YURUNA_DIR/vde/host.macos.utm/Enable-TestAutomation.ps1"
+HOST_SETUP="$YURUNA_DIR/virtual/host.macos.utm/Enable-TestAutomation.ps1"
 if [[ -f "$HOST_SETUP" ]]; then
-  log "Running vde/host.macos.utm/Enable-TestAutomation.ps1 (uses pmset via sudo)"
+  log "Running virtual/host.macos.utm/Enable-TestAutomation.ps1 (uses pmset via sudo)"
   # Refresh the sudo timestamp right before the pwsh call so pmset inside the
   # PowerShell script never re-prompts even if the keep-alive loop missed a beat.
   sudo -v

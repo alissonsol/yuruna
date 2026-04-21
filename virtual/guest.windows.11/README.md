@@ -17,7 +17,7 @@ Open an **elevated PowerShell terminal** in the guest and run the command for ea
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.update.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.update.ps1$nc" | iex
 ```
 
 > The `$nc` suffix is driven by `$env:YurunaCacheContent`. Leave it unset (or
@@ -35,14 +35,14 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/gue
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.code.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.code.ps1$nc" | iex
 ```
 
 - [k8s](../docs/k8s.md) - All Kubernetes requirements (Docker, Kubernetes, Helm, OpenTofu, Cloud CLIs, and more)
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/vde/guest.windows.11/windows.11.k8s.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.k8s.ps1$nc" | iex
 ```
 
 **Please read:** While installing all the Kubernetes requirements for Windows will succeed, starting Docker will demand a coordinated change of virtualization settings for both the host (Hyper-V or mac UTM) and the guest. Those instructions are too long and unreliable to be automated at this time. For now, ask your favorite AI assistant using the prompts below:

@@ -8,7 +8,7 @@ Minimal commands for creating the VM. See [details](read.more.md) for full docum
 
 **On the Windows host (Administrator PowerShell): Getting the base image**
 
-Assuming you are in the `yuruna\vde\host.windows.hyper-v\guest.ubuntu.desktop` folder.
+Assuming you are in the `yuruna\virtual\host.windows.hyper-v\guest.ubuntu.desktop` folder.
 
 ```powershell
 .\Get-Image.ps1
@@ -37,7 +37,7 @@ The default user is `ubuntu` and the initial password is `password`. Autoinstall
 Open a terminal and run the following command.
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh
+/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh
 ```
 
 Confirm all installations finished correctly, and then reboot.

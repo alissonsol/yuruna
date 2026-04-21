@@ -63,18 +63,18 @@ function Test-GuestFolder {
     .SYNOPSIS
     Returns $true when the guest's scripts folder exists for a host.
     .DESCRIPTION
-    Layout: <repo>/vde/<hostType>/<guestKey>/ holds Get-Image.ps1 and
+    Layout: <repo>/virtual/<hostType>/<guestKey>/ holds Get-Image.ps1 and
     New-VM.ps1 for that host+guest. Guest is available on a host iff
     the folder exists. guestOrder can legitimately name host-specific
     guests; callers treat missing folder as a per-guest failure, not a
     config error.
     #>
     param(
-        [Parameter(Mandatory)] [string]$VdeRoot,
+        [Parameter(Mandatory)] [string]$VirtualRoot,
         [Parameter(Mandatory)] [string]$HostType,
         [Parameter(Mandatory)] [string]$GuestKey
     )
-    $folder = Join-Path $VdeRoot "$HostType/$GuestKey"
+    $folder = Join-Path $VirtualRoot "$HostType/$GuestKey"
     return (Test-Path -Path $folder -PathType Container)
 }
 
@@ -274,7 +274,7 @@ function Assert-ScreenLock {
     Write-Warning " image and OCR-based waitForText steps will time out."
     Write-Warning ""
     Write-Warning " Quick fix — run from the repo root:"
-    Write-Warning "   pwsh ./vde/host.macos.utm/Enable-TestAutomation.ps1"
+    Write-Warning "   pwsh ./virtual/host.macos.utm/Enable-TestAutomation.ps1"
     Write-Warning ""
     Write-Warning " Or manually in System Settings:"
     Write-Warning "   1. Displays > Advanced > Prevent automatic sleeping when"
@@ -829,7 +829,7 @@ function Set-WindowsHostConditionSet {
             Write-Output "Creating firewall rule: $icmpRuleName (all profiles)..."
             $null = New-NetFirewallRule `
                 -DisplayName $icmpRuleName `
-                -Description 'Allow inbound ICMPv4 Echo Request on all profiles so guest VMs and LAN peers can ping the host. Created by Yuruna Enable-TestAutomation (vde\host.windows.hyper-v).' `
+                -Description 'Allow inbound ICMPv4 Echo Request on all profiles so guest VMs and LAN peers can ping the host. Created by Yuruna Enable-TestAutomation (virtual\host.windows.hyper-v).' `
                 -Direction Inbound `
                 -Action Allow `
                 -Protocol ICMPv4 `
@@ -1138,7 +1138,7 @@ function Assert-WindowsHostConditionSet {
         Write-Warning " Hyper-V Virtual Machine Management service (vmms) is not running."
         Write-Warning ""
         Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
-        Write-Warning "   pwsh .\vde\host.windows.hyper-v\Enable-TestAutomation.ps1"
+        Write-Warning "   pwsh .\virtual\host.windows.hyper-v\Enable-TestAutomation.ps1"
         Write-Warning ""
         Write-Warning " If Hyper-V is not installed, enable it first:"
         Write-Warning "   Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
@@ -1162,7 +1162,7 @@ function Assert-WindowsHostConditionSet {
                 Write-Warning " Hyper-V Enhanced Session screen captures to fail."
                 Write-Warning ""
                 Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
-                Write-Warning "   pwsh .\vde\host.windows.hyper-v\Enable-TestAutomation.ps1"
+                Write-Warning "   pwsh .\virtual\host.windows.hyper-v\Enable-TestAutomation.ps1"
                 Write-Warning "═══════════════════════════════════════════════════════════════════"
                 return $false
             }
@@ -1184,7 +1184,7 @@ function Assert-WindowsHostConditionSet {
             Write-Warning " The lock screen will activate during long test runs."
             Write-Warning ""
             Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
-            Write-Warning "   pwsh .\vde\host.windows.hyper-v\Enable-TestAutomation.ps1"
+            Write-Warning "   pwsh .\virtual\host.windows.hyper-v\Enable-TestAutomation.ps1"
             Write-Warning "═══════════════════════════════════════════════════════════════════"
             return $false
         }

@@ -25,7 +25,7 @@
     Cross-platform driver that orchestrates the squid HTTP-caching proxy VM
     the yuruna guest installers rely on. Detects the host (macOS/UTM or
     Windows/Hyper-V) and runs the right Get-Image.ps1 + New-VM.ps1 pair
-    under vde/host.*/guest.squid-cache/.
+    under virtual/host.*/guest.squid-cache/.
 
     Flow:
       1. Stop and delete any prior squid-cache VM + its disk.
@@ -111,13 +111,13 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 if ($IsMacOS) {
-    $HostDir      = Join-Path $RepoRoot 'vde/host.macos.utm/guest.squid-cache'
+    $HostDir      = Join-Path $RepoRoot 'virtual/host.macos.utm/guest.squid-cache'
     $downloadDir  = Join-Path $HOME 'virtual/squid-cache'
     $ImageFile    = Join-Path $downloadDir 'host.macos.utm.guest.squid-cache.raw'
     $PasswordFile = Join-Path $downloadDir 'squid-cache-password.txt'
     $UtmDir       = "$HOME/Desktop/Yuruna.VDE/$(hostname -s).nosync/$VMName.utm"
 } elseif ($IsWindows) {
-    $HostDir      = Join-Path $RepoRoot 'vde/host.windows.hyper-v/guest.squid-cache'
+    $HostDir      = Join-Path $RepoRoot 'virtual/host.windows.hyper-v/guest.squid-cache'
     # (Get-VMHost) loads the Hyper-V module on first use; fails cleanly if
     # Hyper-V isn't installed — the underlying New-VM.ps1 has the same
     # dependency, so surfacing it here keeps the error close to the user.
@@ -326,7 +326,7 @@ if ($IsMacOS) {
         Write-Output ""
         Write-Output "=== Step 6: host-side forwarders (80 CA + 3128 proxy + 3129 ssl-bump + 3000 Grafana) ==="
         # Unified cross-platform API (test/modules/Test.PortMap.psm1). On
-        # macOS it dispatches to vde/host.macos.utm/VM.common.psm1's
+        # macOS it dispatches to virtual/host.macos.utm/VM.common.psm1's
         # Start-CachingProxyForwarder primitives. Callers here don't need to know
         # whether the host uses netsh portproxy (Hyper-V) or detached
         # pwsh TcpListeners (macOS/UTM) — same symbol, same semantics.
@@ -356,7 +356,7 @@ if ($IsMacOS) {
     # Prior code used KVP-only and printed "(discovery failed)" whenever
     # hv_kvp_daemon wasn't warm, even though the inner New-VM.ps1's ARP
     # path had already found the cache and the cache was serving :3128.
-    $vmCommon = Join-Path $RepoRoot "vde/host.windows.hyper-v/VM.common.psm1"
+    $vmCommon = Join-Path $RepoRoot "virtual/host.windows.hyper-v/VM.common.psm1"
     Import-Module $vmCommon -Force
     $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName $VMName
     if ($CachingProxyUrl -match '^http://([0-9.]+):') { $cacheIp = $matches[1] }

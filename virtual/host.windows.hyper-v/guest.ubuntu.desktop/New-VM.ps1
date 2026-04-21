@@ -161,7 +161,7 @@ $CachingProxyUrl = ""
 $cacheVM = Get-VM -Name "squid-cache" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
     Write-Warning "  No squid-cache VM exists on this host. Guest will download packages directly from Ubuntu mirrors — expect 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: vde\host.windows.hyper-v\guest.squid-cache\New-VM.ps1"
+    Write-Warning "  To enable caching, run: virtual\host.windows.hyper-v\guest.squid-cache\New-VM.ps1"
 } elseif ($cacheVM.State -ne 'Running') {
     Write-Warning "  squid-cache VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
     Write-Warning "  To enable caching: Start-VM squid-cache ; then wait for cloud-init to finish."
@@ -227,7 +227,7 @@ Recovery:
   * Cloud-init still running -> wait for it to finish (5-15 min on
     first boot), then re-run this script.
   * Install broken -> rebuild the cache VM:
-      vde\host.windows.hyper-v\guest.squid-cache\New-VM.ps1
+      virtual\host.windows.hyper-v\guest.squid-cache\New-VM.ps1
     (exits non-zero on port-bind failure, so you'll see the real error.)
 
 To intentionally skip the cache for this install, stop the cache VM

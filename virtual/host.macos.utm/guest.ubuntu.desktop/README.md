@@ -12,7 +12,7 @@ Do not run these scripts as root (`sudo`). Verify your identity with `whoami` fi
 
 **On the macOS host: Getting the base image**
 
-Assuming you are in the `yuruna/vde/host.macos.utm/guest.ubuntu.desktop` folder.
+Assuming you are in the `yuruna/virtual/host.macos.utm/guest.ubuntu.desktop` folder.
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -41,7 +41,7 @@ You should be prompted to change the password on first login. You can change the
 Open a terminal and run the following command.
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.update.sh
+/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh
 ```
 
 Confirm all installations finished correctly, and then reboot.

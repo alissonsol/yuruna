@@ -43,7 +43,7 @@
       Apple VZ's shared-NAT isolates guest↔guest traffic on
       192.168.64.0/24 and no built-in portproxy equivalent is exposed
       to userland. We run one detached pwsh TcpListener per port
-      (Start-CachingProxyForwarder.ps1 under vde/host.macos.utm/) that binds
+      (Start-CachingProxyForwarder.ps1 under virtual/host.macos.utm/) that binds
       on 0.0.0.0 and tunnels to the VM. No elevation needed — ports
       3128 and 3000 are both >=1024. State is the pidfile set under
       $HOME/virtual/squid-cache/, so Remove enumerates and terminates.
@@ -216,7 +216,7 @@ function Add-CachingProxyPortMap {
     }
 
     # macOS branch — delegate to the per-port forwarder primitives in
-    # vde/host.macos.utm/VM.common.psm1. Each Start-CachingProxyForwarder does
+    # virtual/host.macos.utm/VM.common.psm1. Each Start-CachingProxyForwarder does
     # its own per-port preflight (Stop-CachingProxyForwarder -Port $p) so
     # re-calling is idempotent AND leaves other-port forwarders alone.
     # We deliberately do NOT call Stop-AllCachingProxyForwarder first: when
@@ -449,7 +449,7 @@ function Get-BestHostIp {
 
 <#
 .SYNOPSIS
-    Locate vde/host.macos.utm/VM.common.psm1 relative to this module.
+    Locate virtual/host.macos.utm/VM.common.psm1 relative to this module.
 .DESCRIPTION
     Test.PortMap.psm1 lives under test/modules/, so $PSScriptRoot's parent's
     parent is the repo root. Returns $null (not an error) if the macOS
@@ -461,7 +461,7 @@ function Resolve-MacVmCommonModule {
     [OutputType([string])]
     param()
     $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $p = Join-Path $repoRoot 'vde/host.macos.utm/VM.common.psm1'
+    $p = Join-Path $repoRoot 'virtual/host.macos.utm/VM.common.psm1'
     if (Test-Path $p) { return $p }
     return $null
 }

@@ -271,7 +271,7 @@ function Set-LastGetImageTime {
     provenanceFilename is populated; a blank value means fall back to
     guestKey. provenanceUrl is informational (not rendered today; kept in
     the document so operators inspecting track/status.json can see where
-    the ISO came from without cross-referencing vde/*/*.txt sidecars).
+    the ISO came from without cross-referencing virtual/*/*.txt sidecars).
 #>
 function Set-GuestProvenance {
     [CmdletBinding(SupportsShouldProcess)]

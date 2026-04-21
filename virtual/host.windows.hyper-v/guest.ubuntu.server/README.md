@@ -10,7 +10,7 @@ Prefer this over `guest.ubuntu.desktop` when the Desktop ISO's `ubuntu-desktop-b
 
 **On the Windows host (Administrator PowerShell): Getting the base image**
 
-Assuming you are in the `yuruna\vde\host.windows.hyper-v\guest.ubuntu.server` folder.
+Assuming you are in the `yuruna\virtual\host.windows.hyper-v\guest.ubuntu.server` folder.
 
 ```powershell
 .\Get-Image.ps1

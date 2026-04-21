@@ -122,7 +122,7 @@ if ($verbose_mode) {
 # and test/status/log/, both served by the status HTTP server.
 $TestRoot       = $PSScriptRoot
 $RepoRoot       = Split-Path -Parent $TestRoot
-$VdeRoot        = Join-Path $RepoRoot "vde"
+$VirtualRoot        = Join-Path $RepoRoot "virtual"
 $StatusDir      = Join-Path $TestRoot "status"
 $StatusTmpl     = Join-Path $StatusDir "status.json.template"
 $ModulesDir     = Join-Path $TestRoot "modules"
@@ -727,17 +727,17 @@ while ($true) {
     Write-Output "Cycle ID: $CycleId"
     Write-Output "Commit:   $GitCommit"
 
-    # --- Pre-flight: every guestOrder key needs a vde/host.<x>/<guest>/
+    # --- Pre-flight: every guestOrder key needs a virtual/host.<x>/<guest>/
     #     folder on this host. No hardcoded allow-list — this existence
     #     check IS the allow-list. Missing folders fail the guest and skip
     #     it for the rest of the cycle; stopOnFailure ends the cycle now.
     $FailedGuests = [System.Collections.Generic.HashSet[string]]::new()
     foreach ($GuestKey in $GuestList) {
-        if (Test-GuestFolder -VdeRoot $VdeRoot -HostType $HostType -GuestKey $GuestKey) { continue }
-        $folder = Join-Path $VdeRoot "$HostType/$GuestKey"
+        if (Test-GuestFolder -VirtualRoot $VirtualRoot -HostType $HostType -GuestKey $GuestKey) { continue }
+        $folder = Join-Path $VirtualRoot "$HostType/$GuestKey"
         $err = "Guest folder not found: $folder"
         Write-Warning "  ERROR [$GuestKey / folder check]: $err"
-        Write-Output "  (add a vde/$HostType/$GuestKey/ directory with Get-Image.ps1 + New-VM.ps1 to enable this guest on $HostType)"
+        Write-Output "  (add a virtual/$HostType/$GuestKey/ directory with Get-Image.ps1 + New-VM.ps1 to enable this guest on $HostType)"
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         # Attach the failure to the first step so the status UI shows it
         # on this guest's row (folder-check has no step of its own).
@@ -765,7 +765,7 @@ while ($true) {
         foreach ($GuestKey in $GuestList) {
             if ($FailedGuests.Contains($GuestKey)) { continue }
             Write-Output "Downloading image for $GuestKey..."
-            $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
+            $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -AlwaysRedownload $true
             if (-not $r.success) {
                 Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
                 Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
@@ -791,7 +791,7 @@ while ($true) {
             if (-not $imagePath -or -not (Test-Path $imagePath)) {
                 $label = $imagePath ?? "$HostType/$GuestKey"
                 Write-Output "Image file missing: $label — re-downloading..."
-                $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -AlwaysRedownload $true
+                $r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -AlwaysRedownload $true
                 if (-not $r.success) {
                     Write-Warning "  ERROR [$GuestKey / GetImage]: $($r.errorMessage)"
                     Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
@@ -870,7 +870,7 @@ while ($true) {
         # to host" at install. No cache detected → pass "" so guests
         # skip their probe: one detection event, one outcome.
         $newVmProxy = if ($cachingProxyUrl) { $cachingProxyUrl } else { "" }
-        $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VdeRoot $VdeRoot -VMName $VMName -CachingProxyUrl $newVmProxy
+        $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -VMName $VMName -CachingProxyUrl $newVmProxy
         if ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
             Write-Output "  $GuestKey New-VM: PASS"

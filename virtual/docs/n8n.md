@@ -12,7 +12,7 @@ Installs [n8n](https://n8n.io/) workflow automation.
 Open a terminal and run the following command.
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.amazon.linux/amazon.linux.n8n.sh
+/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.n8n.sh
 ```
 
 **Ubuntu Desktop**
@@ -20,7 +20,7 @@ Open a terminal and run the following command.
 Open a terminal and run the following command.
 
 ```bash
-/automation/fetch-and-execute.sh vde/guest.ubuntu.desktop/ubuntu.desktop.n8n.sh
+/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.n8n.sh
 ```
 
 **Verify the installation**

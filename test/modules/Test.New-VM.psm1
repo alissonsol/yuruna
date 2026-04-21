@@ -29,7 +29,7 @@ function Invoke-NewVM {
     param(
         [string]$HostType,
         [string]$GuestKey,
-        [string]$VdeRoot,
+        [string]$VirtualRoot,
         [string]$VMName,
         # Forwarded to the guest's New-VM.ps1 when the caller already knows
         # the caching proxy URL (e.g. Invoke-TestRunner detected it once at
@@ -40,7 +40,7 @@ function Invoke-NewVM {
         # discovery (preserving standalone/manual usage).
         [string]$CachingProxyUrl
     )
-    $scriptPath = Join-Path $VdeRoot "$HostType/$GuestKey/New-VM.ps1"
+    $scriptPath = Join-Path $VirtualRoot "$HostType/$GuestKey/New-VM.ps1"
     if (-not (Test-Path $scriptPath)) {
         return @{ success=$false; errorMessage="New-VM.ps1 not found at: $scriptPath" }
     }
@@ -180,9 +180,9 @@ function Remove-UtmTestVM {
         $hostname  = $IsMacOS ? (& hostname -s 2>$null).Trim() : (& hostname).Trim()
         $utmBundle = "$HOME/Desktop/Yuruna.VDE/$hostname.nosync/$VMName.utm"
         if (Test-Path $utmBundle) {
-            # test/modules/Test.New-VM.psm1 → vde/host.macos.utm/VM.common.psm1
-            $vdeHelper = Join-Path $PSScriptRoot "../../vde/host.macos.utm/VM.common.psm1"
-            Import-Module $vdeHelper -Force
+            # test/modules/Test.New-VM.psm1 → virtual/host.macos.utm/VM.common.psm1
+            $virtualHelper = Join-Path $PSScriptRoot "../../virtual/host.macos.utm/VM.common.psm1"
+            Import-Module $virtualHelper -Force
             if (Remove-UtmBundleWithRetry -Path $utmBundle) {
                 Write-Output "Removed UTM bundle: $utmBundle"
             } else {

@@ -65,6 +65,51 @@ APT_PROXY_BLOCK_PLACEHOLDER
     package_update: true
     packages:
       - openssh-server
+  # Fix /etc/apt/sources.list.d/ubuntu.sources in the target. On noble 24.04.4
+  # BOTH Server and Desktop ISO base squashfs ship this file cdrom-only, and
+  # curtin's apt-config stage does not update the deb822 file (it only touches
+  # the legacy /etc/apt/sources.list). On noble, apt treats ubuntu.sources as
+  # authoritative, so the chroot never sees ports.ubuntu.com. Desktop's
+  # install-time packages list is cdrom-only today (ubuntu-desktop itself
+  # ships inside the Desktop squashfs, unlike the Server variant which apts
+  # it in during postinstall), so this hook is currently a no-op for the
+  # Desktop install path — BUT it future-proofs any non-cdrom package added
+  # to autoinstall.packages, and leaves the installed system's
+  # ubuntu.sources pointing at ports.ubuntu.com instead of cdrom so the
+  # first-boot cloud-init `openssh-server` pull and every subsequent apt
+  # invocation on the running guest goes through the configured proxy
+  # (99yuruna-apt-cache) and the correct network mirror. Kept identical
+  # to guest.ubuntu.server/vmconfig/user-data for consistency — drift
+  # between the two is a class of subtle breakage we've burned on before.
+  #
+  # /target doesn't exist at early-commands time (storage + extract happen
+  # later), so this backgrounds a watcher that waits for ubuntu.sources to
+  # appear and overwrites it with ports.ubuntu.com URIs. ~120s covers
+  # extract → curthooks → postinstall on both Apple VZ (UTM) and Hyper-V.
+  early-commands:
+    - |
+      nohup bash <<'WATCHER' > /var/log/yuruna-fix-ubuntu-sources.log 2>&1 &
+      TARGET_FILE=/target/etc/apt/sources.list.d/ubuntu.sources
+      for i in $(seq 1 120); do
+        if [ -f "$TARGET_FILE" ] && ! grep -q ports.ubuntu.com "$TARGET_FILE"; then
+          cat > "$TARGET_FILE" << 'SOURCES'
+      Types: deb
+      URIs: http://ports.ubuntu.com/ubuntu-ports/
+      Suites: noble noble-updates noble-backports
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+      Types: deb
+      URIs: http://ports.ubuntu.com/ubuntu-ports/
+      Suites: noble-security
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+      SOURCES
+          echo "$(date -u +%FT%TZ) rewrote $TARGET_FILE"
+        fi
+        sleep 1
+      done
+      WATCHER
   late-commands:
     # --- Apt cache: persist proxy into the installed system ---
     # Belt-and-suspenders with autoinstall.apt.proxy: subiquity already

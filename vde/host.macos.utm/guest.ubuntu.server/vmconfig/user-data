@@ -30,15 +30,27 @@ autoinstall:
   # exits. Without a reachable cache the whole block stays empty and
   # subiquity fetches direct from Ubuntu mirrors.
   #
-  # Why the Server ISO instead of the Desktop ISO: the Desktop 24.04 arm64
-  # ISO's base image ships /etc/apt/sources.list.d/ubuntu.sources with a
-  # cdrom-only entry, and the cdrom holds no kernel meta-package. curtin's
-  # install_kernel therefore fails with "Unable to locate package
-  # linux-generic[-hwe-24.04]" because the target chroot has no network
-  # source and the cdrom doesn't carry the kernel. The Server ISO ships
-  # a network-configured ubuntu.sources AND linux-generic on the cdrom, so
-  # autoinstall completes cleanly. We bolt ubuntu-desktop on top via the
-  # autoinstall.packages list below — subiquity fetches it through the
+  # Why the Server ISO instead of the Desktop ISO: only the Server ISO ships
+  # linux-generic on the cdrom, so curtin's install_kernel step always succeeds
+  # without network. The Desktop 24.04 arm64 ISO does not, and curtin's
+  # install_kernel fails with "Unable to locate package linux-generic[-hwe-24.04]"
+  # because the target chroot only has cdrom sources by then.
+  #
+  # Caveat: BOTH the Server and Desktop ISOs' base squashfs ship
+  # /etc/apt/sources.list.d/ubuntu.sources with a cdrom-only entry, and
+  # subiquity's apt-config stage only writes the legacy
+  # /etc/apt/sources.list — it does NOT rewrite the deb822 ubuntu.sources
+  # even with apt.preserve_sources_list=false + primary + sources_list.
+  # On noble, apt treats ubuntu.sources as authoritative, so the chroot
+  # never reaches ports.ubuntu.com and subiquity's postinstall
+  # `apt install ubuntu-desktop` fails with "Unable to locate package"
+  # (ubuntu-desktop is NOT on the Server cdrom). The early-commands
+  # block below rewrites ubuntu.sources to ports.ubuntu.com before
+  # postinstall runs — same hook is mirrored in the Desktop user-data
+  # for consistency.
+  #
+  # We bolt ubuntu-desktop on top via the autoinstall.packages list below —
+  # with the sources fix in place, subiquity fetches it through the
   # squid-cache during install, so the first boot lands straight in GDM.
 APT_PROXY_BLOCK_PLACEHOLDER
   locale: en_US.UTF-8
@@ -72,6 +84,50 @@ APT_PROXY_BLOCK_PLACEHOLDER
   # step, so the install runs fully unattended — no "Install" button
   # click or Tab-to-focus dance like the Desktop ISO required.
   interactive-sections: []
+  # Fix /etc/apt/sources.list.d/ubuntu.sources in the target. On noble 24.04.4
+  # BOTH Server and Desktop ISO base squashfs ship this file cdrom-only, and
+  # curtin's apt-config stage does not update the deb822 file (it only touches
+  # the legacy /etc/apt/sources.list). On noble, apt treats ubuntu.sources as
+  # authoritative, so the chroot never sees ports.ubuntu.com and the postinstall
+  # `apt install ubuntu-desktop` fails with "Unable to locate package" (not on
+  # the Server cdrom). See the full diagnosis in the block comment above the
+  # APT_PROXY_BLOCK_PLACEHOLDER line.
+  #
+  # /target doesn't exist at early-commands time (storage + extract happen
+  # later), so this backgrounds a watcher that waits for ubuntu.sources to
+  # appear and overwrites it with ports.ubuntu.com URIs. ~120s covers
+  # extract → curthooks → postinstall on both Apple VZ (UTM) and Hyper-V.
+  # The watcher is idempotent (grep guard skips rewriting once the fix is
+  # in place) so repeated polls don't thrash the file. Kept mirrored in
+  # guest.ubuntu.desktop/vmconfig/user-data for consistency — Desktop's
+  # install-time packages list is cdrom-only today, but the hook future-
+  # proofs any pkg added there, and makes the installed system's
+  # ubuntu.sources actually usable for first-boot apt work regardless of
+  # variant.
+  early-commands:
+    - |
+      nohup bash <<'WATCHER' > /var/log/yuruna-fix-ubuntu-sources.log 2>&1 &
+      TARGET_FILE=/target/etc/apt/sources.list.d/ubuntu.sources
+      for i in $(seq 1 120); do
+        if [ -f "$TARGET_FILE" ] && ! grep -q ports.ubuntu.com "$TARGET_FILE"; then
+          cat > "$TARGET_FILE" << 'SOURCES'
+      Types: deb
+      URIs: http://ports.ubuntu.com/ubuntu-ports/
+      Suites: noble noble-updates noble-backports
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+      Types: deb
+      URIs: http://ports.ubuntu.com/ubuntu-ports/
+      Suites: noble-security
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+      SOURCES
+          echo "$(date -u +%FT%TZ) rewrote $TARGET_FILE"
+        fi
+        sleep 1
+      done
+      WATCHER
   late-commands:
     # --- Apt cache: persist proxy into the installed system ---
     # Belt-and-suspenders with autoinstall.apt.proxy: subiquity already

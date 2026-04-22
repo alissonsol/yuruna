@@ -37,9 +37,11 @@
         yuruna's caching proxy is a developer convenience, not an
         infrastructure change.
       * macOS: networksetup against the auto-detected active network
-        service. Requires `sudo`, because networksetup refuses to mutate
-        system preferences without root. Set-HostProxy throws with a
-        clear message if invoked without root.
+        service. Write calls require root. When invoked as a regular user,
+        Set-HostProxy and Clear-HostProxy cache credentials once via
+        `sudo -v` and then issue each networksetup mutation as
+        `sudo networksetup ...`, so the caller does not need to re-exec
+        the entire script under sudo.
 
     Idempotent: calling Set-HostProxy twice does not re-capture the backup
     (the existing snapshot is preserved, so a double-apply followed by
@@ -332,9 +334,21 @@ function Read-MacProxyState {
     }
 }
 
-function Assert-MacRoot {
-    if ((& id -u).Trim() -ne '0') {
-        throw "Set-HostProxy on macOS requires sudo (networksetup mutates system preferences). Re-run with: sudo -E pwsh ..."
+function Invoke-MacElevationIfNeeded {
+    if ((& '/usr/bin/id' -u).Trim() -eq '0') { return }
+    Write-Output "  macOS networksetup requires root — caching sudo credentials (you may be prompted for your password)..."
+    & sudo -v
+    if ($LASTEXITCODE -ne 0) {
+        throw "sudo -v failed — cannot obtain root for networksetup. Check your sudo configuration."
+    }
+}
+
+function Invoke-MacNetworksetup {
+    param([string[]]$Arguments)
+    if ((& '/usr/bin/id' -u).Trim() -eq '0') {
+        & networksetup @Arguments | Out-Null
+    } else {
+        & sudo networksetup @Arguments | Out-Null
     }
 }
 
@@ -348,11 +362,11 @@ function Set-MacHostProxy {
     if (-not $PSCmdlet.ShouldProcess("macOS networksetup service '$NetworkService'", "Set web/securewebproxy to ${h}:${p} and enable")) {
         return
     }
-    & networksetup -setwebproxy           $NetworkService $h $p | Out-Null
-    & networksetup -setsecurewebproxy     $NetworkService $h $p | Out-Null
-    & networksetup -setwebproxystate      $NetworkService on    | Out-Null
-    & networksetup -setsecurewebproxystate $NetworkService on   | Out-Null
-    & networksetup -setproxybypassdomains $NetworkService localhost 127.0.0.1 '*.local' '169.254/16' '192.168.64.*' | Out-Null
+    Invoke-MacNetworksetup @('-setwebproxy',            $NetworkService, $h, [string]$p)
+    Invoke-MacNetworksetup @('-setsecurewebproxy',      $NetworkService, $h, [string]$p)
+    Invoke-MacNetworksetup @('-setwebproxystate',       $NetworkService, 'on')
+    Invoke-MacNetworksetup @('-setsecurewebproxystate', $NetworkService, 'on')
+    Invoke-MacNetworksetup @('-setproxybypassdomains',  $NetworkService, 'localhost', '127.0.0.1', '*.local', '169.254/16', '192.168.64.*')
 }
 
 function Restore-MacHostProxy {
@@ -364,22 +378,22 @@ function Restore-MacHostProxy {
     $ssl = $State.secureWebProxy
 
     if ($web.Server -and $web.Port) {
-        & networksetup -setwebproxy $svc $web.Server $web.Port | Out-Null
+        Invoke-MacNetworksetup @('-setwebproxy', $svc, [string]$web.Server, [string]$web.Port)
     }
     if ($ssl.Server -and $ssl.Port) {
-        & networksetup -setsecurewebproxy $svc $ssl.Server $ssl.Port | Out-Null
+        Invoke-MacNetworksetup @('-setsecurewebproxy', $svc, [string]$ssl.Server, [string]$ssl.Port)
     }
     $webOn = ($web.Enabled -match '^(Yes|On)$')
     $sslOn = ($ssl.Enabled -match '^(Yes|On)$')
-    & networksetup -setwebproxystate       $svc ($webOn ? 'on' : 'off') | Out-Null
-    & networksetup -setsecurewebproxystate $svc ($sslOn ? 'on' : 'off') | Out-Null
+    Invoke-MacNetworksetup @('-setwebproxystate',       $svc, ($webOn ? 'on' : 'off'))
+    Invoke-MacNetworksetup @('-setsecurewebproxystate', $svc, ($sslOn ? 'on' : 'off'))
 
     # Restore bypass list. `-setproxybypassdomains` with "Empty" as its sole
     # argument clears the list (that's the networksetup convention).
     if ($State.bypassDomains -and $State.bypassDomains.Count -gt 0) {
-        & networksetup -setproxybypassdomains $svc @($State.bypassDomains) | Out-Null
+        Invoke-MacNetworksetup (@('-setproxybypassdomains', $svc) + @($State.bypassDomains))
     } else {
-        & networksetup -setproxybypassdomains $svc "Empty" | Out-Null
+        Invoke-MacNetworksetup @('-setproxybypassdomains', $svc, 'Empty')
     }
 }
 
@@ -387,8 +401,8 @@ function Disable-MacHostProxy {
     param([string]$NetworkService)
     if (-not $NetworkService) { $NetworkService = Get-MacActiveNetworkService }
     if (-not $NetworkService) { return }
-    & networksetup -setwebproxystate       $NetworkService off | Out-Null
-    & networksetup -setsecurewebproxystate $NetworkService off | Out-Null
+    Invoke-MacNetworksetup @('-setwebproxystate',       $NetworkService, 'off')
+    Invoke-MacNetworksetup @('-setsecurewebproxystate', $NetworkService, 'off')
 }
 
 # =========================================================================
@@ -436,7 +450,7 @@ function Set-HostProxy {
     }
 
     if ($IsMacOS) {
-        Assert-MacRoot
+        Invoke-MacElevationIfNeeded
         $svc = if ($NetworkService) { $NetworkService } else { Get-MacActiveNetworkService }
         if (-not $svc) {
             throw "Could not auto-detect the active macOS network service. Pass -NetworkService 'Wi-Fi' (or the name of your active service)."
@@ -494,19 +508,16 @@ function Clear-HostProxy {
         }
     } elseif ($IsMacOS) {
         if ($state) {
-            if ((& id -u).Trim() -ne '0') {
-                throw "Clear-HostProxy on macOS requires sudo to revert networksetup. Re-run with: sudo -E pwsh ..."
-            }
+            Invoke-MacElevationIfNeeded
             Restore-MacHostProxy -State $state
             Write-Output "  Host proxy: macOS proxy state restored on service '$($state.networkService)'"
         } else {
-            # Best-effort disable -- only possible when root
-            if ((& id -u).Trim() -eq '0') {
-                Disable-MacHostProxy
-                Write-Output "  Host proxy: macOS proxy disabled (no backup to restore)"
-            } else {
-                Write-Warning "  Host proxy: no backup found and not running as root; skipping macOS disable. Re-run with sudo if a cleanup is needed."
+            try { Invoke-MacElevationIfNeeded } catch {
+                Write-Warning "  Host proxy: no backup found and could not get sudo ($($_.Exception.Message)); skipping macOS disable."
+                return
             }
+            Disable-MacHostProxy
+            Write-Output "  Host proxy: macOS proxy disabled (no backup to restore)"
         }
     } else {
         Write-Warning "Clear-HostProxy: unsupported platform; nothing to do."

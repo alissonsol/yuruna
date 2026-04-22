@@ -326,9 +326,11 @@ $cachingProxyUrl = Test-CachingProxyAvailable -HostType $HostType
 # (netsh portproxy + firewall rule on Hyper-V; detached TcpListener
 # forwarders on macOS/UTM). No cache: undo any mapping a prior cycle left.
 #
-# Port list @(80, 3128, 3129, 3000) MUST match Start-CachingProxy.ps1 —
-# Add-CachingProxyPortMap runs Clear-AllCachingProxyPortMapping first,
-# so a narrower list at either caller would tear down the other's ports.
+# Windows: port lists across callers MUST match — Add-CachingProxyPortMap
+# runs Clear-AllCachingProxyPortMapping first (netsh), so any omitted port
+# gets torn down. macOS: per-port pidfiles mean callers manage subsets
+# independently. Port 80 (<1024) is excluded on macOS — it is privileged
+# and managed exclusively by Start-CachingProxy.ps1 (see below).
 # Local guests reach the VM directly on its NAT subnet regardless.
 #
 # External-cache branch: when $Env:YURUNA_CACHING_PROXY_IP is set,
@@ -363,7 +365,15 @@ if ($cachingProxyUrl) {
         # the URL already carries the correct VM IP.
         $portMapIp = Get-CachingProxyVMIp -HostType $HostType
         if (-not $portMapIp) { $portMapIp = $vmIp }
-        $CachingProxyExposedPorts = @(80, 3128, 3129, 3000)
+        # On Windows: port 80 is included — netsh portproxy clears ALL ports
+        # at once (Clear-AllCachingProxyPortMapping), so every port the host
+        # should expose must appear in every caller's list.
+        # On macOS: each port is managed independently (per-port pidfile). Port
+        # 80 (<1024) requires root; Start-CachingProxy.ps1 is the only caller
+        # that pre-caches sudo credentials via `sudo -v`. Including port 80 here
+        # would trigger a sudo password prompt every time Invoke-TestRunner
+        # starts. Leave it out — Start-CachingProxy manages :80 exclusively.
+        $CachingProxyExposedPorts = if ($IsMacOS) { @(3128, 3129, 3000) } else { @(80, 3128, 3129, 3000) }
         $mapResult = Add-CachingProxyPortMap -VMIp $portMapIp -Port $CachingProxyExposedPorts
         $mapOk = [bool]$mapResult
         $bestIp = Get-BestHostIp

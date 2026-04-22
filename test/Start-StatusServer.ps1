@@ -383,10 +383,11 @@ try {
             # the same caching-proxy.txt so banner and console stay
             # in lock-step.
             #
-            # Ports @(80, 3128, 3129, 3000) MUST match Invoke-TestRunner
-            # and Start-CachingProxy — Add-CachingProxyPortMap runs
-            # Clear-AllCachingProxyPortMapping first, so a narrower list
-            # here would tear down ports the other callers set up.
+            # Windows: port lists across callers MUST match — Add-CachingProxyPortMap
+            # runs Clear-AllCachingProxyPortMapping first (netsh clears all), so
+            # any port omitted here would be torn down. macOS: per-port pidfiles
+            # mean each caller manages its own subset independently; no match
+            # required. Port 80 is excluded on macOS (see below).
             #
             # External-cache branch: when $Env:YURUNA_CACHING_PROXY_IP
             # is set, Test-CachingProxyAvailable returns the remote URL and
@@ -431,7 +432,13 @@ try {
                     } else {
                         $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
                     }
-                    $squidPorts = @(80, 3128, 3129, 3000)
+                    # macOS: port 80 (<1024) is managed exclusively by
+                    # Start-CachingProxy.ps1 (it calls `sudo -v` first). Including
+                    # it here would trigger a sudo prompt on every status-server
+                    # restart. On macOS each port is independent (per-port pidfile),
+                    # so excluding :80 does not affect the other ports.
+                    # Windows: all ports in one list — netsh clears everything first.
+                    $squidPorts = if ($IsMacOS) { @(3128, 3129, 3000) } else { @(80, 3128, 3129, 3000) }
                     if ($vmIp) {
                         $mapResult = Add-CachingProxyPortMap -VMIp $vmIp -Port $squidPorts
                         $mapOk = [bool]$mapResult

@@ -60,8 +60,26 @@ function Start-LogFile {
     $safeCycleId = $CycleId -replace ':', '-'
     $logFile = Join-Path $logDir "${safeCycleId}.${Hostname}.${GitCommit}.html"
     if ($PSCmdlet.ShouldProcess($logFile, 'Start log file')) {
-        # Write HTML preamble
-        "<html><body><pre>" | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
+        # HTML preamble with cache-control meta tags so the log expires in
+        # the browser after 30s and a hard reload always fetches fresh
+        # content. Status server already sends
+        # `Cache-Control: no-store, no-cache, must-revalidate` as HTTP
+        # headers, but browsers still serve stale pages from bfcache
+        # (back/forward navigation) and some proxies ignore response
+        # headers. Meta tags are advisory but bake the directive into the
+        # file itself so it survives download / mirroring / direct
+        # file:// opens as well.
+        $preamble = @'
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="max-age=30, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Yuruna test-runner log</title>
+</head><body><pre>
+'@
+        $preamble | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
         $global:__YurunaLogFile = $logFile
         # Fallback: import the proxy module if not already loaded
         if (-not (Get-Module yuruna-log)) {

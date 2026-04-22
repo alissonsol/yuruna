@@ -24,9 +24,11 @@
       "description": "HACK: Delay"
     },    
     {
-      "action": "typeAndEnter",
-      "text": "",
-      "description": "HACK: Enter to dismiss empty screen, if it appears."
+      "action": "tabsAndEnter",
+      "tabCount": 1,
+      "delaySeconds": 1,
+       "text": "",
+      "description": "Tab to select and enter"
     },
     {
       "action": "waitForAndClickButton",

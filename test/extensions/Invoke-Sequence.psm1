@@ -2059,12 +2059,27 @@ function Invoke-SequenceByName {
     )
     $sequenceFile = Resolve-SequencePath -SequencesDir $SequencesDir -Name $Name
     if (-not (Test-Path $sequenceFile)) {
-        Write-Warning "[$GuestKey] Sequence file not found, skipping: $sequenceFile"
-        return $true
+        # Missing sequence file is a setup error, not an optional skip.
+        # Previously returned $true here, which let a typo in a sequence
+        # name silently mark the test as passing.
+        Write-Warning "[$GuestKey] Sequence file not found: $sequenceFile"
+        return $false
     }
-    Write-Output "[$GuestKey] Running sequence: $Name on $HostType (VM: $VMName)"
-    Write-Output "    Sequence file: $sequenceFile"
-    return (Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -ShowSensitive:$ShowSensitive)
+    # Informational lines go through Write-Information, NOT Write-Output.
+    # Write-Output emits to the pipeline, and combined with `return (...)`
+    # below it would fold these strings into the caller's `$ok` variable —
+    # turning the boolean into @("Running…", "Sequence file…", $true/$false).
+    # The caller's `$ok -eq $false` still catches an honest $false inside
+    # that array, but a returned $null (e.g. from an unhandled crash path)
+    # would look identical to success. Keep the pipeline clean so the
+    # return is strictly [bool].
+    Write-Information "[$GuestKey] Running sequence: $Name on $HostType (VM: $VMName)" -InformationAction Continue
+    Write-Information "    Sequence file: $sequenceFile" -InformationAction Continue
+    $result = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -ShowSensitive:$ShowSensitive
+    # Normalize: only $true is success. Anything else — $null, objects,
+    # arrays — fails. A sane Invoke-Sequence returns $true / $false and
+    # this is a no-op; a broken one no longer slips past.
+    return ($result -eq $true)
 }
 
 <#
@@ -2104,8 +2119,11 @@ function Invoke-Sequence {
     }
 
     if (-not (Test-Path $SequencePath)) {
-        Write-Information "    No sequence file found: $SequencePath"
-        return $true
+        # Missing sequence file = setup error. Previously returned $true
+        # (silent skip), which masked sequence-name typos and bad mode
+        # resolution as test successes.
+        Write-Warning "    Sequence file not found: $SequencePath"
+        return $false
     }
 
     # Initialize logDir + trackDir early so the catch block can write
@@ -2430,7 +2448,10 @@ function Invoke-Sequence {
             }
             "waitForHeartbeat" {
                 if ($HostType -ne "host.windows.hyper-v") {
-                    Write-Debug "      waitForHeartbeat is Hyper-V only. Skipping."
+                    # Surface the skip at step level (not just Debug) so the
+                    # step-completion line shows PASS (skipped) rather than
+                    # implying the gate actually ran.
+                    Write-Information "      waitForHeartbeat is Hyper-V-only — skipping on $HostType."
                 } else {
                     $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : 300
                     $ok = Wait-ForHeartbeat -VMName $VMName -TimeoutSeconds $timeout
@@ -2517,18 +2538,36 @@ function Invoke-Sequence {
                 }
             }
             default {
-                Write-Warning "Unknown action: $($step.action)"
+                # Unknown action = hard fail. Previously this was a warning-only
+                # no-op, which silently passed the step (since $ok stayed $true
+                # from the per-step default). A typo in a sequence JSON — e.g.
+                # "waitForClick" instead of "waitForAndClickButton" — would then
+                # march the sequence forward without running the intended gate.
+                Write-Warning "Unknown action '$($step.action)' — treating as failure."
+                $ok = $false
             }
         }
         } finally {
             $global:ProgressPreference = $savedProgress
         }
 
+        # Normalize $ok. Anything that isn't a strict [bool] — $null, an
+        # accidentally-polluted pipeline array, a string, an exception object
+        # wrapped by a catch — is treated as failure. Without this, helpers
+        # that forget to `return $true`/`return $false` (or that leak a stray
+        # Write-Output) silently pass the step despite a timeout.
+        if ($ok -isnot [bool]) {
+            $okType = if ($null -eq $ok) { '<null>' } else { $ok.GetType().Name }
+            Write-Warning "    Step [$stepNum] action '$($step.action)' returned a non-boolean ($okType) — treating as failure."
+            $ok = $false
+        }
+
         $stepStopwatch.Stop()
         $elapsedLabel = ("    {0,4}" -f [int]$stepStopwatch.Elapsed.TotalSeconds)
-        Write-Information "$elapsedLabel s [$stepNum/$($steps.Count)] $($step.action): $desc"
+        $stepMarker   = if ($ok) { 'PASS' } else { 'FAIL' }
+        Write-Information "$elapsedLabel s [$stepNum/$($steps.Count)] $stepMarker $($step.action): $desc"
 
-        if ($ok -eq $false) {
+        if (-not $ok) {
             Write-Warning "    Step [$stepNum] failed: $desc"
 
             # Write failure details to YurunaLog for the parent runner to pick up

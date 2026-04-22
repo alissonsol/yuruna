@@ -149,7 +149,7 @@ function Start-CachingProxyForwarder {
     # detached subprocess can bind the port without an interactive tty prompt.
     # sudo exec's pwsh (no fork), so the pidfile PID matches the sudo PID.
     $isRoot = $false
-    try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+    try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
     $needsSudo = ($Port -lt 1024) -and (-not $isRoot)
 
     # If the privileged forwarder is already running (root-owned, started by
@@ -268,7 +268,7 @@ function Stop-CachingProxyForwarder {
     # cannot signal it — detect and escalate via sudo kill if needed.
     $procOwner = (& '/bin/ps' -p $forwarderPid -o 'user=' 2>$null).Trim()
     $meIsRoot  = $false
-    try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+    try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
     $useSudo   = ($procOwner -eq 'root') -and (-not $meIsRoot)
     if ($useSudo) {
         & sudo '/bin/kill' $forwarderPid 2>$null | Out-Null

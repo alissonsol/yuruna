@@ -89,7 +89,7 @@ if ($IsMacOS) {
         $stateDir = Join-Path $HOME "virtual/squid-cache"
         $hasRootForwarder = $false
         $meIsRoot = $false
-        try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+        try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
         if (-not $meIsRoot -and (Test-Path $stateDir)) {
             foreach ($pf in (Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue)) {
                 $fp = (Get-Content $pf.FullName -Raw).Trim()

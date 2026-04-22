@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc01234567a0
 .AUTHOR Alisson Sol

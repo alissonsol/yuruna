@@ -272,7 +272,7 @@ if ($IsMacOS) {
         # now so the spawn can succeed without an interactive tty prompt.
         if ($IsMacOS) {
             $isRoot = $false
-            try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+            try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
             if (-not $isRoot) {
                 Write-Output "  Port 80 requires root — caching sudo credentials (you may be prompted for your password)..."
                 & sudo -v

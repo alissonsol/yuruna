@@ -2,35 +2,35 @@
   "$schema": "Interaction sequence for driving VM installation.",
   "$actions": "See possible actions in the actions.json file",
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
-
   "description": "Ubuntu Desktop: dismiss GRUB menu, confirm desktop installer, wait for install + reboot, then complete first login.",
   "variables": {
-    "username":    "ubuntu",
-    "password":    "password",
+    "username": "ubuntu",
+    "password": "password",
     "newPassword": "belohorizonte"
   },
   "steps": [
     {
-      "action": "waitForAndEnter",
+      "action": "waitForText",
       "pattern": "Try or Install Ubuntu",
       "timeoutSeconds": 600,
       "pollSeconds": 6,
-      "text": "",
-      "description": "Try or Install Ubuntu"
+      "description": "Wait for GRUB menu"
     },
     {
-      "action": "delay",
-      "seconds": 15,
-      "description": "HACK: Delay"
-    },    
+      "action": "key",
+      "name": "Down",
+      "description": "Select Ubuntu (safe graphics)"
+    },
     {
-      "action": "typeAndEnter",
-      "text": "",
-      "description": "HACK: Enter to dismiss empty screen, if it appears."
+      "action": "Enter",
+      "name": "Down",
+      "description": "Proceed"
     },
     {
       "action": "waitForAndClickButton",
-      "label": ["Ready to install"],
+      "label": [
+        "Ready to install"
+      ],
       "timeoutSeconds": 600,
       "pollSeconds": 9,
       "description": "Wait for Ready to install dialog"
@@ -39,7 +39,7 @@
       "action": "tabsAndEnter",
       "tabCount": 2,
       "delaySeconds": 1,
-       "text": "",
+      "text": "",
       "description": "Tab to Install button and enter"
     },
     {
@@ -61,7 +61,10 @@
     },
     {
       "action": "waitForAndEnter",
-      "pattern": ["Current password", "urrent password"],
+      "pattern": [
+        "Current password",
+        "urrent password"
+      ],
       "timeoutSeconds": 60,
       "pollSeconds": 3,
       "text": "${password}",

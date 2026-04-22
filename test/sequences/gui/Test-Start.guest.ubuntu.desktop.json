@@ -20,7 +20,7 @@
     },
     {
       "action": "delay",
-      "seconds": 15,
+      "seconds": 55,
       "description": "HACK: Delay"
     },    
     {

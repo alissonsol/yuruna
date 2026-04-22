@@ -22,8 +22,8 @@
       "description": "Select Ubuntu (safe graphics)"
     },
     {
-      "action": "Enter",
-      "name": "Down",
+      "action": "key",
+      "name": "Enter",
       "description": "Proceed"
     },
     {

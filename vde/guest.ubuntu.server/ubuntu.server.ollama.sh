@@ -45,8 +45,7 @@ echo -e "\e[1;32m<<< Model pull complete.\e[0m"
 
 echo ""
 echo -e "\e[1;36m>>> Verifying Ollama is working...\e[0m"
-RESPONSE=$(ollama run phi3:mini "In one sentence, what causes network packet loss?" 2>/dev/null)
-echo "Test response: $RESPONSE"
+ollama run phi3:mini "In one sentence, what causes network packet loss?"
 echo -e "\e[1;32m<<< Ollama verification complete.\e[0m"
 
 echo ""

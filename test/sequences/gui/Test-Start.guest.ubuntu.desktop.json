@@ -22,9 +22,19 @@
       "description": "Select Ubuntu (safe graphics)"
     },
     {
-      "action": "key",
-      "name": "Enter",
-      "description": "Proceed"
+      "action": "typeAndEnter",
+      "text": " ",
+      "description": "Ubuntu (safe graphics)"
+    },
+    {
+      "action": "delay",
+      "seconds": 55,
+      "description": "HACK: Empty screen"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": " ",
+      "description": "HACK: Empty screen"
     },
     {
       "action": "waitForAndClickButton",

@@ -34,7 +34,7 @@ next:
 
 ## CLI entry points
 
-Run any of these from the `examples/` or `projects/` folder (after
+Run any of these from a project folder under `projects/` (after
 `./Add-AutomationToPath.ps1`):
 
 ```powershell
@@ -55,8 +55,9 @@ a one-time auth step (`az login`, `aws configure`, `gcloud auth …`) — see
 yuruna/
 ├── automation/         # Set-*, Test-*, yuruna-* PowerShell modules
 ├── global/resources/   # OpenTofu templates per cloud
-├── examples/           # Reference projects (website)
-├── projects/           # Your projects (template/ as scaffold)
+├── projects/           # Your projects
+│   ├── examples/       # Reference projects (website)
+│   └── template/       # Scaffold for a new project
 ├── docs/               # User-facing documentation
 ├── virtual/            # VDE host/guest scripts and docs
 └── test/               # Continuous test harness

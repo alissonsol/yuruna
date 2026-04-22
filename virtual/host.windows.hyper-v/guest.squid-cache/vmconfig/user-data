@@ -37,13 +37,14 @@ packages:
   # mod_cgi). Low-overhead fallback to the Prometheus+Grafana UI for raw
   # cachemgr queries.
   - squid-cgi
-  # squid-cli provides /usr/bin/squidclient for cache-manager queries and
-  # on-demand purges:
-  #   squidclient -m PURGE http://<origin>:<port>/<path>
-  # A paired PURGE ACL in yuruna.conf below allows RFC1918 sources. On
-  # Ubuntu Noble squidclient moved into squid-cli (split out of squid in
-  # 24.04); squidclient/squid3 names are jammy/focal only.
-  - squid-cli
+  # squidclient (/usr/bin/squidclient) — cache-manager queries + PURGE.
+  # Ships in squid-common, which squid-openssl already pulls in, so no
+  # additional package needed. A previous entry `- squid-cli` was based
+  # on a wrong assumption (no such package on noble): cloud-init's
+  # dpkg-verify post-install check raised, marking the packages module
+  # as failed and leaving `cloud-init status` in `error` for the lifetime
+  # of the instance. From any RFC1918 host:
+  #   curl -x http://<cache>:3128 -X PURGE http://<origin>:<port>/<path>
   - apache2
   # Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301);
   # Grafana on :3000 (anonymous Viewer). squid-exporter has no apt package
@@ -411,12 +412,21 @@ write_files:
         ]
       }
 runcmd:
-  # cache_dir needs the store initialized before squid will start. apt's
-  # postinst runs swap-state init, but re-running is idempotent and guards
-  # against our write_files dropping in a different cache_dir size than
-  # the package default.
-  - systemctl stop squid
-  - squid -z -N || true
+  # Stop the squid that apt's postinst attempted to start — it is either
+  # already FATAL (write_files dropped /etc/squid/conf.d/yuruna.conf with
+  # `tls-cert=/etc/squid/ssl_cert/ca.pem` referenced before we generate
+  # that cert below) or running with a partial/default config. Stopping
+  # here lets the SSL-bump bootstrap + `systemctl start squid` later in
+  # runcmd come up cleanly on the final config.
+  #
+  # Note: we intentionally do NOT run `squid -z -N` here. An earlier
+  # revision did, on the theory that pre-initializing the swap dirs
+  # would speed up first start — but `squid -z` also parses the full
+  # config (including yuruna.conf), which FATALs on the missing ca.pem
+  # and exits without touching /var/spool/squid. squid then initializes
+  # the swap dirs on its first real start anyway, so the pre-init was
+  # dead code that only polluted the log with a scary FATAL.
+  - systemctl stop squid || true
   # --- SSL-bump bootstrap: self-signed CA + per-hostname cert DB for
   # sslcrtd to mint leaf certs on the fly. Both steps idempotent (file/dir
   # checks) so a cloud-init re-run doesn't rotate the CA — rotating would

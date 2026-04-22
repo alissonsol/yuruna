@@ -52,23 +52,23 @@ fi
 
 # Run Set-Resource
 echo "==== Set-Resource ===="
-cd "$REAL_HOME/yuruna/examples"
-pwsh ../automation/Set-Resource.ps1 website localhost
+cd "$REAL_HOME/yuruna/projects/examples"
+pwsh ../../automation/Set-Resource.ps1 website localhost
 
 # Rename kubectl context to match runId
-CONTEXT=$(grep 'clusterDnsPrefix' "$REAL_HOME/yuruna/examples/website/config/localhost/resources.output.yml" | awk '{print $2}' | tr -d '"')
+CONTEXT=$(grep 'clusterDnsPrefix' "$REAL_HOME/yuruna/projects/examples/website/config/localhost/resources.output.yml" | awk '{print $2}' | tr -d '"')
 kubectl config rename-context docker-desktop "localhost-${CONTEXT}" 2>/dev/null || true
 
 # Build and push Docker image
-cd "$REAL_HOME/yuruna/examples/website/components/frontend/website"
+cd "$REAL_HOME/yuruna/projects/examples/website/components/frontend/website"
 cp "$REAL_HOME/.aspnet/https/aspnetapp.pfx" .
 docker build --progress=plain --rm --build-arg DEV=1 --no-cache -f Dockerfile -t "website/website:latest" .
 docker tag website/website:latest localhost:5000/website/website:latest
 docker push localhost:5000/website/website:latest
 
 # Run Set-Component and Set-Workload
-cd "$REAL_HOME/yuruna/examples"
+cd "$REAL_HOME/yuruna/projects/examples"
 echo "==== Set-Component ===="
-pwsh ../automation/Set-Component.ps1 website localhost
+pwsh ../../automation/Set-Component.ps1 website localhost
 echo "==== Set-Workload ===="
-pwsh ../automation/Set-Workload.ps1 website localhost
+pwsh ../../automation/Set-Workload.ps1 website localhost

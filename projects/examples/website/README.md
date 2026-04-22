@@ -6,7 +6,7 @@ A simple .NET C# website container deployed to Kubernetes.
 
 Before deploying, search for `TO-SET` in `config/<cloud>/*.yml` and fill
 the required values (see [Cloud](#cloud) below). Read the Connectivity
-section of [FAQ](../../docs/faq.md) first.
+section of [FAQ](../../../docs/faq.md) first.
 
 From the `automation/` folder (in `pwsh`):
 
@@ -16,7 +16,7 @@ Set-Component.ps1 website localhost
 Set-Workload.ps1  website localhost
 ```
 
-See [../../CODE.md](../../CODE.md) for the three-phase model and CLI
+See [../../../CODE.md](../../../CODE.md) for the three-phase model and CLI
 entry points.
 
 ## What this project contains
@@ -56,4 +56,4 @@ output. Alternatives:
 - Re-running `workloads` may drop the IP; lock the resource as
   described in [this issue](https://stackoverflow.com/questions/66435282/how-to-make-azure-not-delete-public-ip-when-deleting-service-ingress-controlle).
 
-Back to [[Yuruna](../../README.md)] or [[Examples](../README.md)].
+Back to [[Yuruna](../../../README.md)] or [[Examples](../README.md)].

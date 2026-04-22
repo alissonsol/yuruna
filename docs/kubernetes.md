@@ -35,7 +35,7 @@ Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
 Deploy:
 
 ```powershell
-cd examples
+cd projects/examples
 Set-Resource.ps1  website localhost -debug_mode $true -verbose_mode $true
 Test-Runtime.ps1
 Set-Component.ps1 website localhost -debug_mode $true -verbose_mode $true
@@ -69,6 +69,6 @@ Details, service accounts, and API enablement: [authenticate.md](authenticate.md
 
 - [Requirements](requirements.md) · [Authentication](authenticate.md) ·
   [Syntax](syntax.md) · [FAQ](faq.md) · [Cleanup](cleanup.md)
-- [Website example](../examples/website/) · [Contributing](contributing.md) ·
+- [Website example](../projects/examples/website/) · [Contributing](contributing.md) ·
   [Contributors](contributors.md) · [References](references.md)
 - [Yuruna YouTube channel](https://www.youtube.com/channel/UCl36lZ2MwZ0f6_QAUOmGNDw)

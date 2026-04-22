@@ -38,6 +38,22 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
+# macOS: Start-CachingProxy always runs as root (port 80 forwarder is
+# privileged). Mirror that here so we can kill root-owned forwarder
+# processes and undo system proxy settings that networksetup requires
+# root for. -E preserves the caller's environment across the boundary.
+if ($IsMacOS) {
+    $isRoot = $false
+    try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+    if (-not $isRoot) {
+        Write-Output "Stop-CachingProxy requires root on macOS — re-launching under sudo (you may be prompted for your password)..."
+        $psArgs = [System.Collections.Generic.List[string]]@('-NoProfile', '-File', $PSCommandPath)
+        if ($PSBoundParameters.ContainsKey('VMName')) { [void]$psArgs.Add($VMName) }
+        & sudo -E pwsh @psArgs
+        exit $LASTEXITCODE
+    }
+}
+
 # === Revert machine-wide host proxy (if it was promoted) ===================
 # Symmetric with Test-CachingProxy.ps1 -SetHostProxy. Runs UNCONDITIONALLY:
 # the module's Clear-HostProxy restores from $HOME/.yuruna/host-proxy.backup.json
@@ -45,25 +61,11 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 # so calling it here is safe even if -SetHostProxy was never used. Done
 # first so a failure tearing down the VM doesn't leave the host pointing at
 # a dead proxy for the rest of the session.
-#
-# macOS gotcha: Clear-HostProxy throws without sudo when a backup exists,
-# because networksetup refuses to mutate system prefs as a regular user.
-# Warning-and-continuing (the prior behavior) leaves the system proxy
-# pointing at a freshly-deleted VM -- the next Test-CachingProxy cycle
-# against a DIFFERENT cache IP then fails its CA-cert fetch because
-# Invoke-WebRequest still routes through the dead proxy. Detect that
-# specific state up front and FAIL before teardown, so the user gets
-# "re-run with sudo" instead of a silently half-completed cycle.
+# On macOS networksetup requires root — the sudo preamble above guarantees
+# we are already elevated by the time this runs.
 $hostProxyMod = Join-Path $PSScriptRoot 'modules/Test.HostProxy.psm1'
 if (Test-Path -LiteralPath $hostProxyMod) {
     Import-Module $hostProxyMod -Force
-    if ($IsMacOS) {
-        $backupPath = Get-HostProxyBackupPath
-        if ((Test-Path -LiteralPath $backupPath) -and ((& id -u).Trim() -ne '0')) {
-            Write-Error "Stop-CachingProxy on macOS needs sudo to revert the promoted host proxy at '$backupPath' via networksetup. Re-run with: sudo -E pwsh test/Stop-CachingProxy.ps1"
-            exit 1
-        }
-    }
     try {
         Clear-HostProxy
     } catch {

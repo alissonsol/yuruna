@@ -39,6 +39,22 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
+# macOS: port 80 (Apache CA-cert forwarder) is privileged and requires root.
+# Re-exec the whole script under `sudo -E pwsh` so :80 is exposed instead
+# of skipped with a warning. -E preserves the caller's environment
+# (YURUNA_* vars, HOME, etc.) across the privilege boundary.
+if ($IsMacOS) {
+    $isRoot = $false
+    try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+    if (-not $isRoot) {
+        Write-Output "Port 80 requires root on macOS — re-launching under sudo (you may be prompted for your password)..."
+        $psArgs = [System.Collections.Generic.List[string]]@('-NoProfile', '-File', $PSCommandPath)
+        if ($PSBoundParameters.ContainsKey('VMName')) { [void]$psArgs.Add($VMName) }
+        & sudo -E pwsh @psArgs
+        exit $LASTEXITCODE
+    }
+}
+
 # Repo root sits one level above test/.
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 

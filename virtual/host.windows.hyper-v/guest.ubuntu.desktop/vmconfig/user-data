@@ -195,6 +195,15 @@ APT_PROXY_BLOCK_PLACEHOLDER
       idle-activation-enabled=false
       DCONF
     - curtin in-target --target=/target -- dconf update
+    # --- GRUB: nomodeset to prevent blank-screen-on-reboot (x86_64 KMS race) ---
+    # On x86_64/Hyper-V, the simpledrm -> hyperv_drm KMS handoff races
+    # intermittently (LP #2064815). Apply nomodeset at install time so the
+    # FIRST installed boot is already safe. ubuntu.desktop.update.sh is idempotent.
+    - |
+      if [ -f /target/etc/default/grub ] && ! grep -q 'nomodeset' /target/etc/default/grub; then
+        sed -i -E 's|^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"|GRUB_CMDLINE_LINUX_DEFAULT="\1 nomodeset"|; s|="  *|="|' /target/etc/default/grub
+        curtin in-target --target=/target -- update-grub
+      fi
     # --- System: denylist hv_balloon to prevent console messages ---
     - |
       cat > /target/etc/modprobe.d/denylist-hv-balloon.conf << 'MODPROBE'

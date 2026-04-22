@@ -11,6 +11,16 @@
   },
   "steps": [
     {
+      "action": "delay",
+      "seconds": 15,
+      "description": "HACK: Delay after reboot to let GDM initialize before OCR polling starts"
+    },
+    {
+      "action": "typeAndEnter",
+      "text": "",
+      "description": "HACK: Enter to dismiss blank screen if virtio-gpu/simpledrm handoff left display dark"
+    },
+    {
       "action": "waitForAndEnter",
       "pattern": "Not listed?",
       "timeoutSeconds": 600,

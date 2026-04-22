@@ -23,25 +23,34 @@ case "$ARCH" in
     ;;
 esac
 
-# ===== Disable KMS to prevent Hyper-V black-screen-on-reboot =====
-# Ubuntu LP #2064815 / #2063143: on Hyper-V Gen 2, the simpledrm (UEFI
-# framebuffer) -> hyperv_drm handoff race intermittently leaves the
-# guest with a dead console on a later reboot -- both GUI and tty3 are
-# wedged because simpledrm still owns the console when GDM grabs DRM
-# master. As of 2026-04 there is no released kernel fix (HWE 6.11 on
-# 24.04.3 does NOT resolve it; the bug is Confirmed, unassigned on
-# Launchpad). nomodeset skips KMS entirely so hyperv_drm never loads
-# and the race can't happen. vmconnect reads via Hyper-V's synthetic
-# video channel independently of the guest's KMS driver, so the
+# ===== Disable KMS to prevent blank-screen-on-reboot =====
+# Ubuntu LP #2064815 / #2063143: the simpledrm (UEFI framebuffer) -> DRM
+# driver handoff race intermittently leaves the guest with a dead console on
+# a later reboot -- both GUI and tty3 are wedged because simpledrm still owns
+# the console when GDM grabs DRM master.
+#
+# On x86_64 (Hyper-V): the racing driver is hyperv_drm. As of 2026-04 there
+# is no released kernel fix (HWE 6.11 on 24.04.3 does NOT resolve it; the
+# bug is Confirmed, unassigned on Launchpad). vmconnect reads via Hyper-V's
+# synthetic video channel independently of the guest's KMS driver, so the
 # console OCR path the harness relies on still works on efifb.
+#
+# On aarch64 (UTM / Apple Virtualization): the racing driver is virtio-gpu.
+# The Apple VZ framework does not fully reinitialize the virtio-gpu device
+# during a warm guest reboot, so the simpledrm -> virtio-gpu handoff fails
+# intermittently. UTM renders via the VZ display API, which is independent
+# of the guest's KMS driver, so the harness OCR path still works on efifb.
+#
+# nomodeset skips KMS entirely on both architectures so the racing DRM
+# driver never loads and the handoff race cannot occur.
 #
 # Supersedes an earlier attempt that only pinned the framebuffer
 # resolution via video=hyperv_fb:1920x1080 -- that kept hyperv_drm
 # loaded, so the handoff race still triggered. The stale parameter is
 # stripped below if still present in an existing /etc/default/grub.
-if [ "$ARCH" = "x86_64" ] && [ -f /etc/default/grub ]; then
+if [ -f /etc/default/grub ]; then
   echo ""
-  echo -e "\e[1;36m>>> Configuring GRUB to prevent Hyper-V black-screen-on-reboot (nomodeset)...\e[0m"
+  echo -e "\e[1;36m>>> Configuring GRUB to prevent blank-screen-on-reboot (nomodeset)...\e[0m"
   changed=0
   if grep -q 'video=hyperv_fb' /etc/default/grub; then
     sudo sed -i -E 's| *video=hyperv_fb:[^ "]*||g' /etc/default/grub
@@ -55,7 +64,7 @@ if [ "$ARCH" = "x86_64" ] && [ -f /etc/default/grub ]; then
   fi
   if [ $changed -eq 1 ]; then
     sudo update-grub
-    echo -e "\e[1;32m<<< GRUB updated. Next reboot will not load hyperv_drm.\e[0m"
+    echo -e "\e[1;32m<<< GRUB updated. Next reboot will not load the KMS driver.\e[0m"
   else
     echo "GRUB already configured; skipping."
   fi

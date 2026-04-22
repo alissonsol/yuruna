@@ -43,6 +43,15 @@ function Start-UtmVM {
     }
     try {
         if ($PSCmdlet.ShouldProcess($VMName, 'Start UTM VM')) {
+            # Delete any saved vmstate before starting. Apple Virtualization Framework
+            # resumes from vmstate if present (instead of cold-booting), which can leave
+            # the display in an inconsistent state and produce a blank screen after a
+            # prior reboot cycle that UTM interrupted mid-flight.
+            $vmstatePath = Join-Path $utmBundle "Data/vmstate"
+            if (Test-Path $vmstatePath) {
+                Remove-Item -LiteralPath $vmstatePath -Force -ErrorAction SilentlyContinue
+                Write-Output "  Removed stale vmstate for '$VMName' — forcing cold boot."
+            }
             & open "$utmBundle"
             Start-Sleep -Seconds 5
             & utmctl start "$VMName" 2>&1 | Write-Output
@@ -216,28 +225,45 @@ function Confirm-HyperVVMStarted {
 
 <#
 .SYNOPSIS
-    Closes and reopens the vmconnect window for a Hyper-V VM.
-    After a host reboot the console window sometimes fails to repaint;
-    reconnecting forces a full framebuffer refresh.
-    No-op on non-Hyper-V hosts.
+    Refreshes the VM display connection to recover from a blank screen.
+
+    Hyper-V: closes and reopens the vmconnect window, forcing a full
+    framebuffer refresh. After a host reboot vmconnect sometimes fails to
+    repaint; reconnecting fixes it.
+
+    UTM (macOS): activates the UTM application via AppleScript, which
+    forces the display window to the front and triggers a Metal repaint.
+    This is a best-effort nudge; the authoritative fix for the
+    simpledrm -> virtio-gpu KMS race is nomodeset in the guest GRUB config
+    (applied by ubuntu.desktop.update.sh).
 #>
 function Restart-VMConnect {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$HostType, [string]$VMName)
-    if ($HostType -ne "host.windows.hyper-v") { return }
-    $vmconnect = "$env:SystemRoot\System32\vmconnect.exe"
-    if (-not (Test-Path $vmconnect)) { return }
 
-    if ($PSCmdlet.ShouldProcess($VMName, 'Reconnect vmconnect')) {
-        # Close any existing vmconnect window for this VM
-        Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
-            Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
-        # Reopen the console
-        Start-Process -FilePath $vmconnect -ArgumentList "localhost", $VMName
-        Start-Sleep -Seconds 2
-        Write-Information "    Reconnected vmconnect for '$VMName'"
+    switch ($HostType) {
+        "host.macos.utm" {
+            if (-not $PSCmdlet.ShouldProcess($VMName, 'Activate UTM display window')) { return }
+            # Bring UTM to the foreground. This forces the SwiftUI Metal view
+            # to repaint, which recovers a stale framebuffer after a guest reboot.
+            & osascript -e 'tell application "UTM" to activate' 2>&1 | Out-Null
+            Start-Sleep -Seconds 1
+            Write-Information "    Activated UTM window for '$VMName' (display repaint)"
+        }
+        "host.windows.hyper-v" {
+            $vmconnect = "$env:SystemRoot\System32\vmconnect.exe"
+            if (-not (Test-Path $vmconnect)) { return }
+            if (-not $PSCmdlet.ShouldProcess($VMName, 'Reconnect vmconnect')) { return }
+            # Close any existing vmconnect window for this VM
+            Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+                Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+                Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+            # Reopen the console
+            Start-Process -FilePath $vmconnect -ArgumentList "localhost", $VMName
+            Start-Sleep -Seconds 2
+            Write-Information "    Reconnected vmconnect for '$VMName'"
+        }
     }
 }
 

@@ -406,7 +406,7 @@ function Get-BestHostIp {
             if ($line -match 'interface:\s*(\S+)') { $iface = $matches[1]; break }
         }
         if (-not $iface) { return $null }
-        $ip = (& '/usr/sbin/ipconfig' getifaddr $iface 2>$null).Trim()
+        $ip = "$( & '/usr/sbin/ipconfig' getifaddr $iface 2>$null )".Trim()
         if ($ip -match '^\d+\.\d+\.\d+\.\d+$') { return $ip }
         return $null
     }

@@ -168,8 +168,8 @@ function Start-CachingProxyForwarder {
     try {
         $proc = Start-Process -FilePath $spawnFile `
             -ArgumentList $spawnArgs `
-            -RedirectStandardOutput "$stateDir/forwarder.stdout.log" `
-            -RedirectStandardError  "$stateDir/forwarder.stderr.log" `
+            -RedirectStandardOutput "$stateDir/forwarder.$Port.stdout.log" `
+            -RedirectStandardError  "$stateDir/forwarder.$Port.stderr.log" `
             -PassThru
     } catch {
         Write-Warning "Failed to spawn forwarder: $($_.Exception.Message)"
@@ -266,7 +266,7 @@ function Stop-CachingProxyForwarder {
     # graceful shutdown — hence the external binary for TERM-then-KILL.
     # Port 80's forwarder is root-owned (spawned via sudo); a regular user
     # cannot signal it — detect and escalate via sudo kill if needed.
-    $procOwner = (& '/bin/ps' -p $forwarderPid -o 'user=' 2>$null).Trim()
+    $procOwner = "$( & '/bin/ps' -p $forwarderPid -o 'user=' 2>$null )".Trim()
     $meIsRoot  = $false
     try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
     $useSudo   = ($procOwner -eq 'root') -and (-not $meIsRoot)

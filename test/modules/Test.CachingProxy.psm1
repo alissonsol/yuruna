@@ -192,7 +192,9 @@ function Get-CachingProxyVMIp {
 
     $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
     if (-not (Test-Path $cacheIpFile)) { return $null }
-    $ip = (Get-Content $cacheIpFile -Raw -ErrorAction SilentlyContinue).Trim()
+    $raw = Get-Content $cacheIpFile -Raw -ErrorAction SilentlyContinue
+    if (-not $raw) { return $null }
+    $ip = $raw.Trim()
     if ($ip -match '^\d+\.\d+\.\d+\.\d+$') { return $ip }
     return $null
 }

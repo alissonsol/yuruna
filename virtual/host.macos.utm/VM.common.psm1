@@ -144,9 +144,19 @@ function Start-CachingProxyForwarder {
         '-PidFile', $pidFile,
         '-LogFile', $logFile
     )
+    # Ports below 1024 need root on macOS. Spawn via `sudo -E pwsh` when not
+    # already root; the caller pre-caches credentials via `sudo -v` so the
+    # detached subprocess can bind the port without an interactive tty prompt.
+    # sudo exec's pwsh (no fork), so the pidfile PID matches the sudo PID.
+    $isRoot = $false
+    try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+    $needsSudo = ($Port -lt 1024) -and (-not $isRoot)
+    $spawnFile = if ($needsSudo) { 'sudo' } else { 'pwsh' }
+    $spawnArgs = if ($needsSudo) { @('-E', 'pwsh') + $procArgs } else { $procArgs }
+
     try {
-        $proc = Start-Process -FilePath 'pwsh' `
-            -ArgumentList $procArgs `
+        $proc = Start-Process -FilePath $spawnFile `
+            -ArgumentList $spawnArgs `
             -RedirectStandardOutput "$stateDir/forwarder.stdout.log" `
             -RedirectStandardError  "$stateDir/forwarder.stderr.log" `
             -PassThru
@@ -243,7 +253,17 @@ function Stop-CachingProxyForwarder {
     # /bin/kill sends SIGTERM (default). PowerShell 7's Stop-Process on
     # Unix maps to Process.Kill() == SIGKILL unconditionally, bypassing
     # graceful shutdown — hence the external binary for TERM-then-KILL.
-    & '/bin/kill' $forwarderPid 2>$null | Out-Null
+    # Port 80's forwarder is root-owned (spawned via sudo); a regular user
+    # cannot signal it — detect and escalate via sudo kill if needed.
+    $procOwner = (& '/bin/ps' -p $forwarderPid -o 'user=' 2>$null).Trim()
+    $meIsRoot  = $false
+    try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+    $useSudo   = ($procOwner -eq 'root') -and (-not $meIsRoot)
+    if ($useSudo) {
+        & sudo '/bin/kill' $forwarderPid 2>$null | Out-Null
+    } else {
+        & '/bin/kill' $forwarderPid 2>$null | Out-Null
+    }
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Milliseconds 100
         & '/bin/ps' -p $forwarderPid -o pid= 2>$null | Out-Null
@@ -253,7 +273,11 @@ function Stop-CachingProxyForwarder {
         }
     }
     if (-not $Quiet) { Write-Warning "Forwarder $forwarderPid did not exit after SIGTERM — sending SIGKILL." }
-    & '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
+    if ($useSudo) {
+        & sudo '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
+    } else {
+        & '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
+    }
     Start-Sleep -Milliseconds 200
     Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
     return $true

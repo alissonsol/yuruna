@@ -233,23 +233,11 @@ function Add-CachingProxyPortMap {
             return $null
         }
         Import-Module $macModule -Force
-        # Privileged ports (<1024) on macOS can only be bound by root — a
-        # user-scope pwsh TcpListener on :80 fails with EACCES. The CA-cert
-        # Apache listener is on :80 by convention (and guest user-data hard-
-        # codes /yuruna-squid-ca.crt without a port), so remote clients that
-        # need HTTPS caching require :80 forwarded. If we're not root we
-        # skip that port with a clear message and keep the unprivileged
-        # forwarders (:3128, :3129, :3000) running — HTTP caching still
-        # works, only HTTPS caching for remote clients is lost until the
-        # operator re-runs Start-CachingProxy.ps1 under sudo.
-        $isRoot = $false
-        try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { $isRoot = $false }
+        # Privileged ports (<1024) are handled inside Start-CachingProxyForwarder
+        # via `sudo -E pwsh` — the caller (Start-CachingProxy.ps1) pre-caches
+        # credentials with `sudo -v` before reaching here.
         $launched = @()
         foreach ($p in $Port) {
-            if ($p -lt 1024 -and -not $isRoot) {
-                Write-Warning "Add-CachingProxyPortMap: port ${p} is privileged on macOS; skipping. Re-run under sudo to expose it to remote clients."
-                continue
-            }
             if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${p} -> ${VMIp}:${p}", 'Launch macOS squid forwarder')) { continue }
             if (Start-CachingProxyForwarder -CacheIp $VMIp -Port $p) { $launched += $p }
         }

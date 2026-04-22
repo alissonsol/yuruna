@@ -39,22 +39,6 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
-# macOS: port 80 (Apache CA-cert forwarder) is privileged and requires root.
-# Re-exec the whole script under `sudo -E pwsh` so :80 is exposed instead
-# of skipped with a warning. -E preserves the caller's environment
-# (YURUNA_* vars, HOME, etc.) across the privilege boundary.
-if ($IsMacOS) {
-    $isRoot = $false
-    try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
-    if (-not $isRoot) {
-        Write-Output "Port 80 requires root on macOS — re-launching under sudo (you may be prompted for your password)..."
-        $psArgs = [System.Collections.Generic.List[string]]@('-NoProfile', '-File', $PSCommandPath)
-        if ($PSBoundParameters.ContainsKey('VMName')) { [void]$psArgs.Add($VMName) }
-        & sudo -E pwsh @psArgs
-        exit $LASTEXITCODE
-    }
-}
-
 # Repo root sits one level above test/.
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 
@@ -258,9 +242,9 @@ if ($IsMacOS) {
     #   80   — Apache (CA cert + cachemgr). Remote clients on the LAN download
     #          http://<mac-ip>/yuruna-squid-ca.crt to trust the ssl-bump CA;
     #          local guests fetch it via the host-side CA pre-read and don't
-    #          use this port. Privileged (<1024), so the forwarder requires
-    #          root — Start-CachingProxy.ps1 must be re-run under sudo to
-    #          expose :80. Skipping it is non-fatal: HTTP caching still works.
+    #          use this port. Privileged (<1024): the forwarder subprocess is
+    #          spawned via `sudo -E pwsh`; credentials are cached via `sudo -v`
+    #          just before Add-CachingProxyPortMap is called.
     #   3128 — squid HTTP proxy. Guests point apt at http://192.168.64.1:3128.
     #   3129 — squid ssl-bump listener for HTTPS caching.
     #   3000 — Grafana dashboard. Operator opens http://<mac-ip>:3000 from the
@@ -284,6 +268,19 @@ if ($IsMacOS) {
         # other just set up.
         $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
         Import-Module $portMapMod -Force
+        # Port 80 forwarder runs as a detached sudo subprocess — cache credentials
+        # now so the spawn can succeed without an interactive tty prompt.
+        if ($IsMacOS) {
+            $isRoot = $false
+            try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+            if (-not $isRoot) {
+                Write-Output "  Port 80 requires root — caching sudo credentials (you may be prompted for your password)..."
+                & sudo -v
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warning "  sudo -v failed — port 80 forwarder will be skipped; HTTPS caching for remote LAN clients unavailable."
+                }
+            }
+        }
         [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000))
 
         # Persist the cache VM IP so guest provisioners (guest.ubuntu.*

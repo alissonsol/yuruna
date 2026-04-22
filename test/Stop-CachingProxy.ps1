@@ -38,22 +38,6 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
-# macOS: Start-CachingProxy always runs as root (port 80 forwarder is
-# privileged). Mirror that here so we can kill root-owned forwarder
-# processes and undo system proxy settings that networksetup requires
-# root for. -E preserves the caller's environment across the boundary.
-if ($IsMacOS) {
-    $isRoot = $false
-    try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
-    if (-not $isRoot) {
-        Write-Output "Stop-CachingProxy requires root on macOS — re-launching under sudo (you may be prompted for your password)..."
-        $psArgs = [System.Collections.Generic.List[string]]@('-NoProfile', '-File', $PSCommandPath)
-        if ($PSBoundParameters.ContainsKey('VMName')) { [void]$psArgs.Add($VMName) }
-        & sudo -E pwsh @psArgs
-        exit $LASTEXITCODE
-    }
-}
-
 # === Revert machine-wide host proxy (if it was promoted) ===================
 # Symmetric with Test-CachingProxy.ps1 -SetHostProxy. Runs UNCONDITIONALLY:
 # the module's Clear-HostProxy restores from $HOME/.yuruna/host-proxy.backup.json
@@ -99,6 +83,29 @@ if ($IsMacOS) {
     $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
     if (Test-Path $portMapMod) {
         Import-Module $portMapMod -Force
+        # Port 80's forwarder was started as root (via `sudo -E pwsh`); killing
+        # it requires sudo. Detect root-owned forwarder pidfiles and pre-cache
+        # credentials once so Stop-CachingProxyForwarder's `sudo kill` succeeds.
+        $stateDir = Join-Path $HOME "virtual/squid-cache"
+        $hasRootForwarder = $false
+        $meIsRoot = $false
+        try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
+        if (-not $meIsRoot -and (Test-Path $stateDir)) {
+            foreach ($pf in (Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue)) {
+                $fp = (Get-Content $pf.FullName -Raw).Trim()
+                if ($fp -as [int]) {
+                    $owner = (& '/bin/ps' -p $fp -o 'user=' 2>$null).Trim()
+                    if ($owner -eq 'root') { $hasRootForwarder = $true; break }
+                }
+            }
+        }
+        if ($hasRootForwarder) {
+            Write-Output "  Root-owned forwarder detected — caching sudo credentials (you may be prompted for your password)..."
+            & sudo -v
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "  sudo -v failed — port 80 forwarder may not be stopped cleanly."
+            }
+        }
         Write-Output "  Stopping all host-side forwarders (if any)..."
         [void](Remove-CachingProxyPortMap)
     }

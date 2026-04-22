@@ -161,4 +161,40 @@ function Test-CachingProxyAvailable {
     return $null
 }
 
-Export-ModuleMember -Function Test-CachingProxyAvailable
+<#
+.SYNOPSIS
+    Returns the actual IP of the local cache VM for Add-CachingProxyPortMap.
+
+.DESCRIPTION
+    Test-CachingProxyAvailable returns the guest-facing proxy URL. On macOS
+    that URL contains the VZ gateway address (192.168.64.1), NOT the cache
+    VM's real IP. Add-CachingProxyPortMap needs the real IP to set up
+    host-side forwarders correctly — forwarding to 192.168.64.1 creates a
+    self-referential loop that crashes the forwarder and breaks detection.
+
+    Start-CachingProxy.ps1 writes the real VM IP to
+    $HOME/virtual/squid-cache/cache-ip.txt after discovering it. This
+    function reads that file.
+
+    Returns $null on Windows (the guest URL already contains the correct VM
+    IP) or when the file is absent — callers should then fall back to
+    extracting the IP from the Test-CachingProxyAvailable URL.
+
+.PARAMETER HostType
+    Same host-type token as Test-CachingProxyAvailable.
+#>
+function Get-CachingProxyVMIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$HostType)
+
+    if ($HostType -ne 'host.macos.utm') { return $null }
+
+    $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
+    if (-not (Test-Path $cacheIpFile)) { return $null }
+    $ip = (Get-Content $cacheIpFile -Raw -ErrorAction SilentlyContinue).Trim()
+    if ($ip -match '^\d+\.\d+\.\d+\.\d+$') { return $ip }
+    return $null
+}
+
+Export-ModuleMember -Function Test-CachingProxyAvailable, Get-CachingProxyVMIp

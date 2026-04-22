@@ -355,8 +355,16 @@ if ($cachingProxyUrl) {
         $mapOk = $true
         $bestIp = $vmIp
     } elseif ($vmIp) {
+        # On macOS the detection URL contains the VZ gateway (192.168.64.1),
+        # not the cache VM's real IP. Add-CachingProxyPortMap needs the real
+        # VM IP so forwarders tunnel to squid rather than looping back to
+        # the host. Get-CachingProxyVMIp reads cache-ip.txt written by
+        # Start-CachingProxy.ps1; fall back to the URL IP on Windows where
+        # the URL already carries the correct VM IP.
+        $portMapIp = Get-CachingProxyVMIp -HostType $HostType
+        if (-not $portMapIp) { $portMapIp = $vmIp }
         $CachingProxyExposedPorts = @(80, 3128, 3129, 3000)
-        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp -Port $CachingProxyExposedPorts
+        $mapResult = Add-CachingProxyPortMap -VMIp $portMapIp -Port $CachingProxyExposedPorts
         $mapOk = [bool]$mapResult
         $bestIp = Get-BestHostIp
         if (-not $bestIp) { $bestIp = $vmIp }  # no routable iface — fall back

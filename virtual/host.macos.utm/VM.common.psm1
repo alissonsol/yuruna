@@ -151,6 +151,17 @@ function Start-CachingProxyForwarder {
     $isRoot = $false
     try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch {}
     $needsSudo = ($Port -lt 1024) -and (-not $isRoot)
+
+    # If the privileged forwarder is already running (root-owned, started by
+    # Start-CachingProxy.ps1 which called `sudo -v` first), leave it alone.
+    # Killing a root process requires sudo credentials that the caller
+    # (e.g. Invoke-TestRunner) may not have cached — and the correct CacheIp
+    # is already baked into the running process. Only restart if crashed.
+    if ($needsSudo -and (Get-CachingProxyForwarder -Port $Port)) {
+        Write-Output "  Port ${Port} forwarder already running (root-owned); skipping restart."
+        return $true
+    }
+
     $spawnFile = if ($needsSudo) { 'sudo' } else { 'pwsh' }
     $spawnArgs = if ($needsSudo) { @('-E', 'pwsh') + $procArgs } else { $procArgs }
 

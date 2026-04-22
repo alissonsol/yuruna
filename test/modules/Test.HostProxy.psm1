@@ -352,7 +352,7 @@ function Set-MacHostProxy {
     & networksetup -setsecurewebproxy     $NetworkService $h $p | Out-Null
     & networksetup -setwebproxystate      $NetworkService on    | Out-Null
     & networksetup -setsecurewebproxystate $NetworkService on   | Out-Null
-    & networksetup -setproxybypassdomains $NetworkService localhost 127.0.0.1 '*.local' '169.254/16' | Out-Null
+    & networksetup -setproxybypassdomains $NetworkService localhost 127.0.0.1 '*.local' '169.254/16' '192.168.64.*' | Out-Null
 }
 
 function Restore-MacHostProxy {

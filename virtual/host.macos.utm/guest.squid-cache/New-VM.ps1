@@ -244,7 +244,7 @@ guest installs):
           awk -F'[ =]' '/name=__VM_NAME__/{found=1} found && /ip_address/{print $NF; exit}' \
               /var/db/dhcpd_leases
      c) Port-scan the Shared-NAT subnet for a squid listener:
-          for i in $(seq 2 30); do
+          for i in $(seq 2 254); do
             nc -z -w 1 192.168.64.$i 3128 2>/dev/null && echo "squid at 192.168.64.$i"
           done
      Call the resulting address `$ip` in the remaining steps.

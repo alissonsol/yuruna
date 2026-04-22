@@ -208,7 +208,7 @@ if ($IsMacOS) {
     Write-Output "   then pre-warms by pulling linux-firmware through the proxy)"
     $deadline = (Get-Date).AddMinutes(15)
     while ((Get-Date) -lt $deadline -and -not $cacheIp) {
-        for ($octet = 2; $octet -le 30; $octet++) {
+        for ($octet = 2; $octet -le 254; $octet++) {
             $candidate = "192.168.64.$octet"
             $tcp = New-Object System.Net.Sockets.TcpClient
             try {

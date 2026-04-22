@@ -759,30 +759,88 @@ result;
 "@
     $windowScript = $windowScript -replace '__VMNAME__', $safeVMName
     $windowResult = & osascript -l JavaScript -e $windowScript 2>&1
+    Write-Debug "      CG window query (window+bounds): $windowResult"
+
     # Expected shape: "id,x,y,w,h" with floats tolerated on the coord fields
     # (Cocoa routinely returns half-pixel origins on retina).
-    if ($LASTEXITCODE -ne 0 -or "$windowResult" -notmatch '^\d+,-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+(\.\d+)?,\d+(\.\d+)?$') {
-        Write-Warning "UTM window for '$VMName' not found (CG query returned: $windowResult)."
-        Write-Warning "  Open the VM in UTM.app before using waitForAndClickButton."
-        return $null
+    $windowId = 0
+    $originX  = 0.0
+    $originY  = 0.0
+    $pointW   = 0.0
+    $pointH   = 0.0
+    $cgOk     = $false
+    if ($LASTEXITCODE -eq 0 -and "$windowResult" -match '^\d+,-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+(\.\d+)?,\d+(\.\d+)?$') {
+        $parts    = "$windowResult".Split(',')
+        $windowId = [int]$parts[0]
+        $originX  = [double]$parts[1]
+        $originY  = [double]$parts[2]
+        $pointW   = [double]$parts[3]
+        $pointH   = [double]$parts[4]
+        $cgOk     = $true
+    } else {
+        # Fallback: enumerate UTM's windows via System Events (Accessibility
+        # API). Symmetric with Get-UtmScreenshot's bounds fallback — we know
+        # that path works because OCR has already succeeded in this cycle.
+        # CGWindowList can return `not_found` for the UTM window even when
+        # Screen Recording is granted: some UTM releases mint the VM
+        # display window with NSWindowSharingNone, which keeps
+        # kCGWindowName empty regardless of TCC state. AX title comes from
+        # AXTitle (a different code path) and is unaffected.
+        $safeVMNameAS = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
+        $boundsScript = @"
+tell application "System Events"
+    tell process "UTM"
+        repeat with w in windows
+            if name of w contains "$safeVMNameAS" then
+                try
+                    set contentArea to first group of w
+                    set {cx, cy} to position of contentArea
+                    set {cw, ch} to size of contentArea
+                    return ("" & cx & "," & cy & "," & cw & "," & ch)
+                end try
+                set {wx, wy} to position of w
+                set {ww, wh} to size of w
+                set titleBarH to 28
+                return ("" & wx & "," & (wy + titleBarH) & "," & ww & "," & (wh - titleBarH))
+            end if
+        end repeat
+    end tell
+    return "not_found"
+end tell
+"@
+        $boundsResult = & osascript -e $boundsScript 2>&1
+        Write-Debug "      Window bounds query (fallback): $boundsResult"
+        if ($LASTEXITCODE -eq 0 -and "$boundsResult" -match '^-?\d+(\.\d+)?,-?\d+(\.\d+)?,\d+(\.\d+)?,\d+(\.\d+)?$') {
+            $parts   = "$boundsResult".Split(',')
+            $originX = [double]$parts[0]
+            $originY = [double]$parts[1]
+            $pointW  = [double]$parts[2]
+            $pointH  = [double]$parts[3]
+            # WindowId stays 0 — we have no CG handle. Click dispatch uses
+            # OriginX/OriginY/Scale (global screen points), which is enough.
+        } else {
+            Write-Warning "UTM window for '$VMName' not found (CG: $windowResult, bounds: $boundsResult)."
+            Write-Warning "  Open the VM in UTM.app before using waitForAndClickButton."
+            return $null
+        }
     }
-    $parts    = "$windowResult".Split(',')
-    $windowId = [int]$parts[0]
-    $originX  = [double]$parts[1]
-    $originY  = [double]$parts[2]
-    $pointW   = [double]$parts[3]
-    $pointH   = [double]$parts[4]
 
-    # screencapture -l captures only the target window even if obscured. -o
-    # suppresses the shadow; -x suppresses the shutter sound.
-    $captureErr = & screencapture -x -o -l "$windowId" "$OutputPath" 2>&1
+    # Capture: -l <id> when we have a real CG handle (captures even when
+    # obscured); -R <bounds> otherwise (captures whatever is currently at
+    # those screen coordinates — caller must keep UTM frontmost).
+    if ($cgOk) {
+        $captureErr = & screencapture -x -o -l "$windowId" "$OutputPath" 2>&1
+    } else {
+        $region = "{0},{1},{2},{3}" -f $originX, $originY, $pointW, $pointH
+        $captureErr = & screencapture -x -R "$region" "$OutputPath" 2>&1
+    }
     if (-not (Test-Path $OutputPath)) {
-        Write-Warning "screencapture -l $windowId failed for '$VMName': $captureErr"
+        Write-Warning "screencapture failed for '$VMName': $captureErr"
         return $null
     }
     $fileSize = (Get-Item $OutputPath).Length
     if ($fileSize -lt 100) {
-        Write-Warning "screencapture -l produced a ${fileSize}-byte PNG — likely Screen Recording permission missing."
+        Write-Warning "screencapture produced a ${fileSize}-byte PNG — likely Screen Recording permission missing."
         Write-Warning "  System Settings > Privacy & Security > Screen Recording > enable your terminal"
         Remove-Item $OutputPath -Force -ErrorAction SilentlyContinue
         return $null

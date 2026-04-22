@@ -25,19 +25,35 @@ WARNING: UTM window for 'test-…' not found (CG query returned: not_found).
 DEBUG:   Window capture unavailable — retrying
 ```
 
-Cause: the terminal running `pwsh` is missing **Screen Recording**
-permission. `CGWindowListCopyWindowInfo` strips window titles when the
-caller lacks this TCC grant, so the harness can't match UTM's per-VM
-window by name. Region screenshots (OCR) still work, which is why
-earlier steps succeed.
+Two possible causes:
 
-Fix:
+1. **Terminal is missing Screen Recording permission.**
+   `CGWindowListCopyWindowInfo` strips window titles when the caller
+   lacks this TCC grant. Region-capture OCR (the earlier steps) still
+   works because it falls back to AppleScript via Accessibility — a
+   different TCC bucket.
+
+2. **UTM's VM window has `NSWindowSharingNone`** (observed on some
+   UTM + Apple Virtualization builds). The window is reachable via
+   the Accessibility API but omits `kCGWindowName` from CGWindowList
+   regardless of Screen Recording state. Current builds of the
+   harness auto-fall-back to AppleScript bounds in this case — you
+   will see `CG window query: not_found` followed by
+   `Window bounds query (fallback): <x>,<y>,<w>,<h>` in debug output.
+
+Fix for (1):
 
 1. System Settings → Privacy & Security → **Screen Recording** →
    enable your terminal (Terminal.app, iTerm2, Ghostty, etc.).
 2. **Fully quit** the terminal (Cmd-Q — not just close the window)
    and relaunch. TCC grants don't apply to a running process.
 3. Re-run the harness.
+
+Case (2) needs no user action — the AppleScript fallback fires
+automatically. If `Window bounds query (fallback)` also returns
+`not_found`, UTM's window isn't actually open: double-click the
+`.utm` bundle or click the VM in UTM.app's sidebar so a display
+window exists.
 
 ## `Assert-ScreenRecording` false positive — toggle IS on but harness refuses to start
 

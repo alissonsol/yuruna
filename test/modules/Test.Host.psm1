@@ -1151,51 +1151,13 @@ function Assert-ScreenRecording {
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
 
-    # Ground-truth probe: enumerate every on-screen window and look
-    # for ANY non-empty kCGWindowName. Without the Screen Recording
-    # TCC grant, macOS returns windows (with kCGWindowOwnerName, size,
-    # layer, etc.) but strips kCGWindowName — the title — for every
-    # window not owned by the calling process. pwsh is a headless CLI
-    # process with no Cocoa windows of its own, so a positive title
-    # hit means the grant is live. This is the exact signal the
-    # harness relies on downstream, so a pass here guarantees the
-    # rest of the codepath works.
-    #
-    # Why not CGPreflightScreenCaptureAccess as the primary check:
-    # JavaScriptCore's $. bridge needs pre-registered signatures for
-    # C functions. AX* ship with them; CGPreflight/CGRequest do not
-    # in every macOS release — $.CGPreflightScreenCaptureAccess()
-    # returned `undefined` on a grant-in-place machine, blocking
-    # Invoke-TestRunner.ps1 with a false negative. CFArray /
-    # CFDictionary / CFString helpers are consistently bridged, so
-    # the enumeration approach avoids the uncertainty.
-    $jxa = @"
-ObjC.import('CoreGraphics');
-var list = $.CGWindowListCopyWindowInfo((1 << 0) | (1 << 4), 0);
-if (!list) { 'false' } else {
-    var n = $.CFArrayGetCount(list);
-    var nameKey = $.CFStringCreateWithCString(null, 'kCGWindowName', 0);
-    var found = false;
-    for (var i = 0; i < n && !found; i++) {
-        var d = $.CFArrayGetValueAtIndex(list, i);
-        var nm = $.CFDictionaryGetValue(d, nameKey);
-        if (nm && $.CFStringGetLength(nm) > 0) found = true;
-    }
-    found ? 'true' : 'false'
-}
-"@
-    try {
-        $result = (& osascript -l JavaScript -e $jxa 2>&1 | Out-String).Trim()
-        Write-Debug "Assert-ScreenRecording: window-title probe returned '$result'"
-        if ($result -eq 'true') { return $true }
-    } catch {
-        Write-Debug "Window-title probe failed: $_"
-    }
-
-    # Fallback: explicit ObjC.bindFunction so the bridge has the
-    # signature, then call CGPreflightScreenCaptureAccess. This catches
-    # the edge case where no foreign window happens to be on screen
-    # (e.g. a locked-down test account).
+    # Primary check: CGPreflightScreenCaptureAccess is the canonical
+    # TCC query — it reads the Screen Recording grant directly and is
+    # the same call the OS uses internally. JavaScriptCore's $. bridge
+    # needs a registered signature for C functions not shipped in its
+    # built-in header set; AX* functions ship with signatures but
+    # CGPreflight/CGRequest do not in every release. ObjC.bindFunction
+    # registers the signature explicitly so the return type is correct.
     $jxaPre = @"
 ObjC.import('CoreGraphics');
 try { ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]); } catch (e) {}
@@ -1204,10 +1166,43 @@ var r = $.CGPreflightScreenCaptureAccess();
 "@
     try {
         $result = (& osascript -l JavaScript -e $jxaPre 2>&1 | Out-String).Trim()
-        Write-Debug "Assert-ScreenRecording: CGPreflight fallback returned '$result'"
+        Write-Debug "Assert-ScreenRecording: CGPreflight returned '$result'"
         if ($result -eq 'true') { return $true }
     } catch {
-        Write-Debug "CGPreflight fallback failed: $_"
+        Write-Debug "CGPreflight check failed: $_"
+    }
+
+    # Fallback: enumerate on-screen windows and require at least TWO
+    # foreign windows with non-empty kCGWindowName. Used only when
+    # CGPreflight is unavailable/broken (old macOS, custom JXA build).
+    # Requiring two owners avoids false positives from a single
+    # permissive-NSWindowSharingType window that would otherwise claim
+    # the grant is in place when it isn't.
+    $jxa = @"
+ObjC.import('CoreGraphics');
+var list = $.CGWindowListCopyWindowInfo((1 << 0) | (1 << 4), 0);
+if (!list) { 'false' } else {
+    var n = $.CFArrayGetCount(list);
+    var nameKey  = $.CFStringCreateWithCString(null, 'kCGWindowName', 0);
+    var ownerKey = $.CFStringCreateWithCString(null, 'kCGWindowOwnerName', 0);
+    var owners = {};
+    for (var i = 0; i < n; i++) {
+        var d = $.CFArrayGetValueAtIndex(list, i);
+        var nm = $.CFDictionaryGetValue(d, nameKey);
+        if (!nm || $.CFStringGetLength(nm) === 0) continue;
+        var ow = $.CFDictionaryGetValue(d, ownerKey);
+        var owStr = ow ? ObjC.unwrap(ow) : '';
+        if (owStr) owners[owStr] = true;
+    }
+    (Object.keys(owners).length >= 2) ? 'true' : 'false'
+}
+"@
+    try {
+        $result = (& osascript -l JavaScript -e $jxa 2>&1 | Out-String).Trim()
+        Write-Debug "Assert-ScreenRecording: enumeration fallback returned '$result'"
+        if ($result -eq 'true') { return $true }
+    } catch {
+        Write-Debug "Window-title enumeration failed: $_"
     }
 
     Write-Warning "═══════════════════════════════════════════════════════════════════"

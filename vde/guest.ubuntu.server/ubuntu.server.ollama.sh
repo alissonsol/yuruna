@@ -45,7 +45,7 @@ echo -e "\e[1;32m<<< Model pull complete.\e[0m"
 
 echo ""
 echo -e "\e[1;36m>>> Verifying Ollama is working...\e[0m"
-ollama run phi3:mini "In one sentence, what causes network packet loss?"
+curl -s http://localhost:11434/api/generate   -d '{"model":"phi3:mini","prompt":"In one sentence, what causes network packet loss?","stream":false}'   | python3 -c "import sys,json; print(json.load(sys.stdin)['response'])"
 echo -e "\e[1;32m<<< Ollama verification complete.\e[0m"
 
 echo ""

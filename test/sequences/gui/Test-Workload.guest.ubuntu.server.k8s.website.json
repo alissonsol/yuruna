@@ -86,6 +86,14 @@
       "description": "200"
     },
     {
+      "action": "fetchAndExecute",
+      "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.server/ubuntu.server.ollama.sh",
+      "description": "Install Ollama, pull phi3:mini, verify edge AI inference",
+      "waitPattern": "FETCHED AND EXECUTED:",
+      "waitTimeoutSeconds": 1800,
+      "waitPollSeconds": 9
+    },
+    {
       "action": "typeAndEnter",
       "text": "clear; sudo reboot now",
       "description": "Reboot the VM"

@@ -10,33 +10,6 @@
   },
   "steps": [
     {
-      "action": "waitForText",
-      "pattern": "Try or Install Ubuntu",
-      "timeoutSeconds": 600,
-      "pollSeconds": 6,
-      "description": "Wait for GRUB menu"
-    },
-    {
-      "action": "key",
-      "name": "Down",
-      "description": "Select Ubuntu (safe graphics)"
-    },
-    {
-      "action": "typeAndEnter",
-      "text": " ",
-      "description": "Ubuntu (safe graphics)"
-    },
-    {
-      "action": "delay",
-      "seconds": 55,
-      "description": "HACK: Empty screen"
-    },
-    {
-      "action": "typeAndEnter",
-      "text": " ",
-      "description": "HACK: Empty screen"
-    },
-    {
       "action": "waitForAndClickButton",
       "label": [
         "Ready to install"

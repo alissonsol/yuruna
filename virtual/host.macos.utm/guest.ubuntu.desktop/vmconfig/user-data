@@ -239,11 +239,14 @@ APT_PROXY_BLOCK_PLACEHOLDER
       idle-activation-enabled=false
       DCONF
     - curtin in-target --target=/target -- dconf update
-    # --- GRUB: nomodeset to prevent blank-screen-on-reboot (aarch64 KMS race) ---
-    # On aarch64/Apple VZ, the simpledrm (EFI framebuffer) -> virtio-gpu KMS
-    # handoff races intermittently and leaves the display permanently blank.
-    # Apply nomodeset at install time so the FIRST installed boot is already
-    # safe. ubuntu.desktop.update.sh checks for nomodeset and skips (idempotent).
+    # --- GRUB: nomodeset to prevent blank-screen-on-reboot ---
+    # Forces the kernel to use simpledrm on the EFI framebuffer and skip
+    # any KMS driver. Originally introduced for the aarch64 simpledrm ->
+    # virtio-gpu handoff race under Apple Virtualization; retained under
+    # the QEMU backend as defense-in-depth since virtio-ramfb-gl exposes
+    # a RAMFB mode simpledrm consumes directly, and the OCR-driven test
+    # harness doesn't need GPU acceleration. ubuntu.desktop.update.sh
+    # re-applies idempotently.
     - |
       if [ -f /target/etc/default/grub ] && ! grep -q 'nomodeset' /target/etc/default/grub; then
         sed -i -E 's|^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"|GRUB_CMDLINE_LINUX_DEFAULT="\1 nomodeset"|; s|="  *|="|' /target/etc/default/grub

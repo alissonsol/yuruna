@@ -2,8 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Backend: QEMU (not Apple Virtualization).
+	     Chosen so the VM can run behind a VNC server bound to
+	     127.0.0.1:5900, which the test harness connects to for
+	     focus-independent screen capture + RFB key/text input — the
+	     closest analogue to Hyper-V's synthetic video channel and
+	     synthetic keyboard. Under Apple VZ the framebuffer lived inside
+	     UTM's NSWindow, so screen capture went stale when the window
+	     was occluded and AppleScript keystrokes went to whichever app
+	     held focus. QEMU's `-vnc` exposes the framebuffer over a TCP
+	     socket independent of any on-screen window.
+	     Hypervisor (HVF) is enabled below so aarch64 Linux runs at
+	     near-native speed. -->
 	<key>Backend</key>
-	<string>Apple</string>
+	<string>QEMU</string>
 	<key>ConfigurationVersion</key>
 	<integer>4</integer>
 	<key>Information</key>
@@ -21,47 +33,86 @@
 	<dict>
 		<key>Architecture</key>
 		<string>aarch64</string>
+		<key>CPU</key>
+		<string>default</string>
 		<key>CPUCount</key>
 		<integer>__CPU_COUNT__</integer>
+		<key>CPUFlagsAdd</key>
+		<array/>
+		<key>CPUFlagsRemove</key>
+		<array/>
+		<key>ForceMulticore</key>
+		<false/>
+		<key>JITCacheSize</key>
+		<integer>0</integer>
 		<key>MemorySize</key>
 		<integer>__MEMORY_SIZE__</integer>
-		<key>Boot</key>
-		<dict>
-			<key>OperatingSystem</key>
-			<string>Linux</string>
-			<key>UEFIBoot</key>
-			<true/>
-			<key>EfiVariableStoragePath</key>
-			<string>efi_vars.fd</string>
-		</dict>
-		<key>GenericPlatform</key>
-		<dict>
-			<key>machineIdentifier</key>
-			<data>__MACHINE_IDENTIFIER__</data>
-		</dict>
+		<key>Target</key>
+		<string>virt</string>
 	</dict>
-	<key>Virtualization</key>
+	<key>QEMU</key>
 	<dict>
-		<key>Audio</key>
+		<!-- AdditionalArguments: QEMU `-vnc 127.0.0.1:0` starts a VNC
+		     server on loopback port 5900 (display number 0 = TCP 5900).
+		     test/extensions/Invoke-Sequence.psm1 auto-detects it on the
+		     port configured by test/test-config.json (`vncPort: 5900`)
+		     and sends RFB key events + reads the framebuffer without
+		     needing UTM's NSWindow to be focused or visible.
+		     Each element is a plain <string> — UTM's QEMUArgument
+		     Codable encodes its single `string` property as a bare
+		     string (no dict wrapper). Wrapping each arg in a dict
+		     (e.g. <dict><key>argString</key>...</dict>) causes UTM to
+		     reject the bundle on import.
+		     Loopback-only (127.0.0.1) so the VNC server is not
+		     exposed on the LAN. -->
+		<key>AdditionalArguments</key>
+		<array>
+			<string>-vnc</string>
+			<string>127.0.0.1:0</string>
+		</array>
+		<key>BalloonDevice</key>
 		<true/>
-		<key>Balloon</key>
-		<true/>
-		<key>Entropy</key>
-		<true/>
-		<key>Keyboard</key>
-		<string>Generic</string>
-		<key>Pointer</key>
-		<string>Mouse</string>
-		<key>ClipboardSharing</key>
-		<true/>
-		<key>Rosetta</key>
+		<key>DebugLog</key>
 		<false/>
+		<!-- Hypervisor=true enables HVF (Hypervisor.framework). Without
+		     it, QEMU would fall back to TCG software emulation and run
+		     ~20x slower. -->
+		<key>Hypervisor</key>
+		<true/>
+		<key>PS2Controller</key>
+		<false/>
+		<key>RNGDevice</key>
+		<true/>
+		<key>RTCLocalTime</key>
+		<false/>
+		<!-- TPM is a Windows-11-only requirement; Linux doesn't need
+		     one and having it wastes emulation cycles. -->
+		<key>TPMDevice</key>
+		<false/>
+		<key>TSO</key>
+		<false/>
+		<!-- UEFIBoot=true: UTM provides edk2 UEFI firmware and manages
+		     the EFI variable store internally, so New-VM.ps1 doesn't
+		     need to create efi_vars.fd (which was required under Apple
+		     VZ's VZEFIBootLoader). -->
+		<key>UEFIBoot</key>
+		<true/>
 	</dict>
-	<!-- Display: Fixed 1920x1080 at 80 PPI. DynamicResolution is disabled
-	     so UTM does not scale to the host Retina display.
+	<!-- Display: Fixed 1920x1080 on virtio-ramfb (NOT the -gl variant).
+	     With AdditionalArguments adding a `-vnc` backend, the GL context
+	     needed by virtio-ramfb-gl's spice-app display conflicts with the
+	     second output path — QEMU fails SPICE init and UTM's SPICE
+	     client returns "Internal error trying to connect to SPICE
+	     server". Non-GL virtio-ramfb keeps both outputs (UTM's SPICE
+	     window and the loopback VNC server) on the same simple
+	     framebuffer without fighting over a GL context. Acceptable
+	     tradeoff since the harness is OCR-driven and doesn't need GPU
+	     acceleration.
+	     DynamicResolution is disabled so UTM does not scale to the host
+	     Retina display.
 	     WARNING: The test harness OCR is calibrated for 1920x1080.
-	     Changing this resolution may break automated screen-text detection
-	     in waitForText sequence steps. -->
+	     Changing this resolution may break automated screen-text
+	     detection in waitForText sequence steps. -->
 	<key>Display</key>
 	<array>
 		<dict>
@@ -69,49 +120,124 @@
 			<integer>1920</integer>
 			<key>HeightPixels</key>
 			<integer>1080</integer>
-			<key>PixelsPerInch</key>
-			<integer>80</integer>
+			<key>DownscalingFilter</key>
+			<string>Linear</string>
 			<key>DynamicResolution</key>
 			<false/>
+			<key>Hardware</key>
+			<string>virtio-ramfb</string>
+			<key>NativeResolution</key>
+			<false/>
+			<key>UpscalingFilter</key>
+			<string>Nearest</string>
 		</dict>
 	</array>
 	<key>Drive</key>
 	<array>
-		<dict>
-			<key>Identifier</key>
-			<string>__DISK_IDENTIFIER__</string>
-			<key>ImageName</key>
-			<string>__DISK_IMAGE_NAME__</string>
-			<key>ReadOnly</key>
-			<false/>
-		</dict>
+		<!-- Installer ISO: BootIndex=1 makes the VM boot from the
+		     installer on first power-on. After subiquity finishes and
+		     writes an EFI boot entry to the installed disk, edk2 UEFI
+		     prefers the EFI var entry over the BootIndex hint, so
+		     subsequent boots come up on the installed system. -->
 		<dict>
 			<key>Identifier</key>
 			<string>__ISO_IDENTIFIER__</string>
 			<key>ImageName</key>
 			<string>__ISO_IMAGE_NAME__</string>
+			<key>ImageType</key>
+			<string>CD</string>
+			<key>Interface</key>
+			<string>USB</string>
+			<key>InterfaceVersion</key>
+			<integer>1</integer>
+			<key>BootIndex</key>
+			<integer>1</integer>
 			<key>ReadOnly</key>
 			<true/>
 		</dict>
+		<!-- Installed root disk: VirtIO-blk is the idiomatic Linux-
+		     on-QEMU interface (appears as /dev/vda) and is what
+		     subiquity's default storage layout expects. -->
+		<dict>
+			<key>Identifier</key>
+			<string>__DISK_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__DISK_IMAGE_NAME__</string>
+			<key>ImageType</key>
+			<string>Disk</string>
+			<key>Interface</key>
+			<string>VirtIO</string>
+			<key>InterfaceVersion</key>
+			<integer>1</integer>
+			<key>ReadOnly</key>
+			<false/>
+		</dict>
+		<!-- Autoinstall seed: mounted as a CD so cloud-init's NoCloud
+		     datasource finds the `cidata` label and reads
+		     user-data / meta-data. -->
 		<dict>
 			<key>Identifier</key>
 			<string>__SEED_IDENTIFIER__</string>
 			<key>ImageName</key>
 			<string>__SEED_IMAGE_NAME__</string>
+			<key>ImageType</key>
+			<string>CD</string>
+			<key>Interface</key>
+			<string>USB</string>
+			<key>InterfaceVersion</key>
+			<integer>1</integer>
 			<key>ReadOnly</key>
 			<true/>
 		</dict>
 	</array>
+	<key>Input</key>
+	<dict>
+		<key>MaximumUsbShare</key>
+		<integer>3</integer>
+		<key>UsbBusSupport</key>
+		<string>3.0</string>
+		<key>UsbSharing</key>
+		<false/>
+	</dict>
+	<!-- Network: Mode=Shared tells UTM's QEMU backend to use
+	     `-netdev vmnet-shared`, which uses macOS's vmnet.framework in
+	     shared mode — the SAME 192.168.64.0/24 subnet Apple VZ's
+	     Shared mode uses. Guests get 192.168.64.X and the host is
+	     192.168.64.1. This keeps the yuruna squid-cache forwarder path
+	     (guests reach the proxy at 192.168.64.1:3128) working
+	     unchanged across the VZ -> QEMU migration. -->
 	<key>Network</key>
 	<array>
 		<dict>
-			<key>Mode</key>
-			<string>Shared</string>
+			<key>Hardware</key>
+			<string>virtio-net-pci</string>
+			<key>IsolateFromHost</key>
+			<false/>
 			<key>MacAddress</key>
 			<string>__MAC_ADDRESS__</string>
+			<key>Mode</key>
+			<string>Shared</string>
+			<key>PortForward</key>
+			<array/>
 		</dict>
 	</array>
 	<key>Serial</key>
 	<array/>
+	<key>Sharing</key>
+	<dict>
+		<key>ClipboardSharing</key>
+		<true/>
+		<key>DirectoryShareMode</key>
+		<string>WebDAV</string>
+		<key>DirectoryShareReadOnly</key>
+		<false/>
+	</dict>
+	<key>Sound</key>
+	<array>
+		<dict>
+			<key>Hardware</key>
+			<string>intel-hda</string>
+		</dict>
+	</array>
 </dict>
 </plist>

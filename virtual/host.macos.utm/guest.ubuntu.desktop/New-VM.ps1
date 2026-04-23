@@ -134,32 +134,30 @@ if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
 }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
-# Create EFI variable store (required by Apple Virtualization UEFI boot)
-$EfiVarsFile = "$DataDir/efi_vars.fd"
-Write-Output "Creating EFI variable store..."
-$swiftCode = @'
-import Foundation
-import Virtualization
-let url = URL(fileURLWithPath: CommandLine.arguments[1])
-do { _ = try VZEFIVariableStore(creatingVariableStoreAt: url) }
-catch { fputs("Error: \(error.localizedDescription)\n", stderr); exit(1) }
-'@
-$swiftCode | & swift - "$EfiVarsFile"
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to create EFI variable store. Ensure Xcode command line tools are installed."
-    exit 1
-}
-Write-Output "EFI variable store created."
+# EFI variable store: not created here. QEMU backend + UTM provides edk2
+# UEFI firmware and manages the variable store internally (see QEMU.UEFIBoot
+# in config.plist.template). Only the Apple Virtualization backend required
+# a pre-created VZEFIVariableStore at Data/efi_vars.fd.
 
 # Copy base image ISO into the bundle (named after hostname)
 $DestIso = "$DataDir/$VMName.iso"
 Copy-Item -Path $baseImageFile -Destination $DestIso
 Write-Output "Copied installer ISO as: $VMName.iso"
 
-# Create blank disk for installation (512GB, sparse raw image for Apple Virtualization)
+# Create blank disk for installation (512GB qcow2 image).
+# qcow2 is required over plain raw because QEMU's block layer on macOS
+# APFS raises "Invalid argument" errors for discard/unmap / TRIM requests
+# against raw-format images. The Linux installer's post-partition
+# fstrim (and subsequent periodic fstrim cycles) trigger this, surfacing
+# as intermittent "QEMU error: drive<UUID>, #block<N>: Invalid argument"
+# popups during install and after boot. qcow2 natively implements
+# discard as a metadata operation and avoids the condition. Starting
+# size is small because qcow2 is sparse; grows on demand up to 512GB.
+# UTM auto-detects the format from the file header, so config.plist
+# needs no change.
 $DiskImage = "$DataDir/disk.img"
-Write-Output "Creating 512GB disk image (raw format for Apple Virtualization)..."
-& qemu-img create -f raw "$DiskImage" 512G
+Write-Output "Creating 512GB disk image (qcow2)..."
+& qemu-img create -f qcow2 "$DiskImage" 512G
 if ($LASTEXITCODE -ne 0) {
     Write-Error "qemu-img failed. Install QEMU tools with: brew install qemu"
     exit 1
@@ -187,13 +185,14 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # Detect the squid-cache forwarder and inject its URL if available.
-# On macOS/VZ, guests cannot reach the squid-cache VM's IP directly --
-# Apple Virtualization shared-NAT isolates guest-to-guest traffic.
+# On macOS, guests cannot reach the squid-cache VM's IP directly --
+# macOS vmnet-shared (used by both Apple VZ and QEMU with Mode=Shared)
+# isolates guest-to-guest traffic on 192.168.64.0/24.
 # Instead, Start-CachingProxy.ps1 runs a TCP forwarder on the Mac
-# HOST binding :3128, tunneling to the squid VM. Guests use the VZ
-# gateway (192.168.64.1:3128), always reachable. So we only check
-# the host's :3128 listener -- the cache VM's direct IP is no longer
-# useful.
+# HOST binding :3128, tunneling to the squid VM. Guests use the
+# shared-NAT gateway (192.168.64.1:3128), always reachable. So we only
+# check the host's :3128 listener -- the cache VM's direct IP is no
+# longer useful.
 #
 # Severity policy:
 #   * Forwarder up          -> inject http://192.168.64.1:3128
@@ -244,8 +243,9 @@ if ($forwarderUp) {
     Write-Output "  squid-cache forwarder detected on host — guest will use $CachingProxyUrl (→ squid VM)."
 } elseif ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
     # VM is up but the host-side forwarder isn't — that's a setup bug, not
-    # a transient. On VZ the guest cannot reach the VM without the forwarder,
-    # so failing direct would be slow and confusing. Abort loudly instead.
+    # a transient. Under macOS vmnet-shared the guest cannot reach the
+    # cache VM without the forwarder, so failing direct would be slow and
+    # confusing. Abort loudly instead.
     $detail = @"
 
 =========================================================================
@@ -255,10 +255,10 @@ ERROR: squid-cache VM is started but the host-side :3128 forwarder is
   utmctl status squid-cache  : $squidStatus
   probe 127.0.0.1:3128       : nothing listening on the host
 
-Apple Virtualization shared-NAT blocks guest↔guest traffic, so guests
-cannot reach the squid VM directly. Start-CachingProxy.ps1 normally
-launches a host-side forwarder that bridges this gap. It appears to
-have exited, been killed, or never ran after the forwarder fix landed.
+macOS vmnet-shared blocks guest↔guest traffic, so guests cannot reach
+the squid VM directly. Start-CachingProxy.ps1 normally launches a
+host-side forwarder that bridges this gap. It appears to have exited,
+been killed, or never ran after the forwarder fix landed.
 
 Fix:
   test/Start-CachingProxy.ps1   (re-runs the forwarder; safe to re-invoke)
@@ -369,8 +369,8 @@ if ($CachingProxyUrl) {
 }
 
 # Fetch the squid-cache CA for base64 embedding in the autoinstall
-# seed. Guests cannot reach the cache VM directly (VZ isolates guests),
-# but this script runs on the HOST, which can. Start-CachingProxy.ps1
+# seed. Guests cannot reach the cache VM directly (vmnet-shared isolates
+# guests), but this script runs on the HOST, which can. Start-CachingProxy.ps1
 # persists the cache VM IP at $HOME/virtual/squid-cache/cache-ip.txt;
 # if Apache serves the CA, we pull the bytes and hand them to user-data.
 # Any failure leaves $CaCertBase64 empty; the guest's HTTPS proxy
@@ -379,7 +379,7 @@ $CaCertBase64 = ""
 $cacheVmIp = $null
 if ($Env:YURUNA_CACHING_PROXY_IP -and $Env:YURUNA_CACHING_PROXY_IP -match '^\d+\.\d+\.\d+\.\d+$') {
     # External cache: $CachingProxyUrl already points at the remote IP
-    # (no VZ-gateway rewrite), remote image is identical (same Apache :80
+    # (no gateway rewrite), remote image is identical (same Apache :80
     # serving /yuruna-squid-ca.crt). cache-ip.txt isn't written for
     # external caches, so read from the env var.
     $cacheVmIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
@@ -419,7 +419,9 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# === config.plist (Apple Virtualization backend) ===
+# === config.plist (QEMU backend, HVF-accelerated, VNC on 127.0.0.1:5900) ===
+# GenericPlatform.machineIdentifier (used by Apple VZ for nested virt
+# isolation) is not needed here — the QEMU backend does not consume it.
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -436,12 +438,6 @@ $rng.NextBytes($MacBytes)
 $MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
 $MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
 
-# GenericPlatform.machineIdentifier: 16 random bytes, base64 (required
-# by Apple Virtualization.framework for nested virtualization).
-$MachineIdBytes = [byte[]]::new(16)
-$rng.NextBytes($MachineIdBytes)
-$MachineIdentifier = [Convert]::ToBase64String($MachineIdBytes)
-
 $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VM_NAME__',             $VMName `
     -replace '__VM_UUID__',             $VmUuid `
@@ -452,7 +448,6 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__ISO_IMAGE_NAME__',      "$VMName.iso" `
     -replace '__SEED_IDENTIFIER__',     $SeedId `
     -replace '__SEED_IMAGE_NAME__',     'seed.iso' `
-    -replace '__MACHINE_IDENTIFIER__',  $MachineIdentifier `
     -replace '__CPU_COUNT__',           '4' `
     -replace '__MEMORY_SIZE__',         '16384'
 
@@ -464,7 +459,7 @@ Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
 # === Guidance ===
 Write-Output ""
 Write-Output "VM bundle created: $UtmDir"
-Write-Output "Backend: Apple Virtualization (with nested virtualization / KVM support)"
+Write-Output "Backend: QEMU + HVF (VNC server on 127.0.0.1:5900 for focus-independent harness input/capture)"
 Write-Output "Double-click '$VMName.utm' on your Desktop to import it into UTM."
 Write-Output "The Ubuntu installer will start automatically with autoinstall."
 Write-Output "Default credentials - username: ubuntu, password: password (must be changed on first login)"

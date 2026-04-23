@@ -49,8 +49,188 @@ function Get-VMScreenshot {
     }
 }
 
+# ── VNC framebuffer capture ─────────────────────────────────────────────────
+# QEMU-backed UTM VMs expose a loopback VNC server (`-vnc 127.0.0.1:0` in
+# AdditionalArguments). Reading the framebuffer directly from there bypasses
+# UTM's NSWindow entirely — the harness gets the VM's real screen regardless
+# of whether UTM's window is focused, visible, occluded, or (because `-vnc`
+# steals the spice-app display path) stuck on black. This is the macOS
+# equivalent of Hyper-V's synthetic video channel: the VM's framebuffer
+# lives in a server-owned buffer the viewer pulls from, not in an
+# on-screen window the OS has to keep rendered.
+#
+# Only attempted on host.macos.utm. Caller falls back to `screencapture -l`
+# / `-R` when VNC is unavailable (Apple VZ guests without a VNC server
+# configured).
+
+# C# helper for the hot byte-swap loop. A pure-PowerShell loop over a
+# 1920x1080 pixel buffer (2M iterations) takes multiple seconds; the
+# compiled version is tens of milliseconds. Idempotent Add-Type via
+# type-presence check so module re-import doesn't throw.
+if (-not ('YurunaVncPixels' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+public static class YurunaVncPixels {
+    // Convert QEMU's 32-bit little-endian BGRX framebuffer to P6 PPM
+    // body bytes (R,G,B,R,G,B...). Writes directly into `dst` starting
+    // at `dstOffset`. `src.Length` must be a multiple of 4.
+    public static void BgrxToRgb(byte[] src, byte[] dst, int dstOffset) {
+        int n = src.Length / 4;
+        for (int i = 0; i < n; i++) {
+            int s = i * 4;
+            int d = dstOffset + i * 3;
+            dst[d]     = src[s + 2]; // R
+            dst[d + 1] = src[s + 1]; // G
+            dst[d + 2] = src[s];     // B
+        }
+    }
+}
+'@
+}
+
+function Read-VncScreenshotBuffer {
+    param([System.IO.Stream]$Stream, [int]$Count)
+    $buf = [byte[]]::new($Count)
+    $offset = 0
+    while ($offset -lt $Count) {
+        $n = $Stream.Read($buf, $offset, $Count - $offset)
+        if ($n -eq 0) { throw "VNC connection closed after $offset/$Count bytes" }
+        $offset += $n
+    }
+    return $buf
+}
+
+function Get-VncScreenshot {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [string]$OutputPath,
+        [int]$Port = 5900,
+        [int]$TimeoutMs = 5000
+    )
+
+    $tcp = $null
+    $ppmPath = $null
+    try {
+        $tcp = [System.Net.Sockets.TcpClient]::new()
+        $tcp.ReceiveTimeout = $TimeoutMs
+        $tcp.SendTimeout    = $TimeoutMs
+        $tcp.Connect('127.0.0.1', $Port)
+        $stream = $tcp.GetStream()
+
+        # RFB 3.8 handshake
+        $null = Read-VncScreenshotBuffer -Stream $stream -Count 12     # server version
+        $stream.Write([System.Text.Encoding]::ASCII.GetBytes("RFB 003.008`n"), 0, 12)
+        $countBuf = Read-VncScreenshotBuffer -Stream $stream -Count 1
+        $numTypes = [int]$countBuf[0]
+        if ($numTypes -eq 0) { throw 'VNC server refused (0 security types offered)' }
+        $typesBuf = Read-VncScreenshotBuffer -Stream $stream -Count $numTypes
+        if ($typesBuf -notcontains 1) { throw "VNC server does not offer None-auth (got: $($typesBuf -join ','))" }
+        $stream.WriteByte(1)
+        $secResult = Read-VncScreenshotBuffer -Stream $stream -Count 4
+        if ($secResult[0] -ne 0 -or $secResult[1] -ne 0 -or $secResult[2] -ne 0 -or $secResult[3] -ne 0) {
+            throw "VNC security handshake failed"
+        }
+        # ClientInit: shared=1 (coexist with the keystroke connection from Invoke-Sequence.psm1)
+        $stream.WriteByte(1)
+
+        # ServerInit: width, height, pixel format, name length (24 bytes) + name
+        # PowerShell's `-shl` on a [byte] keeps the result as a byte, so
+        # shifting 8 bits truncates to zero. Cast to [int] first — or use
+        # BitConverter, which reads a multi-byte integer natively. The RFB
+        # wire format is big-endian; BitConverter is host-endian, so we
+        # reverse before decoding.
+        $initBuf = Read-VncScreenshotBuffer -Stream $stream -Count 24
+        $wBytes = @($initBuf[1], $initBuf[0])
+        $hBytes = @($initBuf[3], $initBuf[2])
+        $nlBytes = @($initBuf[23], $initBuf[22], $initBuf[21], $initBuf[20])
+        $w = [int][BitConverter]::ToUInt16([byte[]]$wBytes, 0)
+        $h = [int][BitConverter]::ToUInt16([byte[]]$hBytes, 0)
+        $nameLen = [int][BitConverter]::ToInt32([byte[]]$nlBytes, 0)
+        $bpp = [int]$initBuf[4]
+        $bigEndian = [int]$initBuf[6]
+        if ($nameLen -gt 0) { $null = Read-VncScreenshotBuffer -Stream $stream -Count $nameLen }
+        if ($bpp -ne 32)    { throw "Unsupported bpp=$bpp (this capture path assumes 32bpp BGRX)" }
+        if ($bigEndian -ne 0) { throw "Unsupported big-endian framebuffer (this path assumes little-endian BGRX)" }
+
+        # FramebufferUpdateRequest: non-incremental, full screen
+        $req = [byte[]]::new(10)
+        $req[0] = 3
+        $req[1] = 0
+        $req[6] = [byte](($w -shr 8) -band 0xFF); $req[7] = [byte]($w -band 0xFF)
+        $req[8] = [byte](($h -shr 8) -band 0xFF); $req[9] = [byte]($h -band 0xFF)
+        $stream.Write($req, 0, 10)
+
+        # Read FramebufferUpdate header. Same big-endian-over-byte trap as
+        # ServerInit — use BitConverter after swap.
+        $updHdr = Read-VncScreenshotBuffer -Stream $stream -Count 4
+        if ($updHdr[0] -ne 0) { throw "Expected FramebufferUpdate (0), got message type $($updHdr[0])" }
+        $nRects = [int][BitConverter]::ToUInt16([byte[]]@($updHdr[3], $updHdr[2]), 0)
+
+        # Accumulate pixels across rects into a full-frame buffer. QEMU's
+        # VNC server typically returns one Raw rect covering the whole
+        # screen for a non-incremental request, but honor the general case.
+        $fbBytes = $w * $h * 4
+        $fb = [byte[]]::new($fbBytes)
+        for ($r = 0; $r -lt $nRects; $r++) {
+            $rectHdr = Read-VncScreenshotBuffer -Stream $stream -Count 12
+            $rx = [int][BitConverter]::ToUInt16([byte[]]@($rectHdr[1],  $rectHdr[0]),  0)
+            $ry = [int][BitConverter]::ToUInt16([byte[]]@($rectHdr[3],  $rectHdr[2]),  0)
+            $rw = [int][BitConverter]::ToUInt16([byte[]]@($rectHdr[5],  $rectHdr[4]),  0)
+            $rh = [int][BitConverter]::ToUInt16([byte[]]@($rectHdr[7],  $rectHdr[6]),  0)
+            $enc = [BitConverter]::ToInt32([byte[]]@($rectHdr[11], $rectHdr[10], $rectHdr[9], $rectHdr[8]), 0)
+            if ($enc -ne 0) { throw "Unsupported VNC encoding $enc for rect $r (need Raw=0)" }
+            $rectBytes = $rw * $rh * 4
+            $pixels = Read-VncScreenshotBuffer -Stream $stream -Count $rectBytes
+            # Blit row-by-row into the full-frame buffer
+            for ($row = 0; $row -lt $rh; $row++) {
+                $srcOff = $row * $rw * 4
+                $dstOff = (($ry + $row) * $w + $rx) * 4
+                [Array]::Copy($pixels, $srcOff, $fb, $dstOff, $rw * 4)
+            }
+        }
+
+        # Build P6 PPM in memory, then hand off to `sips` for PNG conversion.
+        # sips ships on macOS by default — no extra dependency.
+        $headerBytes = [System.Text.Encoding]::ASCII.GetBytes("P6`n$w $h`n255`n")
+        $ppm = [byte[]]::new($headerBytes.Length + $w * $h * 3)
+        [Array]::Copy($headerBytes, 0, $ppm, 0, $headerBytes.Length)
+        [YurunaVncPixels]::BgrxToRgb($fb, $ppm, $headerBytes.Length)
+        $ppmPath = "$OutputPath.ppm"
+        [System.IO.File]::WriteAllBytes($ppmPath, $ppm)
+
+        $sipsErr = & sips -s format png $ppmPath --out $OutputPath 2>&1
+        if (-not (Test-Path $OutputPath)) {
+            Write-Debug "      VNC capture: sips conversion failed: $sipsErr"
+            return $false
+        }
+        return $true
+    } catch {
+        Write-Debug "      VNC capture failed: $_"
+        return $false
+    } finally {
+        if ($tcp) { try { $tcp.Close() } catch { } }
+        if ($ppmPath -and (Test-Path $ppmPath)) {
+            Remove-Item -LiteralPath $ppmPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Get-UtmScreenshot {
     param([string]$VMName, [string]$OutputPath)
+
+    # Attempt VNC framebuffer capture first. When the QEMU backend is in
+    # use with `-vnc 127.0.0.1:0`, this is the ONLY path that returns real
+    # pixels — UTM's NSWindow stays black because the vnc arg steals the
+    # spice-app display output, so screencapture on that window would
+    # return a uniformly black PNG and every OCR step would time out.
+    # When VNC is not reachable (Apple VZ guests, port 5900 not listening),
+    # we fall through to the screencapture-based paths below.
+    if (Get-VncScreenshot -OutputPath $OutputPath) {
+        Write-Debug "      Captured via VNC (port 5900)"
+        Write-Output "Screenshot saved: $OutputPath"
+        return $OutputPath
+    }
 
     # One-time check: verify screencapture works at all (Screen Recording permission).
     if (-not $script:ScreencaptureChecked) {

@@ -16,6 +16,93 @@
 
 #requires -version 7
 
+# ── UTM dialog watchdog (macOS only) ─────────────────────────────────────────
+# Background osascript process that clicks non-destructive accept buttons on
+# any UTM dialog/sheet every ~2 s. Suppresses both the import-time "custom
+# QEMU arguments" warning and the runtime "QEMU error: ... Invalid argument"
+# popups, keeping the harness unattended.
+#
+# PID of the running osascript is kept at
+# $HOME/virtual/utm-dialog-watchdog.pid. Start-UtmDialogWatchdog kills any
+# stale watchdog first, then spawns a fresh one. Stop-UtmDialogWatchdog is
+# called from Stop-TestVM to shut it down. If anything leaks (harness
+# crash), the next Start-UtmDialogWatchdog's stale-PID cleanup handles it.
+
+$script:WatchdogPidFile    = Join-Path $HOME "virtual/utm-dialog-watchdog.pid"
+$script:WatchdogScriptPath = Join-Path $HOME "virtual/utm-dialog-watchdog.applescript"
+$script:WatchdogLogPath    = Join-Path $HOME "virtual/utm-dialog-watchdog.log"
+
+function Stop-UtmDialogWatchdog {
+    [CmdletBinding()]
+    param()
+    if (-not (Test-Path $script:WatchdogPidFile)) { return }
+    $pidText = (Get-Content $script:WatchdogPidFile -Raw -ErrorAction SilentlyContinue)
+    if ($pidText) {
+        $pidText = $pidText.Trim()
+        if ($pidText -as [int]) {
+            & '/bin/kill' $pidText 2>$null | Out-Null
+        }
+    }
+    Remove-Item -LiteralPath $script:WatchdogPidFile -Force -ErrorAction SilentlyContinue
+}
+
+function Start-UtmDialogWatchdog {
+    [CmdletBinding()]
+    param()
+    # Idempotent: kill any stale watchdog before spawning a new one.
+    Stop-UtmDialogWatchdog
+    $stateDir = Split-Path -Parent $script:WatchdogPidFile
+    if (-not (Test-Path $stateDir)) {
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+    }
+    # Non-destructive accept-label list. Deliberately excludes Cancel /
+    # Stop / Quit / Force-Quit etc. so the watchdog never terminates a
+    # VM the harness is actively driving.
+    $asScript = @'
+set acceptLabels to {"Continue", "OK", "Okay", "Run", "Open", "Allow", "Dismiss", "Close", "Ignore"}
+repeat
+    try
+        tell application "System Events"
+            tell process "UTM"
+                set candidates to {}
+                try
+                    repeat with w in (every window)
+                        repeat with s in (every sheet of w)
+                            set end of candidates to s
+                        end repeat
+                    end repeat
+                end try
+                try
+                    repeat with d in (every window whose subrole is "AXDialog")
+                        set end of candidates to d
+                    end repeat
+                end try
+                repeat with c in candidates
+                    try
+                        repeat with b in (every button of c)
+                            if (title of b) is in acceptLabels then
+                                click b
+                                exit repeat
+                            end if
+                        end repeat
+                    end try
+                end repeat
+            end tell
+        end tell
+    end try
+    delay 2
+end repeat
+'@
+    Set-Content -LiteralPath $script:WatchdogScriptPath -Value $asScript -NoNewline
+    $proc = Start-Process -FilePath '/usr/bin/osascript' `
+        -ArgumentList @($script:WatchdogScriptPath) `
+        -RedirectStandardOutput $script:WatchdogLogPath `
+        -RedirectStandardError  "$($script:WatchdogLogPath).stderr" `
+        -PassThru
+    $proc.Id | Set-Content -LiteralPath $script:WatchdogPidFile
+    Write-Debug "      UTM dialog watchdog started (pid $($proc.Id))"
+}
+
 # ── Start VM ─────────────────────────────────────────────────────────────────
 
 <#
@@ -52,8 +139,30 @@ function Start-UtmVM {
                 Remove-Item -LiteralPath $vmstatePath -Force -ErrorAction SilentlyContinue
                 Write-Output "  Removed stale vmstate for '$VMName' — forcing cold boot."
             }
+            # Auto-dismiss UTM dialogs while the VM is running.
+            # Two classes of unattended popups have to be handled for the
+            # harness to run without a human at the keyboard:
+            #   (1) IMPORT: "This virtual machine uses custom QEMU arguments
+            #       which is potentially dangerous..." — triggered every
+            #       time `open $utmBundle` re-imports the bundle. No
+            #       plist/UserDefaults/Registry opt-out exists (confirmed
+            #       by inspecting UTM's binary and Registry).
+            #   (2) RUNTIME: "QEMU error: drive<UUID>, #block<N>: Invalid
+            #       argument" — surfaced intermittently by QEMU's block
+            #       layer on macOS APFS. The qcow2 change in New-VM.ps1
+            #       suppresses the common disk-image cause, but the EFI
+            #       pflash (a UTM-managed drive not in config.plist) can
+            #       still surface one.
+            # A background osascript watchdog covers both: it polls UTM's
+            # windows every 2 s and clicks any non-destructive accept
+            # button (OK / Continue / Dismiss / Close / etc.). Runs for
+            # the duration of the VM cycle. Stop-TestVM kills it by PID.
+            # Stale watchdog from a prior cycle is killed before spawn.
+            Start-UtmDialogWatchdog
             & open "$utmBundle"
-            Start-Sleep -Seconds 5
+            # Give UTM a moment to process the import + watchdog to click through
+            # the custom-args dialog before we ask utmctl to start the VM.
+            Start-Sleep -Seconds 3
             & utmctl start "$VMName" 2>&1 | Write-Output
             if ($LASTEXITCODE -ne 0) {
                 return @{ success=$false; errorMessage="utmctl start failed for '$VMName' (exit code $LASTEXITCODE)" }
@@ -102,6 +211,12 @@ function Stop-TestVM {
     switch ($HostType) {
         "host.macos.utm" {
             if ($PSCmdlet.ShouldProcess($VMName, 'Stop UTM VM')) {
+                # Kill the dialog watchdog first so it doesn't linger after
+                # the VM goes away. Start-UtmVM's stale-PID cleanup would
+                # reap it on the next cycle anyway, but stopping here keeps
+                # the process table tidy and avoids an osascript clicking
+                # on an unrelated UTM dialog between cycles.
+                Stop-UtmDialogWatchdog
                 & utmctl stop "$VMName" 2>&1 | Out-Null
                 if ($LASTEXITCODE -eq 0) {
                     Write-Output "Stopped UTM VM: $VMName"

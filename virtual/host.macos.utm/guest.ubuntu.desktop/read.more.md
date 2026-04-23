@@ -14,9 +14,26 @@ nested virtualization. Required:
 | **macOS** | 15.0 Sequoia or later |
 | **Chip**  | Apple **M3**, M4, or later (M1/M2 not supported) |
 | **UTM**   | v4.6.0 or later |
-| **Backend** | Apple Virtualization (not QEMU) |
+| **Backend** | QEMU + HVF (was Apple Virtualization; see below) |
 
 `New-VM.ps1` checks these and exits with an error if unmet.
+
+### Why QEMU instead of Apple Virtualization
+
+Previously this guest used Apple VZ. VZ renders the VM framebuffer directly
+into UTM's `NSWindow`, which forces the test harness into two constraints
+the Hyper-V path doesn't have: the UTM window must stay visible (screen
+capture via `screencapture -R` returns stale pixels when the window is
+occluded or on another Space) and must stay focused (AppleScript/CGEvent
+keystrokes go to whichever window is active). Under QEMU, `-vnc
+127.0.0.1:0` exposes the framebuffer and input over a local TCP socket
+that the harness drives directly (`test/extensions/Invoke-Sequence.psm1`
+speaks RFB). That mirrors the Hyper-V synthetic-video-channel /
+synthetic-keyboard model: the VM runs independently of any on-screen
+window, so the operator can work in other apps while the test cycles.
+
+HVF is the Apple-provided hypervisor QEMU uses on macOS, so aarch64
+Linux still runs at near-native speed.
 
 ## 1) Get the image
 
@@ -34,11 +51,12 @@ Prerequisites: `brew install --cask utm`, `brew install powershell`,
 
 [`New-VM.ps1`](./New-VM.ps1) assembles a UTM bundle under
 `~/Desktop/Yuruna.VDE/<machinename>/`. Copies the ISO into the bundle,
-creates a 512 GB raw disk (Apple Virtualization requires raw), generates
-an autoinstall `seed.iso`, and writes `config.plist` from
-[`config.plist.template`](./config.plist.template) — Apple Virtualization
-ARM64, 4 vCPU, 16 GB RAM, UEFI, shared NAT, clipboard, nested virt via
-`GenericPlatform`.
+creates a 512 GB raw disk (sparse on APFS), generates an autoinstall
+`seed.iso`, and writes `config.plist` from
+[`config.plist.template`](./config.plist.template) — QEMU backend with
+HVF, ARM64 `virt` machine, 4 vCPU, 16 GB RAM, UEFIBoot (edk2), shared
+NAT via vmnet (same 192.168.64.0/24 as Apple VZ), clipboard, and a
+loopback VNC server on `127.0.0.1:5900` for the test harness.
 
 ```bash
 pwsh ./New-VM.ps1                  # default hostname ubuntu-desktop01

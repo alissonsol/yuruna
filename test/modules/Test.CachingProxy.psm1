@@ -156,6 +156,39 @@ function Test-CachingProxyAvailable {
         } finally {
             $tcp.Close()
         }
+
+        # Fallback: forwarder is down but the cache VM may still be up on
+        # the VZ shared-NAT subnet. Read the real VM IP from cache-ip.txt
+        # (written by Start-CachingProxy.ps1) and probe it directly. If it
+        # answers, return the VM URL so host-side callers (Test-CachingProxy
+        # and the host-only parts of Invoke-TestRunner / Start-StatusServer)
+        # can still see the cache as "detected" — and, critically, so
+        # Add-CachingProxyPortMap downstream has a target IP to re-spawn
+        # the missing forwarder(s) with. The next call to this function
+        # will then hit the :3128 loopback path above and return the
+        # gateway URL again.
+        #
+        # Guest provisioners (virtual/*/New-VM.ps1) run their own inline
+        # :3128 forwarder probe and do NOT consume this function's return
+        # value, so they are unaffected — a dead forwarder still means
+        # "install without cache" for the guest until the forwarder is
+        # repaired, which is the correct guest-facing semantics.
+        $cacheIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
+        if (-not (Test-Path $cacheIpFile)) { return $null }
+        $directIp = (Get-Content -Raw $cacheIpFile -ErrorAction SilentlyContinue).Trim()
+        if ($directIp -notmatch '^\d+\.\d+\.\d+\.\d+$') { return $null }
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        try {
+            $async = $tcp.BeginConnect($directIp, 3128, $null, $null)
+            if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
+                Write-Warning "squid-cache VM is up at ${directIp}:3128 but the host-side forwarder on 127.0.0.1:3128 is DOWN. Guests cannot reach the gateway URL until the forwarder is restored. Run: pwsh test/Repair-CachingProxyForwarder.ps1"
+                return "http://${directIp}:3128"
+            }
+        } catch {
+            Write-Verbose "direct cache probe ${directIp}:3128 failed: $($_.Exception.Message)"
+        } finally {
+            $tcp.Close()
+        }
         return $null
     }
     return $null

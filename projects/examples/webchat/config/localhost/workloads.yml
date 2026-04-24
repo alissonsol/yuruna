@@ -1,0 +1,73 @@
+# Workloads information - localhost
+---
+globalVariables:
+  websiteDomain:         "yrn42.com"
+  websiteHost:           "localhost"
+  websiteTlsSecret:      "website-tls-secret"
+  certManagerIssuerEmail: "certificates@yrn42.com"
+  _registryLocation:     "$($([Environment]::GetEnvironmentVariable(\"${env:registryName}.registryLocation\")) -replace '.azurecr.io','')"
+  dockerServer:          "http://${env:_registryLocation}"
+  dockerUsername:        "placeholder"
+  dockerPassword:        "placeholder"
+  ingressClass:          "nginx"
+  certManagerLatest:     "v1.20.0"
+  # LLM backend - abstracted so it can be swapped without changing workload logic
+  # Supported values: "ollama", "openai", "anthropic"
+  llmBackend:            "ollama"
+  # Ollama settings (used when llmBackend=ollama)
+  ollamaHost:            "http://localhost:11434"
+  ollamaModel:           "phi3:mini"
+
+workloads:
+- context: "${env:runTag}-${env:project}-${env:runId}"
+  variables:
+    _hostname: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.hostname\"))"
+    _frontendIp: "$([Environment]::GetEnvironmentVariable(\"${env:contextName}.frontendIp\"))"
+    tls-crt: "$(Join-Path -Path ${env:workFolder} -ChildPath \"website-tls.crt\")"
+    tls-key: "$(Join-Path -Path ${env:workFolder} -ChildPath \"website-tls.key\")"
+  deployments:
+    # Uninstall previous workloads: idempotent
+    - kubectl: "delete namespace ${env:namespace} --ignore-not-found=true --v=1"
+    - kubectl: "delete namespace ingress-ns --ignore-not-found=true --v=1"
+    - kubectl: "delete -f https://github.com/jetstack/cert-manager/releases/download/${env:certManagerLatest}/cert-manager.yaml --ignore-not-found=true --v=1"
+    - kubectl: "delete -f https://github.com/cert-manager/cert-manager/releases/download/${env:certManagerLatest}/cert-manager.crds.yaml --ignore-not-found=true --v=1"
+    - kubectl: "delete clusterrole nginx-ingress-ingress-nginx --ignore-not-found=true"
+    - kubectl: "delete clusterrolebinding nginx-ingress-ingress-nginx --ignore-not-found=true"
+    # Install dependencies
+    - kubectl: "create namespace ${env:namespace} --v=1"
+    - kubectl: "config set-context --current --namespace=${env:namespace} --v=1"
+    # TLS certificate
+    - shell: 'if ("$IsLinux" -eq "True") { sudo -u (`$(if (`$env:SUDO_USER) { `$env:SUDO_USER } else { `$env:USER })) -H mkcert -install } else { mkcert -install }'
+    - shell: "mkcert -key-file \"${env:tls-key}\" -cert-file \"${env:tls-crt}\" ${env:websiteDomain} \"*.${env:websiteDomain}\" localhost \"*.localhost\" 127.0.0.1 ::1 ${env:_hostname} ${env:_frontendIp}"
+    - kubectl: "delete secret ${env:websiteTlsSecret} --namespace=${env:namespace} --ignore-not-found=true"
+    - kubectl: "create secret tls ${env:websiteTlsSecret} --key \"${env:tls-key}\" --cert \"${env:tls-crt}\" --namespace=${env:namespace}"
+    # Ingress
+    - helm: "repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
+    - helm: "repo update"
+    - helm: >
+        install nginx-ingress ingress-nginx/ingress-nginx
+        --namespace ingress-ns
+        --create-namespace
+        --set controller.replicaCount=1
+        --set controller.nodeSelector."kubernetes\.io/os"=linux
+        --set controller.hostPort.enabled=true
+        --set controller.service.type=ClusterIP
+        --set controller.admissionWebhooks.enabled=false
+        --set controller.ingressClass=${env:ingressClass}
+    # Deploy website frontend
+    - kubectl: "config set-context --current --namespace=${env:namespace} --v=1"
+    - kubectl: "create secret docker-registry registry-credential --docker-server=${env:dockerServer} --docker-username=${env:dockerUsername} --docker-password=${env:dockerPassword}"
+    - chart: "frontend/website"
+      variables:
+        installName: "website-${env:runId}"
+    # Deploy LLM backend - swappable via llmBackend variable
+    - chart: "frontend/webchat-backend"
+      variables:
+        installName:  "webchat-backend-${env:runId}"
+        llmBackend:   "${env:llmBackend}"
+        ollamaHost:   "${env:ollamaHost}"
+        ollamaModel:  "${env:ollamaModel}"
+    - shell: 'Write-Information ">> Endpoint: https://${env:websiteHost}"'
+    - shell: 'Write-Information ">> LLM backend: ${env:llmBackend} at ${env:ollamaHost}"'
+    - shell: 'Write-Information "-- Check containers: kubectl get pods --all-namespaces"'
+    - shell: 'Write-Information ">>    Test: curl -k -v http://${env:websiteHost}"'

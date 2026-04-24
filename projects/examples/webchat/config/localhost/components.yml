@@ -1,0 +1,19 @@
+# Components information - localhost
+---
+globalVariables:
+  DOCKER_SCAN_SUGGEST:   "false"
+  buildCommand: docker build --progress=plain --rm --build-arg DEV=1 --no-cache -f ${env:dockerfile} -t "${env:containerPrefix}/${env:project}:latest" "${env:buildPath}"
+  tagCommand: docker tag "${env:containerPrefix}/${env:project}:latest" "$([Environment]::GetEnvironmentVariable("${env:registryName}.registryLocation"))/${env:containerPrefix}/${env:project}:latest"
+  pushCommand: docker push "$([Environment]::GetEnvironmentVariable("${env:registryName}.registryLocation"))/${env:containerPrefix}/${env:project}:latest"
+
+components:
+- project: "webchat-frontend"
+  buildPath: "frontend/website"
+  variables:
+    preProcessor:   "Push-Location ${env:buildPath};
+                     ./copy-pfx.ps1;
+                     Pop-Location"
+
+- project: "webchat-backend"
+  buildPath: "frontend/webchat-backend"
+  variables: {}

@@ -31,9 +31,19 @@
       * Power Nap / standby / auto-poweroff / hibernation → all off
       * hot corners bound to Start Screen Saver / Display Sleep / Lock
         Screen → neutralized
+      * AppleSpacesSwitchOnActivation → false (UTM activate during a run
+        no longer yanks the operator off another macOS Space — e.g. when
+        debugging in VS Code on a different desktop while the runner is
+        going through an AVF-guest keystroke step)
       * Accessibility permission prompt (keystroke injection)
       * Screen Recording permission prompt (window enumeration + per-window
         screen capture — a separate TCC bucket from Accessibility)
+
+    Manual one-time step (intentionally NOT scripted — Dock plist editing
+    is fragile): right-click UTM in the Dock → Options → Assign To → All
+    Desktops. With this and AppleSpacesSwitchOnActivation off, you can
+    leave a long Invoke-TestRunner cycle running in its own Space and
+    debug in VS Code on another Space without disruption.
     Requires sudo (pmset, defaults write /Library/Preferences, sysadminctl).
     Idempotent — safe to run multiple times.
 

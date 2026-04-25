@@ -80,21 +80,24 @@ foreach ($line in $utmOutput) {
 }
 
 # Read VM UUID from a bundle's config.plist. utmctl list may only return
-# running VMs; UUID-based `utmctl status` works for stopped VMs too.
+# running VMs; UUID-based `utmctl status` works for stopped VMs too —
+# without this, a stopped service VM (e.g. squid-cache) is misclassified
+# as orphaned and deleted by the -Force cleanup path.
+#
+# `plutil -extract Information.UUID raw` (not `-convert json`):
+#   * UTM stores the UUID at Information.UUID, not a top-level key.
+#   * `-convert json` fails outright on these bundles because config.plist
+#     contains a <data> blob (MachineIdentifier) that JSON can't represent
+#     — plutil exits 1 and ConvertFrom-Json throws, so the whole function
+#     used to silently return $null and the orphan check fell through.
 function Get-UTMBundleUUID {
     param([string]$BundlePath)
     $configPlist = Join-Path $BundlePath "config.plist"
     if (-not (Test-Path $configPlist)) { return $null }
-    try {
-        $json = & plutil -convert json -o - $configPlist 2>&1
-        $config = $json | ConvertFrom-Json -ErrorAction Stop
-        foreach ($key in @('_id', 'uuid', 'UUID', 'id')) {
-            if ($config.PSObject.Properties[$key]) {
-                $val = "$($config.$key)".Trim()
-                if ($val -match '^[0-9A-Fa-f-]{36}$') { return $val }
-            }
-        }
-    } catch { Write-Verbose "Failed to extract UUID: $_" }
+    $val = & plutil -extract "Information.UUID" raw -o - $configPlist 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $val = "$val".Trim()
+    if ($val -match '^[0-9A-Fa-f-]{36}$') { return $val }
     return $null
 }
 

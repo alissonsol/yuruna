@@ -582,6 +582,38 @@ function Set-MacHostConditionSet {
         Write-Output "Auto-logout after inactivity is already disabled."
     }
 
+    # ── 3m. Spaces "switch to a Space with open windows" toggle ──────────
+    # When the harness calls `tell application "UTM" to activate` (the
+    # AVF-guest keystroke fallback in Send-KeyUTM / Send-TextUTM), macOS
+    # by default yanks the operator across Spaces to UTM's window — which
+    # is hostile when the operator has switched to VS Code on a different
+    # Space to investigate something while a long test runs.
+    # AppleSpacesSwitchOnActivation=false keeps the activation on the
+    # current Space; UTM still becomes frontmost (so keystrokes route to
+    # it), but the operator's view stays put. Dock must be restarted for
+    # the change to take effect.
+    $spacesAutoSwitch = & defaults read NSGlobalDomain AppleSpacesSwitchOnActivation 2>$null
+    $spacesAutoSwitchOff = ($LASTEXITCODE -eq 0 -and "$spacesAutoSwitch".Trim() -eq "0")
+    if (-not $spacesAutoSwitchOff) {
+        if ($PSCmdlet.ShouldProcess("AppleSpacesSwitchOnActivation (currently $($spacesAutoSwitch))", "Set to false (don't switch Spaces on app activation)")) {
+            Write-Output "Disabling 'switch to a Space with open windows' on app activation..."
+            & defaults write NSGlobalDomain AppleSpacesSwitchOnActivation -bool false 2>$null | Out-Null
+            & killall Dock 2>$null | Out-Null
+            $changed = $true
+        }
+    } else {
+        Write-Output "Spaces auto-switch on app activation is already disabled."
+    }
+
+    # Pinning UTM.app to "All Desktops" (right-click Dock icon → Options →
+    # Assign To → All Desktops) is the other half of making cross-Space
+    # debugging seamless — but it's stored deep inside com.apple.spaces
+    # app-bindings plist and is fragile to script. Left as a one-time
+    # manual step; flagged here so the operator knows it exists.
+    Write-Output "Tip (manual): right-click UTM in the Dock → Options → Assign To → All Desktops."
+    Write-Output "      Combined with the AppleSpacesSwitchOnActivation toggle above, this lets"
+    Write-Output "      Invoke-TestRunner activate UTM without yanking the operator off VS Code."
+
     # ── 3l. Managed Configuration Profile detection (MDM override) ───────
     # If MDM-managed, a Configuration Profile can enforce screen lock /
     # password delay / auto-logout at a level that OVERRIDES everything

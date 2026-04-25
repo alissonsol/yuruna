@@ -297,12 +297,16 @@ function Get-UtmScreenshot {
     # with screencapture -l <windowID>, which captures ONLY that window
     # even if it is partially or fully obscured by other windows.
     # This avoids false OCR matches from terminal output or other apps.
+    # kCGWindowListOptionAll (not OnScreenOnly) so the lookup still finds
+    # UTM windows when the operator has switched to a different macOS Space
+    # (e.g. to debug in VS Code). screencapture -l <id> works against the
+    # window server regardless of which Space the window lives on.
     $safeVMName = $VMName -replace '\\', '\\\\' -replace "'", "\\'"
     $windowIdScript = @"
 ObjC.import('CoreGraphics');
 ObjC.import('CoreFoundation');
 var winList = ObjC.unwrap(
-    $.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0));
+    $.CGWindowListCopyWindowInfo($.kCGWindowListOptionAll, 0));
 var vmName = '__VMNAME__';
 var result = 'not_found';
 for (var i = 0; i < winList.length; i++) {
@@ -951,11 +955,14 @@ function Get-UtmWindowScreenshot {
     # screen points (origin top-left of main display) — exactly what
     # CGEventPost consumes, so no extra coord-system conversion is needed
     # downstream for the click dispatch.
+    # kCGWindowListOptionAll (not OnScreenOnly) so the lookup survives the
+    # operator switching to another macOS Space — see the matching comment
+    # in Get-UtmScreenshot above.
     $safeVMName = $VMName -replace '\\', '\\\\' -replace "'", "\\'"
     $windowScript = @"
 ObjC.import('CoreGraphics');
 var winList = ObjC.unwrap(
-    `$.CGWindowListCopyWindowInfo(`$.kCGWindowListOptionOnScreenOnly, 0));
+    `$.CGWindowListCopyWindowInfo(`$.kCGWindowListOptionAll, 0));
 var vmName = '__VMNAME__';
 var result = 'not_found';
 for (var i = 0; i < winList.length; i++) {

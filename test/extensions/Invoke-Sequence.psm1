@@ -835,7 +835,8 @@ function Send-Text {
 $script:OCRConfusionGroups = @(
     'wuv'       # w↔u↔v — most common on console fonts
     'mn'        # m↔n
-    'oO0'       # o↔O↔0
+    'oO0@'      # o↔O↔0↔@ — '@' frequently substituted for '0' on console fonts
+                # (e.g. "test-ubuntu-server-01" reads as "test-ubuntu-server-@1")
     "lI1i[]$([char]0x0131)"  # l↔I↔1↔i↔[↔]↔ı — brackets misread as l/1/i, ı (dotless i) from Vision OCR
     'S5s'       # S↔5↔s
     'B8'        # B↔8
@@ -850,10 +851,16 @@ $script:OCRConfusionGroups = @(
 # Unicode substitutions for ASCII punctuation on terminal screens.
 # Stripping these (along with their ASCII equivalents) prevents
 # mismatches when the pattern uses plain ASCII.
+#
+# '@' is NOT in this list — it now lives in the oO0@ confusion group
+# (above) because OCR mistakes for '0' are more common in this codebase
+# than '@' being dropped from a prompt. With '@' canonicalized to 'o',
+# a pattern with literal '@' (e.g. "[ec2-user@host]$") still matches
+# OCR text that reads '@' as '@' OR as '0' — both canonicalize the same.
 $script:OCRStripChars = [System.Collections.Generic.HashSet[char]]::new(
     [char[]]@(
         '-', [char]0x2014, [char]0x2013, [char]0x2012,  # -, —, –, ‒
-        '@', '[', ']', '$', '~', '"', '`'               # terminal prompt chars frequently dropped by OCR
+        '[', ']', '$', '~', '"', '`'                    # terminal prompt chars frequently dropped by OCR
     )
 )
 

@@ -39,8 +39,12 @@ sudo systemctl restart ollama
 echo -e "\e[1;32m<<< Ollama configuration complete.\e[0m"
 
 echo ""
-echo -e "\e[1;36m>>> Pulling phi3:mini model...\e[0m"
-ollama pull phi3:mini
+echo -e "\e[1;36m>>> Pulling phi3:mini model (skipped if already present)...\e[0m"
+if ollama list | grep -q "phi3:mini"; then
+    echo "phi3:mini already present, skipping pull."
+else
+    ollama pull phi3:mini
+fi
 echo -e "\e[1;32m<<< Model pull complete.\e[0m"
 
 echo ""

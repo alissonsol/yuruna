@@ -73,13 +73,28 @@ function Get-VMScreenshot {
 # right one. New-VM.ps1 substitutes the same value into the .utm bundle's
 # AdditionalArguments so the producer and consumer agree.
 function Get-VncDisplayForVm {
+    <#
+    .SYNOPSIS
+        Maps a VM name to a deterministic QEMU VNC display number.
+    .DESCRIPTION
+        Returns an integer in 10..89 (corresponding to TCP ports 5910..5989).
+        Both the producer (config.plist.template via New-VM.ps1) and the
+        consumers (Get-UtmScreenshot, Connect-VNC) call this helper so they
+        agree on which port a given VM serves on, with no sidecar file to
+        keep in sync.
+    .PARAMETER VMName
+        The UTM VM's display name (matches the .utm bundle name and the
+        kCGWindowName the harness searches for).
+    .OUTPUTS
+        [int] display number in 10..89.
+    #>
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)][string]$VMName)
-    # Range: display 10..89 → ports 5910..5989. Displays 0..9 are reserved for
-    # legacy/default callers so a pre-fix VM still bound to port 5900 won't
-    # collide with a per-VM port computed for a different VM. The 80-slot
-    # space is more than enough — the harness runs a handful of VMs at once.
+    # Displays 0..9 are reserved for legacy/default callers so a pre-fix VM
+    # still bound to port 5900 won't collide with a per-VM port computed for
+    # a different VM. The 80-slot space is more than enough — the harness
+    # runs a handful of VMs at once.
     $h = 0
     foreach ($ch in $VMName.ToCharArray()) {
         $h = (($h * 131) + [int][char]$ch) -band 0x3FFFFFFF
@@ -88,6 +103,18 @@ function Get-VncDisplayForVm {
 }
 
 function Get-VncPortForVm {
+    <#
+    .SYNOPSIS
+        Returns the TCP port a VM's QEMU VNC server should bind to.
+    .DESCRIPTION
+        Thin wrapper over Get-VncDisplayForVm: TCP port = 5900 + display
+        number. Producers and consumers of the VNC framebuffer/keystroke
+        path call this so the port is derived from the VM name in one place.
+    .PARAMETER VMName
+        The UTM VM's display name.
+    .OUTPUTS
+        [int] TCP port in 5910..5989.
+    #>
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)][string]$VMName)

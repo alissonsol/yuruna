@@ -190,6 +190,39 @@ function Get-WorkingCachingProxyUrl {
     return $null
 }
 
+<#
+.SYNOPSIS
+    Returns the host's IPv4 on the Hyper-V Default Switch — the IP a guest
+    on Default Switch can reach the host at.
+
+.DESCRIPTION
+    Default Switch is a NAT-mode internal vSwitch; the host gets an
+    auto-assigned IPv4 on the matching vEthernet adapter, and that IP is
+    what guests reach the host at (e.g. for the yuruna status server).
+
+    Caveat: Default Switch's host-side IP CHANGES across host reboots
+    (Microsoft regenerates it from a 172.x.x.x pool). A VM provisioned
+    today and reused tomorrow may end up with a stale IP baked into
+    /etc/yuruna/host.env. Run Test-YurunaHost.ps1 inside the guest to
+    detect; the documented remediation is to rebuild the guest VM.
+
+    Bridged networking (External Switch) would route guests via the
+    host's LAN IP instead — this helper currently does not detect that
+    mode.
+
+.OUTPUTS
+    [string] IPv4 address, or $null if Default Switch isn't configured.
+#>
+function Get-GuestReachableHostIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
+    if ($hostAdapter) { return $hostAdapter.IPAddress }
+    return $null
+}
+
 function Assert-HyperVEnabled {
     <#
     .SYNOPSIS

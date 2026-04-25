@@ -209,9 +209,29 @@ APT_PROXY_BLOCK_PLACEHOLDER
       cat > /target/etc/modprobe.d/denylist-hv-balloon.conf << 'MODPROBE'
       blacklist hv_balloon
       MODPROBE
+    # --- Yuruna host coordinates: written for the dev iteration loop ---
+    # New-VM.ps1 substitutes the placeholders below at provision time.
+    # Guest scripts read /etc/yuruna/host.env to prefer the local status
+    # server over GitHub. /etc/hosts gives a stable name (yuruna-host)
+    # that survives DHCP renumbering inside the guest's session.
+    # Caveat: Hyper-V Default Switch IP changes across host reboots —
+    # rebuild the guest if Test-YurunaHost.ps1 fails after a host reboot.
+    - mkdir -p /target/etc/yuruna
+    - |
+      cat > /target/etc/yuruna/host.env << 'EOF'
+      YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
+      YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+      EOF
+    - |
+      grep -q yuruna-host /target/etc/hosts || \
+        echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /target/etc/hosts
     # --- Network: download fetch-and-execute utility ---
+    # Try the host status server first (fast, local, devloop-friendly)
+    # and fall back to raw.githubusercontent.com if it is not reachable.
     - mkdir -p /target/automation
-    - wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
+    - |
+      wget --no-cache --timeout=5 -O /target/automation/fetch-and-execute.sh "http://YURUNA_HOST_IP_PLACEHOLDER:YURUNA_HOST_PORT_PLACEHOLDER/yuruna-repo/automation/fetch-and-execute.sh" || \
+      wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
     - curtin in-target --target=/target -- chmod +x /automation/fetch-and-execute.sh
     # --- Network: timezone detection via IP geolocation and NTP ---
     - curtin in-target --target=/target -- timedatectl set-ntp true

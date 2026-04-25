@@ -361,4 +361,29 @@ function Stop-AllCachingProxyForwarder {
     return ,$stopped
 }
 
-Export-ModuleMember -Function Remove-UtmBundleWithRetry, Start-CachingProxyForwarder, Stop-CachingProxyForwarder, Get-CachingProxyForwarder, Stop-AllCachingProxyForwarder
+<#
+.SYNOPSIS
+    Returns the host's IP address as reachable from a UTM Apple Virtualization guest.
+
+.DESCRIPTION
+    On Apple Virtualization shared NAT (the default UTM networking mode for
+    this repo), guests always reach the host at 192.168.64.1 — that is the
+    VZ gateway IP set by the framework, not configurable per VM. The same
+    constant is hardcoded as the squid-cache forwarder URL in
+    guest.ubuntu.server/New-VM.ps1, by long convention.
+
+    Bridged networking (not the repo default) would route guests via the
+    host's LAN IP instead. If/when that mode is added, this helper needs a
+    mode-detection branch.
+
+.OUTPUTS
+    [string] '192.168.64.1' — the VZ gateway address.
+#>
+function Get-GuestReachableHostIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return '192.168.64.1'
+}
+
+Export-ModuleMember -Function Remove-UtmBundleWithRetry, Start-CachingProxyForwarder, Stop-CachingProxyForwarder, Get-CachingProxyForwarder, Stop-AllCachingProxyForwarder, Get-GuestReachableHostIp

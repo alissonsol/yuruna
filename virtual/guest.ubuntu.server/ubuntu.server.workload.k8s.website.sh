@@ -36,17 +36,45 @@ if ! docker start registry 2>/dev/null; then
     fi
 fi
 
-# Clone yuruna if not present
+# Materialize the yuruna repo. Two paths, in priority order:
+#   1. Host status server tarball — /yuruna-archive.tar.gz is a
+#      ``git archive HEAD`` of the working tree's committed state.
+#      Fast (no clone), local, dev-iteration-friendly. Probed via
+#      /livecheck so a stopped server falls through silently.
+#   2. ``git clone`` from GitHub — final fallback, with retries.
+# The tarball path produces a working tree without .git/ — the script
+# below only `cd`s and reads files, so the missing .git is harmless.
 if [ ! -d "$REAL_HOME/yuruna" ]; then
-    for attempt in 1 2 3; do
-        git clone https://github.com/alissonsol/yuruna.git "$REAL_HOME/yuruna" && break
-        echo "git clone attempt $attempt failed"
-        rm -rf "$REAL_HOME/yuruna"
-        [ $attempt -lt 3 ] && sleep 60
-    done
-    if [ ! -d "$REAL_HOME/yuruna" ]; then
-        echo "git clone failed after 3 attempts" >&2
-        exit 1
+    HOST_OK=false
+    if [ -r /etc/yuruna/host.env ]; then
+        # shellcheck disable=SC1091
+        . /etc/yuruna/host.env
+        if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
+            LIVECHECK_URL="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck"
+            TARBALL_URL="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-archive.tar.gz"
+            if wget -q --spider --timeout=2 "$LIVECHECK_URL" 2>/dev/null; then
+                echo "yuruna: fetching committed tarball from $TARBALL_URL"
+                mkdir -p "$REAL_HOME/yuruna"
+                if wget -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+                    HOST_OK=true
+                else
+                    echo "yuruna: tarball fetch/extract failed — falling back to GitHub"
+                    rm -rf "$REAL_HOME/yuruna"
+                fi
+            fi
+        fi
+    fi
+    if [ "$HOST_OK" = "false" ]; then
+        for attempt in 1 2 3; do
+            git clone https://github.com/alissonsol/yuruna.git "$REAL_HOME/yuruna" && break
+            echo "git clone attempt $attempt failed"
+            rm -rf "$REAL_HOME/yuruna"
+            [ $attempt -lt 3 ] && sleep 60
+        done
+        if [ ! -d "$REAL_HOME/yuruna" ]; then
+            echo "git clone failed after 3 attempts" >&2
+            exit 1
+        fi
     fi
 fi
 

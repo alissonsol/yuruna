@@ -250,7 +250,23 @@ if ($CachingProxyUrl) {
     $AptProxyBlock = ""
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl)
+# Yuruna host (status server) IP+port baked into the seed for the dev
+# iteration loop. Guest scripts read /etc/yuruna/host.env (written by
+# the user-data late-commands) to resolve a local URL before falling
+# back to GitHub. Default Switch's host IP changes across host
+# reboots — see Test-YurunaHost.ps1 for the in-guest probe.
+$YurunaHostIp = Get-GuestReachableHostIp
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/test-config.json'
+if (Test-Path $YurunaTestConfig) {
+    try {
+        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Json
+        if ($tc.statusServer.port) { $YurunaHostPort = "$($tc.statusServer.port)" }
+    } catch { Write-Verbose "test-config.json parse failed: $_" }
+}
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

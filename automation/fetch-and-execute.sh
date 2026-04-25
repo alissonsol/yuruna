@@ -1,12 +1,45 @@
 #!/bin/bash
 
-# Cache-busting via environment variables, in priority order:
-#   1. EXEC_QUERY_PARAMS — explicit override, used verbatim (include '?').
+# Base URL resolution (in priority order):
+#   1. $EXEC_BASE_URL — explicit override, used verbatim. Highest priority
+#      so a per-call override always wins over auto-discovery.
+#   2. /etc/yuruna/host.env — written by New-VM.ps1 at provision time.
+#      Holds YURUNA_HOST_IP / YURUNA_HOST_PORT for the dev iteration loop.
+#      We probe /livecheck with a short timeout; on success the host
+#      status server takes precedence over GitHub. On failure we fall
+#      through silently — no /etc/yuruna/host.env (CI, fresh demo) or a
+#      stopped server lands transparently on GitHub.
+#   3. https://raw.githubusercontent.com/... — final fallback.
+#
+# Cache-busting via environment variables (priority order):
+#   1. $EXEC_QUERY_PARAMS — explicit override, used verbatim (include '?').
 #   2. YurunaCacheContent — systemwide cache-buster. Leave unset so caching
 #      proxies (e.g. the optional squid VM) serve stored copies; set it to
 #      force a fresh fetch: export YurunaCacheContent="$(date +%Y%m%d%H%M%S)"
 # Both unset/empty → empty suffix, URL stays cacheable.
-BASE_URL="${EXEC_BASE_URL:-https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/}"
+resolve_base_url() {
+    if [ -n "${EXEC_BASE_URL:-}" ]; then
+        echo "$EXEC_BASE_URL"
+        return
+    fi
+    if [ -r /etc/yuruna/host.env ]; then
+        # shellcheck disable=SC1091
+        . /etc/yuruna/host.env
+        if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
+            if wget -q --spider --timeout=2 \
+                "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck" 2>/dev/null; then
+                echo "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-repo/"
+                return
+            fi
+        fi
+    fi
+    echo "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
+}
+BASE_URL="$(resolve_base_url)"
+case "$BASE_URL" in
+    http://*) BASE_SOURCE='host' ;;
+    *)        BASE_SOURCE='github' ;;
+esac
 QUERY_PARAMS="${EXEC_QUERY_PARAMS:-${YurunaCacheContent:+?nocache=${YurunaCacheContent}}}"
 FILE_PATH="$1"
 
@@ -22,6 +55,7 @@ clear
 FULL_URL="${BASE_URL}${FILE_PATH}${QUERY_PARAMS}"
 echo "fetch-and-execute: $FILE_PATH"
 echo "  url: $FULL_URL"
+echo "  source: $BASE_SOURCE"
 
 # Fetch first, execute second. Separating the steps reports fetch failures
 # (network, 404, empty file) distinctly from inner-script failures.

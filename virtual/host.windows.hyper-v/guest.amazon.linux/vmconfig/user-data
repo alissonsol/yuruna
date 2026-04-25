@@ -38,9 +38,24 @@ runcmd:
     X-GNOME-Autostart-enabled=true
     NoDisplay=true
     DESKTOP
+  # --- Yuruna host coordinates: written for the dev iteration loop ---
+  # New-VM.ps1 substitutes the placeholders below at provision time.
+  # See Test-YurunaHost.ps1 for the in-guest probe that verifies these
+  # coordinates are still valid after a host reboot.
+  - mkdir -p /etc/yuruna
+  - |
+    cat > /etc/yuruna/host.env << 'EOF'
+    YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
+    YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+    EOF
+  - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
   # --- Network: download fetch-and-execute utility ---
+  # Try the host status server first (fast, local, devloop-friendly)
+  # and fall back to raw.githubusercontent.com if it is not reachable.
   - mkdir -p /automation
-  - wget --no-cache -O /automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
+  - |
+    wget --no-cache --timeout=5 -O /automation/fetch-and-execute.sh "http://YURUNA_HOST_IP_PLACEHOLDER:YURUNA_HOST_PORT_PLACEHOLDER/yuruna-repo/automation/fetch-and-execute.sh" || \
+    wget --no-cache -O /automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
   - chmod +x /automation/fetch-and-execute.sh
   # --- Network: timezone detection via IP geolocation and NTP ---
   - timedatectl set-ntp true

@@ -42,6 +42,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $TestRoot   = $PSScriptRoot
+$RepoRoot   = Split-Path -Parent $TestRoot
 $StatusDir  = Join-Path $TestRoot "status"
 $ModulesDir = Join-Path $TestRoot "modules"
 
@@ -235,7 +236,6 @@ if (Test-Path $StatusFile) {
         if ($config -and $config.repoUrl) { $repoUrl = $config.repoUrl }
         if (-not $repoUrl -and $statusDoc.repoUrl) { $repoUrl = $statusDoc.repoUrl }
         if (-not $repoUrl) {
-            $RepoRoot = Split-Path -Parent $TestRoot
             $remote = & git -C $RepoRoot remote get-url origin 2>&1
             if ($LASTEXITCODE -eq 0 -and $remote -and $remote -match '^(https?://|git@)') {
                 $repoUrl = ($remote -replace '\.git$', '')
@@ -483,6 +483,7 @@ $serverScript = @"
 `$statusDir = '$($StatusDir -replace "'","''")'
 `$trackDir  = '$($TrackDir  -replace "'","''")'
 `$logDir    = '$($LogDir    -replace "'","''")'
+`$repoRoot  = '$($RepoRoot  -replace "'","''")'
 `$stepPauseFile  = Join-Path `$trackDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$trackDir 'control.cycle-pause'
 `$statusJsonFile = Join-Path `$trackDir 'status.json'
@@ -654,18 +655,91 @@ try {
                 continue
             }
 
+            # --- /livecheck — cheap reachability probe for guests ---
+            # Test-YurunaHost.ps1 (and fetch-and-execute's host probe) GET
+            # this; success means "host server is reachable from this
+            # guest, prefer it over GitHub." JSON body is {ok, service,
+            # time} — `service` lets a misdirected probe (e.g. someone
+            # else's HTTP server on the same port) be distinguished by
+            # value, not just by 200/non-200.
+            if (`$path -eq 'livecheck' -or `$path -eq 'livecheck/') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$payload = @{
+                    ok      = `$true
+                    service = 'yuruna-status-server'
+                    time    = (Get-Date).ToString('o')
+                } | ConvertTo-Json -Compress
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- /yuruna-archive.tar.gz — committed-content tarball ---
+            # Replaces ``git clone`` for guests in the dev iteration loop:
+            # ``git archive --format=tar.gz HEAD`` streams a tarball of
+            # the latest committed tree, no .git/, no working-tree
+            # uncommitted noise. Sidesteps the deny-list (which forbids
+            # .git/) since it does not expose the repo internals.
+            if (`$path -eq 'yuruna-archive.tar.gz') {
+                `$tmp = [System.IO.Path]::GetTempFileName()
+                try {
+                    & git -C `$repoRoot archive --format=tar.gz -o `$tmp HEAD 2>`$null
+                    if (`$LASTEXITCODE -ne 0 -or -not (Test-Path `$tmp)) {
+                        `$res.StatusCode = 500
+                        `$body = [System.Text.Encoding]::UTF8.GetBytes('git archive failed')
+                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                        `$res.OutputStream.Close()
+                        continue
+                    }
+                    `$bytes = [System.IO.File]::ReadAllBytes(`$tmp)
+                    `$res.ContentType = 'application/gzip'
+                    `$res.Headers.Add('Cache-Control', 'no-store')
+                    `$res.ContentLength64 = `$bytes.Length
+                    `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+                    `$res.OutputStream.Close()
+                } catch {
+                    Write-ServerErr "yuruna-archive: `$(`$_.Exception.Message)"
+                    try { `$ctx.Response.Abort() } catch { Write-Debug `$_ }
+                } finally {
+                    Remove-Item `$tmp -Force -ErrorAction SilentlyContinue
+                }
+                continue
+            }
+
             # Dispatch by URL prefix:
-            #   track/<name> -> `$trackDir  (pids, status.json, control
-            #                              flags, ipaddresses.txt,
-            #                              caching-proxy.txt,
-            #                              current-action.json, server.err)
-            #   log/<name>   -> `$logDir    (HTML transcripts, OCR /
-            #                              screenshot debug, failure captures)
-            #   <anything>   -> `$statusDir (index.html, template, static assets)
+            #   yuruna-repo/<rel> -> `$repoRoot (working tree, with deny-list)
+            #   track/<name>      -> `$trackDir  (pids, status.json, control
+            #                                    flags, ipaddresses.txt,
+            #                                    caching-proxy.txt,
+            #                                    current-action.json, server.err)
+            #   log/<name>        -> `$logDir    (HTML transcripts, OCR /
+            #                                    screenshot debug, failure captures)
+            #   <anything>        -> `$statusDir (index.html, template, static assets)
             # Each branch pins the resolved file under its mount root
             # via a StartsWith check — traversal like
             # track/../../../etc/passwd can't escape.
-            if (`$path -like 'track/*') {
+            if (`$path -like 'yuruna-repo/*') {
+                `$rel  = `$path.Substring(12)
+                `$root = `$repoRoot
+                # Deny-list: secrets and the .git directory. The user
+                # opted into broad repo serving for fast iteration —
+                # these specific paths still need to stay private even
+                # on a localhost-bound server, since the dashboard URL
+                # is also LAN-reachable when the firewall rule is open.
+                if (`$rel -eq 'test/test-config.json' -or
+                    `$rel -like '*.pfx' -or
+                    `$rel -eq '.git' -or
+                    `$rel -like '.git/*') {
+                    `$res.StatusCode = 403
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden (deny-list)')
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+            } elseif (`$path -like 'track/*') {
                 `$rel  = `$path.Substring(6)
                 `$root = `$trackDir
             } elseif (`$path -like 'log/*') {
@@ -694,18 +768,25 @@ try {
                     '.js'   { 'application/javascript; charset=utf-8' }
                     '.txt'  { 'text/plain; charset=utf-8' }
                     '.png'  { 'image/png' }
+                    '.sh'   { 'text/x-shellscript; charset=utf-8' }
+                    '.ps1'  { 'text/plain; charset=utf-8' }
+                    '.psm1' { 'text/plain; charset=utf-8' }
+                    '.yml'  { 'text/yaml; charset=utf-8' }
+                    '.yaml' { 'text/yaml; charset=utf-8' }
+                    '.md'   { 'text/markdown; charset=utf-8' }
                     default { 'application/octet-stream' }
                 }
                 # No-cache on anything a proxy might stash stale.
                 # .json (status.json, current-action.json, caching-proxy
                 # results) mutates per cycle; .html/.txt (index.html,
                 # ipaddresses.txt, caching-proxy.txt) change on git pull
-                # or Start-StatusServer restart. Without these headers,
-                # a host behind a shared squid sees an old UI while LAN
-                # peers without the proxy see fresh content. .css/.js/
-                # images aren't shipped today but pinning them no-cache
-                # keeps the story consistent if they're ever added.
-                if (`$ext -in '.html','.json','.txt','.css','.js') {
+                # or Start-StatusServer restart. Repo file types (.sh,
+                # .ps1, .psm1, .yml, .yaml, .md) are served from the
+                # working tree under /yuruna-repo/ for the dev iteration
+                # loop, and must never be cached by a shared squid —
+                # otherwise a host edit + Start-StatusServer restart
+                # would be invisible to guests.
+                if (`$ext -in '.html','.json','.txt','.css','.js','.sh','.ps1','.psm1','.yml','.yaml','.md') {
                     `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
                     `$res.Headers.Add('Pragma', 'no-cache')
                     `$res.Headers.Add('Expires', '0')

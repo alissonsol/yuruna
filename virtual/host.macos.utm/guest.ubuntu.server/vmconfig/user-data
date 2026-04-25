@@ -42,9 +42,9 @@ autoinstall:
   # `primary` modifymirrors substitution — it cannot add a network URI to
   # an ubuntu.sources that has none. On noble, apt treats ubuntu.sources
   # as authoritative for the main archive, so the chroot never reaches
-  # ports.ubuntu.com and subiquity's postinstall `apt install ubuntu-desktop`
-  # fails with "Unable to locate package" (ubuntu-desktop is NOT on the
-  # Server cdrom). The fix lives in New-VM.ps1's APT_PROXY_BLOCK: an
+  # ports.ubuntu.com and any subiquity postinstall `apt install <pkg>`
+  # for a package not on the Server cdrom fails with "Unable to locate
+  # package". The fix lives in New-VM.ps1's APT_PROXY_BLOCK: an
   # `apt.sources.yuruna-ports` entry tells curtin to write a separate file
   # (yuruna-ports.list, legacy one-liner format) under
   # /etc/apt/sources.list.d/, synchronously, before subiquity's postinstall
@@ -57,19 +57,11 @@ autoinstall:
   # observed arm64 Server install (apt fetched only file:/cdrom during
   # postinstall) and the install failed. The watcher is gone.
   #
-  # We bolt ubuntu-desktop on top via the autoinstall.packages list below —
-  # with the sources fix in place, subiquity fetches it through the
-  # squid-cache during install, so the first boot lands straight in GDM.
 APT_PROXY_BLOCK_PLACEHOLDER
   locale: en_US.UTF-8
   keyboard:
     layout: us
   packages:
-    # Desktop environment. Installed by subiquity during the install step,
-    # via apt against ubuntu-ports — through squid-cache when available.
-    # ~2 GB of .deb payload; caching makes guest rebuilds dramatically
-    # faster and dodges 429s on repeated pulls of libreoffice / gnome-shell.
-    - ubuntu-desktop
     - console-setup
     - keyboard-configuration
   identity:
@@ -156,72 +148,6 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- System: disable MOTD ---
     - chmod -x /target/etc/update-motd.d/*
     - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
-    # --- GNOME: skip initial setup ---
-    # /etc/skel marker is copied into new user home dirs; /home/ubuntu gets
-    # its own copy in case the autoinstall user was already created before
-    # /etc/skel was populated.
-    - curtin in-target --target=/target -- mkdir -p /etc/skel/.config
-    - echo 'yes' > /target/etc/skel/.config/gnome-initial-setup-done
-    - curtin in-target --target=/target -- mkdir -p /home/ubuntu/.config
-    - echo 'yes' > /target/home/ubuntu/.config/gnome-initial-setup-done
-    - curtin in-target --target=/target -- chown -R ubuntu:ubuntu /home/ubuntu/.config
-    # --- GNOME: auto-open terminal on login ---
-    - curtin in-target --target=/target -- mkdir -p /etc/xdg/autostart
-    - |
-      cat > /target/etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
-      [Desktop Entry]
-      Type=Application
-      Name=Open Terminal
-      Exec=gnome-terminal
-      X-GNOME-Autostart-enabled=true
-      NoDisplay=true
-      DESKTOP
-    # --- IBus: stub out ibus-daemon to avoid the gdm greeter input-method race ---
-    # On Ubuntu 24.04 + GNOME 46, the gdm greeter's gnome-shell spawns two
-    # ibus-daemon instances back-to-back and the second replaces the first,
-    # orphaning gnome-shell's InputContext D-Bus proxy. Key presses to the
-    # greeter text entry are then silently swallowed. dpkg-divert +
-    # ln -s /bin/true makes gnome-shell's ibus-daemon exec return immediately,
-    # bypassing the race. ubuntu-desktop is in autoinstall.packages so
-    # /usr/bin/ibus-daemon exists by the time late-commands run.
-    - curtin in-target --target=/target -- dpkg-divert --local --add --rename /usr/bin/ibus-daemon
-    - curtin in-target --target=/target -- ln -sf /bin/true /usr/bin/ibus-daemon
-    # --- GNOME: enable automatic timezone (requires dconf, installed with ubuntu-desktop) ---
-    - mkdir -p /target/etc/dconf/db/local.d
-    - |
-      cat > /target/etc/dconf/db/local.d/00-timezone << 'DCONF'
-      [org/gnome/desktop/datetime]
-      automatic-timezone=true
-
-      [org/gnome/system/location]
-      enabled=true
-      DCONF
-    # --- GDM greeter: never blank the display ---
-    # ubuntu.desktop.update.sh disables idle/lock for the ubuntu USER, but
-    # that profile does NOT apply to the GDM greeter — which runs under the
-    # `gdm` system-db profile. With the default idle-delay, the greeter
-    # blanks after ~3 min, hypervisor screen captures return pure black, OCR
-    # extracts no text, and Test-Workload step 1 ("Not listed?") times out
-    # even though the greeter would render correctly if anyone touched the
-    # VM. A dconf drop-in in /etc/dconf/db/gdm.d/ + dconf update is the
-    # Canonical-documented way to override greeter settings at install time.
-    - mkdir -p /target/etc/dconf/db/gdm.d
-    - |
-      cat > /target/etc/dconf/db/gdm.d/99-yuruna-no-idle << 'DCONF'
-      [org/gnome/desktop/session]
-      idle-delay=uint32 0
-
-      [org/gnome/settings-daemon/plugins/power]
-      sleep-inactive-ac-type='nothing'
-      sleep-inactive-battery-type='nothing'
-      idle-dim=false
-      power-button-action='nothing'
-
-      [org/gnome/desktop/screensaver]
-      lock-enabled=false
-      idle-activation-enabled=false
-      DCONF
-    - curtin in-target --target=/target -- dconf update
     # --- Network: download fetch-and-execute utility ---
     - mkdir -p /target/automation
     - wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"

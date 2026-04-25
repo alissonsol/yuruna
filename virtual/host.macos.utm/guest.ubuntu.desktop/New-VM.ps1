@@ -31,6 +31,43 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
+# === Resolve the gateway IP this guest's bridge will actually route to ===
+# Apple VZ (squid-cache) and UTM-QEMU (this VM) each open their OWN
+# vmnet-shared session on macOS — each gets its own bridgeN with its own
+# 192.168.X.0/24. The host has an inet on every bridge and the forwarder
+# listens on *:3128, so from the host any host IP works — but from a
+# guest's view only its own gateway IP routes; using another bridge's
+# gateway IP makes vmnet-shared NAT the packets out the Wi-Fi uplink
+# where they silently die (see docs/caching-proxy.md). This template is
+# QEMU-backed (config.plist.template Backend=QEMU), so the correct
+# gateway for THIS guest is the bridge that ISN'T the squid VM's Apple-VZ
+# bridge. Returns $null if no non-Apple-VZ bridge exists yet (first-time
+# build before UTM-QEMU has opened its own vmnet-shared session).
+function Resolve-UtmQemuGuestGatewayIp {
+    $squidSubnet = $null
+    $squidIpFile = Join-Path $HOME "virtual/squid-cache/cache-ip.txt"
+    if (Test-Path $squidIpFile) {
+        $squidIp = (Get-Content -Raw $squidIpFile -ErrorAction SilentlyContinue).Trim()
+        if ($squidIp -match '^(\d+\.\d+\.\d+)\.\d+$') { $squidSubnet = $matches[1] }
+    }
+    $candidates = @()
+    $currentIface = $null
+    foreach ($line in (& /sbin/ifconfig 2>$null)) {
+        if ($line -match '^(bridge\d+):') {
+            $currentIface = $matches[1]
+        } elseif ($currentIface -and $line -match '^\s+inet (192\.168\.\d+)\.1\s') {
+            $subnet = $matches[1]
+            if (-not $squidSubnet -or $subnet -ne $squidSubnet) {
+                $candidates += [pscustomobject]@{ Interface = $currentIface; Ip = "$subnet.1" }
+            }
+        }
+    }
+    if ($candidates.Count -eq 0) { return $null }
+    # Highest-numbered bridge is most recently created; with Apple VZ
+    # excluded, that's the UTM-QEMU session.
+    return ($candidates | Sort-Object Interface -Descending)[0].Ip
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $MachineName = $(hostname -s)
 $VdeDir = "$HOME/Desktop/Yuruna.VDE/$MachineName.nosync"
@@ -200,10 +237,30 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 #                              wasn't re-run; the forwarder is critical)
 #   * VM not registered     -> WARNING, proceed direct (expect 429s)
 if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
-    # URL forwarded by the caller (test runner). Skip the probe so the
-    # runner and this script agree on a single cache URL.
-    if ($CachingProxyUrl) {
-        Write-Output "  caching proxy URL forwarded by caller: $CachingProxyUrl — skipping local probe."
+    # URL forwarded by the caller (test runner). The runner passes a single
+    # cache URL for every guest in the run, typically the Apple-VZ gateway
+    # (http://192.168.64.1:3128) from Test-CachingProxyAvailable. That works
+    # for Apple-VZ guests (ubuntu.server, squid-cache) but NOT for this
+    # QEMU-backed guest, which lives on a different vmnet-shared bridge —
+    # see Resolve-UtmQemuGuestGatewayIp above. Rewrite the IP portion so
+    # the guest reaches the forwarder via ITS OWN gateway; the forwarder
+    # binds *:3128 so both URLs resolve to the same listener on the host.
+    if ($CachingProxyUrl -and $CachingProxyUrl -match '^http://(\d+\.\d+\.\d+\.\d+):(\d+)(.*)$') {
+        $urlIp = $matches[1]; $urlPort = $matches[2]; $urlRest = $matches[3]
+        $gwIp = Resolve-UtmQemuGuestGatewayIp
+        if ($gwIp -and $gwIp -ne $urlIp) {
+            Write-Output "  caching proxy URL forwarded by caller: $CachingProxyUrl"
+            Write-Output "  Rewriting gateway IP to $gwIp — this guest's UTM-QEMU bridge."
+            $CachingProxyUrl = "http://${gwIp}:${urlPort}${urlRest}"
+        } elseif (-not $gwIp) {
+            Write-Warning "  caching proxy URL forwarded by caller: $CachingProxyUrl"
+            Write-Warning "  No UTM-QEMU vmnet-shared bridge detected yet — URL left unchanged."
+            Write-Warning "  This will FAIL on first VM start; once the bridge exists, re-run New-VM.ps1."
+        } else {
+            Write-Output "  caching proxy URL forwarded by caller: $CachingProxyUrl (matches detected bridge)."
+        }
+    } elseif ($CachingProxyUrl) {
+        Write-Output "  caching proxy URL forwarded by caller: $CachingProxyUrl — unrecognized format, leaving as-is."
     } else {
         Write-Output "  No proxy forwarded by caller — guest will download directly."
     }
@@ -239,7 +296,23 @@ try {
 } finally { $tcp.Close() }
 
 if ($forwarderUp) {
-    $CachingProxyUrl = "http://192.168.64.1:3128"
+    $gwIp = Resolve-UtmQemuGuestGatewayIp
+    if ($gwIp) {
+        Write-Output "  UTM-QEMU vmnet-shared bridge detected: guest gateway = $gwIp"
+    } else {
+        # No non-Apple-VZ bridge yet. UTM-QEMU opens its session on first VM
+        # start, so first-time builds land here. The seed is baked BEFORE
+        # the VM boots, so we can't see the bridge we'll use; fall back to
+        # the Apple VZ gateway (install will fail with apt proxy timeouts)
+        # and tell the user to re-run once the bridge exists.
+        $gwIp = "192.168.64.1"
+        Write-Warning "  No UTM-QEMU vmnet-shared bridge detected on the host yet."
+        Write-Warning "  Falling back to http://${gwIp}:3128 — this will FAIL if UTM-QEMU opens its"
+        Write-Warning "  own vmnet-shared session on VM start (it will). After the first failed run,"
+        Write-Warning "  confirm with 'ifconfig | grep 192.168' and re-invoke New-VM.ps1 — the new"
+        Write-Warning "  bridge will be detected and the next install will use the right gateway."
+    }
+    $CachingProxyUrl = "http://${gwIp}:3128"
     Write-Output "  squid-cache forwarder detected on host — guest will use $CachingProxyUrl (→ squid VM)."
 } elseif ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
     # VM is up but the host-side forwarder isn't — that's a setup bug, not

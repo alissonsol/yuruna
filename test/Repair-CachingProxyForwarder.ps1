@@ -1,4 +1,4 @@
-<#PSScriptInfo
+﻿<#PSScriptInfo
 .VERSION 0.1
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol
@@ -209,6 +209,14 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.PortMap.psm1') -Force
 [void](Add-CachingProxyPortMap -VMIp $CacheIp -Port $expectedPorts)
 
 # === Step 7: verify ========================================================
+# Re-import VM.common.psm1 before calling Get-CachingProxyForwarder.
+# Test.PortMap.psm1 (Step 6) does its own `Import-Module VM.common.psm1 -Force`
+# inside its macOS branch, which pulls VM.common into Test.PortMap's nested
+# module scope and evicts the script-scope import from Step 3. Without this
+# re-import, Get-CachingProxyForwarder is no longer resolvable here even
+# though it worked in Step 3's identical call site above.
+
+Import-Module (Join-Path $RepoRoot 'virtual/host.macos.utm/VM.common.psm1') -Force
 
 Write-Output ""
 Write-Output "Post-repair forwarder state:"

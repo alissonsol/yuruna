@@ -33,9 +33,10 @@ $script:WatchdogScriptPath = Join-Path $HOME "virtual/utm-dialog-watchdog.apples
 $script:WatchdogLogPath    = Join-Path $HOME "virtual/utm-dialog-watchdog.log"
 
 function Stop-UtmDialogWatchdog {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
     param()
     if (-not (Test-Path $script:WatchdogPidFile)) { return }
+    if (-not $PSCmdlet.ShouldProcess($script:WatchdogPidFile, 'Stop UTM dialog watchdog')) { return }
     $pidText = (Get-Content $script:WatchdogPidFile -Raw -ErrorAction SilentlyContinue)
     if ($pidText) {
         $pidText = $pidText.Trim()
@@ -47,8 +48,9 @@ function Stop-UtmDialogWatchdog {
 }
 
 function Start-UtmDialogWatchdog {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
     param()
+    if (-not $PSCmdlet.ShouldProcess('UTM dialog watchdog', 'Start')) { return }
     # Idempotent: kill any stale watchdog before spawning a new one.
     Stop-UtmDialogWatchdog
     $stateDir = Split-Path -Parent $script:WatchdogPidFile

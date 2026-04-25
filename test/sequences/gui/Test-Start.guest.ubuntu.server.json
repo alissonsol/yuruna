@@ -14,37 +14,32 @@
       "action": "waitForAndEnter",
       "pattern": "Try or Install Ubuntu Server",
       "timeoutSeconds": 600,
-      "pollSeconds": 6,
+      "pollSeconds": 15,
       "text": "",
       "description": "Try or Install Ubuntu Server"
     },
     {
       "action": "waitForAndEnter",
       "pattern": "Continue with autoinstall?",
-      "timeoutSeconds": 3600,
+      "timeoutSeconds": 600,
       "pollSeconds": 15,
       "text": "yes",
       "description": "Continue with autoinstall?"
-    },
+    },    
     {
-      "$failurePatterns": "Abort the wait the moment subiquity's crash signatures appear on screen instead of polling the full 3600s. 'install_fail.crash' is subiquity writing /var/crash/NNN.install_fail.crash when curtin fails. 'Press enter to start a shell' is the fallback UI subiquity drops to on crash. 'returned non-zero exit status' is the surfaced Python traceback from the failed curtin subprocess (e.g. `apt ... ubuntu-desktop` exit 100). Any match fails the step in ~20s with a label pointing at the real cause rather than the misleading timeout banner.",
       "action": "waitForAndEnter",
-      "pattern": "Not listed?",
-      "failurePatterns": [
-        "install_fail.crash",
-        "Press enter to start a shell",
-        "returned non-zero exit status"
-      ],
-      "timeoutSeconds": 3600,
+      "pattern": "${vmName} login:",
+      "timeoutSeconds": 600,
       "pollSeconds": 15,
-      "text": "",
-      "description": "Not listed?"
+      "text": "${username}",
+      "sensitive": true,
+      "description": "Login:"
     },
     {
       "action": "waitForAndEnter",
-      "pattern": "Password",
+      "pattern": "Password:",
       "timeoutSeconds": 60,
-      "pollSeconds": 3,
+      "pollSeconds": 6,
       "text": "${password}",
       "sensitive": true,
       "description": "Password"
@@ -53,7 +48,7 @@
       "action": "waitForAndEnter",
       "pattern": ["Current password", "urrent password"],
       "timeoutSeconds": 60,
-      "pollSeconds": 3,
+      "pollSeconds": 6,
       "text": "${password}",
       "sensitive": true,
       "description": "Current password"
@@ -62,7 +57,7 @@
       "action": "waitForAndEnter",
       "pattern": "New password",
       "timeoutSeconds": 60,
-      "pollSeconds": 3,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "New password"
@@ -71,7 +66,7 @@
       "action": "waitForAndEnter",
       "pattern": "Retype new password",
       "timeoutSeconds": 60,
-      "pollSeconds": 3,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "Retype new password"
@@ -85,8 +80,8 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh",
-      "description": "ubuntu.desktop.update.sh",
+      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.update.sh",
+      "description": "ubuntu.server.update.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
       "waitPollSeconds": 9

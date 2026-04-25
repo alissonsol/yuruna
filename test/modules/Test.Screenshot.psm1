@@ -209,7 +209,7 @@ function Get-VncScreenshot {
         Write-Debug "      VNC capture failed: $_"
         return $false
     } finally {
-        if ($tcp) { try { $tcp.Close() } catch { } }
+        if ($tcp) { try { $tcp.Close() } catch { Write-Debug "      VNC capture: tcp.Close() failed: $_" } }
         if ($ppmPath -and (Test-Path $ppmPath)) {
             Remove-Item -LiteralPath $ppmPath -Force -ErrorAction SilentlyContinue
         }

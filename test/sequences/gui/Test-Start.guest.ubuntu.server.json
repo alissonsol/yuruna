@@ -12,17 +12,9 @@
   "steps": [
     {
       "action": "waitForAndEnter",
-      "pattern": "Try or Install Ubuntu Server",
-      "timeoutSeconds": 600,
-      "pollSeconds": 15,
-      "text": "",
-      "description": "Try or Install Ubuntu Server"
-    },
-    {
-      "action": "waitForAndEnter",
       "pattern": "Continue with autoinstall?",
       "timeoutSeconds": 600,
-      "pollSeconds": 15,
+      "pollSeconds": 6,
       "text": "yes",
       "description": "Continue with autoinstall?"
     },    

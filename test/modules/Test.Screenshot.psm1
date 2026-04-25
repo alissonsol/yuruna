@@ -50,10 +50,11 @@ function Get-VMScreenshot {
 }
 
 # ── VNC framebuffer capture ─────────────────────────────────────────────────
-# QEMU-backed UTM VMs expose a loopback VNC server (`-vnc 127.0.0.1:0` in
-# AdditionalArguments). Reading the framebuffer directly from there bypasses
-# UTM's NSWindow entirely — the harness gets the VM's real screen regardless
-# of whether UTM's window is focused, visible, occluded, or (because `-vnc`
+# QEMU-backed UTM VMs expose a loopback VNC server (`-vnc 127.0.0.1:N` in
+# AdditionalArguments, where N is the per-VM display number from
+# Get-VncDisplayForVm). Reading the framebuffer directly bypasses UTM's
+# NSWindow entirely — the harness gets the VM's real screen regardless of
+# whether UTM's window is focused, visible, occluded, or (because `-vnc`
 # steals the spice-app display path) stuck on black. This is the macOS
 # equivalent of Hyper-V's synthetic video channel: the VM's framebuffer
 # lives in a server-owned buffer the viewer pulls from, not in an
@@ -62,6 +63,36 @@ function Get-VMScreenshot {
 # Only attempted on host.macos.utm. Caller falls back to `screencapture -l`
 # / `-R` when VNC is unavailable (Apple VZ guests without a VNC server
 # configured).
+
+# Per-VM VNC display number. Hardcoding display 0 / port 5900 on every VM
+# meant the capture path silently grabbed whichever QEMU bound 5900 first
+# (e.g. a stale ubuntu-desktop guest's "Display output is not active."
+# placeholder while the test was actually targeting an AVF ubuntu-server
+# guest). Hashing the VM name into a unique display per VM keeps every
+# QEMU-backed UTM VM on its own port, so the capture path connects to the
+# right one. New-VM.ps1 substitutes the same value into the .utm bundle's
+# AdditionalArguments so the producer and consumer agree.
+function Get-VncDisplayForVm {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string]$VMName)
+    # Range: display 10..89 → ports 5910..5989. Displays 0..9 are reserved for
+    # legacy/default callers so a pre-fix VM still bound to port 5900 won't
+    # collide with a per-VM port computed for a different VM. The 80-slot
+    # space is more than enough — the harness runs a handful of VMs at once.
+    $h = 0
+    foreach ($ch in $VMName.ToCharArray()) {
+        $h = (($h * 131) + [int][char]$ch) -band 0x3FFFFFFF
+    }
+    return ($h % 80) + 10
+}
+
+function Get-VncPortForVm {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string]$VMName)
+    return 5900 + (Get-VncDisplayForVm -VMName $VMName)
+}
 
 # C# helper for the hot byte-swap loop. A pure-PowerShell loop over a
 # 1920x1080 pixel buffer (2M iterations) takes multiple seconds; the
@@ -220,14 +251,17 @@ function Get-UtmScreenshot {
     param([string]$VMName, [string]$OutputPath)
 
     # Attempt VNC framebuffer capture first. When the QEMU backend is in
-    # use with `-vnc 127.0.0.1:0`, this is the ONLY path that returns real
+    # use with `-vnc 127.0.0.1:N`, this is the ONLY path that returns real
     # pixels — UTM's NSWindow stays black because the vnc arg steals the
     # spice-app display output, so screencapture on that window would
     # return a uniformly black PNG and every OCR step would time out.
-    # When VNC is not reachable (Apple VZ guests, port 5900 not listening),
-    # we fall through to the screencapture-based paths below.
-    if (Get-VncScreenshot -OutputPath $OutputPath) {
-        Write-Debug "      Captured via VNC (port 5900)"
+    # The per-VM port (5910..5989) keeps concurrent QEMU UTM VMs from
+    # poaching each other's framebuffer. When VNC is not reachable (Apple VZ
+    # guests, no QEMU bound to that port), we fall through to the
+    # screencapture-based paths below.
+    $vncPort = Get-VncPortForVm -VMName $VMName
+    if (Get-VncScreenshot -OutputPath $OutputPath -Port $vncPort) {
+        Write-Debug "      Captured via VNC (port $vncPort, VM $VMName)"
         Write-Output "Screenshot saved: $OutputPath"
         return $OutputPath
     }
@@ -1206,4 +1240,4 @@ function Invoke-ScreenshotTest {
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
 
-Export-ModuleMember -Function Get-VMScreenshot, Get-VMWindowScreenshot, Get-HyperVWindowScreenshot, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest
+Export-ModuleMember -Function Get-VMScreenshot, Get-VMWindowScreenshot, Get-HyperVWindowScreenshot, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Get-VncDisplayForVm, Get-VncPortForVm

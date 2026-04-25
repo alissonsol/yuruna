@@ -326,7 +326,22 @@ function Read-VncBuffer {
 }
 
 function Connect-VNC {
-    param([string]$VMName, [int]$Port = $script:DefaultVncPort)
+    param([string]$VMName, [int]$Port = 0)
+    # Resolve the per-VM VNC port. Hardcoding 5900 across every VM let the
+    # capture path silently grab whichever QEMU bound it first, so the
+    # producer (config.plist.template) and consumers (this module +
+    # Test.Screenshot.psm1) all derive the port from the VM name via
+    # Get-VncPortForVm. $script:DefaultVncPort is kept as a last-resort
+    # fallback for callers that don't pass a VMName.
+    if ($Port -le 0) {
+        if ($VMName) {
+            $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+            Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+            $Port = Get-VncPortForVm -VMName $VMName
+        } else {
+            $Port = $script:DefaultVncPort
+        }
+    }
     # Return cached connection if still alive
     if ($script:CachedVncVM -eq $VMName -and $script:CachedVnc -and $script:CachedVnc.Connected) {
         return $script:CachedVnc
@@ -430,7 +445,7 @@ function Send-VncKeyEvent {
 }
 
 function Send-KeyVNC {
-    param([string]$VMName, [string]$KeyName, [int]$Port = $script:DefaultVncPort)
+    param([string]$VMName, [string]$KeyName, [int]$Port = 0)
     $keySym = $script:X11KeySyms[$KeyName]
     if (-not $keySym) { Write-Warning "Unknown VNC key '$KeyName'"; return $false }
     $tcp = Connect-VNC -VMName $VMName -Port $Port
@@ -449,7 +464,7 @@ function Send-KeyVNC {
 
 function Send-TextVNC {
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs,
-          [int]$Port = $script:DefaultVncPort)
+          [int]$Port = 0)
     $tcp = Connect-VNC -VMName $VMName -Port $Port
     if (-not $tcp) { return $false }
     Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
@@ -1706,7 +1721,7 @@ function Wait-ForText {
                             $er = $result.EngineResults[$eName]
                             $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                             $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
-                            Write-Debug "      [$eName] $status | $snippet"
+                            Write-Verbose "      [$eName] $status | $snippet"
                         }
 
                         # Track last OCR text for failure diagnostics
@@ -1723,7 +1738,7 @@ function Wait-ForText {
                         foreach ($eName in $result.EngineResults.Keys) {
                             $er = $result.EngineResults[$eName]
                             if ($er.Matched) {
-                                Write-Debug "      [$eName] Pattern already present in baseline — match: '$($er.MatchedPattern)'"
+                                Write-Verbose "      [$eName] Pattern already present in baseline — match: '$($er.MatchedPattern)'"
                             }
                         }
 
@@ -1745,7 +1760,7 @@ function Wait-ForText {
                         $er = $result.EngineResults[$eName]
                         $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                         $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
-                        Write-Debug "      [$eName] $status | $snippet"
+                        Write-Verbose "      [$eName] $status | $snippet"
                     }
 
                     # Accumulate text and track last OCR output for failure diagnostics

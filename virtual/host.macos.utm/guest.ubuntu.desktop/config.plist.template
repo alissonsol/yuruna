@@ -3,9 +3,10 @@
 <plist version="1.0">
 <dict>
 	<!-- Backend: QEMU (not Apple Virtualization).
-	     Chosen so the VM can run behind a VNC server bound to
-	     127.0.0.1:5900, which the test harness connects to for
-	     focus-independent screen capture + RFB key/text input — the
+	     Chosen so the VM can run behind a VNC server bound to a
+	     per-VM loopback port (5910..5989, see Get-VncDisplayForVm),
+	     which the test harness connects to for focus-independent
+	     screen capture + RFB key/text input — the
 	     closest analogue to Hyper-V's synthetic video channel and
 	     synthetic keyboard. Under Apple VZ the framebuffer lived inside
 	     UTM's NSWindow, so screen capture went stale when the window
@@ -52,12 +53,15 @@
 	</dict>
 	<key>QEMU</key>
 	<dict>
-		<!-- AdditionalArguments: QEMU `-vnc 127.0.0.1:0` starts a VNC
-		     server on loopback port 5900 (display number 0 = TCP 5900).
-		     test/extensions/Invoke-Sequence.psm1 auto-detects it on the
-		     port configured by test/test-config.json (`vncPort: 5900`)
-		     and sends RFB key events + reads the framebuffer without
-		     needing UTM's NSWindow to be focused or visible.
+		<!-- AdditionalArguments: QEMU `-vnc 127.0.0.1:N` starts a VNC
+		     server on loopback port 5900+N. Display N is per-VM
+		     (Get-VncDisplayForVm in test/modules/Test.Screenshot.psm1
+		     hashes the VM name into 10..89), so multiple QEMU UTM VMs
+		     running concurrently each get their own port and the
+		     capture path can't accidentally connect to the wrong VM.
+		     test/extensions/Invoke-Sequence.psm1 computes the same
+		     per-VM port when sending RFB key events; both producer and
+		     consumer must agree, hence the shared helper.
 		     Each element is a plain <string> — UTM's QEMUArgument
 		     Codable encodes its single `string` property as a bare
 		     string (no dict wrapper). Wrapping each arg in a dict
@@ -68,7 +72,7 @@
 		<key>AdditionalArguments</key>
 		<array>
 			<string>-vnc</string>
-			<string>127.0.0.1:0</string>
+			<string>127.0.0.1:__VNC_DISPLAY__</string>
 		</array>
 		<key>BalloonDevice</key>
 		<true/>

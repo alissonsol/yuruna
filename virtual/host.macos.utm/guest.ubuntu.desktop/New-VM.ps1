@@ -157,6 +157,13 @@ Write-Output "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
+# Per-VM VNC display number — must match Get-VncDisplayForVm in
+# test/modules/Test.Screenshot.psm1 so the capture path connects to this
+# VM's framebuffer and not whichever QEMU bound 5900 first.
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Screenshot.psm1') -Force
+$VncDisplay = Get-VncDisplayForVm -VMName $VMName
+$VncPort    = 5900 + $VncDisplay
+
 # === Create copies and files for VM ===
 
 # Load shared helpers (retry-on-EACCES bundle removal — handles the race
@@ -536,7 +543,8 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IDENTIFIER__',     $SeedId `
     -replace '__SEED_IMAGE_NAME__',     'seed.iso' `
     -replace '__CPU_COUNT__',           '4' `
-    -replace '__MEMORY_SIZE__',         '16384'
+    -replace '__MEMORY_SIZE__',         '16384' `
+    -replace '__VNC_DISPLAY__',         $VncDisplay
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
@@ -546,7 +554,7 @@ Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
 # === Guidance ===
 Write-Output ""
 Write-Output "VM bundle created: $UtmDir"
-Write-Output "Backend: QEMU + HVF (VNC server on 127.0.0.1:5900 for focus-independent harness input/capture)"
+Write-Output "Backend: QEMU + HVF (VNC server on 127.0.0.1:$VncPort for focus-independent harness input/capture)"
 Write-Output "Double-click '$VMName.utm' on your Desktop to import it into UTM."
 Write-Output "The Ubuntu installer will start automatically with autoinstall."
 Write-Output "Default credentials - username: ubuntu, password: password (must be changed on first login)"

@@ -87,7 +87,7 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh vde/guest.ubuntu.server/ubuntu.server.ollama.sh",
+      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.ollama.sh",
       "description": "Install Ollama, pull phi3:mini, verify edge AI inference",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 1800,

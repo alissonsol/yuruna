@@ -45,7 +45,7 @@ cp test/test-config.json.template test/test-config.json
 | `maxHistoryRuns` | `30` | Runs kept in status history |
 | `charDelayMs` | `20` | ms between keystrokes in `type`/`typeAndEnter` |
 | `keystrokeMechanism` | `"GUI"` | `"GUI"` keystroke injection, `"SSH"` over ssh. Selects `sequences/gui/` or `sequences/ssh/`; SSH falls back to `gui/`. Any other value normalized to `"GUI"` |
-| `vncPort` | `5900` | VNC port for QEMU-backend UTM VMs |
+| `vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`test/modules/Test.Screenshot.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
 | `guestOrder` | _required_ | Array of guest keys; each must correspond to `virtual/<hostType>/<guestKey>/` |
 | `statusServer.enabled` | `true` | Start built-in HTTP status server |
 | `statusServer.port` | `8080` | Port for status server |
@@ -145,7 +145,15 @@ Each cycle writes `test/status/log/{cycleId}.{hostname}.{gitCommit}.html`
 (git-ignored; linked from the status page). The `yuruna-log` proxy
 module wraps `Write-Output/Error/Warning/Debug/Verbose/Information` so
 console output also lands in the log. `debug_mode` and `verbose_mode`
-control detail.
+control detail:
+
+- `-verbose_mode $true` — surfaces what each OCR engine is reading
+  (e.g. `[tesseract] no match | <last 120 chars>`) on every poll.
+  Use this when a `waitForText` step is hanging and you want to see
+  whether the screen is being captured and recognized.
+- `-debug_mode $true` — adds low-level harness chatter: VNC capture
+  ticks, screen-diff "no pixel changes" messages, polling timestamps,
+  AppleScript / CGEvent results.
 
 ## Status page
 

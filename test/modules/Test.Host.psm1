@@ -582,7 +582,7 @@ function Set-MacHostConditionSet {
         Write-Output "Auto-logout after inactivity is already disabled."
     }
 
-    # ── 3m. Spaces "switch to a Space with open windows" toggle ──────────
+    # ── 3l. Spaces "switch to a Space with open windows" toggle ──────────
     # When the harness calls `tell application "UTM" to activate` (the
     # AVF-guest keystroke fallback in Send-KeyUTM / Send-TextUTM), macOS
     # by default yanks the operator across Spaces to UTM's window — which
@@ -614,7 +614,7 @@ function Set-MacHostConditionSet {
     Write-Output "      Combined with the AppleSpacesSwitchOnActivation toggle above, this lets"
     Write-Output "      Invoke-TestRunner activate UTM without yanking the operator off VS Code."
 
-    # ── 3l. Managed Configuration Profile detection (MDM override) ───────
+    # ── 3m. Managed Configuration Profile detection (MDM override) ───────
     # If MDM-managed, a Configuration Profile can enforce screen lock /
     # password delay / auto-logout at a level that OVERRIDES everything
     # above — `defaults write` is silently ignored or reverted on next

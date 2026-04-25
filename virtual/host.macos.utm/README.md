@@ -40,6 +40,16 @@ notes for each step:
   terminal** (Cmd-Q) — macOS won't honor the grant for the running
   process.
 
+  `Enable-TestAutomation.ps1` also flips `AppleSpacesSwitchOnActivation`
+  to `false`, so when the harness activates UTM during an AVF-guest
+  keystroke step it no longer yanks the operator off another Space.
+  One manual one-time step the script intentionally doesn't automate
+  (Dock plist editing is fragile): right-click UTM in the Dock →
+  Options → Assign To → All Desktops. With both, you can leave a
+  long Invoke-TestRunner cycle running on Space 1 and debug in
+  VS Code on Space 2 without disruption. See
+  [read.more.md](read.more.md#running-across-macos-spaces-desktops).
+
 Manual walk-through of the installer: [read.more.md](read.more.md).
 
 ## Optional: Squid cache VM

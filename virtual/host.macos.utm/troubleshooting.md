@@ -55,6 +55,34 @@ automatically. If `Window bounds query (fallback)` also returns
 `.utm` bundle or click the VM in UTM.app's sidebar so a display
 window exists.
 
+## `screencapture -l` returns black, or "UTM window for `<vm>` not found", on a different macOS Space
+
+If you switched to a different Space (e.g. to debug in VS Code) and
+the runner started failing screen captures or window-id lookups,
+make sure the harness is up to date:
+
+- The window-finder JXA in
+  [`Test.Screenshot.psm1`](../../test/modules/Test.Screenshot.psm1)
+  must use `kCGWindowListOptionAll` (not `OnScreenOnly`); only
+  `OptionAll` enumerates UTM windows that live on another Space.
+- `Enable-TestAutomation.ps1` must have flipped
+  `AppleSpacesSwitchOnActivation` to `false`. Verify with:
+
+  ```bash
+  defaults read NSGlobalDomain AppleSpacesSwitchOnActivation
+  ```
+
+  If it returns `1` or "does not exist", re-run
+  `pwsh ./Enable-TestAutomation.ps1`.
+
+- Right-click UTM in the Dock → Options → Assign To → All Desktops.
+  This pins UTM windows on every Space so the lookup, capture, and
+  AVF-guest keystroke paths all work uniformly. The script
+  intentionally does not script this (Dock plist edits are fragile).
+
+QEMU+VNC guests (e.g. `guest.ubuntu.desktop`) are Space-independent
+end-to-end and need none of the above.
+
 ## `Assert-ScreenRecording` false positive — toggle IS on but harness refuses to start
 
 If System Settings shows the toggle ON for your terminal, you've

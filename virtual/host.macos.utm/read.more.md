@@ -67,9 +67,50 @@ Without this permission, the harness falls back to
 AppleScript/CGEvent keystroke delivery, which requires UTM to be
 focused and is fragile when other windows steal focus.
 
-For QEMU-backend guests (Windows 11), an additional VNC transport
-sends keystrokes over TCP to the VM's built-in VNC server,
-bypassing the GUI entirely.
+For QEMU-backend guests with a `-vnc` argument in their UTM
+`AdditionalArguments` (today: `guest.ubuntu.desktop`), an additional
+VNC transport sends keystrokes and reads the framebuffer over TCP to
+the VM's built-in VNC server, bypassing AppKit entirely. This means
+no focus, no Space-pinning, and no Accessibility prompt are needed
+for those guests. `guest.windows.11` uses the QEMU backend too but
+ships with empty `AdditionalArguments` — to opt that VM into the
+same path, follow the comment in its `config.plist.template` to add
+the `-vnc` arg.
+
+### Per-VM VNC port architecture
+
+Hardcoding `-vnc 127.0.0.1:0` (TCP 5900) on every VM made the
+capture path silently grab whichever QEMU process bound 5900 first,
+so a stale Ubuntu Desktop VM could hijack a screenshot meant for
+Ubuntu Server. The harness now derives a unique display number from
+the VM name:
+
+- Producer: [`New-VM.ps1`](guest.ubuntu.desktop/New-VM.ps1) imports
+  `Get-VncDisplayForVm` and substitutes `__VNC_DISPLAY__` (10..89,
+  port 5910..5989) into
+  [`config.plist.template`](guest.ubuntu.desktop/config.plist.template).
+- Consumers: `Get-UtmScreenshot` and `Connect-VNC` (in
+  [`Test.Screenshot.psm1`](../../test/modules/Test.Screenshot.psm1)
+  and [`Invoke-Sequence.psm1`](../../test/extensions/Invoke-Sequence.psm1))
+  call the same helper to know where to connect.
+
+Adding a new QEMU+VNC guest = copy the `-vnc 127.0.0.1:__VNC_DISPLAY__`
+template line; both producer and consumer pick up the per-VM port
+automatically.
+
+### Running across macOS Spaces (desktops)
+
+QEMU+VNC guests are end-to-end Space-independent: capture and
+keystrokes flow through TCP, so switching to a different Space (e.g.
+to debug in VS Code) doesn't disturb the runner. AVF guests
+(`guest.ubuntu.server`, `guest.amazon.linux`) capture via
+`screencapture -l <windowID>`; the windowID lookup uses
+`kCGWindowListOptionAll` so it finds UTM windows that live on
+another Space, and `Enable-TestAutomation.ps1` flips
+`AppleSpacesSwitchOnActivation` so UTM activation no longer yanks
+the operator's view across Spaces. AVF keystrokes still take focus
+on the current Space — for the cleanest cross-Space experience,
+right-click UTM in the Dock → Options → Assign To → All Desktops.
 
 ## 5) Disable Display Sleep and Screen Lock
 

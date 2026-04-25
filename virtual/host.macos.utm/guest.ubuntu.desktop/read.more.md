@@ -56,7 +56,12 @@ creates a 512 GB raw disk (sparse on APFS), generates an autoinstall
 [`config.plist.template`](./config.plist.template) — QEMU backend with
 HVF, ARM64 `virt` machine, 4 vCPU, 16 GB RAM, UEFIBoot (edk2), shared
 NAT via vmnet (same 192.168.64.0/24 as Apple VZ), clipboard, and a
-loopback VNC server on `127.0.0.1:5900` for the test harness.
+loopback VNC server on a per-VM port in `127.0.0.1:5910..5989` for the
+test harness. The display number is computed deterministically from
+the VM name by `Get-VncDisplayForVm`
+([`test/modules/Test.Screenshot.psm1`](../../../test/modules/Test.Screenshot.psm1));
+the same helper is used by `Get-UtmScreenshot` and `Connect-VNC`, so
+producer and consumers always agree without a sidecar file.
 
 ```bash
 pwsh ./New-VM.ps1                  # default hostname ubuntu-desktop01

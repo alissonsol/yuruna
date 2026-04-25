@@ -24,6 +24,11 @@ Add `-debug_mode $true` for debug output, `-verbose_mode $true` for verbose outp
 
 - `Test-Configuration.ps1 [project_root] [config_subfolder] -debug_mode $true -verbose_mode $true`
 
+For test-runner sessions, the two flags surface different layers:
+`-verbose_mode $true` shows what each OCR engine is reading on every
+`waitForText` poll (the operator-relevant signal when a step is
+hanging); `-debug_mode $true` adds low-level capture/polling chatter.
+
 Additional commands:
 
 - `Invoke-Clear.ps1 [project_root] [config_subfolder]`: Clear resources for a given configuration (`tofu destroy` in the configured work folder).

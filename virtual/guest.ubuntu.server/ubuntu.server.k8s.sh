@@ -455,9 +455,9 @@ if [ -n "$MKCERT_ARCH" ]; then
     curl -fsSL "https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}${YurunaCacheContent:+&nocache=${YurunaCacheContent}}" -o /tmp/mkcert
     chmod +x /tmp/mkcert
     sudo mv /tmp/mkcert /usr/local/bin/mkcert
-    # Run mkcert -install as the desktop user so rootCA.pem lands in their
-    # $HOME/.local/share/mkcert, regardless of whether this script was
-    # invoked directly or via sudo.
+    # Run mkcert -install as the actual user (not root) so rootCA.pem
+    # lands in their $HOME/.local/share/mkcert, regardless of whether
+    # this script was invoked directly or via sudo.
     TARGET_USER="${SUDO_USER:-$USER}"
     sudo -u "$TARGET_USER" -H mkcert -install || true
 fi

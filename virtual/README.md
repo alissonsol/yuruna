@@ -20,6 +20,7 @@ the VM is running, install workloads:
 
 - [Amazon Linux](guest.amazon.linux/README.md)
 - [Ubuntu Desktop](guest.ubuntu.desktop/README.md)
+- [Ubuntu Server](guest.ubuntu.server/README.md)
 - [Windows 11](guest.windows.11/README.md)
 
 Back to [[Yuruna](../README.md)]

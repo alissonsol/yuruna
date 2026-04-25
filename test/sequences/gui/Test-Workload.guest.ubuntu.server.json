@@ -3,7 +3,7 @@
   "$actions": "See possible actions in the actions.json file",
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in.",
 
-  "description": "Ubuntu Server (with ubuntu-desktop): log in with new password, install VS Code. Same post-install workload as guest.ubuntu.desktop — ubuntu-desktop behaves identically whichever ISO seeded it.",
+  "description": "Ubuntu Server: log in with new password, install VS Code using the guest.ubuntu.server workload scripts.",
   "variables": {
     "username":    "ubuntu",
     "password":    "password",
@@ -12,17 +12,18 @@
   "steps": [
     {
       "action": "waitForAndEnter",
-      "pattern": "Not listed?",
+      "pattern": "${vmName} login:",
       "timeoutSeconds": 600,
-      "pollSeconds": 6,
-      "text": "",
-      "description": "Not listed?"
+      "pollSeconds": 15,
+      "text": "${username}",
+      "sensitive": true,
+      "description": "Login:"
     },
     {
       "action": "waitForAndEnter",
-      "pattern": "Password",
+      "pattern": "Password:",
       "timeoutSeconds": 60,
-      "pollSeconds": 3,
+      "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
       "description": "Password"
@@ -36,8 +37,8 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.code.sh",
-      "description": "ubuntu.desktop.code.sh",
+      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.code.sh",
+      "description": "ubuntu.server.code.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 300,
       "waitPollSeconds": 9

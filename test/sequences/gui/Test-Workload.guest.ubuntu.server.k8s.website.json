@@ -3,7 +3,7 @@
   "$actions": "See possible actions in the actions.json file",
   "$variables": "Define defaults below. ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step parameters.",
 
-  "description": "Ubuntu Server (with ubuntu-desktop): log in, install Kubernetes, deploy website to localhost cluster, verify HTTP 200. Reuses the guest.ubuntu.desktop workload scripts — ubuntu-desktop behaves identically whichever ISO seeded it.",
+  "description": "Ubuntu Server: log in, install Kubernetes, deploy website to localhost cluster, verify HTTP 200. Uses the guest.ubuntu.server workload scripts.",
   "variables": {
     "username":    "ubuntu",
     "password":    "password",
@@ -12,15 +12,16 @@
   "steps": [
     {
       "action": "waitForAndEnter",
-      "pattern": "Not listed?",
+      "pattern": "${vmName} login:",
       "timeoutSeconds": 600,
-      "pollSeconds": 6,
-      "text": "",
-      "description": "Not listed?"
+      "pollSeconds": 15,
+      "text": "${username}",
+      "sensitive": true,
+      "description": "Login:"
     },
     {
       "action": "waitForAndEnter",
-      "pattern": "Password",
+      "pattern": "Password:",
       "timeoutSeconds": 60,
       "pollSeconds": 6,
       "text": "${newPassword}",
@@ -30,14 +31,14 @@
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 120,
+      "timeoutSeconds": 60,
       "pollSeconds": 6,
       "description": "${username}@${vmName}"
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.k8s.sh",
-      "description": "ubuntu.desktop.k8s.sh",
+      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.k8s.sh",
+      "description": "ubuntu.server.k8s.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 1800,
       "waitPollSeconds": 9
@@ -61,8 +62,8 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.workload.k8s.website.sh",
-      "description": "desktop.workload.k8s.website.sh",
+      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.workload.k8s.website.sh",
+      "description": "ubuntu.server.workload.k8s.website.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,
       "waitPollSeconds": 9

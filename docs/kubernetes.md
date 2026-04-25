@@ -22,7 +22,8 @@ cd yuruna
 ```
 
 Create the HTTPS dev certificate (the Ubuntu `ubuntu.desktop.k8s.sh`
-workload does this automatically on that guest):
+and `ubuntu.server.k8s.sh` workloads do this automatically on those
+guests):
 
 ```powershell
 $pfxDir = Join-Path $HOME ".aspnet/https"

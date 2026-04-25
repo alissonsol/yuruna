@@ -121,7 +121,7 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 # Yuruna host (status server) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
 # user-data runcmd) to resolve a local URL before falling back to
-# GitHub. Default Switch's host IP changes across host reboots — see
+# GitHub. Default Switch's host IP changes across host reboots -- see
 # Test-YurunaHost.ps1 for the in-guest probe.
 $YurunaHostIp = Get-GuestReachableHostIp
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }

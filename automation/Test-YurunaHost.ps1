@@ -79,7 +79,7 @@ function Show-Remediation {
     Write-Output '    pwsh test/Start-StatusServer.ps1'
     Write-Output ''
     Write-Output 'Until the rebuild lands, fetch-and-execute.sh will silently fall'
-    Write-Output 'back to https://raw.githubusercontent.com/alissonsol/yuruna/... — i.e.'
+    Write-Output 'back to https://raw.githubusercontent.com/alissonsol/yuruna/... -- i.e.'
     Write-Output 'iteration changes on the host will NOT be visible in this guest.'
 }
 
@@ -123,7 +123,7 @@ if (Test-Path $hostsFile) {
     if ($hostsLine) {
         Write-Result 'OK' "/etc/hosts contains yuruna-host: $($hostsLine.Line.Trim())"
     } else {
-        Write-Result 'WARN' '/etc/hosts has no yuruna-host entry — only IP-based URLs will work.'
+        Write-Result 'WARN' '/etc/hosts has no yuruna-host entry -- only IP-based URLs will work.'
     }
 }
 

@@ -75,12 +75,12 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "clear; bash /home/ubuntu/yuruna/test/test-localhost.sh",
+      "text": "clear; /automation/fetch-and-execute.sh test/test-localhost.sh",
       "description": "Check website return code"
     },
     {
       "action": "waitForText",
-      "pattern": "200",
+      "pattern": "200 OK",
       "timeoutSeconds": 120,
       "pollSeconds": 6,
       "description": "200"

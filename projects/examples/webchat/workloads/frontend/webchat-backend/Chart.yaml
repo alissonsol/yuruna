@@ -1,0 +1,7 @@
+apiVersion: v2
+name: webchat-backend
+description: FastAPI LLM backend for the webchat project. Supports ollama, openai, and anthropic backends.
+
+type: application
+version: 0.1.0
+appVersion: 0.1.0

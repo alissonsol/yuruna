@@ -1497,6 +1497,15 @@ function Save-ScreenshotWithClickMarker {
         [Parameter(Mandatory)][int]$Y,
         [int]$Size = 20
     )
+    # System.Drawing.Common is Windows-only in .NET 6+; on macOS/Linux the
+    # GDI+ type initializer throws. Skip the marker draw and preserve the
+    # diagnostic by logging the click coordinates alongside the plain copy.
+    # ($IsWindows is $null on Windows PowerShell 5.1, which leaves GDI+ enabled.)
+    if ($IsWindows -eq $false) {
+        Copy-Item -Path $SourcePath -Destination $DestPath -Force -ErrorAction SilentlyContinue
+        Write-Debug "      Save-ScreenshotWithClickMarker: GDI+ unavailable on $($PSVersionTable.Platform); copied to $DestPath (click would be at X=$X Y=$Y)"
+        return $false
+    }
     try {
         Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
         # GDI+ locks the source file for the lifetime of the bitmap, so we

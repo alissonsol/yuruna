@@ -128,14 +128,55 @@ if (Test-Path $PidFile) {
 # it — but ONLY if it's a pwsh process plausibly ours. Unknown owners
 # (dev server, another tool) get a clear error and we bail.
 function Get-PortListenerPid {
-    param([int]$Port)
+    param(
+        [int]$Port,
+        # Caller passes [ref]$diag to collect a human-readable description of
+        # what we tried when no PID is resolved, so the "unavailable or empty"
+        # warning can point the operator at the real cause (missing lsof, an
+        # access-restricted owner, a non-LISTEN holder, etc.).
+        [ref]$Diagnostic
+    )
 
     if ($PSVersionTable.Platform -eq 'Unix') {
         # lsof is standard on macOS and most Linux.
-        if (-not (Get-Command lsof -ErrorAction SilentlyContinue)) { return @() }
-        $out = & lsof -nP -iTCP:$Port -sTCP:LISTEN -Fp 2>$null
-        if (-not $out) { return @() }
-        return @($out | Where-Object { $_ -like 'p*' } | ForEach-Object { [int]$_.Substring(1) } | Select-Object -Unique)
+        if (-not (Get-Command lsof -ErrorAction SilentlyContinue)) {
+            if ($Diagnostic) { $Diagnostic.Value = 'lsof not found in PATH' }
+            return @()
+        }
+
+        # Primary: LISTEN-only, PID-only output. Capture stderr so that a
+        # permission failure or an lsof-internal error is visible rather than
+        # silently collapsed into "empty".
+        $errFile = [System.IO.Path]::GetTempFileName()
+        try {
+            $listenOut = & lsof -nP -iTCP:$Port -sTCP:LISTEN -Fp 2>$errFile
+        } finally {
+            $lsofStderr = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue) -as [string]
+            Remove-Item $errFile -Force -ErrorAction SilentlyContinue
+        }
+        $listenPids = @($listenOut | Where-Object { $_ -like 'p*' } | ForEach-Object { [int]$_.Substring(1) } | Select-Object -Unique)
+        if ($listenPids.Count) { return $listenPids }
+
+        # Fallback: any TCP state on this port. macOS lsof without sudo can
+        # miss listeners owned by other users, and a half-closed socket that
+        # still holds :$Port shows up under states other than LISTEN.
+        $anyOut  = & lsof -nP -iTCP:$Port -Fp 2>$null
+        $anyPids = @($anyOut | Where-Object { $_ -like 'p*' } | ForEach-Object { [int]$_.Substring(1) } | Select-Object -Unique)
+        if ($anyPids.Count) {
+            if ($Diagnostic) {
+                $Diagnostic.Value = "lsof -sTCP:LISTEN returned no pids, but lsof (any state) found pid(s) $($anyPids -join ','); treating as holder"
+            }
+            return $anyPids
+        }
+
+        if ($Diagnostic) {
+            $trimErr = if ($lsofStderr) { $lsofStderr.Trim() } else { '' }
+            $parts   = @("lsof -nP -iTCP:$Port -sTCP:LISTEN -> empty", "lsof -nP -iTCP:$Port (any state) -> empty")
+            if ($trimErr) { $parts += "lsof stderr: $trimErr" }
+            $parts += "holder may be owned by another user; retry with: sudo lsof -nP -iTCP:$Port"
+            $Diagnostic.Value = $parts -join '; '
+        }
+        return @()
     }
 
     # Windows: HTTP.sys hides the real owner from Get-NetTCPConnection
@@ -148,7 +189,10 @@ function Get-PortListenerPid {
     # "HTTP://*:8080/" and the rarer "HTTP://127.0.0.1:8080:127.0.0.1/"
     # host-binding form.
     $raw = @(netsh http show servicestate 2>$null)
-    if (-not $raw) { return @() }
+    if (-not $raw) {
+        if ($Diagnostic) { $Diagnostic.Value = 'netsh http show servicestate returned no output' }
+        return @()
+    }
 
     $pids           = [System.Collections.Generic.HashSet[int]]::new()
     $blockPids      = [System.Collections.Generic.List[int]]::new()
@@ -164,6 +208,9 @@ function Get-PortListenerPid {
         }
     }
     if ($blockPortMatch) { foreach ($p in $blockPids) { [void]$pids.Add($p) } }
+    if ($pids.Count -eq 0 -and $Diagnostic) {
+        $Diagnostic.Value = "netsh http show servicestate: no url-group block registered :$Port"
+    }
     return @($pids)
 }
 
@@ -181,12 +228,14 @@ function Resolve-PortOrphan {
         try { $probe.Close() } catch { Write-Debug $_ }
     }
 
-    $holderPids = @(Get-PortListenerPid -Port $Port)
+    $diag = ''
+    $holderPids = @(Get-PortListenerPid -Port $Port -Diagnostic ([ref]$diag))
     if (-not $holderPids.Count) {
         Write-Warning "Port $Port is in use but the OS did not expose a PID (netsh/lsof unavailable or empty)."
+        if ($diag) { Write-Warning "  Diagnostic: $diag" }
         Write-Warning "Stop the conflicting listener manually and rerun:"
         Write-Warning "  Windows: netsh http show servicestate"
-        Write-Warning "  Unix:    lsof -iTCP:$Port -sTCP:LISTEN"
+        Write-Warning "  Unix:    lsof -iTCP:$Port -sTCP:LISTEN  (or: sudo lsof -nP -iTCP:$Port)"
         exit 1
     }
 

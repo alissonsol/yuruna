@@ -63,12 +63,12 @@
     },
     {
       "action": "typeAndEnter",
-      "text": "dnf list installed | grep desktop",
+      "text": "dnf list installed \"*desktop*\"",
       "description": "Show installed desktop packages"
     },
     {
       "action": "delay",
-      "seconds": 10,
+      "seconds": 30,
       "description": "Pause to see output."
     }
   ]

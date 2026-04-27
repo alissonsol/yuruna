@@ -70,20 +70,16 @@
     },
     {
       "action": "delay",
-      "seconds": 30,
+      "seconds": 60,
       "description": "Wait for pods to start"
     },
     {
-      "action": "typeAndEnter",
+      "action": "fetchAndExecute",
       "text": "clear; /automation/fetch-and-execute.sh test/test-localhost.sh",
-      "description": "Check website return code"
-    },
-    {
-      "action": "waitForText",
-      "pattern": "200 OK",
-      "timeoutSeconds": 120,
-      "pollSeconds": 6,
-      "description": "200"
+      "description": "test-localhost.sh",
+      "waitPattern": "200 OK",
+      "waitTimeoutSeconds": 60,
+      "waitPollSeconds": 6
     },
     {
       "action": "typeAndEnter",

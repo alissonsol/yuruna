@@ -469,25 +469,22 @@ function Send-TextVNC {
     if (-not $tcp) { return $false }
     Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
     try {
-        $shiftSym = $script:X11KeySyms["LShift"]
+        # An X11 keysym already encodes the resulting character (e.g. `bar`
+        # 0x7C means `|`, distinct from `backslash` 0x5C). QEMU's VNC server
+        # tracks shift state internally and presses shift itself when the
+        # keysym needs it. Sending shift around the keysym ourselves opens a
+        # race: if QEMU's auto-release lands between our shift-down and the
+        # keysym, the char arrives unshifted (e.g. `|` → `\`). So just send
+        # the keysym and let QEMU drive shift.
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:X11CharKeySyms["$ch"]
             if (-not $entry) {
                 Write-Warning "No VNC keysym for character '$ch'. Skipping."
                 continue
             }
-            $keySym  = $entry[0]
-            $shifted = $entry[1]
-            if ($shifted) {
-                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $true
-                Start-Sleep -Milliseconds 20
-            }
+            $keySym = $entry[0]
             Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
             Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
-            if ($shifted) {
-                Start-Sleep -Milliseconds 10
-                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false
-            }
             if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
         }
         Write-Debug "      VNC text send complete"

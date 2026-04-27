@@ -26,7 +26,7 @@
     },
     {
       "action": "sshExec",
-      "command": "dnf list installed | grep -i desktop || true",
+      "command": "dnf list installed \"*desktop*\"",
       "allowFailure": true,
       "description": "Show installed desktop packages"
     }

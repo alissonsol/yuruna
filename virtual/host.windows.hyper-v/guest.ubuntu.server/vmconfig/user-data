@@ -14,20 +14,14 @@ autoinstall:
   # the cdrom carries no kernel meta-package — curtin's install_kernel
   # fails with "Unable to locate package linux-generic[-hwe-24.04]". The
   # Server ISO ships a network-configured ubuntu.sources AND
-  # linux-generic on the cdrom, so autoinstall completes cleanly. We
-  # bolt ubuntu-desktop on via autoinstall.packages below — subiquity
-  # fetches it through squid-cache during install, first boot lands in
-  # GDM.
+  # linux-generic on the cdrom, so autoinstall completes cleanly. The
+  # guest stays in text mode — no ubuntu-desktop, no GDM. The Test-Start
+  # sequence drives the text-mode login prompt directly.
 APT_PROXY_BLOCK_PLACEHOLDER
   locale: en_US.UTF-8
   keyboard:
     layout: us
   packages:
-    # Desktop environment. Installed by subiquity via apt against
-    # archive.ubuntu.com — through squid-cache when available. ~2 GB
-    # payload; caching makes rebuilds dramatically faster and dodges
-    # 429s on repeated libreoffice / gnome-shell pulls.
-    - ubuntu-desktop
     - console-setup
     - keyboard-configuration
   identity:
@@ -105,69 +99,6 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- System: disable MOTD ---
     - chmod -x /target/etc/update-motd.d/*
     - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
-    # --- GNOME: skip initial setup ---
-    - curtin in-target --target=/target -- mkdir -p /etc/skel/.config
-    - echo 'yes' > /target/etc/skel/.config/gnome-initial-setup-done
-    - curtin in-target --target=/target -- mkdir -p /home/ubuntu/.config
-    - echo 'yes' > /target/home/ubuntu/.config/gnome-initial-setup-done
-    - curtin in-target --target=/target -- chown -R ubuntu:ubuntu /home/ubuntu/.config
-    # --- GNOME: auto-open terminal on login ---
-    - curtin in-target --target=/target -- mkdir -p /etc/xdg/autostart
-    - |
-      cat > /target/etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
-      [Desktop Entry]
-      Type=Application
-      Name=Open Terminal
-      Exec=gnome-terminal
-      X-GNOME-Autostart-enabled=true
-      NoDisplay=true
-      DESKTOP
-    # --- IBus: stub ibus-daemon to avoid the gdm greeter IM race ---
-    # On Ubuntu 24.04 + GNOME 46, the gdm greeter's gnome-shell spawns
-    # two ibus-daemon instances back-to-back; the second replaces the
-    # first, orphaning gnome-shell's InputContext D-Bus proxy. Greeter
-    # key presses are then silently swallowed. dpkg-divert + ln -s
-    # /bin/true makes ibus-daemon exec return immediately, bypassing the
-    # race. ubuntu-desktop is in autoinstall.packages so
-    # /usr/bin/ibus-daemon exists when late-commands run.
-    - curtin in-target --target=/target -- dpkg-divert --local --add --rename /usr/bin/ibus-daemon
-    - curtin in-target --target=/target -- ln -sf /bin/true /usr/bin/ibus-daemon
-    # --- GNOME: enable automatic timezone (requires dconf, installed with ubuntu-desktop) ---
-    - mkdir -p /target/etc/dconf/db/local.d
-    - |
-      cat > /target/etc/dconf/db/local.d/00-timezone << 'DCONF'
-      [org/gnome/desktop/datetime]
-      automatic-timezone=true
-
-      [org/gnome/system/location]
-      enabled=true
-      DCONF
-    # --- GDM greeter: never blank the display ---
-    # ubuntu.desktop.update.sh disables idle/lock for the ubuntu USER,
-    # but that profile does NOT apply to the GDM greeter, which runs
-    # under the `gdm` system-db profile. With default idle-delay the
-    # greeter blanks after ~3 min, Hyper-V screen captures return black,
-    # OCR finds no text, and Test-Workload step 1 ("Not listed?") times
-    # out even though the greeter renders fine if anyone touches the VM.
-    # /etc/dconf/db/gdm.d/ + dconf update is Canonical's documented way
-    # to override greeter settings at install time.
-    - mkdir -p /target/etc/dconf/db/gdm.d
-    - |
-      cat > /target/etc/dconf/db/gdm.d/99-yuruna-no-idle << 'DCONF'
-      [org/gnome/desktop/session]
-      idle-delay=uint32 0
-
-      [org/gnome/settings-daemon/plugins/power]
-      sleep-inactive-ac-type='nothing'
-      sleep-inactive-battery-type='nothing'
-      idle-dim=false
-      power-button-action='nothing'
-
-      [org/gnome/desktop/screensaver]
-      lock-enabled=false
-      idle-activation-enabled=false
-      DCONF
-    - curtin in-target --target=/target -- dconf update
     # --- System: denylist hv_balloon to prevent console messages ---
     # hv_balloon spams the console with harmless memory-pressure
     # messages that pollute OCR.

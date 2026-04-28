@@ -26,7 +26,17 @@ resolve_base_url() {
         # shellcheck disable=SC1091
         . /etc/yuruna/host.env
         if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
-            if wget -q --spider --timeout=2 \
+            # --no-proxy: the host status server lives on a Hyper-V
+            # Default Switch / VZ shared NAT IP. If anything (subiquity
+            # leakage, /etc/wgetrc, the harness itself on the host)
+            # left http_proxy pointing at the squid-cache, the spider
+            # rewrites to that proxy — which is meant for external
+            # mirrors and cannot route to the host's internal IP — and
+            # times out. We then silently fall through to GitHub even
+            # though the host server is right there. NO_PROXY won't
+            # save us: this is a private 172.x address that any custom
+            # NO_PROXY list might omit.
+            if wget -q --spider --no-proxy --timeout=2 \
                 "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck" 2>/dev/null; then
                 echo "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-repo/"
                 return
@@ -59,7 +69,15 @@ echo "  source: $BASE_SOURCE"
 
 # Fetch first, execute second. Separating the steps reports fetch failures
 # (network, 404, empty file) distinctly from inner-script failures.
-script_content=$(wget -qO- "$FULL_URL")
+# When source=host the URL is a local-only IP (Hyper-V Default Switch
+# / VZ shared NAT) — bypass any http_proxy for the same reason
+# resolve_base_url does (see comment there). For source=github, leave
+# the proxy on so squid-cache can serve cached external fetches.
+WGET_FETCH_FLAGS=()
+if [ "$BASE_SOURCE" = 'host' ]; then
+    WGET_FETCH_FLAGS=(--no-proxy)
+fi
+script_content=$(wget "${WGET_FETCH_FLAGS[@]}" -qO- "$FULL_URL")
 wget_rc=$?
 byte_count=${#script_content}
 

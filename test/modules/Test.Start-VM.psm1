@@ -190,6 +190,12 @@ function Start-HyperVVM {
             if (Test-Path $vmconnect) {
                 Start-Process -FilePath $vmconnect -ArgumentList "localhost", $VMName
                 Start-Sleep -Seconds 2
+                # Auto-dismiss the "Another user is connected" prompt
+                # if vmms still tracks a phantom session — without this,
+                # the very first vmconnect launch of a test run blocks
+                # on a manual "Yes" click. See
+                # Resolve-VMConnectAnotherUserDialog for the rationale.
+                [void](Resolve-VMConnectAnotherUserDialog -VMName $VMName -TimeoutSeconds 8)
             }
         }
         return @{ success=$true; errorMessage=$null }
@@ -338,6 +344,155 @@ function Confirm-HyperVVMStarted {
     return $false
 }
 
+# ── Resolve "Another user is connected" dialog (Hyper-V) ────────────────────
+
+<#
+.SYNOPSIS
+    Auto-dismiss vmconnect's "Another user is connected" prompt.
+
+.DESCRIPTION
+    vmconnect surfaces a modal dialog ("Another user is connected to '<VM>'.
+    If you continue they will be disconnected. Would you like to connect?")
+    whenever vmms still tracks a console session for that VM — typically
+    a phantom from a prior crashed vmconnect, or a session opened in a
+    different OS user / terminal session that our Get-Process filter
+    cannot see and Stop-Process cannot reach. CloseMainWindow on our
+    own vmconnect doesn't help: vmms's session state is independent of
+    our process. Clicking "Yes" on the dialog tells vmconnect to take
+    ownership, which does clear vmms's phantom — so polling for the
+    dialog and posting WM_COMMAND IDYES (the "Yes" button activation
+    Win32 dialogs respond to) keeps the runner unattended.
+
+    Polls for up to TimeoutSeconds. Returns $true if a dialog was
+    dismissed, $false if none appeared (the healthy path).
+#>
+function Resolve-VMConnectAnotherUserDialog {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$TimeoutSeconds = 8
+    )
+    if (-not $IsWindows) { return $false }
+    if (-not ('YurunaVMConnectDialog' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class YurunaVMConnectDialog {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hParent, EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    const uint WM_COMMAND = 0x0111;
+    const uint BM_CLICK   = 0x00F5;
+    // Standard Win32 dialog button IDs. The "Another user is connected"
+    // dialog is a yes/no, so IDYES (6) is the button we want; IDOK (1)
+    // is sent as a fallback for any vmconnect dialog that defaults to
+    // OK instead of Yes.
+    const int IDOK  = 1;
+    const int IDYES = 6;
+
+    private static string ChildText(IntPtr hWnd) {
+        StringBuilder agg = new StringBuilder();
+        EnumChildWindows(hWnd, (h, lp) => {
+            var sb = new StringBuilder(512);
+            GetWindowText(h, sb, 512);
+            agg.Append(sb.ToString()); agg.Append('\n');
+            return true;
+        }, IntPtr.Zero);
+        return agg.ToString();
+    }
+
+    public static IntPtr FindDialog(uint[] vmconnectPids, string vmName) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lp) => {
+            if (!IsWindowVisible(hWnd)) return true;
+            uint pid; GetWindowThreadProcessId(hWnd, out pid);
+            bool ours = false;
+            for (int i = 0; i < vmconnectPids.Length; i++) {
+                if (vmconnectPids[i] == pid) { ours = true; break; }
+            }
+            if (!ours) return true;
+            var cls = new StringBuilder(64);
+            GetClassName(hWnd, cls, 64);
+            // Standard Win32 dialog box class. vmconnect's main window
+            // uses a different class ("VMConnectClass" or similar), so
+            // this filter excludes the connected-VM window.
+            if (cls.ToString() != "#32770") return true;
+            // Match the VM name in the dialog body — locale-independent
+            // (the VM name is verbatim regardless of UI language).
+            if (ChildText(hWnd).IndexOf(vmName, StringComparison.OrdinalIgnoreCase) >= 0) {
+                found = hWnd; return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    public static bool Dismiss(IntPtr hWnd) {
+        SetForegroundWindow(hWnd);
+        System.Threading.Thread.Sleep(120);
+        // WM_COMMAND with the button's control ID is what a real Yes
+        // click sends to the dialog proc. IDYES handles the "Another
+        // user" prompt; IDOK is a belt-and-suspenders for any other
+        // affirmative-default vmconnect dialog.
+        SendMessage(hWnd, WM_COMMAND, (IntPtr)IDYES, IntPtr.Zero);
+        System.Threading.Thread.Sleep(200);
+        if (IsWindowVisible(hWnd)) {
+            SendMessage(hWnd, WM_COMMAND, (IntPtr)IDOK, IntPtr.Zero);
+        }
+        // Final fallback: enumerate child buttons and BM_CLICK any
+        // labelled "Yes" / "Connect" / "OK". Covers vmconnect dialogs
+        // whose buttons use non-standard control IDs.
+        System.Threading.Thread.Sleep(200);
+        if (IsWindowVisible(hWnd)) {
+            EnumChildWindows(hWnd, (h, lp) => {
+                var cls = new StringBuilder(64);
+                GetClassName(h, cls, 64);
+                if (string.Equals(cls.ToString(), "Button", StringComparison.OrdinalIgnoreCase)) {
+                    var t = new StringBuilder(128);
+                    GetWindowText(h, t, 128);
+                    string text = t.ToString();
+                    if (text.IndexOf("Yes",     StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        text.IndexOf("Connect", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        text.IndexOf("OK",      StringComparison.OrdinalIgnoreCase) >= 0) {
+                        SendMessage(h, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+        }
+        return true;
+    }
+}
+"@
+    }
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $vmconnectPids = @(Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+            ForEach-Object { [uint32]$_.Id })
+        if ($vmconnectPids.Count -gt 0) {
+            $hWnd = [YurunaVMConnectDialog]::FindDialog([uint32[]]$vmconnectPids, $VMName)
+            if ($hWnd -ne [IntPtr]::Zero) {
+                Write-Information "    Auto-dismissing vmconnect 'Another user is connected' dialog for '$VMName'"
+                [void][YurunaVMConnectDialog]::Dismiss($hWnd)
+                Start-Sleep -Milliseconds 600
+                return $true
+            }
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+
 # ── Reconnect vmconnect ──────────────────────────────────────────────────────
 
 <#
@@ -346,7 +501,9 @@ function Confirm-HyperVVMStarted {
 
     Hyper-V: closes and reopens the vmconnect window, forcing a full
     framebuffer refresh. After a host reboot vmconnect sometimes fails to
-    repaint; reconnecting fixes it.
+    repaint; reconnecting fixes it. Auto-dismisses vmconnect's "Another
+    user is connected" prompt if it appears (see
+    Resolve-VMConnectAnotherUserDialog).
 
     UTM (macOS): activates the UTM application via AppleScript, which
     forces the display window to the front and triggers a Metal repaint.
@@ -371,14 +528,37 @@ function Restart-VMConnect {
             $vmconnect = "$env:SystemRoot\System32\vmconnect.exe"
             if (-not (Test-Path $vmconnect)) { return }
             if (-not $PSCmdlet.ShouldProcess($VMName, 'Reconnect vmconnect')) { return }
-            # Close any existing vmconnect window for this VM
-            Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
-                Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
-                Stop-Process -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 1
+            # Close any existing vmconnect window for this VM gracefully.
+            # Force-killing (Stop-Process -Force) bypasses WM_CLOSE so vmconnect
+            # never tells vmms to release its console session — the next
+            # vmconnect launch then trips "Another user is already connected
+            # to this virtual machine" and blocks the runner on a manual
+            # "Connect anyway" click. CloseMainWindow lets the session
+            # release cleanly; force-kill is only a fallback for an
+            # unresponsive window.
+            $existing = @(Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+                Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) })
+            foreach ($p in $existing) {
+                try { [void]$p.CloseMainWindow() } catch { Write-Verbose "CloseMainWindow failed for vmconnect pid $($p.Id): $_" }
+            }
+            foreach ($p in $existing) {
+                if (-not $p.WaitForExit(3000)) {
+                    try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch { Write-Verbose "Force-kill of vmconnect pid $($p.Id) failed: $_" }
+                }
+            }
+            # Give vmms a few seconds to drop the console session before
+            # reopening. Reopening too quickly reproduces the "another user
+            # is connected" dialog even after a clean CloseMainWindow.
+            if ($existing.Count -gt 0) { Start-Sleep -Seconds 3 }
             # Reopen the console
             Start-Process -FilePath $vmconnect -ArgumentList "localhost", $VMName
             Start-Sleep -Seconds 2
+            # vmms can still report a phantom session even after a clean
+            # close (e.g. a vmconnect from another OS user / terminal
+            # session that our process filter never saw). Auto-click
+            # "Yes" on the "Another user is connected" prompt so the
+            # runner stays unattended; no-op when no dialog appears.
+            [void](Resolve-VMConnectAnotherUserDialog -VMName $VMName -TimeoutSeconds 8)
             Write-Information "    Reconnected vmconnect for '$VMName'"
         }
     }

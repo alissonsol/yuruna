@@ -50,7 +50,18 @@ function Resolve-BaseUrl {
         }
         if ($hostIp -and $hostPort) {
             try {
-                $null = Invoke-WebRequest -Uri "http://${hostIp}:${hostPort}/livecheck" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+                # -NoProxy: the host status server lives on a Hyper-V
+                # Default Switch / VZ shared NAT IP. If the user has
+                # HTTP_PROXY set (the harness sets one for the squid-
+                # cache external-mirror cache), Invoke-WebRequest will
+                # route this probe through that proxy — which cannot
+                # reach the host's internal IP — and time out. We then
+                # silently fall through to GitHub even though the host
+                # server is right there. NO_PROXY won't save us: this
+                # is a private 172.x address that user NO_PROXY lists
+                # rarely include.
+                $null = Invoke-WebRequest -Uri "http://${hostIp}:${hostPort}/livecheck" `
+                    -TimeoutSec 2 -UseBasicParsing -NoProxy -ErrorAction Stop
                 return @{ Url = "http://${hostIp}:${hostPort}/yuruna-repo/"; Source = 'host' }
             } catch {
                 Write-Verbose "yuruna-host probe failed: $($_.Exception.Message)"
@@ -70,7 +81,13 @@ Write-Output "fetch-and-execute: $FilePath"
 Write-Output "  url: $FullUrl"
 Write-Output "  source: $BaseSource"
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
-Invoke-DynamicExpression -Command (Invoke-RestMethod -Uri $FullUrl)
+# When source is 'host' the URL is a local-only IP — bypass any
+# system proxy for the same reason Resolve-BaseUrl does. For
+# 'github' / 'override' the proxy stays on so squid-cache (or
+# whatever the user configured) can cache the external fetch.
+$invokeArgs = @{ Uri = $FullUrl }
+if ($BaseSource -eq 'host') { $invokeArgs.NoProxy = $true }
+Invoke-DynamicExpression -Command (Invoke-RestMethod @invokeArgs)
 
 # End tag — mirrors fetch-and-execute.sh so OCR/keystroke harness matches
 Write-Output "`n    FETCHED AND EXECUTED:`n    $FilePath`n"

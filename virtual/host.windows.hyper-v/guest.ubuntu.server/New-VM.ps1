@@ -18,19 +18,16 @@
 
 <#
 .SYNOPSIS
-    Creates a Hyper-V VM that installs Ubuntu Server 24.04, then adds the
-    ubuntu-desktop package on first boot.
+    Creates a Hyper-V VM that installs Ubuntu Server 24.04 in text mode.
 
 .DESCRIPTION
-    Mirrors guest.ubuntu.desktop/New-VM.ps1 but uses the Server live ISO.
-    The Server ISO's cdrom has linux-generic and a network-configured
-    ubuntu.sources, so subiquity's install_kernel step succeeds where the
-    Desktop (ubuntu-desktop-bootstrap) ISO fails.
+    Uses the Server live ISO. The Server ISO's cdrom has linux-generic and
+    a network-configured ubuntu.sources, so subiquity's install_kernel step
+    succeeds where the Desktop (ubuntu-desktop-bootstrap) ISO fails.
 
-    After autoinstall finishes, cloud-init runs on first boot and installs
-    ubuntu-desktop from the Ubuntu archive (through squid-cache when
-    available). A second reboot lands on GDM — same end state as the
-    desktop guest, just via a server-first install path that actually works.
+    The guest stays in text mode — no ubuntu-desktop, no GDM. First boot
+    lands at the text login prompt; the test harness's Test-Start sequence
+    drives that prompt directly.
 #>
 
 param(
@@ -154,10 +151,6 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 #   * Cache VM stopped    → WARNING, proceed (direct CDN)
 #   * Cache running, :3128
 #     doesn't answer      → ERROR, exit 1
-#
-# Cache is even more valuable here than for the desktop-ISO flow:
-# ubuntu-desktop on first boot pulls ~2 GB through apt — caching across
-# rebuilds is a large cycle-time win.
 if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
     # URL forwarded by the test runner. Skip discovery so this script
     # and the runner agree on one cache URL. On Hyper-V the race is
@@ -172,7 +165,7 @@ if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
 $CachingProxyUrl = ""
 $cacheVM = Get-VM -Name "squid-cache" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
-    Write-Warning "  No squid-cache VM exists on this host. Guest will download packages directly from Ubuntu mirrors — expect 429 rate-limit failures on linux-firmware + ubuntu-desktop under load."
+    Write-Warning "  No squid-cache VM exists on this host. Guest will download packages directly from Ubuntu mirrors — expect occasional 429 rate-limit failures on linux-firmware under load."
     Write-Warning "  To enable caching, run: virtual\host.windows.hyper-v\guest.squid-cache\New-VM.ps1"
 } elseif ($cacheVM.State -ne 'Running') {
     Write-Warning "  squid-cache VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
@@ -228,12 +221,12 @@ To intentionally skip the cache:
 # sources_list: the Server 24.04 amd64 squashfs ships
 # /etc/apt/sources.list.d/ubuntu.sources (deb822) with ONLY a file:/cdrom
 # entry and no network URI. Curtin's apt-config does "modifymirrors" —
-# it rewrites an existing URI, not adds one. No archive.ubuntu.com to
-# substitute = the proxied mirror never lands on the target, and
-# `apt-get install --download-only ubuntu-desktop` postinstall fails
-# with E: Unable to locate package. A classic /etc/apt/sources.list via
-# sources_list bypasses the no-op: apt merges both files, ubuntu-desktop
-# resolves via archive.ubuntu.com through squid.
+# it rewrites an existing URI, not adds one. With no archive.ubuntu.com
+# to substitute, the proxied mirror never lands on the target and any
+# `apt-get install <pkg>` for a package not on the cdrom fails with
+# E: Unable to locate package. A classic /etc/apt/sources.list via
+# sources_list bypasses the no-op: apt merges both files, network
+# packages resolve via archive.ubuntu.com through squid.
 # (`$PRIMARY/`$SECURITY/`$RELEASE are curtin tokens — backtick escapes
 # the $ so PowerShell doesn't expand them.)
 if ($CachingProxyUrl) {
@@ -312,9 +305,7 @@ Write-Output "Start the VM from Hyper-V Manager to begin Ubuntu Server installat
 Write-Output ""
 Write-Output "Boot sequence:"
 Write-Output "  1. Ubuntu Server autoinstalls via subiquity (~5-10 min)"
-Write-Output "  2. First boot: cloud-init installs ubuntu-desktop via apt"
-Write-Output "     (~2 GB download — much faster with squid-cache running)"
-Write-Output "  3. After ubuntu-desktop install, the VM reboots into GDM."
+Write-Output "  2. First boot: text-mode login prompt."
 Write-Output ""
 Write-Output "Default credentials - username: ubuntu, password: password (must be changed on first login)"
 Write-Output ""

@@ -14,7 +14,7 @@
       "action": "waitForAndEnter",
       "pattern": "${vmName} login:",
       "timeoutSeconds": 600,
-      "pollSeconds": 15,
+      "pollSeconds": 6,
       "text": "${username}",
       "sensitive": true,
       "description": "${vmName} login:"

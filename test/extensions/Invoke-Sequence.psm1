@@ -632,8 +632,12 @@ function Send-KeyUTM {
     param([string]$VMName, [string]$KeyName)
     $code = $script:UTMKeyMap[$KeyName]
     if (-not $code) { Write-Warning "Unknown key '$KeyName' for UTM"; return $false }
-    if ($KeyName -eq "Enter") { $keyAction = 'keystroke return' }
-    else                      { $keyAction = "key code $code" }
+    # Use `key code` for everything (including Enter, code 36). The previous
+    # `keystroke return` form for Enter sometimes fired twice when chained
+    # after a Send-Text run that left System Events' keystroke buffer warm —
+    # which submitted an empty password and bounced the guest back to the
+    # login prompt. `key code 36` is one synchronous event, no buffering.
+    $keyAction = "key code $code"
     $safeVMName = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
     $appleScript = @"
 tell application "UTM" to activate
@@ -722,13 +726,20 @@ function Send-TextHyperV {
 
 function Send-TextUTM {
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    # UTM's Apple Virtualization backend ignores modifier FLAGS on CGEvents
-    # and AppleScript key events. It only sees physical key state.
-    # Fix: send Left Shift (key code 56) as its own CGEvent key-down/up
-    # around each shifted character, simulating physical shift press.
+    # JXA CGEvent — the proven-reliable baseline for typing on AVF guests.
+    # Unshifted characters (the bulk of typing — usernames, passwords,
+    # paths, most command text) arrive intact.
+    #
+    # Known limitation: AVF ignores synthesized modifier state on every
+    # CGEvent variant tried (flags, FlagsChanged type, HID-system source)
+    # AND on AppleScript variants (`keystroke c`, `key code N using {shift
+    # down}`). Synthesized Shift simply does not move AVF's tracked
+    # modifier state, so shifted chars arrive demoted: * → 8, | → \,
+    # " → ', A → a. We log a warning when shifted chars are present;
+    # for commands that require them, use the SSH path
+    # (test-config.json: keystrokeMechanism = "SSH").
     $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
 
-    Write-Debug "      UTM text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
     $charIndex = 0
     $shiftedCount = 0
     $keyCalls = [System.Text.StringBuilder]::new()
@@ -740,25 +751,15 @@ function Send-TextUTM {
             continue
         }
         $kc = $entry[0]
-        $shifted = $entry[1] ? "true" : "false"
         if ($entry[1]) { $shiftedCount++ }
-        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
+        [void]$keyCalls.AppendLine("    sendKey($kc);")
         $charIndex++
     }
-    Write-Debug "      UTM chars: $charIndex total, $shiftedCount shifted"
+    if ($shiftedCount -gt 0) {
+        Write-Warning "Send-TextUTM: $shiftedCount shifted character(s) in this text will arrive demoted to their unshifted form (AVF rejects synthesized Shift). Use SSH keystrokeMechanism for commands requiring shifted chars."
+    }
+    Write-Debug "      UTM text send (JXA CGEvent): $charIndex chars total, $shiftedCount shifted, charDelay=${CharDelayMs}ms"
 
-    # JXA script: physical shift key simulation via CGEvent.
-    # Key code 56 = Left Shift on macOS. We press it down, send the char,
-    # then release it — mimicking what a real keyboard does.
-    #
-    # Critical: events are created from a kCGEventSourceStateHIDSystemState
-    # source (id 1), not the default null/private source. Private-source
-    # events carry CGEventFlags but do NOT update the global HID modifier
-    # state. Apple Virtualization Framework samples that global state to
-    # decide whether shift is "physically" held, so a null-source shift
-    # press is invisible to the guest — every shifted char arrives demoted
-    # to its unshifted twin (| → \, * → 8, " → ', A → a). HID-system source
-    # actually moves the global state and the guest sees the modifier.
     $jxaTemplate = @'
 ObjC.import('CoreGraphics');
 
@@ -781,45 +782,17 @@ if (!found) {
     'window_not_found';
 } else {
     delay(0.3);
-    var kShiftKeyCode = 56;  // Left Shift physical key
-    var kShiftFlag    = 0x00020000;  // kCGEventFlagMaskShift
-    var src = $.CGEventSourceCreate(1);  // kCGEventSourceStateHIDSystemState
-
-    function sendKey(keyCode, shift) {
-        if (shift) {
-            // Press physical Left Shift key down.
-            var shiftDn = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, true);
-            $.CGEventSetFlags(shiftDn, kShiftFlag);
-            $.CGEventPost(0, shiftDn);
-            delay(0.08);
-
-            // Press character key (with shift flag set on the event too)
-            var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
-            $.CGEventSetFlags(down, kShiftFlag);
-            $.CGEventPost(0, down);
-            delay(0.02);
-            var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
-            $.CGEventSetFlags(up, kShiftFlag);
-            $.CGEventPost(0, up);
-            delay(0.06);
-
-            // Release physical Left Shift key
-            var shiftUp = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, false);
-            $.CGEventPost(0, shiftUp);
-            delay(0.02);
-        } else {
-            var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
-            $.CGEventPost(0, down);
-            delay(0.01);
-            var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
-            $.CGEventPost(0, up);
-        }
+    function sendKey(keyCode) {
+        var down = $.CGEventCreateKeyboardEvent(null, keyCode, true);
+        $.CGEventPost(0, down);
+        delay(0.01);
+        var up = $.CGEventCreateKeyboardEvent(null, keyCode, false);
+        $.CGEventPost(0, up);
         delay(__DELAY__);
     }
 __KEYCALLS__
     // Final drain: give the macOS event queue time to deliver the last
-    // CGEvent(s) to Apple Virtualization Framework before osascript exits.
-    // Without this, the last character(s) can be lost on long commands.
+    // CGEvent(s) to AVF before osascript exits.
     delay(0.3);
     'ok';
 }

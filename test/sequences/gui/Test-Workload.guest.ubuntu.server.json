@@ -17,7 +17,7 @@
       "pollSeconds": 15,
       "text": "${username}",
       "sensitive": true,
-      "description": "Login:"
+      "description": "${vmName} login:"
     },
     {
       "action": "waitForAndEnter",

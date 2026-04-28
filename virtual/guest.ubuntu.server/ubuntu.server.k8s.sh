@@ -300,113 +300,6 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kub
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
 echo -e "\e[1;32m<<< Kubernetes installation complete.\e[0m"
 
-# ===== Cloud CLIs =====
-# Order matters: these come AFTER Kubernetes so set -e can't abort the script
-# before kubelet/kubeadm/kubectl land on disk. azure-cli on arm64 has spotty
-# MS-repo coverage (rc=100, "Unable to locate package"); with the old ordering
-# that failure masked itself downstream as "command 'kubectl' not found" at
-# Test-Workload.*.k8s.website step 6.
-#
-# Each install runs through track_install, which captures failures into
-# CLOUD_CLI_FAILURES and keeps going. A red summary banner at the bottom
-# of this section restates every failure — unconditional, always on stdout,
-# survives OCR and non-verbose host logs so the signal can't get lost.
-
-CLOUD_CLI_FAILURES=()
-
-# Run the named install function. Record a failure in CLOUD_CLI_FAILURES
-# (without aborting the outer script) if either the function returns
-# non-zero OR the expected verify command is missing from PATH afterward.
-# Both checks are needed: bash disables errexit inside a function called
-# from a `|| rc=$?` context, so a command that fails mid-function may
-# leave the function returning 0 — the post-install binary-on-PATH check
-# turns that silent miss into a visible failure entry.
-track_install() {
-    local name="$1" verify_cmd="$2" fn="$3"
-    local rc=0
-    "$fn" || rc=$?
-    if [ $rc -eq 0 ] && ! command -v "$verify_cmd" >/dev/null 2>&1; then
-        rc=127  # standard "command not found" code
-    fi
-    if [ $rc -eq 0 ]; then
-        echo -e "\e[1;32m<<< ${name} installation complete.\e[0m"
-    else
-        CLOUD_CLI_FAILURES+=("${name} (rc=${rc})")
-        echo -e "\e[1;31m<<< ${name} installation FAILED (rc=${rc}) — continuing; see summary at end of Cloud CLIs section.\e[0m"
-    fi
-}
-
-# Azure CLI (using new DEB-822 format)
-echo ""
-echo -e "\e[1;36m>>> Installing Azure CLI...\e[0m"
-install_azure_cli() {
-    sudo mkdir -p /etc/apt/keyrings
-    curl -sLS "https://packages.microsoft.com/keys/microsoft.asc${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" |
-        gpg --batch --yes --dearmor |
-        sudo tee /etc/apt/keyrings/microsoft.gpg > /dev/null
-    sudo chmod go+r /etc/apt/keyrings/microsoft.gpg
-
-    local az_dist
-    az_dist=$(lsb_release -cs)
-    echo "Types: deb
-URIs: https://packages.microsoft.com/repos/azure-cli/
-Suites: ${az_dist}
-Components: main
-Architectures: $(dpkg --print-architecture)
-Signed-by: /etc/apt/keyrings/microsoft.gpg" | sudo tee /etc/apt/sources.list.d/azure-cli.sources > /dev/null
-
-    apt_retry sudo apt-get update -y
-    apt_retry sudo apt-get install -y azure-cli
-}
-track_install "Azure CLI" az install_azure_cli
-
-# AWS CLI (official installer — supports amd64 and arm64)
-echo ""
-echo -e "\e[1;36m>>> Installing AWS CLI...\e[0m"
-install_aws_cli() {
-    local arch aws_cli_url
-    arch=$(dpkg --print-architecture)
-    case "$arch" in
-        amd64) aws_cli_url="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" ;;
-        arm64) aws_cli_url="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" ;;
-        *)     echo "Unsupported architecture '$arch' for AWS CLI"; return 1 ;;
-    esac
-    curl -fsSL "${aws_cli_url}${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/awscliv2.zip
-    unzip -qo /tmp/awscliv2.zip -d /tmp
-    sudo /tmp/aws/install --update
-    rm -rf /tmp/aws /tmp/awscliv2.zip
-}
-track_install "AWS CLI" aws install_aws_cli
-
-# Google Cloud SDK
-echo ""
-echo -e "\e[1;36m>>> Installing Google Cloud SDK...\e[0m"
-install_gcloud_sdk() {
-    sudo snap install google-cloud-sdk --classic
-}
-track_install "Google Cloud SDK" gcloud install_gcloud_sdk
-
-# Summary banner: loud red block, printed unconditionally so a failure is
-# obvious in scroll-back, logs, and OCR captures even in non-verbose runs.
-if [ ${#CLOUD_CLI_FAILURES[@]} -gt 0 ]; then
-    echo ""
-    echo -e "\e[1;31m╔════════════════════════════════════════════════════════════════════╗\e[0m"
-    echo -e "\e[1;31m║  CLOUD CLI INSTALL FAILURES                                        ║\e[0m"
-    echo -e "\e[1;31m╠════════════════════════════════════════════════════════════════════╣\e[0m"
-    for failure in "${CLOUD_CLI_FAILURES[@]}"; do
-        printf "\e[1;31m║  - %-63s ║\e[0m\n" "$failure"
-    done
-    echo -e "\e[1;31m║                                                                    ║\e[0m"
-    echo -e "\e[1;31m║  k8s and Test-Workload.*.k8s.website are unaffected, but any       ║\e[0m"
-    echo -e "\e[1;31m║  workload that calls az / aws / gcloud will not work.              ║\e[0m"
-    echo -e "\e[1;31m║                                                                    ║\e[0m"
-    echo -e "\e[1;31m║  Common arm64 cause: packages.microsoft.com has no azure-cli       ║\e[0m"
-    echo -e "\e[1;31m║  arm64 build for this Ubuntu suite — apt returns rc=100.           ║\e[0m"
-    echo -e "\e[1;31m║  Inspect: sudo apt-cache policy azure-cli                          ║\e[0m"
-    echo -e "\e[1;31m╚════════════════════════════════════════════════════════════════════╝\e[0m"
-    echo ""
-fi
-
 # ===== Other Requirements =====
 
 # Helm (official install script)
@@ -463,12 +356,6 @@ if [ -n "$MKCERT_ARCH" ]; then
 fi
 echo -e "\e[1;32m<<< mkcert installation complete.\e[0m"
 
-# graphviz (available in Ubuntu repositories)
-echo ""
-echo -e "\e[1;36m>>> Installing graphviz...\e[0m"
-apt_retry sudo apt-get install -y graphviz
-echo -e "\e[1;32m<<< graphviz installation complete.\e[0m"
-
 # ===== HTTPS Development Certificate =====
 echo ""
 echo -e "\e[1;36m>>> Creating HTTPS development certificate...\e[0m"
@@ -492,9 +379,6 @@ pwsh --version 2>/dev/null || echo "PowerShell - run: pwsh --version"
 helm version --short 2>/dev/null || echo "Helm - run: helm version --short"
 tofu version | head -1
 mkcert -version 2>/dev/null || echo "mkcert - run: mkcert -version"
-az --version 2>/dev/null | head -1 || true
-aws --version || true
-gcloud --version || echo "Google Cloud SDK - run: gcloud --version"
 
 echo ""
 echo "=== Optional Steps ==="

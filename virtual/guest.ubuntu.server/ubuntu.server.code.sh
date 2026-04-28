@@ -5,7 +5,6 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
-
 # Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
@@ -26,20 +25,6 @@ case "$ARCH" in
     exit 1
     ;;
 esac
-
-# ===== Install the JDK =====
-echo ""
-echo -e "\e[1;36m>>> Installing JDK (OpenJDK)...\e[0m"
-# OpenJDK packages are available for both amd64 and arm64 via apt
-sudo apt-get update -y
-sudo apt-get install -y default-jdk
-java -version
-javac -version
-export JAVA_HOME=/usr/lib/jvm/default-java
-if ! grep -q 'export JAVA_HOME=/usr/lib/jvm/default-java' /etc/bash.bashrc 2>/dev/null; then
-  echo 'export JAVA_HOME=/usr/lib/jvm/default-java' | sudo tee -a /etc/bash.bashrc
-fi
-echo -e "\e[1;32m<<< JDK (OpenJDK) installation complete.\e[0m"
 
 # ===== Install .NET SDK =====
 echo ""

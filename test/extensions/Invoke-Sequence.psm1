@@ -469,22 +469,30 @@ function Send-TextVNC {
     if (-not $tcp) { return $false }
     Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
     try {
-        # An X11 keysym already encodes the resulting character (e.g. `bar`
-        # 0x7C means `|`, distinct from `backslash` 0x5C). QEMU's VNC server
-        # tracks shift state internally and presses shift itself when the
-        # keysym needs it. Sending shift around the keysym ourselves opens a
-        # race: if QEMU's auto-release lands between our shift-down and the
-        # keysym, the char arrives unshifted (e.g. `|` → `\`). So just send
-        # the keysym and let QEMU drive shift.
+        # Empirically, UTM's QEMU VNC does NOT auto-shift from the keysym
+        # alone (e.g. `asterisk` arrives as `8`, `bar` arrives as `\`), so we
+        # must press LShift ourselves. The earlier 20ms/10ms guard wasn't
+        # enough on slower or busier hosts; matching the JXA path's 80ms
+        # shift-settle has been reliable there.
+        $shiftSym = $script:X11KeySyms["LShift"]
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:X11CharKeySyms["$ch"]
             if (-not $entry) {
                 Write-Warning "No VNC keysym for character '$ch'. Skipping."
                 continue
             }
-            $keySym = $entry[0]
+            $keySym  = $entry[0]
+            $shifted = $entry[1]
+            if ($shifted) {
+                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $true
+                Start-Sleep -Milliseconds 80
+            }
             Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
             Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+            if ($shifted) {
+                Start-Sleep -Milliseconds 40
+                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false
+            }
             if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
         }
         Write-Debug "      VNC text send complete"
@@ -742,6 +750,15 @@ function Send-TextUTM {
     # JXA script: physical shift key simulation via CGEvent.
     # Key code 56 = Left Shift on macOS. We press it down, send the char,
     # then release it — mimicking what a real keyboard does.
+    #
+    # Critical: events are created from a kCGEventSourceStateHIDSystemState
+    # source (id 1), not the default null/private source. Private-source
+    # events carry CGEventFlags but do NOT update the global HID modifier
+    # state. Apple Virtualization Framework samples that global state to
+    # decide whether shift is "physically" held, so a null-source shift
+    # press is invisible to the guest — every shifted char arrives demoted
+    # to its unshifted twin (| → \, * → 8, " → ', A → a). HID-system source
+    # actually moves the global state and the guest sees the modifier.
     $jxaTemplate = @'
 ObjC.import('CoreGraphics');
 
@@ -766,37 +783,35 @@ if (!found) {
     delay(0.3);
     var kShiftKeyCode = 56;  // Left Shift physical key
     var kShiftFlag    = 0x00020000;  // kCGEventFlagMaskShift
+    var src = $.CGEventSourceCreate(1);  // kCGEventSourceStateHIDSystemState
 
     function sendKey(keyCode, shift) {
         if (shift) {
             // Press physical Left Shift key down.
-            // Apple Virtualization Framework ignores CGEvent modifier flags and
-            // only sees physical key state, so we must wait long enough for VF
-            // to register the shift before sending the character key.
-            var shiftDn = $.CGEventCreateKeyboardEvent(null, kShiftKeyCode, true);
+            var shiftDn = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, true);
             $.CGEventSetFlags(shiftDn, kShiftFlag);
             $.CGEventPost(0, shiftDn);
             delay(0.08);
 
             // Press character key (with shift flag set on the event too)
-            var down = $.CGEventCreateKeyboardEvent(null, keyCode, true);
+            var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
             $.CGEventSetFlags(down, kShiftFlag);
             $.CGEventPost(0, down);
             delay(0.02);
-            var up = $.CGEventCreateKeyboardEvent(null, keyCode, false);
+            var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
             $.CGEventSetFlags(up, kShiftFlag);
             $.CGEventPost(0, up);
             delay(0.06);
 
             // Release physical Left Shift key
-            var shiftUp = $.CGEventCreateKeyboardEvent(null, kShiftKeyCode, false);
+            var shiftUp = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, false);
             $.CGEventPost(0, shiftUp);
             delay(0.02);
         } else {
-            var down = $.CGEventCreateKeyboardEvent(null, keyCode, true);
+            var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
             $.CGEventPost(0, down);
             delay(0.01);
-            var up = $.CGEventCreateKeyboardEvent(null, keyCode, false);
+            var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
             $.CGEventPost(0, up);
         }
         delay(__DELAY__);

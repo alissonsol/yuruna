@@ -30,6 +30,10 @@ if ($env:YURUNA_VERBOSE -eq '1') { $global:VerbosePreference = 'Continue' }
 $script:DefaultCharDelayMs      = 20
 $script:DefaultVncPort          = 5900
 $script:DefaultKeystrokeMechanism = "GUI"
+# Ring-buffer depth for raw pre-OCR screen captures kept per VM (Wait-ForText).
+# On guest success the buffer dir is deleted; on failure the whole sequence is
+# preserved so the failure-screenshot link can point at the run-up to the bug.
+$script:DefaultScreenHistorySize = 5
 
 # ── Progress marker protocol ─────────────────────────────────────────────────
 # When Invoke-Sequence runs inside a child pwsh whose stdout is piped to the
@@ -70,6 +74,8 @@ if (Test-Path $_configPath) {
         if ($_cfg.charDelayMs)        { $script:DefaultCharDelayMs        = [int]$_cfg.charDelayMs }
         if ($_cfg.vncPort)            { $script:DefaultVncPort            = [int]$_cfg.vncPort }
         if ($_cfg.keystrokeMechanism) { $script:DefaultKeystrokeMechanism = [string]$_cfg.keystrokeMechanism }
+        # 0 disables the ring buffer; we still accept it as a configured value.
+        if ($null -ne $_cfg.screenHistorySize) { $script:DefaultScreenHistorySize = [int]$_cfg.screenHistorySize }
     } catch { Write-Verbose "Config parse error — using built-in default: $_" }
 }
 Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
@@ -1658,98 +1664,65 @@ function Wait-ForText {
     $combineMode = Get-OcrCombineMode
     Write-Debug "      OCR engines: $($enabledEngines -join ', ') | combine: $combineMode"
 
-    # Rolling screenshot window: current and previous screen paths
+    # Per-VM ring buffer of raw pre-OCR captures. Persists across multiple
+    # Wait-ForText calls within a guest run so the failure path can surface
+    # the run-up to the bug. Cleared at end-of-guest on success by the
+    # runner; preserved on failure and copied alongside the failure log.
     Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-    $logDir = Initialize-YurunaLogDir
-    $currentScreenPath  = Join-Path $logDir "waittext_${VMName}_current.png"
-    $previousScreenPath = Join-Path $logDir "waittext_${VMName}_previous.png"
-
-    # Clean up any stale files from a prior run
-    Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
-    Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
-
-    # Previous screen intentionally absent on first iteration → all pixels are new.
+    $logDir     = Initialize-YurunaLogDir
+    $screensDir = Join-Path $logDir "screens_${VMName}"
+    if (-not (Test-Path $screensDir)) {
+        New-Item -ItemType Directory -Path $screensDir -Force | Out-Null
+    }
+    $historySize = [int]$script:DefaultScreenHistorySize
+    if ($historySize -lt 1) { $historySize = 1 }
 
     # Accumulate all seen text for non-FreshMatch mode (per-engine text merged)
     $allText = ''
-    $consecutiveMisses = 0
     $lastOcrText = ''
+    $lastCapturePath = $null
 
     try {
         while ($elapsed -lt $TimeoutSeconds) {
             # PROGRESS-INLINE-TICK: reference impl lives in "delay"
             $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
             Write-ProgressTick -Activity "waitForText" -Status "'$patternLabel' (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
-            # Capture the VM screen — this becomes the "current screen"
-            $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $currentScreenPath
-            if (-not $captured -or -not (Test-Path $currentScreenPath)) {
+
+            # Capture into the ring buffer with a millisecond-precise UTC name
+            # so multiple Wait-ForText calls within the same guest produce a
+            # contiguous, sortable sequence.
+            $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffZ')
+            $rawScreenPath = Join-Path $screensDir "raw_${stamp}.png"
+            $captured = Get-VMScreenshot -HostType $HostType -VMName $VMName -OutputPath $rawScreenPath
+            if (-not $captured -or -not (Test-Path $rawScreenPath)) {
                 $elapsed += $PollSeconds
                 Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
                 Start-Sleep -Seconds $PollSeconds
                 continue
             }
+            $lastCapturePath = $rawScreenPath
 
-            # Process the image (diff current vs previous, preprocess for OCR).
-            # Returns the path to the preprocessed image, or empty string if no changes.
+            # Trim ring buffer to the most recent $historySize entries
+            $allRaws = Get-ChildItem -Path $screensDir -Filter 'raw_*.png' -File -ErrorAction SilentlyContinue |
+                       Sort-Object Name
+            if ($allRaws.Count -gt $historySize) {
+                $allRaws | Select-Object -First ($allRaws.Count - $historySize) |
+                    Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+
+            # Preprocess for OCR (vertical-line removal + grayscale/invert/contrast/scale)
             try {
-                $prevArg = (Test-Path $previousScreenPath) ? $previousScreenPath : $null
-                $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $currentScreenPath -PreviousScreenPath $prevArg
+                $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $rawScreenPath
             } catch {
-                Write-Verbose "Get-ProcessedScreenImage failed (dimension mismatch?): $_"
-                # Reset rolling window on error (e.g. VM resize)
-                Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
+                Write-Verbose "Get-ProcessedScreenImage failed: $_"
                 $processedPath = $null
             }
 
             if ($processedPath) {
-                $consecutiveMisses = 0
-
                 if ($FreshMatch) {
-                    # ── FreshMatch mode ──
-                    if ($prevArg) {
-                        # Run all engines on the processed image, test last N lines only
-                        $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines
+                    # ── FreshMatch mode: only check the last N lines ──
+                    $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines
 
-                        # Log per-engine results
-                        foreach ($eName in $result.EngineResults.Keys) {
-                            $er = $result.EngineResults[$eName]
-                            $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
-                            $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
-                            Write-Verbose "      [$eName] $status | $snippet"
-                        }
-
-                        # Track last OCR text for failure diagnostics
-                        if ($result.AnyText) { $lastOcrText = $result.AnyText }
-
-                        if ($result.Match) {
-                            Write-Debug "      Text detected at end of screen (combine=$combineMode)"
-                            return $true
-                        }
-                    } else {
-                        # Baseline capture — run all engines, check full text
-                        $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern
-
-                        foreach ($eName in $result.EngineResults.Keys) {
-                            $er = $result.EngineResults[$eName]
-                            if ($er.Matched) {
-                                Write-Verbose "      [$eName] Pattern already present in baseline — match: '$($er.MatchedPattern)'"
-                            }
-                        }
-
-                        # Track last OCR text for failure diagnostics
-                        if ($result.AnyText) { $lastOcrText = $result.AnyText }
-
-                        if ($result.Match) {
-                            Write-Debug "      Pattern already present in baseline (combine=$combineMode)"
-                            return $true
-                        }
-                        Write-Debug "      Baseline captured — waiting for screen to change and pattern to appear at end..."
-                    }
-                } else {
-                    # ── Non-FreshMatch mode: accumulate text, check for pattern ──
-                    $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern
-
-                    # Log per-engine results
                     foreach ($eName in $result.EngineResults.Keys) {
                         $er = $result.EngineResults[$eName]
                         $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
@@ -1757,7 +1730,23 @@ function Wait-ForText {
                         Write-Verbose "      [$eName] $status | $snippet"
                     }
 
-                    # Accumulate text and track last OCR output for failure diagnostics
+                    if ($result.AnyText) { $lastOcrText = $result.AnyText }
+
+                    if ($result.Match) {
+                        Write-Debug "      Text detected at end of screen (combine=$combineMode)"
+                        return $true
+                    }
+                } else {
+                    # ── Non-FreshMatch mode: accumulate text, check for pattern ──
+                    $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern
+
+                    foreach ($eName in $result.EngineResults.Keys) {
+                        $er = $result.EngineResults[$eName]
+                        $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
+                        $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
+                        Write-Verbose "      [$eName] $status | $snippet"
+                    }
+
                     if ($result.AnyText) {
                         $lastOcrText = $result.AnyText
                         $allText = ($allText + "`n" + $result.AnyText).Trim()
@@ -1768,99 +1757,55 @@ function Wait-ForText {
                         return $true
                     }
 
-                    # Fallback: test accumulated text across all iterations against each engine's
-                    # accumulated view (using the same combine logic). This handles patterns that
-                    # span multiple poll cycles.
-                    $accumulatedDetections = @()
-                    foreach ($eName in $result.EngineResults.Keys) {
-                        $found = $false
-                        foreach ($p in $Pattern) {
-                            if (Test-OCRMatch -Text $allText -Pattern $p) {
-                                $found = $true
-                                Write-Debug "      Text detected in accumulated text: '$p'"
-                                break
-                            }
+                    # Fallback: test accumulated text across iterations.
+                    # Handles patterns that span multiple poll cycles.
+                    foreach ($p in $Pattern) {
+                        if (Test-OCRMatch -Text $allText -Pattern $p) {
+                            Write-Debug "      Text detected in accumulated text: '$p'"
+                            return $true
                         }
-                        $accumulatedDetections += $found
                     }
-                    # If any accumulated detection matched, return true (accumulation is inherently OR across time)
-                    if (($accumulatedDetections | Where-Object { $_ }).Count -gt 0) {
-                        return $true
-                    }
-                }
-            } else {
-                $consecutiveMisses++
-                if ($consecutiveMisses -ge $ResetAfterMisses) {
-                    # Too many consecutive polls returned no new text — the previous
-                    # screen may be identical to the current screen (timing issue).
-                    # Reset the rolling window so the next diff sees all pixels as new.
-                    Write-Debug "      No new text for $consecutiveMisses polls — resetting previous screen"
-                    Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
-                    Remove-Item $currentScreenPath -Force -ErrorAction SilentlyContinue
-                    $consecutiveMisses = 0
-                    # Skip the rolling-window move so the next iteration has no previous screen
-                    $elapsed += $PollSeconds
-                    Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
-                    Start-Sleep -Seconds $PollSeconds
-                    continue
                 }
             }
 
-            # Anti-pattern (early-fail) check: abort the wait the moment
-            # any FailurePattern fuzzy-matches the current frame. Runs
-            # AFTER the positive-match check above (so a positive match
-            # wins ties in the very rare case both appear on one screen)
-            # and reuses Test-OCRMatch's normalized fuzzy compare so a
-            # few OCR glitches don't mask the signature. Uses $lastOcrText
-            # because that's the freshest OCR output from every branch
-            # above, including the "no new pixels" path where the screen
-            # hasn't changed since the last poll.
+            # Anti-pattern (early-fail) check. Runs AFTER the positive-match
+            # check so a positive match wins ties when both appear in one
+            # frame. Uses $lastOcrText (the freshest OCR output) so the
+            # signature isn't masked by an OCR glitch on the current poll.
             if ($FailurePattern -and $FailurePattern.Count -gt 0 -and $lastOcrText) {
                 foreach ($fp in $FailurePattern) {
                     if ([string]::IsNullOrWhiteSpace($fp)) { continue }
                     if (Test-OCRMatch -Text $lastOcrText -Pattern $fp) {
                         $script:WaitForTextMatchedFailurePattern = $fp
                         Write-Warning "      Failure pattern matched: '$fp' -- aborting wait early (elapsed ${elapsed}s / ${TimeoutSeconds}s)"
-                        # Mirror the timeout path's artefact capture so
-                        # the post-mortem has the same screenshot + OCR
-                        # text whether we timed out or short-circuited.
-                        $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
-                        $failOcrPath    = Join-Path $logDir "failure_ocr_${VMName}.txt"
-                        $lastScreenPath = if (Test-Path $currentScreenPath) { $currentScreenPath }
-                                          elseif (Test-Path $previousScreenPath) { $previousScreenPath }
-                                          else { $null }
-                        if ($lastScreenPath) {
-                            Copy-Item -Path $lastScreenPath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-                            Write-Information "      Failure screenshot saved: $failScreenPath"
+                        if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
+                            $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
+                            Copy-Item -Path $lastCapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
+                            Write-Information "      Failure screenshot saved: $failScreenPath (sequence: $screensDir)"
                         }
-                        Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
-                        Write-Information "      Failure OCR text saved: $failOcrPath"
+                        if ($lastOcrText) {
+                            $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
+                            Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
+                            Write-Information "      Failure OCR text saved: $failOcrPath"
+                        }
                         return $false
                     }
                 }
-            }
-
-            # Rolling window: move current → previous for next iteration
-            if (Test-Path $currentScreenPath) {
-                Move-Item -Path $currentScreenPath -Destination $previousScreenPath -Force
             }
 
             $elapsed += $PollSeconds
             Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
             Start-Sleep -Seconds $PollSeconds
         }
-        # Timeout — preserve last screenshot and OCR text for diagnostics
-        $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
-        $failOcrPath    = Join-Path $logDir "failure_ocr_${VMName}.txt"
-        # Copy whichever screenshot file still exists (current first, then previous)
-        $lastScreenPath = if (Test-Path $currentScreenPath) { $currentScreenPath }
-                          elseif (Test-Path $previousScreenPath) { $previousScreenPath }
-                          else { $null }
-        if ($lastScreenPath) {
-            Copy-Item -Path $lastScreenPath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-            Write-Information "      Failure screenshot saved: $failScreenPath"
+
+        # Timeout — preserve last screenshot, full sequence, and OCR text
+        if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
+            $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
+            Copy-Item -Path $lastCapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
+            Write-Information "      Failure screenshot saved: $failScreenPath (sequence: $screensDir)"
         }
         if ($lastOcrText) {
+            $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
             Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
             Write-Information "      Failure OCR text saved: $failOcrPath"
         }
@@ -1868,9 +1813,9 @@ function Wait-ForText {
         Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s"
         return $false
     } finally {
-        # Clean up temp screenshot files (failure copies already saved above)
-        Remove-Item $currentScreenPath  -Force -ErrorAction SilentlyContinue
-        Remove-Item $previousScreenPath -Force -ErrorAction SilentlyContinue
+        # Note: $screensDir is intentionally NOT cleared here — it survives
+        # across all Wait-ForText calls in a guest, and the runner deletes
+        # it at end-of-guest on success (or surfaces it on failure).
         Write-ProgressTick -Activity "waitForText" -Completed
     }
 }

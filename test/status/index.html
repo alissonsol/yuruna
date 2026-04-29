@@ -274,7 +274,7 @@
   <span id="banner-text">Loading…</span>
   <div id="banner-controls">
     <button id="ssh-btn" class="banner-btn" type="button" disabled>SSH</button>
-    <button id="step-pause-btn" class="banner-btn" type="button" disabled>Step pause</button>
+    <button id="step-pause-btn" class="banner-btn" type="button" disabled>Pause after step</button>
   </div>
 </div>
 
@@ -283,7 +283,7 @@
   <section id="sec-meta" style="display:none">
     <div class="section-title with-controls">
       <span id="sec-meta-title">Latest Cycle</span>
-      <button id="cycle-pause-btn" class="meta-btn" type="button" disabled>Cycle pause</button>
+      <button id="cycle-pause-btn" class="meta-btn" type="button" disabled>Pause after cycle</button>
     </div>
     <div class="meta-grid">
       <div class="meta-card"><div class="label">Cycle ID (UTC)</div><div class="value" id="m-cycleid">—</div></div>
@@ -441,7 +441,7 @@
   function updatePauseButton(kind, armed, cycleActive) {
     const btn = document.getElementById(kind + '-pause-btn');
     if (!btn) return;
-    const pauseLabel = (kind === 'step') ? 'Step pause' : 'Cycle pause';
+    const pauseLabel = (kind === 'step') ? 'Pause after step' : 'Pause after cycle';
     if (armed) {
       btn.textContent = 'Continue';
       btn.classList.add('paused-active');

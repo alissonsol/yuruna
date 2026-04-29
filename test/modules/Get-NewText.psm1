@@ -754,26 +754,25 @@ function Invoke-PlatformOcr {
 function Get-ProcessedScreenImage {
     <#
     .SYNOPSIS
-        Diffs current vs previous screen capture and produces a preprocessed image
-        ready for OCR. Does NOT run OCR itself.
+        Preprocesses a screen capture for OCR. Does NOT run OCR itself.
 
     .DESCRIPTION
-        Performs the same image processing pipeline as Get-NewTextContent (pixel diff,
-        vertical line removal, grayscale, invert, contrast stretch, 2x scale) but
-        returns the path to the processed image instead of running OCR.
+        Pipeline: load → remove thin vertical lines (e.g. text cursors) →
+        grayscale → invert → contrast stretch → scale 2x → save → return path.
 
-        This is the entry point for multi-engine OCR: call this once to get the
-        processed image, then run each OCR provider on it via Invoke-AllEnabledOcr.
+        The previous diff-against-previous-frame stage was removed: callers
+        now keep a ring buffer of raw captures (Wait-ForText) and OCR every
+        frame independently, which catches text the diff-suppression mode
+        sometimes ate when the screen changed in regions outside the new text.
 
     .PARAMETER CurrentScreenPath
-        Path to the current screen capture PNG file.
+        Path to the screen capture PNG file.
 
     .PARAMETER PreviousScreenPath
-        Optional path to the previous screen capture PNG file.
+        Accepted for backward compatibility and ignored.
 
     .OUTPUTS
-        System.String. Path to the processed image ready for OCR, or empty string
-        if no pixel changes were detected between frames.
+        System.String. Path to the processed image ready for OCR.
     #>
     [CmdletBinding()]
     [OutputType([System.String])]
@@ -782,7 +781,7 @@ function Get-ProcessedScreenImage {
         [string]$CurrentScreenPath,
 
         [Parameter(Mandatory=$false)]
-        [string]$PreviousScreenPath
+        [string]$PreviousScreenPath  # accepted for back-compat; unused
     )
 
     $totalSw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -798,75 +797,34 @@ function Get-ProcessedScreenImage {
     }
 
     try {
-        # Load current screen
         $currentImg = [PngCodec]::Load((Resolve-Path $CurrentScreenPath).Path)
         Write-Trace "Load current ($($currentImg.Width)x$($currentImg.Height))" $totalSw
 
-        $width = $currentImg.Width
+        $width  = $currentImg.Width
         $height = $currentImg.Height
 
-        # Detect whether the screen changed (used to return early if nothing new)
-        $hasChanges = $true
-        if (-not [string]::IsNullOrEmpty($PreviousScreenPath)) {
-            $previousImg = [PngCodec]::Load((Resolve-Path $PreviousScreenPath).Path)
-            Write-Trace "Load previous ($($previousImg.Width)x$($previousImg.Height))" $totalSw
+        # Remove thin vertical lines (text cursors, column dividers) on the
+        # current image. secondary=null since there's no paired previous frame.
+        $vlineThreshold = [int]($height * $script:VLinePercent / 100)
+        $blankedCols = [ScreenDelta]::RemoveVerticalLines($currentImg, $null,
+            $bgR, $bgG, $bgB, $bgA, $vlineThreshold)
+        Write-Trace "Remove vertical lines (blanked=$blankedCols cols)" $totalSw
 
-            if ($currentImg.Width -eq $previousImg.Width -and $currentImg.Height -eq $previousImg.Height) {
-                # Remove thin vertical lines (e.g. cursors) before comparing
-                $vlineThreshold = [int]($height * $script:VLinePercent / 100)
-                $blankedCols = [ScreenDelta]::RemoveVerticalLines($currentImg, $previousImg,
-                    $bgR, $bgG, $bgB, $bgA, $vlineThreshold)
-                Write-Trace "Remove vertical lines (blanked=$blankedCols cols)" $totalSw
+        # Preprocess for OCR: grayscale -> invert -> contrast stretch -> scale 2x
+        $ocrImg = [RawImage]::new($width, $height, [byte[]]$currentImg.Pixels.Clone())
+        [ScreenDelta]::ToGrayscale($ocrImg)
+        [ScreenDelta]::InvertColors($ocrImg)
+        [ScreenDelta]::StretchContrast($ocrImg)
+        $ocrImg = [ScreenDelta]::Scale2x($ocrImg)
+        Write-Trace "Preprocess for OCR ($($ocrImg.Width)x$($ocrImg.Height))" $totalSw
 
-                $textImg = [RawImage]::new($width, $height)
-                $delta = [ScreenDelta]::ProcessDelta($currentImg, $previousImg, $textImg,
-                    $bgR, $bgG, $bgB, $bgA)
-                $hasChanges = $delta.HasChanges
-                Write-Trace "Pixel delta (hasChanges=$hasChanges)" $totalSw
-            }
-        }
+        # Save ProcessedTextScreen — the exact image sent to OCR
+        $processedPath = Join-Path $debugDir 'ProcessedTextScreen.png'
+        [PngCodec]::Save($ocrImg, $processedPath)
+        Write-Trace "Save ProcessedTextScreen" $totalSw
 
-        if (-not $hasChanges) {
-            Write-Debug "No pixel changes detected between frames."
-            if ($script:Trace) {
-                [PngCodec]::Save($currentImg, (Join-Path $debugDir 'CurrentScreen.png'))
-                [PngCodec]::Save($previousImg, (Join-Path $debugDir 'PreviousScreen.png'))
-                Write-Trace "Debug artifacts saved (no changes)" $totalSw
-            }
-            '' | Set-Content -Path (Join-Path $debugDir 'OcrResult.txt') -Encoding UTF8
-            Write-Trace "Total Get-ProcessedScreenImage (no changes)" $totalSw
-            return ''
-        }
-
-        if (-not [string]::IsNullOrEmpty($PreviousScreenPath)) {
-            # Preprocess for OCR: grayscale -> invert -> contrast stretch -> scale 2x
-            $ocrImg = [RawImage]::new($width, $height, [byte[]]$currentImg.Pixels.Clone())
-            [ScreenDelta]::ToGrayscale($ocrImg)
-            [ScreenDelta]::InvertColors($ocrImg)
-            [ScreenDelta]::StretchContrast($ocrImg)
-            $ocrImg = [ScreenDelta]::Scale2x($ocrImg)
-            Write-Trace "Preprocess for OCR ($($ocrImg.Width)x$($ocrImg.Height))" $totalSw
-
-            # Save ProcessedTextScreen — this is the exact image sent to OCR
-            $processedPath = Join-Path $debugDir 'ProcessedTextScreen.png'
-            [PngCodec]::Save($ocrImg, $processedPath)
-            Write-Trace "Save ProcessedTextScreen" $totalSw
-        } else {
-            # No previous screen — send current image directly to OCR without preprocessing
-            $processedPath = (Resolve-Path $CurrentScreenPath).Path
-            Write-Trace "No previous screen, using current image as-is" $totalSw
-        }
-
-        # Save debug artifacts when tracing
         if ($script:Trace) {
             [PngCodec]::Save($currentImg, (Join-Path $debugDir 'CurrentScreen.png'))
-            if ($previousImg) {
-                [PngCodec]::Save($previousImg, (Join-Path $debugDir 'PreviousScreen.png'))
-            } else {
-                $blankImg = [RawImage]::new($width, $height)
-                $blankImg.Fill($bgR, $bgG, $bgB, $bgA)
-                [PngCodec]::Save($blankImg, (Join-Path $debugDir 'PreviousScreen.png'))
-            }
             Write-Trace "Debug artifacts saved" $totalSw
         }
 
@@ -895,8 +853,8 @@ function Get-NewTextContent {
         Path to the current screen capture PNG file.
 
     .PARAMETER PreviousScreenPath
-        Optional path to the previous screen capture PNG file. If omitted, a blank
-        background image is used as the reference, treating all content as new.
+        Accepted for backward compatibility and ignored. Each frame is OCR'd
+        independently now (the diff-suppression stage was removed).
 
     .OUTPUTS
         System.String. The text extracted by OCR from the processed image.
@@ -908,12 +866,12 @@ function Get-NewTextContent {
         [string]$CurrentScreenPath,
 
         [Parameter(Mandatory=$false)]
-        [string]$PreviousScreenPath
+        [string]$PreviousScreenPath  # accepted for back-compat; unused
     )
 
     $totalSw = [System.Diagnostics.Stopwatch]::StartNew()
 
-    $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $CurrentScreenPath -PreviousScreenPath $PreviousScreenPath
+    $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $CurrentScreenPath
     if (-not $processedPath) { return '' }
 
     # Use $env:YURUNA_LOG_DIR for debug artifacts

@@ -433,16 +433,40 @@ function Copy-FailureArtifactsToStatusLog {
         # UTC timestamp prevents multiple failures in one run from overwriting each other
         $errorTimestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
 
-        $srcScreen = Join-Path $env:YURUNA_LOG_DIR "failure_screenshot_${VMName}.png"
-        if (Test-Path $srcScreen) {
-            $destName = "$logId.$errorTimestamp.failure-screenshot.png"
-            $dest = Join-Path $statusLogDir $destName
-            Copy-Item -Path $srcScreen -Destination $dest -Force
-            Write-Output "  Failure screenshot saved: ./status/log/$destName"
-            # Clickable HTML link straight to log file (bypasses proxy encoding)
+        # Prefer the ring-buffer sequence (last N raw pre-OCR captures) over
+        # the single failure_screenshot.png. The sequence shows the run-up
+        # to the bug — what the screen looked like in the polls before the
+        # one that triggered the failure — which is far more informative
+        # than a single moment of frozen text.
+        $srcSequenceDir = Join-Path $env:YURUNA_LOG_DIR "screens_${VMName}"
+        if ((Test-Path $srcSequenceDir) -and `
+            (Get-ChildItem -Path $srcSequenceDir -Filter 'raw_*.png' -File -ErrorAction SilentlyContinue).Count -gt 0) {
+            $destSeqName = "$logId.$errorTimestamp.failure-screens-${VMName}"
+            $destSeqDir  = Join-Path $statusLogDir $destSeqName
+            New-Item -ItemType Directory -Path $destSeqDir -Force | Out-Null
+            $copied = 0
+            foreach ($f in (Get-ChildItem -Path $srcSequenceDir -Filter 'raw_*.png' -File | Sort-Object Name)) {
+                Copy-Item -Path $f.FullName -Destination (Join-Path $destSeqDir $f.Name) -Force
+                $copied++
+            }
+            Write-Output "  Failure screenshot saved: ./status/log/$destSeqName/ ($copied frames leading up to the failure)"
             if ($global:__YurunaLogFile) {
-                "  <a href=""$destName"">Failure screenshot: $destName</a>" |
+                "  <a href=""$destSeqName/"">Failure screenshot sequence: $destSeqName/ ($copied frames)</a>" |
                     Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            }
+        } else {
+            # Fallback: callers (or older code paths) may have only the
+            # single failure_screenshot.png. Surface it the legacy way.
+            $srcScreen = Join-Path $env:YURUNA_LOG_DIR "failure_screenshot_${VMName}.png"
+            if (Test-Path $srcScreen) {
+                $destName = "$logId.$errorTimestamp.failure-screenshot.png"
+                $dest = Join-Path $statusLogDir $destName
+                Copy-Item -Path $srcScreen -Destination $dest -Force
+                Write-Output "  Failure screenshot saved: ./status/log/$destName"
+                if ($global:__YurunaLogFile) {
+                    "  <a href=""$destName"">Failure screenshot: $destName</a>" |
+                        Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+                }
             }
         }
 
@@ -977,6 +1001,13 @@ while ($true) {
         # --- Stop and remove this guest VM before starting the next ---
         Set-GuestStatus -GuestKey $GuestKey -Status "pass"
         Write-Output "  ${GuestKey}: PASS"
+        # Guest passed → discard the per-VM ring-buffer of pre-OCR screen
+        # captures. On any prior failure path this directory is preserved
+        # (Copy-FailureArtifactsToStatusLog copies it before we get here).
+        $screensDir = Join-Path $env:YURUNA_LOG_DIR "screens_${VMName}"
+        if (Test-Path $screensDir) {
+            Remove-Item -Path $screensDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
         Write-Output "  Stopping VM '$VMName'..."
         $savedProgress = $global:ProgressPreference
         $global:ProgressPreference = 'SilentlyContinue'

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webchat-backend-pod
+  labels:
+    app: webchat-backend-pod
+spec:
+  containers:
+    - name: webchat-backend
+      image: "localhost:5000/webchat/webchat-backend:latest"
+      ports:
+        - containerPort: 8000
+      env:
+        - name: LLM_BACKEND
+          value: "ollama"
+        - name: OLLAMA_HOST
+          value: "http://localhost:11434"
+        - name: OLLAMA_MODEL
+          value: "phi3:mini"

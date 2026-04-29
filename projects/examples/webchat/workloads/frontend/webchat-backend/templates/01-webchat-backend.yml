@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webchat-backend
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webchat-backend
+  template:
+    metadata:
+      labels:
+        app: webchat-backend
+    spec:
+      containers:
+      - name: webchat-backend
+        image: {{ index .Values (printf "%s.registryLocation" .Values.registryName) }}/{{ .Values.containerPrefix }}/webchat-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - name: port8000
+          containerPort: 8000
+        resources:
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        env:
+        - name: LLM_BACKEND
+          value: {{ .Values.llmBackend | quote }}
+        - name: OLLAMA_HOST
+          value: {{ .Values.ollamaHost | quote }}
+        - name: OLLAMA_MODEL
+          value: {{ .Values.ollamaModel | quote }}
+      imagePullSecrets:
+        - name: registry-credential
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webchat-backend
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: webchat-backend
+spec:
+  type: NodePort
+  ports:
+    - name: port8000
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+      nodePort: 30800
+  selector:
+    app: webchat-backend

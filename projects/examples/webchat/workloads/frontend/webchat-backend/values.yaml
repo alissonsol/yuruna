@@ -1,0 +1,7 @@
+# Default values - will be replaced by workloads.yml before deployment
+namespace: webchat
+registryName: componentsRegistry
+containerPrefix: webchat
+llmBackend: ollama
+ollamaHost: "http://localhost:11434"
+ollamaModel: "phi3:mini"

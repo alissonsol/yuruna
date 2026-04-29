@@ -808,6 +808,67 @@ try {
                 `$res.OutputStream.Close()
                 continue
             }
+            # --- Directory listing ---
+            # When the resolved path is a directory, serve an HTML index
+            # of its contents with relative links. Used by the failure-
+            # screens folder under /log/<id>.<ts>.failure-screens-<vm>/
+            # whose <a href="…/"> in the HTML transcript otherwise 404'd.
+            # Skipped for /yuruna-repo/* so a working-tree listing never
+            # exposes paths beyond the existing per-file deny-list.
+            if (Test-Path `$file -PathType Container) {
+                if (`$path -like 'yuruna-repo/*' -or `$path -eq 'yuruna-repo' -or `$path -eq 'yuruna-repo/') {
+                    `$res.StatusCode = 403
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden (directory listing disabled)')
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$origLocal = `$req.Url.LocalPath
+                if (-not `$origLocal.EndsWith('/')) {
+                    # Without a trailing slash the browser resolves the
+                    # listing's relative <a href> one segment too high,
+                    # so a click on raw_001.png would request
+                    # /log/raw_001.png instead of /log/<dir>/raw_001.png.
+                    `$res.StatusCode = 301
+                    `$res.Headers.Add('Location', `$origLocal + '/')
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$entries = @(Get-ChildItem -LiteralPath `$file -Force -ErrorAction SilentlyContinue |
+                    Sort-Object @{Expression = { -not `$_.PSIsContainer }}, Name)
+                `$sb = [System.Text.StringBuilder]::new()
+                `$titleEnc = [System.Net.WebUtility]::HtmlEncode(`$origLocal)
+                # Single-quoted concat avoids double-quote escaping
+                # noise both at template time (`@"..."@` collapses
+                # backtick-quote to bare quote, which would corrupt
+                # the inner attribute quotes) and at deployed-parse
+                # time. `$titleEnc` is the only dynamic part, so a
+                # plain `+` keeps the rest literal.
+                [void]`$sb.AppendLine('<!doctype html><html><head><meta charset="utf-8"><title>Index of ' + `$titleEnc + '</title><style>body{font-family:sans-serif;margin:1.5em}h1{font-size:1.1em}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid #eee;font-family:monospace;text-align:left}th{background:#f4f4f4}</style></head><body>')
+                [void]`$sb.AppendLine("<h1>Index of `$titleEnc</h1>")
+                [void]`$sb.AppendLine('<table><thead><tr><th>Name</th><th>Size</th><th>Modified (UTC)</th></tr></thead><tbody>')
+                if (`$origLocal -ne '/') {
+                    [void]`$sb.AppendLine('<tr><td><a href="../">../</a></td><td></td><td></td></tr>')
+                }
+                foreach (`$e in `$entries) {
+                    `$nameEnc = [System.Net.WebUtility]::HtmlEncode(`$e.Name)
+                    `$hrefEnc = [Uri]::EscapeDataString(`$e.Name)
+                    `$mtime   = `$e.LastWriteTimeUtc.ToString('o')
+                    if (`$e.PSIsContainer) {
+                        [void]`$sb.Append('<tr><td><a href="').Append(`$hrefEnc).Append('/">').Append(`$nameEnc).Append('/</a></td><td></td><td>').Append(`$mtime).AppendLine('</td></tr>')
+                    } else {
+                        [void]`$sb.Append('<tr><td><a href="').Append(`$hrefEnc).Append('">').Append(`$nameEnc).Append('</a></td><td>').Append(`$e.Length).Append('</td><td>').Append(`$mtime).AppendLine('</td></tr>')
+                    }
+                }
+                [void]`$sb.AppendLine('</tbody></table></body></html>')
+                `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$sb.ToString())
+                `$res.ContentType = 'text/html; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
+                `$res.ContentLength64 = `$bytes.Length
+                `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
             if (Test-Path `$file -PathType Leaf) {
                 `$ext = [System.IO.Path]::GetExtension(`$file)
                 `$res.ContentType = switch (`$ext) {

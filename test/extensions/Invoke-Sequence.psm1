@@ -1615,6 +1615,20 @@ function Wait-ForAndClickButton {
     }
 }
 
+# Persist this frame's OCR output as raw_${stamp}.txt next to the
+# raw_${stamp}.png it was extracted from. The text file is what the
+# matcher actually saw — invaluable for diagnosing "should have matched"
+# regressions, since the ring-buffer .png alone leaves the reader to
+# re-OCR the image to figure out why the pattern didn't fire.
+function Save-OcrSidecar {
+    param(
+        [Parameter(Mandatory)] [string]$ScreenshotPath,
+        [Parameter(Mandatory)] [System.Collections.Generic.List[string]]$Sections
+    )
+    $ocrPath = [System.IO.Path]::ChangeExtension($ScreenshotPath, '.txt')
+    Set-Content -Path $ocrPath -Value ($Sections -join "`n") -Encoding UTF8 -ErrorAction SilentlyContinue
+}
+
 # ── Action: waitForText ──────────────────────────────────────────────────────
 
 function Wait-ForText {
@@ -1697,12 +1711,19 @@ function Wait-ForText {
             }
             $lastCapturePath = $rawScreenPath
 
-            # Trim ring buffer to the most recent $historySize entries
+            # Trim ring buffer to the most recent $historySize entries.
+            # Each raw_*.png has a sibling raw_*.txt holding that frame's
+            # OCR output (per-engine sections, written further below).
+            # Delete the .txt whenever we evict its .png so the two stay
+            # in lockstep — otherwise orphan .txt files accumulate.
             $allRaws = Get-ChildItem -Path $screensDir -Filter 'raw_*.png' -File -ErrorAction SilentlyContinue |
                        Sort-Object Name
             if ($allRaws.Count -gt $historySize) {
-                $allRaws | Select-Object -First ($allRaws.Count - $historySize) |
-                    Remove-Item -Force -ErrorAction SilentlyContinue
+                $allRaws | Select-Object -First ($allRaws.Count - $historySize) | ForEach-Object {
+                    $txtSibling = [System.IO.Path]::ChangeExtension($_.FullName, '.txt')
+                    Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue
+                    if (Test-Path $txtSibling) { Remove-Item -Path $txtSibling -Force -ErrorAction SilentlyContinue }
+                }
             }
 
             # OCR is fed the raw capture as-is — no preprocessing. Earlier
@@ -1720,12 +1741,17 @@ function Wait-ForText {
                     # ── FreshMatch mode: only check the last N lines ──
                     $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines
 
+                    $ocrSections = [System.Collections.Generic.List[string]]::new()
                     foreach ($eName in $result.EngineResults.Keys) {
                         $er = $result.EngineResults[$eName]
                         $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                         $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
                         Write-Verbose "      [$eName] $status | $snippet"
+                        $ocrSections.Add("=== $eName ($status) ===")
+                        $ocrSections.Add($er.Text)
+                        $ocrSections.Add('')
                     }
+                    Save-OcrSidecar -ScreenshotPath $rawScreenPath -Sections $ocrSections
 
                     if ($result.AnyText) { $lastOcrText = $result.AnyText }
 
@@ -1737,12 +1763,17 @@ function Wait-ForText {
                     # ── Non-FreshMatch mode: accumulate text, check for pattern ──
                     $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern
 
+                    $ocrSections = [System.Collections.Generic.List[string]]::new()
                     foreach ($eName in $result.EngineResults.Keys) {
                         $er = $result.EngineResults[$eName]
                         $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                         $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
                         Write-Verbose "      [$eName] $status | $snippet"
+                        $ocrSections.Add("=== $eName ($status) ===")
+                        $ocrSections.Add($er.Text)
+                        $ocrSections.Add('')
                     }
+                    Save-OcrSidecar -ScreenshotPath $rawScreenPath -Sections $ocrSections
 
                     if ($result.AnyText) {
                         $lastOcrText = $result.AnyText

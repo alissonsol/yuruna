@@ -448,9 +448,14 @@ function Copy-FailureArtifactsToStatusLog {
             $destSeqDir  = Join-Path $statusLogDir $destSeqName
             New-Item -ItemType Directory -Path $destSeqDir -Force | Out-Null
             $copied = 0
-            foreach ($f in (Get-ChildItem -Path $srcSequenceDir -Filter 'raw_*.png' -File | Sort-Object Name)) {
+            # Filter 'raw_*' (no extension) picks up both the .png frames
+            # and their .txt OCR sidecars written by Wait-ForText, so the
+            # failure dir contains pairs like raw_<stamp>.png + raw_<stamp>.txt.
+            # Frame count uses the .png extension only — .txt files are
+            # supporting evidence, not separate frames.
+            foreach ($f in (Get-ChildItem -Path $srcSequenceDir -Filter 'raw_*' -File | Sort-Object Name)) {
                 Copy-Item -Path $f.FullName -Destination (Join-Path $destSeqDir $f.Name) -Force
-                $copied++
+                if ($f.Extension -eq '.png') { $copied++ }
             }
             Write-Output "  Failure screenshot saved: ./status/log/$destSeqName/ ($copied frames leading up to the failure)"
             if ($global:__YurunaLogFile) {

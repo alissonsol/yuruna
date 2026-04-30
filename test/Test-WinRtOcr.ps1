@@ -28,7 +28,8 @@
     The only two ways to use Windows.Media.Ocr are:
 
     1. Shell out to Windows PowerShell 5.1 (powershell.exe), which still has
-       native WinRT interop. This is what yuruna's Get-NewText.psm1 does.
+       native WinRT interop. This is what yuruna's Test.OcrEngine.psm1 does
+       (see the WinRT provider block).
 
     2. Add the Microsoft.Windows.SDK.NET.Ref NuGet package to a C# project
        and compile against it. This package is not redistributable and requires

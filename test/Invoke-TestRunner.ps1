@@ -1172,6 +1172,20 @@ while ($true) {
     #     shell will print a prompt for a moment while the parent
     #     exits and the new pwsh starts up — output continues in the
     #     same terminal.
+    #
+    # Environment inheritance (explicit invariant): Start-Process
+    # WITHOUT -UseNewEnvironment hands the parent's full environment
+    # block to the child via CreateProcessW (Windows) / posix_spawn
+    # (Unix). Every YURUNA_* var the user set before launching the
+    # runner — YURUNA_CACHING_PROXY_IP, YURUNA_OCR_ENGINES,
+    # YURUNA_OCR_COMBINE, YURUNA_DEBUG, YURUNA_VERBOSE, YURUNA_TRACK_DIR,
+    # YURUNA_LOG_DIR, YURUNA_SKIP_SCREEN_RECORDING_CHECK — flows to
+    # cycle 2, then cycle 3, and so on across the relaunch chain. We
+    # also rely on this for YURUNA_RUNNER_RELAUNCH=1 below, which is
+    # the relaunch-detection signal the child reads at the top of the
+    # script. DO NOT add -UseNewEnvironment to this Start-Process call
+    # without auditing every callsite that reads $env:YURUNA_*; doing
+    # so silently breaks the per-cycle env contract.
     if ($script:ShutdownState['Requested']) { break }
     Write-Output "Spawning fresh pwsh for next cycle (detached)..."
     $pwshExe = (Get-Process -Id $PID).Path

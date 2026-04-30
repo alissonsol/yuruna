@@ -93,9 +93,6 @@ if (-not (Test-Path $engineModule)) { Write-Error "Invoke-Sequence module not fo
 Import-Module -Name $engineModule -Force
 $global:VerbosePreference = $savedVerbose
 
-# === Enable tracing by default for development debugging ===
-if (-not $env:NEWTEXT_TRACE) { $env:NEWTEXT_TRACE = '1' }
-
 # === Read config ===
 if (-not (Test-Path $ConfigPath)) { Write-Error "Config not found: $ConfigPath"; exit 1 }
 $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json -AsHashtable

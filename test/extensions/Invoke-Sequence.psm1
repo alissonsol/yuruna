@@ -1047,12 +1047,13 @@ function Get-OcrCombineMode {
 function Test-CombinedOcrMatch {
     <#
     .SYNOPSIS
-        Runs all enabled OCR engines on a processed image, tests each engine's text
-        against every pattern, and returns $true/$false based on the combine mode.
+        Runs all enabled OCR engines on a screen capture, tests each engine's
+        text against every pattern, and returns $true/$false based on the
+        combine mode.
 
     .DESCRIPTION
         For each enabled OCR engine:
-          1. Run OCR on ProcessedImagePath → engine text
+          1. Run OCR on ImagePath → engine text
           2. For each pattern, test engine text → boolean
         Collect a boolean per engine (true if ANY pattern matched that engine's text).
 
@@ -1060,13 +1061,9 @@ function Test-CombinedOcrMatch {
           Or  → $true if at least one engine detected any pattern
           And → $true only if every engine detected at least one pattern
 
-    .PARAMETER ProcessedImagePath
-        Path to the preprocessed image (output of Get-ProcessedScreenImage).
-
-    .PARAMETER TextToTest
-        The text to test patterns against. For multi-engine mode this is ignored
-        in favor of per-engine OCR results. When only one engine is enabled this
-        can be used as a shortcut (pass the already-extracted text).
+    .PARAMETER ImagePath
+        Path to the screen capture PNG. The image is sent to each OCR engine
+        as-is — no preprocessing.
 
     .PARAMETER Pattern
         One or more patterns to match (any pattern matching counts for that engine).
@@ -1082,7 +1079,7 @@ function Test-CombinedOcrMatch {
           .AnyText     — [string] concatenation of all engine texts (for accumulation)
     #>
     param(
-        [Parameter(Mandatory)] [string]$ProcessedImagePath,
+        [Parameter(Mandatory)] [string]$ImagePath,
         [Parameter(Mandatory)] [string[]]$Pattern,
         [int]$FreshMatchTailLines = 0
     )
@@ -1101,7 +1098,7 @@ function Test-CombinedOcrMatch {
     #   And — stop on first non-detection (false)
     foreach ($engineName in $enabledProviders) {
         try {
-            $engineText = (Invoke-OcrProvider -Name $engineName -ImagePath $ProcessedImagePath) ?? ''
+            $engineText = (Invoke-OcrProvider -Name $engineName -ImagePath $ImagePath) ?? ''
             $engineText = $engineText.Trim()
         } catch {
             Write-Warning "OCR provider '$engineName' failed: $_"
@@ -1652,10 +1649,9 @@ function Wait-ForText {
     $patternLabel = $Pattern[0]
     $elapsed = 0
 
-    # Import required modules (Screenshot for capture, Get-NewText for diff-based OCR, OcrEngine for multi-engine)
+    # Import required modules (Screenshot for capture, OcrEngine for multi-engine OCR).
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     Import-Module (Join-Path $modulesDir "Test.Screenshot.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-    Import-Module (Join-Path $modulesDir "Get-NewText.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
     Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 
     # Log which OCR engines are active for this wait
@@ -1709,18 +1705,20 @@ function Wait-ForText {
                     Remove-Item -Force -ErrorAction SilentlyContinue
             }
 
-            # Preprocess for OCR (vertical-line removal + grayscale/invert/contrast/scale)
-            try {
-                $processedPath = Get-ProcessedScreenImage -CurrentScreenPath $rawScreenPath
-            } catch {
-                Write-Verbose "Get-ProcessedScreenImage failed: $_"
-                $processedPath = $null
-            }
-
-            if ($processedPath) {
+            # OCR is fed the raw capture as-is — no preprocessing. Earlier
+            # revisions ran a vertical-line / grayscale / invert / contrast-
+            # stretch / 2x-scale pipeline (and before that, a diff-against-
+            # the-previous-frame stage that suppressed unchanged pixels);
+            # both stages were dropped so every operating system delivers
+            # the intact screenshot straight to the OCR engines and edge
+            # cases the pipeline corrupted (anti-aliased serifs collapsing,
+            # fresh text being suppressed when the surrounding pixels also
+            # changed) stop biting. Tesseract / WinRT OCR / macOS Vision
+            # all handle native-resolution color screenshots fine.
+            if ($rawScreenPath -and (Test-Path $rawScreenPath)) {
                 if ($FreshMatch) {
                     # ── FreshMatch mode: only check the last N lines ──
-                    $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines
+                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines
 
                     foreach ($eName in $result.EngineResults.Keys) {
                         $er = $result.EngineResults[$eName]
@@ -1737,7 +1735,7 @@ function Wait-ForText {
                     }
                 } else {
                     # ── Non-FreshMatch mode: accumulate text, check for pattern ──
-                    $result = Test-CombinedOcrMatch -ProcessedImagePath $processedPath -Pattern $Pattern
+                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern
 
                     foreach ($eName in $result.EngineResults.Keys) {
                         $er = $result.EngineResults[$eName]

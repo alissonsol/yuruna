@@ -22,7 +22,8 @@
 
 .DESCRIPTION
     Provides shared functions for Tesseract OCR used by Invoke-TestRunner,
-    Invoke-TestSequence, and Get-NewText. Works on Windows, macOS, and Linux.
+    Invoke-TestSequence, and the OCR-engine dispatcher (Test.OcrEngine).
+    Works on Windows, macOS, and Linux.
 #>
 
 # --- Locate Tesseract ---

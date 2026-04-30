@@ -51,7 +51,6 @@ All modules live in `test/modules/`.
 
 | Module | Purpose |
 |--------|---------|
-| `Get-NewText`         | Diff-based OCR text extraction (pure C#) |
 | `Test.Host`           | Platform detection, git, host-condition guards |
 | `Test.Status`         | `status.json` lifecycle |
 | `Test.StatusServer`   | Status HTTP server start/stop |

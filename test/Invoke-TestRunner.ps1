@@ -1155,46 +1155,51 @@ while ($true) {
     # gives every cycle a clean address space at the cost of one
     # pwsh startup (~1s) per cycle.
     #
-    # Detached spawn (Start-Process without -Wait) so the parent
-    # exits immediately. A synchronous spawn would build a wait
-    # chain — parent waits on child, child waits on grandchild — and
-    # accumulate one resident pwsh per cycle for the lifetime of the
-    # run, holding ~50–100 MB each. With detach the process count
-    # stays at 1 active runner.
+    # Synchronous spawn via Start-Process -Wait -NoNewWindow: the
+    # parent blocks until the child exits, then propagates the exit
+    # code via -PassThru. Every cycle still gets a fresh address
+    # space, no new console window opens, and output stays in the
+    # launching terminal in REAL TIME — the child inherits the
+    # parent's stdout/stderr handles directly. Two earlier forms
+    # both broke visibility:
+    #   * Start-Process WITHOUT -Wait (commit e2bc257): detached;
+    #     on Windows opens a new console window per cycle, so step
+    #     progress vanished from the operator's window.
+    #   * `& $pwshExe @argList` (call operator): synchronous, but
+    #     PowerShell captures the child's stdout into its success
+    #     stream and re-renders it via Out-Default. The pipeline
+    #     buffers across line boundaries and during long waits
+    #     (e.g. waitForText polling), so the parent's terminal AND
+    #     the transcript log went silent for minutes at a time
+    #     even though current-action.json kept updating.
     #
-    # Cross-platform via Start-Process default behavior:
-    #   * Windows: opens a NEW console window for the child (the
-    #     install/windows-install.ps1 pattern). The closing parent
-    #     window goes away on exit; only the latest cycle's window
-    #     stays visible.
-    #   * macOS / Linux: child runs in the controlling TTY (the
-    #     foreground / no-new-window default on Unix). The launching
-    #     shell will print a prompt for a moment while the parent
-    #     exits and the new pwsh starts up — output continues in the
-    #     same terminal.
+    # Wait-chain: each cycle's parent stays resident in WFSO until
+    # the entire descendant chain finishes. Sleeping pwsh frames are
+    # paged out, so the per-cycle resident-memory cost is small (MB,
+    # not the 50–100 MB of an active runner). For very long runs the
+    # chain depth matches the cycle count; if that ever becomes a
+    # real cost, the alternative is detached spawn with -NoNewWindow
+    # plus tee-to-log.
     #
-    # Environment inheritance (explicit invariant): Start-Process
-    # WITHOUT -UseNewEnvironment hands the parent's full environment
-    # block to the child via CreateProcessW (Windows) / posix_spawn
-    # (Unix). Every YURUNA_* var the user set before launching the
-    # runner — YURUNA_CACHING_PROXY_IP, YURUNA_OCR_ENGINES,
-    # YURUNA_OCR_COMBINE, YURUNA_DEBUG, YURUNA_VERBOSE, YURUNA_TRACK_DIR,
-    # YURUNA_LOG_DIR, YURUNA_SKIP_SCREEN_RECORDING_CHECK — flows to
-    # cycle 2, then cycle 3, and so on across the relaunch chain. We
-    # also rely on this for YURUNA_RUNNER_RELAUNCH=1 below, which is
-    # the relaunch-detection signal the child reads at the top of the
-    # script. DO NOT add -UseNewEnvironment to this Start-Process call
-    # without auditing every callsite that reads $env:YURUNA_*; doing
-    # so silently breaks the per-cycle env contract.
+    # Environment inheritance: Start-Process WITHOUT -UseNewEnvironment
+    # hands the parent's full env block to the child. Every YURUNA_*
+    # the user set before launching — YURUNA_CACHING_PROXY_IP,
+    # YURUNA_OCR_ENGINES, YURUNA_OCR_COMBINE, YURUNA_DEBUG,
+    # YURUNA_VERBOSE, YURUNA_TRACK_DIR, YURUNA_LOG_DIR,
+    # YURUNA_SKIP_SCREEN_RECORDING_CHECK — flows to every cycle in
+    # the chain. We also rely on this for YURUNA_RUNNER_RELAUNCH=1
+    # below, the relaunch-detection signal the child reads at the
+    # top of the script. DO NOT add -UseNewEnvironment without
+    # auditing every callsite that reads $env:YURUNA_*.
     if ($script:ShutdownState['Requested']) { break }
-    Write-Output "Spawning fresh pwsh for next cycle (detached)..."
+    Write-Output "Spawning fresh pwsh for next cycle..."
     $pwshExe = (Get-Process -Id $PID).Path
     # $PSBoundParameters is in-process state and can't be splatted
     # across a process boundary, so rebuild explicit argv. Switch
     # parameters become "-Name" with no value when present; everything
     # else becomes "-Name Value". Stringify $v so [bool]$true/$false
     # and [int] arguments come through as "True" / "30" rather than
-    # PowerShell's default object-to-string for Start-Process argv.
+    # PowerShell's default object-to-string.
     $argList = @('-NoLogo', '-File', $PSCommandPath)
     foreach ($k in $PSBoundParameters.Keys) {
         $v = $PSBoundParameters[$k]
@@ -1208,17 +1213,17 @@ while ($true) {
     # YURUNA_RUNNER_RELAUNCH=1 tells the child to skip the single-
     # instance guard at the top of this script; otherwise it would
     # see this parent's runner.pid and kill the only process we want
-    # running. Inheritance happens at Start-Process time, so we set
-    # it just before the spawn. No cleanup needed afterwards — the
-    # parent exits and the env var dies with it.
+    # running. Set just before the spawn so the child inherits it;
+    # no cleanup needed because the parent exits with the child.
     $env:YURUNA_RUNNER_RELAUNCH = '1'
     try {
-        Start-Process -FilePath $pwshExe -ArgumentList $argList -ErrorAction Stop | Out-Null
+        $proc = Start-Process -FilePath $pwshExe -ArgumentList $argList `
+            -NoNewWindow -Wait -PassThru -ErrorAction Stop
     } catch {
         Write-Warning "Failed to spawn next-cycle pwsh ($pwshExe): $_"
         exit 1
     }
-    exit 0
+    exit $proc.ExitCode
 }
 
 Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue

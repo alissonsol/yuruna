@@ -256,19 +256,22 @@ first:  Stop-VM squid-cache   (guest will then WARN and download direct).
 # are reachable via archive.ubuntu.com through squid during install.
 # (`$PRIMARY/`$SECURITY/`$RELEASE are curtin tokens — backtick escapes
 # the $ so PowerShell doesn't expand them.)
-if ($CachingProxyUrl) {
-    $AptProxyBlock = @"
+# Always emit the apt block — see guest.ubuntu.server/New-VM.ps1 for
+# the rationale. tl;dr: subiquity's default `geoip: true` does an
+# HTTPS lookup to geoip.ubuntu.com that stalls / retry-storms during
+# configure_apt/cmd-in-target, adding minutes to every install.
+# Pinning sources and disabling geoip keeps the install fast whether
+# or not the cache is up.
+$AptProxyLine = if ($CachingProxyUrl) { "    proxy: $CachingProxyUrl`n" } else { "" }
+$AptProxyBlock = @"
   apt:
-    proxy: $CachingProxyUrl
-    sources_list: |
+    geoip: false
+$($AptProxyLine)    sources_list: |
       deb `$PRIMARY `$RELEASE main restricted universe multiverse
       deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
       deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
       deb `$SECURITY `$RELEASE-security main restricted universe multiverse
 "@
-} else {
-    $AptProxyBlock = ""
-}
 
 # Yuruna host (status server) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by

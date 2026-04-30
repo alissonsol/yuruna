@@ -86,11 +86,31 @@ function Test-CachingProxyAvailable {
         $cacheVM = Get-VM -Name 'squid-cache' -ErrorAction SilentlyContinue
         if (-not $cacheVM -or $cacheVM.State -ne 'Running') { return $null }
 
+        # The probe MUST validate reachability from the same network
+        # plane the autoinstall guest will use, not just from the host.
+        # Without binding the TcpClient to the Default Switch's host
+        # IP, the OS may route the probe out a different interface
+        # (e.g. the LAN NIC) and TCP-handshake successfully against an
+        # IP that only exists inside the cache VM (a docker bridge
+        # subnet, a stale dual-NIC config, etc.). The injected URL
+        # then points at an IP autoinstall guests on Default Switch
+        # cannot reach, and curtin's configure_apt/cmd-in-target hangs
+        # for the full apt-get connect timeout — sometimes minutes —
+        # then retries indefinitely. Pinning the source IP to Default
+        # Switch makes the probe fail the way a guest's connect would
+        # fail, so a non-Default-Switch URL is correctly rejected here
+        # rather than handed downstream.
+        $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
+        $dsHostIp = if ($hostAdapter) { $hostAdapter.IPAddress } else { $null }
+
         # Strategy 1: Hyper-V KVP via Get-VMNetworkAdapter. Requires
         # hv_kvp_daemon (hyperv-daemons) inside the guest. After a fresh
         # caching proxy install this is usually available, but if cloud-init
         # hasn't fully completed — or the daemon isn't running — IPAddresses
-        # comes back empty.
+        # comes back empty. KVP also reports IPs from interfaces other than
+        # the Default Switch vNIC (docker bridges, libvirt bridges, vpn
+        # tunnels) — the bind-source check below filters those out.
         $candidateIps = @($cacheVM | Get-VMNetworkAdapter | ForEach-Object { $_.IPAddresses } |
             Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
 
@@ -98,8 +118,6 @@ function Test-CachingProxyAvailable {
         # Switch interface. Mirrors guest.squid-cache/New-VM.ps1 so detection
         # here cannot disagree with what the cache-VM creator discovered.
         if (-not $candidateIps) {
-            $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-                Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
             $vmMac = ($cacheVM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
             if ($hostAdapter -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
                 $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
@@ -118,18 +136,23 @@ function Test-CachingProxyAvailable {
             }
         }
 
-        # Confirm port 3128 is actually listening before claiming a cache —
-        # an IP alone doesn't prove squid is up (cloud-init may still be
-        # installing). Same probe shape as the macos.utm branch.
+        # Confirm port 3128 is actually listening AND reachable from
+        # Default Switch before claiming a cache. The Bind() pins the
+        # outgoing source IP to the Default Switch host vNIC, so the
+        # OS's routing decision matches what an autoinstall guest on
+        # Default Switch would do.
         foreach ($ip in $candidateIps) {
             $tcp = New-Object System.Net.Sockets.TcpClient
             try {
+                if ($dsHostIp) {
+                    $tcp.Client.Bind([System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse($dsHostIp), 0))
+                }
                 $async = $tcp.BeginConnect($ip, 3128, $null, $null)
                 if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
                     return "http://${ip}:3128"
                 }
             } catch {
-                Write-Verbose "caching proxy probe to ${ip}:3128 failed: $($_.Exception.Message)"
+                Write-Verbose "caching proxy probe to ${ip}:3128 (bind=$dsHostIp) failed: $($_.Exception.Message)"
             } finally {
                 $tcp.Close()
             }

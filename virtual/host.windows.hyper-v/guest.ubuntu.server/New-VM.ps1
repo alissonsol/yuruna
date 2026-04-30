@@ -214,34 +214,37 @@ To intentionally skip the cache:
 }
 }
 
-# Build the autoinstall apt-proxy block. Cache reachable = inject
-# `apt: proxy: http://...` so subiquity + first-boot apt-get route
-# through squid.
+# Build the autoinstall apt block. We ALWAYS emit it — even when no
+# squid-cache is reachable — because subiquity's default apt behavior
+# is `geoip: true`, which fires an HTTPS lookup to geoip.ubuntu.com
+# to elect a regional mirror. That lookup is slow and prone to
+# retry-storming during configure_apt/cmd-in-target on this host;
+# previously it added minutes to every install. Setting `geoip:
+# false` and pinning sources_list to the curtin defaults keeps mirror
+# election deterministic and the apt-get update fast whether or not
+# the cache is up.
 #
 # sources_list: the Server 24.04 amd64 squashfs ships
 # /etc/apt/sources.list.d/ubuntu.sources (deb822) with ONLY a file:/cdrom
 # entry and no network URI. Curtin's apt-config does "modifymirrors" —
 # it rewrites an existing URI, not adds one. With no archive.ubuntu.com
-# to substitute, the proxied mirror never lands on the target and any
-# `apt-get install <pkg>` for a package not on the cdrom fails with
-# E: Unable to locate package. A classic /etc/apt/sources.list via
-# sources_list bypasses the no-op: apt merges both files, network
-# packages resolve via archive.ubuntu.com through squid.
+# to substitute, the configured mirror never lands on the target and any
+# post-install `apt-get install <pkg>` for a package not on the cdrom
+# fails with E: Unable to locate package. A classic /etc/apt/sources.list
+# via sources_list bypasses the no-op: apt merges both files, network
+# packages resolve via archive.ubuntu.com (through squid when configured).
 # (`$PRIMARY/`$SECURITY/`$RELEASE are curtin tokens — backtick escapes
 # the $ so PowerShell doesn't expand them.)
-if ($CachingProxyUrl) {
-    $AptProxyBlock = @"
+$AptProxyLine = if ($CachingProxyUrl) { "    proxy: $CachingProxyUrl`n" } else { "" }
+$AptProxyBlock = @"
   apt:
-    proxy: $CachingProxyUrl
-    sources_list: |
+    geoip: false
+$($AptProxyLine)    sources_list: |
       deb `$PRIMARY `$RELEASE main restricted universe multiverse
       deb `$PRIMARY `$RELEASE-updates main restricted universe multiverse
       deb `$PRIMARY `$RELEASE-backports main restricted universe multiverse
       deb `$SECURITY `$RELEASE-security main restricted universe multiverse
 "@
-} else {
-    $AptProxyBlock = ""
-}
 
 # Yuruna host (status server) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by

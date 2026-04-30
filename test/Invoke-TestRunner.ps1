@@ -1197,6 +1197,28 @@ while ($true) {
     # top of the script. DO NOT add -UseNewEnvironment without
     # auditing every callsite that reads $env:YURUNA_*.
     if ($script:ShutdownState['Requested']) { break }
+
+    # macOS / Linux: stay in-process. The Add-Type rationale above is
+    # Windows-specific — YurunaVMConnectDialog and HyperVCapture are
+    # only emitted on Hyper-V hosts. The only Unix Add-Type the runner
+    # touches is YurunaVncPixels (Test.Screenshot.psm1), which is
+    # stable C# rarely edited. Synchronous Start-Process -Wait works
+    # on macOS, but each cycle's parent stays resident in WaitForExit
+    # until the entire descendant chain finishes. status.json shows
+    # cycle counts in the hundreds; that wait-chain depth on macOS
+    # accumulates ~100 MB of resident pwsh per cycle (the OS does not
+    # trim sleeping pwsh frames as aggressively as the chain assumes),
+    # so a long unattended run OOMs. Loop in-process instead — same
+    # behavior the runner had for 327 cycles before commit e2bc257.
+    if (-not $IsWindows) {
+        # Wipe YURUNA_RUNNER_RELAUNCH if a prior Windows ancestor (or
+        # an aborted relaunch attempt) left it set; the in-process
+        # branch never re-enters the script, so the env var has no
+        # purpose here and would confuse a later cross-process restart.
+        Remove-Item Env:YURUNA_RUNNER_RELAUNCH -ErrorAction SilentlyContinue
+        continue
+    }
+
     Write-Output "Spawning fresh pwsh for next cycle..."
     $pwshExe = (Get-Process -Id $PID).Path
     # $PSBoundParameters is in-process state and can't be splatted

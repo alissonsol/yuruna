@@ -1627,10 +1627,17 @@ function Wait-ForAndClickButton {
 # Test-CombinedOcrMatch returns no EngineResults (no providers ran on
 # this frame); skipping the write is correct — an empty sidecar would
 # misrepresent "no engine ran" as "engines ran and saw nothing."
+#
+# AllowEmptyString: PowerShell's Mandatory binder enumerates a typed
+# List[string] and validates each element against the implicit non-
+# empty-string check, so a list containing the trailing '' separators
+# the callers add between engine sections fails with the same
+# "empty string" message. AllowEmptyString lifts that per-element
+# check; AllowEmptyCollection lifts the whole-list one.
 function Save-OcrSidecar {
     param(
         [Parameter(Mandatory)] [string]$ScreenshotPath,
-        [Parameter(Mandatory)] [AllowEmptyCollection()]
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [AllowEmptyString()]
         [System.Collections.Generic.List[string]]$Sections
     )
     if ($Sections.Count -eq 0) { return }

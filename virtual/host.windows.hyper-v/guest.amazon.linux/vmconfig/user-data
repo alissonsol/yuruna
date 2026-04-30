@@ -49,6 +49,15 @@ runcmd:
     YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
     EOF
   - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
+  # --- wget no_proxy: belt-and-braces for the host status-server probe ---
+  # If the squid-cache proxy URL ever leaks into wget's environment, an
+  # in-guest fetch-and-execute.sh that lacks --no-proxy would route the
+  # /livecheck probe through the cache, which cannot reach the host's
+  # private NAT address, and silently fall through to GitHub.
+  - |
+    cat >> /etc/wgetrc << 'EOF'
+    no_proxy = YURUNA_HOST_IP_PLACEHOLDER
+    EOF
   # --- Network: download fetch-and-execute utility ---
   # Try the host status server first (fast, local, devloop-friendly)
   # and fall back to raw.githubusercontent.com if it is not reachable.

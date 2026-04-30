@@ -225,6 +225,16 @@ APT_PROXY_BLOCK_PLACEHOLDER
     - |
       grep -q yuruna-host /target/etc/hosts || \
         echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /target/etc/hosts
+    # --- wget no_proxy: belt-and-braces for the host status-server probe ---
+    # subiquity's apt:proxy can leak as http_proxy into the installed
+    # system. Without no_proxy, an in-guest fetch-and-execute.sh that
+    # lacks --no-proxy would route the /livecheck probe through the
+    # squid-cache, which cannot reach the host's private NAT address,
+    # and silently fall through to GitHub.
+    - |
+      cat >> /target/etc/wgetrc << 'EOF'
+      no_proxy = YURUNA_HOST_IP_PLACEHOLDER
+      EOF
     # --- Network: download fetch-and-execute utility ---
     # Try the host status server first (fast, local, devloop-friendly)
     # and fall back to raw.githubusercontent.com if it is not reachable.

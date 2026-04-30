@@ -1620,11 +1620,20 @@ function Wait-ForAndClickButton {
 # matcher actually saw — invaluable for diagnosing "should have matched"
 # regressions, since the ring-buffer .png alone leaves the reader to
 # re-OCR the image to figure out why the pattern didn't fire.
+#
+# AllowEmptyCollection: a [Parameter(Mandatory)] typed-collection param
+# rejects empty input with the misleading "Cannot bind argument ...
+# because it is an empty string" error. The empty case happens when
+# Test-CombinedOcrMatch returns no EngineResults (no providers ran on
+# this frame); skipping the write is correct — an empty sidecar would
+# misrepresent "no engine ran" as "engines ran and saw nothing."
 function Save-OcrSidecar {
     param(
         [Parameter(Mandatory)] [string]$ScreenshotPath,
-        [Parameter(Mandatory)] [System.Collections.Generic.List[string]]$Sections
+        [Parameter(Mandatory)] [AllowEmptyCollection()]
+        [System.Collections.Generic.List[string]]$Sections
     )
+    if ($Sections.Count -eq 0) { return }
     $ocrPath = [System.IO.Path]::ChangeExtension($ScreenshotPath, '.txt')
     Set-Content -Path $ocrPath -Value ($Sections -join "`n") -Encoding UTF8 -ErrorAction SilentlyContinue
 }

@@ -768,9 +768,6 @@ function Get-ProcessedScreenImage {
     .PARAMETER CurrentScreenPath
         Path to the screen capture PNG file.
 
-    .PARAMETER PreviousScreenPath
-        Accepted for backward compatibility and ignored.
-
     .OUTPUTS
         System.String. Path to the processed image ready for OCR.
     #>
@@ -778,10 +775,7 @@ function Get-ProcessedScreenImage {
     [OutputType([System.String])]
     param(
         [Parameter(Mandatory=$true)]
-        [string]$CurrentScreenPath,
-
-        [Parameter(Mandatory=$false)]
-        [string]$PreviousScreenPath  # accepted for back-compat; unused
+        [string]$CurrentScreenPath
     )
 
     $totalSw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -852,10 +846,6 @@ function Get-NewTextContent {
     .PARAMETER CurrentScreenPath
         Path to the current screen capture PNG file.
 
-    .PARAMETER PreviousScreenPath
-        Accepted for backward compatibility and ignored. Each frame is OCR'd
-        independently now (the diff-suppression stage was removed).
-
     .OUTPUTS
         System.String. The text extracted by OCR from the processed image.
     #>
@@ -863,10 +853,7 @@ function Get-NewTextContent {
     [OutputType([System.String])]
     param(
         [Parameter(Mandatory=$true)]
-        [string]$CurrentScreenPath,
-
-        [Parameter(Mandatory=$false)]
-        [string]$PreviousScreenPath  # accepted for back-compat; unused
+        [string]$CurrentScreenPath
     )
 
     $totalSw = [System.Diagnostics.Stopwatch]::StartNew()

@@ -81,8 +81,11 @@ $TemplatePath = Join-Path $TestRoot "test-config.json.template"
 # test VMs. Two instances race on VM names and shared status files,
 # leaving VMs stuck in Starting/Stopping state.
 #
-# YURUNA_RUNNER_RELAUNCH marks the source-change relaunch branch below —
-# that branch spawns a child Invoke-TestRunner.ps1; don't let the child
+# YURUNA_RUNNER_RELAUNCH marks the per-cycle relaunch branch at the
+# bottom of the cycle loop — that branch spawns a child Invoke-
+# TestRunner.ps1 in a fresh pwsh process so each cycle starts with a
+# clean address space (PowerShell pins Add-Type assemblies and module
+# imports for the lifetime of the host process). Don't let the child
 # treat its own parent as a competitor.
 $RunnerPidFile = Join-Path $env:YURUNA_TRACK_DIR "runner.pid"
 if ($env:YURUNA_RUNNER_RELAUNCH -ne '1' -and (Test-Path $RunnerPidFile)) {
@@ -519,21 +522,6 @@ try {
     Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $_"
 }
 
-# === Source-change detection ===
-# Capture mtimes so the next cycle relaunches if Invoke-TestRunner.ps1 or
-# any module under test/modules is edited mid-run.
-function Get-SourceFingerprint {
-    param([string]$ScriptPath, [string]$ModulesDir)
-    $files = @((Get-Item $ScriptPath))
-    if (Test-Path $ModulesDir) {
-        $files += Get-ChildItem -Path $ModulesDir -Filter *.psm1 -File -Recurse
-    }
-    ($files | Sort-Object FullName | ForEach-Object {
-        "$($_.FullName)|$($_.LastWriteTimeUtc.Ticks)|$($_.Length)"
-    }) -join "`n"
-}
-$script:SourceFingerprint = Get-SourceFingerprint -ScriptPath $PSCommandPath -ModulesDir $ModulesDir
-
 # === Continuous test loop ===
 $CycleCount     = 0
 try {
@@ -559,24 +547,6 @@ while ($true) {
     if ($script:ShutdownState['Requested']) {
         Write-Output "Shutdown requested. Exiting cycle loop."
         break
-    }
-
-    # Relaunch in a fresh process if the script or any module changed
-    # on disk — the running process has sources cached in memory.
-    $currentFingerprint = Get-SourceFingerprint -ScriptPath $PSCommandPath -ModulesDir $ModulesDir
-    if ($currentFingerprint -ne $script:SourceFingerprint) {
-        Write-Output "Source changed on disk — relaunching Invoke-TestRunner.ps1 for next cycle..."
-        $pwshExe = (Get-Process -Id $PID).Path
-        # Signal the child to skip the single-instance guard; otherwise
-        # it would see this parent's runner.pid and kill the only process
-        # we want running.
-        $env:YURUNA_RUNNER_RELAUNCH = '1'
-        try {
-            & $pwshExe -NoLogo -File $PSCommandPath @PSBoundParameters
-        } finally {
-            Remove-Item Env:YURUNA_RUNNER_RELAUNCH -ErrorAction SilentlyContinue
-        }
-        exit $LASTEXITCODE
     }
 
     # Re-check host conditions each cycle — settings can revert (OS
@@ -1171,6 +1141,70 @@ while ($true) {
     Write-Progress -Activity "Next cycle" -Completed
 
     & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix
+
+    # Run the next cycle in a fresh pwsh process. PowerShell pins
+    # Add-Type compiled assemblies, JIT'd script blocks, and imported
+    # .psm1 modules to the host process — `Import-Module -Force`
+    # rebinds the function table but does NOT reload an Add-Type
+    # assembly that has the same identity, and the dynamically-
+    # generated helpers this runner emits (Test.Start-VM's
+    # YurunaVMConnectDialog, Test.Screenshot's HyperVCapture, etc.)
+    # have stable names by design. Net effect: an edit to the
+    # generator OR to plain PowerShell in this script is invisible
+    # until the process restarts. Spawning a child pwsh per cycle
+    # gives every cycle a clean address space at the cost of one
+    # pwsh startup (~1s) per cycle.
+    #
+    # Detached spawn (Start-Process without -Wait) so the parent
+    # exits immediately. A synchronous spawn would build a wait
+    # chain — parent waits on child, child waits on grandchild — and
+    # accumulate one resident pwsh per cycle for the lifetime of the
+    # run, holding ~50–100 MB each. With detach the process count
+    # stays at 1 active runner.
+    #
+    # Cross-platform via Start-Process default behavior:
+    #   * Windows: opens a NEW console window for the child (the
+    #     install/windows-install.ps1 pattern). The closing parent
+    #     window goes away on exit; only the latest cycle's window
+    #     stays visible.
+    #   * macOS / Linux: child runs in the controlling TTY (the
+    #     foreground / no-new-window default on Unix). The launching
+    #     shell will print a prompt for a moment while the parent
+    #     exits and the new pwsh starts up — output continues in the
+    #     same terminal.
+    if ($script:ShutdownState['Requested']) { break }
+    Write-Output "Spawning fresh pwsh for next cycle (detached)..."
+    $pwshExe = (Get-Process -Id $PID).Path
+    # $PSBoundParameters is in-process state and can't be splatted
+    # across a process boundary, so rebuild explicit argv. Switch
+    # parameters become "-Name" with no value when present; everything
+    # else becomes "-Name Value". Stringify $v so [bool]$true/$false
+    # and [int] arguments come through as "True" / "30" rather than
+    # PowerShell's default object-to-string for Start-Process argv.
+    $argList = @('-NoLogo', '-File', $PSCommandPath)
+    foreach ($k in $PSBoundParameters.Keys) {
+        $v = $PSBoundParameters[$k]
+        if ($v -is [System.Management.Automation.SwitchParameter]) {
+            if ($v.IsPresent) { $argList += "-$k" }
+        } else {
+            $argList += "-$k"
+            $argList += "$v"
+        }
+    }
+    # YURUNA_RUNNER_RELAUNCH=1 tells the child to skip the single-
+    # instance guard at the top of this script; otherwise it would
+    # see this parent's runner.pid and kill the only process we want
+    # running. Inheritance happens at Start-Process time, so we set
+    # it just before the spawn. No cleanup needed afterwards — the
+    # parent exits and the env var dies with it.
+    $env:YURUNA_RUNNER_RELAUNCH = '1'
+    try {
+        Start-Process -FilePath $pwshExe -ArgumentList $argList -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Warning "Failed to spawn next-cycle pwsh ($pwshExe): $_"
+        exit 1
+    }
+    exit 0
 }
 
 Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue

@@ -1629,7 +1629,6 @@ function Wait-ForText {
         [int]$PollSeconds = 5,
         [bool]$FreshMatch = $false,
         [int]$FreshMatchTailLines = 12,
-        [int]$ResetAfterMisses = 2,
         # Anti-patterns: if ANY of these fuzzy-matches on screen OCR,
         # abort the wait immediately and return $false. Canonical use
         # case is subiquity's "install_fail.crash" / "An error occurred.
@@ -2311,12 +2310,11 @@ function Invoke-Sequence {
                 $poll = $step.pollSeconds ? [int]$step.pollSeconds : 5
                 $fresh = $step.freshMatch -eq $true
                 $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
-                $resetMisses = $step.resetAfterMisses ? [int]$step.resetAfterMisses : 3
                 $patternDisplay = $patterns -join "' | '"
                 Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' })$(if ($failurePatterns.Count) { ", $($failurePatterns.Count) failurePatterns" }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
-                    -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses `
+                    -FreshMatchTailLines $tailLines `
                     -FailurePattern $failurePatterns
             }
             "waitForAndEnter" {
@@ -2340,12 +2338,11 @@ function Invoke-Sequence {
                 $poll = $step.pollSeconds ? [int]$step.pollSeconds : 5
                 $fresh = $step.freshMatch -eq $true
                 $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
-                $resetMisses = $step.resetAfterMisses ? [int]$step.resetAfterMisses : 3
                 $patternDisplay = $patterns -join "' | '"
                 Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' })$(if ($failurePatterns.Count) { ", $($failurePatterns.Count) failurePatterns" }))"
                 $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
                     -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
-                    -FreshMatchTailLines $tailLines -ResetAfterMisses $resetMisses `
+                    -FreshMatchTailLines $tailLines `
                     -FailurePattern $failurePatterns
                 if ($ok -ne $false) {
                     # Send Tab keystrokes before typing, if requested. This is
@@ -2448,7 +2445,7 @@ function Invoke-Sequence {
                     Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${waitTimeout}s, freshMatch)"
                     $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern @($waitPattern) `
                         -TimeoutSeconds $waitTimeout -PollSeconds $waitPoll -FreshMatch $true `
-                        -FreshMatchTailLines 12 -ResetAfterMisses 3
+                        -FreshMatchTailLines 12
                 }
             }
             "sshWaitReady" {

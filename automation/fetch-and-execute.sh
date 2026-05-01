@@ -41,6 +41,25 @@ resolve_base_url() {
                 echo "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-repo/"
                 return
             fi
+            # /etc/yuruna/host.env exists and names a host, but /livecheck
+            # didn't answer in 2 s. That's an UNEXPECTED failure: this
+            # guest was provisioned to talk to that host, so silently
+            # falling through to GitHub hides the real problem (host
+            # roamed Wi-Fi to a different subnet, host status server
+            # crashed, host firewall change, Default Switch gateway
+            # changed, etc.). The cycle will still complete via GitHub,
+            # but the dev iteration loop is broken until the host is
+            # reachable again. Warn loudly on stderr — stdout is
+            # captured by `$(resolve_base_url)` and must stay clean.
+            >&2 echo ""
+            >&2 echo "!! HOST UNREACHABLE"
+            >&2 echo "!!   url:     http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck"
+            >&2 echo "!!   source:  /etc/yuruna/host.env (provisioned at New-VM time)"
+            >&2 echo "!!   probe:   wget --spider --no-proxy --timeout=2 → no response"
+            >&2 echo "!!   action:  falling back to GitHub for this fetch"
+            >&2 echo "!!   common:  host Wi-Fi roamed to a different SSID/subnet, or"
+            >&2 echo "!!            host status server is down, or host firewall changed."
+            >&2 echo ""
         fi
     fi
     echo "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"

@@ -426,6 +426,63 @@ function Remove-SecretsFromConfig {
     }
 }
 
+# === Helper: pre-step caching-proxy reachability check ===
+# Background: a real-world failure mode is the host's Wi-Fi roaming to a
+# different SSID/subnet mid-cycle. The squid-cache VM is on the host's
+# Default Switch (Hyper-V) / VZ shared-NAT (UTM) and remains routable from
+# the host, BUT the URL injected into guest cidata at New-VM time may have
+# pointed at the IP the host had on the prior network — which guests can
+# no longer reach. Symptom: fetch-and-execute.sh times out on /livecheck
+# and silently falls back to GitHub, masking the broken proxy path.
+#
+# This helper TCP-probes the proxy URL detected at runner startup before
+# each step, so the operator sees the moment connectivity is lost. State
+# is tracked to keep the log readable: a one-shot loud "LOST" warning on
+# the down transition, terse "still unreachable" notes during a sustained
+# outage, and a "recovered" note when it comes back. No-op when no proxy
+# was detected at startup (nothing to lose) or when the URL doesn't parse
+# as http://ip:port.
+$script:CachingProxyLastReachable = $true
+function Assert-CachingProxyStillReachable {
+    param(
+        [string]$ProxyUrl,
+        [string]$StepName,
+        [string]$GuestKey
+    )
+    if (-not $ProxyUrl) { return }
+    if ($ProxyUrl -notmatch '^http://([0-9.]+):(\d+)') { return }
+    $ip   = $matches[1]
+    $port = [int]$matches[2]
+
+    $tcp = New-Object System.Net.Sockets.TcpClient
+    $reachable = $false
+    try {
+        $async = $tcp.BeginConnect($ip, $port, $null, $null)
+        if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
+            $reachable = $true
+        }
+    } catch {
+        Write-Verbose "Caching proxy probe to ${ip}:${port} threw: $($_.Exception.Message)"
+    } finally {
+        $tcp.Close()
+    }
+
+    if ($reachable) {
+        if (-not $script:CachingProxyLastReachable) {
+            Write-Output "  Caching proxy reachable again at $GuestKey/$StepName ($ProxyUrl)."
+        }
+    } else {
+        if ($script:CachingProxyLastReachable) {
+            Write-Warning "  Caching proxy LOST at ${GuestKey}/${StepName}: $ProxyUrl no longer answers (1s TCP probe)."
+            Write-Warning "    Common cause: host Wi-Fi roamed to a different SSID/subnet mid-cycle."
+            Write-Warning "    Guests configured at New-VM time with this URL will fall back to direct downloads."
+        } else {
+            Write-Warning "  Caching proxy still unreachable at $GuestKey/$StepName ($ProxyUrl)."
+        }
+    }
+    $script:CachingProxyLastReachable = $reachable
+}
+
 # === Helper: copy failure artifacts to status/log for remote inspection ===
 function Copy-FailureArtifactsToStatusLog {
     param([string]$VMName)
@@ -816,6 +873,7 @@ while ($true) {
         Set-GuestVMName -GuestKey $GuestKey -VMName $VMName
         Set-GuestStatus -GuestKey $GuestKey -Status "running"
 
+        Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "New-VM" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "running"
         # Forward the cache URL detected at runner startup so every guest
         # uses the same address. Without this, each guest's New-VM.ps1
@@ -841,6 +899,7 @@ while ($true) {
         }
 
         # --- Start-VM ---
+        Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-VM" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "running"
         $r = Invoke-StartVM -HostType $HostType -VMName $VMName
         if ($r.success) {
@@ -858,6 +917,7 @@ while ($true) {
         }
 
         # --- Install-OS (Test-Start scripts drive OS installation) ---
+        Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Install-OS" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "running"
         $showExtOutput = -not $NoExtensionOutput
         $r = Invoke-StartTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir -ShowOutput $showExtOutput
@@ -887,6 +947,7 @@ while ($true) {
         }
 
         # --- Verify-VM (poll until running, wait boot delay) ---
+        Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Verify-VM" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "running"
         $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName `
             -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
@@ -915,6 +976,7 @@ while ($true) {
 
         # --- Screenshots (compare against trained references) ---
         if ($hasScreenshots) {
+            Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Screenshots" -GuestKey $GuestKey
             Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "running"
             $r = Invoke-ScreenshotTest -HostType $HostType -GuestKey $GuestKey `
                 -VMName $VMName -ScreenshotsDir $ScreenshotsDir
@@ -945,6 +1007,7 @@ while ($true) {
 
         # --- Invoke-PoolTest (extension scripts) ---
         if ($hasExtensions) {
+            Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Invoke-PoolTest" -GuestKey $GuestKey
             Set-StepStatus -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "running"
             $r = Invoke-PoolTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir -ShowOutput $showExtOutput
             if ($r.skipped) {

@@ -60,9 +60,18 @@ switch ($HostType) {
         if ($testVMs.Count -eq 0) {
             Write-Output "  No Hyper-V VMs found matching '${Prefix}*'."
         }
+        # Hyper-V reports several non-running states that all mean "Remove-VM
+        # can take this without a stop call":
+        #   Off          — cleanly powered down
+        #   Saved        — saved state (suspended); stopping would just discard it
+        #   OffCritical  — Hyper-V flagged a critical error and the VM is down
+        # Skipping Stop-HyperVVMForce on those avoids the ~30 s force-stop chain
+        # (20 s Stop-VM poll + vmwp.exe lookup + 10 s retry) that fires for
+        # already-stopped VMs because the original gate only matched 'Off'.
+        $stoppedStates = @('Off', 'Saved', 'OffCritical')
         foreach ($vm in $testVMs) {
             Write-Output "  Stopping $($vm.Name) [$($vm.State)]..."
-            if ($vm.State -ne 'Off') {
+            if ($vm.State -notin $stoppedStates) {
                 # Stop-HyperVVMForce escalates to killing the VM's vmwp.exe
                 # worker process when Stop-VM -TurnOff can't bring the VM to
                 # 'Off' within 20 s (typically a stuck 'Stopping' state).
@@ -77,7 +86,7 @@ switch ($HostType) {
                     Write-Warning "    Stop-HyperVVMForce returned `$false for $($vm.Name); Remove-VM may fail."
                 }
             } else {
-                Write-Output "    Already off."
+                Write-Output "    Already stopped."
             }
             Remove-VM -Name $vm.Name -Force -Confirm:$false 6>$null
             Write-Output "    Removed from Hyper-V."

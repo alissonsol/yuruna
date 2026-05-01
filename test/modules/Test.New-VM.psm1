@@ -227,6 +227,11 @@ function Stop-HyperVVMForce {
     )
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if (-not $vm) { return $true }
+    # Already-stopped fast path. Off / Saved / OffCritical all mean the VM is
+    # not running, so Stop-VM has nothing to do — invoking it here just burns
+    # the 20 s poll + 10 s retry budget waiting for an already-true condition.
+    # Caller still proceeds to Remove-VM after we return.
+    if ($vm.State -in @('Off', 'Saved', 'OffCritical')) { return $true }
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Force-stop VM (Stop-VM -TurnOff, then kill vmwp.exe if still not Off)')) {
         return $false
     }

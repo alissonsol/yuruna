@@ -262,6 +262,73 @@ function Test-CachingProxyPort {
     }
 }
 
+<#
+.SYNOPSIS
+    Populate the host's ARP cache on the Yuruna-External subnet by
+    sweep-pinging it in parallel. Cheap fallback for IP discovery when
+    the cache VM has DHCP'd a LAN address but hv_kvp_daemon hasn't
+    started yet.
+.DESCRIPTION
+    On the Default Switch path, the host is the NAT/DHCP server so the
+    cache VM's MAC↔IP mapping lands in the ARP cache the moment DHCP
+    completes. On External vSwitch the LAN's DHCP server (not the host)
+    answers, so the host has no reason to ARP for the VM's IP and
+    `Get-NetNeighbor` returns nothing — even though the VM is up,
+    has its lease, and is happily installing apt packages. KVP would
+    eventually fill this gap, but `hv_kvp_daemon` only starts late in
+    cloud-init's runcmd (after grafana / prometheus / loki / squid have
+    all installed) — that's 5-15 minutes of "not discovered yet" while
+    the VM is actually fine.
+
+    This active sweep ARP-resolves every IP on the host's
+    Yuruna-External subnet (parallel `Test-Connection -Count 1
+    -TimeoutSeconds 1`, throttle 64). Responses populate the host's
+    neighbor cache; subsequent `Get-NetNeighbor` calls then find the
+    cache VM at its DHCP'd IP within seconds of boot, not minutes.
+
+    No-op on non-Windows or when the host has no Yuruna-External
+    vEthernet (e.g., Default-Switch fallback path). Only handles /24
+    subnets — the common home/office LAN size; wider subnets fall back
+    to KVP-only discovery.
+
+.OUTPUTS
+    [void]
+#>
+function Invoke-YurunaExternalArpProbe {
+    [CmdletBinding()]
+    param([string]$SwitchName = 'Yuruna-External')
+
+    if (-not $IsWindows) { return }
+
+    $hostIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceAlias -like "*$SwitchName*" } |
+        Select-Object -First 1
+    if (-not $hostIp) { return }
+    if ($hostIp.PrefixLength -ne 24) {
+        # Sweeping a /16 (65k hosts) or larger is impractical in this
+        # loop. Most home/office LANs are /24; if the host is on a
+        # different prefix the operator can fall back to KVP-only
+        # discovery (slower but works once hv_kvp_daemon is up).
+        Write-Verbose "Invoke-YurunaExternalArpProbe: host /$($hostIp.PrefixLength) — skipping sweep (only /24 supported)."
+        return
+    }
+
+    $ipBytes = ([System.Net.IPAddress]::Parse($hostIp.IPAddress)).GetAddressBytes()
+    $base    = "$($ipBytes[0]).$($ipBytes[1]).$($ipBytes[2])"
+    $hostLast = [int]$ipBytes[3]
+
+    # Parallel sweep: 254 hosts at ThrottleLimit=64 with a 1s ICMP
+    # timeout completes in ~5s on a healthy LAN. Skip the host's own
+    # last octet (no value pinging ourselves) and .0/.255 (network +
+    # broadcast). Pipe to Out-Null so any timing/error noise doesn't
+    # reach the caller's progress display.
+    1..254 |
+        Where-Object { $_ -ne $hostLast } |
+        ForEach-Object -ThrottleLimit 64 -Parallel {
+            $null = Test-Connection -ComputerName "$using:base.$_" -Count 1 -TimeoutSeconds 1 -Quiet -ErrorAction SilentlyContinue
+        } | Out-Null
+}
+
 function Test-CacheVmOnYurunaExternalSwitch {
     <#
     .SYNOPSIS

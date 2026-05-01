@@ -214,6 +214,8 @@ $cacheIp = $null
 $cacheCandidateIps = @()
 $maxIterations = 240  # 240 * 5s = 20 minutes
 $vmDiscoveryLogged = $false
+$cacheVmOnExternalSwitch = $false
+$arpProbeAnnounced = $false
 
 # Re-enable Write-Progress for the wait loop (script default is
 # SilentlyContinue so web-download progress doesn't spam non-interactive shells).
@@ -229,6 +231,27 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
     # first few iterations normally return an empty candidate list.
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if ($vm) {
+        # On Yuruna-External, the host is no longer the DHCP server so
+        # the cache VM's lease never lands in the host's ARP cache
+        # passively. KVP would eventually populate IPAddresses but only
+        # after cloud-init's runcmd starts hv_kvp_daemon — that's 5-15
+        # minutes of "not discovered yet" while the VM is fine. Active-
+        # probe the subnet (parallel ICMP sweep, ~5s) to ARP-resolve
+        # every host on the LAN; the cache VM appears in
+        # Get-NetNeighbor on the next iteration. Default-Switch path
+        # doesn't need this — Hyper-V's NAT populates ARP at DHCP time.
+        if ($i -eq 0) {
+            $cacheVmOnExternalSwitch = (($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
+                                          Select-Object -First 1).SwitchName -eq 'Yuruna-External')
+        }
+        if ($cacheVmOnExternalSwitch -and $i -ge 6) {
+            if (-not $arpProbeAnnounced) {
+                Write-Output "  Active ARP probe on Yuruna-External subnet (cache VM has DHCP'd a LAN IP the host hasn't seen yet; KVP catches up later)..."
+                $arpProbeAnnounced = $true
+            }
+            Invoke-YurunaExternalArpProbe -SwitchName 'Yuruna-External'
+        }
+
         $cacheCandidateIps = @(Get-CacheVmCandidateIp -VM $vm)
         if ($cacheCandidateIps) {
             if (-not $vmDiscoveryLogged) {
@@ -244,18 +267,23 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
         }
     }
 
-    # Single-line progress: elapsed, CPU%, VHDX size. VHDX is dynamic
-    # and grows as cloud-init apt-installs, so rising size means real
-    # progress.
+    # Single-line progress: elapsed, CPU%, VHDX size + heartbeat status.
+    # VHDX growth means cloud-init is making progress (apt unpacking).
+    # Heartbeat = Hyper-V's view of integration services — "OK" means
+    # the VM is alive and the kernel is healthy even if KVP hasn't
+    # started; "Lost Communication" / "No Contact" means the VM may be
+    # frozen, panicked, or networking-broken.
     $elapsed  = [int]((Get-Date) - $startTime).TotalSeconds
     $pct      = [math]::Min(100, [math]::Round(($elapsed / ($maxIterations * 5)) * 100))
-    $cpu      = (Get-VM -Name $VMName -ErrorAction SilentlyContinue).CPUUsage
+    $vmInfo   = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    $cpu      = if ($vmInfo) { $vmInfo.CPUUsage } else { 0 }
+    $hb       = if ($vmInfo) { $vmInfo.Heartbeat } else { 'Unknown' }
     if ($null -eq $cpu) { $cpu = 0 }
     $sizeMB   = [math]::Round((Get-Item $vhdxFile).Length / 1MB, 0)
     $deltaMB  = $sizeMB - $baselineSizeMB
     $min      = [math]::Floor($elapsed / 60)
     $sec      = $elapsed % 60
-    $status   = "elapsed ${min}m${sec}s | CPU ${cpu}% | VHDX ${sizeMB} MB (+${deltaMB} MB since boot)"
+    $status   = "elapsed ${min}m${sec}s | CPU ${cpu}% | heartbeat ${hb} | VHDX ${sizeMB} MB (+${deltaMB} MB since boot)"
     Write-Progress -Activity $activity -Status $status -PercentComplete $pct -SecondsRemaining (($maxIterations * 5) - $elapsed)
 }
 

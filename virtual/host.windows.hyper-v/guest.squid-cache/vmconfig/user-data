@@ -358,24 +358,33 @@ write_files:
       http_port 3139 require-proxy-header ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
 
       # --- Custom access-log format for the Grafana "Last 100 requests"
-      # panel. Adds %>A (client FQDN) between %>a (IP) and the status
-      # token so the panel can render hostname when reverse DNS resolves.
-      # %<st (response bytes) was already in the default `squid` format —
-      # it's now explicitly captured by the dashboard's regex, so the
-      # panel can show transfer size between status and URL.
+      # panel. %>a (client IP) + status + size + method + URL, with the
+      # request User-Agent appended in literal double-quotes so the panel
+      # can distinguish apt / curl / snap / Docker / Go traffic — far
+      # more diagnostic for this single-host workload than reverse-DNS
+      # hostnames.
       #
-      # In Squid 6 (Noble), %>A triggers the synchronous PTR lookup
-      # itself — the old `log_fqdn on` global is OBSOLETE and emits
-      # "Directive 'log_fqdn' is obsolete" at parse time. Don't add it.
-      # On a PTR miss, %>A falls back to the IP literal (NOT "-"), so
-      # the field is always populated and the regex never fails to match.
+      # An earlier revision also captured %>A (client FQDN). On Squid 6
+      # %>A triggers a synchronous PTR lookup, and on RFC1918 source IPs
+      # the resolver routinely returns whatever unrelated registered host
+      # owns the IP upstream — making the "client_host" column actively
+      # misleading on a single-host test harness where most traffic is
+      # local infra (the squid VM itself on 127.0.0.1, the host gateway,
+      # sibling guest VMs). %>A is gone for that reason; friendly names
+      # for the host gateway live in /etc/hosts (runcmd below) for
+      # operators tailing the log directly.
+      #
+      # User-Agent in literal double-quotes: %{...}>h doesn't auto-escape
+      # spaces, and apt/curl/wget/snap/Docker UAs contain spaces but no
+      # quotes — quoting cleanly delimits the field. Missing header logs
+      # as `"-"`; the regex tolerates it.
       #
       # Output goes to a SEPARATE file (yuruna_access.log) — the default
       # access.log keeps its stock `squid` format for cachemgr.cgi and
       # manual `tail -f /var/log/squid/access.log` debugging. Two squid
       # access_log entries writing the same file would interleave bytes
       # and corrupt both formats.
-      logformat yuruna %ts.%03tu %6tr %>a %>A %Ss/%03>Hs %<st %rm %ru %[un %Sh/%<a %mt
+      logformat yuruna %ts.%03tu %6tr %>a %Ss/%03>Hs %<st %rm %ru %[un %Sh/%<a %mt "%{User-Agent}>h"
       access_log /var/log/squid/yuruna_access.log yuruna
   # --- Prometheus: bind loopback only; Grafana scrapes via localhost.
   # Keeps Prometheus's open-access UI off the LAN — Grafana on :3000 is
@@ -472,10 +481,13 @@ write_files:
               labels:
                 job: squid
                 # yuruna_access.log is the custom logformat (defined in
-                # /etc/squid/conf.d/yuruna.conf) that includes %>A — the
-                # client FQDN — between client IP and status. The stock
-                # access.log keeps its default format for cachemgr/tail
-                # debugging; only Promtail tails the yuruna variant.
+                # /etc/squid/conf.d/yuruna.conf) — same fields as the
+                # stock `squid` format plus a quoted "%{User-Agent}>h"
+                # column at the end so the dashboard panel can split
+                # apt / curl / snap / Docker / Go-http-client traffic.
+                # The stock access.log keeps its default format for
+                # cachemgr/tail debugging; only Promtail tails the
+                # yuruna variant.
                 __path__: /var/log/squid/yuruna_access.log
           pipeline_stages:
             - regex:
@@ -642,7 +654,7 @@ write_files:
           {
             "id": 7,
             "type": "logs",
-            "title": "Last 100 requests (client IP / hostname / status / size / URL)",
+            "title": "Last 100 requests (client IP / status / size / method / URL / User-Agent)",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 20, "w": 24, "h": 12},
             "options": {
@@ -657,7 +669,7 @@ write_files:
             },
             "targets": [
               {
-                "expr": "{job=\"squid\"} | regexp `^\\S+\\s+\\S+\\s+(?P<client_ip>\\S+)\\s+(?P<client_host>\\S+)\\s+(?P<status>\\S+)\\s+(?P<bytes>\\S+)\\s+\\S+\\s+(?P<url>\\S+)` | line_format `{{.client_ip}}  {{.client_host}}  {{.status}}  {{.bytes}}  {{.url}}`",
+                "expr": "{job=\"squid\"} | regexp `^\\S+\\s+\\S+\\s+(?P<client_ip>\\S+)\\s+(?P<status>\\S+)\\s+(?P<bytes>\\S+)\\s+(?P<method>\\S+)\\s+(?P<url>\\S+)\\s+\\S+\\s+\\S+\\s+\\S+\\s+\"(?P<ua>[^\"]*)\"` | line_format `{{.client_ip}}  {{.status}}  {{.bytes}}  {{.method}}  {{.url}}  {{.ua}}`",
                 "refId": "A",
                 "maxLines": 100
               }
@@ -666,6 +678,23 @@ write_files:
         ]
       }
 runcmd:
+  # /etc/hosts: friendly label for the default-route gateway. On
+  # Hyper-V Default Switch that's whatever vEthernet (Default Switch)
+  # got assigned at host boot (commonly 172.25.32.1 / 172.20.0.1 /
+  # 172.30.0.1 — the IP rotates), and it shows up as the client IP for
+  # every request a host process proxies through this cache — most of
+  # the traffic on a single-host test harness. Mapping it to
+  # `hyperv-host` lets operators `host 172.x.x.1`, `ping hyperv-host`,
+  # and `awk '$3=="172.25.32.1"' /var/log/squid/yuruna_access.log`
+  # resolve cleanly without re-discovering the IP each session.
+  # Discovered from `ip route show default` (not hardcoded) precisely
+  # because Default Switch IPs drift across host reboots. Idempotent:
+  # re-runs of cloud-init don't duplicate.
+  - |
+    GW=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3; exit}')
+    if [ -n "$GW" ] && ! grep -q "^${GW}[[:space:]]" /etc/hosts; then
+      echo "${GW} hyperv-host" >> /etc/hosts
+    fi
   # Stop the squid that apt's postinst attempted to start — it is either
   # already FATAL (write_files dropped /etc/squid/conf.d/yuruna.conf with
   # `tls-cert=/etc/squid/ssl_cert/ca.pem` referenced before we generate

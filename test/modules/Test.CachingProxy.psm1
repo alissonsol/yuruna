@@ -86,73 +86,79 @@ function Test-CachingProxyAvailable {
         $cacheVM = Get-VM -Name 'squid-cache' -ErrorAction SilentlyContinue
         if (-not $cacheVM -or $cacheVM.State -ne 'Running') { return $null }
 
-        # The probe MUST validate reachability from the same network
-        # plane the autoinstall guest will use, not just from the host.
-        # Without binding the TcpClient to the Default Switch's host
-        # IP, the OS may route the probe out a different interface
-        # (e.g. the LAN NIC) and TCP-handshake successfully against an
-        # IP that only exists inside the cache VM (a docker bridge
-        # subnet, a stale dual-NIC config, etc.). The injected URL
-        # then points at an IP autoinstall guests on Default Switch
-        # cannot reach, and curtin's configure_apt/cmd-in-target hangs
-        # for the full apt-get connect timeout — sometimes minutes —
-        # then retries indefinitely. Pinning the source IP to Default
-        # Switch makes the probe fail the way a guest's connect would
-        # fail, so a non-Default-Switch URL is correctly rejected here
-        # rather than handed downstream.
-        $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-            Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
-        $dsHostIp = if ($hostAdapter) { $hostAdapter.IPAddress } else { $null }
+        # Pull in VM.common.psm1's discovery helpers so this module and
+        # New-VM.ps1 share one definition of "where do we look for the
+        # cache VM's IP". Drift between the two would mean Invoke-Test-
+        # Runner sees a different IP than the one provisioning printed.
+        $vmCommon = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) `
+            'virtual/host.windows.hyper-v/VM.common.psm1'
+        if (Test-Path $vmCommon) { Import-Module $vmCommon -Force -ErrorAction SilentlyContinue }
 
-        # Strategy 1: Hyper-V KVP via Get-VMNetworkAdapter. Requires
-        # hv_kvp_daemon (hyperv-daemons) inside the guest. After a fresh
-        # caching proxy install this is usually available, but if cloud-init
-        # hasn't fully completed — or the daemon isn't running — IPAddresses
-        # comes back empty. KVP also reports IPs from interfaces other than
-        # the Default Switch vNIC (docker bridges, libvirt bridges, vpn
-        # tunnels) — the bind-source check below filters those out.
-        $candidateIps = @($cacheVM | Get-VMNetworkAdapter | ForEach-Object { $_.IPAddresses } |
-            Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
+        # Detect which vSwitch the cache is on. Yuruna-External (bridged
+        # to the host's LAN NIC) puts the cache on a real LAN IP and is
+        # what gets created by default; Default Switch is the fallback
+        # when no LAN-routable physical NIC is available. The probe
+        # logic differs in two ways for the External path:
+        #   * the host's ARP cache isn't auto-populated (the host is no
+        #     longer the DHCP server), so a one-shot LAN sweep makes
+        #     KVP-empty discovery work in seconds rather than waiting
+        #     for hv_kvp_daemon to come up minutes into runcmd.
+        #   * the TCP probe shouldn't pin its source IP to a Default
+        #     Switch vEthernet that doesn't even share a subnet with
+        #     the cache — let the OS route normally via the LAN NIC.
+        $cacheSwitchName  = ($cacheVM | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
+                              Select-Object -First 1).SwitchName
+        $cacheOnExternal  = ($cacheSwitchName -eq 'Yuruna-External')
 
-        # Strategy 2: ARP cache lookup by VM MAC, scoped to the Default
-        # Switch interface. Mirrors guest.squid-cache/New-VM.ps1 so detection
-        # here cannot disagree with what the cache-VM creator discovered.
-        if (-not $candidateIps) {
-            $vmMac = ($cacheVM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
-            if ($hostAdapter -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
-                $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
-                # Collect ALL matching neighbor entries — Hyper-V's Default
-                # Switch accumulates stale State='Permanent' entries across
-                # cache-VM recreations, so the same MAC can appear at two
-                # IPs. Picking -First 1 previously caused detection to land
-                # on the stale IP and fail the :3128 probe. The foreach loop
-                # below picks whichever candidate actually answers.
-                $candidateIps = @(Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
-                    Where-Object {
-                        $_.LinkLayerAddress -eq $vmMacDashed -and
-                        $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
-                        $_.State -ne 'Unreachable'
-                    } | ForEach-Object { $_.IPAddress })
-            }
+        if ($cacheOnExternal -and (Get-Command Invoke-YurunaExternalArpProbe -ErrorAction SilentlyContinue)) {
+            # ~5 second parallel ICMP sweep of the host's /24 to fill
+            # the host's neighbor cache. Subsequent Get-NetNeighbor in
+            # Get-CacheVmCandidateIp then finds the cache VM's MAC.
+            Invoke-YurunaExternalArpProbe -SwitchName 'Yuruna-External'
         }
 
-        # Confirm port 3128 is actually listening AND reachable from
-        # Default Switch before claiming a cache. The Bind() pins the
-        # outgoing source IP to the Default Switch host vNIC, so the
-        # OS's routing decision matches what an autoinstall guest on
-        # Default Switch would do.
+        # Default-Switch path: pin the probe's source IP to the host's
+        # Default Switch vNIC. Without this, the OS may route via the
+        # LAN NIC and TCP-handshake against an IP that only exists
+        # inside the cache VM (docker bridge, libvirt bridge, stale
+        # dual-NIC config); the URL we'd return is unreachable from
+        # the autoinstall guest, and curtin hangs for the full
+        # apt-get connect timeout. Yuruna-External path: skip the bind
+        # — the cache lives on the LAN, the same network plane an
+        # autoinstall guest reaches through host routing/NAT.
+        $bindIp = $null
+        if (-not $cacheOnExternal) {
+            $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
+            if ($hostAdapter) { $bindIp = $hostAdapter.IPAddress }
+        }
+
+        # Get-CacheVmCandidateIp (VM.common.psm1) returns KVP IPs first,
+        # then ARP-cache entries scoped by VM MAC across all interfaces.
+        # Hyper-V's Default Switch accumulates stale State='Permanent'
+        # entries across cache-VM recreations, so the same MAC can appear
+        # at two IPs — the foreach loop below picks whichever actually
+        # answers on :3128, so a stale entry can't poison detection.
+        $candidateIps = if (Get-Command Get-CacheVmCandidateIp -ErrorAction SilentlyContinue) {
+            @(Get-CacheVmCandidateIp -VM $cacheVM)
+        } else {
+            # Fallback if VM.common.psm1 didn't import: KVP only.
+            @($cacheVM | Get-VMNetworkAdapter | ForEach-Object { $_.IPAddresses } |
+                Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
+        }
+
         foreach ($ip in $candidateIps) {
             $tcp = New-Object System.Net.Sockets.TcpClient
             try {
-                if ($dsHostIp) {
-                    $tcp.Client.Bind([System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse($dsHostIp), 0))
+                if ($bindIp) {
+                    $tcp.Client.Bind([System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse($bindIp), 0))
                 }
                 $async = $tcp.BeginConnect($ip, 3128, $null, $null)
                 if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
                     return "http://${ip}:3128"
                 }
             } catch {
-                Write-Verbose "caching proxy probe to ${ip}:3128 (bind=$dsHostIp) failed: $($_.Exception.Message)"
+                Write-Verbose "caching proxy probe to ${ip}:3128 (bind=$bindIp) failed: $($_.Exception.Message)"
             } finally {
                 $tcp.Close()
             }

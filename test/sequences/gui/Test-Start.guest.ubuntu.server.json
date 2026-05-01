@@ -38,7 +38,7 @@
     },
     {
       "action": "waitForAndEnter",
-      "pattern": ["Current password", "urrent password"],
+      "pattern": ["Current password", "urrent password:"],
       "timeoutSeconds": 60,
       "pollSeconds": 6,
       "text": "${password}",
@@ -47,7 +47,7 @@
     },
     {
       "action": "waitForAndEnter",
-      "pattern": "New password",
+      "pattern": ["New password", "ew password:"],
       "timeoutSeconds": 60,
       "pollSeconds": 6,
       "text": "${newPassword}",
@@ -56,7 +56,7 @@
     },
     {
       "action": "waitForAndEnter",
-      "pattern": "Retype new password",
+      "pattern": ["Retype new password", "etype new password:"],
       "timeoutSeconds": 60,
       "pollSeconds": 6,
       "text": "${newPassword}",

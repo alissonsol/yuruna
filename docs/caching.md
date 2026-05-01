@@ -225,12 +225,14 @@ pwsh ./New-VM.ps1
 
 ## Monitoring
 
-The VM runs three services alongside squid:
+The VM runs these services alongside squid:
 
 | Service         | Port | Binding                  | Purpose |
 |-----------------|------|--------------------------|---------|
 | Grafana OSS     | 3000 | 0.0.0.0                  | Primary dashboard UI; anonymous Viewer. |
 | Prometheus      | 9090 | 127.0.0.1                | Metrics datastore. |
+| Loki            | 3100 | 127.0.0.1                | Log datastore — backs the access-log panel. |
+| Promtail        | 9080 | 127.0.0.1                | Tails `/var/log/squid/access.log` into Loki. |
 | squid-exporter  | 9301 | 127.0.0.1                | Reads squid cachemgr over `:3128`. |
 | cachemgr.cgi    | 80   | 0.0.0.0, RFC1918         | Raw cachemgr UI fallback. |
 | CA cert         | 80   | 0.0.0.0                  | `/yuruna-squid-ca.crt` via Apache. |
@@ -245,6 +247,12 @@ Viewer (no login). Pre-provisioned "Squid Cache (yuruna)" dashboard:
 - Data served (kB/s) — `Total`:
   `rate(squid_client_http_kbytes_out_kbytes_total[5m])`,
   `Cached`: `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`.
+- Last 100 requests (client IP / status / URL) — Loki logs panel,
+  parses `/var/log/squid/access.log` at query time with
+  `{job="squid"} | regexp ... | line_format ...`. Empty until Promtail
+  has shipped at least one line; takes a few seconds after first guest
+  fetch. Cardinality stays bounded because client IP and URL are kept
+  out of Loki labels — only `job=squid` is a stream.
 
 No HTTPS-specific client counter — squid's `client_http.*` counters
 aggregate HTTP + HTTPS (CONNECT + ssl-bump), hence "HTTP(S)".
@@ -256,12 +264,21 @@ Cached as `..._hit_kbytes_out_kbytes_total` is the fast-path mistake;
 that series doesn't exist.
 
 Edit dashboards with `admin`/`admin` (default; unrotated because the VM
-is on the private switch). Datasource UID: `yuruna-prometheus`. Grafana
-is the self-hosted OSS build from `apt.grafana.com stable main`.
+is on the private switch). Datasource UIDs: `yuruna-prometheus`,
+`yuruna-loki`. Grafana is the self-hosted OSS build from
+`apt.grafana.com stable main`.
 
 **Prometheus** is loopback-only. SSH in then
 `curl 'http://127.0.0.1:9090/api/v1/query?query=up'`, or use Grafana's
 Explore view. Scrape config polls `:9090` and `:9301` every 15 s.
+
+**Loki + Promtail** — also loopback-only, same `apt.grafana.com` repo.
+Promtail tails `/var/log/squid/access.log` and ships every line to Loki
+on `127.0.0.1:3100`; the only stream label is `job=squid` (client IP
+and URL are kept out of labels to avoid cardinality blow-up). Retention
+capped at 7d via Loki's compactor. Verify ingestion with
+`curl -G 'http://127.0.0.1:3100/loki/api/v1/query_range' --data-urlencode 'query={job="squid"}' --data-urlencode 'limit=5'`
+or use Grafana Explore against the Loki datasource.
 
 **squid-exporter** — [boynux/squid-exporter](https://github.com/boynux/squid-exporter)
 service, speaks squid's cache-manager protocol on `localhost:3128`.

@@ -51,8 +51,16 @@ packages:
   # and no stable GitHub release-asset URL, so golang-go is pulled in just
   # long enough to `go install` it; both build tools are purged at the end
   # of runcmd (~400 MB reclaimed). The compiled binary stays.
+  #
+  # loki + promtail back the "Last 100 requests" Grafana panel — Prometheus
+  # only stores aggregates, so per-request client IP / target URL are not
+  # available there. Promtail tails /var/log/squid/access.log and ships to
+  # Loki on localhost:3100. Both come from apt.grafana.com (same repo as
+  # grafana) — no extra source needed.
   - prometheus
   - grafana
+  - loki
+  - promtail
   - golang-go
   # Network debugging tools for interactive triage via console/SSH.
   # Noble's server cloud image ships `ip` but not `ifconfig` or `ping`;
@@ -274,6 +282,86 @@ write_files:
         - job_name: squid
           static_configs:
             - targets: ['localhost:9301']
+  # --- Loki: log datastore for the access-log panel. Loopback-only;
+  # Grafana scrapes via localhost. Single-binary monolithic config with
+  # filesystem TSDB — no object store, no extra services. Retention capped
+  # at 7d (compactor enabled) so /var/lib/loki doesn't grow unbounded for
+  # what's effectively a "last 100 requests" UX.
+  #
+  # Pre-written via write_files; the loki deb's postinst respects
+  # cloud-init's --force-confold and keeps this file. Without explicit
+  # http_listen_address the deb default is 0.0.0.0 — same exposure issue
+  # as Prometheus, fixed the same way.
+  - path: /etc/loki/config.yml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      auth_enabled: false
+      server:
+        http_listen_address: 127.0.0.1
+        http_listen_port: 3100
+        grpc_listen_address: 127.0.0.1
+        grpc_listen_port: 9096
+      common:
+        instance_addr: 127.0.0.1
+        path_prefix: /var/lib/loki
+        storage:
+          filesystem:
+            chunks_directory: /var/lib/loki/chunks
+            rules_directory: /var/lib/loki/rules
+        replication_factor: 1
+        ring:
+          kvstore:
+            store: inmemory
+      schema_config:
+        configs:
+          - from: 2024-01-01
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+      limits_config:
+        retention_period: 168h
+      compactor:
+        working_directory: /var/lib/loki/compactor
+        retention_enabled: true
+        delete_request_store: filesystem
+  # --- Promtail: tails /var/log/squid/access.log and ships each line to
+  # Loki. Only the timestamp is parsed in promtail — keeps client IP and
+  # URL out of Loki labels (high cardinality = stream explosion). The
+  # Grafana panel re-parses with `regexp` at query time.
+  #
+  # positions.yaml on disk (not /tmp default) so reboots don't re-tail
+  # the entire access.log. /var/lib/promtail is created in runcmd because
+  # the deb postinst doesn't always.
+  - path: /etc/promtail/config.yml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      server:
+        http_listen_address: 127.0.0.1
+        http_listen_port: 9080
+        grpc_listen_port: 0
+      positions:
+        filename: /var/lib/promtail/positions.yaml
+      clients:
+        - url: http://127.0.0.1:3100/loki/api/v1/push
+      scrape_configs:
+        - job_name: squid
+          static_configs:
+            - targets:
+                - localhost
+              labels:
+                job: squid
+                __path__: /var/log/squid/access.log
+          pipeline_stages:
+            - regex:
+                expression: '^(?P<ts>\d+\.\d+)\s+\d+\s+'
+            - timestamp:
+                source: ts
+                format: Unix
   # --- squid-exporter systemd unit. Binary installed via `go install` in
   # runcmd; starts on boot after network + squid. Loopback-bound —
   # Prometheus (same VM) is the only consumer.
@@ -305,8 +393,8 @@ write_files:
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-  # --- Grafana datasource. UID pinned so the dashboard below can
-  # reference Prometheus without knowing Grafana's auto-generated UID.
+  # --- Grafana datasources. UIDs pinned so the dashboard below can
+  # reference each by stable name without knowing Grafana's auto-UID.
   - path: /etc/grafana/provisioning/datasources/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -319,6 +407,12 @@ write_files:
           access: proxy
           url: http://localhost:9090
           isDefault: true
+          editable: false
+        - name: Loki
+          uid: yuruna-loki
+          type: loki
+          access: proxy
+          url: http://localhost:3100
           editable: false
   # --- Grafana dashboard provider: scan /var/lib/grafana/dashboards for
   # JSON and import. updateIntervalSeconds keeps them in sync with
@@ -407,6 +501,30 @@ write_files:
             "targets": [
               {"expr": "rate(squid_client_http_kbytes_out_kbytes_total[5m])",     "refId": "A", "legendFormat": "Total"},
               {"expr": "rate(squid_client_http_hit_kbytes_out_bytes_total[5m])", "refId": "B", "legendFormat": "Cached"}
+            ]
+          },
+          {
+            "id": 7,
+            "type": "logs",
+            "title": "Last 100 requests (client IP / status / URL)",
+            "datasource": {"type": "loki", "uid": "yuruna-loki"},
+            "gridPos": {"x": 0, "y": 20, "w": 24, "h": 12},
+            "options": {
+              "showTime": true,
+              "showLabels": false,
+              "showCommonLabels": false,
+              "wrapLogMessage": false,
+              "prettifyLogMessage": false,
+              "enableLogDetails": true,
+              "dedupStrategy": "none",
+              "sortOrder": "Descending"
+            },
+            "targets": [
+              {
+                "expr": "{job=\"squid\"} | regexp `^\\S+\\s+\\S+\\s+(?P<client_ip>\\S+)\\s+(?P<status>\\S+)\\s+\\S+\\s+\\S+\\s+(?P<url>\\S+)` | line_format `{{.client_ip}}  {{.status}}  {{.url}}`",
+                "refId": "A",
+                "maxLines": 100
+              }
             ]
           }
         ]
@@ -629,11 +747,27 @@ runcmd:
       systemctl --no-pager -l status grafana-server.service || true
       journalctl --no-pager -u grafana-server.service -n 80 || true
     fi
+  # --- Loki + Promtail. Promtail runs as the `promtail` user and must
+  # read /var/log/squid/access.log (proxy:proxy 640) — group membership
+  # in `proxy` is the cleanest grant. Without the restart after usermod,
+  # promtail keeps the old group set from package-install start and logs
+  # "permission denied" on every poll — Grafana panel stays empty.
+  #
+  # `install -d` is defensive: the promtail deb's postinst usually
+  # creates /var/lib/promtail with the right ownership, but on a
+  # truncated install it can be missing — and our config points
+  # positions.yaml there.
+  - install -d -o promtail -g promtail -m 0755 /var/lib/promtail
+  - usermod -a -G proxy promtail
+  - systemctl enable --now loki.service
+  - systemctl enable --now promtail.service
+  - systemctl restart promtail.service
   - |
     vm_ip=$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -1)
     echo "=== YURUNA monitoring ==="
     echo "  Grafana:    http://${vm_ip}:3000 (anonymous Viewer — no login required)"
     echo "  Prometheus: http://127.0.0.1:9090 (loopback only — scrape via Grafana)"
+    echo "  Loki:       http://127.0.0.1:3100 (loopback only — scrape via Grafana)"
     echo "  cachemgr:   http://${vm_ip}/cgi-bin/cachemgr.cgi (raw cachemgr fallback)"
     echo "  CA cert:    http://${vm_ip}/yuruna-squid-ca.crt (trust to enable :3129 HTTPS caching)"
   # Single-quoted: the bare `: ` after "ready" makes YAML parse the

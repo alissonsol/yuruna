@@ -29,14 +29,24 @@ resolve_base_url() {
             # --no-proxy: the host status server lives on a Hyper-V
             # Default Switch / VZ shared NAT IP. If anything (subiquity
             # leakage, /etc/wgetrc, the harness itself on the host)
-            # left http_proxy pointing at the squid-cache, the spider
+            # left http_proxy pointing at the squid-cache, the probe
             # rewrites to that proxy — which is meant for external
             # mirrors and cannot route to the host's internal IP — and
             # times out. We then silently fall through to GitHub even
             # though the host server is right there. NO_PROXY won't
             # save us: this is a private 172.x address that any custom
             # NO_PROXY list might omit.
-            if wget -q --spider --no-proxy --timeout=2 \
+            #
+            # GET (not --spider): wget --spider issues HEAD, and the
+            # host's HttpListener-backed status server RSTs HEAD on
+            # endpoints that declare Content-Length and write a body
+            # (HTTP.sys closes the connection rather than truncating
+            # the body). The /livecheck body is 87 bytes — discarding
+            # to /dev/null is cheap. Server-side fix shipped alongside
+            # this change; the client probe stays GET-based defensively
+            # so future HEAD-RST regressions in any handler don't
+            # silently push every guest back to GitHub.
+            if wget -q --no-proxy --timeout=2 -O /dev/null \
                 "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck" 2>/dev/null; then
                 echo "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-repo/"
                 return
@@ -55,7 +65,7 @@ resolve_base_url() {
             >&2 echo "!! HOST UNREACHABLE"
             >&2 echo "!!   url:     http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck"
             >&2 echo "!!   source:  /etc/yuruna/host.env (provisioned at New-VM time)"
-            >&2 echo "!!   probe:   wget --spider --no-proxy --timeout=2 → no response"
+            >&2 echo "!!   probe:   wget --no-proxy --timeout=2 -O /dev/null → no response"
             >&2 echo "!!   action:  falling back to GitHub for this fetch"
             >&2 echo "!!   common:  host Wi-Fi roamed to a different SSID/subnet, or"
             >&2 echo "!!            host status server is down, or host firewall changed."

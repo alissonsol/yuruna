@@ -721,7 +721,14 @@ try {
                 } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                # HEAD: advertise Content-Length but send no body.
+                # HTTP.sys RSTs the connection when user code writes
+                # bytes for a HEAD response, which made wget --spider
+                # probes from automation/fetch-and-execute.sh fail and
+                # silently fall back to GitHub for every fetch.
+                if (`$req.HttpMethod -ne 'HEAD') {
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                }
                 `$res.OutputStream.Close()
                 continue
             }

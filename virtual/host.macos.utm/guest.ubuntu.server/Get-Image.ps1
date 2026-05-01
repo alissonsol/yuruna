@@ -160,10 +160,13 @@ function Write-ProxyEnvDiagnostic {
 # Stable arm64 server ISOs share the Desktop arm64 release directory at
 # cdimage.ubuntu.com (releases.ubuntu.com is amd64-only). Filename pattern
 # differs: `-live-server-arm64` vs `-desktop-arm64`. Server dailies live
-# under ubuntu-server/daily-live/ — a different path from desktop dailies.
+# under ubuntu-server/<codename>/daily-live/ — different from desktop dailies,
+# AND must include the codename: ubuntu-server/daily-live/ is rolling and now
+# serves the next codename (e.g. resolute-live-server-arm64.iso), so a request
+# for noble-live-server-arm64.iso there 404s.
 $stableReleaseUrl = 'https://cdimage.ubuntu.com/releases/noble/release'
 $stablePattern    = 'ubuntu-[\d.]+-live-server-arm64\.iso'
-$dailyBaseUrl     = 'https://cdimage.ubuntu.com/ubuntu-server/daily-live/current'
+$dailyBaseUrl     = 'https://cdimage.ubuntu.com/ubuntu-server/noble/daily-live/current'
 $dailyIsoFileName = 'noble-live-server-arm64.iso'
 
 if ($daily) {

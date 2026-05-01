@@ -169,6 +169,28 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- System: disable MOTD ---
     - chmod -x /target/etc/update-motd.d/*
     - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
+    # --- Console: order getty after cloud-final to prevent login race ---
+    # cloud-init's "running 'modules: final'" / "finished" lifecycle
+    # banners reach the console via /dev/kmsg (kernel-style
+    # `[ 44.688245] cloud-init[1065]:` timestamps), unconditionally —
+    # there is no cloud-config knob to silence them, unlike the
+    # cc_keys_to_console / cc_ssh_authkey_fingerprints pair muted via
+    # user-data above. On first boot those banners land AFTER getty
+    # has already drawn `login:`, so the operator's typed username
+    # and login(1)'s subsequent `Password:` prompt get split across
+    # the cloud-init dump and OCR cannot match `Password:`. Ordering
+    # getty@.service After=cloud-final.service holds the login prompt
+    # until cloud-init final is finished, so the console settles
+    # before login. Drop-in lives on the template (getty@.service.d/)
+    # so it covers tty1 plus any other getty instance the
+    # systemd-getty-generator spawns. After= is ordering only — if
+    # cloud-final ever fails to start, getty still comes up.
+    - mkdir -p /target/etc/systemd/system/getty@.service.d
+    - |
+      cat > /target/etc/systemd/system/getty@.service.d/override.conf << 'EOF'
+      [Unit]
+      After=cloud-final.service
+      EOF
     # --- Yuruna host coordinates: written for the dev iteration loop ---
     # New-VM.ps1 substitutes the placeholders below at provision time.
     # Guest scripts read /etc/yuruna/host.env to prefer the local status

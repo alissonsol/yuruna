@@ -162,11 +162,13 @@ function Write-ProxyEnvDiagnostic {
     }
 }
 
-# Server dailies live under ubuntu-server/daily-live/ — different path from
-# the desktop daily-live/ tree.
+# Server dailies live under ubuntu-server/<codename>/daily-live/. The
+# codename-less ubuntu-server/daily-live/ path is rolling and now serves the
+# next codename (e.g. resolute-live-server-amd64.iso), so requesting
+# noble-live-server-amd64.iso there 404s.
 $stableReleaseUrl = 'https://releases.ubuntu.com/noble'
 $stablePattern    = 'ubuntu-[\d.]+-live-server-amd64\.iso'
-$dailyBaseUrl     = 'https://cdimage.ubuntu.com/ubuntu-server/daily-live/current'
+$dailyBaseUrl     = 'https://cdimage.ubuntu.com/ubuntu-server/noble/daily-live/current'
 $dailyIsoFileName = 'noble-live-server-amd64.iso'
 
 if ($daily) {

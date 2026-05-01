@@ -235,14 +235,14 @@ The VM runs these services alongside squid:
 | Squid HTTPS     | 3129 | 0.0.0.0, RFC1918         | SSL-bump — caches HTTPS bodies. |
 
 **Grafana (primary UI)** — `http://<squid-cache-vm-ip>:3000`. Anonymous
-Viewer. Pre-provisioned "Squid Cache (yuruna)" dashboard:
+Viewer. Pre-provisioned "Yuruna Caching Proxy" dashboard:
 
 - Client HTTP(S) requests/sec — `rate(squid_client_http_requests_total[5m])`
 - Client HTTP(S) hits/sec — `rate(squid_client_http_hits_total[5m])`
 - Data served (kB/s) — Total:
   `rate(squid_client_http_kbytes_out_kbytes_total[5m])`,
   Cached: `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`.
-- Last 100 requests (client IP / hostname / status / size / URL) — Loki
+- Recent 100 requests (client IP / hostname / status / size / URL) — Loki
   logs panel parses `/var/log/squid/yuruna_access.log` at query time.
   Hostname uses `%>A` (PTR lookup, falls back to IP literal); size uses
   `%<st`. The custom `logformat yuruna` writes to a *separate* file —

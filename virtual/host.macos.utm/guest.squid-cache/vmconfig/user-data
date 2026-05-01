@@ -112,7 +112,7 @@ packages:
   # squid-exporter binary stays). Grafana's arm64 build is in the same
   # apt.grafana.com repo, so Hyper-V (amd64) and UTM (arm64) both resolve.
   #
-  # loki + promtail back the "Last 100 requests" Grafana panel — Prometheus
+  # loki + promtail back the "Recent 100 requests" Grafana panel — Prometheus
   # only stores aggregates, so per-request client IP / target URL are not
   # available there. Promtail tails /var/log/squid/access.log and ships to
   # Loki on localhost:3100. Both come from apt.grafana.com (same repo as
@@ -349,7 +349,7 @@ write_files:
       http_port 3138 require-proxy-header
       http_port 3139 require-proxy-header ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
 
-      # --- Custom access-log format for the Grafana "Last 100 requests"
+      # --- Custom access-log format for the Grafana "Recent 100 requests"
       # panel. %>a (client IP) + status + size + method + URL, with the
       # request User-Agent appended in literal double-quotes so the panel
       # can distinguish apt / curl / snap / Docker / Go traffic — far
@@ -579,7 +579,7 @@ write_files:
     content: |
       {
         "uid": "yuruna-squid",
-        "title": "Squid Cache (yuruna)",
+        "title": "Yuruna Caching Proxy",
         "schemaVersion": 39,
         "version": 1,
         "refresh": "30s",
@@ -646,7 +646,7 @@ write_files:
           {
             "id": 7,
             "type": "logs",
-            "title": "Last 100 requests (client IP / status / size / method / URL / User-Agent)",
+            "title": "Recent 100 requests (client IP / status / size / method / URL / User-Agent)",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 20, "w": 24, "h": 12},
             "options": {
@@ -926,7 +926,7 @@ runcmd:
   - |
     sleep 2
     if ! systemctl show -p SupplementaryGroups promtail.service | grep -q proxy; then
-      echo "=== YURUNA: promtail.service did not pick up SupplementaryGroups=proxy — Last 100 requests panel will stay empty ==="
+      echo "=== YURUNA: promtail.service did not pick up SupplementaryGroups=proxy — Recent 100 requests panel will stay empty ==="
       systemctl --no-pager -l status promtail.service || true
       journalctl --no-pager -u promtail.service -n 20 || true
     fi

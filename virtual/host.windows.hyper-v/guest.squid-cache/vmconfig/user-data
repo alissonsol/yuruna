@@ -362,6 +362,21 @@ write_files:
             - timestamp:
                 source: ts
                 format: Unix
+  # --- Promtail systemd drop-in: SupplementaryGroups=proxy so promtail
+  # can read /var/log/squid/access.log (proxy:proxy 640) without
+  # touching /etc/group via usermod. Declarative and survives package
+  # upgrades. We can't put `Group=proxy` because the promtail deb on
+  # Noble creates the user with primary group `nogroup` (its postinst
+  # runs `adduser --system --group promtail` expecting an existing
+  # `promtail` group; the group doesn't exist, adduser falls back to
+  # nogroup, so there is no `promtail` group anywhere on the system —
+  # don't reference one).
+  - path: /etc/systemd/system/promtail.service.d/yuruna.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Service]
+      SupplementaryGroups=proxy
   # --- squid-exporter systemd unit. Binary installed via `go install` in
   # runcmd; starts on boot after network + squid. Loopback-bound —
   # Prometheus (same VM) is the only consumer.
@@ -747,21 +762,33 @@ runcmd:
       systemctl --no-pager -l status grafana-server.service || true
       journalctl --no-pager -u grafana-server.service -n 80 || true
     fi
-  # --- Loki + Promtail. Promtail runs as the `promtail` user and must
-  # read /var/log/squid/access.log (proxy:proxy 640) — group membership
-  # in `proxy` is the cleanest grant. Without the restart after usermod,
-  # promtail keeps the old group set from package-install start and logs
-  # "permission denied" on every poll — Grafana panel stays empty.
+  # --- Loki + Promtail. The proxy group exists by now (squid-openssl
+  # was in `packages:`), so daemon-reload + restart picks up the
+  # SupplementaryGroups=proxy drop-in written above; promtail can then
+  # read /var/log/squid/access.log. Without the restart, promtail keeps
+  # running with the unit definition cached at deb-postinst time (when
+  # systemd may have started it before the proxy group existed) and
+  # logs "permission denied" on every poll — Grafana panel stays empty.
   #
-  # `install -d` is defensive: the promtail deb's postinst usually
-  # creates /var/lib/promtail with the right ownership, but on a
-  # truncated install it can be missing — and our config points
-  # positions.yaml there.
-  - install -d -o promtail -g promtail -m 0755 /var/lib/promtail
-  - usermod -a -G proxy promtail
+  # `install -d` (no -g, since there's no `promtail` group — see the
+  # drop-in comment) creates the positions-file dir; the deb's postinst
+  # doesn't always.
+  - install -d -o promtail -m 0755 /var/lib/promtail
+  - systemctl daemon-reload
   - systemctl enable --now loki.service
   - systemctl enable --now promtail.service
   - systemctl restart promtail.service
+  # Verify promtail picked up the drop-in. Log a clear breadcrumb to
+  # cloud-init-output.log if not — the Grafana panel emptiness is
+  # otherwise silent and only surfaces hours later when an operator
+  # notices "no data".
+  - |
+    sleep 2
+    if ! systemctl show -p SupplementaryGroups promtail.service | grep -q proxy; then
+      echo "=== YURUNA: promtail.service did not pick up SupplementaryGroups=proxy — Last 100 requests panel will stay empty ==="
+      systemctl --no-pager -l status promtail.service || true
+      journalctl --no-pager -u promtail.service -n 20 || true
+    fi
   - |
     vm_ip=$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -1)
     echo "=== YURUNA monitoring ==="

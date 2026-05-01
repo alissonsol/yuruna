@@ -181,6 +181,20 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
+# Skip-if-same-source guard. Test-DownloadAlreadyCurrent (VM.common.psm1)
+# returns $true only when $baseImageFile is on disk, the sentinel records
+# the same URL we just resolved, and a HEAD probe's Content-Length matches
+# the recorded byte count. The only way to force a re-download is to
+# delete or rename $baseImageFile.
+$baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "VM.common.psm1") -Force
+if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
+    $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
+    Write-Information $msg -InformationAction Continue
+    Write-Output $msg
+    exit 0
+}
+
 # === Retrieve and process the files ===
 $downloadFile = Join-Path $downloadDir "downloaded.iso"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
@@ -191,6 +205,7 @@ try {
     Write-Error "Download failed: $($_.Exception.Message)"
     exit 1
 }
+$downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
 # Verify download integrity using SHA256 checksum
 Write-Output "Verifying download integrity..."
@@ -222,8 +237,7 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
-$baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
-Set-Content -Path $baseImageOrigin -Value @($isoFileName, $sourceUrl)
-Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+Set-Content -Path $baseImageOrigin -Value @($isoFileName, $sourceUrl, "$downloadedSize")
+Write-Output "Recorded source filename, URL, and byte count to: $baseImageOrigin"
 
 Write-Output "Download complete: $baseImageFile"

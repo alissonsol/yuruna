@@ -426,6 +426,80 @@ function Get-GuestReachableHostIp {
     return $null
 }
 
+<#
+.SYNOPSIS
+    Returns $true when $BaseImageFile already matches what we'd
+    download from $SourceUrl, so the caller can skip the transfer.
+
+.DESCRIPTION
+    Three conditions, all required:
+      1. $BaseImageFile exists on disk.
+      2. $OriginFile (the sentinel a previous successful run wrote
+         next to $BaseImageFile) records the same $SourceUrl on its
+         second line AND a positive byte count on its third line.
+      3. A fresh HEAD probe of $SourceUrl returns a Content-Length
+         that exactly equals the recorded byte count.
+
+    Sentinels missing the third line (older script versions that
+    only wrote name + URL) fall through to $false so the caller
+    re-downloads — graceful upgrade with no "force" flag needed.
+
+    HEAD failure (offline, 4xx, no Content-Length, mirror redirect
+    that strips the header, etc.) returns $false too, so the caller
+    falls through to the regular download path rather than skipping
+    silently on a transient error.
+
+    Forcing a re-download is intentionally not a parameter here:
+    the operator deletes or renames $BaseImageFile (or $OriginFile),
+    which makes condition #1 or #2 fail. Keeping it filesystem-only
+    means there is exactly one way to override and it survives a
+    crashed/aborted prior run with no extra cleanup.
+
+.PARAMETER SourceUrl
+    URL the caller has resolved as the download target.
+
+.PARAMETER BaseImageFile
+    Final on-disk path of the image (e.g. *.iso, *.vhdx, *.raw).
+
+.PARAMETER OriginFile
+    Sentinel path — typically "$baseImageName.txt" next to
+    $BaseImageFile. Lines: [0] original filename, [1] source URL,
+    [2] byte count of the downloaded source.
+
+.OUTPUTS
+    [bool]
+#>
+function Test-DownloadAlreadyCurrent {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$SourceUrl,
+        [Parameter(Mandatory)][string]$BaseImageFile,
+        [Parameter(Mandatory)][string]$OriginFile
+    )
+    if (-not (Test-Path -LiteralPath $BaseImageFile)) { return $false }
+    if (-not (Test-Path -LiteralPath $OriginFile))    { return $false }
+
+    $lines = @(Get-Content -LiteralPath $OriginFile -ErrorAction SilentlyContinue)
+    if ($lines.Count -lt 3) { return $false }
+    if ($lines[1].Trim() -ne $SourceUrl) { return $false }
+    $previousSize = 0L
+    if (-not [int64]::TryParse($lines[2].Trim(), [ref]$previousSize)) { return $false }
+    if ($previousSize -le 0) { return $false }
+
+    try {
+        $head = Invoke-WebRequest -Uri $SourceUrl -Method Head -ErrorAction Stop
+    } catch {
+        Write-Verbose "HEAD probe of $SourceUrl failed: $($_.Exception.Message)"
+        return $false
+    }
+    $cl = $head.Headers['Content-Length']
+    if ($cl -is [System.Array]) { $cl = $cl[0] }
+    $expectedSize = 0L
+    if (-not [int64]::TryParse([string]$cl, [ref]$expectedSize)) { return $false }
+    return ($expectedSize -eq $previousSize)
+}
+
 function Assert-HyperVEnabled {
     <#
     .SYNOPSIS

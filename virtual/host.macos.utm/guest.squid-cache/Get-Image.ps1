@@ -34,6 +34,20 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.raw"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
+# Skip-if-same-source guard. Test-DownloadAlreadyCurrent (VM.common.psm1)
+# returns $true only when $baseImageFile is on disk, the sentinel records
+# the same URL we just resolved, and a HEAD probe's Content-Length matches
+# the recorded byte count. The only way to force a re-download is to
+# delete or rename $baseImageFile.
+$baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "VM.common.psm1") -Force
+if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
+    $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
+    Write-Information $msg -InformationAction Continue
+    Write-Output $msg
+    exit 0
+}
+
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceUrl to $downloadFile"
@@ -43,6 +57,10 @@ try {
     Write-Error "Download failed: $($_.Exception.Message)"
     exit 1
 }
+# Capture the HTTP-download size BEFORE qcow2→raw conversion; the
+# .raw at $baseImageFile is the converted+resized artifact, not the
+# bytes Test-DownloadAlreadyCurrent will compare against next run.
+$downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
 $fileSize = (Get-Item $downloadFile).Length
 if ($fileSize -lt 100MB) {
@@ -83,6 +101,10 @@ if (Test-Path $baseImageFile) {
     Write-Output "Previous image preserved as: $previousFile"
 }
 Move-Item -Path $convertedFile -Destination $baseImageFile
+
+$sourceFileName = [System.IO.Path]::GetFileName(([System.Uri]$sourceUrl).LocalPath)
+Set-Content -Path $baseImageOrigin -Value @($sourceFileName, $sourceUrl, "$downloadedSize")
+Write-Output "Recorded source filename, URL, and byte count to: $baseImageOrigin"
 
 # Only the raw is needed now.
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue

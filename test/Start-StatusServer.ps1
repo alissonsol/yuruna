@@ -487,13 +487,21 @@ try {
                     # restart. On macOS each port is independent (per-port pidfile),
                     # so excluding :80 does not affect the other ports.
                     # Windows: all ports in one list — netsh clears everything first.
-                    # 8022 -> VM 22 (SSH on non-standard host port) — included in EVERY
-                    # caller's list because Add-CachingProxyPortMap clears ALL Yuruna
-                    # netsh/firewall rules first; omitting it here would tear down the
-                    # operator's SSH forward each status-server restart.
-                    $squidPorts = if ($IsMacOS) { @(3128, 3129, 3000, 8022) } else { @(80, 3128, 3129, 3000, 8022) }
+                    # All squid-cache port mappings are repeated in EVERY caller's
+                    # list because Add-CachingProxyPortMap clears ALL Yuruna netsh /
+                    # pwsh-forwarder / firewall state first; omitting any here
+                    # would tear it down each status-server restart.
+                    #   8022 -> VM 22         : SSH on non-standard host port.
+                    #   3128 -> VM 3138 PROXY : squid HTTP w/ real client IP preserved.
+                    #   3129 -> VM 3139 PROXY : squid SSL-bump HTTPS w/ real client IP.
+                    # macOS skips :80 — see Start-CachingProxy.ps1, port 80 is
+                    # privileged-bind and Start-CachingProxy is the sole sudo owner.
+                    $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000) }
                     if ($vmIp) {
-                        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp -Port $squidPorts -PortRemap @{8022 = 22}
+                        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp `
+                                        -Port $squidPorts `
+                                        -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
+                                        -ProxyProtocolPort @(3128, 3129)
                         $mapOk = [bool]$mapResult
                     }
                     if ($mapOk) {

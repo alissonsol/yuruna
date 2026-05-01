@@ -349,10 +349,50 @@ ssh -p 8022 yuruna@<host-lan-ip>     # -> cache VM :22
 ```
 
 Port 8022 (not 22) on the host avoids colliding with the host's own
-sshd. The forward is managed the same way as :3128 / :3000 — netsh
+sshd. The forward is managed the same way as :80 / :3000 — netsh
 portproxy + Yuruna firewall rule on Windows, detached pwsh
 TcpListener on macOS — and re-applied by every caller of
 `Add-CachingProxyPortMap` (test runner, status server, repair script).
+
+### Real client IPs in the access log: PROXY protocol on :3128 / :3129
+
+Plain TCP forwarding (netsh portproxy on Windows, the macOS pwsh
+TcpListener) NATs the source IP — every connection that reaches squid
+through the host shows the host's NAT-side IP (e.g.
+`172.24.208.1 / Alius202605a.mshome.net` on Hyper-V Default Switch).
+That obscures *which* LAN client made each request.
+
+Squid's `require-proxy-header` http_port option (the Squid 6 / Noble
+spelling; older docs call it `accept-proxy-protocol`) parses a HAProxy
+PROXY v1 line — `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\n`
+prepended by the forwarder before the byte stream — and uses the
+supplied client IP for ACLs and the access log.
+
+The wiring:
+
+| Endpoint           | Host port | VM port | Forwarder                    | Notes                                  |
+|--------------------|-----------|---------|------------------------------|----------------------------------------|
+| Squid HTTP         | 3128      | **3138**| pwsh + PROXY v1              | `http_port 3138 require-proxy-header`  |
+| Squid SSL-bump     | 3129      | **3139**| pwsh + PROXY v1              | `http_port 3139 require-proxy-header ssl-bump ...` |
+| Apache CA cert     | 80        | 80      | netsh portproxy (Windows)    | source IP not relevant (static file)   |
+| Grafana            | 3000      | 3000    | netsh portproxy (Windows)    | source IP not relevant (dashboard UI)  |
+| SSH                | 8022      | 22      | netsh portproxy (Windows)    | sshd has its own client-IP logging     |
+
+Local guests on the Default Switch / Shared NAT still hit `:3128` and
+`:3129` directly (no PROXY header) — they get correct source IPs the
+old way (no NAT in the path). Only LAN traffic going through the host
+forwarder needs the PROXY-v1 detour.
+
+`proxy_protocol_access` allows PROXY headers from RFC1918 + loopback
+only — the host forwarder is on a private network and there's no
+threat model where untrusted PROXY senders matter, but the deny-by-
+default posture costs nothing.
+
+Implementation: the `-PrependProxyV1` switch on
+[`virtual/host.macos.utm/Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
+(used cross-platform — pure PowerShell), wired through
+[`test/modules/Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1)'s
+`-ProxyProtocolPort` parameter on `Add-CachingProxyPortMap`.
 
 Both paths exist because the VM is most often debugged before cloud-init
 finishes. The password is not a secret: the VM is reachable only on the

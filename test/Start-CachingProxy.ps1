@@ -256,7 +256,7 @@ if ($IsMacOS) {
     # tears them all down symmetrically via Stop-AllCachingProxyForwarder.
     if ($cacheIp) {
         Write-Output ""
-        Write-Output "=== Step 6: host-side forwarders (80 CA + 3128 proxy + 3129 ssl-bump + 3000 Grafana + 8022->22 SSH) ==="
+        Write-Output "=== Step 6: host-side forwarders (80 CA + 3128->3138 proxy [PROXY v1] + 3129->3139 ssl-bump [PROXY v1] + 3000 Grafana + 8022->22 SSH) ==="
         # Unified cross-platform API (test/modules/Test.PortMap.psm1). On
         # macOS it dispatches to virtual/host.macos.utm/VM.common.psm1's
         # Start-CachingProxyForwarder primitives. Callers here don't need to know
@@ -282,9 +282,16 @@ if ($IsMacOS) {
             }
         }
         # 8022 -> VM 22: SSH forward on a non-standard host port so the
-        # mapping doesn't collide with the host's own sshd. Lets remote
-        # operators reach the cache VM at `ssh -p 8022 yuruna@<host-ip>`.
-        [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000, 8022) -PortRemap @{8022 = 22})
+        # mapping doesn't collide with the host's own sshd.
+        # 3128 -> VM 3138 / 3129 -> VM 3139 (PROXY v1): the userspace
+        # forwarder writes a HAProxy PROXY v1 header so squid sees the
+        # real LAN client IP/port instead of the host's NAT-side IP. The
+        # 3138/3139 ports on the VM are configured with
+        # `accept-proxy-protocol` in /etc/squid/conf.d/yuruna.conf.
+        [void](Add-CachingProxyPortMap -VMIp $cacheIp `
+                -Port @(80, 3000) `
+                -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
+                -ProxyProtocolPort @(3128, 3129))
 
         # Persist the cache VM IP so guest provisioners (guest.ubuntu.*
         # New-VM.ps1) can fetch the squid-cache CA cert from the host
@@ -322,10 +329,16 @@ if ($IsMacOS) {
     if ($cacheIp) {
         $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
         Import-Module $portMapMod -Force
-        # 8022 -> VM 22: SSH forward on a non-standard host port so the
-        # mapping doesn't collide with the host's own sshd. Lets remote
-        # operators reach the cache VM at `ssh -p 8022 yuruna@<host-ip>`.
-        [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000, 8022) -PortRemap @{8022 = 22})
+        # See macOS branch above for the rationale on each port:
+        #   8022 -> VM 22         : SSH on non-standard host port.
+        #   3128 -> VM 3138 PROXY : squid HTTP, real client IP preserved.
+        #   3129 -> VM 3139 PROXY : squid SSL-bump HTTPS, real client IP.
+        # 80 (CA cert) and 3000 (Grafana) stay on netsh portproxy — PROXY
+        # protocol is meaningless for those endpoints and netsh is faster.
+        [void](Add-CachingProxyPortMap -VMIp $cacheIp `
+                -Port @(80, 3000) `
+                -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
+                -ProxyProtocolPort @(3128, 3129))
     }
 }
 

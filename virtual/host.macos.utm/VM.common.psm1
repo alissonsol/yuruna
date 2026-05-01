@@ -110,7 +110,8 @@ function Start-CachingProxyForwarder {
     param(
         [Parameter(Mandatory)][string]$CacheIp,
         [int]$Port = 3128,
-        [int]$VMPort = 0
+        [int]$VMPort = 0,
+        [switch]$PrependProxyV1
     )
     # 0 sentinel — when unspecified, host port == VM port (the common case;
     # proxy/Grafana/etc.). Split ports kick in for SSH (8022 -> 22) and any
@@ -139,7 +140,8 @@ function Start-CachingProxyForwarder {
     # stay up untouched.
     [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
 
-    Write-Output "  Launching host-side forwarder: 0.0.0.0:${Port} → ${CacheIp}:${VMPort}"
+    $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
+    Write-Output "  Launching host-side forwarder: 0.0.0.0:${Port} → ${CacheIp}:${VMPort}${proxyTag}"
     # RedirectStandard* is required: without them pwsh inherits the
     # parent TTY and dies when Start-CachingProxy.ps1 exits. The
     # forwarder's own log gets live traffic; stdout/stderr go to files.
@@ -151,6 +153,7 @@ function Start-CachingProxyForwarder {
         '-PidFile', $pidFile,
         '-LogFile', $logFile
     )
+    if ($PrependProxyV1) { $procArgs += '-PrependProxyV1' }
     # Ports below 1024 need root on macOS. Spawn via `sudo -E pwsh` when not
     # already root; the caller pre-caches credentials via `sudo -v` so the
     # detached subprocess can bind the port without an interactive tty prompt.

@@ -97,9 +97,201 @@ function Remove-SinglePortMap {
     # Out-Null so the noise doesn't reach the caller's console.
     & netsh interface portproxy delete v4tov4 listenport=$Port listenaddress=0.0.0.0 2>&1 | Out-Null
 
+    # Also kill any pwsh forwarder pidfile for this port (used when the
+    # port is in -ProxyProtocolPort, which bypasses netsh portproxy in
+    # favor of a userspace forwarder that prepends a PROXY v1 header).
+    Stop-WindowsCachingProxyForwarder -Port $Port -Quiet
+
     $ruleName = "${script:FirewallRulePrefix}${Port}"
     Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
         Remove-NetFirewallRule -ErrorAction SilentlyContinue
+}
+
+<#
+.SYNOPSIS
+    Cross-platform path to the userspace TCP forwarder script.
+.DESCRIPTION
+    Forwarder script lives under virtual/host.macos.utm/ for historical
+    reasons — it was first written for macOS where netsh portproxy isn't
+    available. The script itself is pure PowerShell (TcpListener +
+    runspace pool) so it runs anywhere pwsh runs; both the macOS
+    Start-CachingProxyForwarder primitive (VM.common.psm1) and the
+    Windows-side launcher below reference it from this single location.
+#>
+function Get-CachingProxyForwarderScriptPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    return (Join-Path $repoRoot 'virtual/host.macos.utm/Start-CachingProxyForwarder.ps1')
+}
+
+<#
+.SYNOPSIS
+    Pidfile path for a Windows-side userspace forwarder on a given host port.
+.DESCRIPTION
+    Mirrors the macOS layout under $HOME/virtual/squid-cache/ so a single
+    glob (`forwarder.*.pid`) finds every live forwarder regardless of OS.
+    PowerShell's $HOME resolves to $env:USERPROFILE on Windows.
+#>
+function Get-WindowsForwarderPidPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][int]$Port)
+    $stateDir = Join-Path $HOME 'virtual\squid-cache'
+    return (Join-Path $stateDir "forwarder.$Port.pid")
+}
+
+<#
+.SYNOPSIS
+    Stop a Windows pwsh-based forwarder for a given host port.
+.DESCRIPTION
+    Reads the pidfile, verifies the process is actually pwsh.exe before
+    signalling, and removes the pidfile. Sister of the macOS
+    Stop-CachingProxyForwarder in VM.common.psm1; kept here so Test.PortMap
+    can manage Windows lifecycle without dragging in the macOS module.
+#>
+function Stop-WindowsCachingProxyForwarder {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][int]$Port, [switch]$Quiet)
+    if (-not $IsWindows) { return $true }
+    $pidFile = Get-WindowsForwarderPidPath -Port $Port
+    if (-not (Test-Path $pidFile)) { return $true }
+    $forwarderPid = (Get-Content $pidFile -Raw -ErrorAction SilentlyContinue).Trim()
+    if (-not ($forwarderPid -as [int])) {
+        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+        return $true
+    }
+    $proc = Get-Process -Id ([int]$forwarderPid) -ErrorAction SilentlyContinue
+    if ($proc) {
+        # Sanity-check before killing: the pid must look like a pwsh/powershell
+        # process so we never terminate a user shell that happened to recycle
+        # the pid number after a previous forwarder exited.
+        if ($proc.ProcessName -match '^(pwsh|powershell)$') {
+            if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid, port :${Port})..." }
+            Stop-Process -Id ([int]$forwarderPid) -Force -ErrorAction SilentlyContinue
+        } elseif (-not $Quiet) {
+            Write-Warning "Pid $forwarderPid is not pwsh/powershell (is: $($proc.ProcessName)) — leaving alone, removing stale pidfile."
+        }
+    }
+    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Launch a detached pwsh forwarder on the host (Windows-side primitive).
+.DESCRIPTION
+    Cross-platform Test.PortMap dispatch: when -ProxyProtocolPort is set,
+    the Windows branch of Add-CachingProxyPortMap calls this instead of
+    netsh portproxy. The forwarder binds host:<Port>, dials cache:<VMPort>,
+    optionally writes a PROXY v1 header, and shuttles bytes — preserving
+    the real client IP so squid (with `accept-proxy-protocol`) logs the
+    LAN client rather than the host's NAT-side IP.
+#>
+function Start-WindowsCachingProxyForwarder {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$VMPort = 0,
+        [switch]$PrependProxyV1
+    )
+    if (-not $IsWindows) { Write-Warning "Start-WindowsCachingProxyForwarder called on non-Windows host — no-op."; return $false }
+    if ($VMPort -eq 0) { $VMPort = $Port }
+
+    $forwarderScript = Get-CachingProxyForwarderScriptPath
+    if (-not (Test-Path $forwarderScript)) {
+        Write-Warning "Forwarder script not found: $forwarderScript"
+        return $false
+    }
+
+    $stateDir = Join-Path $HOME 'virtual\squid-cache'
+    if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
+    $pidFile = Get-WindowsForwarderPidPath -Port $Port
+    $logFile = Join-Path $stateDir "forwarder.$Port.log"
+    $stdoutLog = Join-Path $stateDir "forwarder.$Port.stdout.log"
+    $stderrLog = Join-Path $stateDir "forwarder.$Port.stderr.log"
+
+    # Tear down any stale forwarder for THIS port before spawning. Other
+    # ports' forwarders are untouched (per-port pidfile = independent
+    # lifecycle, same pattern as the macOS branch).
+    Stop-WindowsCachingProxyForwarder -Port $Port -Quiet
+
+    $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
+    $action   = "0.0.0.0:${Port} -> ${CacheIp}:${VMPort}${proxyTag}"
+    if (-not $PSCmdlet.ShouldProcess($action, 'Launch detached pwsh TCP forwarder')) { return $false }
+    Write-Output "  Launching userspace forwarder: ${action}"
+
+    $procArgs = @(
+        '-NoProfile','-NoLogo','-File', $forwarderScript,
+        '-CacheIp', $CacheIp,
+        '-Port', $Port,
+        '-VMPort', $VMPort,
+        '-PidFile', $pidFile,
+        '-LogFile', $logFile
+    )
+    if ($PrependProxyV1) { $procArgs += '-PrependProxyV1' }
+
+    try {
+        $proc = Start-Process -FilePath 'pwsh' `
+            -ArgumentList $procArgs `
+            -RedirectStandardOutput $stdoutLog `
+            -RedirectStandardError  $stderrLog `
+            -WindowStyle Hidden `
+            -PassThru
+    } catch {
+        Write-Warning "Failed to spawn forwarder: $($_.Exception.Message)"
+        return $false
+    }
+
+    # Confirm the listener bound. 3s budget covers pwsh startup +
+    # TcpListener.Start(); typically sub-second. A bind failure (port in
+    # use, missing privileges) leaves the child dead and the connect
+    # below times out — surface that to the caller rather than silently
+    # claiming success.
+    $deadline = (Get-Date).AddSeconds(3)
+    while ((Get-Date) -lt $deadline) {
+        $tcp = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $h = $tcp.BeginConnect('127.0.0.1', $Port, $null, $null)
+            if ($h.AsyncWaitHandle.WaitOne(150) -and $tcp.Connected) {
+                $tcp.Close()
+                $actualPid = if (Test-Path $pidFile) { (Get-Content $pidFile -Raw).Trim() } else { $proc.Id }
+                Write-Output "  Forwarder up (pid $actualPid): ${action}"
+                return $true
+            }
+        } catch { $null = $_ } finally { $tcp.Close() }
+        Start-Sleep -Milliseconds 100
+    }
+    Write-Warning "Forwarder launched (pid $($proc.Id)) but :${Port} did not answer within 3s — see $stderrLog."
+    return $false
+}
+
+<#
+.SYNOPSIS
+    Enumerate Windows ports that have a live pwsh forwarder pidfile.
+.DESCRIPTION
+    Sister of Get-YurunaMappedPortFromFirewall: clears stale state on a
+    fresh elevated run even if the JSON state file is missing. Returns
+    host ports for which `$HOME/virtual/squid-cache/forwarder.<port>.pid`
+    exists and is parseable as an int. Caller verifies the pid is alive.
+#>
+function Get-WindowsForwarderPidPort {
+    [CmdletBinding()]
+    [OutputType([int[]], [System.Object[]])]
+    param()
+    if (-not $IsWindows) { return @() }
+    $stateDir = Join-Path $HOME 'virtual\squid-cache'
+    if (-not (Test-Path $stateDir)) { return @() }
+    $ports = @()
+    Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            if ($_.BaseName -match '^forwarder\.(\d+)$') { $ports += [int]$matches[1] }
+        }
+    return ,$ports
 }
 
 <#
@@ -167,6 +359,12 @@ function Clear-AllCachingProxyPortMapping {
     }
 
     foreach ($p in (Get-YurunaMappedPortFromFirewall)) { $ports += $p }
+    # Also catch any pwsh forwarder pidfiles that survived a previous run —
+    # if the firewall rule was deleted manually but the forwarder process
+    # is still bound to its port, we want Stop-WindowsCachingProxyForwarder
+    # called on it during cleanup. (The firewall-rule scan misses this
+    # because the rule is already gone; the state file might too.)
+    foreach ($p in (Get-WindowsForwarderPidPort)) { $ports += $p }
 
     $unique = @($ports | Sort-Object -Unique)
     foreach ($p in $unique) {
@@ -202,6 +400,22 @@ function Clear-AllCachingProxyPortMapping {
     Keys and values are coerced to int. Pairs are merged with -Port into
     a single list; a host port appearing in both wins from -PortRemap.
 
+.PARAMETER ProxyProtocolPort
+    Host ports for which to use a userspace pwsh forwarder that prepends
+    a HAProxy PROXY v1 header — instead of netsh portproxy on Windows
+    (which would NAT the source IP and lose the real client). Squid's
+    `accept-proxy-protocol` http_port option must be set on the
+    corresponding VM-side port for this to work.
+
+    Typical usage for the squid-cache: -ProxyProtocolPort @(3128, 3129)
+    paired with -PortRemap @{3128 = 3138; 3129 = 3139} so host :3128
+    forwards to cache :3138 (which is configured in squid.conf with
+    accept-proxy-protocol). Other ports stay on netsh portproxy because
+    PROXY v1 is meaningless for them (SSH, Apache CA cert, Grafana).
+
+    On macOS, all ports already use the userspace forwarder; this list
+    just toggles -PrependProxyV1 on the same forwarder instance.
+
 .PARAMETER TrackDir
     Directory to write the state file to. Defaults to $env:YURUNA_TRACK_DIR.
 
@@ -215,8 +429,11 @@ function Add-CachingProxyPortMap {
         [Parameter(Mandatory)][string]$VMIp,
         [int[]]$Port = @(3000),
         [hashtable]$PortRemap = @{},
+        [int[]]$ProxyProtocolPort = @(),
         [string]$TrackDir
     )
+    $proxyProtoSet = @{}
+    foreach ($p in $ProxyProtocolPort) { $proxyProtoSet[[int]$p] = $true }
 
     if ($VMIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
         Write-Warning "Add-CachingProxyPortMap: VMIp '$VMIp' is not a valid IPv4 address — skipping."
@@ -261,8 +478,15 @@ function Add-CachingProxyPortMap {
         # credentials with `sudo -v` before reaching here.
         $launched = @()
         foreach ($m in $mappings) {
-            if (-not $PSCmdlet.ShouldProcess("0.0.0.0:$($m.HostPort) -> ${VMIp}:$($m.VMPort)", 'Launch macOS squid forwarder')) { continue }
-            if (Start-CachingProxyForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort) { $launched += $m.HostPort }
+            $useProxy = $proxyProtoSet.ContainsKey([int]$m.HostPort)
+            $proxyTag = if ($useProxy) { ' [PROXY v1]' } else { '' }
+            if (-not $PSCmdlet.ShouldProcess("0.0.0.0:$($m.HostPort) -> ${VMIp}:$($m.VMPort)${proxyTag}", 'Launch macOS squid forwarder')) { continue }
+            $started = if ($useProxy) {
+                Start-CachingProxyForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort -PrependProxyV1
+            } else {
+                Start-CachingProxyForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort
+            }
+            if ($started) { $launched += $m.HostPort }
         }
         if ($launched.Count -eq 0) { return $null }
         return "macos:forwarders=$($launched -join ',')"
@@ -296,45 +520,82 @@ function Add-CachingProxyPortMap {
 
     foreach ($m in $mappings) {
         $hostPort = $m.HostPort; $vmPort = $m.VMPort
-        if (-not $PSCmdlet.ShouldProcess("host:${hostPort} -> ${VMIp}:${vmPort}", 'Add port mapping')) { continue }
+        $useProxy = $proxyProtoSet.ContainsKey([int]$hostPort)
+        $proxyTag = if ($useProxy) { ' [PROXY v1]' } else { '' }
+        if (-not $PSCmdlet.ShouldProcess("host:${hostPort} -> ${VMIp}:${vmPort}${proxyTag}", 'Add port mapping')) { continue }
 
-        # Step 1 — remove any stale portproxy on this listenport. netsh won't
-        # overwrite an existing rule in place; `add` with the same listenport
-        # returns "The object already exists" and leaves the old mapping.
-        & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
+        if ($useProxy) {
+            # PROXY-protocol path: netsh portproxy NATs the source IP, so
+            # squid would log every connection as the host. Replace netsh
+            # for THIS port with a userspace pwsh forwarder that writes a
+            # HAProxy PROXY v1 header before the byte stream — squid (with
+            # accept-proxy-protocol on the VM-side port) parses it and
+            # restores the real client IP for ACLs and access.log.
+            #
+            # Tear down any prior netsh portproxy on this listenport first
+            # — if a previous run used netsh for this port, that mapping
+            # would race with the new pwsh listener for the bind.
+            & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
+            $ok = Start-WindowsCachingProxyForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
+            if (-not $ok) {
+                Write-Warning "Add-CachingProxyPortMap: pwsh forwarder failed for host ${hostPort} -> ${VMIp}:${vmPort} (PROXY v1)."
+                continue
+            }
+        } else {
+            # Step 1 — remove any stale portproxy on this listenport. netsh won't
+            # overwrite an existing rule in place; `add` with the same listenport
+            # returns "The object already exists" and leaves the old mapping.
+            # Also kill any prior pwsh forwarder for this port (e.g. switching
+            # away from PROXY-protocol mode for a port).
+            & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
+            Stop-WindowsCachingProxyForwarder -Port $hostPort -Quiet
 
-        # Step 2 — create the portproxy mapping.
-        & netsh interface portproxy add v4tov4 listenport=$hostPort listenaddress=0.0.0.0 connectport=$vmPort connectaddress=$VMIp | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Add-CachingProxyPortMap: netsh portproxy add failed for host ${hostPort} -> ${VMIp}:${vmPort} (exit $LASTEXITCODE)."
-            continue
+            # Step 2 — create the portproxy mapping.
+            & netsh interface portproxy add v4tov4 listenport=$hostPort listenaddress=0.0.0.0 connectport=$vmPort connectaddress=$VMIp | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Add-CachingProxyPortMap: netsh portproxy add failed for host ${hostPort} -> ${VMIp}:${vmPort} (exit $LASTEXITCODE)."
+                continue
+            }
         }
 
-        # Step 3 — open Windows Firewall. Delete-then-add keeps the rule
-        # idempotent (no duplicates across repeated cycle starts). Rule
-        # name uses HOST port (predictable, what netsh listens on).
+        # Step 3 — open Windows Firewall. Same rule applies regardless of
+        # whether the bind is netsh-managed or pwsh-managed; the firewall
+        # filters by destination port, not by who's listening on it.
+        # Delete-then-add keeps the rule idempotent (no duplicates across
+        # repeated cycle starts). Rule name uses HOST port (predictable,
+        # what's actually listening).
         $ruleName = "${script:FirewallRulePrefix}${hostPort}"
         Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
             Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        $desc = if ($useProxy) {
+            "Yuruna caching proxy: forward host :${hostPort} to VM :${vmPort} [PROXY v1]"
+        } else {
+            "Yuruna caching proxy: forward host :${hostPort} to VM :${vmPort}"
+        }
         New-NetFirewallRule -DisplayName $ruleName -Direction Inbound `
             -Protocol TCP -LocalPort $hostPort -Action Allow `
-            -Description "Yuruna caching proxy: forward host :${hostPort} to VM :${vmPort}" `
+            -Description $desc `
             -ErrorAction SilentlyContinue | Out-Null
 
-        Write-Output "  Port map added: host:${hostPort} -> ${VMIp}:${vmPort}"
+        Write-Output "  Port map added: host:${hostPort} -> ${VMIp}:${vmPort}${proxyTag}"
     }
 
     # State file: `ports` stays as host-port-only list for cleanup
     # (Clear-AllCachingProxyPortMapping reads it that way). `mappings` is
-    # the canonical record including VM ports — for diagnostics and to
-    # surface non-matching pairs (e.g. 8022->22) when an operator inspects
-    # the file. Old state files (pre-PortRemap, with `ports` only) still
-    # cleanup correctly because cleanup never needed VM ports.
+    # the canonical record including VM ports and per-port proxy-protocol
+    # flag — for diagnostics and to surface non-matching pairs (e.g.
+    # 8022->22) when an operator inspects the file. Old state files
+    # (pre-PortRemap, with `ports` only) still cleanup correctly because
+    # cleanup never needed VM ports.
     $state = [ordered]@{
         vmIp      = $VMIp
         ports     = @($mappings | ForEach-Object { $_.HostPort })
         mappings  = @($mappings | ForEach-Object {
-            [ordered]@{ hostPort = $_.HostPort; vmPort = $_.VMPort }
+            [ordered]@{
+                hostPort      = $_.HostPort
+                vmPort        = $_.VMPort
+                proxyProtocol = $proxyProtoSet.ContainsKey([int]$_.HostPort)
+            }
         })
         createdAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     }

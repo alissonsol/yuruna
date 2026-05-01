@@ -270,6 +270,42 @@ write_files:
       ssl_bump peek step1
       ssl_bump bump all
 
+      # --- PROXY-protocol-aware listeners for the host-side userspace
+      # forwarder. Without these, every connection that came through
+      # netsh portproxy (or the pwsh forwarder) appeared in access.log
+      # as the host's NAT-side IP because TCP forwarding rewrites the
+      # source. The Test.PortMap module launches a pwsh forwarder for
+      # host:3128/3129 that prepends a HAProxy PROXY v1 header; squid
+      # parses it on these ports and uses the supplied client IP for
+      # ACLs and access.log.
+      #
+      # NOTE: option name is `require-proxy-header` in Squid 6 (Noble),
+      # NOT `accept-proxy-protocol` (the squid 4 / older-docs name).
+      # Using the old name FATALs at parse:
+      #   "Unknown http_port option 'accept-proxy-protocol'"
+      # Same semantics either way — every connection on the port MUST
+      # start with a PROXY v1 (or v2) header.
+      #
+      # Separate ports (not the same 3128/3129) because require-proxy-header
+      # mandates a PROXY header — local Default-Switch guests that
+      # connect directly without one still hit 3128/3129.
+      #
+      # proxy_protocol_access controls which client IPs may send PROXY
+      # headers (i.e. which proxies are trusted to vouch for client IPs).
+      # Allow RFC1918 + loopback — the host forwarder lives on the
+      # 172.16/12 Default Switch (RFC1918); loopback covers on-VM
+      # diagnostics like `python3 -c 'socket... PROXY TCP4 ...'` against
+      # 127.0.0.1:3138 to spot-check the path without a real LAN client.
+      acl yuruna_proxy_senders src 10.0.0.0/8
+      acl yuruna_proxy_senders src 172.16.0.0/12
+      acl yuruna_proxy_senders src 192.168.0.0/16
+      acl yuruna_proxy_senders src 127.0.0.1/32
+      acl yuruna_proxy_senders src ::1/128
+      proxy_protocol_access allow yuruna_proxy_senders
+      proxy_protocol_access deny all
+      http_port 3138 require-proxy-header
+      http_port 3139 require-proxy-header ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
+
       # --- Custom access-log format for the Grafana "Last 100 requests"
       # panel. Adds %>A (client FQDN) between %>a (IP) and the status
       # token so the panel can render hostname when reverse DNS resolves.

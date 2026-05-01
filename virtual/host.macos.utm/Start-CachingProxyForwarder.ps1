@@ -18,23 +18,25 @@
 
 <#
 .SYNOPSIS
-    TCP forwarder that bridges the Mac host's :3128 to the squid-cache VM.
+    Cross-platform userspace TCP forwarder for the squid-cache VM.
 
 .DESCRIPTION
-    Apple Virtualization.framework's shared-NAT attachment (VZNATNetwork-
-    DeviceAttachment) isolates guest-to-guest traffic: guests on
-    192.168.64.0/24 reach the gateway (192.168.64.1 = the host) and the
-    internet but NOT each other (ARP between guests is not forwarded;
-    connect() to another guest fails with EHOSTUNREACH).
+    Originally written for macOS UTM (Apple Virtualization shared-NAT
+    isolates guest-to-guest traffic so guests can't reach a sibling VM
+    directly), this is now also used on Windows when source-IP
+    preservation matters — e.g. for squid:3128/3129 with PROXY protocol,
+    where netsh portproxy would lose the real client IP at the NAT hop.
+    Pure PowerShell (TcpListener + runspace pool per connection) — no
+    brew/socat/HAProxy dependency, runs anywhere pwsh runs.
 
-    Normally guests would point their apt proxy at the squid VM directly
-    (e.g. 192.168.64.3:3128). That works on Hyper-V's real vswitch but
-    not on macOS VZ. This forwarder binds :3128 on the host and tunnels
-    every connection to the squid VM, so guests use
-    http://192.168.64.1:3128 -- always reachable via the VZ gateway.
+    On macOS: typically launched detached by Start-CachingProxy.ps1 to
+    let UTM guests reach squid via http://192.168.64.1:3128.
 
-    Pure PowerShell (TcpListener + runspace pool per connection) so there
-    is no brew/socat dependency.
+    On Windows: launched by Test.PortMap.psm1's Add-CachingProxyPortMap
+    when -ProxyProtocolPort lists a port; -PrependProxyV1 then makes
+    the forwarder write a HAProxy PROXY v1 header before the byte
+    stream so squid (with `accept-proxy-protocol`) sees the real
+    client IP/port instead of the host's NAT-side IP.
 
     Typically launched detached by Start-CachingProxy.ps1 (via
     VM.common.psm1's Start-CachingProxyForwarder) and killed by
@@ -54,6 +56,22 @@
     when the host port differs from the VM port (e.g. 8022 on the host
     forwarding to 22 on the VM for SSH, to avoid colliding with the
     host's own sshd on :22).
+
+.PARAMETER PrependProxyV1
+    Send a HAProxy PROXY v1 header to upstream before the bidirectional
+    byte copy starts: `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\n`.
+    Squid with `accept-proxy-protocol` on the listening http_port reads
+    this first and uses the supplied client IP for ACLs and access.log.
+    Without this, when the forwarder runs on a NAT host, squid sees only
+    the host's NAT-side IP for every forwarded connection.
+
+    Only enable this against an upstream that explicitly speaks PROXY
+    protocol — sending the header to a vanilla TCP listener corrupts
+    the stream (squid without accept-proxy-protocol will reply with
+    400 Bad Request and close).
+
+    IPv6 clients fall back to `PROXY UNKNOWN\r\n` (squid still accepts
+    the connection, but no source IP is supplied).
 
 .PARAMETER BindAddress
     Interface to bind on. Default "0.0.0.0" (all interfaces) picks up
@@ -87,6 +105,7 @@ param(
     [Parameter(Mandatory)][string]$CacheIp,
     [int]$Port = 3128,
     [int]$VMPort = 0,
+    [switch]$PrependProxyV1,
     [string]$BindAddress = "0.0.0.0",
     [string]$PidFile,
     [string]$LogFile
@@ -139,15 +158,44 @@ $pool = [RunspaceFactory]::CreateRunspacePool(1, 64)
 $pool.Open()
 
 # Per-connection worker: accept client socket + upstream target, open
-# matching TcpClient, shuttle bytes both ways until either end closes.
+# matching TcpClient, optionally send a HAProxy PROXY v1 header so the
+# upstream sees the real client IP/port (otherwise it sees the
+# forwarder's source IP), then shuttle bytes both ways until either end
+# closes.
 $workerScript = {
-    param($client, $targetHost, $targetPort)
+    param($client, $targetHost, $targetPort, $sendProxyV1)
     $upstream = $null
     try {
         $upstream = [System.Net.Sockets.TcpClient]::new()
         $upstream.Connect($targetHost, $targetPort)
         $cs = $client.GetStream()
         $us = $upstream.GetStream()
+        # PROXY v1: text line, must be the FIRST bytes on the upstream
+        # connection (before any TLS handshake or HTTP request line).
+        # Format: `PROXY TCP4 <src_ip> <dst_ip> <src_port> <dst_port>\r\n`
+        # IPv6 clients fall back to `PROXY UNKNOWN\r\n` — squid still
+        # accepts but doesn't get a source-IP override.
+        if ($sendProxyV1) {
+            try {
+                $remote = $client.Client.RemoteEndPoint
+                $local  = $client.Client.LocalEndPoint
+                $fam = $remote.AddressFamily
+                $hdr = if ($fam -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                    "PROXY TCP4 $($remote.Address) $($local.Address) $($remote.Port) $($local.Port)`r`n"
+                } elseif ($fam -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6) {
+                    "PROXY TCP6 $($remote.Address) $($local.Address) $($remote.Port) $($local.Port)`r`n"
+                } else {
+                    "PROXY UNKNOWN`r`n"
+                }
+                $bytes = [System.Text.Encoding]::ASCII.GetBytes($hdr)
+                $us.Write($bytes, 0, $bytes.Length)
+                $us.Flush()
+            } catch {
+                # If the header write fails the upstream is unusable —
+                # let the catch below tear the pair down.
+                throw
+            }
+        }
         # WaitAny returns when either side of the bidirectional copy
         # finishes (EOF/reset/timeout); tear the pair down.
         $t1 = $cs.CopyToAsync($us)
@@ -171,7 +219,8 @@ try {
         [void]$ps.AddScript($workerScript).
                 AddArgument($client).
                 AddArgument($CacheIp).
-                AddArgument($VMPort)
+                AddArgument($VMPort).
+                AddArgument($PrependProxyV1.IsPresent)
         [void]$ps.BeginInvoke()
     }
 } finally {

@@ -20,20 +20,18 @@ nested virtualization. Required:
 
 ### Why QEMU instead of Apple Virtualization
 
-Previously this guest used Apple VZ. VZ renders the VM framebuffer directly
-into UTM's `NSWindow`, which forces the test harness into two constraints
-the Hyper-V path doesn't have: the UTM window must stay visible (screen
-capture via `screencapture -R` returns stale pixels when the window is
-occluded or on another Space) and must stay focused (AppleScript/CGEvent
-keystrokes go to whichever window is active). Under QEMU, `-vnc
-127.0.0.1:0` exposes the framebuffer and input over a local TCP socket
-that the harness drives directly (`test/extensions/Invoke-Sequence.psm1`
-speaks RFB). That mirrors the Hyper-V synthetic-video-channel /
-synthetic-keyboard model: the VM runs independently of any on-screen
-window, so the operator can work in other apps while the test cycles.
+This guest used Apple VZ before. VZ renders the framebuffer directly
+into UTM's `NSWindow`, which forces two constraints the Hyper-V path
+doesn't have: the UTM window must stay visible (`screencapture -R`
+returns stale pixels when occluded or on another Space) and focused
+(AppleScript/CGEvent keystrokes go to the active window). Under QEMU,
+`-vnc 127.0.0.1:0` exposes framebuffer and input over a local TCP
+socket; `test/extensions/Invoke-Sequence.psm1` drives it directly (RFB).
+That mirrors Hyper-V's synthetic-video / synthetic-keyboard model: the
+VM runs independently of any on-screen window.
 
-HVF is the Apple-provided hypervisor QEMU uses on macOS, so aarch64
-Linux still runs at near-native speed.
+HVF is Apple's hypervisor that QEMU uses on macOS, so aarch64 Linux
+still runs at near-native speed.
 
 ## 1) Get the image
 
@@ -50,18 +48,16 @@ Prerequisites: `brew install --cask utm`, `brew install powershell`,
 ## 2) Create the VM
 
 [`New-VM.ps1`](./New-VM.ps1) assembles a UTM bundle under
-`~/Desktop/Yuruna.VDE/<machinename>/`. Copies the ISO into the bundle,
-creates a 512 GB raw disk (sparse on APFS), generates an autoinstall
-`seed.iso`, and writes `config.plist` from
-[`config.plist.template`](./config.plist.template) — QEMU backend with
-HVF, ARM64 `virt` machine, 4 vCPU, 16 GB RAM, UEFIBoot (edk2), shared
-NAT via vmnet (same 192.168.64.0/24 as Apple VZ), clipboard, and a
-loopback VNC server on a per-VM port in `127.0.0.1:5910..5989` for the
-test harness. The display number is computed deterministically from
-the VM name by `Get-VncDisplayForVm`
+`~/Desktop/Yuruna.VDE/<machinename>/`. Copies the ISO, creates a 512 GB
+raw disk (sparse on APFS), generates an autoinstall `seed.iso`, and
+writes `config.plist` from
+[`config.plist.template`](./config.plist.template) — QEMU + HVF, ARM64
+`virt`, 4 vCPU, 16 GB RAM, UEFIBoot (edk2), shared NAT via vmnet (same
+192.168.64.0/24 as Apple VZ), clipboard, and a loopback VNC server on
+a per-VM port in `127.0.0.1:5910..5989`. The display number derives
+deterministically from the VM name via `Get-VncDisplayForVm`
 ([`test/modules/Test.Screenshot.psm1`](../../../test/modules/Test.Screenshot.psm1));
-the same helper is used by `Get-UtmScreenshot` and `Connect-VNC`, so
-producer and consumers always agree without a sidecar file.
+`Get-UtmScreenshot` and `Connect-VNC` use the same helper.
 
 ```bash
 pwsh ./New-VM.ps1                  # default hostname ubuntu-desktop01

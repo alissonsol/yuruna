@@ -7,10 +7,10 @@ during the same subiquity pass — first boot lands in GDM.
 
 Use this when the Desktop ISO's `ubuntu-desktop-bootstrap` fails with
 `E: Unable to locate package linux-generic[-hwe-24.04]`: the Server ISO
-ships `linux-generic` on the cdrom and a network-configured
+ships `linux-generic` on the cdrom plus a network-configured
 `/etc/apt/sources.list.d/ubuntu.sources`; the Desktop ISO does not.
 
-See [../../CODE.md](../../CODE.md) for cross-host concepts.
+Cross-host concepts: [../../CODE.md](../../CODE.md).
 
 ## One-time
 
@@ -31,10 +31,10 @@ elevated PowerShell:
 Start from Hyper-V Manager. Autoinstall is fully unattended
 (`interactive-sections: []`). **Install takes ~20–30 min** — subiquity
 fetches `ubuntu-desktop` (~2 GB) through squid-cache; keep the
-`guest.squid-cache` VM running to make rebuilds dramatically faster.
+`guest.squid-cache` VM running for dramatically faster rebuilds.
 
-Default `ubuntu` / `password`, change forced on first login. After
-install, remove the DVD drives so the VM boots from disk on next start:
+Default `ubuntu` / `password`, change forced on first login. Remove
+the DVD drives so the VM boots from disk on next start:
 
 ```powershell
 Get-VMDvdDrive -VMName 'ubuntu-server01' | Remove-VMDvdDrive

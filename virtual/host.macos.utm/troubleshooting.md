@@ -1,18 +1,16 @@
 # macOS UTM Host Troubleshooting
 
-**Warning:** This is not a section for everyone. Instructions are intentionally brief — don't follow them unless you know what you are doing!
+**Warning:** Instructions are intentionally brief — don't follow them unless you know what you are doing.
 
 ## Packages, PATH, and Homebrew issues
 
-- Packages not installed via `Homebrew` (e.g. PowerShell) won't be updated by `brew update` / `brew upgrade` cycles.
-- Packages installed by different methods can shadow each other via PATH order ([DLL hell](https://en.wikipedia.org/wiki/DLL_hell) has company!).
-- For most of those situations, use `brew-doctor-fix.sh`.
-- Occasionally you may still need manual steps, e.g. `brew uninstall powershell` followed by `brew install powershell`.
+- Non-Homebrew packages (e.g. PowerShell) aren't covered by `brew update`/`upgrade`.
+- Different install methods can shadow each other via PATH order.
+- For most cases, use `brew-doctor-fix.sh`. Occasionally you'll need manual steps like `brew uninstall powershell && brew install powershell`.
 
 ## Cleaning Up Old Files
 
-- Run `Remove-OrphanedVMFiles.ps1`.
-- Note: this removes any files not associated with existing VMs, including downloaded base images — you would then need to re-run the relevant `Get-Image.ps1` scripts.
+Run `Remove-OrphanedVMFiles.ps1`. It removes anything not tied to an existing VM, including downloaded base images — re-run `Get-Image.ps1` afterward.
 
 ## `waitForAndClickButton` loops on "UTM window for `<vm>` not found"
 
@@ -27,70 +25,62 @@ DEBUG:   Window capture unavailable — retrying
 
 Two possible causes:
 
-1. **Terminal is missing Screen Recording permission.**
-   `CGWindowListCopyWindowInfo` strips window titles when the caller
-   lacks this TCC grant. Region-capture OCR (the earlier steps) still
-   works because it falls back to AppleScript via Accessibility — a
-   different TCC bucket.
+1. **Terminal lacks Screen Recording permission.**
+   `CGWindowListCopyWindowInfo` strips window titles without this TCC
+   grant. Region-capture OCR still works via the AppleScript /
+   Accessibility fallback (a different TCC bucket).
 
-2. **UTM's VM window has `NSWindowSharingNone`** (observed on some
-   UTM + Apple Virtualization builds). The window is reachable via
-   the Accessibility API but omits `kCGWindowName` from CGWindowList
-   regardless of Screen Recording state. Current builds of the
-   harness auto-fall-back to AppleScript bounds in this case — you
-   will see `CG window query: not_found` followed by
-   `Window bounds query (fallback): <x>,<y>,<w>,<h>` in debug output.
+2. **UTM's VM window has `NSWindowSharingNone`** (some UTM + Apple
+   Virtualization builds). Reachable via the Accessibility API but
+   omits `kCGWindowName` from CGWindowList regardless of Screen
+   Recording. The harness auto-falls-back to AppleScript bounds —
+   debug output shows `CG window query: not_found` then
+   `Window bounds query (fallback): <x>,<y>,<w>,<h>`.
 
 Fix for (1):
 
 1. System Settings → Privacy & Security → **Screen Recording** →
-   enable your terminal (Terminal.app, iTerm2, Ghostty, etc.).
-2. **Fully quit** the terminal (Cmd-Q — not just close the window)
-   and relaunch. TCC grants don't apply to a running process.
+   enable your terminal.
+2. **Fully quit** the terminal (Cmd-Q) and relaunch — TCC grants don't
+   apply to a running process.
 3. Re-run the harness.
 
-Case (2) needs no user action — the AppleScript fallback fires
-automatically. If `Window bounds query (fallback)` also returns
-`not_found`, UTM's window isn't actually open: double-click the
-`.utm` bundle or click the VM in UTM.app's sidebar so a display
-window exists.
+Case (2) needs no action. If `Window bounds query (fallback)` also
+returns `not_found`, UTM's window isn't open: double-click the `.utm`
+bundle or click the VM in UTM's sidebar.
 
 ## `screencapture -l` returns black, or "UTM window for `<vm>` not found", on a different macOS Space
 
-If you switched to a different Space (e.g. to debug in VS Code) and
-the runner started failing screen captures or window-id lookups,
-make sure the harness is up to date:
+If you switched Spaces and the runner started failing screen captures
+or window-id lookups, verify:
 
 - The window-finder JXA in
   [`Test.Screenshot.psm1`](../../test/modules/Test.Screenshot.psm1)
-  must use `kCGWindowListOptionAll` (not `OnScreenOnly`); only
-  `OptionAll` enumerates UTM windows that live on another Space.
-- `Enable-TestAutomation.ps1` must have flipped
-  `AppleSpacesSwitchOnActivation` to `false`. Verify with:
+  uses `kCGWindowListOptionAll` (not `OnScreenOnly`) — only `OptionAll`
+  enumerates UTM windows on another Space.
+- `Enable-TestAutomation.ps1` flipped `AppleSpacesSwitchOnActivation` to
+  `false`:
 
   ```bash
   defaults read NSGlobalDomain AppleSpacesSwitchOnActivation
   ```
 
-  If it returns `1` or "does not exist", re-run
-  `pwsh ./Enable-TestAutomation.ps1`.
+  Returns `1` or "does not exist" → re-run `pwsh ./Enable-TestAutomation.ps1`.
 
 - Right-click UTM in the Dock → Options → Assign To → All Desktops.
-  This pins UTM windows on every Space so the lookup, capture, and
-  AVF-guest keystroke paths all work uniformly. The script
-  intentionally does not script this (Dock plist edits are fragile).
+  Pins UTM windows on every Space. (Not scripted — Dock plist edits are
+  fragile.)
 
-QEMU+VNC guests (e.g. `guest.ubuntu.desktop`) are Space-independent
-end-to-end and need none of the above.
+QEMU+VNC guests (e.g. `guest.ubuntu.desktop`) are Space-independent and
+need none of the above.
 
-## `Assert-ScreenRecording` false positive — toggle IS on but harness refuses to start
+## `Assert-ScreenRecording` false positive — toggle is on but harness refuses to start
 
-If System Settings shows the toggle ON for your terminal, you've
-fully quit and relaunched (or rebooted), and
-`Invoke-TestRunner.ps1` still refuses to start with "Screen Recording
-is not granted", the probe itself is misreporting state.
+System Settings shows the toggle ON, you've fully quit and relaunched,
+yet `Invoke-TestRunner.ps1` still rejects with "Screen Recording is
+not granted" — the probe is misreporting.
 
-Confirm with the ground-truth JXA call:
+Ground-truth JXA call:
 
 ```bash
 osascript -l JavaScript -e '
@@ -99,24 +89,22 @@ ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool", []]);
 $.CGPreflightScreenCaptureAccess();'
 ```
 
-If that prints `true`, the grant is in place and the harness probe
-is wrong for your macOS version. As a temporary workaround, set:
+If that prints `true`, the grant is in place. Workaround:
 
 ```bash
 export YURUNA_SKIP_SCREEN_RECORDING_CHECK=1
 pwsh test/Invoke-TestRunner.ps1
 ```
 
-Then please open an issue with:
-- Output of `sw_vers -productVersion`
-- Output of `echo $TERM_PROGRAM $TERM_PROGRAM_VERSION`
-- Output of the JXA command above
-- Output of
+Open an issue with:
+- `sw_vers -productVersion`
+- `echo $TERM_PROGRAM $TERM_PROGRAM_VERSION`
+- The JXA command above
+- And:
   ```bash
   osascript -l JavaScript -e '
   ObjC.import("CoreGraphics"); ObjC.import("Foundation");
-  var n = $.CFArrayGetCount($.CGWindowListCopyWindowInfo(1, 0));
-  n;'
+  $.CFArrayGetCount($.CGWindowListCopyWindowInfo(1, 0));'
   ```
 
 Back to [[macOS UTM Host Setup](README.md)]

@@ -14,10 +14,9 @@ ISO into the Hyper-V default VHDX folder.
 
 ## 2) Create the VM
 
-[`New-VM.ps1`](./New-VM.ps1) creates a Generation 2 VM (16 GB RAM, half
-the host CPU cores, UEFI, Secure Boot off, Default Switch), mounts the
-Ubuntu ISO and a cloud-init `seed.iso` as DVD drives, and sets DVD as
-first boot.
+[`New-VM.ps1`](./New-VM.ps1) creates a Gen 2 VM (16 GB RAM, half host
+CPU cores, UEFI, Secure Boot off, Default Switch), mounts the Ubuntu
+ISO and a cloud-init `seed.iso` as DVDs, sets DVD as first boot.
 
 ```powershell
 .\New-VM.ps1                       # default hostname ubuntu-desktop01
@@ -25,16 +24,13 @@ first boot.
 ```
 
 Autoinstall sets locale `en_US.UTF-8`, keyboard `us`, LVM layout, and
-enables SSH. Default credentials: `ubuntu` / `password` — required
-change on first login.
+SSH. Default credentials: `ubuntu` / `password` — change forced on
+first login.
 
 ## Known limitations
 
-- Autoinstall may take ~15 min depending on hardware; the screen can
-  appear blank during installation.
-- After installation, remove DVD drives to avoid booting back into the
-  installer.
-- Enhanced Session Mode (xrdp) is not configured — install manually if
-  desired.
+- Autoinstall takes ~15 min; screen can appear blank during install.
+- Remove the DVD drives after install.
+- Enhanced Session Mode (xrdp) is not configured.
 
 Back to [[Ubuntu Desktop guest (Hyper-V)](README.md)]

@@ -6,14 +6,8 @@ architecture (modules, directories, sequences, extension API) see
 
 ## What it does
 
-On each cycle, [`Invoke-TestRunner.ps1`](Invoke-TestRunner.ps1):
-
-1. `git pull`, then re-reads `test-config.json`.
-2. Every 24h: refreshes base images (`Get-Image.ps1`).
-3. For each entry in `guestOrder`: cleanup → `New-VM` → `Start-VM` →
-   verify running → screenshot checkpoints → extension scripts.
-4. On first failure: leaves the VM running, sends a Resend notification,
-   exits.
+Cycle summary in [CODE.md](CODE.md). On first failure, the runner
+leaves the VM running, sends a Resend notification, and exits.
 
 ## Prerequisites
 
@@ -56,11 +50,10 @@ cp test/test-config.json.template test/test-config.json
 `guest.<name>` is valid as long as `virtual/<hostType>/<guestKey>/`
 exists on the current host — the runner discovers guests by folder, not
 a hardcoded list. Adding a new guest = creating the folder with
-`Get-Image.ps1` + `New-VM.ps1`; no code change in the harness.
+`Get-Image.ps1` + `New-VM.ps1`; no harness code change.
 
-Omit a guest to skip it. Listing a guest that has no folder on the
-current host marks the cycle failure for that guest; the others still
-run unless `stopOnFailure`.
+Omit a guest to skip it. Listing one with no folder marks a per-guest
+failure; others still run unless `stopOnFailure`.
 
 ### Notifications (Resend)
 
@@ -85,27 +78,27 @@ Each check prints `[PASS]`, `[WARN]`, or `[FAIL]`.
 ## Remote caching proxy
 
 The runner auto-discovers a local `squid-cache` VM (see
-[../docs/caching.md](../docs/caching.md)). To point at a remote proxy:
+[../docs/caching.md](../docs/caching.md)). Point at a remote proxy:
 
 ```powershell
 $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
 pwsh test/Invoke-TestRunner.ps1
 ```
 
-When set, both `Invoke-TestRunner.ps1` and `Start-StatusServer.ps1` skip
-local discovery. Each `New-VM.ps1` inherits the URL, fetches the CA from
-`http://<remote>/yuruna-squid-ca.crt`, and wires apt to
-`<remote>:3128` (HTTP) + `<remote>:3129` (HTTPS). Un-set to revert.
+When set, `Invoke-TestRunner.ps1` and `Start-StatusServer.ps1` skip
+local discovery. `New-VM.ps1` inherits the URL, fetches the CA from
+`http://<remote>/yuruna-squid-ca.crt`, and wires apt to `<remote>:3128`
+(HTTP) + `<remote>:3129` (HTTPS). Un-set to revert.
 
-Preflight a candidate cache:
+Preflight a cache:
 
 ```powershell
-pwsh test/Test-CachingProxy.ps1  # uses YURUNA_CACHING_PROXY_IP or local
+pwsh test/Test-CachingProxy.ps1   # YURUNA_CACHING_PROXY_IP or local
 ```
 
-Probes `:3128`, `:3129`, `:80`, `:3000` and the CA; exit 1 on any
-required failure — suitable for a `&&` chain. Host-side setup for
-exposing a cache to remote clients: [CachingProxy.md](CachingProxy.md).
+Probes `:3128`, `:3129`, `:80`, `:3000`, and the CA; exit 1 on any
+required failure. Host-side setup for exposing a cache to remote
+clients: [CachingProxy.md](CachingProxy.md).
 
 ## Usage
 
@@ -130,11 +123,11 @@ pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desk
 pwsh test/Invoke-TestSequence.ps1 -SequenceName "Test-Workload.guest.ubuntu.desktop" -VMName "private-ubuntu"
 ```
 
-Pass the sequence **name** (no folder, no `.json`, no `.ssh.` suffix);
+Pass the sequence **name** only (no folder, `.json`, or `.ssh.` suffix);
 the script resolves against `keystrokeMechanism`, falling back to
-`gui/` when no SSH variant exists. It prints a numbered step list with
-markers for what will run; `-StopStep` leaves the VM running. A missing
-sequence triggers a listing from `sequences/gui/` and `sequences/ssh/`.
+`gui/`. It prints a numbered step list with run markers; `-StopStep`
+leaves the VM running. Missing sequence → listing from `sequences/gui/`
+and `sequences/ssh/`.
 
 Parameters: `-SequenceName` (required), `-StartStep` (default 1),
 `-StopStep`, `-ConfigPath`, `-VMName`, `-debug_mode`, `-verbose_mode`.
@@ -143,39 +136,36 @@ Parameters: `-SequenceName` (required), `-StartStep` (default 1),
 
 Each cycle writes `test/status/log/{cycleId}.{hostname}.{gitCommit}.html`
 (git-ignored; linked from the status page). The `yuruna-log` proxy
-module wraps `Write-Output/Error/Warning/Debug/Verbose/Information` so
-console output also lands in the log. `debug_mode` and `verbose_mode`
-control detail:
+wraps `Write-Output/Error/Warning/Debug/Verbose/Information` so console
+output lands in the log too.
 
-- `-verbose_mode $true` — surfaces what each OCR engine is reading
-  (e.g. `[tesseract] no match | <last 120 chars>`) on every poll.
-  Use this when a `waitForText` step is hanging and you want to see
-  whether the screen is being captured and recognized.
-- `-debug_mode $true` — adds low-level harness chatter: VNC capture
-  ticks, screen-diff "no pixel changes" messages, polling timestamps,
-  AppleScript / CGEvent results.
+- `-verbose_mode $true` — surfaces what each OCR engine reads
+  (`[tesseract] no match | <last 120 chars>`) on every poll. Use it
+  when a `waitForText` hangs and you want to see whether the screen is
+  being captured and recognized.
+- `-debug_mode $true` — adds low-level chatter: VNC capture ticks,
+  screen-diff messages, polling timestamps, AppleScript/CGEvent
+  results.
 
 ## Status page
 
 While the runner is active: `http://localhost:8080/status/`. Polls
-`status.json` every 30s; shows pass/fail, per-guest step-level status
+`status.json` every 30s; shows pass/fail, per-guest step status
 (New-VM, Start-VM, Verify-VM, Screenshots, Invoke-PoolTest), history,
 and clickable Cycle IDs. Stop the detached server with
-`pwsh test/Stop-StatusServer.ps1`. Architecture details are in
-[CODE.md](CODE.md).
+`pwsh test/Stop-StatusServer.ps1`. Architecture: [CODE.md](CODE.md).
 
 ### SSH server on the host (optional)
 
-Guests or peer hosts reach the test machine over SSH/SCP once an SSH
-server is running. Not installed automatically — `Start-StatusServer.ps1`
-only reports state. Install once (`pwsh test/Start-SshServer.ps1`,
-elevated on Windows); uninstall with `Stop-SshServer.ps1`. On Windows
-this adds the `OpenSSH.Server` capability (minutes on first install),
-starts `sshd`, and auto-starts on boot. On macOS the script is
-currently a placeholder.
+Guests or peer hosts reach the test machine over SSH/SCP once sshd is
+running. Not installed automatically. Install once (`pwsh
+test/Start-SshServer.ps1`, elevated on Windows); uninstall with
+`Stop-SshServer.ps1`. On Windows this adds the `OpenSSH.Server`
+capability (minutes on first install), starts `sshd`, and enables
+auto-start on boot. macOS is currently a placeholder.
 
-The status banner has an "Enable/Disable SSH Server" button that tracks
-state: disabled when OpenSSH isn't installed, Enable when installed but
+The status banner's "Enable/Disable SSH Server" button reflects state:
+disabled when OpenSSH isn't installed, Enable when installed but
 stopped, Disable when running, N/A on unsupported hosts.
 
 ## Extensions
@@ -220,8 +210,8 @@ Training produces `test/screenshots/<guestKey>/schedule.json` and
 }
 ```
 
-`threshold` is minimum pixel-similarity to pass (0.85 = 85% match). Per-run
-captures land in `screenshots/<guestKey>/captures/` (git-ignored).
+`threshold` is minimum pixel-similarity to pass (0.85 = 85% match).
+Per-run captures land in `screenshots/<guestKey>/captures/`
+(git-ignored).
 
-Exit codes: `0` = all passed or interrupted; `1` = any failure or
-pre-flight error.
+Exit codes are listed in [CODE.md](CODE.md#exit-codes).

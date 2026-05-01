@@ -1,20 +1,13 @@
 # Windows Hyper-V Host Setup - Nerd-Level Details
 
-Copyright (c) 2019-2026 by Alisson Sol et al.
-
-The one-line installer in [README.md](README.md) automates everything
-below. This document walks through the same steps by hand, for those
-who want to understand (or audit) what gets changed on their machine.
-
-Every step here requires an **elevated** PowerShell session (Run as
-Administrator). The Yuruna one-line installer self-relaunches
-elevated via a single UAC prompt; when going manual, start an
-Administrator PowerShell window up front.
+The one-line installer in [README.md](README.md) automates the steps
+below. This walk-through reproduces them by hand for audit / learning.
+Every step needs an **elevated** PowerShell (Run as Administrator).
 
 ## 1) Install PowerShell 7
 
-Yuruna's scripts target PowerShell 7 (`pwsh`), not the legacy
-`powershell.exe` that ships with Windows. See the official
+Yuruna scripts target PowerShell 7 (`pwsh`), not the legacy
+`powershell.exe`. See the official
 [installation guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
 or install via `winget`:
 
@@ -23,8 +16,7 @@ winget install --id Microsoft.PowerShell --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
 
-- This documentation was tested with version 7.5.4.
-- Check your version with `Get-Host | Select-Object Version`.
+Tested with 7.5.4. Verify: `Get-Host | Select-Object Version`.
 
 ## 2) Install Git
 
@@ -35,10 +27,8 @@ winget install --id Git.Git --exact --silent `
 
 ## 3) Install the Windows ADK Deployment Tools
 
-The harness uses `oscdimg.exe` to build unattended-install seed ISOs
-for guest VMs. `oscdimg.exe` ships only as part of the Windows
-Assessment and Deployment Kit — you need the **Deployment Tools**
-feature specifically.
+The harness uses `oscdimg.exe` (from the Windows ADK **Deployment
+Tools** feature) to build unattended-install seed ISOs.
 
 Option A — `winget`:
 
@@ -47,17 +37,13 @@ winget install --id Microsoft.WindowsADK --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
 
-Option B — manual:
-Download and run the
+Option B — run the
 [Windows ADK installer](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install)
-and, when it asks which features to install, tick only
-**Deployment Tools**.
+and select only **Deployment Tools**.
 
 ## 4) Install Tesseract OCR
 
-Tesseract is used by
-[Test.Tesseract.psm1](../../test/modules/Test.Tesseract.psm1) for
-OCR-based verification steps in some sequences.
+OCR for [Test.Tesseract.psm1](../../test/modules/Test.Tesseract.psm1):
 
 ```powershell
 winget install --id UB-Mannheim.TesseractOCR --exact --silent `
@@ -71,13 +57,10 @@ Enable-WindowsOptionalFeature -Online `
     -FeatureName Microsoft-Hyper-V-All -NoRestart
 ```
 
-If Hyper-V was not already enabled, **restart Windows** before
-continuing. Hyper-V cmdlets (`Get-VM`, `New-VM`, etc.) will fail
-until the reboot completes.
-
-Note: `Microsoft-Hyper-V-All` is not available on Windows Home
-editions. Yuruna's Hyper-V harness requires Pro, Enterprise, or
-Education.
+If Hyper-V was just enabled, **restart Windows** before continuing —
+`Get-VM`/`New-VM` and friends fail until the reboot completes.
+`Microsoft-Hyper-V-All` is unavailable on Windows Home; the harness
+requires Pro, Enterprise, or Education.
 
 ## 6) Clone the Yuruna Repository
 
@@ -88,17 +71,15 @@ git clone https://github.com/alissonsol/yuruna.git $HOME\git\yuruna
 
 ## 7) Refresh PATH in the Current Shell
 
-Freshly installed `winget` packages are added to the machine `PATH`,
-but your current PowerShell session still has a copy of the old
-environment. Either open a new PowerShell window, or patch the
-current one:
+`winget` updates machine `PATH`, but the current session keeps the old
+copy. Open a new PowerShell window, or patch the current one:
 
 ```powershell
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
             [Environment]::GetEnvironmentVariable('Path','User')
 ```
 
-Confirm everything is visible:
+Confirm:
 
 ```powershell
 pwsh -Version
@@ -114,50 +95,34 @@ Copy-Item .\test-config.json.template .\test-config.json
 notepad .\test-config.json
 ```
 
-Review the guests list and any host-specific paths before running
-the test harness.
-
 ## 9) Disable Display Timeout and Screen Lock
 
-When the display blanks, Hyper-V screen captures return a black
-image and OCR verification fails. The repo ships a PowerShell
-helper that disables display timeout (AC and DC), the machine
-inactivity lock, and lock-screen-on-resume via `powercfg` and
-registry edits:
+When the display blanks, Hyper-V captures return black and OCR fails.
+The helper disables display timeout (AC and DC), inactivity lock, and
+lock-screen-on-resume via `powercfg` and registry edits:
 
 ```powershell
 cd $HOME\git\yuruna\virtual\host.windows.hyper-v
 pwsh .\Enable-TestAutomation.ps1
 ```
 
-Use `-WhatIf` first to preview changes. The script is idempotent
-and requires Administrator elevation.
+`-WhatIf` previews changes. Idempotent; requires elevation.
 
 ## 10) First Launch of Hyper-V Manager
 
-Open Hyper-V Manager once by hand so it can register with your user
-profile and surface any first-run dialogs:
-
 ```powershell
-Start-Process virtmgmt.msc
+Start-Process virtmgmt.msc      # registers with the user profile
 ```
 
 ## 11) Optional: Squid cache VM
 
 See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
-[../../docs/caching.md](../../docs/caching.md):
-
-```powershell
-cd $HOME\git\yuruna\virtual\host.windows.hyper-v\guest.squid-cache
-pwsh .\Get-Image.ps1
-pwsh .\New-VM.ps1
-```
+[../../docs/caching.md](../../docs/caching.md).
 
 ## 12) Run the Test Harness
 
 ```powershell
-cd $HOME\git\yuruna\test
-pwsh .\Invoke-TestRunner.ps1
+pwsh $HOME\git\yuruna\test\Invoke-TestRunner.ps1
 ```
 
 [Guest VMs](README.md#next-create-a-guest-vm) ·

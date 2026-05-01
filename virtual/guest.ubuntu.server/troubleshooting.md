@@ -2,27 +2,26 @@
 
 ## Boot issues
 
-- Check the logs under `/var/log/installer`. Usually, `installer-journal.txt` has good hints toward the problem.
+- Check `/var/log/installer/installer-journal.txt` for hints.
 - If the text-mode installer appears stuck:
-  - Press `Ctrl+Alt+F2` (or `F3`) to switch to a TTY terminal.
-  - Check the logs at `/var/log/installer` or `/var/log/cloud-init.log`.
-  - Look for `Error` or `Failed to load` messages—they will usually tell you exactly which line of your config file it didn't like.
+  - `Ctrl+Alt+F2` (or `F3`) to switch to a TTY.
+  - Check `/var/log/installer` or `/var/log/cloud-init.log` for `Error` or `Failed to load` — these usually point at the offending config line.
 
 ## Console Login Not Accepting the Password
 
-- Update the system:
-  - Press `Ctrl+Alt+F3` to bring up an alternate TTY.
-  - Run the command: `sudo bash /ubuntu.server.update.sh`
-    - Run two or three times, until there are no updates or cleanup remaining.
-  - Run `sudo reboot now`.
-- Usually, this solves the issue.
+- `Ctrl+Alt+F3` for an alternate TTY.
+- `sudo bash /ubuntu.server.update.sh` (run two or three times until no updates or cleanup remain).
+- `sudo reboot now`.
 
 ## Time Zone Incorrect
 
-- The time zone is auto-detected during installation via IP geolocation (cloud-init).
-- If the time zone is still incorrect after boot, set it manually with `timedatectl`:
-  - List available zones: `timedatectl list-timezones | grep <region>`
-  - Set the zone: `sudo timedatectl set-timezone America/Los_Angeles`
-  - Verify: `timedatectl`
+Auto-detected at install via IP geolocation (cloud-init). To set
+manually:
+
+```bash
+timedatectl list-timezones | grep <region>
+sudo timedatectl set-timezone America/Los_Angeles
+timedatectl                       # verify
+```
 
 Back to [[Ubuntu Server Guest - Workloads](README.md)]

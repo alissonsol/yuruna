@@ -1,21 +1,19 @@
 # Caching
 
-Yuruna has two complementary caching layers. They are independent but
-compose: keeping `YurunaCacheContent` unset is what lets the Squid VM
-serve cached copies of the install scripts themselves.
+Two independent layers that compose: keeping `YurunaCacheContent` unset
+lets the Squid VM serve cached copies of install scripts.
 
 1. **[`YurunaCacheContent`](#the-yurunacachecontent-cache-buster)** —
-   env var controlling cache-busting of `irm` / `wget` / `curl`
-   one-liners throughout the repo.
-2. **[Squid cache VM](#squid-cache-vm)** — optional lightweight VM that
-   caches HTTP/HTTPS for test VMs. First install populates; subsequent
-   installs pull from LAN at disk speed.
+   env var controlling cache-busting of `irm`/`wget`/`curl` one-liners.
+2. **[Squid cache VM](#squid-cache-vm)** — optional VM that caches
+   HTTP/HTTPS for test VMs. First install populates; subsequent installs
+   pull from LAN.
 
 ## The `YurunaCacheContent` cache-buster
 
 Every Yuruna one-liner appends `?nocache=<value>` when `YurunaCacheContent`
-is set. Unset → cacheable URL, intermediate proxies can serve stored
-copies. Set to any unique string (typically a datetime) → fresh fetch.
+is set. Unset → cacheable URL (intermediate proxies can serve stored
+copies). Set to any unique string (typically a datetime) → fresh fetch.
 
 ```powershell
 # Windows PowerShell — current session:
@@ -35,44 +33,41 @@ unset YurunaCacheContent                  # clear
 ```
 
 Read by: guest README `irm … | iex` one-liners,
-[`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh)
-and [`automation/Invoke-FetchAndExecute.ps1`](../automation/Invoke-FetchAndExecute.ps1),
+[`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
+[`automation/Invoke-FetchAndExecute.ps1`](../automation/Invoke-FetchAndExecute.ps1),
 and `wget`/`curl` calls in each `virtual/guest.*/` install script. The
 fetch-and-execute wrappers also honor an explicit `EXEC_QUERY_PARAMS`
 override (used verbatim, takes precedence).
 
-`YurunaCacheContent` is read by whichever shell expands the URL — it is
-**not** auto-pushed into guest VMs. Set it again inside the guest if you
-want guest install scripts to cache-bust.
+The variable is read by whichever shell expands the URL — it is **not**
+auto-pushed into guest VMs. Set it again inside the guest to cache-bust
+guest install scripts.
 
 ---
 
 ## Squid cache VM
 
-Optional local HTTP/HTTPS caching proxy packaged as a standalone VM
-alongside the test harness. Works identically on Windows Hyper-V and
-macOS UTM.
+Optional local HTTP/HTTPS caching proxy packaged as a standalone VM.
+Works identically on Windows Hyper-V and macOS UTM.
 
 ### What it does
 
 Ubuntu Server VM (4 GB RAM, 4 vCPU, 144 GB disk — 128 GB for the squid
-cache) listening on `:3128`, transparently caching every cacheable
-response — `.deb` packages, ISO metadata, firmware blobs, anything fetched
-over plain HTTP. First install populates; subsequent installs hit LAN
-speed.
+cache) on `:3128`, transparently caching every cacheable response (`.deb`
+packages, ISO metadata, firmware blobs, anything fetched over plain
+HTTP). First install populates; subsequent installs hit LAN speed.
 
 ### Why Squid replaced apt-cacher-ng
 
-- **Caches more.** apt-cacher-ng only recognized apt-shaped URLs, so
-  subiquity's in-install `apt-get install linux-firmware` bypassed it and
-  kept hitting `security.ubuntu.com`'s 429 rate limit. Squid caches
-  those too.
-- **Tunnels HTTPS by default** (`:3128` CONNECT) and — on Hyper-V —
-  **caches HTTPS** via a second SSL-bump listener on `:3129` (see
-  [HTTPS caching](#https-caching)). apt-cacher-ng refused CONNECT.
+- **Caches more.** apt-cacher-ng recognized only apt-shaped URLs, so
+  subiquity's in-install `apt-get install linux-firmware` bypassed it
+  and kept hitting `security.ubuntu.com`'s 429 rate limit.
+- **Tunnels HTTPS by default** (`:3128` CONNECT) and **caches HTTPS**
+  via an SSL-bump listener on `:3129` (see [HTTPS caching](#https-caching)).
+  apt-cacher-ng refused CONNECT.
 
-Rate-limiting bites macOS faster because Apple Virtualization's Shared
-NAT egresses every UTM VM through the host's single public IP.
+Rate-limiting bites macOS faster: Apple Virtualization's Shared NAT
+egresses every UTM VM through the host's single public IP.
 
 ## Setup
 
@@ -124,17 +119,17 @@ pwsh ./New-VM.ps1
 After squid starts, cloud-init points the VM's own apt at
 `http://127.0.0.1:3128` and runs `apt-get install --download-only --reinstall`
 for `linux-firmware`, the HWE kernel meta, and (amd64 only)
-`intel-microcode`, `amd64-microcode`, `firmware-sof-signed`. Without this
-the *first* guest install still races the 429 rate limiter for
+`intel-microcode`, `amd64-microcode`, `firmware-sof-signed`. Without
+this, the *first* guest install still races the 429 rate limiter for
 `linux-firmware` (~330 MB).
 
-Expect **5–15 minutes** for first-boot prewarm. Cloud-init then flips
-squid into [offline_mode](#offline_mode).
+Expect **5–15 min** for first-boot prewarm. Cloud-init then flips squid
+into [offline_mode](#offline_mode).
 
 ## How guests use it
 
 At seed-ISO creation time, each guest's `New-VM.ps1` discovers the cache
-and writes its URL into autoinstall `apt.proxy` and a persistent apt
+and writes its URL into autoinstall `apt.proxy` plus a persistent apt
 proxy dropin inside the installed target. Subiquity, cloud-init's
 first-boot `openssh-server` install, and every subsequent `apt-get` flow
 through the cache.
@@ -158,13 +153,13 @@ operator reference.
 
 ## Cache configuration
 
-Squid is tuned as a **replayable snapshot**: once an object lands it
+Squid is tuned as a **replayable snapshot**: once an object lands, it
 stays; the cache keeps serving when origin is unreachable. Fully
 populated = guest installs with zero internet.
 
 Config lives in
 `virtual/host.{windows.hyper-v,macos.utm}/guest.squid-cache/vmconfig/user-data`
-(same settings in both).
+(identical settings in both).
 
 ### Never release unless needed
 
@@ -190,10 +185,10 @@ Config lives in
 
 After prewarm, cloud-init writes `/etc/squid/conf.d/yuruna-offline.conf`
 (`offline_mode on`) and runs `squid -k reconfigure`. From then on: cache
-hit → disk; cache miss → `504`. This is what enables the
-fully-disconnected workflow and, on a miss, points clearly at the missing
-URL. `offline_mode` is flipped **after** prewarm because an empty cache +
-`offline_mode` = 504 on every request.
+hit → disk; cache miss → `504`. This enables the fully-disconnected
+workflow and points clearly at the missing URL on a miss. The flip
+happens **after** prewarm because empty cache + `offline_mode` = 504 on
+every request.
 
 ### Refreshing the cache
 
@@ -240,61 +235,50 @@ The VM runs these services alongside squid:
 | Squid HTTPS     | 3129 | 0.0.0.0, RFC1918         | SSL-bump — caches HTTPS bodies. |
 
 **Grafana (primary UI)** — `http://<squid-cache-vm-ip>:3000`. Anonymous
-Viewer (no login). Pre-provisioned "Squid Cache (yuruna)" dashboard:
+Viewer. Pre-provisioned "Squid Cache (yuruna)" dashboard:
 
 - Client HTTP(S) requests/sec — `rate(squid_client_http_requests_total[5m])`
 - Client HTTP(S) hits/sec — `rate(squid_client_http_hits_total[5m])`
-- Data served (kB/s) — `Total`:
+- Data served (kB/s) — Total:
   `rate(squid_client_http_kbytes_out_kbytes_total[5m])`,
-  `Cached`: `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`.
+  Cached: `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`.
 - Last 100 requests (client IP / hostname / status / size / URL) — Loki
-  logs panel, parses `/var/log/squid/yuruna_access.log` at query time
-  with `{job="squid"} | regexp ... | line_format ...`. Hostname comes
-  from `%>A` (squid's client-FQDN format code, which performs a PTR
-  lookup; falls back to the IP literal on miss). Size comes from
+  logs panel parses `/var/log/squid/yuruna_access.log` at query time.
+  Hostname uses `%>A` (PTR lookup, falls back to IP literal); size uses
   `%<st`. The custom `logformat yuruna` writes to a *separate* file —
   the stock `access.log` keeps its default format for cachemgr.cgi /
-  manual `tail -f`. Empty until Promtail has shipped at least one line;
-  takes a few seconds after first guest fetch. Cardinality stays
-  bounded because client IP, hostname, and URL are kept out of Loki
-  labels — only `job=squid` is a stream.
+  manual `tail -f`. Empty until Promtail ships its first line.
+  Cardinality stays bounded: only `job=squid` is a stream label.
 
 No HTTPS-specific client counter — squid's `client_http.*` counters
 aggregate HTTP + HTTPS (CONNECT + ssl-bump), hence "HTTP(S)".
-boynux/squid-exporter is inconsistent about unit suffixes: Total uses
-`_kbytes_total`, Cached uses `_bytes_total` (despite both being kbytes).
-Verify with
-`curl -s http://127.0.0.1:9301/metrics | grep hit_kbytes_out` — writing
-Cached as `..._hit_kbytes_out_kbytes_total` is the fast-path mistake;
-that series doesn't exist.
+boynux/squid-exporter mixes unit suffixes: Total uses `_kbytes_total`,
+Cached uses `_bytes_total` (both are kbytes). Verify with
+`curl -s http://127.0.0.1:9301/metrics | grep hit_kbytes_out`.
 
-Edit dashboards with `admin`/`admin` (default; unrotated because the VM
-is on the private switch). Datasource UIDs: `yuruna-prometheus`,
-`yuruna-loki`. Grafana is the self-hosted OSS build from
-`apt.grafana.com stable main`.
+Edit dashboards with `admin`/`admin` (unrotated; VM is on private
+switch). Datasource UIDs: `yuruna-prometheus`, `yuruna-loki`. Grafana
+is the OSS build from `apt.grafana.com stable main`.
 
-**Prometheus** is loopback-only. SSH in then
-`curl 'http://127.0.0.1:9090/api/v1/query?query=up'`, or use Grafana's
-Explore view. Scrape config polls `:9090` and `:9301` every 15 s.
+**Prometheus** — loopback-only. SSH in then
+`curl 'http://127.0.0.1:9090/api/v1/query?query=up'`, or use Grafana
+Explore. Scrapes `:9090` and `:9301` every 15 s.
 
-**Loki + Promtail** — also loopback-only, same `apt.grafana.com` repo.
-Promtail tails `/var/log/squid/access.log` and ships every line to Loki
-on `127.0.0.1:3100`; the only stream label is `job=squid` (client IP
-and URL are kept out of labels to avoid cardinality blow-up). Retention
-capped at 7d via Loki's compactor. Verify ingestion with
-`curl -G 'http://127.0.0.1:3100/loki/api/v1/query_range' --data-urlencode 'query={job="squid"}' --data-urlencode 'limit=5'`
-or use Grafana Explore against the Loki datasource.
+**Loki + Promtail** — loopback-only, same repo. Promtail tails
+`/var/log/squid/access.log` and ships every line to Loki on
+`127.0.0.1:3100` with the single stream label `job=squid`. Retention
+capped at 7d. Verify with
+`curl -G 'http://127.0.0.1:3100/loki/api/v1/query_range' --data-urlencode 'query={job="squid"}' --data-urlencode 'limit=5'`.
 
 **squid-exporter** — [boynux/squid-exporter](https://github.com/boynux/squid-exporter)
-service, speaks squid's cache-manager protocol on `localhost:3128`.
-Built from source during cloud-init (`go install`); `golang-go`
-briefly appears in the package list, then is purged once the static
-binary lands in `/usr/local/bin/squid-exporter`.
+speaks squid's cache-manager protocol on `localhost:3128`. Built from
+source during cloud-init (`go install`); `golang-go` is purged once
+the static binary lands in `/usr/local/bin/squid-exporter`.
 
 **cachemgr.cgi (fallback)** — `http://<vm-ip>/cgi-bin/cachemgr.cgi`,
-Cache Host `localhost`, Cache Port `3128`. Reports: `info`,
-`utilization`, `storedir`, `mem`, `client_list`, `objects`. Restricted
-to RFC1918 at Apache; squid's `manager` ACL allows only `localhost`.
+Cache Host `localhost`, Port `3128`. Reports: `info`, `utilization`,
+`storedir`, `mem`, `client_list`, `objects`. Restricted to RFC1918 at
+Apache; squid's `manager` ACL allows only `localhost`.
 
 **CLI** inside the VM:
 
@@ -320,106 +304,94 @@ stop squid, `rm -rf /var/spool/squid/*`, `squid -z`.
 
 ## Access / credentials
 
-Cloud-init creates a single `yuruna` debug user (replacing the Ubuntu
-cloud image's default `ubuntu` user — `users:` in user-data with no
-`- default` entry suppresses ubuntu creation entirely). It has:
+Cloud-init creates a single `yuruna` debug user (replaces the cloud
+image's default `ubuntu` — `users:` without a `- default` entry
+suppresses ubuntu creation):
 
-- **Password** — fresh random 10-char alphanumeric per `New-VM.ps1` run.
-  Printed in the ready banner, saved to
+- **Password** — fresh 10-char alphanumeric per `New-VM.ps1`. Printed
+  in the ready banner, saved to
   `<HyperVVHDPath>\squid-cache\squid-cache-password.txt` (Windows) or
-  `~/virtual/squid-cache/squid-cache-password.txt` (UTM, chmod 600), and
+  `~/virtual/squid-cache/squid-cache-password.txt` (UTM, chmod 600),
   baked into the seed via `chpasswd`. Expiry disabled. Regenerated on
-  every rebuild (a static `password` caused browser password managers to
+  every rebuild (a static password let browser password managers
   auto-suggest it against cachemgr.cgi).
-- **SSH key** — the harness public key from
-  `test/.ssh/yuruna_ed25519` via
-  [Test.Ssh.psm1](../test/modules/Test.Ssh.psm1). `ssh
-  yuruna@<squid-cache-ip>` is passwordless from the host.
-- **Sudo** — passwordless (`NOPASSWD:ALL`). Same trust model as the
-  password: this VM is on a private switch, RFC1918-only.
+- **SSH key** — harness public key from `test/.ssh/yuruna_ed25519` via
+  [Test.Ssh.psm1](../test/modules/Test.Ssh.psm1). `ssh yuruna@<ip>` is
+  passwordless from the host.
+- **Sudo** — passwordless (`NOPASSWD:ALL`). VM is on a private switch,
+  RFC1918-only.
 
 ### Reaching the cache from outside the host (port 8022)
 
 `Start-CachingProxy.ps1` adds an `8022 -> 22` host port forward
-alongside the squid/Grafana ones, so a remote operator can SSH to the
-cache from any LAN client:
+alongside the squid/Grafana ones:
 
 ```bash
 ssh -p 8022 yuruna@<host-lan-ip>     # -> cache VM :22
 ```
 
-Port 8022 (not 22) on the host avoids colliding with the host's own
-sshd. The forward is managed the same way as :80 / :3000 — netsh
-portproxy + Yuruna firewall rule on Windows, detached pwsh
-TcpListener on macOS — and re-applied by every caller of
-`Add-CachingProxyPortMap` (test runner, status server, repair script).
+Port 8022 (not 22) avoids colliding with the host's own sshd. Managed
+the same way as :80 / :3000 — netsh portproxy + Yuruna firewall rule on
+Windows, detached pwsh TcpListener on macOS — re-applied by every caller
+of `Add-CachingProxyPortMap` (test runner, status server, repair script).
 
 ### Real client IPs in the access log: PROXY protocol on :3128 / :3129
 
-Plain TCP forwarding NATs the source IP — every connection that reaches
-squid through the host shows the host's NAT-side IP (e.g.
-`172.24.208.1 / Alius202605a.mshome.net` on Hyper-V Default Switch).
-That obscures *which* LAN client made each request.
+Plain TCP forwarding NATs the source IP — every connection through the
+host shows the host's NAT-side IP (e.g. `172.24.208.1` on Hyper-V
+Default Switch), obscuring which LAN client made each request.
 
-Squid's `require-proxy-header` http_port option (the Squid 6 / Noble
-spelling; older docs call it `accept-proxy-protocol`) parses a HAProxy
-PROXY v1 line — `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\n`
-prepended by the forwarder before the byte stream — and uses the
-supplied client IP for ACLs and the access log.
+Squid's `require-proxy-header` http_port option (Squid 6 / Noble
+spelling; older docs say `accept-proxy-protocol`) parses a HAProxy PROXY
+v1 line — `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\n`
+prepended by the forwarder — and uses the supplied client IP for ACLs
+and the access log.
 
-Source-IP preservation works on both platforms but via two different
-mechanisms — same goal (squid sees real client IPs), different
-plumbing forced by what the host's network stack lets us do.
+Both platforms preserve source IP, but via different plumbing forced by
+what each host's network stack allows.
 
 ##### macOS: pwsh forwarder + PROXY v1
 
 Apple VZ shared-NAT isolates guest↔guest traffic on `192.168.64.0/24`,
 so LAN clients can't reach the cache VM directly. The Mac host runs
 [`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
-on `0.0.0.0:3128` / `:3129`, accepts the LAN client's TCP connection,
-opens an upstream connection to the cache VM's `:3138` / `:3139` port
-(which Squid binds with `require-proxy-header`), prepends a HAProxy
-PROXY v1 line — `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\n`
-— and then bridges bytes both ways. Squid uses the supplied client IP
-for ACLs and the access log.
+on `0.0.0.0:3128` / `:3129`, accepts each LAN client's TCP connection,
+opens an upstream connection to the cache VM's `:3138` / `:3139` (Squid
+binds with `require-proxy-header`), prepends the PROXY v1 line, and
+bridges bytes. Squid logs the supplied client IP.
 
 ##### Windows: External vSwitch (bridged cache VM)
 
-On Hyper-V the userspace pwsh forwarder approach is **silently dropped
-on inbound LAN traffic**, even with port-scope and per-program Defender
-Allow rules in place — confirmed by direct probing from a remote
-machine and by re-probing from the cache VM through the Default-Switch
-NAT. The filter sits below `New-NetFirewallRule`'s reach: per-process
-Defender on Public profile, EDR / corporate-policy overlays, or a
-Hyper-V WFP module are all candidates and none are reliably
-overridable from PowerShell. Kernel-mode netsh portproxy bypasses that
-filter (which is why 80/3000/8022 work over it), but netsh has no
-PROXY-protocol mode and rewrites the source IP at the kernel NAT — the
-cost is that LAN clients log as the host's vEthernet (Default Switch)
-IP, the gap that originally motivated this whole thread.
+On Hyper-V the userspace pwsh forwarder is **silently dropped on
+inbound LAN traffic**, even with port-scope and per-program Defender
+Allow rules — confirmed by remote probing and re-probing from the cache
+VM through the Default-Switch NAT. The filter sits below
+`New-NetFirewallRule`'s reach (per-process Defender on Public profile,
+EDR / corporate-policy overlays, or a Hyper-V WFP module — none reliably
+overridable from PowerShell). Kernel-mode netsh portproxy bypasses the
+filter (which is why 80/3000/8022 work), but netsh has no PROXY-protocol
+mode and rewrites the source IP at the kernel NAT.
 
-The architectural fix is to **bypass the host's forwarder layer
-entirely**: bridge the cache VM to LAN with a Hyper-V External vSwitch.
+The fix is to **bypass the host's forwarder layer entirely**: bridge the
+cache VM to LAN with a Hyper-V External vSwitch.
 [`virtual/host.windows.hyper-v/VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1)
 exposes `Get-OrCreateYurunaExternalSwitch`, which idempotently creates
-a switch named `Yuruna-External` bound to the host's primary physical
-NIC (the one carrying the default IPv4 route, with `-AllowManagementOS:$true`
-so the host stays on its own network during and after the bridge);
-[`virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1`](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1)
-calls it on every cache-VM provision and falls back to `Default Switch`
-only if no LAN-routed NIC is available. Once on the External vSwitch
-the cache VM gets a real LAN IP via DHCP and remote clients hit it
-directly at `<cache-lan-ip>:3128` — squid sees real client IPs at TCP
-level, no PROXY protocol needed.
+`Yuruna-External` bound to the host's primary physical NIC (default
+IPv4 route, `-AllowManagementOS:$true` so the host keeps its own
+network);
+[`guest.squid-cache/New-VM.ps1`](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1)
+calls it on every provision and falls back to `Default Switch` if no
+LAN-routed NIC is available. The cache VM then gets a real LAN IP via
+DHCP; remote clients hit `<cache-lan-ip>:3128` directly — squid sees
+real client IPs at TCP level, no PROXY protocol needed.
 
-Constraints: a wired physical NIC works best; Wi-Fi APs typically
-refuse to forward frames for MACs they didn't authenticate, so the
-cache VM may fail DHCP on a Wi-Fi-only host (the helper warns at
-creation time). The cache VM is on the LAN broadcast domain — squid's
-RFC1918 ACL still gates *who* can use it as a proxy, but anyone on the
-LAN can TCP-connect. Removing the bridge requires explicit
-`Remove-VMSwitch -Name 'Yuruna-External'` (we don't auto-clean — other
-VMs may share the switch).
+Constraints: a wired NIC works best; Wi-Fi APs typically refuse frames
+for MACs they didn't authenticate, so DHCP may fail on a Wi-Fi-only
+host (the helper warns). The cache VM is on the LAN broadcast domain —
+squid's RFC1918 ACL still gates proxy use, but anyone on the LAN can
+TCP-connect. Removing the bridge requires explicit
+`Remove-VMSwitch -Name 'Yuruna-External'` (no auto-clean — other VMs
+may share the switch).
 
 The wiring (per platform):
 
@@ -431,77 +403,66 @@ The wiring (per platform):
 | Grafana        | 3000      | 3000     | n/a        | pwsh             | direct (External vSwitch) | dashboard UI                                           |
 | SSH            | 8022      | 22       | n/a        | pwsh             | direct (External vSwitch) | sshd has its own client-IP logging                     |
 
-`n/a` for Windows host port: there is no host-side listener at all on
-the External-vSwitch path. Operators reach Grafana at
-`http://<cache-lan-ip>:3000`, the cache at
-`http://<cache-lan-ip>:3128`, etc. New-VM.ps1 prints the LAN IP on
-success; Test-CachingProxy uses it via `$Env:YURUNA_CACHING_PROXY_IP`.
+`n/a` for Windows host port: no host-side listener on the
+External-vSwitch path. Operators hit Grafana at
+`http://<cache-lan-ip>:3000`, the cache at `<cache-lan-ip>:3128`, etc.
+`New-VM.ps1` prints the LAN IP on success; `Test-CachingProxy` consumes
+it via `$Env:YURUNA_CACHING_PROXY_IP`.
 
-The cache VM keeps both pairs of squid listeners up regardless of
-platform — `http_port 3128` / `http_port 3129` (no PROXY) for direct
-LAN clients and bridged guests, plus `http_port 3138 require-proxy-header`
-/ `http_port 3139 require-proxy-header` for the macOS PROXY-v1 path.
+The cache VM keeps both squid listener pairs regardless of platform:
+`http_port 3128`/`3129` (no PROXY) for direct LAN clients and bridged
+guests, plus `http_port 3138`/`3139 require-proxy-header` for the macOS
+PROXY-v1 path.
 
-Local Default-Switch guests on Hyper-V reach the cache via host
-routing through the External vSwitch, so they appear at squid as the
-host's LAN IP rather than the cache-VM's NAT-side IP — same kind of
-collapse-to-host as on the prior netsh path, but via the LAN side. If
-finer-grained per-guest IP visibility is needed for local test VMs, the
-follow-up is to migrate them to the External vSwitch as well.
+Local Default-Switch guests on Hyper-V reach the cache via host routing
+through the External vSwitch, so they appear at squid as the host's LAN
+IP. To get per-guest IP visibility, migrate them to the External
+vSwitch.
 
 `proxy_protocol_access` allows PROXY headers from RFC1918 + loopback
-only — the macOS host forwarder is on a private network and there's no
-threat model where untrusted PROXY senders matter, but the deny-by-
-default posture costs nothing.
+only. The macOS host forwarder is on a private network, but the
+deny-by-default posture costs nothing.
 
 ##### Windows fallback: Default Switch + netsh portproxy
 
 When `Get-OrCreateYurunaExternalSwitch` cannot create the External
-switch (no LAN-routable NIC, Wi-Fi-only host, switch creation
-explicitly skipped), the cache VM lands on the built-in `Default Switch`
-and the test/ scripts re-enable netsh portproxy on the host as before.
-LAN clients reach `<host-lan-ip>:3128` and squid sees the host's
-vEthernet IP for every request — the documented source-IP-loss gap
-is preserved as a fallback, not a default. `Test-CacheVmOnYurunaExternalSwitch`
-in [`VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1)
-is the runtime detection switch.
+switch (no LAN-routable NIC, Wi-Fi-only host, switch creation skipped),
+the cache VM lands on the built-in `Default Switch` and the test/
+scripts re-enable netsh portproxy. LAN clients reach `<host-lan-ip>:3128`
+and squid logs the host's vEthernet IP — the source-IP-loss gap kept as
+a fallback, not a default. `Test-CacheVmOnYurunaExternalSwitch` in
+[`VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1) is
+the runtime detection switch.
 
-##### Windows: App Execution Alias self-heal (latent, not in current path)
+##### Windows: App Execution Alias self-heal (latent)
 
 [`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1) carries a
-self-heal for one specific Windows path-resolution failure mode:
-after `Start-WindowsCachingProxyForwarder` spawns pwsh, it reads
+self-heal for one Windows path-resolution failure mode: after
+`Start-WindowsCachingProxyForwarder` spawns pwsh, it reads
 `(Get-Process -Id <pid>).Path` and rewrites the per-program firewall
-rule with the resolved binary, in case `Get-Command pwsh` returned a
-Microsoft Store App Execution Alias stub instead of the binary that
-the loaded process actually resolves to. The fix is in place but not
-exercised today because the External-vSwitch path doesn't use the pwsh
-forwarder on Windows at all — kept ready in case some future host
-config needs the userspace path again.
+rule, in case `Get-Command pwsh` returned a Microsoft Store App
+Execution Alias stub. Not exercised today (the External-vSwitch path
+doesn't use the userspace forwarder on Windows) — kept ready.
 
 Implementation:
-* macOS path — the `-PrependProxyV1` switch on
-  [`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
-  (pure PowerShell, cross-platform), wired through
-  [`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1)'s
-  `-ProxyProtocolPort` parameter on `Add-CachingProxyPortMap`.
-* Windows path — `Get-OrCreateYurunaExternalSwitch` and
+* macOS — `-PrependProxyV1` on
+  [`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1),
+  wired through `-ProxyProtocolPort` on `Add-CachingProxyPortMap` in
+  [`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1).
+* Windows — `Get-OrCreateYurunaExternalSwitch` and
   `Test-CacheVmOnYurunaExternalSwitch` in
   [`VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1),
   consumed by
   [`guest.squid-cache/New-VM.ps1`](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1)
-  at provisioning time and by the Windows branches of
+  and by the Windows branches of
   [`Start-CachingProxy.ps1`](../test/Start-CachingProxy.ps1),
   [`Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1), and
-  [`Start-StatusServer.ps1`](../test/Start-StatusServer.ps1) at port-map
-  decision time.
+  [`Start-StatusServer.ps1`](../test/Start-StatusServer.ps1).
 
-The console password is not a secret: the cache VM is reachable on the
-LAN by IP, but squid's `http_access` ACL restricts proxy use to
-RFC1918 sources. The VM is most often debugged before cloud-init
+The console password isn't a secret: squid's `http_access` ACL restricts
+proxy use to RFC1918. The VM is most often debugged before cloud-init
 finishes (Apache, squid, Grafana, Prometheus all install over apt) —
-console fallback via vmconnect is the normal path while that's
-running.
+console fallback via `vmconnect` is the normal path during that window.
 
 ## Management
 
@@ -540,8 +501,8 @@ Shipped on both Hyper-V and UTM. A second squid listener on `:3129`
 performs **SSL-bump** — terminates TLS with a locally-generated CA,
 caches plaintext bodies through the same `refresh_pattern` and
 `offline_mode` pipeline, and re-encrypts with a per-SNI leaf cert minted
-on the fly. Guests that trust the CA get cached HTTPS apt traffic;
-everything else keeps using `:3128` with CONNECT tunneling (no caching).
+on the fly. Guests that trust the CA get cached HTTPS apt traffic; the
+rest stays on `:3128` with CONNECT tunneling (no caching).
 
 ### Key / cert material
 
@@ -563,18 +524,18 @@ Only the public cert is exposed — `ca.key` never leaves the VM.
 Platforms differ because Apple VZ's shared-NAT blocks guest↔guest
 traffic — a UTM guest can't reach the cache VM IP directly.
 
-**Hyper-V (in-install wget):** `vmconfig/user-data` runs inside
-`late-commands` when `New-VM.ps1` injected a proxy:
+**Hyper-V (in-install wget):** when `New-VM.ps1` injected a proxy,
+`vmconfig/user-data` `late-commands`:
 
 1. Derive cache host from proxy URL (strip `http://` and `:3128`).
 2. `wget http://<cache>/yuruna-squid-ca.crt` into
    `/target/usr/local/share/ca-certificates/`.
 3. `curtin in-target -- update-ca-certificates`.
-4. Append `Acquire::https::Proxy "http://<cache>:3129";` to the existing
+4. Append `Acquire::https::Proxy "http://<cache>:3129";` to
    `/target/etc/apt/apt.conf.d/99yuruna-apt-cache`.
 
 Best-effort: if CA fetch fails, the guest keeps HTTP proxy and lets
-HTTPS apt go direct — no install abort.
+HTTPS apt go direct.
 
 **UTM (host pre-fetch + base64 in seed):** `guest.ubuntu.*/New-VM.ps1`
 reads `$HOME/virtual/squid-cache/cache-ip.txt` (written by
@@ -585,25 +546,24 @@ the CA, base64-encodes it, and splices into the seed as
 1. `printf '%s' "<base64>" | base64 -d > /target/.../yuruna-squid-ca.crt`
 2. `curtin in-target -- update-ca-certificates`
 3. `Acquire::https::Proxy "http://192.168.64.1:3129";` — the VZ gateway,
-   not the cache IP, because the host-side `:3129` forwarder
-   (from `Start-CachingProxy.ps1`) is the only path guests have.
+   not the cache IP, because the host-side `:3129` forwarder (from
+   `Start-CachingProxy.ps1`) is the only path guests have.
 
-Empty placeholder → no-op, HTTPS apt bypasses the cache.
+Empty placeholder → HTTPS apt bypasses the cache.
 
 ### Where caching actually kicks in
 
-- **Subiquity in-install HTTPS** (kernel, firmware) — still `:3128`
-  CONNECT, **not cached**. The CA isn't in subiquity's trust store yet;
-  only the target chroot gets it.
+- **Subiquity in-install HTTPS** (kernel, firmware) — `:3128` CONNECT,
+  **not cached**. The CA isn't in subiquity's trust store; only the
+  target chroot gets it.
 - **Guest first-boot + post-install apt** — HTTPS routes through `:3129`,
   bumped, lands in cache alongside HTTP content.
-- **Non-apt HTTPS** (browsers, curl, snap, Go) — untouched; nothing else
-  is configured to route through squid.
+- **Non-apt HTTPS** (browsers, curl, snap, Go) — untouched.
 
 ### ssl_bump rules
 
 Minimum viable: `peek step1` → `bump all`. Squid reads the TLS
-ClientHello for SNI, then intercepts. If a pin-checking client (snap, Go
-HTTPS) hits the install path, add `acl nobump dstdomain ...` +
-`ssl_bump splice nobump` **above** `bump all` rather than disabling
-bumping. See `/etc/squid/conf.d/yuruna.conf`.
+ClientHello for SNI, then intercepts. For pin-checking clients (snap,
+Go HTTPS), add `acl nobump dstdomain ...` + `ssl_bump splice nobump`
+**above** `bump all` rather than disabling bumping. See
+`/etc/squid/conf.d/yuruna.conf`.

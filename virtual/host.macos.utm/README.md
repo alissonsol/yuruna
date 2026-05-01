@@ -19,35 +19,21 @@ display sleep and screen-saver lock. Idempotent; prompts for your macOS
 password once.
 
 After the script finishes, follow the steps in
-[../CODE.md](../CODE.md#install-one-liner-convention). macOS-specific
-notes for each step:
+[../CODE.md](../CODE.md#install-one-liner-convention). macOS notes:
 
 - Step 1 (new shell): Apple Silicon — `eval "$(/opt/homebrew/bin/brew shellenv)"`;
-  Intel — `/usr/local` instead.
+  Intel — `/usr/local`.
 - Step 4 (launch hypervisor): `open -a UTM`.
-- Step 5 requires **both** TCC permissions (separate buckets):
-  - **Accessibility** — the harness drives UTM VMs via
-    `AXUIElementPostKeyboardEvent` so they stay driven when unfocused.
-  - **Screen Recording** — needed so `CGWindowListCopyWindowInfo`
-    returns window titles (the harness matches UTM's per-VM window by
-    title) and so `screencapture -l <windowId>` can capture a specific
-    VM window. Without this, `waitForAndClickButton` loops on "UTM
-    window for `<vm>` not found".
-
-  `Enable-TestAutomation.ps1` fires the first-run dialog for each.
-  TCC forbids automating the toggle itself; if you dismiss a dialog,
-  toggle the switch manually and **fully quit and relaunch the
-  terminal** (Cmd-Q) — macOS won't honor the grant for the running
-  process.
+- Step 5 — both TCC grants (Accessibility, Screen Recording) covered in
+  [../CODE.md](../CODE.md#install-one-liner-convention).
 
   `Enable-TestAutomation.ps1` also flips `AppleSpacesSwitchOnActivation`
-  to `false`, so when the harness activates UTM during an AVF-guest
-  keystroke step it no longer yanks the operator off another Space.
-  One manual one-time step the script intentionally doesn't automate
-  (Dock plist editing is fragile): right-click UTM in the Dock →
-  Options → Assign To → All Desktops. With both, you can leave a
-  long Invoke-TestRunner cycle running on Space 1 and debug in
-  VS Code on Space 2 without disruption. See
+  to `false` so UTM activation during an AVF-guest keystroke doesn't
+  yank you off another Space. One manual step the script doesn't
+  automate (Dock plist edits are fragile): right-click UTM in the Dock
+  → Options → Assign To → All Desktops. With both, you can leave a
+  long `Invoke-TestRunner` running on Space 1 and debug in VS Code on
+  Space 2 without disruption. See
   [read.more.md](read.more.md#running-across-macos-spaces-desktops).
 
 Manual walk-through of the installer: [read.more.md](read.more.md).
@@ -55,20 +41,12 @@ Manual walk-through of the installer: [read.more.md](read.more.md).
 ## Optional: Squid cache VM
 
 See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
-[../../docs/caching.md](../../docs/caching.md). Setup:
+[../../docs/caching.md](../../docs/caching.md). Rate-limiting bites
+macOS faster than Hyper-V: Apple Virtualization's Shared NAT egresses
+every UTM VM through the host's single public IP.
 
-```bash
-cd ~/git/yuruna/virtual/host.macos.utm/guest.squid-cache
-pwsh ./Get-Image.ps1
-pwsh ./New-VM.ps1
-```
-
-Rate-limiting bites macOS faster than Hyper-V because Apple
-Virtualization's Shared NAT egresses every UTM VM through the host's
-single public IP.
-
-Once the cache VM is running, the Ubuntu Desktop `New-VM.ps1` probes
-the host-side forwarder on `:3128` (launched by
+Once the cache VM is running, Ubuntu Desktop `New-VM.ps1` probes the
+host-side forwarder on `:3128` (launched by
 `test/Start-CachingProxy.ps1`) and injects `http://192.168.64.1:3128`
 into the autoinstall seed ISO. **If the VM is `started` but the
 forwarder is not running**, `New-VM.ps1` exits 1 rather than silently

@@ -22,9 +22,9 @@ pwsh ./Get-Image.ps1
 
 [`New-VM.ps1`](./New-VM.ps1) assembles a UTM bundle under
 `~/Desktop/Yuruna.VDE/<machinename>/`. Converts qcow2 → raw (required
-by Apple Virtualization) and resizes to 128 GB (thin-provisioned),
-creates an EFI variable store for persistent UEFI state, generates a
-cloud-init `seed.iso`, and writes `config.plist` from
+by Apple Virtualization), resizes to 128 GB (thin), creates an EFI
+variable store, generates a cloud-init `seed.iso`, and writes
+`config.plist` from
 [`config.plist.template`](./config.plist.template) — Apple
 Virtualization ARM64, 4 vCPU, 16 GB RAM, UEFI, shared NAT, clipboard.
 
@@ -33,19 +33,17 @@ pwsh ./New-VM.ps1                   # default hostname amazon-linux01
 pwsh ./New-VM.ps1 -VMName myhost
 ```
 
-Double-click `<hostname>.utm` to import into UTM and start. Cloud-init
-applies the configuration on first boot. Default credentials:
-`ec2-user` / `amazonlinux`. Install the GUI with
-`sudo dnf groupinstall -y "Desktop"`.
+Double-click `<hostname>.utm` to import and start. Cloud-init applies
+config on first boot. Default credentials: `ec2-user` / `amazonlinux`.
+Install the GUI with `sudo dnf groupinstall -y "Desktop"`.
 
 ## Key differences from the Hyper-V version
 
-- Amazon Linux ships pre-built qcow2 disk images for KVM (ARM64), so
-  there is no installer ISO step — the VM boots directly from the
-  converted raw disk.
+- Amazon Linux ships pre-built qcow2 KVM ARM64 images — no installer
+  ISO; the VM boots from the converted raw disk.
 - `seed.iso` uses cloud-init (not autoinstall).
 - `hdiutil makehybrid` replaces `Oscdimg.exe`.
-- Apple Virtualization backend (same as Ubuntu desktop) gives better
-  clock sync and EFI variable persistence than QEMU.
+- Apple Virtualization gives better clock sync and EFI persistence
+  than QEMU.
 
 Back to [[Amazon Linux guest (UTM)](README.md)]

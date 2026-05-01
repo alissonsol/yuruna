@@ -2,13 +2,7 @@
 
 ## winget Not Available
 
-If `winget` is not available after a fresh Windows 11 install, it may need to be updated from the Microsoft Store:
-
-1. Open **Microsoft Store** from the Start menu.
-2. Search for **App Installer** and update it.
-3. Restart the terminal.
-
-Alternatively, install it manually:
+After a fresh install, update **App Installer** in Microsoft Store and restart the terminal. Alternatively:
 
 ```powershell
 Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
@@ -16,43 +10,31 @@ Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller
 
 ## Scripts Blocked by Execution Policy
 
-If PowerShell scripts are blocked, set the execution policy:
-
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 ```
 
 ## Docker Desktop Requires Restart
 
-Docker Desktop requires a system restart after installation. If `docker` commands fail:
-
-1. Restart the computer.
-2. Launch Docker Desktop from the Start menu.
-3. Wait for Docker to finish starting (systray icon stops animating).
+If `docker` commands fail after install: restart the computer, launch Docker Desktop, wait for the systray icon to stop animating.
 
 ## Kubernetes Not Available in Docker Desktop
 
-1. Open Docker Desktop.
-2. Go to **Settings** > **Kubernetes**.
-3. Check **Enable Kubernetes**.
-4. Click **Apply & restart**.
+Docker Desktop → **Settings** → **Kubernetes** → check **Enable Kubernetes** → **Apply & restart**.
 
 ## Time Zone Incorrect
 
-1. Open **Settings** > **Time & Language** > **Date & time**.
-2. Enable **Set time zone automatically** or select the correct time zone manually.
+**Settings** → **Time & Language** → **Date & time**. Enable **Set time zone automatically** or pick one manually.
 
 ## Windows Activation
 
-The VM is installed with a generic key and will be in an unactivated state. To activate:
+The VM is installed with a generic key (unactivated). Activate:
 
 ```powershell
-# Install your purchased key
 slmgr /ipk XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
-# Activate online
 slmgr /ato
 ```
 
-See [vmconfig/README.md](../host.windows.hyper-v/guest.windows.11/vmconfig/README.md) for more details on product keys.
+Product keys: [vmconfig/README.md](../host.windows.hyper-v/guest.windows.11/vmconfig/README.md).
 
 Back to [[Windows 11 Guest - Workloads](README.md)]

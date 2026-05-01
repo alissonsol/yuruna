@@ -7,7 +7,7 @@ Amazon Linux 2023 —
 
 ## 1) Get the image
 
-From an elevated PowerShell 7.5+ (`$PSVersionTable.PSVersion`):
+From an elevated PowerShell 7.5+:
 
 ```powershell
 .\Get-Image.ps1
@@ -27,25 +27,22 @@ Generates a cloud-init `seed.iso` from `vmconfig/`, creates a per-VM
 folder under `$localVhdxPath`, and places seed + VHDX there.
 
 - Start from Hyper-V Manager. Default credentials: `ec2-user` /
-  `amazonlinux` (unless overridden in
+  `amazonlinux` (override in
   [vmconfig/user-data](./vmconfig/user-data)). Upgrade if prompted by
-  `/usr/bin/dnf check-release-update`.
+  `dnf check-release-update`.
 - `/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh`
-  (cloud-init pre-downloads `fetch-and-execute.sh` into `/automation/`;
-  the workload script is pulled from GitHub on demand). This installs
-  the GUI and tools.
-- `sudo reboot now` → the VM reboots into the GUI.
+  installs the GUI and tools (cloud-init seeded `fetch-and-execute.sh`
+  into `/automation/`; workloads pull from GitHub on demand).
+- `sudo reboot now` — boots into the GUI.
 
-**CHECKPOINT**: a good moment for a Hyper-V checkpoint named
-`VM Configured`.
-
-Optional: `sudo dnf install powershell -y`.
+**CHECKPOINT**: good moment for a Hyper-V checkpoint
+named `VM Configured`. Optional: `sudo dnf install powershell -y`.
 
 ## TODO — GUI resolution
 
-Good contribution opportunity. The
+Contribution opportunity. The
 [AL2023 TigerVNC tutorial](https://docs.aws.amazon.com/linux/al2023/ug/vnc-configuration-al2023.html)
-path was tested ([TightVNC](https://www.tightvnc.com/download.php)
-client) but setting 1920×1080 still produced 1024×768.
+path was tested ([TightVNC](https://www.tightvnc.com/download.php) client)
+but 1920×1080 settings produced 1024×768.
 
 Back to [[Amazon Linux guest (Hyper-V)](README.md)]

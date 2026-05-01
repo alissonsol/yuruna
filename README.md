@@ -2,11 +2,10 @@
 
 **Tools and automation for development environments and cloud deployments.**
 
-Three capabilities: Virtual Development Environments (VDE) for reproducible
-workspaces, Kubernetes deployment across multiple clouds, and a VM-based
-test harness.
-
-See [CODE.md](CODE.md) for overall architecture and reusable conventions.
+Three capabilities: Virtual Development Environments (VDE) for
+reproducible workspaces, Kubernetes deployment across multiple clouds,
+and a VM-based test harness. Architecture and conventions:
+[CODE.md](CODE.md).
 
 ## VDE
 

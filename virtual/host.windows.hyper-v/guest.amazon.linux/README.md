@@ -1,7 +1,7 @@
 # Amazon Linux guest on Windows Hyper-V host
 
-Minimal commands. See [read.more.md](read.more.md) for the full
-walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
+Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
+concepts: [../../CODE.md](../../CODE.md).
 
 ## One-time
 
@@ -21,7 +21,7 @@ elevated PowerShell:
 
 ## First login and GUI install
 
-Default `ec2-user` / `amazonlinux` (unless changed in
+Default `ec2-user` / `amazonlinux` (override in
 [vmconfig/user-data](./vmconfig/user-data)):
 
 ```bash
@@ -34,5 +34,5 @@ Good moment for a Hyper-V checkpoint.
 
 ## Next
 
-Install workloads: [Amazon Linux guest](../../guest.amazon.linux/README.md) ·
-Details: [read.more.md](read.more.md).
+[Amazon Linux workloads](../../guest.amazon.linux/README.md) ·
+[read.more.md](read.more.md)

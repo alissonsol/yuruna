@@ -1,7 +1,7 @@
 # Ubuntu Desktop guest on macOS UTM host
 
-Minimal commands. See [read.more.md](read.more.md) for the full
-walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
+Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
+concepts: [../../CODE.md](../../CODE.md).
 
 **Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
 Apple **M3+**, UTM v4.6+ — verified by `New-VM.ps1`.
@@ -22,13 +22,13 @@ pwsh ./New-VM.ps1 -VMName myhost
 ```
 
 Double-click `HOSTNAME.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to
-import into UTM and start. Autoinstall runs unattended (~15 min; screen
-may stay dark — if nothing after 15 min, stop and restart the VM).
+import and start. Autoinstall runs unattended (~15 min; screen may
+stay dark — stop and restart if nothing after 15 min).
 
 ## Update
 
-Default `ubuntu` / `password`; forced change on first login (or any
-time via `passwd`). In a guest terminal:
+Default `ubuntu` / `password`; change forced on first login. In a guest
+terminal:
 
 ```bash
 /automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh
@@ -37,6 +37,5 @@ sudo reboot now
 
 ## Next
 
-Install workloads:
-[Ubuntu Desktop guest](../../guest.ubuntu.desktop/README.md) ·
-Details: [read.more.md](read.more.md).
+[Ubuntu Desktop workloads](../../guest.ubuntu.desktop/README.md) ·
+[read.more.md](read.more.md)

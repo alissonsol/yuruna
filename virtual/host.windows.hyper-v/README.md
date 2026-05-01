@@ -14,42 +14,32 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install
 ```
 
 Installs PowerShell 7, Git, Windows ADK Deployment Tools (for
-`oscdimg.exe`), and Tesseract OCR via `winget`; enables the
-**Microsoft-Hyper-V-All** feature; clones the repo to
-`%USERPROFILE%\git\yuruna`; seeds `test\test-config.json`; runs
-[`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) to keep the
-display active during screen captures. Idempotent; elevation requested
-once with an up-front banner.
+`oscdimg.exe`), and Tesseract OCR via `winget`; enables
+**Microsoft-Hyper-V-All**; clones the repo to `%USERPROFILE%\git\yuruna`;
+seeds `test\test-config.json`; runs
+[`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1). Idempotent;
+elevation requested once.
 
-After the script finishes, follow the steps in
-[../CODE.md](../CODE.md#install-one-liner-convention). On Windows, the
-reboot in step 2 is required only if Hyper-V was just enabled.
-"Launch hypervisor UI" in step 4 is Hyper-V Manager:
+Then follow [../CODE.md](../CODE.md#install-one-liner-convention). On
+Windows: step 2's reboot only applies when Hyper-V was just enabled;
+step 4's hypervisor UI is Hyper-V Manager:
 
 ```powershell
 Start-Process virtmgmt.msc
 ```
 
-It's not automated because Hyper-V Manager personalizes per user on
-first launch and some enterprise-managed machines require interactive
-acknowledgement. Prefer `pwsh` over the legacy `powershell.exe`
-afterwards.
+Not auto-launched: Hyper-V Manager personalizes per user on first run
+and enterprise-managed machines may need interactive acknowledgement.
+Prefer `pwsh` over `powershell.exe` afterwards.
 
-Manual walk-through of the installer: [read.more.md](read.more.md).
+Manual walk-through: [read.more.md](read.more.md).
 
 ## Optional: Squid cache VM
 
 See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
-[../../docs/caching.md](../../docs/caching.md). Setup:
-
-```powershell
-cd $HOME\git\yuruna\virtual\host.windows.hyper-v\guest.squid-cache
-pwsh .\Get-Image.ps1
-pwsh .\New-VM.ps1
-```
-
-Once `squid-cache` is running the Ubuntu Desktop `New-VM.ps1`
-auto-detects it and injects the proxy URL into the seed ISO.
+[../../docs/caching.md](../../docs/caching.md). Once `squid-cache` is
+running, Ubuntu Desktop `New-VM.ps1` auto-detects it and injects the
+proxy URL into the seed ISO.
 
 ## Next: Create a Guest VM
 

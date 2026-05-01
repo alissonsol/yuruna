@@ -1,7 +1,7 @@
 # Windows 11 guest on Windows Hyper-V host
 
-Minimal commands. See [read.more.md](read.more.md) for the full
-walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
+Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
+concepts: [../../CODE.md](../../CODE.md).
 
 ## One-time
 
@@ -13,9 +13,8 @@ elevated PowerShell:
 ```
 
 Automates the Windows 11 ISO download from
-[Microsoft](https://www.microsoft.com/software-download/windows11).
-Network/automation filters can block it; the script then prints manual
-instructions.
+[Microsoft](https://www.microsoft.com/software-download/windows11);
+prints manual instructions if blocked.
 
 ## For each VM
 
@@ -24,12 +23,12 @@ instructions.
 .\New-VM.ps1 -VMName myhost
 ```
 
-Start from Hyper-V Manager. The Windows installer runs unattended via
+Start from Hyper-V Manager. Installer runs unattended via
 `autounattend.xml` (~15 min).
 
 ## Update
 
-Auto-logon to `User` / `password` on first boot (forced change next
+Auto-logon to `User` / `password` on first boot (change forced next
 login). Elevated PowerShell:
 
 ```powershell
@@ -38,10 +37,10 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual
 Restart-Computer
 ```
 
-`$env:YurunaCacheContent` / `setx YurunaCacheContent …`: see
+`$env:YurunaCacheContent` / `setx`: see
 [../../../docs/caching.md](../../../docs/caching.md).
 
 ## Next
 
-Install workloads: [Windows 11 guest](../../guest.windows.11/README.md) ·
-Details: [read.more.md](read.more.md).
+[Windows 11 workloads](../../guest.windows.11/README.md) ·
+[read.more.md](read.more.md)

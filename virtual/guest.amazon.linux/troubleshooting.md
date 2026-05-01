@@ -1,8 +1,8 @@
 # Amazon Linux Troubleshooting
 
-## Message "Display Output Is Not Active"
+## "Display Output Is Not Active"
 
-- Check that the GUI is installed.
-- The first time Amazon Linux boots, mainly on the macOS UTM host, it has an attached terminal since the GUI is not installed. Switch to that window to log in for the first time.
+- Confirm a GUI is installed.
+- Amazon Linux's first boot (especially on macOS UTM) has only an attached terminal — switch to that window to log in.
 
 Back to [[Amazon Linux Guest - Workloads](README.md)]

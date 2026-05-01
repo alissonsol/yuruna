@@ -1,18 +1,18 @@
 # Yuruna Architecture
 
-Cross-cutting concepts referenced by every README in this repo. Individual
-docs may link here rather than repeat the material.
+Cross-cutting concepts referenced by every README. Other docs link here
+rather than repeat.
 
 ## Three capabilities
 
-1. **Virtual Development Environment (VDE)** — reproducible workspaces built
+1. **Virtual Development Environment (VDE)** — reproducible workspaces
    as VMs on macOS UTM or Windows Hyper-V. See [virtual/CODE.md](virtual/CODE.md).
-2. **Kubernetes deployment** — a three-phase model that targets localhost,
+2. **Kubernetes deployment** — three-phase model targeting localhost,
    AWS, Azure, or GCP with the same project layout. See
    [docs/kubernetes.md](docs/kubernetes.md).
-3. **Test harness** — continuous VDE creation + validation across hosts and
-   guests, with status server, notifications, and extensible sequences. See
-   [test/CODE.md](test/CODE.md).
+3. **Test harness** — continuous VDE creation + validation across hosts
+   and guests, with status server, notifications, and extensible
+   sequences. See [test/CODE.md](test/CODE.md).
 
 ## Three-phase deployment model
 
@@ -67,10 +67,10 @@ yuruna/
 
 ### `YurunaCacheContent` cache-buster
 
-One-liners (`irm …$nc | iex`, `fetch-and-execute.sh`) read the
-`YurunaCacheContent` env var. Unset → cacheable URL. Set to a unique
-string (typically a datetime) → fresh fetch. Full setup, persistence
-(`setx`, shell profiles), and the companion Squid VM are in
+One-liners (`irm …$nc | iex`, `fetch-and-execute.sh`) read
+`YurunaCacheContent`. Unset → cacheable URL. Set to a unique string
+(typically a datetime) → fresh fetch. Full setup, persistence (`setx`,
+shell profiles), and the companion Squid VM:
 [docs/caching.md](docs/caching.md).
 
 ### Cost warning

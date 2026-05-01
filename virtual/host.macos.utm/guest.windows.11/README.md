@@ -1,7 +1,7 @@
 # Windows 11 guest on macOS UTM host
 
-Minimal commands. See [read.more.md](read.more.md) for the full
-walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
+Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
+concepts: [../../CODE.md](../../CODE.md).
 
 **Requirements**: macOS 12+, Apple Silicon (M1+), UTM v4.0+ — verified
 by `New-VM.ps1`.
@@ -15,9 +15,8 @@ pwsh ./Get-Image.ps1
 ```
 
 Downloads the Windows 11 ARM64 ISO and UTM Guest Tools (SPICE + VirtIO)
-into `~/virtual/windows.env/`. For ISOs that can't be fetched
-automatically, prints manual instructions — see
-[read.more.md](read.more.md) for sources.
+into `~/virtual/windows.env/`. Prints manual instructions for ISOs that
+can't be fetched automatically — see [read.more.md](read.more.md).
 
 ## For each VM
 
@@ -27,25 +26,24 @@ pwsh ./New-VM.ps1 -VMName myhost
 ```
 
 Double-click `HOSTNAME.utm` in `~/Desktop/Yuruna.VDE/<machinename>/` to
-import into UTM and start. When you see `Press any key to boot from CD
-or DVD`, press one. Installer runs unattended (~15 min).
+import and start. At `Press any key to boot from CD or DVD`, press one.
+Installer runs unattended (~15 min).
 
-After install completes:
+After install:
 
 1. Stop the VM. In UTM → Drives, remove `HOSTNAME.iso` and `seed.iso`.
 2. Add a USB CD drive for
    `~/virtual/windows.env/host.macos.utm.guest.windows.11.spice.iso`.
-3. Start, open File Explorer → CD drive, run **UTM Guest Tools**
-   (installs SPICE + VirtIO network driver — no network until now).
-4. After the installer reboots: stop, remove the `spice.iso` drive,
-   start.
+3. Start, open File Explorer → CD, run **UTM Guest Tools** (SPICE +
+   VirtIO network — no network before now).
+4. After reboot: stop, remove the `spice.iso` drive, start.
 
-> SPICE ISO must **not** be attached during the initial install — it
-> carries its own `autounattend.xml` that interrupts unattended setup.
+> SPICE ISO must **not** be attached during the initial install — its
+> own `autounattend.xml` interrupts unattended setup.
 
 ## Update
 
-Auto-logon to `User` / `password` on first boot (forced change next
+Auto-logon to `User` / `password` on first boot (change forced next
 login). Elevated PowerShell:
 
 ```powershell
@@ -54,10 +52,10 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual
 Restart-Computer
 ```
 
-`$env:YurunaCacheContent` and equivalents: see
+`$env:YurunaCacheContent`: see
 [../../../docs/caching.md](../../../docs/caching.md).
 
 ## Next
 
-Install workloads: [Windows 11 guest](../../guest.windows.11/README.md).
-Network options, memory, troubleshooting: [read.more.md](read.more.md).
+[Windows 11 workloads](../../guest.windows.11/README.md) ·
+[read.more.md](read.more.md)

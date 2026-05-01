@@ -1,7 +1,7 @@
 # Ubuntu Desktop guest on Windows Hyper-V host
 
-Minimal commands. See [read.more.md](read.more.md) for the full
-walk-through and [../../CODE.md](../../CODE.md) for cross-host concepts.
+Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
+concepts: [../../CODE.md](../../CODE.md).
 
 ## One-time
 
@@ -20,12 +20,11 @@ elevated PowerShell:
 ```
 
 Start from Hyper-V Manager. Autoinstall runs unattended (~15 min;
-screen may stay dark — if nothing after 15 min, stop and restart).
+screen may stay dark — stop and restart if nothing after 15 min).
 
 ## Update
 
-Default `ubuntu` / `password`; autoinstall expires the password so a
-change is forced on first login (`passwd` thereafter).
+Default `ubuntu` / `password`; change forced on first login.
 
 ```bash
 /automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh
@@ -34,5 +33,5 @@ sudo reboot now
 
 ## Next
 
-Install workloads: [Ubuntu Desktop guest](../../guest.ubuntu.desktop/README.md) ·
-Details: [read.more.md](read.more.md).
+[Ubuntu Desktop workloads](../../guest.ubuntu.desktop/README.md) ·
+[read.more.md](read.more.md)

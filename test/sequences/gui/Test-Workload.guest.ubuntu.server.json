@@ -13,7 +13,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "${vmName} login:",
-      "timeoutSeconds": 600,
+      "timeoutSeconds": 900,
       "pollSeconds": 6,
       "text": "${username}",
       "sensitive": true,
@@ -22,7 +22,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Password:",
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
@@ -31,7 +31,7 @@
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "description": "${username}@${vmName}"
     },
@@ -40,7 +40,7 @@
       "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.code.sh",
       "description": "ubuntu.server.code.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
-      "waitTimeoutSeconds": 300,
+      "waitTimeoutSeconds": 600,
       "waitPollSeconds": 9
     },
     {

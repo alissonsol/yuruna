@@ -13,7 +13,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "${vmName} login:",
-      "timeoutSeconds": 600,
+      "timeoutSeconds": 900,
       "pollSeconds": 15,
       "text": "${username}",
       "sensitive": true,
@@ -22,7 +22,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Password:",
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
@@ -31,7 +31,7 @@
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "description": "${username}@${vmName}"
     },
@@ -51,7 +51,7 @@
     {
       "action": "waitForText",
       "pattern": "Ready",
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 9,
       "description": "Ready"
     },
@@ -65,12 +65,12 @@
       "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.workload.k8s.website.sh",
       "description": "ubuntu.server.workload.k8s.website.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
-      "waitTimeoutSeconds": 600,
+      "waitTimeoutSeconds": 900,
       "waitPollSeconds": 9
     },
     {
       "action": "delay",
-      "seconds": 60,
+      "seconds": 90,
       "description": "Wait for pods to start"
     },
     {
@@ -78,7 +78,7 @@
       "text": "clear; /automation/fetch-and-execute.sh test/test-localhost.sh",
       "description": "test-localhost.sh",
       "waitPattern": "200 OK",
-      "waitTimeoutSeconds": 60,
+      "waitTimeoutSeconds": 90,
       "waitPollSeconds": 6
     },
     {

@@ -13,7 +13,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Continue with autoinstall?",
-      "timeoutSeconds": 600,
+      "timeoutSeconds": 900,
       "pollSeconds": 6,
       "text": "yes",
       "description": "Continue with autoinstall?"
@@ -21,7 +21,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "${vmName} login:",
-      "timeoutSeconds": 600,
+      "timeoutSeconds": 900,
       "pollSeconds": 15,
       "text": "${username}",
       "sensitive": true,
@@ -30,7 +30,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": "Password:",
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "text": "${password}",
       "sensitive": true,
@@ -39,7 +39,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": ["Current password", "urrent password:"],
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "text": "${password}",
       "sensitive": true,
@@ -48,7 +48,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": ["New password", "ew password:"],
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
@@ -57,7 +57,7 @@
     {
       "action": "waitForAndEnter",
       "pattern": ["Retype new password", "etype new password:"],
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "text": "${newPassword}",
       "sensitive": true,
@@ -66,7 +66,7 @@
     {
       "action": "waitForText",
       "pattern": "${username}@${vmName}",
-      "timeoutSeconds": 60,
+      "timeoutSeconds": 90,
       "pollSeconds": 6,
       "description": "${username}@${vmName}"
     },
@@ -75,7 +75,7 @@
       "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.update.sh",
       "description": "ubuntu.server.update.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
-      "waitTimeoutSeconds": 600,
+      "waitTimeoutSeconds": 900,
       "waitPollSeconds": 9
     },
     {

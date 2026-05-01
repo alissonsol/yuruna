@@ -324,6 +324,31 @@ function Disable-WindowsHostProxy {
     Invoke-WinInetRefresh
 }
 
+function Remove-WindowsHostProxy {
+    # Aggressive, marker-LESS wipe. Used by Remove-HostProxy for the case
+    # where the yuruna marker has been lost (corrupted profile, manual
+    # registry edit, prior tool that wrote ProxyServer without the marker,
+    # etc.) and Clear-HostProxy / Disable-WindowsHostProxy therefore left
+    # the stale ProxyServer string behind. Unlike Disable-WindowsHostProxy
+    # which only touches ProxyEnable when there is no marker, this function
+    # removes ProxyServer + ProxyOverride unconditionally -- it is the
+    # caller's responsibility to know the current ProxyServer is junk
+    # (Test-CachingProxy.ps1 -ClearHostProxy is the documented entrypoint).
+    if (Test-Path -LiteralPath $script:WinInetRegPath) {
+        Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyEnable' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer'   -ErrorAction SilentlyContinue
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -ErrorAction SilentlyContinue
+    }
+    foreach ($name in 'HTTP_PROXY','HTTPS_PROXY','NO_PROXY') {
+        [Environment]::SetEnvironmentVariable($name, $null, 'User')
+        Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    }
+    [Environment]::SetEnvironmentVariable($script:EnvMarkerName, $null, 'User')
+    Remove-Item "Env:$($script:EnvMarkerName)" -ErrorAction SilentlyContinue
+    Invoke-WinInetRefresh
+}
+
 # =========================================================================
 # macOS implementation
 # =========================================================================
@@ -506,6 +531,24 @@ function Disable-MacHostProxy {
     if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
 }
 
+function Remove-MacHostProxy {
+    # Aggressive twin of Remove-WindowsHostProxy: state off + clear server +
+    # clear bypass list. networksetup has no "remove server" verb -- setting
+    # the server to '0.0.0.0' port 0 is the documented neutralizer (state
+    # off keeps it dormant; clearing the value removes the dangling string
+    # so a later tool inspecting `getwebproxy` sees no leftover host).
+    param([string]$NetworkService)
+    if (-not $NetworkService) { $NetworkService = Get-MacActiveNetworkService }
+    if (-not $NetworkService) { return }
+    Invoke-MacNetworksetup @('-setwebproxystate',       $NetworkService, 'off')
+    Invoke-MacNetworksetup @('-setsecurewebproxystate', $NetworkService, 'off')
+    Invoke-MacNetworksetup @('-setwebproxy',            $NetworkService, '0.0.0.0', '0')
+    Invoke-MacNetworksetup @('-setsecurewebproxy',      $NetworkService, '0.0.0.0', '0')
+    Invoke-MacNetworksetup @('-setproxybypassdomains',  $NetworkService, 'Empty')
+    $markerPath = Get-MacProxyMarkerPath
+    if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
+}
+
 # =========================================================================
 # Public API
 # =========================================================================
@@ -629,4 +672,73 @@ function Clear-HostProxy {
     }
 }
 
-Export-ModuleMember -Function Set-HostProxy, Clear-HostProxy, Get-HostProxyBackupPath
+function Remove-HostProxy {
+    <#
+    .SYNOPSIS
+        Aggressively wipe every host-proxy reference, including stale
+        non-yuruna entries that Clear-HostProxy intentionally leaves alone.
+
+    .DESCRIPTION
+        Clear-HostProxy is conservative on purpose: without a yuruna
+        marker (or backup snapshot) it disables the proxy but preserves
+        the existing ProxyServer string, in case it predates yuruna and
+        belongs to some other tool. That conservative path is wrong when
+        the existing string IS the problem -- e.g. WinINet ProxyServer
+        carries the IP of a previous Start-CachingProxy cycle whose VM
+        no longer exists, or HTTP_PROXY env var points at a dead box.
+
+        Remove-HostProxy is the explicit "I know it is junk, wipe it"
+        path. It removes WinINet ProxyEnable / ProxyServer / ProxyOverride
+        and every yuruna proxy env var (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+        unconditionally -- including the yuruna marker -- and deletes
+        the snapshot file at $HOME/.yuruna/host-proxy.backup.json.
+
+        macOS counterpart turns webproxy + securewebproxy off, sets the
+        server fields to 0.0.0.0:0 (networksetup has no "remove" verb),
+        and empties the bypass list.
+
+        Surfaced from Test-CachingProxy.ps1 via the -ClearHostProxy
+        switch when the diagnostic detects a stale system proxy that
+        Stop-CachingProxy.ps1 + -SetHostProxy can't repair on its own.
+
+    .PARAMETER NetworkService
+        macOS only -- override the auto-detected active network service.
+
+    .OUTPUTS
+        None.
+    #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [string]$NetworkService
+    )
+    $backupPath = Get-HostProxyBackupPath
+
+    if ($IsWindows) {
+        if (-not $PSCmdlet.ShouldProcess("Windows host (HKCU WinINet + HKCU\Environment)", "Wipe host proxy state")) {
+            return
+        }
+        Remove-WindowsHostProxy
+        Write-Output "  Host proxy: Windows WinINet (ProxyEnable/Server/Override) and HTTP_PROXY/HTTPS_PROXY/NO_PROXY env vars wiped"
+    } elseif ($IsMacOS) {
+        Invoke-MacElevationIfNeeded
+        $svc = if ($NetworkService) { $NetworkService } else { Get-MacActiveNetworkService }
+        if (-not $svc) {
+            throw "Could not auto-detect the active macOS network service. Pass -NetworkService 'Wi-Fi' (or the name of your active service)."
+        }
+        if (-not $PSCmdlet.ShouldProcess("macOS network service '$svc'", "Wipe host proxy state")) {
+            return
+        }
+        Remove-MacHostProxy -NetworkService $svc
+        Write-Output "  Host proxy: macOS web/securewebproxy disabled, server fields cleared, bypass list emptied on service '$svc'"
+    } else {
+        Write-Warning "Remove-HostProxy: unsupported platform; nothing to do."
+        return
+    }
+
+    if (Test-Path -LiteralPath $backupPath) {
+        Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+        Write-Output "  Host proxy: removed stale backup at $backupPath"
+    }
+}
+
+Export-ModuleMember -Function Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath

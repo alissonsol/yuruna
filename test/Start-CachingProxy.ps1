@@ -73,20 +73,20 @@ foreach ($p in @($GetImageScript, $NewVMScript)) {
 Write-Output ""
 Write-Output "=== Step 1: cleanup previous '$VMName' VM ==="
 
-# Wipe any leftover yuruna host-proxy promotion BEFORE provisioning. Without
-# this, a previous cycle's WinINet/networksetup ProxyServer (potentially a
-# stale IP that no longer matches the cache about to be created) lingers
-# until Stop-CachingProxy restores from backup.json -- and if the cache IP
-# changed between cycles, every subsequent Test-CachingProxy -SetHostProxy
-# probe would warn about a mismatch the operator can't undo without manual
-# registry / networksetup edits. Symmetric with Stop-CachingProxy.ps1.
+# Wipe any leftover host-proxy state BEFORE provisioning. Remove-HostProxy
+# (not Clear-HostProxy) is the right model: a previous cycle's WinINet
+# ProxyServer or HTTP_PROXY env var pointing at an IP that no longer hosts
+# squid is junk we want gone, not state we want to preserve. The earlier
+# snapshot/restore design captured whatever was on disk at first promotion
+# and faithfully reinstated it on each Stop, leaking stale IPs into every
+# subsequent Test-CachingProxy probe. Symmetric with Stop-CachingProxy.ps1.
 $hostProxyMod = Join-Path $PSScriptRoot 'modules/Test.HostProxy.psm1'
 if (Test-Path -LiteralPath $hostProxyMod) {
     Import-Module $hostProxyMod -Force
     try {
-        Clear-HostProxy
+        Remove-HostProxy
     } catch {
-        Write-Warning "  Clear-HostProxy failed: $($_.Exception.Message). Cleanup will continue."
+        Write-Warning "  Remove-HostProxy failed: $($_.Exception.Message). Cleanup will continue."
     }
 }
 if ($IsMacOS) {

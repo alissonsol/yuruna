@@ -38,25 +38,28 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
-# === Revert machine-wide host proxy (if it was promoted) ===================
-# Symmetric with Test-CachingProxy.ps1 -SetHostProxy. Runs UNCONDITIONALLY:
-# the module's Clear-HostProxy restores from $HOME/.yuruna/host-proxy.backup.json
-# when it exists and no-ops (with a disable-only fallback) when it doesn't,
-# so calling it here is safe even if -SetHostProxy was never used. Done
-# first so a failure tearing down the VM doesn't leave the host pointing at
-# a dead proxy for the rest of the session.
+# === Wipe machine-wide host proxy (if it was promoted) =====================
+# Symmetric with Test-CachingProxy.ps1 -SetHostProxy. Runs UNCONDITIONALLY
+# and uses Remove-HostProxy (definitive wipe) rather than the older
+# Clear-HostProxy (snapshot/restore from $HOME/.yuruna/host-proxy.backup.json).
+# Definitive wipe is the right model here: any HTTP_PROXY/HTTPS_PROXY env
+# var or WinINet ProxyServer string left after Stop-CachingProxy is, by
+# definition, pointing at a cache VM we are tearing down -- restoring
+# whatever was there before just leaks a stale IP into the next cycle.
+# Done first so a failure tearing down the VM doesn't leave the host
+# pointing at a dead proxy for the rest of the session.
 # On macOS networksetup requires root — the sudo preamble above guarantees
 # we are already elevated by the time this runs.
 $hostProxyMod = Join-Path $PSScriptRoot 'modules/Test.HostProxy.psm1'
 if (Test-Path -LiteralPath $hostProxyMod) {
     Import-Module $hostProxyMod -Force
     try {
-        Clear-HostProxy
+        Remove-HostProxy
     } catch {
-        # Any other failure (e.g. a corrupt backup, a transient networksetup
-        # error) surfaces as a warning so the user can clean up manually,
-        # but doesn't block the VM teardown from finishing.
-        Write-Warning "Clear-HostProxy failed: $($_.Exception.Message). VM teardown will continue."
+        # Transient networksetup error or registry permission glitch:
+        # surface as a warning so the user can clean up manually, but
+        # don't block the VM teardown from finishing.
+        Write-Warning "Remove-HostProxy failed: $($_.Exception.Message). VM teardown will continue."
     }
 }
 

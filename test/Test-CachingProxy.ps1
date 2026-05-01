@@ -27,8 +27,10 @@
 .PARAMETER CacheIp         Override the env var and local discovery.
 .PARAMETER SetHostProxy    On success, promote to host proxy (Windows:
                            user WinINet; macOS: networksetup, needs sudo).
-                           Backs up previous state to
-                           $HOME/.yuruna/host-proxy.backup.json.
+                           Wipes any stale WinINet ProxyServer + proxy
+                           env vars BEFORE writing the new state, so a
+                           single `-SetHostProxy` run is enough to fix
+                           a stale-proxy WARN.
 .PARAMETER NetworkService  macOS: override auto-detected network service.
 #>
 
@@ -227,49 +229,77 @@ if ($IsMacOS) {
     Write-Output "  (no platform-specific system-proxy probe on this OS)"
 }
 
-$probeUri = [System.Uri]::new('https://cdimage.ubuntu.com/')
-$dotnetResolved = $null
-try {
-    $dotnetProxy = [System.Net.WebRequest]::DefaultWebProxy
-    $dotnetResolved = $dotnetProxy.GetProxy($probeUri)
-    Write-Output ("  .NET DefaultWebProxy type: " + $dotnetProxy.GetType().FullName)
-    Write-Output ("  .NET GetProxy($probeUri) = $dotnetResolved")
-} catch {
-    Write-Output "  .NET DefaultWebProxy probe failed: $($_.Exception.Message)"
-}
+# === Effective proxy for outbound calls =================================
+# Read process env vars DIRECTLY rather than asking
+# [System.Net.WebRequest]::DefaultWebProxy.GetProxy(). DefaultWebProxy
+# is a per-AppDomain singleton -- HttpEnvironmentProxy gets constructed
+# from env vars on the FIRST .NET HTTP call and is then cached for the
+# life of the process, with no refresh path. So once Test-CachingProxy.ps1
+# (or any earlier script in the same pwsh) has touched .NET HTTP, the
+# singleton is stuck at whatever HTTP_PROXY said at that moment, even
+# after Set-WindowsHostProxy updates $env:HTTP_PROXY in the same session.
+# That is why two consecutive -SetHostProxy runs in one pwsh kept warning
+# despite the underlying state being correct.
+#
+# Reading env vars directly reflects what NEW child processes will
+# inherit (Invoke-TestRunner spawns fresh pwsh per cycle on Windows;
+# child gets the parent's process env block at fork time, builds its
+# own DefaultWebProxy from THOSE values). $env: hits the live process
+# env block on every read.
+$envHttp  = $env:HTTP_PROXY
+$envHttps = $env:HTTPS_PROXY
+$envNo    = $env:NO_PROXY
+Write-Output "  Process env (what child processes inherit):"
+Write-Output ("    HTTP_PROXY    = " + ($(if ($envHttp)  { $envHttp }  else { '(not set)' })))
+Write-Output ("    HTTPS_PROXY   = " + ($(if ($envHttps) { $envHttps } else { '(not set)' })))
+Write-Output ("    NO_PROXY      = " + ($(if ($envNo)    { $envNo }    else { '(not set)' })))
 
-# If .NET returns the original URL, it means "go direct, no proxy".
-# Anything else is a proxy — compare it against the cache we just probed.
-if ($dotnetResolved -and $dotnetResolved.AbsoluteUri -ne $probeUri.AbsoluteUri) {
-    $dotnetHost = $dotnetResolved.Host
-    $dotnetPort = $dotnetResolved.Port
-    if ($dotnetHost -eq $resolvedIp -and $dotnetPort -eq 3128) {
-        Write-Pass "System proxy routes external requests via ${dotnetHost}:${dotnetPort} (matches probe target)"
-    } else {
-        $platformTool = if ($IsMacOS) { 'networksetup (scutil --proxy)' } else { 'WinINet / WinHTTP' }
-        Write-Warn "System proxy routes external requests via ${dotnetHost}:${dotnetPort} but the caching proxy under test is ${resolvedIp}:3128 — Invoke-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${dotnetHost}:${dotnetPort}, not the proxy you're testing. Likely a stale $platformTool setting from a previous Start-CachingProxy cycle."
-        Write-Output ""
-        if ($SetHostProxy) {
-            # The promotion below repoints the system proxy at $resolvedIp,
-            # so this run will end with WinINet/networksetup pointed at the
-            # correct cache. (Set-HostProxy writes a yuruna marker so the
-            # backup it captures is a clean snapshot rather than the stale
-            # value above -- a later Stop-CachingProxy then truly restores
-            # the user's pre-yuruna state.)
-            Write-Output "==== FIX ===="
-            Write-Output ""
-            Write-Output "  This run will overwrite the stale setting via the promotion below."
-        } else {
-            $stopCmd    = if ($IsMacOS) { 'sudo -E pwsh test/Stop-CachingProxy.ps1' } else { 'pwsh test/Stop-CachingProxy.ps1' }
-            $promoteCmd = if ($IsMacOS) { 'sudo -E pwsh test/Test-CachingProxy.ps1 -SetHostProxy' } else { 'pwsh test/Test-CachingProxy.ps1 -SetHostProxy' }
-            Write-Output "==== FIX ===="
-            Write-Output ""
-            Write-Output "  $stopCmd"
-            Write-Output "  $promoteCmd"
+# Hint: HKCU env (User scope) drives what fresh-from-explorer pwsh sees;
+# Process scope drives what children of THIS pwsh see. They diverge when
+# the parent shell predates the most recent setx -- informational, no WARN.
+if ($IsWindows) {
+    foreach ($name in 'HTTP_PROXY','HTTPS_PROXY') {
+        $procVal = [Environment]::GetEnvironmentVariable($name, 'Process')
+        $userVal = [Environment]::GetEnvironmentVariable($name, 'User')
+        if (($procVal -or $userVal) -and ($procVal -ne $userVal)) {
+            $shown = if ($userVal) { $userVal } else { '(not set)' }
+            Write-Output ("    (HKCU $name = $shown differs from this process; new shells from explorer would see HKCU.)")
         }
     }
+}
+
+# HTTPS_PROXY wins for HTTPS targets (cdimage.ubuntu.com is the canonical
+# probe URL); fall back to HTTP_PROXY when only that is set.
+$effProxy = if ($envHttps) { $envHttps } else { $envHttp }
+$effHost = $null; $effPort = $null
+if ($effProxy -and $effProxy -match '^https?://([^:/]+):(\d+)/?') {
+    $effHost = $matches[1]
+    $effPort = [int]$matches[2]
+}
+
+if (-not $effHost) {
+    Write-Pass "No process-env proxy configured (HTTP/HTTPS clients go direct or via WinINet for WinINet-aware apps)"
+} elseif ($effHost -eq $resolvedIp -and $effPort -eq 3128) {
+    Write-Pass "Process env routes external requests via ${effHost}:${effPort} (matches probe target)"
 } else {
-    Write-Pass "No system-level proxy configured (external HTTP/HTTPS clients go direct)"
+    Write-Warn "Process env HTTP(S)_PROXY routes external requests via ${effHost}:${effPort} but the caching proxy under test is ${resolvedIp}:3128 — Invoke-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${effHost}:${effPort}, not the proxy you're testing. Stale env from before the most recent -SetHostProxy."
+    Write-Output ""
+    if ($SetHostProxy) {
+        # The promotion below wipes process env (Remove-HostProxy) and
+        # writes the new yuruna proxy. Single-step recovery: the WARN
+        # above will be gone after this run completes.
+        Write-Output "==== FIX ===="
+        Write-Output ""
+        Write-Output "  This run will wipe the stale env vars and promote ${resolvedIp}:3128 below."
+    } else {
+        $isElev    = if ($IsMacOS) { 'sudo -E ' } else { '' }
+        $promoteCmd= "${isElev}pwsh test/Test-CachingProxy.ps1 -SetHostProxy"
+        Write-Output "==== FIX ===="
+        Write-Output ""
+        Write-Output "  Single step -- wipes the stale process-env HTTP(S)_PROXY and"
+        Write-Output "  promotes ${resolvedIp}:3128:"
+        Write-Output "    $promoteCmd"
+    }
 }
 
 # === Summary ============================================================
@@ -286,10 +316,18 @@ if ($script:FailCount -gt 0) {
 # === Optional: promote to machine-wide host proxy =======================
 # Only runs when every FAIL-level check passed -- WARN-level (missing :80 /
 # missing CA cert) is compatible with a working HTTP proxy, so we don't
-# block promotion on it. Test.HostProxy.psm1 snapshots the user's prior
-# proxy state into $HOME/.yuruna/host-proxy.backup.json before writing,
-# so Stop-CachingProxy.ps1 can restore it exactly rather than blindly
-# wiping whatever proxy the user had before.
+# block promotion on it.
+#
+# Auto-wipe before promotion: Remove-HostProxy unconditionally clears any
+# leftover WinINet ProxyServer string and HTTP_PROXY/HTTPS_PROXY/NO_PROXY
+# env vars BEFORE Set-HostProxy writes the new ones. The previous
+# snapshot-and-restore design preserved whatever proxy state was on the
+# host when the FIRST Set-HostProxy ran -- which on a host that had a
+# pre-existing (or older-cycle) HTTP_PROXY env var meant Stop-CachingProxy
+# would faithfully restore it, leaking a stale IP into every subsequent
+# Test-CachingProxy probe. Wiping first means each promotion lands on a
+# guaranteed-clean baseline; Stop-CachingProxy similarly wipes definitively
+# rather than restoring. No user-action -ClearHostProxy required.
 
 if ($SetHostProxy) {
     Write-Output ""
@@ -301,15 +339,18 @@ if ($SetHostProxy) {
     }
     Import-Module $hostProxyMod -Force
     try {
-        $params = @{ Url = "http://${resolvedIp}:3128" }
-        if ($NetworkService) { $params.NetworkService = $NetworkService }
-        Set-HostProxy @params
+        $removeParams = @{}
+        if ($NetworkService) { $removeParams.NetworkService = $NetworkService }
+        Remove-HostProxy @removeParams
+        $setParams = @{ Url = "http://${resolvedIp}:3128" }
+        if ($NetworkService) { $setParams.NetworkService = $NetworkService }
+        Set-HostProxy @setParams
         Write-Output ""
         Write-Output "Host proxy is now http://${resolvedIp}:3128."
-        Write-Output "Run 'pwsh test/Stop-CachingProxy.ps1' to restore the previous proxy state."
+        Write-Output "Run 'pwsh test/Stop-CachingProxy.ps1' to wipe the host proxy when you're done."
     } catch {
         Write-Output ""
-        Write-Output "[FAIL] Set-HostProxy threw: $($_.Exception.Message)"
+        Write-Output "[FAIL] -SetHostProxy threw: $($_.Exception.Message)"
         exit 1
     }
 }

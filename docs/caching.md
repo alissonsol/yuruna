@@ -356,9 +356,8 @@ TcpListener on macOS — and re-applied by every caller of
 
 ### Real client IPs in the access log: PROXY protocol on :3128 / :3129
 
-Plain TCP forwarding (netsh portproxy on Windows, the macOS pwsh
-TcpListener) NATs the source IP — every connection that reaches squid
-through the host shows the host's NAT-side IP (e.g.
+Plain TCP forwarding NATs the source IP — every connection that reaches
+squid through the host shows the host's NAT-side IP (e.g.
 `172.24.208.1 / Alius202605a.mshome.net` on Hyper-V Default Switch).
 That obscures *which* LAN client made each request.
 
@@ -368,20 +367,37 @@ PROXY v1 line — `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\
 prepended by the forwarder before the byte stream — and uses the
 supplied client IP for ACLs and the access log.
 
-The wiring:
+PROXY-v1 source-IP preservation is **macOS-only** today. On Windows
+hosts the userspace pwsh forwarder is unreachable from the LAN —
+Windows Defender Firewall silently drops inbound TCP to user-mode
+listeners on 3128/3129 even with both port-scope and per-program Allow
+rules in place (verified by direct probing, by re-probing from the
+cache VM through the Default-Switch NAT, and against multiple host
+configurations). 80/3000/8022 work via netsh portproxy because IP
+Helper's kernel-mode listener is not subject to the same per-program
+filter; on Windows we keep 3128/3129 on the same kernel-mode path and
+accept the source-IP loss in squid logs.
 
-| Endpoint           | Host port | VM port | Forwarder                    | Notes                                  |
-|--------------------|-----------|---------|------------------------------|----------------------------------------|
-| Squid HTTP         | 3128      | **3138**| pwsh + PROXY v1              | `http_port 3138 require-proxy-header`  |
-| Squid SSL-bump     | 3129      | **3139**| pwsh + PROXY v1              | `http_port 3139 require-proxy-header ssl-bump ...` |
-| Apache CA cert     | 80        | 80      | netsh portproxy (Windows)    | source IP not relevant (static file)   |
-| Grafana            | 3000      | 3000    | netsh portproxy (Windows)    | source IP not relevant (dashboard UI)  |
-| SSH                | 8022      | 22      | netsh portproxy (Windows)    | sshd has its own client-IP logging     |
+The wiring (per platform):
+
+| Endpoint       | Host port | macOS VM | Windows VM | macOS forwarder  | Windows forwarder | Notes                                                  |
+|----------------|-----------|----------|------------|------------------|-------------------|--------------------------------------------------------|
+| Squid HTTP     | 3128      | 3138     | 3128       | pwsh + PROXY v1  | netsh portproxy   | macOS: `http_port 3138 require-proxy-header`           |
+| Squid SSL-bump | 3129      | 3139     | 3129       | pwsh + PROXY v1  | netsh portproxy   | macOS: `http_port 3139 require-proxy-header ssl-bump`  |
+| Apache CA cert | 80        | 80       | 80         | pwsh (sudo bind) | netsh portproxy   | static file — source IP not relevant                   |
+| Grafana        | 3000      | 3000     | 3000       | pwsh             | netsh portproxy   | dashboard UI — source IP not relevant                  |
+| SSH            | 8022      | 22       | 22         | pwsh             | netsh portproxy   | sshd has its own client-IP logging                     |
+
+The cache VM keeps both pairs of squid listeners up regardless of
+platform — `http_port 3128` / `http_port 3129` (no PROXY) for direct
+guests, plus `http_port 3138 require-proxy-header` / `http_port 3139
+require-proxy-header` for any future PROXY-v1 source. Windows hosts
+just don't traverse the latter pair today.
 
 Local guests on the Default Switch / Shared NAT still hit `:3128` and
 `:3129` directly (no PROXY header) — they get correct source IPs the
-old way (no NAT in the path). Only LAN traffic going through the host
-forwarder needs the PROXY-v1 detour.
+old way (no NAT in the path). On macOS, only LAN traffic going through
+the host forwarder takes the PROXY-v1 detour.
 
 `proxy_protocol_access` allows PROXY headers from RFC1918 + loopback
 only — the host forwarder is on a private network and there's no
@@ -390,9 +406,12 @@ default posture costs nothing.
 
 Implementation: the `-PrependProxyV1` switch on
 [`virtual/host.macos.utm/Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
-(used cross-platform — pure PowerShell), wired through
+(pure PowerShell, cross-platform), wired through
 [`test/modules/Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1)'s
-`-ProxyProtocolPort` parameter on `Add-CachingProxyPortMap`.
+`-ProxyProtocolPort` parameter on `Add-CachingProxyPortMap`. Only the
+macOS branch of every caller passes that parameter; the Windows branch
+maps 3128/3129 plainly (host:N → VM:N) so the kernel-mode netsh listener
+is what the LAN client actually reaches.
 
 Both paths exist because the VM is most often debugged before cloud-init
 finishes. The password is not a secret: the VM is reachable only on the

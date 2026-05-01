@@ -329,16 +329,23 @@ if ($IsMacOS) {
     if ($cacheIp) {
         $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
         Import-Module $portMapMod -Force
-        # See macOS branch above for the rationale on each port:
-        #   8022 -> VM 22         : SSH on non-standard host port.
-        #   3128 -> VM 3138 PROXY : squid HTTP, real client IP preserved.
-        #   3129 -> VM 3139 PROXY : squid SSL-bump HTTPS, real client IP.
-        # 80 (CA cert) and 3000 (Grafana) stay on netsh portproxy — PROXY
-        # protocol is meaningless for those endpoints and netsh is faster.
+        # All ports stay on netsh portproxy — kernel-mode listener (IP Helper
+        # service) is the only path that's reliably reachable from LAN on
+        # Hyper-V hosts. The userspace pwsh-forwarder + PROXY v1 path used
+        # on macOS does NOT work here: Windows Defender Firewall silently
+        # drops inbound TCP to the user-mode pwsh listener even with both
+        # the port-scope and per-program Allow rules in place — confirmed
+        # by direct probing and from the cache VM itself reaching back to
+        # the host's LAN IP. 80/3000/8022 all work via netsh, 3128/3129
+        # silently time out via the userspace forwarder. Cost of the
+        # revert: LAN clients show up in squid's access.log as the host's
+        # NAT-side IP rather than their real LAN IP. Local Default-Switch
+        # guests are unaffected — they reach the VM directly and bypass
+        # the host forwarder entirely (Test-CachingProxyAvailable returns
+        # the VM IP, not the host IP, on this platform).
         [void](Add-CachingProxyPortMap -VMIp $cacheIp `
-                -Port @(80, 3000) `
-                -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
-                -ProxyProtocolPort @(3128, 3129))
+                -Port @(80, 3000, 3128, 3129) `
+                -PortRemap @{8022 = 22})
     }
 }
 

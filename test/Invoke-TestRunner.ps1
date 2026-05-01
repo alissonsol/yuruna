@@ -380,16 +380,38 @@ if ($cachingProxyUrl) {
         # because Add-CachingProxyPortMap clears ALL Yuruna netsh / pwsh-
         # forwarder / firewall state first; omitting any port here would
         # tear it down every test cycle.
-        #   8022 -> VM 22         : SSH on non-standard host port.
-        #   3128 -> VM 3138 PROXY : squid HTTP w/ real client IP preserved.
-        #   3129 -> VM 3139 PROXY : squid SSL-bump HTTPS w/ real client IP.
-        # On macOS the 80 forwarder is owned exclusively by Start-CachingProxy.ps1
-        # (it pre-caches sudo for the privileged bind); see that script.
-        $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000) }
-        $mapResult = Add-CachingProxyPortMap -VMIp $portMapIp `
-                        -Port $CachingProxyExposedPorts `
-                        -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
-                        -ProxyProtocolPort @(3128, 3129)
+        #
+        # 3128 / 3129 mapping is platform-divergent:
+        #   * macOS: host:3128 -> VM:3138 (PROXY v1) and host:3129 -> VM:3139
+        #     (PROXY v1) — Apple VZ has no Defender layer, the userspace
+        #     pwsh forwarder bound on 0.0.0.0 is reachable from the LAN,
+        #     and squid sees the real LAN client IP via the PROXY v1
+        #     header in access.log.
+        #   * Windows: host:3128 -> VM:3128 and host:3129 -> VM:3129 via
+        #     plain netsh portproxy (kernel-mode IP Helper). The userspace
+        #     pwsh forwarder is silently dropped by Windows Defender
+        #     Firewall on inbound LAN traffic even with port-scope AND
+        #     per-program Allow rules in place — confirmed by direct
+        #     probing from a remote macOS and from the cache VM itself
+        #     reaching back to the host's LAN IP. 80/3000/8022 work
+        #     reliably via netsh; 3128/3129 join them. Cost: LAN clients
+        #     log as the host's NAT-side IP rather than their real IP.
+        #     Local Default-Switch guests are unaffected (they reach the
+        #     VM directly).
+        # On macOS the :80 forwarder is owned exclusively by Start-CachingProxy.ps1
+        # (it pre-caches sudo for the privileged bind); leave it out here.
+        $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 3128, 3129) }
+        $portMapArgs = @{
+            VMIp = $portMapIp
+            Port = $CachingProxyExposedPorts
+            PortRemap = @{ 8022 = 22 }
+        }
+        if ($IsMacOS) {
+            $portMapArgs.PortRemap[3128] = 3138
+            $portMapArgs.PortRemap[3129] = 3139
+            $portMapArgs.ProxyProtocolPort = @(3128, 3129)
+        }
+        $mapResult = Add-CachingProxyPortMap @portMapArgs
         $mapOk = [bool]$mapResult
         $bestIp = Get-BestHostIp
         if (-not $bestIp) { $bestIp = $vmIp }  # no routable iface — fall back

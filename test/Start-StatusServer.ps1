@@ -491,17 +491,32 @@ try {
                     # list because Add-CachingProxyPortMap clears ALL Yuruna netsh /
                     # pwsh-forwarder / firewall state first; omitting any here
                     # would tear it down each status-server restart.
-                    #   8022 -> VM 22         : SSH on non-standard host port.
-                    #   3128 -> VM 3138 PROXY : squid HTTP w/ real client IP preserved.
-                    #   3129 -> VM 3139 PROXY : squid SSL-bump HTTPS w/ real client IP.
-                    # macOS skips :80 — see Start-CachingProxy.ps1, port 80 is
-                    # privileged-bind and Start-CachingProxy is the sole sudo owner.
-                    $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000) }
+                    #
+                    # 3128 / 3129 mapping is platform-divergent (see Invoke-TestRunner.ps1
+                    # for the full rationale):
+                    #   * macOS: host:3128 -> VM:3138 / host:3129 -> VM:3139 via
+                    #     userspace pwsh forwarder + PROXY v1 (real client IP in
+                    #     squid logs).
+                    #   * Windows: host:3128 -> VM:3128 / host:3129 -> VM:3129 via
+                    #     plain netsh portproxy. Defender silently drops inbound
+                    #     LAN traffic to the user-mode pwsh forwarder even with
+                    #     port-scope + per-program Allow rules; netsh kernel-mode
+                    #     bypasses that filter (same path 80/3000/8022 already use).
+                    # macOS skips :80 — Start-CachingProxy.ps1 is the sole sudo
+                    # owner of the privileged bind.
+                    $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 3128, 3129) }
                     if ($vmIp) {
-                        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp `
-                                        -Port $squidPorts `
-                                        -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
-                                        -ProxyProtocolPort @(3128, 3129)
+                        $portMapArgs = @{
+                            VMIp = $vmIp
+                            Port = $squidPorts
+                            PortRemap = @{ 8022 = 22 }
+                        }
+                        if ($IsMacOS) {
+                            $portMapArgs.PortRemap[3128] = 3138
+                            $portMapArgs.PortRemap[3129] = 3139
+                            $portMapArgs.ProxyProtocolPort = @(3128, 3129)
+                        }
+                        $mapResult = Add-CachingProxyPortMap @portMapArgs
                         $mapOk = [bool]$mapResult
                     }
                     if ($mapOk) {

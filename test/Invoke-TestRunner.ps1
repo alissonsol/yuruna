@@ -376,8 +376,12 @@ if ($cachingProxyUrl) {
         # that pre-caches sudo credentials via `sudo -v`. Including port 80 here
         # would trigger a sudo password prompt every time Invoke-TestRunner
         # starts. Leave it out — Start-CachingProxy manages :80 exclusively.
-        $CachingProxyExposedPorts = if ($IsMacOS) { @(3128, 3129, 3000) } else { @(80, 3128, 3129, 3000) }
-        $mapResult = Add-CachingProxyPortMap -VMIp $portMapIp -Port $CachingProxyExposedPorts
+        # 8022 -> VM 22 (SSH on non-standard host port) — included in EVERY
+        # caller's list because Add-CachingProxyPortMap clears ALL Yuruna
+        # netsh/firewall rules first; omitting it here would tear down the
+        # operator's SSH forward each test cycle.
+        $CachingProxyExposedPorts = if ($IsMacOS) { @(3128, 3129, 3000, 8022) } else { @(80, 3128, 3129, 3000, 8022) }
+        $mapResult = Add-CachingProxyPortMap -VMIp $portMapIp -Port $CachingProxyExposedPorts -PortRemap @{8022 = 22}
         $mapOk = [bool]$mapResult
         $bestIp = Get-BestHostIp
         if (-not $bestIp) { $bestIp = $vmIp }  # no routable iface — fall back

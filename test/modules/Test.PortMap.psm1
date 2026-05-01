@@ -191,9 +191,16 @@ function Clear-AllCachingProxyPortMapping {
     Test-CachingProxyAvailable / Get-WorkingCachingProxyUrl).
 
 .PARAMETER Port
-    One or more TCP ports to forward. Host port == VM port. Default: 3000
-    (Grafana). Callers can pass @(3000, 9090) to also expose Prometheus,
-    etc. — no config changes required elsewhere.
+    One or more TCP ports to forward where host port == VM port. Default:
+    3000 (Grafana). Callers can pass @(3000, 9090) to also expose
+    Prometheus, etc. — no config changes required elsewhere.
+
+.PARAMETER PortRemap
+    Hashtable of host-port -> VM-port pairs for ports that DIFFER on each
+    side (e.g. @{8022 = 22} forwards host :8022 to VM :22 for SSH on a
+    non-standard host port to avoid colliding with the host's own sshd).
+    Keys and values are coerced to int. Pairs are merged with -Port into
+    a single list; a host port appearing in both wins from -PortRemap.
 
 .PARAMETER TrackDir
     Directory to write the state file to. Defaults to $env:YURUNA_TRACK_DIR.
@@ -207,12 +214,28 @@ function Add-CachingProxyPortMap {
     param(
         [Parameter(Mandatory)][string]$VMIp,
         [int[]]$Port = @(3000),
+        [hashtable]$PortRemap = @{},
         [string]$TrackDir
     )
 
     if ($VMIp -notmatch '^\d+\.\d+\.\d+\.\d+$') {
         Write-Warning "Add-CachingProxyPortMap: VMIp '$VMIp' is not a valid IPv4 address — skipping."
         return $null
+    }
+
+    # Normalize -Port + -PortRemap into a single list of [HostPort, VMPort]
+    # pairs. -PortRemap entries override matching -Port entries on the same
+    # host port (so a caller can pass `-Port @(22) -PortRemap @{22=22}`
+    # without duplicates).
+    $remapHostPorts = @{}
+    foreach ($k in $PortRemap.Keys) { $remapHostPorts[[int]$k] = [int]$PortRemap[$k] }
+    $mappings = @()
+    foreach ($p in $Port) {
+        if ($remapHostPorts.ContainsKey([int]$p)) { continue }
+        $mappings += [PSCustomObject]@{ HostPort = [int]$p; VMPort = [int]$p }
+    }
+    foreach ($k in $remapHostPorts.Keys) {
+        $mappings += [PSCustomObject]@{ HostPort = [int]$k; VMPort = [int]$remapHostPorts[$k] }
     }
 
     # macOS branch — delegate to the per-port forwarder primitives in
@@ -237,9 +260,9 @@ function Add-CachingProxyPortMap {
         # via `sudo -E pwsh` — the caller (Start-CachingProxy.ps1) pre-caches
         # credentials with `sudo -v` before reaching here.
         $launched = @()
-        foreach ($p in $Port) {
-            if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${p} -> ${VMIp}:${p}", 'Launch macOS squid forwarder')) { continue }
-            if (Start-CachingProxyForwarder -CacheIp $VMIp -Port $p) { $launched += $p }
+        foreach ($m in $mappings) {
+            if (-not $PSCmdlet.ShouldProcess("0.0.0.0:$($m.HostPort) -> ${VMIp}:$($m.VMPort)", 'Launch macOS squid forwarder')) { continue }
+            if (Start-CachingProxyForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort) { $launched += $m.HostPort }
         }
         if ($launched.Count -eq 0) { return $null }
         return "macos:forwarders=$($launched -join ',')"
@@ -271,37 +294,48 @@ function Add-CachingProxyPortMap {
     # deleted and we start the new write from scratch.
     [void](Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
 
-    foreach ($p in $Port) {
-        if (-not $PSCmdlet.ShouldProcess("host:${p} -> ${VMIp}:${p}", 'Add port mapping')) { continue }
+    foreach ($m in $mappings) {
+        $hostPort = $m.HostPort; $vmPort = $m.VMPort
+        if (-not $PSCmdlet.ShouldProcess("host:${hostPort} -> ${VMIp}:${vmPort}", 'Add port mapping')) { continue }
 
         # Step 1 — remove any stale portproxy on this listenport. netsh won't
         # overwrite an existing rule in place; `add` with the same listenport
         # returns "The object already exists" and leaves the old mapping.
-        & netsh interface portproxy delete v4tov4 listenport=$p listenaddress=0.0.0.0 2>&1 | Out-Null
+        & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
 
         # Step 2 — create the portproxy mapping.
-        & netsh interface portproxy add v4tov4 listenport=$p listenaddress=0.0.0.0 connectport=$p connectaddress=$VMIp | Out-Null
+        & netsh interface portproxy add v4tov4 listenport=$hostPort listenaddress=0.0.0.0 connectport=$vmPort connectaddress=$VMIp | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Add-CachingProxyPortMap: netsh portproxy add failed for port ${p} (exit $LASTEXITCODE)."
+            Write-Warning "Add-CachingProxyPortMap: netsh portproxy add failed for host ${hostPort} -> ${VMIp}:${vmPort} (exit $LASTEXITCODE)."
             continue
         }
 
         # Step 3 — open Windows Firewall. Delete-then-add keeps the rule
-        # idempotent (no duplicates across repeated cycle starts).
-        $ruleName = "${script:FirewallRulePrefix}${p}"
+        # idempotent (no duplicates across repeated cycle starts). Rule
+        # name uses HOST port (predictable, what netsh listens on).
+        $ruleName = "${script:FirewallRulePrefix}${hostPort}"
         Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
             Remove-NetFirewallRule -ErrorAction SilentlyContinue
         New-NetFirewallRule -DisplayName $ruleName -Direction Inbound `
-            -Protocol TCP -LocalPort $p -Action Allow `
-            -Description "Yuruna caching proxy: forward host :${p} to VM :${p}" `
+            -Protocol TCP -LocalPort $hostPort -Action Allow `
+            -Description "Yuruna caching proxy: forward host :${hostPort} to VM :${vmPort}" `
             -ErrorAction SilentlyContinue | Out-Null
 
-        Write-Output "  Port map added: host:${p} -> ${VMIp}:${p}"
+        Write-Output "  Port map added: host:${hostPort} -> ${VMIp}:${vmPort}"
     }
 
+    # State file: `ports` stays as host-port-only list for cleanup
+    # (Clear-AllCachingProxyPortMapping reads it that way). `mappings` is
+    # the canonical record including VM ports — for diagnostics and to
+    # surface non-matching pairs (e.g. 8022->22) when an operator inspects
+    # the file. Old state files (pre-PortRemap, with `ports` only) still
+    # cleanup correctly because cleanup never needed VM ports.
     $state = [ordered]@{
         vmIp      = $VMIp
-        ports     = @($Port)
+        ports     = @($mappings | ForEach-Object { $_.HostPort })
+        mappings  = @($mappings | ForEach-Object {
+            [ordered]@{ hostPort = $_.HostPort; vmPort = $_.VMPort }
+        })
         createdAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     }
     $tmp = "$statePath.tmp"

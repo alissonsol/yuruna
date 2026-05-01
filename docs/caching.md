@@ -200,7 +200,7 @@ URL. `offline_mode` is flipped **after** prewarm because an empty cache +
 Temporary — serve from origin for one burst, then offline again:
 
 ```bash
-ssh ubuntu@<squid-cache-ip>
+ssh yuruna@<squid-cache-ip>
 sudo rm /etc/squid/conf.d/yuruna-offline.conf && sudo squid -k reconfigure
 # ... apt-get update etc. ...
 echo "offline_mode on" | sudo tee /etc/squid/conf.d/yuruna-offline.conf
@@ -315,7 +315,9 @@ stop squid, `rm -rf /var/spool/squid/*`, `squid -z`.
 
 ## Access / credentials
 
-Cloud-init configures the default `ubuntu` user with:
+Cloud-init creates a single `yuruna` debug user (replacing the Ubuntu
+cloud image's default `ubuntu` user — `users:` in user-data with no
+`- default` entry suppresses ubuntu creation entirely). It has:
 
 - **Password** — fresh random 10-char alphanumeric per `New-VM.ps1` run.
   Printed in the ready banner, saved to
@@ -327,7 +329,25 @@ Cloud-init configures the default `ubuntu` user with:
 - **SSH key** — the harness public key from
   `test/.ssh/yuruna_ed25519` via
   [Test.Ssh.psm1](../test/modules/Test.Ssh.psm1). `ssh
-  ubuntu@<squid-cache-ip>` is passwordless from the host.
+  yuruna@<squid-cache-ip>` is passwordless from the host.
+- **Sudo** — passwordless (`NOPASSWD:ALL`). Same trust model as the
+  password: this VM is on a private switch, RFC1918-only.
+
+### Reaching the cache from outside the host (port 8022)
+
+`Start-CachingProxy.ps1` adds an `8022 -> 22` host port forward
+alongside the squid/Grafana ones, so a remote operator can SSH to the
+cache from any LAN client:
+
+```bash
+ssh -p 8022 yuruna@<host-lan-ip>     # -> cache VM :22
+```
+
+Port 8022 (not 22) on the host avoids colliding with the host's own
+sshd. The forward is managed the same way as :3128 / :3000 — netsh
+portproxy + Yuruna firewall rule on Windows, detached pwsh
+TcpListener on macOS — and re-applied by every caller of
+`Add-CachingProxyPortMap` (test runner, status server, repair script).
 
 Both paths exist because the VM is most often debugged before cloud-init
 finishes. The password is not a secret: the VM is reachable only on the
@@ -357,7 +377,7 @@ destroyed by [Invoke-TestRunner.ps1](../test/Invoke-TestRunner.ps1).
 - Clear cache (wipe objects, keep VM):
 
 ```bash
-ssh ubuntu@<squid-cache-ip>
+ssh yuruna@<squid-cache-ip>
 sudo systemctl stop squid && sudo rm -rf /var/spool/squid/* && sudo squid -z -N
 sudo systemctl start squid
 ```

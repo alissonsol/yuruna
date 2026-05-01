@@ -115,13 +115,13 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Random 10-char alphanumeric password for the 'ubuntu' user. Fresh per
+# Random 10-char alphanumeric password for the 'yuruna' user. Fresh per
 # rebuild (not a constant 'password') stops browsers caching / auto-
 # suggesting it when opening cachemgr.cgi, which was triggering password-
 # manager popups. ASCII alphanumerics only: no YAML-escape surprises, no
 # shell-special chars during ssh.
 $pwChars = [char[]]'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-$UbuntuPassword = -join (1..10 | ForEach-Object {
+$YurunaPassword = -join (1..10 | ForEach-Object {
     $pwChars[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32(0, $pwChars.Length)]
 })
 
@@ -130,14 +130,14 @@ $UbuntuPassword = -join (1..10 | ForEach-Object {
 # not multi-user readable by default, and this is a dev-only credential
 # with RFC1918-only reachability.
 $PasswordFile = Join-Path $vmDir "squid-cache-password.txt"
-Set-Content -Path $PasswordFile -Value $UbuntuPassword -NoNewline
+Set-Content -Path $PasswordFile -Value $YurunaPassword -NoNewline
 
 # Substitute SSH key and password placeholders. .Replace() (literal)
 # rather than -replace (regex) because keys can contain regex-special
 # chars (ssh-rsa base64 usually doesn't — cheap insurance).
 $UserData = (Get-Content -Raw (Join-Path $vmConfigDir "user-data")).
     Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
-    Replace('PASSWORD_PLACEHOLDER', $UbuntuPassword)
+    Replace('PASSWORD_PLACEHOLDER', $YurunaPassword)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"
@@ -151,8 +151,8 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 # disk. The final "ready" banner reprints the same credentials.
 Write-Output ""
 Write-Output "=== squid-cache console/SSH login (available NOW) ==="
-Write-Output "  user:     ubuntu"
-Write-Output "  password: $UbuntuPassword"
+Write-Output "  user:     yuruna"
+Write-Output "  password: $YurunaPassword"
 Write-Output "  saved at: $PasswordFile"
 Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VMName'"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
@@ -256,8 +256,8 @@ guest installs won't silently fall back to direct CDN access and 429.
 
 Accessing the VM for debugging:
   * Console:  vmconnect localhost $VMName
-              login:    ubuntu
-              password: $UbuntuPassword
+              login:    yuruna
+              password: $YurunaPassword
               (also saved at $PasswordFile;
                cloud-init sets it from user-data; does NOT expire.)
   * SSH:      not available until the VM has a reachable IP -- that's
@@ -315,8 +315,8 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
         Write-Output "  Monitor:   http://${cacheIp}/cgi-bin/cachemgr.cgi"
         Write-Output ""
         Write-Output "  Console/SSH login:"
-        Write-Output "    user:     ubuntu"
-        Write-Output "    password: $UbuntuPassword"
+        Write-Output "    user:     yuruna"
+        Write-Output "    password: $YurunaPassword"
         Write-Output "    (saved also at: $PasswordFile,"
         Write-Output "     and embedded in the seed.iso's user-data — chpasswd)"
         Write-Output ""
@@ -361,11 +361,11 @@ silently fall back to direct CDN access and hit 429 rate limits.
 
 Accessing the VM for debugging:
   * Console:  vmconnect localhost $VMName
-              login:    ubuntu
-              password: $UbuntuPassword
+              login:    yuruna
+              password: $YurunaPassword
               (also saved at $PasswordFile;
                cloud-init sets it from user-data; does NOT expire.)
-  * SSH:      ssh ubuntu@<candidate>    (try each of: $candidateList)
+  * SSH:      ssh yuruna@<candidate>    (try each of: $candidateList)
               (uses the yuruna harness key at test\.ssh\yuruna_ed25519 --
                same key the Ubuntu Desktop guests use; passwordless)
 

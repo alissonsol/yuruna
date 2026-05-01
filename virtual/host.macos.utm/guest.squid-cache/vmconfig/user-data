@@ -1,19 +1,28 @@
 #cloud-config
 hostname: squid-cache
-# Default 'ubuntu' user gets both a known password AND the yuruna harness
-# SSH key. This VM is usually debugged before cloud-init finishes, when
-# only the UTM console works (no SSH). Console needs a password; post-boot
-# automation uses the key. expire: false keeps repeated `ssh ubuntu@...`
-# working without an interactive first-login step.
+# Replace the Ubuntu cloud image's default `ubuntu` user with `yuruna`.
+# Listing a `users:` block WITHOUT `- default` suppresses ubuntu creation
+# entirely — only the listed users land in /etc/passwd. yuruna gets:
+#   - Passwordless sudo (this VM is a debug box on a private switch).
+#   - The yuruna harness SSH key for passwordless `ssh yuruna@<cache-ip>`.
+#   - lock_passwd: false so chpasswd below can set a known random password
+#     for console fallback (UTM window) when cloud-init hasn't finished
+#     and SSH isn't up yet.
+users:
+  - name: yuruna
+    gecos: yuruna debug user
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
 chpasswd:
   expire: false
   users:
-    - name: ubuntu
+    - name: yuruna
       password: PASSWORD_PLACEHOLDER
       type: text
 ssh_pwauth: true
-ssh_authorized_keys:
-  - SSH_AUTHORIZED_KEY_PLACEHOLDER
 # Grafana OSS apt repo (self-hosted build, no Grafana Cloud sign-in).
 # Key fetched from keyserver.ubuntu.com; fingerprint pinned per Grafana docs.
 apt:

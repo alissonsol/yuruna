@@ -109,14 +109,20 @@ function Start-CachingProxyForwarder {
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$CacheIp,
-        [int]$Port = 3128
+        [int]$Port = 3128,
+        [int]$VMPort = 0
     )
+    # 0 sentinel — when unspecified, host port == VM port (the common case;
+    # proxy/Grafana/etc.). Split ports kick in for SSH (8022 -> 22) and any
+    # other future host:VM remap. Pidfile name uses HOST port (predictable;
+    # what `lsof -i :<host>` would show).
+    if ($VMPort -eq 0) { $VMPort = $Port }
     $forwarderScript = Join-Path $PSScriptRoot "Start-CachingProxyForwarder.ps1"
     if (-not (Test-Path $forwarderScript)) {
         Write-Warning "Start-CachingProxyForwarder.ps1 not found at: $forwarderScript"
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${Port}", 'Launch detached host-side TCP forwarder')) {
+    if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${VMPort}", 'Launch detached host-side TCP forwarder')) {
         return $false
     }
     $stateDir = Join-Path $HOME "virtual/squid-cache"
@@ -133,7 +139,7 @@ function Start-CachingProxyForwarder {
     # stay up untouched.
     [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
 
-    Write-Output "  Launching host-side forwarder: 0.0.0.0:${Port} → ${CacheIp}:${Port}"
+    Write-Output "  Launching host-side forwarder: 0.0.0.0:${Port} → ${CacheIp}:${VMPort}"
     # RedirectStandard* is required: without them pwsh inherits the
     # parent TTY and dies when Start-CachingProxy.ps1 exits. The
     # forwarder's own log gets live traffic; stdout/stderr go to files.
@@ -141,6 +147,7 @@ function Start-CachingProxyForwarder {
         '-NoProfile','-NoLogo','-File', $forwarderScript,
         '-CacheIp', $CacheIp,
         '-Port', $Port,
+        '-VMPort', $VMPort,
         '-PidFile', $pidFile,
         '-LogFile', $logFile
     )
@@ -185,7 +192,12 @@ function Start-CachingProxyForwarder {
             if ($h.AsyncWaitHandle.WaitOne(150) -and $tcp.Connected) {
                 $tcp.Close()
                 $actualPid = if (Test-Path $pidFile) { (Get-Content $pidFile -Raw).Trim() } else { $proc.Id }
-                Write-Output "  Forwarder up (pid $actualPid). Guests should use http://192.168.64.1:${Port}"
+                $upMsg = if ($Port -eq $VMPort) {
+                    "Forwarder up (pid $actualPid). Guests should use http://192.168.64.1:${Port}"
+                } else {
+                    "Forwarder up (pid $actualPid): host :${Port} -> ${CacheIp}:${VMPort}"
+                }
+                Write-Output "  $upMsg"
                 return $true
             }
         } catch {

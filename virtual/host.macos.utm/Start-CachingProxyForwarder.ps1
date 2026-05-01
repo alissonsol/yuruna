@@ -46,9 +46,14 @@
     192.168.64.X for some X).
 
 .PARAMETER Port
-    TCP port to listen on AND connect to on the cache (default 3128).
-    Same port on both sides because apt/cloud-init assume :3128 on
-    both ends.
+    TCP port to listen on (the HOST-side port). Default 3128.
+
+.PARAMETER VMPort
+    TCP port to connect to on the cache VM. Defaults to -Port (same on
+    both sides — the common case for proxy/Grafana/etc.). Set explicitly
+    when the host port differs from the VM port (e.g. 8022 on the host
+    forwarding to 22 on the VM for SSH, to avoid colliding with the
+    host's own sshd on :22).
 
 .PARAMETER BindAddress
     Interface to bind on. Default "0.0.0.0" (all interfaces) picks up
@@ -65,6 +70,10 @@
     pwsh Start-CachingProxyForwarder.ps1 -CacheIp 192.168.64.3
 
 .EXAMPLE
+    # SSH on a non-standard host port:
+    pwsh Start-CachingProxyForwarder.ps1 -CacheIp 192.168.64.3 -Port 8022 -VMPort 22
+
+.EXAMPLE
     # How Start-CachingProxy.ps1 launches it (detached):
     Start-Process pwsh -ArgumentList @(
         '-NoProfile','-File', $forwarderScript,
@@ -77,10 +86,16 @@
 param(
     [Parameter(Mandatory)][string]$CacheIp,
     [int]$Port = 3128,
+    [int]$VMPort = 0,
     [string]$BindAddress = "0.0.0.0",
     [string]$PidFile,
     [string]$LogFile
 )
+
+# 0 sentinel (instead of `[int]$VMPort = $Port`, which doesn't work because
+# parameter defaults can't reference other parameters): when unset, mirror
+# host port. Most callers don't pass it; only split-port mappings do.
+if ($VMPort -eq 0) { $VMPort = $Port }
 
 $ErrorActionPreference = "Stop"
 
@@ -116,7 +131,7 @@ try {
     Write-ForwarderLog "FATAL: could not bind ${BindAddress}:${Port} -- $($_.Exception.Message)"
     exit 1
 }
-Write-ForwarderLog "listening on ${BindAddress}:${Port} -> ${CacheIp}:${Port} (pid $PID)"
+Write-ForwarderLog "listening on ${BindAddress}:${Port} -> ${CacheIp}:${VMPort} (pid $PID)"
 
 # Runspace pool: each forwarded connection on its own thread without
 # PowerShell-job startup cost. 64 concurrent tunnels covers apt/cloud-init.
@@ -156,7 +171,7 @@ try {
         [void]$ps.AddScript($workerScript).
                 AddArgument($client).
                 AddArgument($CacheIp).
-                AddArgument($Port)
+                AddArgument($VMPort)
         [void]$ps.BeginInvoke()
     }
 } finally {

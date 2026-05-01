@@ -161,7 +161,7 @@ Write-Output "Confirmed: squid-cache VM reachable at ${CacheIp}:3128."
 # are still working fine.
 
 Import-Module (Join-Path $RepoRoot 'virtual/host.macos.utm/VM.common.psm1') -Force
-$expectedPorts = @(80, 3128, 3129, 3000)
+$expectedPorts = @(80, 3128, 3129, 3000, 8022)
 Write-Output ""
 Write-Output "Current forwarder state:"
 foreach ($p in $expectedPorts) {
@@ -204,9 +204,9 @@ Set-Content -Path (Join-Path $stateDir 'cache-ip.txt') -Value $CacheIp -NoNewlin
 # macOS branch and VM.common.psm1:Start-CachingProxyForwarder.
 
 Write-Output ""
-Write-Output "=== Relaunching forwarders (80 CA + 3128 proxy + 3129 ssl-bump + 3000 Grafana) ==="
+Write-Output "=== Relaunching forwarders (80 CA + 3128 proxy + 3129 ssl-bump + 3000 Grafana + 8022->22 SSH) ==="
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.PortMap.psm1') -Force
-[void](Add-CachingProxyPortMap -VMIp $CacheIp -Port $expectedPorts)
+[void](Add-CachingProxyPortMap -VMIp $CacheIp -Port $expectedPorts -PortRemap @{8022 = 22})
 
 # === Step 7: verify ========================================================
 # Re-import VM.common.psm1 before calling Get-CachingProxyForwarder.

@@ -256,7 +256,7 @@ if ($IsMacOS) {
     # tears them all down symmetrically via Stop-AllCachingProxyForwarder.
     if ($cacheIp) {
         Write-Output ""
-        Write-Output "=== Step 6: host-side forwarders (80 CA + 3128 proxy + 3129 ssl-bump + 3000 Grafana) ==="
+        Write-Output "=== Step 6: host-side forwarders (80 CA + 3128 proxy + 3129 ssl-bump + 3000 Grafana + 8022->22 SSH) ==="
         # Unified cross-platform API (test/modules/Test.PortMap.psm1). On
         # macOS it dispatches to virtual/host.macos.utm/VM.common.psm1's
         # Start-CachingProxyForwarder primitives. Callers here don't need to know
@@ -281,7 +281,10 @@ if ($IsMacOS) {
                 }
             }
         }
-        [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000))
+        # 8022 -> VM 22: SSH forward on a non-standard host port so the
+        # mapping doesn't collide with the host's own sshd. Lets remote
+        # operators reach the cache VM at `ssh -p 8022 yuruna@<host-ip>`.
+        [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000, 8022) -PortRemap @{8022 = 22})
 
         # Persist the cache VM IP so guest provisioners (guest.ubuntu.*
         # New-VM.ps1) can fetch the squid-cache CA cert from the host
@@ -319,13 +322,16 @@ if ($IsMacOS) {
     if ($cacheIp) {
         $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
         Import-Module $portMapMod -Force
-        [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000))
+        # 8022 -> VM 22: SSH forward on a non-standard host port so the
+        # mapping doesn't collide with the host's own sshd. Lets remote
+        # operators reach the cache VM at `ssh -p 8022 yuruna@<host-ip>`.
+        [void](Add-CachingProxyPortMap -VMIp $cacheIp -Port @(80, 3128, 3129, 3000, 8022) -PortRemap @{8022 = 22})
     }
 }
 
 # === Final summary ==========================================================
 
-$UbuntuPassword = if (Test-Path $PasswordFile) { (Get-Content -Raw $PasswordFile).Trim() } else { '(not available)' }
+$YurunaPassword = if (Test-Path $PasswordFile) { (Get-Content -Raw $PasswordFile).Trim() } else { '(not available)' }
 
 Write-Output ""
 Write-Output "================================================================="
@@ -353,7 +359,21 @@ if ($cacheIp) {
 }
 Write-Output ""
 Write-Output "  SSH / console login:"
-Write-Output "    user:     ubuntu"
-Write-Output "    password: $UbuntuPassword"
+Write-Output "    user:     yuruna"
+Write-Output "    password: $YurunaPassword"
 Write-Output "    (saved at $PasswordFile)"
+if ($cacheIp) {
+    # Direct SSH from the host (private switch IP) is always available.
+    # The 8022 -> 22 host port forward lets remote LAN clients reach the
+    # cache VM without knowing the private NAT subnet — useful when the
+    # operator is editing /etc/loki/config.yml etc. from another machine.
+    Write-Output "    direct:   ssh yuruna@${cacheIp}"
+    $bestHostIp = $null
+    try { $bestHostIp = Get-BestHostIp } catch { $null = $_ }
+    if ($bestHostIp) {
+        Write-Output "    via host: ssh -p 8022 yuruna@${bestHostIp}  (8022 -> ${cacheIp}:22 forward)"
+    } else {
+        Write-Output "    via host: ssh -p 8022 yuruna@<host-lan-ip>  (8022 -> ${cacheIp}:22 forward)"
+    }
+}
 Write-Output "================================================================="

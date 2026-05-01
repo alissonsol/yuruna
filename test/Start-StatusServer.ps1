@@ -487,9 +487,13 @@ try {
                     # restart. On macOS each port is independent (per-port pidfile),
                     # so excluding :80 does not affect the other ports.
                     # Windows: all ports in one list — netsh clears everything first.
-                    $squidPorts = if ($IsMacOS) { @(3128, 3129, 3000) } else { @(80, 3128, 3129, 3000) }
+                    # 8022 -> VM 22 (SSH on non-standard host port) — included in EVERY
+                    # caller's list because Add-CachingProxyPortMap clears ALL Yuruna
+                    # netsh/firewall rules first; omitting it here would tear down the
+                    # operator's SSH forward each status-server restart.
+                    $squidPorts = if ($IsMacOS) { @(3128, 3129, 3000, 8022) } else { @(80, 3128, 3129, 3000, 8022) }
                     if ($vmIp) {
-                        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp -Port $squidPorts
+                        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp -Port $squidPorts -PortRemap @{8022 = 22}
                         $mapOk = [bool]$mapResult
                     }
                     if ($mapOk) {

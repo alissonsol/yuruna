@@ -128,12 +128,12 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Random 10-char alphanumeric password for the 'ubuntu' user. A fresh
+# Random 10-char alphanumeric password for the 'yuruna' user. A fresh
 # password per rebuild (rather than constant 'password') stops browsers
 # from auto-suggesting on cachemgr.cgi. ASCII alphanumerics only: no
 # YAML-escape or shell-special surprises.
 $pwChars = [char[]]'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-$UbuntuPassword = -join (1..10 | ForEach-Object {
+$YurunaPassword = -join (1..10 | ForEach-Object {
     $pwChars[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32(0, $pwChars.Length)]
 })
 
@@ -142,14 +142,14 @@ $UbuntuPassword = -join (1..10 | ForEach-Object {
 # under ~/virtual/squid-cache is owner-only on default APFS home perms,
 # and this is a dev-only credential with RFC1918-only reachability.
 $PasswordFile = Join-Path $downloadDir "squid-cache-password.txt"
-Set-Content -Path $PasswordFile -Value $UbuntuPassword -NoNewline
+Set-Content -Path $PasswordFile -Value $YurunaPassword -NoNewline
 & chmod 600 $PasswordFile 2>&1 | Out-Null
 
 # .Replace() (literal) rather than -replace (regex): keys can contain
 # characters regex would interpret. Cheap insurance.
 $UserData = (Get-Content -Raw (Join-Path $VmConfigDir "user-data")).
     Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
-    Replace('PASSWORD_PLACEHOLDER', $UbuntuPassword)
+    Replace('PASSWORD_PLACEHOLDER', $YurunaPassword)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"
@@ -217,8 +217,8 @@ Write-Output "  Path:      $UtmDir"
 Write-Output "  Backend:   Apple Virtualization"
 Write-Output ""
 Write-Output "  Console/SSH login:"
-Write-Output "    user:     ubuntu"
-Write-Output "    password: $UbuntuPassword"
+Write-Output "    user:     yuruna"
+Write-Output "    password: $YurunaPassword"
 Write-Output "    (saved also at: $PasswordFile,"
 Write-Output "     and embedded in the seed.iso's user-data — chpasswd)"
 $guidance = @'
@@ -256,9 +256,9 @@ guest installs):
        open "http://$ip/cgi-bin/cachemgr.cgi"    # -> 'storedir'
 
 If step 4 reports 'squid DOWN' after 15 minutes, access the VM:
-  * UTM window:  login 'ubuntu' / password '__PASSWORD__'
+  * UTM window:  login 'yuruna' / password '__PASSWORD__'
                  (password also at __PASSWORD_FILE__; does NOT expire)
-  * SSH:         ssh ubuntu@$ip   (uses the yuruna harness key
+  * SSH:         ssh yuruna@$ip   (uses the yuruna harness key
                                    at test/.ssh/yuruna_ed25519; passwordless)
 
 Then — REAL apt/cloud-init errors live in the output log, not in
@@ -278,5 +278,5 @@ Wait 15-30 min and rebuild by re-running this script.
 Write-Output ($guidance.
     Replace('__VM_NAME__', $VMName).
     Replace('__UTM_DIR__', $UtmDir).
-    Replace('__PASSWORD__', $UbuntuPassword).
+    Replace('__PASSWORD__', $YurunaPassword).
     Replace('__PASSWORD_FILE__', $PasswordFile))

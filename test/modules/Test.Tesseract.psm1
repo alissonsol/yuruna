@@ -139,15 +139,30 @@ function Invoke-TesseractOcr {
 
     $absPath = (Resolve-Path $ImagePath).Path
 
-    # --psm 4 = single column of text of variable sizes. VM screens are
-    # column layouts (terminal output, installer dialogs, login prompts);
-    # the default --psm 3 (fully automatic) tries to detect multi-column
-    # layouts and occasionally re-orders lines or merges adjacent UI
-    # regions, producing OCR text that doesn't match what waitForText
-    # is grepping for.
-    $output = & $tesseractExe $absPath stdout --psm 4 2>$null
+    # --psm 6 = single uniform block of text. Terminal screenshots ARE
+    # uniform blocks (monospace, equal-size lines, top-aligned), and
+    # PSM 6 walks the whole image as one block, so a sparse top-of-image
+    # text region with empty space below still gets read end-to-end.
+    #
+    # Why not --psm 4 (single column of variable sizes — the previous
+    # default): on screens with TWO visually-distinct content regions
+    # (e.g. a tiny login prompt at the top + cloud-init dump rendered
+    # in a virtual second column at the bottom on retried boots),
+    # PSM 4 picks ONE region as "the column" and silently drops text
+    # in the other one. That was the regression behind the
+    # `test-ubuntu-server-01 login:` line going missing from OCR even
+    # though the screenshot clearly shows it. PSM 6 reads both rows.
+    #
+    # Why not --psm 3 (default, fully automatic): does its own
+    # multi-column detection and re-orders/merges adjacent UI regions
+    # — same `login:` drop-out we hit with PSM 4.
+    #
+    # Why not --psm 11 (sparse text): fragments every word onto its own
+    # output line, breaking the `Wait-ForText -ContainsString` substring
+    # match used by the test harness.
+    $output = & $tesseractExe $absPath stdout --psm 6 2>$null
     if ($LASTEXITCODE -ne 0) {
-        $errOutput = & $tesseractExe $absPath stdout --psm 4 2>&1 |
+        $errOutput = & $tesseractExe $absPath stdout --psm 6 2>&1 |
             Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
         $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
         throw "Tesseract failed with exit code $LASTEXITCODE.`n$errMsg"
@@ -184,9 +199,9 @@ function Get-TesseractWordBox {
 
     # `tesseract <img> stdout tsv` prints TSV with columns:
     #   level page_num block_num par_num line_num word_num left top width height conf text
-    # --psm 4 matches Invoke-TesseractOcr above so word boxes line up with
+    # --psm 6 matches Invoke-TesseractOcr above so word boxes line up with
     # the text output (otherwise word ordering and line grouping diverge).
-    $output = & $tesseractExe $absPath stdout --psm 4 tsv 2>$null
+    $output = & $tesseractExe $absPath stdout --psm 6 tsv 2>$null
     if ($LASTEXITCODE -ne 0) {
         throw "Tesseract TSV mode failed with exit code $LASTEXITCODE."
     }

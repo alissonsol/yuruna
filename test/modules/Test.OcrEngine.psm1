@@ -247,92 +247,183 @@ Register-OcrProvider -Name 'winrt' `
 # ── Built-in provider: macOS Vision framework ──────────────────────────────
 # Uses Apple's Vision framework via Swift (VNRecognizeTextRequest).
 # Available on macOS 10.15+ (Catalina and later).
-# Vision returns observations sorted by confidence; the script re-sorts by Y
-# (top-to-bottom) then by X (left-to-right) within each row for reading order.
+#
+# Two non-obvious things this Swift script does that a naive Vision call
+# does NOT, both of which were silently breaking OCR on UTM screen
+# captures of guest.ubuntu.server logins:
+#
+#  1. Find the densest text-content row cluster and crop to it.
+#     UTM/screencapture screenshots are 2898x1698 with the actual login
+#     text in only the top ~150 rows. Vision's text-region detector
+#     fails entirely on images where the content fills <10% of the
+#     vertical extent — it returns 0 observations on the full image
+#     while finding all three lines on a tight crop. We compute lit-
+#     pixel-per-row, skip a leading ALL-WHITE bar (UTM titlebar/chrome
+#     when present), then pick the highest-total cluster of rows where
+#     lit_count > 8, allowing gaps up to ~80 dark rows between cluster
+#     members so a blank line between content lines doesn't split the
+#     login prompt off from the Ubuntu banner above it.
+#
+#  2. Re-encode through PNG before handing to Vision.
+#     macOS screencapture writes images tagged with kCGColorSpaceDisplayP3
+#     and 144 DPI. Vision's text detector returns 0 observations on
+#     full-frame DisplayP3 images that it reads cleanly when the same
+#     pixels arrive tagged sRGB at 72 DPI. CGImageDestination/PNG round-
+#     trip strips both tags. (The previous "2x upscale via CGContext"
+#     branch silently never ran — the original CGImage's bitmapInfo
+#     combined with bytesPerRow=0 makes CGContext init return nil, so
+#     the script fell through to the original CGImage every time.)
+#
+# Vision parameters: usesLanguageCorrection=false because the strings
+# we care about (cloud-init banners, hostnames with dashes, "ttyl" vs
+# "tty1") are not natural English; correction was actively rewriting
+# them into garbage like "ttyl." -> "tty1.".
 
 # The Swift source is stored once and reused across invocations.
 $script:VisionOcrSwift = @'
 import Vision
 import AppKit
+import CoreGraphics
+import ImageIO
 
 guard CommandLine.arguments.count > 1 else { exit(1) }
 let imagePath = CommandLine.arguments[1]
+
 guard let image = NSImage(contentsOfFile: imagePath),
-      let tiff = image.tiffRepresentation,
+      let tiff  = image.tiffRepresentation,
       let bitmap = NSBitmapImageRep(data: tiff),
-      let originalCGImage = bitmap.cgImage else {
+      let original = bitmap.cgImage else {
     fputs("Failed to load image: \(imagePath)\n", stderr)
     exit(1)
 }
 
-// Upscale 2x for better OCR of small terminal text.
-let w = originalCGImage.width * 2
-let h = originalCGImage.height * 2
-let cgImage: CGImage
-if let ctx = CGContext(data: nil, width: w, height: h,
-                       bitsPerComponent: originalCGImage.bitsPerComponent,
-                       bytesPerRow: 0,
-                       space: originalCGImage.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-                       bitmapInfo: originalCGImage.bitmapInfo.rawValue) {
-    ctx.interpolationQuality = .high
-    ctx.draw(originalCGImage, in: CGRect(x: 0, y: 0, width: w, height: h))
-    cgImage = ctx.makeImage() ?? originalCGImage
-} else {
-    cgImage = originalCGImage
+// ── 1. Per-row lit-pixel count (luma > 96) ────────────────────────────────
+let w = bitmap.pixelsWide, h = bitmap.pixelsHigh
+let bpp = bitmap.bitsPerPixel, bpr = bitmap.bytesPerRow
+guard let data = bitmap.bitmapData else {
+    fputs("bitmapData nil — cannot find content cluster\n", stderr); exit(1)
+}
+let pxBytes = bpp / 8
+var litPerRow = [Int](repeating: 0, count: h)
+for y in 0..<h {
+    let row = data + y * bpr
+    var c = 0
+    for x in 0..<w {
+        let p = row + x * pxBytes
+        if max(p[0], max(p[1], p[2])) > 96 { c += 1 }
+    }
+    litPerRow[y] = c
 }
 
+// Skip a leading "all-white" bar (UTM toolbar / window chrome when the
+// capture includes it). Threshold 90% of width AT high luma rejects normal
+// text rows and accepts only solid lit stripes.
+var topSkip = 0
+for y in 0..<h {
+    if litPerRow[y] > Int(Double(w) * 0.9) { topSkip = y + 1 } else { break }
+}
+
+// ── 2. Cluster rows with > 8 lit pixels, gap up to ~80 dark rows ───────────
+// 80 px ≈ 2 line-heights at this resolution; allows blank lines between
+// content lines (login prompt below "Ubuntu 24.04..." banner) to stay in
+// the same cluster, but separates content from later artifacts (cursor,
+// status bar) hundreds of rows away.
+let minRowLit = 8
+let maxGap    = 80
+var clusters: [(start: Int, end: Int, total: Int)] = []
+var cs = -1, ce = -1, ct = 0, gap = 0
+for y in topSkip..<h {
+    if litPerRow[y] > minRowLit {
+        if cs < 0 { cs = y }
+        ce = y; ct += litPerRow[y]; gap = 0
+    } else if cs >= 0 {
+        gap += 1
+        if gap > maxGap {
+            clusters.append((cs, ce, ct))
+            cs = -1; ce = -1; ct = 0; gap = 0
+        }
+    }
+}
+if cs >= 0 { clusters.append((cs, ce, ct)) }
+
+guard let best = clusters.max(by: { $0.total < $1.total }) else {
+    // No content — exit cleanly with no output.
+    exit(0)
+}
+
+// ── 3. Crop to the densest cluster, padded ───────────────────────────────
+// CGImage.cropping uses image-data (top-left) origin, NOT the bottom-left
+// CGContext origin used elsewhere in CG. Mixing the two conventions
+// produces bottom-of-image crops where the caller meant top-of-image,
+// and Vision then sees a black tile and returns 0 obs.
+let pad = 16
+let cropY0 = max(0, best.start - pad)
+let cropH  = min(h - cropY0, (best.end - cropY0) + pad + 1)
+let cropped = original.cropping(to: CGRect(x: 0, y: cropY0, width: w, height: cropH))!
+
+// ── 4. PNG round-trip: strip DisplayP3 + 144 DPI metadata ────────────────
+// macOS screencapture writes DisplayP3-tagged 144-DPI PNGs. Vision's text
+// detector is reliable on sRGB/72-DPI inputs but returns 0 observations
+// on the wide-gamut originals — empirically, on every UTM screen capture
+// of the login prompt — so we route through CGImageDestination to drop
+// both tags. Use a per-PID temp path so concurrent OCR runs don't clobber
+// each other's intermediate file.
+let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("yuruna-vision-\(getpid())-\(UUID().uuidString).png")
+defer { try? FileManager.default.removeItem(at: tmpURL) }
+let dest = CGImageDestinationCreateWithURL(tmpURL as CFURL, "public.png" as CFString, 1, nil)!
+CGImageDestinationAddImage(dest, cropped, nil)
+CGImageDestinationFinalize(dest)
+let reload = CGImageSourceCreateWithURL(tmpURL as CFURL, nil)!
+let cleanCG = CGImageSourceCreateImageAtIndex(reload, 0, nil)!
+
+// ── 5. OCR ────────────────────────────────────────────────────────────────
 let request = VNRecognizeTextRequest()
 request.recognitionLevel = .accurate
-request.usesLanguageCorrection = true
+// usesLanguageCorrection = false: terminal text (hostnames, cloud-init
+// timestamps, "ttyl"/"tty1", "@/0/1" punctuation) is not natural language.
+// Language correction was actively rewriting valid OCR into nonsense and
+// was the single most expensive accuracy hit on the engine.
+request.usesLanguageCorrection = false
 request.recognitionLanguages = ["en-US"]
 
-let handler = VNImageRequestHandler(cgImage: cgImage)
+let handler = VNImageRequestHandler(cgImage: cleanCG)
 try handler.perform([request])
 
 guard let observations = request.results, !observations.isEmpty else { exit(0) }
 
-// Vision uses bottom-left origin; sort by Y descending (top-to-bottom),
-// then group into rows and sort left-to-right within each row.
+// Sort top-to-bottom, group into rows, then left-to-right within each row.
 struct TextFragment {
     let text: String
-    let x: CGFloat  // left edge (0..1)
-    let y: CGFloat  // top edge as 1-topY (higher = lower on screen)
-    let h: CGFloat  // height
+    let x: CGFloat   // left edge (0..1)
+    let y: CGFloat   // top edge (1 - bottomY - height; smaller = higher on screen)
+    let h: CGFloat
 }
-
 var fragments: [TextFragment] = []
 for obs in observations {
-    guard let candidate = obs.topCandidates(1).first else { continue }
-    let box = obs.boundingBox
-    let topY = 1.0 - box.origin.y - box.size.height
-    fragments.append(TextFragment(text: candidate.string, x: box.origin.x, y: topY, h: box.size.height))
+    guard let cand = obs.topCandidates(1).first else { continue }
+    let b = obs.boundingBox
+    let topY = 1.0 - b.origin.y - b.size.height
+    fragments.append(TextFragment(text: cand.string, x: b.origin.x, y: topY, h: b.size.height))
 }
-
 fragments.sort { $0.y < $1.y }
 
-// Group into rows (tolerance = half median height)
 let heights = fragments.map { $0.h }.sorted()
 let medianH = heights[heights.count / 2]
 let tolerance = max(medianH * 0.5, 0.005)
 
-var rows: [[TextFragment]] = []
-var currentRow: [TextFragment] = [fragments[0]]
-var currentY = fragments[0].y
-
+var rows: [[TextFragment]] = [[fragments[0]]]
+var curY = fragments[0].y
 for i in 1..<fragments.count {
     let f = fragments[i]
-    if abs(f.y - currentY) <= tolerance {
-        currentRow.append(f)
+    if abs(f.y - curY) <= tolerance {
+        rows[rows.count - 1].append(f)
     } else {
-        rows.append(currentRow.sorted { $0.x < $1.x })
-        currentRow = [f]
-        currentY = f.y
+        rows.append([f]); curY = f.y
     }
 }
-rows.append(currentRow.sorted { $0.x < $1.x })
-
 for row in rows {
-    print(row.map { $0.text }.joined(separator: " "))
+    print(row.sorted { $0.x < $1.x }.map { $0.text }.joined(separator: " "))
 }
 '@
 

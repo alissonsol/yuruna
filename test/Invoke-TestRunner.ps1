@@ -381,37 +381,21 @@ if ($cachingProxyUrl) {
         # forwarder / firewall state first; omitting any port here would
         # tear it down every test cycle.
         #
-        # 3128 / 3129 mapping is platform-divergent:
-        #   * macOS: host:3128 -> VM:3138 (PROXY v1) and host:3129 -> VM:3139
-        #     (PROXY v1) — Apple VZ has no Defender layer, the userspace
-        #     pwsh forwarder bound on 0.0.0.0 is reachable from the LAN,
-        #     and squid sees the real LAN client IP via the PROXY v1
-        #     header in access.log.
-        #   * Windows: host:3128 -> VM:3128 and host:3129 -> VM:3129 via
-        #     plain netsh portproxy (kernel-mode IP Helper). The userspace
-        #     pwsh forwarder is silently dropped by Windows Defender
-        #     Firewall on inbound LAN traffic even with port-scope AND
-        #     per-program Allow rules in place — confirmed by direct
-        #     probing from a remote macOS and from the cache VM itself
-        #     reaching back to the host's LAN IP. 80/3000/8022 work
-        #     reliably via netsh; 3128/3129 join them. Cost: LAN clients
-        #     log as the host's NAT-side IP rather than their real IP.
-        #     Local Default-Switch guests are unaffected (they reach the
-        #     VM directly).
+        # 3128 -> VM 3138 / 3129 -> VM 3139 (PROXY v1) on BOTH platforms:
+        # the userspace pwsh forwarder writes a HAProxy PROXY v1 header so
+        # squid sees the real LAN client IP/port instead of the host's
+        # NAT-side IP. Windows formerly used plain netsh portproxy here
+        # (Defender drops user-mode listeners), but Test.PortMap now
+        # rewrites the per-program firewall rule with the post-resolution
+        # binary path read from the spawned process — which closes the
+        # App Execution Alias gap that broke the Windows path before.
         # On macOS the :80 forwarder is owned exclusively by Start-CachingProxy.ps1
         # (it pre-caches sudo for the privileged bind); leave it out here.
-        $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 3128, 3129) }
-        $portMapArgs = @{
-            VMIp = $portMapIp
-            Port = $CachingProxyExposedPorts
-            PortRemap = @{ 8022 = 22 }
-        }
-        if ($IsMacOS) {
-            $portMapArgs.PortRemap[3128] = 3138
-            $portMapArgs.PortRemap[3129] = 3139
-            $portMapArgs.ProxyProtocolPort = @(3128, 3129)
-        }
-        $mapResult = Add-CachingProxyPortMap @portMapArgs
+        $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000) }
+        $mapResult = Add-CachingProxyPortMap -VMIp $portMapIp `
+                        -Port $CachingProxyExposedPorts `
+                        -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
+                        -ProxyProtocolPort @(3128, 3129)
         $mapOk = [bool]$mapResult
         $bestIp = Get-BestHostIp
         if (-not $bestIp) { $bestIp = $vmIp }  # no routable iface — fall back

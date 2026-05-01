@@ -154,16 +154,39 @@ function Get-CachingProxyForwarderScriptPath {
 
 <#
 .SYNOPSIS
-    Resolve the pwsh.exe path the same way Start-Process -FilePath 'pwsh' will.
+    Best-guess pwsh.exe path for a Defender per-program firewall rule —
+    used as the pre-spawn placeholder; the post-spawn loaded path wins.
 .DESCRIPTION
-    Used to populate the -Program parameter on the per-program Windows
-    Defender Firewall rule for ports served by the userspace forwarder.
-    Get-Command runs the same PATH lookup Start-Process does, so the
-    rule's Program path matches the binary that actually binds the port —
-    if the host has multiple pwsh installs (Program Files, Microsoft
-    Store, ad-hoc unzip) the rule cannot accidentally allow a different
-    one. Returns $null if pwsh is not on PATH; caller logs and proceeds
-    without the per-program rule (port-scope rule still in place).
+    Returns whatever Get-Command resolves first on PATH. On a clean MSI
+    install of PowerShell that's the real binary at
+    `C:\Program Files\PowerShell\7\pwsh.exe` and the firewall rule's
+    -Program filter matches the loaded process exactly.
+
+    GOTCHA — Microsoft Store / App Execution Aliases: when the user
+    has both an MSI install AND the Microsoft Store version (or only
+    the Store version), Get-Command can return the App Execution Alias
+    stub at `C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\pwsh.exe`.
+    The alias is a zero-byte filesystem reparse point that Windows
+    redirects through to the real binary under
+    `C:\Program Files\WindowsApps\Microsoft.PowerShell_<ver>_x64__<id>\pwsh.exe`
+    AT EXEC TIME. Defender's WFP filter enforces -Program against the
+    POST-RESOLUTION binary path, so a rule pinned to the alias stub
+    silently fails to match — Get-NetFirewallRule shows the rule in
+    place, the listener is bound, and inbound LAN traffic is dropped.
+    This was the actual cause of the Windows source-IP-preservation
+    revert; resolving the post-exec path from the running process
+    instead is what makes the rule reliable.
+
+    Caller flow: pre-install with this best-guess path so a rule is
+    in place before bind(); after Start-WindowsCachingProxyForwarder
+    returns, compare against the loaded binary's .Path and rewrite
+    the rule if they differ. Idempotent on hosts where the guess is
+    already correct (the common case).
+
+    Returns $null if pwsh is not on PATH at all; caller logs and
+    proceeds without the per-program rule (port-scope rule still in
+    place — sufficient for kernel-mode netsh portproxy ports, NOT
+    for user-mode pwsh listeners).
 #>
 function Get-PwshExePath {
     [CmdletBinding()]
@@ -217,7 +240,12 @@ function Add-CachingProxyFirewallRule {
     param(
         [Parameter(Mandatory)][int]$Port,
         [Parameter(Mandatory)][string]$Description,
-        [switch]$IncludeProgram
+        [switch]$IncludeProgram,
+        # Override Get-PwshExePath. Pass the spawned forwarder's actual
+        # loaded binary path (Get-Process -Id <pid> -> .Path) so the rule
+        # matches what Defender filters on. See Get-PwshExePath docs for
+        # the App Execution Alias trap that makes this matter.
+        [string]$ProgramPath
     )
     if (-not $IsWindows) { return }
 
@@ -240,9 +268,9 @@ function Add-CachingProxyFirewallRule {
     if ($PSCmdlet.ShouldProcess($programRule, 'Install per-program Allow rule for pwsh.exe')) {
         Get-NetFirewallRule -DisplayName $programRule -ErrorAction SilentlyContinue |
             Remove-NetFirewallRule -ErrorAction SilentlyContinue
-        $pwshPath = Get-PwshExePath
+        $pwshPath = if ($ProgramPath) { $ProgramPath } else { Get-PwshExePath }
         if (-not $pwshPath) {
-            Write-Warning "Get-PwshExePath returned null — skipping ${programRule}. LAN clients may see :${Port} silently dropped by Windows Defender Firewall (the port-scope rule alone does not always override Defender's per-program inbound filter on Public profile)."
+            Write-Warning "No pwsh.exe path available — skipping ${programRule}. LAN clients may see :${Port} silently dropped by Windows Defender Firewall (the port-scope rule alone does not always override Defender's per-program inbound filter on Public profile)."
             return
         }
         New-NetFirewallRule -DisplayName $programRule -Direction Inbound `
@@ -320,20 +348,31 @@ function Stop-WindowsCachingProxyForwarder {
 #>
 function Start-WindowsCachingProxyForwarder {
     [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
+    [OutputType([PSCustomObject])]
     param(
         [Parameter(Mandatory)][string]$CacheIp,
         [Parameter(Mandatory)][int]$Port,
         [int]$VMPort = 0,
         [switch]$PrependProxyV1
     )
-    if (-not $IsWindows) { Write-Warning "Start-WindowsCachingProxyForwarder called on non-Windows host — no-op."; return $false }
+    # Return shape:
+    #   @{ Success = $bool; Pid = $int; PwshPath = $string }
+    # PwshPath is the post-resolution loaded binary path (read from
+    # Get-Process .Path on the running PID), which is what Defender's
+    # WFP filter enforces against. Caller uses it to install / fix the
+    # per-program firewall rule's -Program filter so the rule actually
+    # matches the running process. $null on failure or if Get-Process
+    # could not read the path (rare: process exited, ACL).
+    if (-not $IsWindows) {
+        Write-Warning "Start-WindowsCachingProxyForwarder called on non-Windows host — no-op."
+        return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
+    }
     if ($VMPort -eq 0) { $VMPort = $Port }
 
     $forwarderScript = Get-CachingProxyForwarderScriptPath
     if (-not (Test-Path $forwarderScript)) {
         Write-Warning "Forwarder script not found: $forwarderScript"
-        return $false
+        return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
     }
 
     $stateDir = Join-Path $HOME 'virtual\squid-cache'
@@ -350,7 +389,9 @@ function Start-WindowsCachingProxyForwarder {
 
     $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
     $action   = "0.0.0.0:${Port} -> ${CacheIp}:${VMPort}${proxyTag}"
-    if (-not $PSCmdlet.ShouldProcess($action, 'Launch detached pwsh TCP forwarder')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($action, 'Launch detached pwsh TCP forwarder')) {
+        return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
+    }
     Write-Output "  Launching userspace forwarder: ${action}"
 
     $procArgs = @(
@@ -372,7 +413,7 @@ function Start-WindowsCachingProxyForwarder {
             -PassThru
     } catch {
         Write-Warning "Failed to spawn forwarder: $($_.Exception.Message)"
-        return $false
+        return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
     }
 
     # Confirm the listener bound. 3s budget covers pwsh startup +
@@ -387,15 +428,26 @@ function Start-WindowsCachingProxyForwarder {
             $h = $tcp.BeginConnect('127.0.0.1', $Port, $null, $null)
             if ($h.AsyncWaitHandle.WaitOne(150) -and $tcp.Connected) {
                 $tcp.Close()
-                $actualPid = if (Test-Path $pidFile) { (Get-Content $pidFile -Raw).Trim() } else { $proc.Id }
+                $actualPid = if (Test-Path $pidFile) { [int]((Get-Content $pidFile -Raw).Trim()) } else { [int]$proc.Id }
+                # Resolve the loaded binary path. Get-Process .Path
+                # returns the resolved on-disk binary even when the
+                # spawn went through a Microsoft Store App Execution
+                # Alias — that's the path Defender filters on, and the
+                # one the per-program rule needs to match exactly.
+                # Best-effort: a process that already exited (race) or
+                # an ACL denial both produce $null, in which case the
+                # caller falls back to Get-PwshExePath's PATH lookup.
+                $loadedPath = $null
+                try { $loadedPath = (Get-Process -Id $actualPid -ErrorAction Stop).Path } catch { $null = $_ }
                 Write-Output "  Forwarder up (pid $actualPid): ${action}"
-                return $true
+                if ($loadedPath) { Write-Output "    loaded binary: $loadedPath" }
+                return [PSCustomObject]@{ Success = $true; Pid = $actualPid; PwshPath = $loadedPath }
             }
         } catch { $null = $_ } finally { $tcp.Close() }
         Start-Sleep -Milliseconds 100
     }
     Write-Warning "Forwarder launched (pid $($proc.Id)) but :${Port} did not answer within 3s — see $stderrLog."
-    return $false
+    return [PSCustomObject]@{ Success = $false; Pid = [int]$proc.Id; PwshPath = $null }
 }
 
 <#
@@ -692,13 +744,36 @@ function Add-CachingProxyPortMap {
             # PROXY-protocol path: netsh portproxy NATs the source IP, so
             # squid would log every connection as the host. The userspace
             # pwsh forwarder writes a HAProxy PROXY v1 header before the
-            # byte stream — squid (with accept-proxy-protocol on the
+            # byte stream — squid (with require-proxy-header on the
             # VM-side port) parses it and restores the real client IP
             # for ACLs and access.log.
-            $ok = Start-WindowsCachingProxyForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
-            if (-not $ok) {
+            $spawn = Start-WindowsCachingProxyForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
+            if (-not $spawn.Success) {
                 Write-Warning "Add-CachingProxyPortMap: pwsh forwarder failed for host ${hostPort} -> ${VMIp}:${vmPort} (PROXY v1)."
                 continue
+            }
+            # Self-heal the per-program rule if Get-PwshExePath's pre-spawn
+            # guess didn't match the binary that actually loaded. On a host
+            # where a Microsoft Store App Execution Alias is first on PATH,
+            # the pre-spawn rule was pinned to the alias stub — Defender
+            # filters on the post-resolution path under WindowsApps and
+            # silently drops everything. Reading .Path from the running
+            # process and rewriting the rule is what closes that gap. No-op
+            # on hosts where the guess was already correct (MSI install).
+            if ($spawn.PwshPath) {
+                $existingProgramPath = $null
+                try {
+                    $existingProgramPath = (Get-NetFirewallRule -DisplayName "$($script:FirewallProgramRulePrefix)${hostPort}" -ErrorAction Stop |
+                                            Get-NetFirewallApplicationFilter -ErrorAction Stop).Program
+                } catch { $null = $_ }
+                if ($existingProgramPath -ne $spawn.PwshPath) {
+                    if ($existingProgramPath) {
+                        Write-Output "  Pwsh path resolved to '$($spawn.PwshPath)' (rule had '$existingProgramPath') — rewriting per-program firewall rule."
+                    } else {
+                        Write-Output "  Installing per-program firewall rule with resolved pwsh path '$($spawn.PwshPath)'."
+                    }
+                    Add-CachingProxyFirewallRule -Port $hostPort -Description $desc -IncludeProgram -ProgramPath $spawn.PwshPath -Confirm:$false
+                }
             }
         } else {
             # netsh won't overwrite an existing rule in place — `add` with

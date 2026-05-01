@@ -492,19 +492,27 @@ try {
                     # pwsh-forwarder / firewall state first; omitting any here
                     # would tear it down each status-server restart.
                     #
-                    # 3128 -> VM 3138 / 3129 -> VM 3139 (PROXY v1) on BOTH platforms:
-                    # the userspace pwsh forwarder preserves the LAN client IP for
-                    # squid's access.log. See Invoke-TestRunner.ps1 for the full
-                    # rationale (and the Test.PortMap App-Execution-Alias self-heal
-                    # that makes the Windows path work).
+                    # 3128 / 3129 mapping is platform-divergent (see Invoke-TestRunner.ps1
+                    # for the full rationale): macOS uses the userspace pwsh
+                    # forwarder + PROXY v1 (real LAN IPs in squid logs); Windows
+                    # uses plain netsh portproxy because the user-mode listener
+                    # path is unreachable from LAN on this host (squid logs the
+                    # NAT-side IP — known gap, see docs/caching.md).
                     # macOS skips :80 — Start-CachingProxy.ps1 is the sole sudo
                     # owner of the privileged bind.
-                    $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000) }
+                    $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 3128, 3129) }
                     if ($vmIp) {
-                        $mapResult = Add-CachingProxyPortMap -VMIp $vmIp `
-                                        -Port $squidPorts `
-                                        -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
-                                        -ProxyProtocolPort @(3128, 3129)
+                        $portMapArgs = @{
+                            VMIp = $vmIp
+                            Port = $squidPorts
+                            PortRemap = @{ 8022 = 22 }
+                        }
+                        if ($IsMacOS) {
+                            $portMapArgs.PortRemap[3128] = 3138
+                            $portMapArgs.PortRemap[3129] = 3139
+                            $portMapArgs.ProxyProtocolPort = @(3128, 3129)
+                        }
+                        $mapResult = Add-CachingProxyPortMap @portMapArgs
                         $mapOk = [bool]$mapResult
                     }
                     if ($mapOk) {

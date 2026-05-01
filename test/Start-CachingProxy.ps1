@@ -329,23 +329,30 @@ if ($IsMacOS) {
     if ($cacheIp) {
         $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
         Import-Module $portMapMod -Force
-        # See macOS branch above for the rationale on each port:
-        #   8022 -> VM 22         : SSH on non-standard host port.
-        #   3128 -> VM 3138 PROXY : squid HTTP, real client IP preserved.
-        #   3129 -> VM 3139 PROXY : squid SSL-bump HTTPS, real client IP.
-        # 80 (CA cert) and 3000 (Grafana) stay on netsh portproxy — PROXY
-        # protocol is meaningless for those endpoints and netsh is faster.
-        # An earlier revision (29038ff) reverted Windows to plain netsh
-        # for 3128/3129 because the per-program Defender rule pinned to
-        # whatever Get-Command pwsh resolved at install time silently
-        # mismatched the loaded binary on hosts where a Microsoft Store
-        # App Execution Alias was first on PATH. Test.PortMap now reads
-        # the running process's .Path post-spawn and rewrites the rule
-        # with the resolved binary, so the Windows path is reliable.
+        # All ports stay on netsh portproxy — kernel-mode listener (IP
+        # Helper service) is the only path that's reliably reachable
+        # from LAN on this Hyper-V host. The userspace pwsh forwarder
+        # + PROXY v1 path that preserves the real client IP works on
+        # macOS but Windows Defender Firewall drops inbound TCP to the
+        # user-mode listener on 3128/3129 even with both port-scope and
+        # per-program Allow rules in place. Test.PortMap.psm1 includes
+        # an App-Execution-Alias self-heal that closes one specific
+        # Defender path-mismatch case, but on this host the user-mode
+        # listener stays unreachable regardless — the limiting layer is
+        # something below `New-NetFirewallRule` (per-process Defender
+        # filter on Public profile, an EDR / corporate policy, or a
+        # Hyper-V WFP layer that path-based rules can't override).
+        # 80/3000/8022 work via netsh because IP Helper's kernel-mode
+        # listener bypasses per-program filtering entirely.
+        # Cost of the netsh route: LAN clients show up in squid's
+        # access.log as the host's NAT-side IP rather than their real
+        # LAN IP. Local Default-Switch guests are unaffected — they
+        # reach the VM directly and bypass the host forwarder entirely.
+        # See docs/caching.md for the architectural fix (External
+        # vSwitch + bridged cache VM) that gets real IPs back.
         [void](Add-CachingProxyPortMap -VMIp $cacheIp `
-                -Port @(80, 3000) `
-                -PortRemap @{8022 = 22; 3128 = 3138; 3129 = 3139} `
-                -ProxyProtocolPort @(3128, 3129))
+                -Port @(80, 3000, 3128, 3129) `
+                -PortRemap @{8022 = 22})
     }
 }
 

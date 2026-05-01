@@ -367,58 +367,83 @@ PROXY v1 line — `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\
 prepended by the forwarder before the byte stream — and uses the
 supplied client IP for ACLs and the access log.
 
-PROXY-v1 source-IP preservation now works on both macOS and Windows.
-The pwsh forwarder ([`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1))
-binds the host port, dials the cache VM's PROXY-aware listener (3138 or
-3139), prepends the v1 header with the real client IP/port, then bridges
-bytes both ways.
+PROXY-v1 source-IP preservation is **macOS-only** today. On Hyper-V
+hosts the userspace pwsh forwarder is unreachable from the LAN on
+3128/3129 even with port-scope **and** per-program Defender Allow
+rules in place — confirmed by direct probing from a remote machine
+and by re-probing from the cache VM through the Default-Switch NAT.
+80/3000/8022 work via netsh portproxy because IP Helper's kernel-mode
+listener bypasses per-program filtering entirely; the user-mode pwsh
+listener path consistently fails closed regardless of rule
+formulation, suggesting a filter below `New-NetFirewallRule`'s reach
+(per-process Defender on Public profile, an EDR / corporate-policy
+overlay, or a Hyper-V WFP module). On Windows we keep 3128/3129 on
+the same kernel-mode netsh path and accept the source-IP loss in
+squid logs.
 
-The wiring:
+The wiring (per platform):
 
-| Endpoint       | Host port | VM port | Forwarder         | Notes                                              |
-|----------------|-----------|---------|-------------------|----------------------------------------------------|
-| Squid HTTP     | 3128      | **3138**| pwsh + PROXY v1   | `http_port 3138 require-proxy-header`              |
-| Squid SSL-bump | 3129      | **3139**| pwsh + PROXY v1   | `http_port 3139 require-proxy-header ssl-bump ...` |
-| Apache CA cert | 80        | 80      | netsh / pwsh-sudo | source IP not relevant (static file)               |
-| Grafana        | 3000      | 3000    | netsh / pwsh      | source IP not relevant (dashboard UI)              |
-| SSH            | 8022      | 22      | netsh / pwsh      | sshd has its own client-IP logging                 |
+| Endpoint       | Host port | macOS VM | Windows VM | macOS forwarder  | Windows forwarder | Notes                                                  |
+|----------------|-----------|----------|------------|------------------|-------------------|--------------------------------------------------------|
+| Squid HTTP     | 3128      | 3138     | 3128       | pwsh + PROXY v1  | netsh portproxy   | macOS: `http_port 3138 require-proxy-header`           |
+| Squid SSL-bump | 3129      | 3139     | 3129       | pwsh + PROXY v1  | netsh portproxy   | macOS: `http_port 3139 require-proxy-header ssl-bump`  |
+| Apache CA cert | 80        | 80       | 80         | pwsh (sudo bind) | netsh portproxy   | static file — source IP not relevant                   |
+| Grafana        | 3000      | 3000     | 3000       | pwsh             | netsh portproxy   | dashboard UI — source IP not relevant                  |
+| SSH            | 8022      | 22       | 22         | pwsh             | netsh portproxy   | sshd has its own client-IP logging                     |
 
-The cache VM also keeps `http_port 3128` and `http_port 3129` open
-without PROXY parsing — local Default-Switch / Shared-NAT guests reach
-those directly (no NAT in the path) and get correct source IPs the old
-way. Only LAN traffic going through the host forwarder takes the
-PROXY-v1 detour.
+The cache VM keeps both pairs of squid listeners up regardless of
+platform — `http_port 3128` / `http_port 3129` (no PROXY) for direct
+guests, plus `http_port 3138 require-proxy-header` / `http_port 3139
+require-proxy-header` for any future PROXY-v1 source. Windows hosts
+just don't traverse the latter pair today.
+
+Local guests on the Default Switch / Shared NAT still hit `:3128` and
+`:3129` directly (no PROXY header) — they get correct source IPs the
+old way (no NAT in the path). On macOS, only LAN traffic going through
+the host forwarder takes the PROXY-v1 detour.
 
 `proxy_protocol_access` allows PROXY headers from RFC1918 + loopback
 only — the host forwarder is on a private network and there's no
 threat model where untrusted PROXY senders matter, but the deny-by-
 default posture costs nothing.
 
-#### Windows: the App Execution Alias trap
+#### Windows: App Execution Alias self-heal (latent, not in current path)
 
-An earlier revision shipped this on macOS only because the Windows path
-silently dropped LAN traffic — Defender's per-program rule matched the
-`-Program` filter against whatever `Get-Command pwsh` resolved at rule-
-install time. On hosts where a Microsoft Store *App Execution Alias*
-(zero-byte stub at `…\WindowsApps\pwsh.exe`) is first on PATH, the rule
-got pinned to the alias path; the loaded process resolved through to a
-different on-disk binary under `C:\Program Files\WindowsApps\…`; and
-Defender's WFP filter — which matches against the post-resolution path
-— silently failed to match the rule. Get-NetFirewallRule said the rule
-was in place, the listener was bound, traffic was dropped.
+[`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1) carries a
+self-heal for one specific Windows path-resolution failure mode:
+after `Start-WindowsCachingProxyForwarder` spawns pwsh, it reads
+`(Get-Process -Id <pid>).Path` and rewrites the per-program firewall
+rule with the resolved binary, in case `Get-Command pwsh` returned a
+Microsoft Store App Execution Alias stub instead of the binary that
+the loaded process actually resolves to. The fix is in place but not
+exercised today because the Windows callers route 3128/3129 through
+netsh portproxy instead — kept ready for the day the underlying
+Defender filtering is solved or worked around.
 
-[`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1) now self-heals:
-after `Start-WindowsCachingProxyForwarder` spawns pwsh and verifies the
-listener bound, it reads `(Get-Process -Id <pid>).Path` (which follows
-the alias resolution) and rewrites the per-program rule with that
-resolved binary path. Idempotent on hosts where the pre-spawn guess was
-already correct.
+#### Recovering real client IPs on Windows: External vSwitch
+
+The clean architectural fix on Hyper-V is to bypass the host-side
+forwarder entirely: bind the cache VM to an **External vSwitch**
+(bridged mode) with a real LAN IP via DHCP. LAN clients reach the VM
+directly, squid sees the real client IP at TCP level, no PROXY
+protocol needed. Tradeoffs vs. the current Default-Switch setup: the
+host needs a physical NIC dedicated (or shared) with the External
+vSwitch; the cache VM is exposed at the LAN level (RFC1918 ACLs
+in squid still gate access); and LAN-side DHCP must hand out an IP.
+Local Default-Switch guests would still reach the VM via its bridged
+LAN IP since both networks see the same broadcast domain. Not yet
+implemented; would require provisioning changes in
+[`virtual/host.windows.hyper-v/`](../virtual/host.windows.hyper-v/)
+and a corresponding update to the discovery path.
 
 Implementation: the `-PrependProxyV1` switch on
 [`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
 (pure PowerShell, cross-platform), wired through
 [`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1)'s
-`-ProxyProtocolPort` parameter on `Add-CachingProxyPortMap`.
+`-ProxyProtocolPort` parameter on `Add-CachingProxyPortMap`. Only the
+macOS branch of every caller passes that parameter; the Windows branch
+maps 3128/3129 plainly (host:N → VM:N) so the kernel-mode netsh listener
+is what the LAN client actually reaches.
 
 Both paths exist because the VM is most often debugged before cloud-init
 finishes. The password is not a secret: the VM is reachable only on the

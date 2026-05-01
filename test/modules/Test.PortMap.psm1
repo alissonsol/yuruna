@@ -28,16 +28,25 @@
 
     Windows (Hyper-V, the original):
       VMs on Hyper-V's Default Switch land on a private NAT subnet
-      (172.25.x.x) reachable from the host but not the host's LAN. Ports
-      are exposed via three steps per port:
-        1. netsh interface portproxy delete (idempotency — netsh won't
-           replace in place)
-        2. netsh interface portproxy add v4tov4 listenport=P
-           listenaddress=0.0.0.0 connectport=P connectaddress=$VMIp
-        3. New-NetFirewallRule -DisplayName Yuruna-CachingProxy-Port-P
-           -Direction Inbound -Protocol TCP -LocalPort P -Action Allow
-      Requires administrator; non-elevated callers get a warning and a
-      no-op (the cycle continues without port exposure).
+      (172.25.x.x) reachable from the host but not the host's LAN.
+      Per port, two stacks coexist:
+        * netsh portproxy (kernel-mode IP Helper service) — used for
+          80, 3000, 8022. Source IP is NAT'd by the kernel.
+        * userspace pwsh forwarder (Start-CachingProxyForwarder.ps1) —
+          used for ports passed via -ProxyProtocolPort (3128, 3129) so
+          a HAProxy PROXY v1 header can preserve the real client IP
+          for squid's accept-proxy-protocol listener.
+      Both stacks teardown-then-add for idempotency, and both get a
+      Yuruna-CachingProxy-Port-P firewall rule (port-scope, -Profile Any).
+      The userspace path additionally gets a Yuruna-CachingProxy-Pwsh-P
+      rule (per-program Allow for pwsh.exe) — without it, Windows
+      Defender Firewall's per-program inbound filter on Public-profile
+      networks silently drops LAN traffic to user-mode listeners even
+      when the port-scope rule is in place. Kernel-mode netsh portproxy
+      is not subject to that filter, which is why 80/3000 worked
+      remotely while 3128/3129 didn't until both rules were added.
+      Firewall rules go in BEFORE the listener binds. Requires admin;
+      non-elevated callers get a warning and a no-op.
 
     macOS (UTM / Apple Virtualization):
       Apple VZ's shared-NAT isolates guest↔guest traffic on
@@ -57,6 +66,16 @@
 
 $script:StateFileName = 'caching-proxy-port-map.json'
 $script:FirewallRulePrefix = 'Yuruna-CachingProxy-Port-'
+# Per-program (pwsh.exe) firewall-rule prefix. Used ONLY for ports served
+# by the userspace pwsh forwarder (-ProxyProtocolPort), where Windows
+# Defender Firewall applies per-program inbound filtering on top of the
+# port-scope rule. Kernel-mode netsh portproxy (the path used for 80/3000/
+# 8022) is not subject to this and skips this rule. Without this rule,
+# remote LAN clients see :3128 / :3129 silently dropped while the local
+# host (which probes the cache VM's Default-Switch IP directly, bypassing
+# the forwarder entirely) reports green — the exact regression introduced
+# by the "Proxy protocol" commit when 3128/3129 moved off netsh portproxy.
+$script:FirewallProgramRulePrefix = 'Yuruna-CachingProxy-Pwsh-'
 
 # Test.TrackDir.psm1 owns $env:YURUNA_TRACK_DIR; import it here so
 # Get-PortMapStatePath can resolve the state file even when a caller
@@ -102,9 +121,16 @@ function Remove-SinglePortMap {
     # favor of a userspace forwarder that prepends a PROXY v1 header).
     Stop-WindowsCachingProxyForwarder -Port $Port -Quiet
 
-    $ruleName = "${script:FirewallRulePrefix}${Port}"
-    Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
-        Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    # Remove BOTH the port-scope rule and the per-program rule (pwsh.exe).
+    # The program rule is only created for -ProxyProtocolPort ports, but
+    # the cleanup is unconditional and idempotent — Get-NetFirewallRule
+    # for a non-existent name is a no-op via -ErrorAction SilentlyContinue,
+    # so 80/3000/8022 lose nothing they had.
+    foreach ($prefix in @($script:FirewallRulePrefix, $script:FirewallProgramRulePrefix)) {
+        $ruleName = "${prefix}${Port}"
+        Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    }
 }
 
 <#
@@ -124,6 +150,108 @@ function Get-CachingProxyForwarderScriptPath {
     param()
     $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     return (Join-Path $repoRoot 'virtual/host.macos.utm/Start-CachingProxyForwarder.ps1')
+}
+
+<#
+.SYNOPSIS
+    Resolve the pwsh.exe path the same way Start-Process -FilePath 'pwsh' will.
+.DESCRIPTION
+    Used to populate the -Program parameter on the per-program Windows
+    Defender Firewall rule for ports served by the userspace forwarder.
+    Get-Command runs the same PATH lookup Start-Process does, so the
+    rule's Program path matches the binary that actually binds the port —
+    if the host has multiple pwsh installs (Program Files, Microsoft
+    Store, ad-hoc unzip) the rule cannot accidentally allow a different
+    one. Returns $null if pwsh is not on PATH; caller logs and proceeds
+    without the per-program rule (port-scope rule still in place).
+#>
+function Get-PwshExePath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $cmd = Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Install the Windows Defender Firewall rules for one caching-proxy port.
+.DESCRIPTION
+    Two rules per ProxyProtocol port (one rule for the others):
+
+      Yuruna-CachingProxy-Port-<N>  : port-scope Allow, -Profile Any.
+                                      Required for any inbound listener.
+                                      Matches the working precedent in
+                                      Test.Host.psm1's status-server rule
+                                      (which calls out the same Defender
+                                      "drops inbound on non-loopback"
+                                      behavior this rule resolves).
+
+      Yuruna-CachingProxy-Pwsh-<N>  : per-program Allow for pwsh.exe,
+                                      -Profile Any. Created only when
+                                      -IncludeProgram is set (i.e. a
+                                      ProxyProtocol port served by the
+                                      userspace forwarder). Defender's
+                                      per-program inbound filter on
+                                      Public-profile networks otherwise
+                                      drops LAN traffic to the user-mode
+                                      listener even with the port-scope
+                                      Allow rule in place — the symptom
+                                      that motivated this whole helper.
+
+    Both rules are delete-then-add so re-runs stay idempotent. -Profile is
+    set explicitly to Any to match the Test.Host.psm1 status-server
+    precedent and to remove any default-profile ambiguity across Windows
+    versions / domain-vs-public LAN classifications.
+
+    Caller MUST install the rules BEFORE binding the listener — Defender
+    cleanly applies a new Allow rule when the program first calls bind(),
+    avoiding any first-bind hostile-default state. The order matters more
+    for the user-mode forwarder path; for kernel-mode netsh portproxy
+    it's harmless either way.
+#>
+function Add-CachingProxyFirewallRule {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][int]$Port,
+        [Parameter(Mandatory)][string]$Description,
+        [switch]$IncludeProgram
+    )
+    if (-not $IsWindows) { return }
+
+    # Port-scope rule.
+    $portRule = "${script:FirewallRulePrefix}${Port}"
+    if ($PSCmdlet.ShouldProcess($portRule, 'Install port-scope Allow rule')) {
+        Get-NetFirewallRule -DisplayName $portRule -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        New-NetFirewallRule -DisplayName $portRule -Direction Inbound `
+            -Protocol TCP -LocalPort $Port -Action Allow `
+            -Profile Any `
+            -Description $Description `
+            -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    if (-not $IncludeProgram) { return }
+
+    # Per-program rule (pwsh.exe).
+    $programRule = "${script:FirewallProgramRulePrefix}${Port}"
+    if ($PSCmdlet.ShouldProcess($programRule, 'Install per-program Allow rule for pwsh.exe')) {
+        Get-NetFirewallRule -DisplayName $programRule -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        $pwshPath = Get-PwshExePath
+        if (-not $pwshPath) {
+            Write-Warning "Get-PwshExePath returned null — skipping ${programRule}. LAN clients may see :${Port} silently dropped by Windows Defender Firewall (the port-scope rule alone does not always override Defender's per-program inbound filter on Public profile)."
+            return
+        }
+        New-NetFirewallRule -DisplayName $programRule -Direction Inbound `
+            -Protocol TCP -LocalPort $Port -Action Allow `
+            -Profile Any `
+            -Program $pwshPath `
+            -Description "${Description} (per-program: $pwshPath)" `
+            -ErrorAction SilentlyContinue | Out-Null
+    }
 }
 
 <#
@@ -318,14 +446,25 @@ function Get-YurunaMappedPortFromFirewall {
     param()
     if (-not $IsWindows) { return @() }
     $ports = @()
+    # Pick up BOTH naming conventions. A port that has only the program
+    # rule installed (e.g. interrupted Add-CachingProxyPortMap mid-cycle)
+    # still gets cleaned up; without this branch, the orphan rule would
+    # outlive the next cycle and accumulate over time.
+    $prefixPattern = '^(?:' +
+        [regex]::Escape($script:FirewallRulePrefix) + '|' +
+        [regex]::Escape($script:FirewallProgramRulePrefix) +
+        ')(\d+)$'
     Get-NetFirewallRule -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -like "${script:FirewallRulePrefix}*" } |
+        Where-Object {
+            $_.DisplayName -like "${script:FirewallRulePrefix}*" -or
+            $_.DisplayName -like "${script:FirewallProgramRulePrefix}*"
+        } |
         ForEach-Object {
-            if ($_.DisplayName -match "^$([regex]::Escape($script:FirewallRulePrefix))(\d+)$") {
+            if ($_.DisplayName -match $prefixPattern) {
                 $ports += [int]$matches[1]
             }
         }
-    return ,$ports
+    return ,($ports | Sort-Object -Unique)
 }
 
 <#
@@ -524,58 +663,54 @@ function Add-CachingProxyPortMap {
         $proxyTag = if ($useProxy) { ' [PROXY v1]' } else { '' }
         if (-not $PSCmdlet.ShouldProcess("host:${hostPort} -> ${VMIp}:${vmPort}${proxyTag}", 'Add port mapping')) { continue }
 
+        $desc = "Yuruna caching proxy: forward host :${hostPort} to VM :${vmPort}${proxyTag}"
+
+        # Tear down any prior listener for THIS port (both stacks — netsh
+        # portproxy and pwsh forwarder), regardless of which mode this
+        # cycle uses. Switching modes between cycles (e.g. operator added
+        # a port to -ProxyProtocolPort) would otherwise race the old
+        # listener for the bind. netsh delete is no-op if the rule is
+        # absent; Stop-WindowsCachingProxyForwarder is no-op if no pidfile.
+        & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
+        Stop-WindowsCachingProxyForwarder -Port $hostPort -Quiet
+
+        # Install firewall rules BEFORE binding the listener. For the
+        # user-mode pwsh forwarder path, Windows Defender Firewall applies
+        # both a port-scope rule AND a per-program rule for pwsh.exe; the
+        # latter is the one that allows LAN traffic on Public-profile
+        # networks (the port-scope rule alone is consistently insufficient
+        # — that was the regression behind 3128/3129 working locally on
+        # the Default-Switch IP yet failing for remote LAN clients while
+        # 80/3000 on netsh portproxy continued to work). Kernel-mode netsh
+        # portproxy is not subject to per-program filtering, so -IncludeProgram
+        # is gated to ProxyProtocol ports — adding it for 80/3000 would
+        # be noise. Rules are written before the listener binds so
+        # Defender's WFP filters are in place at bind time.
+        Add-CachingProxyFirewallRule -Port $hostPort -Description $desc -IncludeProgram:$useProxy -Confirm:$false
+
         if ($useProxy) {
             # PROXY-protocol path: netsh portproxy NATs the source IP, so
-            # squid would log every connection as the host. Replace netsh
-            # for THIS port with a userspace pwsh forwarder that writes a
-            # HAProxy PROXY v1 header before the byte stream — squid (with
-            # accept-proxy-protocol on the VM-side port) parses it and
-            # restores the real client IP for ACLs and access.log.
-            #
-            # Tear down any prior netsh portproxy on this listenport first
-            # — if a previous run used netsh for this port, that mapping
-            # would race with the new pwsh listener for the bind.
-            & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
+            # squid would log every connection as the host. The userspace
+            # pwsh forwarder writes a HAProxy PROXY v1 header before the
+            # byte stream — squid (with accept-proxy-protocol on the
+            # VM-side port) parses it and restores the real client IP
+            # for ACLs and access.log.
             $ok = Start-WindowsCachingProxyForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
             if (-not $ok) {
                 Write-Warning "Add-CachingProxyPortMap: pwsh forwarder failed for host ${hostPort} -> ${VMIp}:${vmPort} (PROXY v1)."
                 continue
             }
         } else {
-            # Step 1 — remove any stale portproxy on this listenport. netsh won't
-            # overwrite an existing rule in place; `add` with the same listenport
-            # returns "The object already exists" and leaves the old mapping.
-            # Also kill any prior pwsh forwarder for this port (e.g. switching
-            # away from PROXY-protocol mode for a port).
-            & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
-            Stop-WindowsCachingProxyForwarder -Port $hostPort -Quiet
-
-            # Step 2 — create the portproxy mapping.
+            # netsh won't overwrite an existing rule in place — `add` with
+            # the same listenport returns "The object already exists" and
+            # leaves the old mapping. The pre-loop delete above keeps this
+            # path idempotent.
             & netsh interface portproxy add v4tov4 listenport=$hostPort listenaddress=0.0.0.0 connectport=$vmPort connectaddress=$VMIp | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning "Add-CachingProxyPortMap: netsh portproxy add failed for host ${hostPort} -> ${VMIp}:${vmPort} (exit $LASTEXITCODE)."
                 continue
             }
         }
-
-        # Step 3 — open Windows Firewall. Same rule applies regardless of
-        # whether the bind is netsh-managed or pwsh-managed; the firewall
-        # filters by destination port, not by who's listening on it.
-        # Delete-then-add keeps the rule idempotent (no duplicates across
-        # repeated cycle starts). Rule name uses HOST port (predictable,
-        # what's actually listening).
-        $ruleName = "${script:FirewallRulePrefix}${hostPort}"
-        Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
-            Remove-NetFirewallRule -ErrorAction SilentlyContinue
-        $desc = if ($useProxy) {
-            "Yuruna caching proxy: forward host :${hostPort} to VM :${vmPort} [PROXY v1]"
-        } else {
-            "Yuruna caching proxy: forward host :${hostPort} to VM :${vmPort}"
-        }
-        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound `
-            -Protocol TCP -LocalPort $hostPort -Action Allow `
-            -Description $desc `
-            -ErrorAction SilentlyContinue | Out-Null
 
         Write-Output "  Port map added: host:${hostPort} -> ${VMIp}:${vmPort}${proxyTag}"
     }

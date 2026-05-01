@@ -367,47 +367,106 @@ PROXY v1 line — `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\
 prepended by the forwarder before the byte stream — and uses the
 supplied client IP for ACLs and the access log.
 
-PROXY-v1 source-IP preservation is **macOS-only** today. On Hyper-V
-hosts the userspace pwsh forwarder is unreachable from the LAN on
-3128/3129 even with port-scope **and** per-program Defender Allow
-rules in place — confirmed by direct probing from a remote machine
-and by re-probing from the cache VM through the Default-Switch NAT.
-80/3000/8022 work via netsh portproxy because IP Helper's kernel-mode
-listener bypasses per-program filtering entirely; the user-mode pwsh
-listener path consistently fails closed regardless of rule
-formulation, suggesting a filter below `New-NetFirewallRule`'s reach
-(per-process Defender on Public profile, an EDR / corporate-policy
-overlay, or a Hyper-V WFP module). On Windows we keep 3128/3129 on
-the same kernel-mode netsh path and accept the source-IP loss in
-squid logs.
+Source-IP preservation works on both platforms but via two different
+mechanisms — same goal (squid sees real client IPs), different
+plumbing forced by what the host's network stack lets us do.
+
+##### macOS: pwsh forwarder + PROXY v1
+
+Apple VZ shared-NAT isolates guest↔guest traffic on `192.168.64.0/24`,
+so LAN clients can't reach the cache VM directly. The Mac host runs
+[`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
+on `0.0.0.0:3128` / `:3129`, accepts the LAN client's TCP connection,
+opens an upstream connection to the cache VM's `:3138` / `:3139` port
+(which Squid binds with `require-proxy-header`), prepends a HAProxy
+PROXY v1 line — `PROXY TCP4 <client_ip> <bind_ip> <client_port> <bind_port>\r\n`
+— and then bridges bytes both ways. Squid uses the supplied client IP
+for ACLs and the access log.
+
+##### Windows: External vSwitch (bridged cache VM)
+
+On Hyper-V the userspace pwsh forwarder approach is **silently dropped
+on inbound LAN traffic**, even with port-scope and per-program Defender
+Allow rules in place — confirmed by direct probing from a remote
+machine and by re-probing from the cache VM through the Default-Switch
+NAT. The filter sits below `New-NetFirewallRule`'s reach: per-process
+Defender on Public profile, EDR / corporate-policy overlays, or a
+Hyper-V WFP module are all candidates and none are reliably
+overridable from PowerShell. Kernel-mode netsh portproxy bypasses that
+filter (which is why 80/3000/8022 work over it), but netsh has no
+PROXY-protocol mode and rewrites the source IP at the kernel NAT — the
+cost is that LAN clients log as the host's vEthernet (Default Switch)
+IP, the gap that originally motivated this whole thread.
+
+The architectural fix is to **bypass the host's forwarder layer
+entirely**: bridge the cache VM to LAN with a Hyper-V External vSwitch.
+[`virtual/host.windows.hyper-v/VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1)
+exposes `Get-OrCreateYurunaExternalSwitch`, which idempotently creates
+a switch named `Yuruna-External` bound to the host's primary physical
+NIC (the one carrying the default IPv4 route, with `-AllowManagementOS:$true`
+so the host stays on its own network during and after the bridge);
+[`virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1`](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1)
+calls it on every cache-VM provision and falls back to `Default Switch`
+only if no LAN-routed NIC is available. Once on the External vSwitch
+the cache VM gets a real LAN IP via DHCP and remote clients hit it
+directly at `<cache-lan-ip>:3128` — squid sees real client IPs at TCP
+level, no PROXY protocol needed.
+
+Constraints: a wired physical NIC works best; Wi-Fi APs typically
+refuse to forward frames for MACs they didn't authenticate, so the
+cache VM may fail DHCP on a Wi-Fi-only host (the helper warns at
+creation time). The cache VM is on the LAN broadcast domain — squid's
+RFC1918 ACL still gates *who* can use it as a proxy, but anyone on the
+LAN can TCP-connect. Removing the bridge requires explicit
+`Remove-VMSwitch -Name 'Yuruna-External'` (we don't auto-clean — other
+VMs may share the switch).
 
 The wiring (per platform):
 
-| Endpoint       | Host port | macOS VM | Windows VM | macOS forwarder  | Windows forwarder | Notes                                                  |
-|----------------|-----------|----------|------------|------------------|-------------------|--------------------------------------------------------|
-| Squid HTTP     | 3128      | 3138     | 3128       | pwsh + PROXY v1  | netsh portproxy   | macOS: `http_port 3138 require-proxy-header`           |
-| Squid SSL-bump | 3129      | 3139     | 3129       | pwsh + PROXY v1  | netsh portproxy   | macOS: `http_port 3139 require-proxy-header ssl-bump`  |
-| Apache CA cert | 80        | 80       | 80         | pwsh (sudo bind) | netsh portproxy   | static file — source IP not relevant                   |
-| Grafana        | 3000      | 3000     | 3000       | pwsh             | netsh portproxy   | dashboard UI — source IP not relevant                  |
-| SSH            | 8022      | 22       | 22         | pwsh             | netsh portproxy   | sshd has its own client-IP logging                     |
+| Endpoint       | Host port | macOS VM | Windows VM | macOS forwarder  | Windows forwarder        | Notes                                                  |
+|----------------|-----------|----------|------------|------------------|--------------------------|--------------------------------------------------------|
+| Squid HTTP     | 3128      | 3138     | n/a        | pwsh + PROXY v1  | direct (External vSwitch) | macOS: `http_port 3138 require-proxy-header`           |
+| Squid SSL-bump | 3129      | 3139     | n/a        | pwsh + PROXY v1  | direct (External vSwitch) | macOS: `http_port 3139 require-proxy-header ssl-bump`  |
+| Apache CA cert | 80        | 80       | n/a        | pwsh (sudo bind) | direct (External vSwitch) | static file — source IP not relevant                   |
+| Grafana        | 3000      | 3000     | n/a        | pwsh             | direct (External vSwitch) | dashboard UI                                           |
+| SSH            | 8022      | 22       | n/a        | pwsh             | direct (External vSwitch) | sshd has its own client-IP logging                     |
+
+`n/a` for Windows host port: there is no host-side listener at all on
+the External-vSwitch path. Operators reach Grafana at
+`http://<cache-lan-ip>:3000`, the cache at
+`http://<cache-lan-ip>:3128`, etc. New-VM.ps1 prints the LAN IP on
+success; Test-CachingProxy uses it via `$Env:YURUNA_CACHING_PROXY_IP`.
 
 The cache VM keeps both pairs of squid listeners up regardless of
 platform — `http_port 3128` / `http_port 3129` (no PROXY) for direct
-guests, plus `http_port 3138 require-proxy-header` / `http_port 3139
-require-proxy-header` for any future PROXY-v1 source. Windows hosts
-just don't traverse the latter pair today.
+LAN clients and bridged guests, plus `http_port 3138 require-proxy-header`
+/ `http_port 3139 require-proxy-header` for the macOS PROXY-v1 path.
 
-Local guests on the Default Switch / Shared NAT still hit `:3128` and
-`:3129` directly (no PROXY header) — they get correct source IPs the
-old way (no NAT in the path). On macOS, only LAN traffic going through
-the host forwarder takes the PROXY-v1 detour.
+Local Default-Switch guests on Hyper-V reach the cache via host
+routing through the External vSwitch, so they appear at squid as the
+host's LAN IP rather than the cache-VM's NAT-side IP — same kind of
+collapse-to-host as on the prior netsh path, but via the LAN side. If
+finer-grained per-guest IP visibility is needed for local test VMs, the
+follow-up is to migrate them to the External vSwitch as well.
 
 `proxy_protocol_access` allows PROXY headers from RFC1918 + loopback
-only — the host forwarder is on a private network and there's no
+only — the macOS host forwarder is on a private network and there's no
 threat model where untrusted PROXY senders matter, but the deny-by-
 default posture costs nothing.
 
-#### Windows: App Execution Alias self-heal (latent, not in current path)
+##### Windows fallback: Default Switch + netsh portproxy
+
+When `Get-OrCreateYurunaExternalSwitch` cannot create the External
+switch (no LAN-routable NIC, Wi-Fi-only host, switch creation
+explicitly skipped), the cache VM lands on the built-in `Default Switch`
+and the test/ scripts re-enable netsh portproxy on the host as before.
+LAN clients reach `<host-lan-ip>:3128` and squid sees the host's
+vEthernet IP for every request — the documented source-IP-loss gap
+is preserved as a fallback, not a default. `Test-CacheVmOnYurunaExternalSwitch`
+in [`VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1)
+is the runtime detection switch.
+
+##### Windows: App Execution Alias self-heal (latent, not in current path)
 
 [`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1) carries a
 self-heal for one specific Windows path-resolution failure mode:
@@ -416,39 +475,33 @@ after `Start-WindowsCachingProxyForwarder` spawns pwsh, it reads
 rule with the resolved binary, in case `Get-Command pwsh` returned a
 Microsoft Store App Execution Alias stub instead of the binary that
 the loaded process actually resolves to. The fix is in place but not
-exercised today because the Windows callers route 3128/3129 through
-netsh portproxy instead — kept ready for the day the underlying
-Defender filtering is solved or worked around.
+exercised today because the External-vSwitch path doesn't use the pwsh
+forwarder on Windows at all — kept ready in case some future host
+config needs the userspace path again.
 
-#### Recovering real client IPs on Windows: External vSwitch
+Implementation:
+* macOS path — the `-PrependProxyV1` switch on
+  [`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
+  (pure PowerShell, cross-platform), wired through
+  [`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1)'s
+  `-ProxyProtocolPort` parameter on `Add-CachingProxyPortMap`.
+* Windows path — `Get-OrCreateYurunaExternalSwitch` and
+  `Test-CacheVmOnYurunaExternalSwitch` in
+  [`VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1),
+  consumed by
+  [`guest.squid-cache/New-VM.ps1`](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1)
+  at provisioning time and by the Windows branches of
+  [`Start-CachingProxy.ps1`](../test/Start-CachingProxy.ps1),
+  [`Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1), and
+  [`Start-StatusServer.ps1`](../test/Start-StatusServer.ps1) at port-map
+  decision time.
 
-The clean architectural fix on Hyper-V is to bypass the host-side
-forwarder entirely: bind the cache VM to an **External vSwitch**
-(bridged mode) with a real LAN IP via DHCP. LAN clients reach the VM
-directly, squid sees the real client IP at TCP level, no PROXY
-protocol needed. Tradeoffs vs. the current Default-Switch setup: the
-host needs a physical NIC dedicated (or shared) with the External
-vSwitch; the cache VM is exposed at the LAN level (RFC1918 ACLs
-in squid still gate access); and LAN-side DHCP must hand out an IP.
-Local Default-Switch guests would still reach the VM via its bridged
-LAN IP since both networks see the same broadcast domain. Not yet
-implemented; would require provisioning changes in
-[`virtual/host.windows.hyper-v/`](../virtual/host.windows.hyper-v/)
-and a corresponding update to the discovery path.
-
-Implementation: the `-PrependProxyV1` switch on
-[`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
-(pure PowerShell, cross-platform), wired through
-[`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1)'s
-`-ProxyProtocolPort` parameter on `Add-CachingProxyPortMap`. Only the
-macOS branch of every caller passes that parameter; the Windows branch
-maps 3128/3129 plainly (host:N → VM:N) so the kernel-mode netsh listener
-is what the LAN client actually reaches.
-
-Both paths exist because the VM is most often debugged before cloud-init
-finishes. The password is not a secret: the VM is reachable only on the
-private Hyper-V Default Switch / UTM Shared NAT, and squid restricts to
-RFC1918.
+The console password is not a secret: the cache VM is reachable on the
+LAN by IP, but squid's `http_access` ACL restricts proxy use to
+RFC1918 sources. The VM is most often debugged before cloud-init
+finishes (Apache, squid, Grafana, Prometheus all install over apt) —
+console fallback via vmconnect is the normal path while that's
+running.
 
 ## Management
 

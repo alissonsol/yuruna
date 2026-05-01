@@ -329,30 +329,27 @@ if ($IsMacOS) {
     if ($cacheIp) {
         $portMapMod = Join-Path $RepoRoot "test/modules/Test.PortMap.psm1"
         Import-Module $portMapMod -Force
-        # All ports stay on netsh portproxy — kernel-mode listener (IP
-        # Helper service) is the only path that's reliably reachable
-        # from LAN on this Hyper-V host. The userspace pwsh forwarder
-        # + PROXY v1 path that preserves the real client IP works on
-        # macOS but Windows Defender Firewall drops inbound TCP to the
-        # user-mode listener on 3128/3129 even with both port-scope and
-        # per-program Allow rules in place. Test.PortMap.psm1 includes
-        # an App-Execution-Alias self-heal that closes one specific
-        # Defender path-mismatch case, but on this host the user-mode
-        # listener stays unreachable regardless — the limiting layer is
-        # something below `New-NetFirewallRule` (per-process Defender
-        # filter on Public profile, an EDR / corporate policy, or a
-        # Hyper-V WFP layer that path-based rules can't override).
-        # 80/3000/8022 work via netsh because IP Helper's kernel-mode
-        # listener bypasses per-program filtering entirely.
-        # Cost of the netsh route: LAN clients show up in squid's
-        # access.log as the host's NAT-side IP rather than their real
-        # LAN IP. Local Default-Switch guests are unaffected — they
-        # reach the VM directly and bypass the host forwarder entirely.
-        # See docs/caching.md for the architectural fix (External
-        # vSwitch + bridged cache VM) that gets real IPs back.
-        [void](Add-CachingProxyPortMap -VMIp $cacheIp `
-                -Port @(80, 3000, 3128, 3129) `
-                -PortRemap @{8022 = 22})
+        # If the cache VM is on Yuruna-External, it has its own LAN IP
+        # via DHCP and remote clients reach it directly — squid sees
+        # real client IPs at TCP level, no host-side forwarder needed.
+        # Tear down any leftover netsh portproxy / firewall rules from
+        # a prior Default-Switch cycle so they can't NAT-rewrite traffic
+        # to a stale host:port path. On the Default-Switch fallback,
+        # set up netsh portproxy as before — kernel-mode IP Helper is
+        # the only LAN-reachable path on this Hyper-V host (the user-
+        # mode pwsh forwarder is silently dropped by Defender / EDR /
+        # WFP regardless of rules — see docs/caching.md). Cost of that
+        # path: LAN clients log as the host's vEthernet IP rather than
+        # their real IP. The External-vSwitch path is the architectural
+        # fix that recovers real IPs.
+        if (Test-CacheVmOnYurunaExternalSwitch -VMName $VMName) {
+            Write-Output "  Cache VM is on Yuruna-External vSwitch (LAN-direct, real client IPs preserved). Skipping host portproxy."
+            [void](Remove-CachingProxyPortMap)
+        } else {
+            [void](Add-CachingProxyPortMap -VMIp $cacheIp `
+                    -Port @(80, 3000, 3128, 3129) `
+                    -PortRemap @{8022 = 22})
+        }
     }
 }
 

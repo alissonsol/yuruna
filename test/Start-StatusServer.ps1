@@ -492,32 +492,53 @@ try {
                     # pwsh-forwarder / firewall state first; omitting any here
                     # would tear it down each status-server restart.
                     #
-                    # 3128 / 3129 mapping is platform-divergent (see Invoke-TestRunner.ps1
-                    # for the full rationale): macOS uses the userspace pwsh
-                    # forwarder + PROXY v1 (real LAN IPs in squid logs); Windows
-                    # uses plain netsh portproxy because the user-mode listener
-                    # path is unreachable from LAN on this host (squid logs the
-                    # NAT-side IP — known gap, see docs/caching.md).
-                    # macOS skips :80 — Start-CachingProxy.ps1 is the sole sudo
-                    # owner of the privileged bind.
-                    $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 3128, 3129) }
-                    if ($vmIp) {
-                        $portMapArgs = @{
-                            VMIp = $vmIp
-                            Port = $squidPorts
-                            PortRemap = @{ 8022 = 22 }
+                    # Windows External-vSwitch fast path: when the cache
+                    # VM is bridged to LAN (its own routable IP), remote
+                    # clients reach it directly and squid sees real
+                    # client IPs at TCP level. Tear down any prior netsh
+                    # mappings so the alternate host:port path doesn't
+                    # silently NAT-rewrite a parallel route.
+                    $cacheOnExternalSwitch = $false
+                    if ($IsWindows) {
+                        $vmCommon = Join-Path $RepoRoot "virtual/host.windows.hyper-v/VM.common.psm1"
+                        if (Test-Path $vmCommon) {
+                            Import-Module $vmCommon -Force
+                            $cacheOnExternalSwitch = Test-CacheVmOnYurunaExternalSwitch
                         }
-                        if ($IsMacOS) {
-                            $portMapArgs.PortRemap[3128] = 3138
-                            $portMapArgs.PortRemap[3129] = 3139
-                            $portMapArgs.ProxyProtocolPort = @(3128, 3129)
-                        }
-                        $mapResult = Add-CachingProxyPortMap @portMapArgs
-                        $mapOk = [bool]$mapResult
                     }
-                    if ($mapOk) {
-                        $bestIp = Get-BestHostIp
-                        if (-not $bestIp) { $bestIp = $vmIp }  # routable-iface fallback
+                    if ($cacheOnExternalSwitch) {
+                        [void](Remove-CachingProxyPortMap)
+                        $mapOk = $true
+                        $bestIp = $vmIp
+                    } else {
+                        # 3128 / 3129 mapping is platform-divergent on the
+                        # Default-Switch fallback (see Invoke-TestRunner.ps1
+                        # for full rationale): macOS uses pwsh forwarder +
+                        # PROXY v1 (real LAN IPs); Windows uses plain netsh
+                        # portproxy because the user-mode listener path is
+                        # unreachable from LAN on this host (squid logs the
+                        # NAT-side IP — see docs/caching.md).
+                        # macOS skips :80 — Start-CachingProxy.ps1 is the
+                        # sole sudo owner of the privileged bind.
+                        $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 3128, 3129) }
+                        if ($vmIp) {
+                            $portMapArgs = @{
+                                VMIp = $vmIp
+                                Port = $squidPorts
+                                PortRemap = @{ 8022 = 22 }
+                            }
+                            if ($IsMacOS) {
+                                $portMapArgs.PortRemap[3128] = 3138
+                                $portMapArgs.PortRemap[3129] = 3139
+                                $portMapArgs.ProxyProtocolPort = @(3128, 3129)
+                            }
+                            $mapResult = Add-CachingProxyPortMap @portMapArgs
+                            $mapOk = [bool]$mapResult
+                        }
+                        if ($mapOk) {
+                            $bestIp = Get-BestHostIp
+                            if (-not $bestIp) { $bestIp = $vmIp }  # routable-iface fallback
+                        }
                     }
                 }
             }

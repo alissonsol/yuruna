@@ -381,36 +381,59 @@ if ($cachingProxyUrl) {
         # forwarder / firewall state first; omitting any port here would
         # tear it down every test cycle.
         #
-        # 3128 / 3129 mapping is platform-divergent:
-        #   * macOS: host:3128 -> VM:3138 / host:3129 -> VM:3139 via
-        #     userspace pwsh forwarder + PROXY v1 — squid sees the real
-        #     LAN client IP via the PROXY v1 header in access.log.
-        #   * Windows: host:3128 -> VM:3128 / host:3129 -> VM:3129 via
-        #     plain netsh portproxy. The userspace pwsh forwarder is
-        #     unreachable from LAN even with port-scope + per-program
-        #     Allow rules in place — Defender (or another filter below
-        #     New-NetFirewallRule's reach) drops user-mode inbound on
-        #     this host. See Start-CachingProxy.ps1 and docs/caching.md
-        #     for the longer note. Cost: LAN clients log as the host's
-        #     NAT-side IP rather than their real IP. Local Default-
-        #     Switch guests are unaffected (they reach the VM directly).
-        # On macOS the :80 forwarder is owned exclusively by Start-CachingProxy.ps1
-        # (it pre-caches sudo for the privileged bind); leave it out here.
-        $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 3128, 3129) }
-        $portMapArgs = @{
-            VMIp = $portMapIp
-            Port = $CachingProxyExposedPorts
-            PortRemap = @{ 8022 = 22 }
+        # Windows External-vSwitch fast path: when the cache VM is
+        # bridged to LAN, it has its own routable IP and remote clients
+        # reach it directly (squid sees the real client IP at TCP level,
+        # no PROXY-protocol forwarder needed). Tear down any leftover
+        # netsh portproxy from a prior Default-Switch cycle so it can't
+        # silently NAT-rewrite a parallel path. The dashboard URL points
+        # at the cache VM's own LAN IP; Get-BestHostIp would point at
+        # the host, which is no longer the proxy entry point.
+        $cacheOnExternalSwitch = $false
+        if ($IsWindows) {
+            $vmCommon = Join-Path $RepoRoot "virtual/host.windows.hyper-v/VM.common.psm1"
+            if (Test-Path $vmCommon) {
+                Import-Module $vmCommon -Force
+                $cacheOnExternalSwitch = Test-CacheVmOnYurunaExternalSwitch
+            }
         }
-        if ($IsMacOS) {
-            $portMapArgs.PortRemap[3128] = 3138
-            $portMapArgs.PortRemap[3129] = 3139
-            $portMapArgs.ProxyProtocolPort = @(3128, 3129)
+        if ($cacheOnExternalSwitch) {
+            [void](Remove-CachingProxyPortMap)
+            $mapOk = $true
+            $bestIp = $vmIp
+        } else {
+            # 3128 / 3129 mapping is platform-divergent on the
+            # Default-Switch fallback:
+            #   * macOS: host:3128 -> VM:3138 / host:3129 -> VM:3139 via
+            #     userspace pwsh forwarder + PROXY v1 — squid sees the real
+            #     LAN client IP via the PROXY v1 header in access.log.
+            #   * Windows (Default-Switch fallback): host:3128 -> VM:3128 /
+            #     host:3129 -> VM:3129 via plain netsh portproxy. The
+            #     userspace pwsh forwarder is unreachable from LAN even
+            #     with port-scope + per-program Allow rules in place —
+            #     Defender (or another filter below New-NetFirewallRule's
+            #     reach) drops user-mode inbound on this host. Cost: LAN
+            #     clients log as the host's NAT-side IP rather than their
+            #     real IP. The External vSwitch (above) is the architectural
+            #     fix that recovers real IPs.
+            # On macOS the :80 forwarder is owned exclusively by Start-CachingProxy.ps1
+            # (it pre-caches sudo for the privileged bind); leave it out here.
+            $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 3128, 3129) }
+            $portMapArgs = @{
+                VMIp = $portMapIp
+                Port = $CachingProxyExposedPorts
+                PortRemap = @{ 8022 = 22 }
+            }
+            if ($IsMacOS) {
+                $portMapArgs.PortRemap[3128] = 3138
+                $portMapArgs.PortRemap[3129] = 3139
+                $portMapArgs.ProxyProtocolPort = @(3128, 3129)
+            }
+            $mapResult = Add-CachingProxyPortMap @portMapArgs
+            $mapOk = [bool]$mapResult
+            $bestIp = Get-BestHostIp
+            if (-not $bestIp) { $bestIp = $vmIp }  # no routable iface — fall back
         }
-        $mapResult = Add-CachingProxyPortMap @portMapArgs
-        $mapOk = [bool]$mapResult
-        $bestIp = Get-BestHostIp
-        if (-not $bestIp) { $bestIp = $vmIp }  # no routable iface — fall back
     }
     if ($mapOk) {
         $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/squid-cache-yuruna?orgId=1&from=now-2h&to=now&timezone=browser&refresh=1m"

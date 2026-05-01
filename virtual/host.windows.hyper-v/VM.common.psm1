@@ -75,10 +75,16 @@ function Get-CacheVmCandidateIp {
         Combines two lookups, dedup, KVP first:
           1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) — needs
              hv_kvp_daemon inside the guest; empty until hyperv-daemons
-             is installed and the daemon running.
-          2. Default-Switch ARP cache (Get-NetNeighbor filtered by VM
-             MAC + Default-Switch InterfaceIndex) — works as soon as the
-             guest sends any packet. Stale 'Permanent' entries across VM
+             is installed and the daemon running. Once it's up, the
+             single source of truth regardless of which vSwitch the VM
+             is attached to (Default Switch or External).
+          2. ARP-cache fallback for the early-boot window before KVP is
+             populated. Filtered by the VM's MAC across ALL host
+             interfaces (Default Switch's vEthernet for guests on the
+             internal NAT, plus the External-vSwitch vEthernet for the
+             squid-cache VM after the External-vSwitch migration). The
+             MAC filter is sufficient — it can only match neighbors of
+             this specific VM. Stale 'Permanent' entries across VM
              rebuilds can map one MAC to multiple IPs; all returned so
              the caller's :3128 probe picks the live one.
     .OUTPUTS
@@ -97,12 +103,13 @@ function Get-CacheVmCandidateIp {
         Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
 
     $arpIps = @()
-    $hostAdapter = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object { $_.InterfaceAlias -like '*Default Switch*' } | Select-Object -First 1
     $vmMac = ($VM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
-    if ($hostAdapter -and $vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
+    if ($vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
         $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
-        $arpIps = @(Get-NetNeighbor -AddressFamily IPv4 -InterfaceIndex $hostAdapter.InterfaceIndex -ErrorAction SilentlyContinue |
+        # No InterfaceIndex filter: the MAC is the VM's MAC and only that
+        # VM can populate the ARP cache with it. This catches both Default
+        # Switch (172.x) and External vSwitch (real LAN IP) entries.
+        $arpIps = @(Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.LinkLayerAddress -eq $vmMacDashed -and
                 $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
@@ -126,6 +133,105 @@ function Get-CacheVmCandidateIp {
     #    tripping PSUseOutputTypeCorrectly. The bare pipeline emits
     #    strings directly.
     ($kvpIps + $arpIps) | Select-Object -Unique
+}
+
+<#
+.SYNOPSIS
+    Idempotently create (or return) the Yuruna External vSwitch bridged
+    to the host's primary physical NIC.
+.DESCRIPTION
+    The squid-cache VM rides on this switch (instead of the built-in
+    Default Switch) so it gets a real LAN IP via DHCP and is reachable
+    by remote LAN clients without any host-side port forwarding. squid
+    sees the actual LAN client IP at TCP level — no PROXY-protocol
+    forwarder needed and no Defender per-program filtering layer to
+    fight (which is what blocked the user-mode forwarder path on
+    Hyper-V hosts; see test/Start-CachingProxy.ps1 for the long note).
+
+    Picks the NIC carrying the default IPv4 route (the one with actual
+    LAN connectivity, by definition). Wi-Fi works in principle but most
+    Wi-Fi APs reject MAC addresses they didn't authenticate, so the
+    cache VM may fail DHCP or be unreachable from peers — flagged with
+    a warning, not a hard error.
+
+    -AllowManagementOS:$true keeps the host's own networking on the
+    same physical NIC after the bridge — without it, creating the
+    External vSwitch would strand the host until the operator manually
+    re-binds protocols. Brief (~5s) network blip during creation is
+    inherent to Hyper-V vSwitch reconfiguration.
+
+    Idempotent: re-runs return the existing switch. Removing it
+    requires explicit Remove-VMSwitch (we don't auto-clean — operators
+    may have other VMs on the same External vSwitch).
+
+    Requires admin (vmms calls). Returns $null on any failure so the
+    caller can decide whether to fall back to Default Switch.
+.OUTPUTS
+    [string] switch name (typically 'Yuruna-External'), or $null on failure.
+#>
+function Get-OrCreateYurunaExternalSwitch {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        [string]$SwitchName = 'Yuruna-External'
+    )
+
+    $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
+    if ($existing) {
+        if ($existing.SwitchType -ne 'External') {
+            Write-Output "WARNING: switch '$SwitchName' exists but is type '$($existing.SwitchType)', not External. Cache VM may not be LAN-reachable."
+        }
+        return $SwitchName
+    }
+
+    # Pick the NIC carrying the default IPv4 route. Filter routes that
+    # are themselves through a vEthernet (Default Switch / Hyper-V
+    # internal switches) to avoid feedback if a prior bad bridge state
+    # left a vEthernet as default.
+    $defaultRoute = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
+        Sort-Object RouteMetric, InterfaceMetric |
+        Select-Object -First 1
+    if (-not $defaultRoute) {
+        Write-Output "ERROR: No IPv4 default route on the host. Cannot create External vSwitch — connect a NIC to the LAN first."
+        return $null
+    }
+
+    $nic = Get-NetAdapter -InterfaceIndex $defaultRoute.InterfaceIndex -ErrorAction SilentlyContinue
+    if (-not $nic) {
+        Write-Output "ERROR: Cannot resolve adapter for default-route InterfaceIndex $($defaultRoute.InterfaceIndex)."
+        return $null
+    }
+
+    if ($nic.Status -ne 'Up') {
+        Write-Output "ERROR: Adapter '$($nic.InterfaceAlias)' is in state '$($nic.Status)', not Up. Cannot bridge."
+        return $null
+    }
+
+    if ($nic.PhysicalMediaType -eq 'Native 802.11') {
+        Write-Output "WARNING: Default-route adapter '$($nic.InterfaceAlias)' is Wi-Fi."
+        Write-Output "  Hyper-V External vSwitch on Wi-Fi: most APs refuse to forward frames"
+        Write-Output "  for MACs they didn't authenticate, so the cache VM's DHCP request"
+        Write-Output "  may go unanswered and remote LAN clients may not reach it. If LAN"
+        Write-Output "  reachability fails, run on a wired connection."
+    }
+
+    if (-not $PSCmdlet.ShouldProcess($SwitchName, "Create External vSwitch bridged on '$($nic.InterfaceAlias)' with -AllowManagementOS")) {
+        return $null
+    }
+
+    Write-Output "Creating External vSwitch '$SwitchName' bridged on '$($nic.InterfaceAlias)'..."
+    Write-Output "  (host networking will briefly drop on this NIC during the bind;"
+    Write-Output "   open SSH/RDP sessions through it will reconnect.)"
+    try {
+        New-VMSwitch -Name $SwitchName -NetAdapterName $nic.InterfaceAlias -AllowManagementOS:$true -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Output "ERROR: New-VMSwitch failed: $($_.Exception.Message)"
+        return $null
+    }
+
+    Write-Output "External vSwitch '$SwitchName' ready."
+    return $SwitchName
 }
 
 function Test-CachingProxyPort {
@@ -154,6 +260,36 @@ function Test-CachingProxyPort {
     } finally {
         $tcp.Close()
     }
+}
+
+function Test-CacheVmOnYurunaExternalSwitch {
+    <#
+    .SYNOPSIS
+        $true if the squid-cache VM is attached to the Yuruna-External
+        vSwitch (LAN-bridged, has a real LAN IP, no host forwarders needed).
+    .DESCRIPTION
+        Used by the cross-platform test/ scripts to decide whether
+        Add-CachingProxyPortMap is needed on Windows. When the cache VM
+        is bridged to LAN, remote clients reach it directly at its own
+        LAN IP and squid sees real client IPs natively — netsh portproxy
+        adds nothing useful and would only register a redundant alternate
+        path that loses source IP through kernel NAT. When the cache VM
+        is on Default Switch (the fallback when no External vSwitch can
+        be created), netsh portproxy is the LAN-reachability mechanism
+        and must run.
+    .OUTPUTS
+        [bool] — $false on non-Windows, missing VM, no NIC, or any other switch.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$VMName = 'squid-cache')
+
+    if (-not $IsWindows) { return $false }
+    $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if (-not $vm) { return $false }
+    $switchName = ($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
+        Select-Object -First 1).SwitchName
+    return ($switchName -eq 'Yuruna-External')
 }
 
 function Get-WorkingCachingProxyUrl {

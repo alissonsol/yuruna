@@ -158,14 +158,32 @@ Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VM
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
+# === Pick a vSwitch ===
+# Prefer the Yuruna External vSwitch (bridged to the host's primary
+# physical NIC) so the cache VM gets a real LAN IP via DHCP and remote
+# LAN clients reach it directly — squid sees the actual client IP at
+# TCP level with no host-side forwarder in the path. Fall back to the
+# built-in Default Switch when no External vSwitch can be created
+# (no LAN, Wi-Fi-only host, etc.); cache still works for local
+# Default-Switch guests, but LAN clients will see the host's vEthernet
+# IP for every request (the documented netsh-portproxy gap).
+$switchName = Get-OrCreateYurunaExternalSwitch
+if (-not $switchName) {
+    Write-Output "WARNING: External vSwitch unavailable — falling back to 'Default Switch'."
+    Write-Output "  Cache VM will not be reachable from LAN by its own IP, and remote"
+    Write-Output "  clients routed via netsh portproxy will appear as the host's"
+    Write-Output "  vEthernet IP in squid's access.log (see docs/caching.md)."
+    $switchName = 'Default Switch'
+}
+
 # === Create and configure Hyper-V VM ===
 # 4 GB RAM, 4 vCPU — sized for parallel squid streams. subiquity opens
 # 4-8 concurrent .deb downloads per guest install; with 1 vCPU + 512 MB
 # the old apt-cacher-ng cache bottlenecked on a single core (receive +
 # disk-write + forward). 4 GB (up from 2 GB) covers squid's in-memory
 # index as the on-disk cache grows to 128 GB (~400 bytes per object).
-Write-Output "Creating new VM '$VMName'..."
-New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 4GB -SwitchName "Default Switch" -VHDPath $vhdxFile | Out-Null
+Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
+New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 4GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMinimumBytes 4GB -MemoryMaximumBytes 4GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
@@ -250,9 +268,15 @@ if (-not $cacheCandidateIps) {
 ERROR: squid-cache VM '$VMName' did not obtain an IP address within 20 minutes.
 =========================================================================
 
-The VM is running but never showed up in the Default Switch ARP cache
-and never reported an IP via Hyper-V KVP. Exiting with failure so
-guest installs won't silently fall back to direct CDN access and 429.
+The VM is running but never showed up in the host's ARP cache and
+never reported an IP via Hyper-V KVP. Exiting with failure so guest
+installs won't silently fall back to direct CDN access and 429.
+
+If the VM is on the Yuruna-External vSwitch and the host is on Wi-Fi:
+the AP probably refused to forward the cache VM's DHCP request — this
+is a known Hyper-V-on-Wi-Fi limitation. Use a wired connection, or
+remove the Yuruna-External vSwitch (Remove-VMSwitch -Name 'Yuruna-External')
+to fall back to Default Switch on the next New-VM.ps1 run.
 
 Accessing the VM for debugging:
   * Console:  vmconnect localhost $VMName

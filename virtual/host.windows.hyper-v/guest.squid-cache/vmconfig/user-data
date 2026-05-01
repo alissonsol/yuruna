@@ -245,7 +245,15 @@ write_files:
       # ufs is fine for a single-host dev cache; switch to aufs/diskd only
       # if squid blocks on disk I/O under concurrent installs.
       cache_dir ufs /var/spool/squid 131072 16 256
-      maximum_object_size 4 GB
+      # 16 GB ceiling so the snapshot cache covers any modern OS install
+      # image we might pre-warm: Windows 11 ISO (~6 GB), Ubuntu desktop
+      # (~5 GB and trending up), Fedora Workstation Live (~3 GB), and
+      # CI-time ISOs that bundle drivers/firmware. Squid's
+      # maximum_object_size is INCLUSIVE — anything strictly larger is
+      # silently NOT cached, so a 4 GB ceiling failed open the moment
+      # noble-desktop crossed 4 GB. 16 GB leaves headroom; raising it
+      # doesn't allocate disk, only changes the rejection threshold.
+      maximum_object_size 16 GB
       maximum_object_size_in_memory 32 MB
       cache_mem 512 MB
 
@@ -264,6 +272,27 @@ write_files:
       # (e.g. guest reboot), squid finishes so the next client hits
       # cache. -1 KB disables the quick-abort threshold entirely.
       quick_abort_min -1 KB
+
+      # Pool concurrent identical fetches: when N machines start the
+      # same uncached ISO at once, squid forwards ONE request to origin
+      # and the other N-1 ride along the in-progress fetch. Without
+      # this, every client races to origin in parallel — both wasting
+      # mirror bandwidth and tripping per-IP rate limits at
+      # releases.ubuntu.com when a CI swarm rebuilds. Has no effect on
+      # CONNECT-tunneled HTTPS (uncacheable by definition); applies to
+      # HTTP origins and to SSL-bumped HTTPS on :3129.
+      collapsed_forwarding on
+
+      # Range-request handling for big-object caching. Default (`0`)
+      # means: when a client sends `Range: bytes=...`, squid forwards
+      # the partial to origin and serves it back WITHOUT populating the
+      # cache — so range/resumed downloads (BITS, browser resume, curl
+      # --range, apt's pdiff fetcher) leave nothing behind for the next
+      # client. `none` (= unbounded) tells squid to fetch the FULL
+      # object on first range request and serve subsequent ranges from
+      # cache. Critical for the "many machines hit the same large ISO"
+      # scenario, where the first hit may well be a resume.
+      range_offset_limit none
 
       # Package files are content-addressable (version in URL), so a new
       # version is a different URL — no value revalidating what we have.

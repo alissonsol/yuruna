@@ -469,6 +469,58 @@ function Get-GuestReachableHostIp {
 .OUTPUTS
     [bool]
 #>
+<#
+.SYNOPSIS
+    Returns a squid-cache proxy URL ("http://<ip>:3128") usable by
+    host-side Invoke-WebRequest -Proxy, or $null when the cache is
+    not currently a useful path for this URL.
+
+.DESCRIPTION
+    Two reasons this returns $null, and both are deliberate:
+
+      1. The URL is HTTPS. Squid's :3128 listener only CONNECT-tunnels
+         HTTPS — it never decrypts, so it never caches. Routing an
+         HTTPS download through :3128 only adds a hop with no caching
+         benefit. The ssl-bump :3129 listener WOULD cache HTTPS, but
+         only if the caller trusts /etc/squid/ssl_cert/ca.pem
+         (published at http://<cache>/yuruna-squid-ca.crt). Until that
+         CA trust is wired into the host PowerShell process, returning
+         $null and letting the request go direct is the right call.
+
+      2. The cache VM isn't running, has no IP yet, or isn't answering
+         on :3128. Forcing -Proxy at a dead listener turns a normal
+         download into a hard failure for no reason.
+
+    Discovery delegates to Get-WorkingCachingProxyUrl, which already
+    enumerates KVP+ARP candidate IPs and probes :3128 with a 500 ms
+    timeout. Cheap and safe to call on every download.
+
+.PARAMETER Uri
+    The download URL the caller is about to issue. Used only to
+    inspect the scheme (http vs https).
+
+.OUTPUTS
+    [string] proxy URL like 'http://172.17.96.42:3128', or $null.
+#>
+function Get-CacheProxyForHostDownload {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Uri
+    )
+    $scheme = ([System.Uri]$Uri).Scheme
+    if ($scheme -ine 'http') {
+        Write-Verbose "Get-CacheProxyForHostDownload: scheme '$scheme' is not http; squid :3128 only CONNECT-tunnels HTTPS (no caching). Going direct."
+        return $null
+    }
+    try {
+        return (Get-WorkingCachingProxyUrl)
+    } catch {
+        Write-Verbose "Get-CacheProxyForHostDownload: cache discovery failed: $($_.Exception.Message)"
+        return $null
+    }
+}
+
 function Test-DownloadAlreadyCurrent {
     [CmdletBinding()]
     [OutputType([bool])]

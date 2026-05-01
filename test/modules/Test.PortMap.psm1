@@ -308,7 +308,7 @@ function Get-WindowsForwarderPidPath {
     can manage Windows lifecycle without dragging in the macOS module.
 #>
 function Stop-WindowsCachingProxyForwarder {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][int]$Port, [switch]$Quiet)
     if (-not $IsWindows) { return $true }
@@ -325,8 +325,10 @@ function Stop-WindowsCachingProxyForwarder {
         # process so we never terminate a user shell that happened to recycle
         # the pid number after a previous forwarder exited.
         if ($proc.ProcessName -match '^(pwsh|powershell)$') {
-            if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid, port :${Port})..." }
-            Stop-Process -Id ([int]$forwarderPid) -Force -ErrorAction SilentlyContinue
+            if ($PSCmdlet.ShouldProcess("pid $forwarderPid (port :${Port})", 'Stop forwarder process')) {
+                if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid, port :${Port})..." }
+                Stop-Process -Id ([int]$forwarderPid) -Force -ErrorAction SilentlyContinue
+            }
         } elseif (-not $Quiet) {
             Write-Warning "Pid $forwarderPid is not pwsh/powershell (is: $($proc.ProcessName)) — leaving alone, removing stale pidfile."
         }

@@ -314,18 +314,44 @@ function Remove-HyperVTestVM {
             # -Confirm:$false: automated harness must not prompt even if a
             # future caller escalates ConfirmImpact or $ConfirmPreference.
             $null = Stop-HyperVVMForce -VMName $VMName -Confirm:$false
-            Remove-VM  -Name $VMName -Force -Confirm:$false 6>$null
-            Write-Output "Removed Hyper-V VM: $VMName"
+            # Remove-VM throws on locked .vhdx, RPC fault, OffCritical-with-
+            # holds, etc. With $ErrorActionPreference='Stop' inherited from
+            # the runner this used to bubble up and skip the disk-directory
+            # cleanup; over many cycles those VMs piled up in Hyper-V
+            # Manager. Catch the failure, log, and let the caller decide
+            # (most callers ignore the return; the standalone
+            # Remove-TestVMFiles.ps1 reports survivors at end of run).
+            $registryRemoved = $true
+            try {
+                Remove-VM -Name $VMName -Force -Confirm:$false -ErrorAction Stop 6>$null
+                # vmms can return success while still listing the VM as
+                # OffCritical. Verify and treat lingering as failure.
+                if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
+                    $registryRemoved = $false
+                    Write-Warning "Remove-VM '$VMName' returned 0 but VM still registered."
+                } else {
+                    Write-Output "Removed Hyper-V VM: $VMName"
+                }
+            } catch {
+                $registryRemoved = $false
+                Write-Warning "Remove-VM '$VMName' failed: $_"
+            }
+        } else {
+            $registryRemoved = $true
         }
         $vhdPath = (Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
         if ($vhdPath) {
             $vmDir = Join-Path $vhdPath $VMName
             if (Test-Path $vmDir) {
-                Remove-Item -Recurse -Force $vmDir 6>$null
-                Write-Output "Removed VM disk directory: $vmDir"
+                try {
+                    Remove-Item -Recurse -Force $vmDir -ErrorAction Stop 6>$null
+                    Write-Output "Removed VM disk directory: $vmDir"
+                } catch {
+                    Write-Warning "Remove-Item '$vmDir' failed: $_"
+                }
             }
         }
-        return $true
+        return $registryRemoved
     }
 }
 

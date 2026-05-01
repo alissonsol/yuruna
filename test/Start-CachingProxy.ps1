@@ -72,6 +72,23 @@ foreach ($p in @($GetImageScript, $NewVMScript)) {
 
 Write-Output ""
 Write-Output "=== Step 1: cleanup previous '$VMName' VM ==="
+
+# Wipe any leftover yuruna host-proxy promotion BEFORE provisioning. Without
+# this, a previous cycle's WinINet/networksetup ProxyServer (potentially a
+# stale IP that no longer matches the cache about to be created) lingers
+# until Stop-CachingProxy restores from backup.json -- and if the cache IP
+# changed between cycles, every subsequent Test-CachingProxy -SetHostProxy
+# probe would warn about a mismatch the operator can't undo without manual
+# registry / networksetup edits. Symmetric with Stop-CachingProxy.ps1.
+$hostProxyMod = Join-Path $PSScriptRoot 'modules/Test.HostProxy.psm1'
+if (Test-Path -LiteralPath $hostProxyMod) {
+    Import-Module $hostProxyMod -Force
+    try {
+        Clear-HostProxy
+    } catch {
+        Write-Warning "  Clear-HostProxy failed: $($_.Exception.Message). Cleanup will continue."
+    }
+}
 if ($IsMacOS) {
     # `utmctl status <name>` exits non-zero with "Virtual machine not found"
     # when the VM isn't registered — cheap probe, no need to parse `utmctl list`.

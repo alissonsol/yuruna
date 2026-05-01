@@ -97,3 +97,21 @@ pwsh test/Test-CachingProxy.ps1 -CacheIp 10.0.0.5   # ad-hoc, no env var
 With no arguments and no env var, falls back to local discovery (same
 path `Invoke-TestRunner.ps1` uses). Exit 1 on any required-port failure
 — suitable for a `&&` chain.
+
+## Promoting to the host system proxy
+
+`Test-CachingProxy.ps1 -SetHostProxy` repoints WinINet (Windows) or
+networksetup (macOS) at the cache so every host-side
+`Invoke-WebRequest` / `curl` / `git` flows through it. The previous
+proxy state is snapshotted to `~/.yuruna/host-proxy.backup.json` and
+restored by `Stop-CachingProxy.ps1`.
+
+Yuruna also writes a "managed" marker (HKCU registry value on
+Windows, `~/.yuruna/host-proxy.managed` on macOS) so a re-promotion
+across a missing backup file recognizes the existing state as
+yuruna's own and snapshots it as clean — without the marker, a lost
+backup turned every subsequent `Stop-CachingProxy` +
+`Test-CachingProxy.ps1 -SetHostProxy` cycle into a self-loop because
+the contaminated snapshot kept getting restored. `Start-CachingProxy.ps1`
+also clears any leftover yuruna proxy state at startup, so a fresh
+provision never inherits a stale `ProxyServer` from a prior cycle.

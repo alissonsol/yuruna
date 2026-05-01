@@ -247,14 +247,26 @@ if ($dotnetResolved -and $dotnetResolved.AbsoluteUri -ne $probeUri.AbsoluteUri) 
         Write-Pass "System proxy routes external requests via ${dotnetHost}:${dotnetPort} (matches probe target)"
     } else {
         $platformTool = if ($IsMacOS) { 'networksetup (scutil --proxy)' } else { 'WinINet / WinHTTP' }
-        $stopCmd = if ($IsMacOS) { 'sudo -E pwsh test/Stop-CachingProxy.ps1' } else { 'pwsh test/Stop-CachingProxy.ps1' }
-        $promoteCmd = if ($IsMacOS) { 'sudo -E pwsh test/Test-CachingProxy.ps1 -SetHostProxy' } else { 'pwsh test/Test-CachingProxy.ps1 -SetHostProxy' }
         Write-Warn "System proxy routes external requests via ${dotnetHost}:${dotnetPort} but the caching proxy under test is ${resolvedIp}:3128 — Invoke-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${dotnetHost}:${dotnetPort}, not the proxy you're testing. Likely a stale $platformTool setting from a previous Start-CachingProxy cycle."
         Write-Output ""
-        Write-Output "==== FIX ===="
-        Write-Output ""
-        Write-Output "  $stopCmd"
-        Write-Output "  $promoteCmd"
+        if ($SetHostProxy) {
+            # The promotion below repoints the system proxy at $resolvedIp,
+            # so this run will end with WinINet/networksetup pointed at the
+            # correct cache. (Set-HostProxy writes a yuruna marker so the
+            # backup it captures is a clean snapshot rather than the stale
+            # value above -- a later Stop-CachingProxy then truly restores
+            # the user's pre-yuruna state.)
+            Write-Output "==== FIX ===="
+            Write-Output ""
+            Write-Output "  This run will overwrite the stale setting via the promotion below."
+        } else {
+            $stopCmd    = if ($IsMacOS) { 'sudo -E pwsh test/Stop-CachingProxy.ps1' } else { 'pwsh test/Stop-CachingProxy.ps1' }
+            $promoteCmd = if ($IsMacOS) { 'sudo -E pwsh test/Test-CachingProxy.ps1 -SetHostProxy' } else { 'pwsh test/Test-CachingProxy.ps1 -SetHostProxy' }
+            Write-Output "==== FIX ===="
+            Write-Output ""
+            Write-Output "  $stopCmd"
+            Write-Output "  $promoteCmd"
+        }
     }
 } else {
     Write-Pass "No system-level proxy configured (external HTTP/HTTPS clients go direct)"

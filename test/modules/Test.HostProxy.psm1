@@ -47,6 +47,15 @@
     (the existing snapshot is preserved, so a double-apply followed by
     Clear-HostProxy still restores the ORIGINAL state, not the squid one).
 
+    Yuruna-managed marker: alongside the proxy state, Set-HostProxy writes
+    a sentinel (HKCU\Internet Settings\YurunaProxyManaged on Windows;
+    $HOME/.yuruna/host-proxy.managed file on macOS). When the backup file
+    is missing -- e.g. it was lost between sessions -- the next Set-HostProxy
+    detects the marker and synthesizes a CLEAN snapshot rather than capturing
+    the leftover yuruna proxy as the user's "original." Without this guard,
+    Stop-CachingProxy + Test-CachingProxy -SetHostProxy would loop, each
+    Stop restoring the contaminated snapshot.
+
 .EXAMPLE
     # After Test-CachingProxy.ps1 -SetHostProxy succeeds
     Import-Module ./test/modules/Test.HostProxy.psm1 -Force
@@ -131,10 +140,47 @@ function ConvertTo-ProxyHostPort {
 $script:WinInetRegPath    = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
 $script:WinInetRegPathRaw = 'Software\Microsoft\Windows\CurrentVersion\Internet Settings'
 
+# Marker that Set-WindowsHostProxy writes alongside ProxyEnable/ProxyServer to
+# flag "this proxy state was set by yuruna." Read-WindowsProxyState uses it so
+# a re-promotion across a lost backup file doesn't capture the prior yuruna IP
+# as if it were the user's original setting -- which previously turned every
+# Stop-CachingProxy / Test-CachingProxy -SetHostProxy cycle into a self-loop
+# (Stop restored the contaminated snapshot, the next probe re-warned).
+$script:WinInetMarkerName = 'YurunaProxyManaged'
+$script:EnvMarkerName     = 'YURUNA_PROXY_MANAGED'
+
+function Test-WindowsProxyIsYurunaManaged {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (Test-Path -LiteralPath $script:WinInetRegPath) {
+        try {
+            $val = Get-ItemPropertyValue -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -ErrorAction Stop
+            if ([int]$val -eq 1) { return $true }
+        } catch {
+            Write-Verbose "WinINet marker not present: $($_.Exception.Message)"
+        }
+    }
+    $envMarker = [Environment]::GetEnvironmentVariable($script:EnvMarkerName, 'User')
+    return ($envMarker -eq '1')
+}
+
 function Read-WindowsProxyState {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param()
+    if (Test-WindowsProxyIsYurunaManaged) {
+        # Current state is a leftover yuruna promotion (from a cycle whose
+        # backup file was deleted or never written). Capturing it as the
+        # "original" would re-stamp the stale value back on Clear-HostProxy.
+        # Synthesize a clean (no-proxy) snapshot instead.
+        return @{
+            platform            = 'windows'
+            winInet             = @{ ProxyEnable = 0; ProxyServer = $null; ProxyOverride = $null }
+            envVars             = @{ HTTP_PROXY  = $null; HTTPS_PROXY = $null; NO_PROXY = $null }
+            yurunaResetSnapshot = $true
+        }
+    }
     $wi = @{ ProxyEnable = 0; ProxyServer = $null; ProxyOverride = $null }
     if (Test-Path -LiteralPath $script:WinInetRegPath) {
         $props = Get-ItemProperty -LiteralPath $script:WinInetRegPath -ErrorAction SilentlyContinue
@@ -193,6 +239,10 @@ function Set-WindowsHostProxy {
     Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyEnable'   -Value 1          -Type DWord
     Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer'   -Value $hostPort  -Type String
     Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -Value $bypassWi  -Type String
+    # Marker: the next Read-WindowsProxyState will recognize this state as
+    # yuruna-managed and snapshot it as clean instead of capturing it as
+    # the user's "original" if backup.json is missing.
+    Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -Value 1 -Type DWord
 
     # setx persists into HKCU\Environment AND broadcasts WM_SETTINGCHANGE.
     # NEW processes (including qemu-img, curl, git) will see the variables;
@@ -200,9 +250,11 @@ function Set-WindowsHostProxy {
     & setx HTTP_PROXY  $proxyUrl  | Out-Null
     & setx HTTPS_PROXY $proxyUrl  | Out-Null
     & setx NO_PROXY    $bypassEnv | Out-Null
+    & setx $script:EnvMarkerName 1 | Out-Null
     $env:HTTP_PROXY  = $proxyUrl
     $env:HTTPS_PROXY = $proxyUrl
     $env:NO_PROXY    = $bypassEnv
+    Set-Item "Env:$($script:EnvMarkerName)" -Value '1'
 
     Invoke-WinInetRefresh
 }
@@ -227,6 +279,7 @@ function Restore-WindowsHostProxy {
     } else {
         Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -ErrorAction SilentlyContinue
     }
+    Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -ErrorAction SilentlyContinue
 
     # setx CAN'T set an empty value (it interprets "" as "delete and show
     # usage"), so for null/empty restore we reach into the registry via
@@ -241,22 +294,33 @@ function Restore-WindowsHostProxy {
             Set-Item "Env:$name" -Value $val
         }
     }
+    [Environment]::SetEnvironmentVariable($script:EnvMarkerName, $null, 'User')
+    Remove-Item "Env:$($script:EnvMarkerName)" -ErrorAction SilentlyContinue
 
     Invoke-WinInetRefresh
 }
 
 function Disable-WindowsHostProxy {
-    # Fallback for Clear-HostProxy when no backup exists. Just turn off
-    # ProxyEnable and drop our env vars -- do NOT touch ProxyServer /
-    # ProxyOverride strings, since those might have been set by something
-    # else before yuruna ever ran.
+    # Fallback for Clear-HostProxy when no backup exists. Drops our env vars
+    # and clears the yuruna marker. When the marker is present we ALSO clear
+    # ProxyServer / ProxyOverride (yuruna wrote them, so removing them is
+    # safe); without the marker we touch only ProxyEnable, since the strings
+    # might pre-date yuruna.
     if (Test-Path -LiteralPath $script:WinInetRegPath) {
+        $yurunaManaged = Test-WindowsProxyIsYurunaManaged
         Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyEnable' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        if ($yurunaManaged) {
+            Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer'   -ErrorAction SilentlyContinue
+            Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -ErrorAction SilentlyContinue
+        }
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -ErrorAction SilentlyContinue
     }
     foreach ($name in 'HTTP_PROXY','HTTPS_PROXY','NO_PROXY') {
         [Environment]::SetEnvironmentVariable($name, $null, 'User')
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
     }
+    [Environment]::SetEnvironmentVariable($script:EnvMarkerName, $null, 'User')
+    Remove-Item "Env:$($script:EnvMarkerName)" -ErrorAction SilentlyContinue
     Invoke-WinInetRefresh
 }
 
@@ -268,6 +332,22 @@ function Disable-WindowsHostProxy {
 # proxybypassdomains, then toggle the per-protocol enable flag. Read paths
 # DON'T need sudo, so the backup capture can happen before the sudo check
 # and surface a clearer error if sudo is missing.
+
+function Get-MacProxyMarkerPath {
+    # Marker file written by Set-MacHostProxy and removed by Restore- /
+    # Disable-. Same role as the Windows registry marker: lets a re-promotion
+    # across a missing backup file recognize that the current networksetup
+    # state is yuruna's own, not the user's, and snapshot it as clean.
+    $stateDir = Join-Path $HOME '.yuruna'
+    return (Join-Path $stateDir 'host-proxy.managed')
+}
+
+function Test-MacProxyIsYurunaManaged {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    return (Test-Path -LiteralPath (Get-MacProxyMarkerPath))
+}
 
 function Get-MacActiveNetworkService {
     # `route -n get default` yields the default-route interface (e.g. en0).
@@ -302,6 +382,18 @@ function Get-MacActiveNetworkService {
 
 function Read-MacProxyState {
     param([Parameter(Mandatory)][string]$NetworkService)
+    if (Test-MacProxyIsYurunaManaged) {
+        # Same idea as the Windows path: leftover yuruna promotion, capture
+        # as clean instead of the stale yuruna IP.
+        return @{
+            platform            = 'macos'
+            networkService      = $NetworkService
+            webProxy            = @{ Enabled = 'No'; Server = $null; Port = $null }
+            secureWebProxy      = @{ Enabled = 'No'; Server = $null; Port = $null }
+            bypassDomains       = @()
+            yurunaResetSnapshot = $true
+        }
+    }
     function ConvertFrom-NetworksetupBlock {
         param([string[]]$Lines)
         $h = @{}
@@ -367,6 +459,11 @@ function Set-MacHostProxy {
     Invoke-MacNetworksetup @('-setwebproxystate',       $NetworkService, 'on')
     Invoke-MacNetworksetup @('-setsecurewebproxystate', $NetworkService, 'on')
     Invoke-MacNetworksetup @('-setproxybypassdomains',  $NetworkService, 'localhost', '127.0.0.1', '*.local', '169.254/16', '192.168.64.*')
+    # Marker so the next Read-MacProxyState recognizes this as yuruna-managed.
+    $markerPath = Get-MacProxyMarkerPath
+    $markerDir  = Split-Path -Parent $markerPath
+    if (-not (Test-Path -LiteralPath $markerDir)) { New-Item -ItemType Directory -Path $markerDir -Force | Out-Null }
+    Set-Content -LiteralPath $markerPath -Value $NetworkService -NoNewline -Encoding ascii
 }
 
 function Restore-MacHostProxy {
@@ -395,6 +492,8 @@ function Restore-MacHostProxy {
     } else {
         Invoke-MacNetworksetup @('-setproxybypassdomains', $svc, 'Empty')
     }
+    $markerPath = Get-MacProxyMarkerPath
+    if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
 }
 
 function Disable-MacHostProxy {
@@ -403,6 +502,8 @@ function Disable-MacHostProxy {
     if (-not $NetworkService) { return }
     Invoke-MacNetworksetup @('-setwebproxystate',       $NetworkService, 'off')
     Invoke-MacNetworksetup @('-setsecurewebproxystate', $NetworkService, 'off')
+    $markerPath = Get-MacProxyMarkerPath
+    if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
 }
 
 # =========================================================================

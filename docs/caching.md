@@ -247,12 +247,17 @@ Viewer (no login). Pre-provisioned "Squid Cache (yuruna)" dashboard:
 - Data served (kB/s) — `Total`:
   `rate(squid_client_http_kbytes_out_kbytes_total[5m])`,
   `Cached`: `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`.
-- Last 100 requests (client IP / status / URL) — Loki logs panel,
-  parses `/var/log/squid/access.log` at query time with
-  `{job="squid"} | regexp ... | line_format ...`. Empty until Promtail
-  has shipped at least one line; takes a few seconds after first guest
-  fetch. Cardinality stays bounded because client IP and URL are kept
-  out of Loki labels — only `job=squid` is a stream.
+- Last 100 requests (client IP / hostname / status / size / URL) — Loki
+  logs panel, parses `/var/log/squid/yuruna_access.log` at query time
+  with `{job="squid"} | regexp ... | line_format ...`. Hostname comes
+  from `%>A` (squid's client-FQDN format code, which performs a PTR
+  lookup; falls back to the IP literal on miss). Size comes from
+  `%<st`. The custom `logformat yuruna` writes to a *separate* file —
+  the stock `access.log` keeps its default format for cachemgr.cgi /
+  manual `tail -f`. Empty until Promtail has shipped at least one line;
+  takes a few seconds after first guest fetch. Cardinality stays
+  bounded because client IP, hostname, and URL are kept out of Loki
+  labels — only `job=squid` is a stream.
 
 No HTTPS-specific client counter — squid's `client_http.*` counters
 aggregate HTTP + HTTPS (CONNECT + ssl-bump), hence "HTTP(S)".

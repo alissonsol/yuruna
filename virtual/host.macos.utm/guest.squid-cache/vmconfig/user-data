@@ -261,6 +261,27 @@ write_files:
       sslcrtd_children 5
       ssl_bump peek step1
       ssl_bump bump all
+
+      # --- Custom access-log format for the Grafana "Last 100 requests"
+      # panel. Adds %>A (client FQDN) between %>a (IP) and the status
+      # token so the panel can render hostname when reverse DNS resolves.
+      # %<st (response bytes) was already in the default `squid` format —
+      # it's now explicitly captured by the dashboard's regex, so the
+      # panel can show transfer size between status and URL.
+      #
+      # In Squid 6 (Noble), %>A triggers the synchronous PTR lookup
+      # itself — the old `log_fqdn on` global is OBSOLETE and emits
+      # "Directive 'log_fqdn' is obsolete" at parse time. Don't add it.
+      # On a PTR miss, %>A falls back to the IP literal (NOT "-"), so
+      # the field is always populated and the regex never fails to match.
+      #
+      # Output goes to a SEPARATE file (yuruna_access.log) — the default
+      # access.log keeps its stock `squid` format for cachemgr.cgi and
+      # manual `tail -f /var/log/squid/access.log` debugging. Two squid
+      # access_log entries writing the same file would interleave bytes
+      # and corrupt both formats.
+      logformat yuruna %ts.%03tu %6tr %>a %>A %Ss/%03>Hs %<st %rm %ru %[un %Sh/%<a %mt
+      access_log /var/log/squid/yuruna_access.log yuruna
   # --- Prometheus on loopback only; Grafana (same VM) scrapes via
   # localhost. Keeps Prometheus's open-access UI off the host LAN;
   # :3000 Grafana is the only exposed entry point.
@@ -355,7 +376,12 @@ write_files:
                 - localhost
               labels:
                 job: squid
-                __path__: /var/log/squid/access.log
+                # yuruna_access.log is the custom logformat (defined in
+                # /etc/squid/conf.d/yuruna.conf) that includes %>A — the
+                # client FQDN — between client IP and status. The stock
+                # access.log keeps its default format for cachemgr/tail
+                # debugging; only Promtail tails the yuruna variant.
+                __path__: /var/log/squid/yuruna_access.log
           pipeline_stages:
             - regex:
                 expression: '^(?P<ts>\d+\.\d+)\s+\d+\s+'
@@ -521,7 +547,7 @@ write_files:
           {
             "id": 7,
             "type": "logs",
-            "title": "Last 100 requests (client IP / status / URL)",
+            "title": "Last 100 requests (client IP / hostname / status / size / URL)",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 20, "w": 24, "h": 12},
             "options": {
@@ -536,7 +562,7 @@ write_files:
             },
             "targets": [
               {
-                "expr": "{job=\"squid\"} | regexp `^\\S+\\s+\\S+\\s+(?P<client_ip>\\S+)\\s+(?P<status>\\S+)\\s+\\S+\\s+\\S+\\s+(?P<url>\\S+)` | line_format `{{.client_ip}}  {{.status}}  {{.url}}`",
+                "expr": "{job=\"squid\"} | regexp `^\\S+\\s+\\S+\\s+(?P<client_ip>\\S+)\\s+(?P<client_host>\\S+)\\s+(?P<status>\\S+)\\s+(?P<bytes>\\S+)\\s+\\S+\\s+(?P<url>\\S+)` | line_format `{{.client_ip}}  {{.client_host}}  {{.status}}  {{.bytes}}  {{.url}}`",
                 "refId": "A",
                 "maxLines": 100
               }
@@ -760,14 +786,25 @@ runcmd:
   # systemd may have started it before the proxy group existed) and
   # logs "permission denied" on every poll — Grafana panel stays empty.
   #
-  # `install -d` (no -g, since there's no `promtail` group — see the
-  # drop-in comment) creates the positions-file dir; the deb's postinst
-  # doesn't always.
+  # `install -d` (no -g, since there's no `promtail` / `loki` group —
+  # see the drop-in comment) creates the per-service state dirs that
+  # the debs' postinsts don't reliably create:
+  #   /var/lib/promtail  — positions.yaml lives here.
+  #   /var/lib/loki      — Loki's `path_prefix` from /etc/loki/config.yml.
+  # Loki crashes on startup with `mkdir /var/lib/loki: permission denied`
+  # if the dir doesn't exist, since /var/lib is root:root and the loki
+  # user can't create new top-level entries. systemd retries 19x and
+  # gives up ("Start request repeated too quickly"); promtail then
+  # silently retries POST /loki/api/v1/push forever and the dashboard
+  # panel stays empty. `reset-failed` clears the rate-limit before our
+  # restart so the unit can come up cleanly.
   - install -d -o promtail -m 0755 /var/lib/promtail
+  - install -d -o loki -m 0755 /var/lib/loki
   - systemctl daemon-reload
+  - systemctl reset-failed loki.service promtail.service
   - systemctl enable --now loki.service
   - systemctl enable --now promtail.service
-  - systemctl restart promtail.service
+  - systemctl restart loki.service promtail.service
   # Verify promtail picked up the drop-in. Log a clear breadcrumb to
   # cloud-init-output.log if not — the Grafana panel emptiness is
   # otherwise silent and only surfaces hours later when an operator

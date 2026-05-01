@@ -38,6 +38,22 @@ APT_PROXY_BLOCK_PLACEHOLDER
     allow-pw: true
     authorized-keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
+  # Pass-through cloud-init for the INSTALLED target. Subiquity copies
+  # this block to the installed system; cloud-init consumes it on first
+  # boot. Used ONLY to silence the default SSH-fingerprint console
+  # emission — same category as the hv_balloon denylist below.
+  #   * no_ssh_fingerprints: true  — disables cc_ssh_authkey_fingerprints
+  #     (the "Authorized keys from /home/ubuntu/.ssh/authorized_keys"
+  #     ci-info table).
+  #   * ssh.emit_keys_to_console: false — disables cc_keys_to_console
+  #     (the "BEGIN SSH HOST KEY FINGERPRINTS" + "BEGIN SSH HOST KEY KEYS"
+  #     dumps via /dev/kmsg, which the getty tty1 echoes regardless of
+  #     login state and races first-boot login). Distinct from
+  #     autoinstall.ssh above (subiquity's installer-side SSH config).
+  user-data:
+    no_ssh_fingerprints: true
+    ssh:
+      emit_keys_to_console: false
   # Server autoinstall normally presents a confirmation prompt;
   # interactive-sections: [] disables every interactive step so the
   # install runs fully unattended — no "Install" click / Tab dance

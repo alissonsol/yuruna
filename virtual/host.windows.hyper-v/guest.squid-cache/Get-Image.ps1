@@ -55,24 +55,17 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
 }
 
 # === Download the cloud image ===
-# Route HTTP downloads through the squid cache when one is reachable.
-# Note: this script provisions the squid cache itself, so on a first-
-# run host the cache won't exist yet — Get-CacheProxyForHostDownload
-# returns $null and the download goes direct, which is correct.
-# Subsequent runs (e.g. rebuilding the cache VM after an apt update)
-# benefit if the cache image was already pulled by an earlier siblng
-# guest. For HTTPS the helper also returns $null.
-$iwrCommon = @{}
-$cacheProxy = Get-CacheProxyForHostDownload -Uri $sourceUrl
-if ($cacheProxy) {
-    $iwrCommon['Proxy'] = $cacheProxy
-    Write-Output "Routing download through squid cache: $cacheProxy"
-}
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.img"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceUrl to $downloadFile"
+# Save-CachedHttpUri (VM.common.psm1) routes through the squid cache
+# transparently when one is reachable. Note: this script PROVISIONS
+# the squid cache, so on a first-run host the cache doesn't exist yet
+# and Save-CachedHttpUri falls through to a direct fetch. Subsequent
+# rebuilds (e.g. cache VM rotation) benefit when the cache is up,
+# including HTTPS via :3129 SSL-bump with per-process CA trust.
 try {
-    Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile -ErrorAction Stop @iwrCommon
+    Save-CachedHttpUri -Uri $sourceUrl -OutFile $downloadFile
 } catch {
     Write-Error "Download failed: $($_.Exception.Message)"
     exit 1

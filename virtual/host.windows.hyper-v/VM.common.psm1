@@ -469,58 +469,6 @@ function Get-GuestReachableHostIp {
 .OUTPUTS
     [bool]
 #>
-<#
-.SYNOPSIS
-    Returns a squid-cache proxy URL ("http://<ip>:3128") usable by
-    host-side Invoke-WebRequest -Proxy, or $null when the cache is
-    not currently a useful path for this URL.
-
-.DESCRIPTION
-    Two reasons this returns $null, and both are deliberate:
-
-      1. The URL is HTTPS. Squid's :3128 listener only CONNECT-tunnels
-         HTTPS — it never decrypts, so it never caches. Routing an
-         HTTPS download through :3128 only adds a hop with no caching
-         benefit. The ssl-bump :3129 listener WOULD cache HTTPS, but
-         only if the caller trusts /etc/squid/ssl_cert/ca.pem
-         (published at http://<cache>/yuruna-squid-ca.crt). Until that
-         CA trust is wired into the host PowerShell process, returning
-         $null and letting the request go direct is the right call.
-
-      2. The cache VM isn't running, has no IP yet, or isn't answering
-         on :3128. Forcing -Proxy at a dead listener turns a normal
-         download into a hard failure for no reason.
-
-    Discovery delegates to Get-WorkingCachingProxyUrl, which already
-    enumerates KVP+ARP candidate IPs and probes :3128 with a 500 ms
-    timeout. Cheap and safe to call on every download.
-
-.PARAMETER Uri
-    The download URL the caller is about to issue. Used only to
-    inspect the scheme (http vs https).
-
-.OUTPUTS
-    [string] proxy URL like 'http://172.17.96.42:3128', or $null.
-#>
-function Get-CacheProxyForHostDownload {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory)][string]$Uri
-    )
-    $scheme = ([System.Uri]$Uri).Scheme
-    if ($scheme -ine 'http') {
-        Write-Verbose "Get-CacheProxyForHostDownload: scheme '$scheme' is not http; squid :3128 only CONNECT-tunnels HTTPS (no caching). Going direct."
-        return $null
-    }
-    try {
-        return (Get-WorkingCachingProxyUrl)
-    } catch {
-        Write-Verbose "Get-CacheProxyForHostDownload: cache discovery failed: $($_.Exception.Message)"
-        return $null
-    }
-}
-
 function Test-DownloadAlreadyCurrent {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -550,6 +498,267 @@ function Test-DownloadAlreadyCurrent {
     $expectedSize = 0L
     if (-not [int64]::TryParse([string]$cl, [ref]$expectedSize)) { return $false }
     return ($expectedSize -eq $previousSize)
+}
+
+<#
+.SYNOPSIS
+    Returns the IP of a reachable squid-cache VM (probed on :3128),
+    or $null when no cache is currently usable.
+
+.DESCRIPTION
+    Caller-facing primitive shared by Get-CacheProxyForHostDownload
+    and Save-CachedHttpUri so the platform-specific discovery logic
+    lives in exactly one place. Wraps Get-CacheVmCandidateIp +
+    Test-CachingProxyPort: we need the IP itself (not the proxy URL)
+    so callers can also reach :80 (CA fetch) and :3129 (SSL-bump).
+.OUTPUTS
+    [string] IPv4 like '172.17.96.42', or $null.
+#>
+function Resolve-CacheHostIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$VMName = 'squid-cache')
+    $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if (-not $vm -or $vm.State -ne 'Running') { return $null }
+    foreach ($ip in (Get-CacheVmCandidateIp -VM $vm)) {
+        if (Test-CachingProxyPort -IpAddress $ip -Port 3128 -TimeoutMs 500) {
+            return $ip
+        }
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Resolves the right squid endpoint for $Uri: HTTP through :3128 or
+    SSL-bumped HTTPS through :3129 with a freshly-fetched yuruna CA,
+    or $null when going direct is the only viable option.
+
+.DESCRIPTION
+    Output is a hashtable consumed by Save-CachedHttpUri:
+
+        @{ Proxy = 'http://<ip>:3128'; CaPemPath = $null }
+            HTTP origin: route through squid; no extra trust needed.
+
+        @{ Proxy = 'http://<ip>:3129'; CaPemPath = '<temp>.pem' }
+            HTTPS origin AND :3129 + :80 reachable AND
+            http://<ip>/yuruna-squid-ca.crt fetched OK. Caller passes
+            the PEM path to Invoke-HttpsViaSquidBump's per-process
+            HttpClient handler — system root store stays untouched.
+
+        $null
+            Cache not running, ports unreachable, or CA fetch failed.
+            Caller goes direct (still safer than forcing a dead proxy).
+
+    The CA is regenerated on every cache VM rebuild
+    (`openssl req -x509 ... CN=yuruna-squid-cache <hostname> <utc>` in
+    user-data runcmd), so we always re-fetch — no stable thumbprint to
+    pin out-of-band. Trust is bootstrapped over plain HTTP from the
+    cache itself, which is the same trust assumption the rest of the
+    yuruna LAN-side workflow makes.
+.PARAMETER Uri
+    The download URL the caller is about to fetch.
+.OUTPUTS
+    [hashtable] or $null.
+#>
+function Get-CacheProxyForHostDownload {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Uri)
+
+    $scheme = ([System.Uri]$Uri).Scheme.ToLowerInvariant()
+    if ($scheme -ne 'http' -and $scheme -ne 'https') {
+        Write-Verbose "Get-CacheProxyForHostDownload: scheme '$scheme' not http(s); going direct."
+        return $null
+    }
+
+    $cacheIp = Resolve-CacheHostIp
+    if (-not $cacheIp) {
+        Write-Verbose "Get-CacheProxyForHostDownload: no squid cache reachable on :3128; going direct."
+        return $null
+    }
+
+    if ($scheme -eq 'http') {
+        return @{ Proxy = "http://${cacheIp}:3128"; CaPemPath = $null }
+    }
+
+    # HTTPS via SSL-bump on :3129 — needs the apache CA endpoint on :80
+    # AND the SSL-bump listener on :3129. Probe both before committing.
+    if (-not (Test-CachingProxyPort -IpAddress $cacheIp -Port 3129 -TimeoutMs 500)) {
+        Write-Verbose "Get-CacheProxyForHostDownload: squid :3129 not reachable on $cacheIp; HTTPS goes direct."
+        return $null
+    }
+    if (-not (Test-CachingProxyPort -IpAddress $cacheIp -Port 80 -TimeoutMs 500)) {
+        Write-Verbose "Get-CacheProxyForHostDownload: apache :80 not reachable on $cacheIp (cannot fetch CA); HTTPS goes direct."
+        return $null
+    }
+    $caUrl = "http://${cacheIp}/yuruna-squid-ca.crt"
+    $caPem = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-squid-ca.pem'
+    try {
+        Invoke-WebRequest -Uri $caUrl -OutFile $caPem -ErrorAction Stop -UseBasicParsing | Out-Null
+    } catch {
+        Write-Verbose "Get-CacheProxyForHostDownload: CA fetch from $caUrl failed: $($_.Exception.Message); HTTPS goes direct."
+        return $null
+    }
+    return @{ Proxy = "http://${cacheIp}:3129"; CaPemPath = $caPem }
+}
+
+<#
+.SYNOPSIS
+    Downloads $Uri to $OutFile, transparently routing through the
+    squid cache (HTTP via :3128 or SSL-bumped HTTPS via :3129) when
+    one is reachable. Throws on failure.
+
+.DESCRIPTION
+    Single entry point used by every host-side Get-Image.ps1 in
+    place of Invoke-WebRequest -OutFile. Three paths:
+
+      1. No cache reachable, or unsupported scheme → falls through to
+         Invoke-WebRequest direct. Same behavior the scripts had
+         before any squid wiring existed.
+
+      2. HTTP origin + cache reachable → Invoke-WebRequest with
+         -Proxy http://<cache>:3128. Standard CONNECT-less HTTP
+         proxying; squid caches per the snapshot-cache config.
+
+      3. HTTPS origin + cache reachable + SSL-bump usable → custom
+         HttpClient with proxy http://<cache>:3129 and a per-call
+         ServerCertificateCustomValidationCallback that trusts ONLY
+         the freshly-fetched yuruna CA on top of the system roots.
+         The OS trust store is never modified; the trust closes when
+         this PowerShell process exits.
+
+    Throwing model: any underlying exception (TLS failure, HTTP non-
+    2xx, write error, etc.) propagates to the caller's try/catch,
+    same as Invoke-WebRequest -ErrorAction Stop.
+.PARAMETER Uri
+    Source URL.
+.PARAMETER OutFile
+    Destination file path; overwritten if it exists.
+#>
+function Save-CachedHttpUri {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile
+    )
+    $cfg = Get-CacheProxyForHostDownload -Uri $Uri
+    if (-not $cfg) {
+        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -ErrorAction Stop
+        return
+    }
+    if (-not $cfg.CaPemPath) {
+        Write-Output "Routing download through squid cache: $($cfg.Proxy)"
+        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -Proxy $cfg.Proxy -ErrorAction Stop
+        return
+    }
+    Write-Output "Routing HTTPS download through squid SSL-bump: $($cfg.Proxy) (per-process trust of yuruna CA at $($cfg.CaPemPath))"
+    Invoke-HttpsViaSquidBump -Uri $Uri -OutFile $OutFile -ProxyUrl $cfg.Proxy -CaPemPath $cfg.CaPemPath
+}
+
+<#
+.SYNOPSIS
+    Internal: HTTPS GET through a squid SSL-bump listener with a
+    per-process custom CA trust. Invoke via Save-CachedHttpUri.
+
+.DESCRIPTION
+    Why HttpClient and not Invoke-WebRequest:
+
+    PowerShell 7's Invoke-WebRequest exposes -SkipCertificateCheck
+    (accept ANY cert — too loose) and accepts no custom server-cert
+    callback. Modern .NET HttpClient with HttpClientHandler does
+    expose ServerCertificateCustomValidationCallback, which lets us
+    accept yuruna-CA-signed leaves WITHOUT touching the OS trust
+    store and WITHOUT skipping name validation.
+
+    Validation policy: defer to the OS for everything except a chain
+    error. On a chain error (the expected case for squid SSL-bumped
+    leaves, since yuruna CA isn't a public root), rebuild the chain
+    with the yuruna CA in ExtraStore and AllowUnknownCertificateAuthority,
+    then require the chain to terminate at a root whose thumbprint
+    matches our CA. Name mismatches and missing-cert errors still
+    fail closed.
+
+    Progress: Write-Progress every 2s with bytes/MB and percent when
+    Content-Length is known; honors $ProgressPreference (the test
+    runner sets it to SilentlyContinue, so the runner's HTML log
+    stays clean).
+#>
+function Invoke-HttpsViaSquidBump {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile,
+        [Parameter(Mandatory)][string]$ProxyUrl,
+        [Parameter(Mandatory)][string]$CaPemPath
+    )
+    # X509Certificate2::CreateFromPemFile expects cert+key in the same
+    # file; the yuruna-squid-ca.crt published by the cache is cert-only.
+    # The ctor auto-detects PEM/DER/PFX and works for cert-only PEM.
+    $extraCa = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CaPemPath)
+    $expectedThumb = $extraCa.Thumbprint
+
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.UseProxy = $true
+    $handler.Proxy = [System.Net.WebProxy]::new([System.Uri]$ProxyUrl, $true)
+    $handler.ServerCertificateCustomValidationCallback = {
+        param($req, $cert, $chain, $errors)
+        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable) -ne 0) { return $false }
+        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch) -ne 0) { return $false }
+        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors) -eq 0) { return $true }
+        $extraChain = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
+        [void]$extraChain.ChainPolicy.ExtraStore.Add($extraCa)
+        $extraChain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+        $extraChain.ChainPolicy.VerificationFlags = [System.Security.Cryptography.X509Certificates.X509VerificationFlags]::AllowUnknownCertificateAuthority
+        if (-not $extraChain.Build($cert)) { return $false }
+        $root = $extraChain.ChainElements[$extraChain.ChainElements.Count - 1].Certificate
+        return ($root.Thumbprint -eq $expectedThumb)
+    }.GetNewClosure()
+
+    $client = [System.Net.Http.HttpClient]::new($handler, $true)
+    # 4 GB at ~50 MB/s LAN cache = ~80s; HTTP/SSL handshake + cold cache
+    # populate from origin can stretch this. Generous timeout vs. the
+    # default 100s which would abort mid-fetch on a cold ISO pull.
+    $client.Timeout = [TimeSpan]::FromHours(2)
+    try {
+        $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, [System.Uri]$Uri)
+        $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        try {
+            if (-not $response.IsSuccessStatusCode) {
+                throw "HTTP $([int]$response.StatusCode) $($response.ReasonPhrase) for $Uri"
+            }
+            $total = $response.Content.Headers.ContentLength
+            $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+            try {
+                $out = [System.IO.File]::Create($OutFile)
+                try {
+                    $buf = [byte[]]::new(64 * 1024)
+                    $written = 0L
+                    $next = [DateTime]::UtcNow.AddSeconds(2)
+                    $activity = "Downloading $Uri (via squid SSL-bump)"
+                    while (($n = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
+                        $out.Write($buf, 0, $n)
+                        $written += $n
+                        if ([DateTime]::UtcNow -gt $next) {
+                            if ($total) {
+                                $pct = [math]::Round($written * 100.0 / $total, 1)
+                                Write-Progress -Activity $activity -Status ("{0:N1} / {1:N1} MB ({2}%)" -f ($written/1MB), ($total/1MB), $pct) -PercentComplete $pct
+                            } else {
+                                Write-Progress -Activity $activity -Status ("{0:N1} MB" -f ($written/1MB))
+                            }
+                            $next = [DateTime]::UtcNow.AddSeconds(2)
+                        }
+                    }
+                } finally { $out.Dispose() }
+            } finally { $stream.Dispose() }
+            Write-Progress -Activity $activity -Completed
+        } finally { $response.Dispose() }
+    } finally {
+        $client.Dispose()
+        $handler.Dispose()
+    }
 }
 
 function Assert-HyperVEnabled {

@@ -222,22 +222,16 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
 }
 
 # === Retrieve and process the files ===
-# Route HTTP downloads through the squid cache when one is reachable.
-# Get-CacheProxyForHostDownload (VM.common.psm1) returns $null for
-# HTTPS URLs (squid :3128 can't cache CONNECT-tunneled traffic) and
-# when no listener answers — so this is a no-op until an HTTP origin
-# or :3129 SSL-bump support is wired in.
-$iwrCommon = @{}
-$cacheProxy = Get-CacheProxyForHostDownload -Uri $sourceUrl
-if ($cacheProxy) {
-    $iwrCommon['Proxy'] = $cacheProxy
-    Write-Output "Routing download through squid cache: $cacheProxy"
-}
 $downloadFile = Join-Path $downloadDir "downloaded.iso"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceUrl to $downloadFile"
+# Save-CachedHttpUri (VM.common.psm1) routes through the squid cache
+# transparently: HTTP origins go through :3128; HTTPS origins go
+# through :3129 with per-process trust of the freshly-fetched yuruna
+# CA (no OS trust-store mutation); when no cache is reachable it
+# falls through to a direct Invoke-WebRequest. Throws on failure.
 try {
-    Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile -ErrorAction Stop @iwrCommon
+    Save-CachedHttpUri -Uri $sourceUrl -OutFile $downloadFile
 } catch {
     Write-Error "Download failed: $($_.Exception.Message)"
     exit 1

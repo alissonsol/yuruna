@@ -1,14 +1,14 @@
 # Windows 11 guest on macOS UTM host
 
 Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
-concepts: [../../CODE.md](../../CODE.md).
+concepts: [../../README.md](../../README.md).
 
 **Requirements**: macOS 12+, Apple Silicon (M1+), UTM v4.0+ — verified
 by `New-VM.ps1`.
 
 ## One-time
 
-From `yuruna/virtual/host.macos.utm/guest.windows.11` (do not `sudo`):
+From `yuruna/host/macos.utm/guest.windows.11` (do not `sudo`):
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -48,7 +48,7 @@ login). Elevated PowerShell:
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.update.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/windows.11.update.ps1$nc" | iex
 Restart-Computer
 ```
 
@@ -57,5 +57,5 @@ Restart-Computer
 
 ## Next
 
-[Windows 11 workloads](../../guest.windows.11/README.md) ·
+[Windows 11 workloads](../../../guest/windows.11/README.md) ·
 [read.more.md](read.more.md)

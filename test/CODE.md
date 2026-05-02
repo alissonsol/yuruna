@@ -24,7 +24,7 @@ Each iteration of `Invoke-TestRunner.ps1`:
 1. `git pull`, then re-read `test-config.json`.
 2. Every 24h (configurable): refresh base images via `Get-Image.ps1`.
 3. For each entry in `guestOrder`:
-   - Verify `virtual/<hostType>/<guestKey>/` exists — missing folder is a
+   - Verify `host/<short-host>/<guestKey>/` exists — missing folder is a
      per-guest failure; other guests still run unless `stopOnFailure`.
    - Clean the previous test VM.
    - `New-VM.ps1` → `Start-VM` → poll until running → screenshot

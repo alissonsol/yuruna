@@ -2,7 +2,7 @@
 
 One-time setup for a macOS host with UTM. Cross-host concepts
 (install-one-liner convention, post-install steps, optional Squid cache
-VM, guest workload pattern) live in [../CODE.md](../CODE.md).
+VM, guest workload pattern) live in [../README.md](../README.md).
 
 ## Quick install (one line)
 
@@ -19,13 +19,13 @@ display sleep and screen-saver lock. Idempotent; prompts for your macOS
 password once.
 
 After the script finishes, follow the steps in
-[../CODE.md](../CODE.md#install-one-liner-convention). macOS notes:
+[../README.md](../README.md#install-one-liner-convention). macOS notes:
 
 - Step 1 (new shell): Apple Silicon — `eval "$(/opt/homebrew/bin/brew shellenv)"`;
   Intel — `/usr/local`.
 - Step 4 (launch hypervisor): `open -a UTM`.
 - Step 5 — both TCC grants (Accessibility, Screen Recording) covered in
-  [../CODE.md](../CODE.md#install-one-liner-convention).
+  [../README.md](../README.md#install-one-liner-convention).
 
   `Enable-TestAutomation.ps1` also flips `AppleSpacesSwitchOnActivation`
   to `false` so UTM activation during an AVF-guest keystroke doesn't
@@ -40,7 +40,7 @@ Manual walk-through of the installer: [read.more.md](read.more.md).
 
 ## Optional: Squid cache VM
 
-See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
+See [../README.md](../README.md#optional-squid-cache-vm) and
 [../../docs/caching.md](../../docs/caching.md). Rate-limiting bites
 macOS faster than Hyper-V: Apple Virtualization's Shared NAT egresses
 every UTM VM through the host's single public IP.

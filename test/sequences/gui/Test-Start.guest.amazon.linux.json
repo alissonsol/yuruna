@@ -60,7 +60,7 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "sudo bash /automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh",
+      "text": "sudo bash /automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.update.sh",
       "description": "amazon.linux.update.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,

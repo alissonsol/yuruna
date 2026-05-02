@@ -96,7 +96,7 @@ helper disables display sleep, screen-saver idle, and the screen-lock
 password requirement via `pmset` and `defaults`:
 
 ```bash
-cd ~/git/yuruna/virtual/host.macos.utm
+cd ~/git/yuruna/host/macos.utm
 pwsh ./Enable-TestAutomation.ps1
 ```
 
@@ -118,7 +118,7 @@ open -a UTM      # surfaces any first-run dialogs
 
 ## 8) Optional: Squid cache VM
 
-See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
+See [../README.md](../README.md#optional-squid-cache-vm) and
 [../../docs/caching.md](../../docs/caching.md). After provision,
 double-click
 `~/Desktop/Yuruna.VDE/<hostname>.nosync/squid-cache.utm` to register

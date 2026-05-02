@@ -24,7 +24,7 @@
     (for qemu-img used by guest.squid-cache/Get-Image.ps1), Tesseract OCR,
     and enables the Hyper-V Windows Feature. Clones the Yuruna repository
     into $HOME\git\yuruna, seeds test\test-config.json from the template,
-    and runs virtual\host.windows.hyper-v\Enable-TestAutomation.ps1 to disable
+    and runs host\windows.hyper-v\Enable-TestAutomation.ps1 to disable
     display timeout and screen lock so Hyper-V screen captures stay readable.
 
     Idempotent -- safe to re-run to pick up updates. On re-run it stops any
@@ -121,7 +121,7 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
   |    * winget package installs (PowerShell 7, Git, ADK, ...)    |
   |    * enabling the Hyper-V Windows Feature (via DISM.exe)      |
   |    * powercfg / registry edits in                             |
-  |      virtual\host.windows.hyper-v\Enable-TestAutomation.ps1       |
+  |      host\windows.hyper-v\Enable-TestAutomation.ps1       |
   |  All of the above are run automatically -- you do NOT need    |
   |  to type any command yourself. You will see ONE UAC prompt    |
   |  if the script was not already launched from an elevated      |
@@ -174,7 +174,7 @@ Write-Step "  shell  : $((Get-Process -Id $PID).ProcessName) (PowerShell $($PSVe
 
 # -- PowerShell 7 bootstrap ------------------------------------------------
 # Fresh Windows 11 ships Windows PowerShell 5.1 only. The rest of Yuruna --
-# every pwsh-shebanged script under test/ and virtual/ -- expects pwsh 7+. If we
+# every pwsh-shebanged script under test/, host/, and guest/ -- expects pwsh 7+. If we
 # are still in PS 5.x after elevation, install pwsh via winget, refresh
 # PATH so pwsh.exe resolves in this same session, and re-execute this
 # script under pwsh. The child inherits the elevated token, so no second
@@ -499,9 +499,9 @@ if (-not (Test-Path $cfg) -and (Test-Path $tpl)) {
 # lines after we already said we just enabled Hyper-V. Enable-TestAutomation
 # will run cleanly after the reboot, either on the next installer run or on
 # first use of Invoke-TestRunner.ps1.
-$setHost = Join-Path $YurunaDir 'virtual\host.windows.hyper-v\Enable-TestAutomation.ps1'
+$setHost = Join-Path $YurunaDir 'host\windows.hyper-v\Enable-TestAutomation.ps1'
 if ($script:RestartNeeded) {
-    Write-Warn 'Skipping virtual\host.windows.hyper-v\Enable-TestAutomation.ps1 until after the pending Hyper-V restart.'
+    Write-Warn 'Skipping host\windows.hyper-v\Enable-TestAutomation.ps1 until after the pending Hyper-V restart.'
 } elseif (Test-Path $setHost) {
     # Same PS 5.1-safe resolution pattern as $gitExe above. By this point
     # we are guaranteed to be under pwsh (the PS 7 bootstrap re-exec'd if
@@ -510,13 +510,13 @@ if ($script:RestartNeeded) {
     $pwshCmd2 = Get-Command pwsh -ErrorAction SilentlyContinue
     $pwshExe  = if ($pwshCmd2) { $pwshCmd2.Source } else { $null }
     if (-not $pwshExe) {
-        Write-Warn 'pwsh not on PATH yet -- skipping virtual\host.windows.hyper-v\Enable-TestAutomation.ps1. Open a new terminal and run it manually.'
+        Write-Warn 'pwsh not on PATH yet -- skipping host\windows.hyper-v\Enable-TestAutomation.ps1. Open a new terminal and run it manually.'
     } else {
-        Write-Step 'Running virtual\host.windows.hyper-v\Enable-TestAutomation.ps1'
+        Write-Step 'Running host\windows.hyper-v\Enable-TestAutomation.ps1'
         & $pwshExe -NoLogo -NoProfile -File $setHost
     }
 } else {
-    Write-Warn "virtual\host.windows.hyper-v\Enable-TestAutomation.ps1 not found under $YurunaDir -- skipping host config."
+    Write-Warn "host\windows.hyper-v\Enable-TestAutomation.ps1 not found under $YurunaDir -- skipping host config."
 }
 
 # -- Done -------------------------------------------------------------------

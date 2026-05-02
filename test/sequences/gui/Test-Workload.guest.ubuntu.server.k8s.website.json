@@ -37,7 +37,7 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.k8s.sh",
+      "text": "/automation/fetch-and-execute.sh guest/ubuntu.server/ubuntu.server.k8s.sh",
       "description": "ubuntu.server.k8s.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 1800,
@@ -62,7 +62,7 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.workload.k8s.website.sh",
+      "text": "/automation/fetch-and-execute.sh guest/ubuntu.server/ubuntu.server.workload.k8s.website.sh",
       "description": "ubuntu.server.workload.k8s.website.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 900,

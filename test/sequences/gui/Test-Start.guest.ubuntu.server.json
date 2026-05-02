@@ -72,7 +72,7 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.update.sh",
+      "text": "/automation/fetch-and-execute.sh guest/ubuntu.server/ubuntu.server.update.sh",
       "description": "ubuntu.server.update.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 900,

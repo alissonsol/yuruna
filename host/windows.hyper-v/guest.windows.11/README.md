@@ -1,11 +1,11 @@
 # Windows 11 guest on Windows Hyper-V host
 
 Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
-concepts: [../../CODE.md](../../CODE.md).
+concepts: [../../README.md](../../README.md).
 
 ## One-time
 
-From `yuruna\virtual\host.windows.hyper-v\guest.windows.11` in an
+From `yuruna\host\windows.hyper-v\guest.windows.11` in an
 elevated PowerShell:
 
 ```powershell
@@ -33,7 +33,7 @@ login). Elevated PowerShell:
 
 ```powershell
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.windows.11/windows.11.update.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/windows.11.update.ps1$nc" | iex
 Restart-Computer
 ```
 
@@ -42,5 +42,5 @@ Restart-Computer
 
 ## Next
 
-[Windows 11 workloads](../../guest.windows.11/README.md) ·
+[Windows 11 workloads](../../../guest/windows.11/README.md) ·
 [read.more.md](read.more.md)

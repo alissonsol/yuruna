@@ -37,7 +37,7 @@
     },
     {
       "action": "fetchAndExecute",
-      "text": "/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.code.sh",
+      "text": "/automation/fetch-and-execute.sh guest/ubuntu.server/ubuntu.server.code.sh",
       "description": "ubuntu.server.code.sh",
       "waitPattern": "FETCHED AND EXECUTED:",
       "waitTimeoutSeconds": 600,

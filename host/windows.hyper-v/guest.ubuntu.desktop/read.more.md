@@ -1,6 +1,6 @@
 # Ubuntu Desktop guest on Windows Hyper-V host — Nerd-Level Details
 
-See [../../CODE.md](../../CODE.md) for host prerequisites (Hyper-V, ADK
+See [../../README.md](../../README.md) for host prerequisites (Hyper-V, ADK
 Deployment Tools for `oscdimg.exe`), VM sizing, and connectivity.
 
 ## 1) Get the image

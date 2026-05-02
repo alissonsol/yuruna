@@ -12,11 +12,11 @@ ships `linux-generic` on the cdrom plus a network-configured
 
 **Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
 Apple **M3+**, UTM v4.6+ — verified by `New-VM.ps1`. Cross-host
-concepts: [../../CODE.md](../../CODE.md).
+concepts: [../../README.md](../../README.md).
 
 ## One-time
 
-From `yuruna/virtual/host.macos.utm/guest.ubuntu.server` (do not `sudo`):
+From `yuruna/host/macos.utm/guest.ubuntu.server` (do not `sudo`):
 
 ```bash
 pwsh ./Get-Image.ps1

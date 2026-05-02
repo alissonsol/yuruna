@@ -1,8 +1,8 @@
 # Amazon Linux guest on macOS UTM host — Nerd-Level Details
 
-See [../../CODE.md](../../CODE.md) for host prerequisites, VM sizing,
+See [../../README.md](../../README.md) for host prerequisites, VM sizing,
 and connectivity. macOS counterpart of
-[Hyper-V version](../../host.windows.hyper-v/guest.amazon.linux/).
+[Hyper-V version](../../windows.hyper-v/guest.amazon.linux/).
 Tested with Amazon Linux 2023 (not AL1/AL2). AWS
 [supported configurations](https://docs.aws.amazon.com/linux/al2023/ug/hyperv-supported-configurations.html).
 

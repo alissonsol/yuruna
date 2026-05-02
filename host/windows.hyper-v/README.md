@@ -2,7 +2,7 @@
 
 One-time setup for a Windows host with Hyper-V. Cross-host concepts
 (install-one-liner convention, post-install steps, optional Squid cache
-VM, guest workload pattern) live in [../CODE.md](../CODE.md).
+VM, guest workload pattern) live in [../README.md](../README.md).
 
 ## Quick install (one line)
 
@@ -20,7 +20,7 @@ seeds `test\test-config.json`; runs
 [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1). Idempotent;
 elevation requested once.
 
-Then follow [../CODE.md](../CODE.md#install-one-liner-convention). On
+Then follow [../README.md](../README.md#install-one-liner-convention). On
 Windows: step 2's reboot only applies when Hyper-V was just enabled;
 step 4's hypervisor UI is Hyper-V Manager:
 
@@ -36,7 +36,7 @@ Manual walk-through: [read.more.md](read.more.md).
 
 ## Optional: Squid cache VM
 
-See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
+See [../README.md](../README.md#optional-squid-cache-vm) and
 [../../docs/caching.md](../../docs/caching.md). Once `squid-cache` is
 running, Ubuntu Desktop `New-VM.ps1` auto-detects it and injects the
 proxy URL into the seed ISO.

@@ -32,7 +32,7 @@
     the trained references.
 
 .PARAMETER GuestKey
-    The guest to train. Any guest.<name> whose virtual/<hostType>/<guestKey>/ folder
+    The guest to train. Any guest.<name> whose host/<short-host>/<guestKey>/ folder
     exists on the current host is accepted (e.g. guest.amazon.linux,
     guest.ubuntu.desktop, guest.ubuntu.server, guest.windows.11).
 
@@ -58,7 +58,6 @@ param(
 
 $TestRoot      = $PSScriptRoot
 $RepoRoot      = Split-Path -Parent $TestRoot
-$VirtualRoot       = Join-Path $RepoRoot "virtual"
 $ModulesDir    = Join-Path $TestRoot "modules"
 $ScreenshotsDir = Join-Path $TestRoot "screenshots"
 
@@ -79,8 +78,8 @@ Write-Output "Host type: $HostType"
 Write-Output "Guest:     $GuestKey"
 Write-Output ""
 
-if (-not (Test-GuestFolder -VirtualRoot $VirtualRoot -HostType $HostType -GuestKey $GuestKey)) {
-    Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $(Join-Path $VirtualRoot "$HostType/$GuestKey")"
+if (-not (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $GuestKey)) {
+    Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $(Join-Path $RepoRoot (Join-Path (Get-HostFolder $HostType) $GuestKey))"
     exit 1
 }
 
@@ -95,14 +94,14 @@ Write-Output "Reference screenshots will be saved to: $refDir"
 Write-Output ""
 
 Write-Output "--- Checking base image ---"
-$r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -AlwaysRedownload $false
+$r = Invoke-GetImage -HostType $HostType -GuestKey $GuestKey -RepoRoot $RepoRoot -AlwaysRedownload $false
 if (-not $r.success) { Write-Error "Get-Image failed: $($r.errorMessage)"; exit 1 }
 
 Write-Output "--- Cleaning previous VM ---"
 Remove-TestVM -HostType $HostType -VMName $VMName | Out-Null
 
 Write-Output "--- Creating VM ---"
-$r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -VMName $VMName
+$r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName
 if (-not $r.success) { Write-Error "New-VM failed: $($r.errorMessage)"; exit 1 }
 
 Write-Output "--- Starting VM ---"

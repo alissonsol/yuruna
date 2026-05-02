@@ -236,8 +236,7 @@ if ($survivors.Count -gt 0) {
 }
 Write-Output ""
 
-$virtualDir = Join-Path $RepoRoot "virtual"
-$cleanupScript = Join-Path -Path $virtualDir -ChildPath "$HostType" -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
+$cleanupScript = Join-Path -Path $RepoRoot -ChildPath (Get-HostFolder $HostType) -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
 
 if (-not (Test-Path $cleanupScript)) {
     Write-Error "Cleanup script not found: $cleanupScript"

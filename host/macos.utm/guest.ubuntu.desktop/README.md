@@ -1,14 +1,14 @@
 # Ubuntu Desktop guest on macOS UTM host
 
 Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
-concepts: [../../CODE.md](../../CODE.md).
+concepts: [../../README.md](../../README.md).
 
 **Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
 Apple **M3+**, UTM v4.6+ — verified by `New-VM.ps1`.
 
 ## One-time
 
-From `yuruna/virtual/host.macos.utm/guest.ubuntu.desktop` (do not `sudo`):
+From `yuruna/host/macos.utm/guest.ubuntu.desktop` (do not `sudo`):
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -31,11 +31,11 @@ Default `ubuntu` / `password`; change forced on first login. In a guest
 terminal:
 
 ```bash
-/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh
+/automation/fetch-and-execute.sh guest/ubuntu.desktop/ubuntu.desktop.update.sh
 sudo reboot now
 ```
 
 ## Next
 
-[Ubuntu Desktop workloads](../../guest.ubuntu.desktop/README.md) ·
+[Ubuntu Desktop workloads](../../../guest/ubuntu.desktop/README.md) ·
 [read.more.md](read.more.md)

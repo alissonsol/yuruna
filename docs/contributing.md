@@ -51,7 +51,7 @@ presentation: [PowerPoint](yuruna.pptx) · [PDF](yuruna.pdf).
 Cloud-init and guest READMEs fetch scripts from `main`:
 
 ```
-https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/virtual/guest.ubuntu.desktop/ubuntu.desktop.code.sh
+https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/ubuntu.desktop/ubuntu.desktop.code.sh
 ```
 
 Branch changes aren't visible there until merged.
@@ -62,12 +62,12 @@ the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
 
 ```bash
 EXEC_BASE_URL="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/your-branch-name/" \
-  /automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.code.sh
+  /automation/fetch-and-execute.sh guest/ubuntu.desktop/ubuntu.desktop.code.sh
 ```
 
 **Cloud-init user-data**: URLs are baked into the seed ISO at
 `New-VM.ps1` time. Before running `New-VM.ps1`, edit
-`virtual/host.*/guest.*/vmconfig/user-data` and replace
+`host/<short-host>/guest.*/vmconfig/user-data` and replace
 `refs/heads/main` with your branch. **Revert before opening a PR.**
 
 Back to [[Yuruna](../README.md)]

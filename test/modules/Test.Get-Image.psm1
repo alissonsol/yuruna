@@ -88,10 +88,11 @@ function Invoke-GetImage {
     param(
         [string]$HostType,
         [string]$GuestKey,
-        [string]$VirtualRoot,
+        [string]$RepoRoot,
         [bool]  $AlwaysRedownload
     )
-    $scriptPath = Join-Path $VirtualRoot "$HostType/$GuestKey/Get-Image.ps1"
+    $hostFolder = "host/$($HostType -replace '^host\.','')"
+    $scriptPath = Join-Path $RepoRoot (Join-Path $hostFolder (Join-Path $GuestKey "Get-Image.ps1"))
     if (-not (Test-Path $scriptPath)) {
         return @{ success=$false; skipped=$false; errorMessage="Get-Image.ps1 not found at: $scriptPath" }
     }

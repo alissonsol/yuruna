@@ -62,7 +62,6 @@ if ($verbose_mode) {
 # === Resolve paths ===
 $TestRoot       = $PSScriptRoot
 $RepoRoot       = Split-Path -Parent $TestRoot
-$VirtualRoot        = Join-Path $RepoRoot "virtual"
 $ModulesDir     = Join-Path $TestRoot "modules"
 $ExtensionsDir  = Join-Path $TestRoot "extensions"
 $SequencesDir   = Join-Path $TestRoot "sequences"
@@ -161,10 +160,10 @@ if ($parts.Count -lt 2) {
 $GuestKey = $parts[1]
 
 # Validate guest key by checking the folder exists for the current host. No
-# hardcoded allow-list — a guest is valid iff its virtual/<hostType>/<guestKey>/
+# hardcoded allow-list — a guest is valid iff its host/<short-host>/<guestKey>/
 # folder is on disk, matching the convention Invoke-TestRunner.ps1 uses.
-if (-not (Test-GuestFolder -VirtualRoot $VirtualRoot -HostType $HostType -GuestKey $GuestKey)) {
-    $folder = Join-Path $VirtualRoot "$HostType/$GuestKey"
+if (-not (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $GuestKey)) {
+    $folder = Join-Path $RepoRoot (Join-Path (Get-HostFolder $HostType) $GuestKey)
     Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $folder"
     Write-Output "  Add Get-Image.ps1 + New-VM.ps1 under that path to enable this guest, or"
     Write-Output "  correct the sequence name so it references a guest that exists on this host."
@@ -183,7 +182,7 @@ if ($vmExists) {
     Write-Output "VM '$VMName' already exists. Reusing."
 } else {
     Write-Output "VM '$VMName' not found. Creating..."
-    $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -VirtualRoot $VirtualRoot -VMName $VMName
+    $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName
     if (-not $r.success) {
         Write-Error "New-VM failed: $($r.errorMessage)"
         exit 1

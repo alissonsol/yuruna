@@ -6,7 +6,8 @@ rather than repeat.
 ## Three capabilities
 
 1. **Virtual Development Environment (VDE)** — reproducible workspaces
-   as VMs on macOS UTM or Windows Hyper-V. See [virtual/CODE.md](virtual/CODE.md).
+   as VMs on macOS UTM or Windows Hyper-V. See [host/README.md](host/README.md)
+   and [guest/README.md](guest/README.md).
 2. **Kubernetes deployment** — three-phase model targeting localhost,
    AWS, Azure, or GCP with the same project layout. See
    [docs/kubernetes.md](docs/kubernetes.md).
@@ -59,7 +60,8 @@ yuruna/
 │   ├── examples/       # Reference projects (website)
 │   └── template/       # Scaffold for a new project
 ├── docs/               # User-facing documentation
-├── virtual/            # VDE host/guest scripts and docs
+├── host/               # VDE per-hypervisor VM provisioning (macos.utm, windows.hyper-v)
+├── guest/              # VDE workload scripts run inside a running guest
 └── test/               # Continuous test harness
 ```
 

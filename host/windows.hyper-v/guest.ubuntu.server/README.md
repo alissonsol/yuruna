@@ -10,11 +10,11 @@ Use this when the Desktop ISO's `ubuntu-desktop-bootstrap` fails with
 ships `linux-generic` on the cdrom plus a network-configured
 `/etc/apt/sources.list.d/ubuntu.sources`; the Desktop ISO does not.
 
-Cross-host concepts: [../../CODE.md](../../CODE.md).
+Cross-host concepts: [../../README.md](../../README.md).
 
 ## One-time
 
-From `yuruna\virtual\host.windows.hyper-v\guest.ubuntu.server` in
+From `yuruna\host\windows.hyper-v\guest.ubuntu.server` in
 elevated PowerShell:
 
 ```powershell

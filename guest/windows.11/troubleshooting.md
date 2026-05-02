@@ -35,6 +35,6 @@ slmgr /ipk XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
 slmgr /ato
 ```
 
-Product keys: [vmconfig/README.md](../host.windows.hyper-v/guest.windows.11/vmconfig/README.md).
+Product keys: [vmconfig/README.md](../../host/windows.hyper-v/guest.windows.11/vmconfig/README.md).
 
 Back to [[Windows 11 Guest - Workloads](README.md)]

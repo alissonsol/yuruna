@@ -69,9 +69,9 @@
 param()
 
 $ErrorActionPreference = "Stop"
-# Cross-folder import: script lives under virtual/host.macos.utm/; delegated
+# Cross-folder import: script lives under host/macos.utm/; delegated
 # module is at test/modules/Test.Host.psm1 (two levels up, then test/).
-# Same pattern as Test.New-VM.psm1 -> virtual/host.macos.utm/VM.common.psm1.
+# Same pattern as Test.New-VM.psm1 -> host/macos.utm/VM.common.psm1.
 $ScriptDir = $PSScriptRoot
 $RepoRoot  = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $ModulePath = Join-Path $RepoRoot "test/modules/Test.Host.psm1"

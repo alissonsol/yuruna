@@ -1,6 +1,6 @@
 # Amazon Linux guest on Windows Hyper-V host — Nerd-Level Details
 
-See [../../CODE.md](../../CODE.md) for host prerequisites (Hyper-V, ADK
+See [../../README.md](../../README.md) for host prerequisites (Hyper-V, ADK
 Deployment Tools for `oscdimg.exe`), VM sizing, and connectivity.
 Amazon Linux 2023 —
 [AL supported configurations](https://docs.aws.amazon.com/linux/al2023/ug/hyperv-supported-configurations.html).
@@ -30,7 +30,7 @@ folder under `$localVhdxPath`, and places seed + VHDX there.
   `amazonlinux` (override in
   [vmconfig/user-data](./vmconfig/user-data)). Upgrade if prompted by
   `dnf check-release-update`.
-- `/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh`
+- `/automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.update.sh`
   installs the GUI and tools (cloud-init seeded `fetch-and-execute.sh`
   into `/automation/`; workloads pull from GitHub on demand).
 - `sudo reboot now` — boots into the GUI.

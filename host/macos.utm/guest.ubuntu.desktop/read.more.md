@@ -1,8 +1,8 @@
 # Ubuntu Desktop guest on macOS UTM host — Nerd-Level Details
 
-See [../../CODE.md](../../CODE.md) for host prerequisites, VM sizing,
+See [../../README.md](../../README.md) for host prerequisites, VM sizing,
 and connectivity. macOS counterpart of
-[Hyper-V version](../../host.windows.hyper-v/guest.ubuntu.desktop/).
+[Hyper-V version](../../windows.hyper-v/guest.ubuntu.desktop/).
 
 ## Nested virtualization requirements
 

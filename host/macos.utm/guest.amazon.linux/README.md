@@ -1,11 +1,11 @@
 # Amazon Linux guest on macOS UTM host
 
 Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
-concepts: [../../CODE.md](../../CODE.md).
+concepts: [../../README.md](../../README.md).
 
 ## One-time
 
-From `yuruna/virtual/host.macos.utm/guest.amazon.linux` (do not `sudo`):
+From `yuruna/host/macos.utm/guest.amazon.linux` (do not `sudo`):
 
 ```bash
 pwsh ./Get-Image.ps1
@@ -29,7 +29,7 @@ Default `ec2-user` / `amazonlinux` (override in
 [vmconfig/user-data](./vmconfig/user-data)):
 
 ```bash
-sudo /automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh
+sudo /automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.update.sh
 sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```
@@ -38,5 +38,5 @@ Good moment to clone the VM in UTM and keep a stable copy aside.
 
 ## Next
 
-[Amazon Linux workloads](../../guest.amazon.linux/README.md) ·
+[Amazon Linux workloads](../../../guest/amazon.linux/README.md) ·
 [read.more.md](read.more.md)

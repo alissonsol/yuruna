@@ -38,8 +38,12 @@ Write-Output "================================================================"
 Write-Output ""
 
 # === Discover base image names from guest.* subfolders ===
+# Base image filenames follow the legacy convention "host.<short>.guest.<name>"
+# (e.g. host.windows.hyper-v.guest.amazon.linux.vhdx). The script now lives at
+# host/<short>/, so Split-Path -Leaf returns just <short>; prepend "host." to
+# reconstruct the prefix that every guest's Get-Image.ps1 / New-VM.ps1 writes.
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$hostFolder = Split-Path -Leaf $ScriptDir
+$hostFolder = "host.$(Split-Path -Leaf $ScriptDir)"
 $guestFolders = Get-ChildItem -Path $ScriptDir -Directory -Filter "guest.*"
 $baseImageNames = @()
 foreach ($guest in $guestFolders) {

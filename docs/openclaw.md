@@ -4,9 +4,9 @@ Installs Git, Node.js, and [OpenClaw](https://docs.openclaw.ai/start/getting-sta
 
 | Guest | Command |
 |---|---|
-| **Amazon Linux** | `/automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.openclaw.sh` |
-| **Ubuntu Desktop** | `/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.openclaw.sh` |
-| **Ubuntu Server** | `/automation/fetch-and-execute.sh virtual/guest.ubuntu.server/ubuntu.server.openclaw.sh` |
+| **Amazon Linux** | `/automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.openclaw.sh` |
+| **Ubuntu Desktop** | `/automation/fetch-and-execute.sh guest/ubuntu.desktop/ubuntu.desktop.openclaw.sh` |
+| **Ubuntu Server** | `/automation/fetch-and-execute.sh guest/ubuntu.server/ubuntu.server.openclaw.sh` |
 
 After reboot, configure:
 
@@ -20,6 +20,6 @@ openclaw onboard --install-daemon
 
 See [Getting Started](https://docs.openclaw.ai/start/getting-started).
 
-Back to [[Amazon Linux](../guest.amazon.linux/README.md)] ·
-[[Ubuntu Desktop](../guest.ubuntu.desktop/README.md)] ·
-[[Ubuntu Server](../guest.ubuntu.server/README.md)]
+Back to [[Amazon Linux](../guest/amazon.linux/README.md)] ·
+[[Ubuntu Desktop](../guest/ubuntu.desktop/README.md)] ·
+[[Ubuntu Server](../guest/ubuntu.server/README.md)]

@@ -160,7 +160,7 @@ Write-Output "Confirmed: squid-cache VM reachable at ${CacheIp}:3128."
 # Stop-AllCachingProxyForwarder; it would needlessly kill forwarders that
 # are still working fine.
 
-Import-Module (Join-Path $RepoRoot 'virtual/host.macos.utm/VM.common.psm1') -Force
+Import-Module (Join-Path $RepoRoot 'host/macos.utm/VM.common.psm1') -Force
 $expectedPorts = @(80, 3000, 8022, 3128, 3129)
 Write-Output ""
 Write-Output "Current forwarder state:"
@@ -219,7 +219,7 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.PortMap.psm1') -Force
 # re-import, Get-CachingProxyForwarder is no longer resolvable here even
 # though it worked in Step 3's identical call site above.
 
-Import-Module (Join-Path $RepoRoot 'virtual/host.macos.utm/VM.common.psm1') -Force
+Import-Module (Join-Path $RepoRoot 'host/macos.utm/VM.common.psm1') -Force
 
 Write-Output ""
 Write-Output "Post-repair forwarder state:"

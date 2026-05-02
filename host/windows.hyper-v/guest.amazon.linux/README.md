@@ -1,11 +1,11 @@
 # Amazon Linux guest on Windows Hyper-V host
 
 Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
-concepts: [../../CODE.md](../../CODE.md).
+concepts: [../../README.md](../../README.md).
 
 ## One-time
 
-From `yuruna\virtual\host.windows.hyper-v\guest.amazon.linux` in an
+From `yuruna\host\windows.hyper-v\guest.amazon.linux` in an
 elevated PowerShell:
 
 ```powershell
@@ -25,7 +25,7 @@ Default `ec2-user` / `amazonlinux` (override in
 [vmconfig/user-data](./vmconfig/user-data)):
 
 ```bash
-sudo /automation/fetch-and-execute.sh virtual/guest.amazon.linux/amazon.linux.update.sh
+sudo /automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.update.sh
 sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```
@@ -34,5 +34,5 @@ Good moment for a Hyper-V checkpoint.
 
 ## Next
 
-[Amazon Linux workloads](../../guest.amazon.linux/README.md) ·
+[Amazon Linux workloads](../../../guest/amazon.linux/README.md) ·
 [read.more.md](read.more.md)

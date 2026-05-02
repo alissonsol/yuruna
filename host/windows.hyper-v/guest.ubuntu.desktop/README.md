@@ -1,11 +1,11 @@
 # Ubuntu Desktop guest on Windows Hyper-V host
 
 Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
-concepts: [../../CODE.md](../../CODE.md).
+concepts: [../../README.md](../../README.md).
 
 ## One-time
 
-From `yuruna\virtual\host.windows.hyper-v\guest.ubuntu.desktop` in an
+From `yuruna\host\windows.hyper-v\guest.ubuntu.desktop` in an
 elevated PowerShell:
 
 ```powershell
@@ -27,11 +27,11 @@ screen may stay dark — stop and restart if nothing after 15 min).
 Default `ubuntu` / `password`; change forced on first login.
 
 ```bash
-/automation/fetch-and-execute.sh virtual/guest.ubuntu.desktop/ubuntu.desktop.update.sh
+/automation/fetch-and-execute.sh guest/ubuntu.desktop/ubuntu.desktop.update.sh
 sudo reboot now
 ```
 
 ## Next
 
-[Ubuntu Desktop workloads](../../guest.ubuntu.desktop/README.md) ·
+[Ubuntu Desktop workloads](../../../guest/ubuntu.desktop/README.md) ·
 [read.more.md](read.more.md)

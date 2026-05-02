@@ -166,7 +166,7 @@ $CachingProxyUrl = ""
 $cacheVM = Get-VM -Name "squid-cache" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
     Write-Warning "  No squid-cache VM exists on this host. Guest will download packages directly from Ubuntu mirrors — expect occasional 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: virtual\host.windows.hyper-v\guest.squid-cache\New-VM.ps1"
+    Write-Warning "  To enable caching, run: host\windows.hyper-v\guest.squid-cache\New-VM.ps1"
 } elseif ($cacheVM.State -ne 'Running') {
     Write-Warning "  squid-cache VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
     Write-Warning "  To enable caching: Start-VM squid-cache ; then wait for cloud-init to finish."
@@ -202,7 +202,7 @@ Accessing the squid-cache VM for debugging:
   * SSH:      ssh ubuntu@<ip>
 
 Rebuild the cache VM:
-  virtual\host.windows.hyper-v\guest.squid-cache\New-VM.ps1
+  host\windows.hyper-v\guest.squid-cache\New-VM.ps1
 
 To intentionally skip the cache:
   Stop-VM squid-cache   (guest will then WARN and download direct).

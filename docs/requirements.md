@@ -18,7 +18,7 @@ Install each of the tools linked below. After installing PowerShell, run `Test-R
   - `git config --global user.email "Your@email.address"`
   - `git config --global core.autocrlf input`
 - Using a Hyper-V machine in Windows? Enable [nested virtualization](https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/user-guide/nested-virtualization)
-- Using UTM on macOS? Nested virtualization (required for Docker Desktop inside the VM) needs macOS 15 Sequoia+, Apple M3+ chip, UTM v4.6+, and the Apple Virtualization backend (not QEMU). See [UTM setup details](../virtual/host.macos.utm/guest.ubuntu.desktop/read.more.md).
+- Using UTM on macOS? Nested virtualization (required for Docker Desktop inside the VM) needs macOS 15 Sequoia+, Apple M3+ chip, UTM v4.6+, and the Apple Virtualization backend (not QEMU). See [UTM setup details](../host/macos.utm/guest.ubuntu.desktop/read.more.md).
 - Install [Docker Desktop](https://docs.docker.com/desktop/)
   - Enable [Kubernetes](https://docs.docker.com/get-started/orchestration/)
   - Install [Docker buildx](https://github.com/docker/buildx) in the path.

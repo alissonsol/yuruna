@@ -483,7 +483,7 @@ function Test-DownloadAlreadyCurrent {
 .DESCRIPTION
     BeginConnect+WaitOne caps the wait predictably; synchronous
     TcpClient.Connect() blocks ~20s on a filtered/dropped port.
-    Same shape as host.windows.hyper-v\VM.common.psm1's
+    Same shape as host\windows.hyper-v\VM.common.psm1's
     Test-CachingProxyPort, copied here so the macOS module stays
     self-contained.
 #>

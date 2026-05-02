@@ -35,7 +35,7 @@ unset YurunaCacheContent                  # clear
 Read by: guest README `irm … | iex` one-liners,
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 [`automation/Invoke-FetchAndExecute.ps1`](../automation/Invoke-FetchAndExecute.ps1),
-and `wget`/`curl` calls in each `virtual/guest.*/` install script. The
+and `wget`/`curl` calls in each `guest/<name>/` install script. The
 fetch-and-execute wrappers also honor an explicit `EXEC_QUERY_PARAMS`
 override (used verbatim, takes precedence).
 
@@ -76,15 +76,15 @@ egresses every UTM VM through the host's single public IP.
 From an elevated PowerShell (one-time):
 
 ```powershell
-cd $HOME\git\yuruna\virtual\host.windows.hyper-v\guest.squid-cache
+cd $HOME\git\yuruna\host\windows.hyper-v\guest.squid-cache
 pwsh .\Get-Image.ps1
 pwsh .\New-VM.ps1
 ```
 
-- [Get-Image.ps1](../virtual/host.windows.hyper-v/guest.squid-cache/Get-Image.ps1)
+- [Get-Image.ps1](../host/windows.hyper-v/guest.squid-cache/Get-Image.ps1)
   downloads Ubuntu Server Noble (amd64), converts qcow2→VHDX via
   `qemu-img`, resizes to 144 GB.
-- [New-VM.ps1](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1)
+- [New-VM.ps1](../host/windows.hyper-v/guest.squid-cache/New-VM.ps1)
   creates Gen 2 VM `squid-cache` on the Default Switch, attaches a
   cloud-init seed ISO that installs and configures squid, and waits until
   port 3128 responds. Prints the proxy URL on ready.
@@ -92,15 +92,15 @@ pwsh .\New-VM.ps1
 ### macOS UTM
 
 ```bash
-cd ~/git/yuruna/virtual/host.macos.utm/guest.squid-cache
+cd ~/git/yuruna/host/macos.utm/guest.squid-cache
 pwsh ./Get-Image.ps1
 pwsh ./New-VM.ps1
 ```
 
-- [Get-Image.ps1](../virtual/host.macos.utm/guest.squid-cache/Get-Image.ps1)
+- [Get-Image.ps1](../host/macos.utm/guest.squid-cache/Get-Image.ps1)
   downloads arm64 qcow2, converts to raw (required by Apple
   Virtualization), resizes to 144 GB.
-- [New-VM.ps1](../virtual/host.macos.utm/guest.squid-cache/New-VM.ps1)
+- [New-VM.ps1](../host/macos.utm/guest.squid-cache/New-VM.ps1)
   assembles `~/Desktop/Yuruna.VDE/<hostname>.nosync/squid-cache.utm/`
   with `config.plist` (Apple Virtualization backend),
   `Data/efi_vars.fd`, `Data/disk.img` (APFS-clone of the raw image),
@@ -158,7 +158,7 @@ stays; the cache keeps serving when origin is unreachable. Fully
 populated = guest installs with zero internet.
 
 Config lives in
-`virtual/host.{windows.hyper-v,macos.utm}/guest.squid-cache/vmconfig/user-data`
+`host/{windows.hyper-v,macos.utm}/guest.squid-cache/vmconfig/user-data`
 (identical settings in both).
 
 ### Never release unless needed
@@ -354,7 +354,7 @@ what each host's network stack allows.
 
 Apple VZ shared-NAT isolates guest↔guest traffic on `192.168.64.0/24`,
 so LAN clients can't reach the cache VM directly. The Mac host runs
-[`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1)
+[`Start-CachingProxyForwarder.ps1`](../host/macos.utm/Start-CachingProxyForwarder.ps1)
 on `0.0.0.0:3128` / `:3129`, accepts each LAN client's TCP connection,
 opens an upstream connection to the cache VM's `:3138` / `:3139` (Squid
 binds with `require-proxy-header`), prepends the PROXY v1 line, and
@@ -374,12 +374,12 @@ mode and rewrites the source IP at the kernel NAT.
 
 The fix is to **bypass the host's forwarder layer entirely**: bridge the
 cache VM to LAN with a Hyper-V External vSwitch.
-[`virtual/host.windows.hyper-v/VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1)
+[`host/windows.hyper-v/VM.common.psm1`](../host/windows.hyper-v/VM.common.psm1)
 exposes `Get-OrCreateYurunaExternalSwitch`, which idempotently creates
 `Yuruna-External` bound to the host's primary physical NIC (default
 IPv4 route, `-AllowManagementOS:$true` so the host keeps its own
 network);
-[`guest.squid-cache/New-VM.ps1`](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1)
+[`guest.squid-cache/New-VM.ps1`](../host/windows.hyper-v/guest.squid-cache/New-VM.ps1)
 calls it on every provision and falls back to `Default Switch` if no
 LAN-routed NIC is available. The cache VM then gets a real LAN IP via
 DHCP; remote clients hit `<cache-lan-ip>:3128` directly — squid sees
@@ -431,7 +431,7 @@ the cache VM lands on the built-in `Default Switch` and the test/
 scripts re-enable netsh portproxy. LAN clients reach `<host-lan-ip>:3128`
 and squid logs the host's vEthernet IP — the source-IP-loss gap kept as
 a fallback, not a default. `Test-CacheVmOnYurunaExternalSwitch` in
-[`VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1) is
+[`VM.common.psm1`](../host/windows.hyper-v/VM.common.psm1) is
 the runtime detection switch.
 
 ##### Windows: App Execution Alias self-heal (latent)
@@ -446,14 +446,14 @@ doesn't use the userspace forwarder on Windows) — kept ready.
 
 Implementation:
 * macOS — `-PrependProxyV1` on
-  [`Start-CachingProxyForwarder.ps1`](../virtual/host.macos.utm/Start-CachingProxyForwarder.ps1),
+  [`Start-CachingProxyForwarder.ps1`](../host/macos.utm/Start-CachingProxyForwarder.ps1),
   wired through `-ProxyProtocolPort` on `Add-CachingProxyPortMap` in
   [`Test.PortMap.psm1`](../test/modules/Test.PortMap.psm1).
 * Windows — `Get-OrCreateYurunaExternalSwitch` and
   `Test-CacheVmOnYurunaExternalSwitch` in
-  [`VM.common.psm1`](../virtual/host.windows.hyper-v/VM.common.psm1),
+  [`VM.common.psm1`](../host/windows.hyper-v/VM.common.psm1),
   consumed by
-  [`guest.squid-cache/New-VM.ps1`](../virtual/host.windows.hyper-v/guest.squid-cache/New-VM.ps1)
+  [`guest.squid-cache/New-VM.ps1`](../host/windows.hyper-v/guest.squid-cache/New-VM.ps1)
   and by the Windows branches of
   [`Start-CachingProxy.ps1`](../test/Start-CachingProxy.ps1),
   [`Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1), and

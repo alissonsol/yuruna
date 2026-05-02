@@ -12,8 +12,8 @@ leaves the VM running, sends a Resend notification, and exits.
 ## Prerequisites
 
 Same as the VDE scripts — see
-[virtual/host.macos.utm/README.md](../virtual/host.macos.utm/README.md) or
-[virtual/host.windows.hyper-v/README.md](../virtual/host.windows.hyper-v/README.md).
+[host/macos.utm/README.md](../host/macos.utm/README.md) or
+[host/windows.hyper-v/README.md](../host/windows.hyper-v/README.md).
 Windows requires elevation; macOS does not.
 
 ## Configuration
@@ -40,14 +40,14 @@ cp test/test-config.json.template test/test-config.json
 | `charDelayMs` | `20` | ms between keystrokes in `type`/`typeAndEnter` |
 | `keystrokeMechanism` | `"GUI"` | `"GUI"` keystroke injection, `"SSH"` over ssh. Selects `sequences/gui/` or `sequences/ssh/`; SSH falls back to `gui/`. Any other value normalized to `"GUI"` |
 | `vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`test/modules/Test.Screenshot.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
-| `guestOrder` | _required_ | Array of guest keys; each must correspond to `virtual/<hostType>/<guestKey>/` |
+| `guestOrder` | _required_ | Array of guest keys; each must correspond to `host/<short-host>/<guestKey>/` |
 | `statusServer.enabled` | `true` | Start built-in HTTP status server |
 | `statusServer.port` | `8080` | Port for status server |
 
 ### Guest ordering and skipping
 
 `guestOrder` controls which guests run and in what order. Any
-`guest.<name>` is valid as long as `virtual/<hostType>/<guestKey>/`
+`guest.<name>` is valid as long as `host/<short-host>/<guestKey>/`
 exists on the current host — the runner discovers guests by folder, not
 a hardcoded list. Adding a new guest = creating the folder with
 `Get-Image.ps1` + `New-VM.ps1`; no harness code change.

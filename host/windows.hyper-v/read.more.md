@@ -102,7 +102,7 @@ The helper disables display timeout (AC and DC), inactivity lock, and
 lock-screen-on-resume via `powercfg` and registry edits:
 
 ```powershell
-cd $HOME\git\yuruna\virtual\host.windows.hyper-v
+cd $HOME\git\yuruna\host\windows.hyper-v
 pwsh .\Enable-TestAutomation.ps1
 ```
 
@@ -116,7 +116,7 @@ Start-Process virtmgmt.msc      # registers with the user profile
 
 ## 11) Optional: Squid cache VM
 
-See [../CODE.md](../CODE.md#optional-squid-cache-vm) and
+See [../README.md](../README.md#optional-squid-cache-vm) and
 [../../docs/caching.md](../../docs/caching.md).
 
 ## 12) Run the Test Harness

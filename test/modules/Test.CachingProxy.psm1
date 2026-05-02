@@ -91,7 +91,7 @@ function Test-CachingProxyAvailable {
         # cache VM's IP". Drift between the two would mean Invoke-Test-
         # Runner sees a different IP than the one provisioning printed.
         $vmCommon = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) `
-            'virtual/host.windows.hyper-v/VM.common.psm1'
+            'host/windows.hyper-v/VM.common.psm1'
         if (Test-Path $vmCommon) { Import-Module $vmCommon -Force -ErrorAction SilentlyContinue }
 
         # Detect which vSwitch the cache is on. Yuruna-External (bridged
@@ -197,7 +197,7 @@ function Test-CachingProxyAvailable {
         # will then hit the :3128 loopback path above and return the
         # gateway URL again.
         #
-        # Guest provisioners (virtual/*/New-VM.ps1) run their own inline
+        # Guest provisioners (host/<short-host>/<guest>/New-VM.ps1) run their own inline
         # :3128 forwarder probe and do NOT consume this function's return
         # value, so they are unaffected — a dead forwarder still means
         # "install without cache" for the guest until the forwarder is

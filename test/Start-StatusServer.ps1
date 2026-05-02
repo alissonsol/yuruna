@@ -500,7 +500,7 @@ try {
                     # silently NAT-rewrite a parallel route.
                     $cacheOnExternalSwitch = $false
                     if ($IsWindows) {
-                        $vmCommon = Join-Path $RepoRoot "virtual/host.windows.hyper-v/VM.common.psm1"
+                        $vmCommon = Join-Path $RepoRoot "host/windows.hyper-v/VM.common.psm1"
                         if (Test-Path $vmCommon) {
                             Import-Module $vmCommon -Force
                             $cacheOnExternalSwitch = Test-CacheVmOnYurunaExternalSwitch
@@ -1082,7 +1082,7 @@ if ($IsWindows -and $ip) {
             Write-Warning "  http://${ip}:$Port/status/ will time out."
             Write-Warning "  To fix, open a new elevated pwsh and run:"
             Write-Warning "    cd $(Split-Path -Parent $TestRoot)"
-            Write-Warning "    pwsh virtual\host.windows.hyper-v\Enable-TestAutomation.ps1"
+            Write-Warning "    pwsh host\windows.hyper-v\Enable-TestAutomation.ps1"
         }
     } catch {
         Write-Verbose "Firewall-rule reachability check skipped: $($_.Exception.Message)"

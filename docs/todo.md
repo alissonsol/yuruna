@@ -73,7 +73,7 @@
 
 ## VDE
 
-- Create scripts to configure host and guest settings for Windows 11 (`virtual/guest.windows.11/README.md`)
-- Document Hyper-V Amazon Linux nested virtualization setup (`virtual/host.windows.hyper-v/guest.amazon.linux/read.more.md`)
+- Create scripts to configure host and guest settings for Windows 11 (`guest/windows.11/README.md`)
+- Document Hyper-V Amazon Linux nested virtualization setup (`host/windows.hyper-v/guest.amazon.linux/read.more.md`)
 
 Back to [[Yuruna](../README.md)]

@@ -814,8 +814,7 @@ runcmd:
   # analog; the `|| true` loop would skip amd64-only variants anyway.)
   #
   # Wait up to 60s for squid's listener. apt's postinst usually has
-  # squid up by now, but `squid -z` above can take a moment on first
-  # boot to initialize the large swap state.
+  # squid up by now, but start can be slow on first boot.
   - |
     for i in $(seq 1 60); do
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break

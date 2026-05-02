@@ -396,4 +396,46 @@ System.Collections.Hashtable with keys: success (bool), exitCode (int), output (
     }
 }
 
-Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Wait-SshReady, Invoke-GuestSsh, Get-GuestSshUser, Get-GuestAddress
+function Wait-GuestIp {
+<#
+.SYNOPSIS
+Polls the host's virtualization stack for a guest VM's IPv4 address.
+.DESCRIPTION
+Wraps Get-GuestAddress with a bounded poll loop. Get-GuestAddress falls
+back to returning $VMName when no host-side discovery answers (KVP
+integration services not yet running on Hyper-V, utmctl ip-address still
+empty on UTM, dhcpd_leases not yet written) -- that sentinel becomes
+"keep waiting" here rather than "address found". Returns the IPv4 string
+when discovered, or $null on timeout so callers can print "(pending)"
+instead of guessing whether the VMName is real or fallback.
+.PARAMETER VMName
+Guest VM name as registered with the host hypervisor / cloud-init.
+.PARAMETER TimeoutSeconds
+Total time budget. Default 30 covers a warm-cache boot but bails before
+the runner's own Verify-VM step starts so the cycle isn't double-blocked.
+.PARAMETER PollSeconds
+Interval between probes. Default 3 -- Get-GuestAddress is cheap on both
+hosts, so polling more often than every couple of seconds adds noise
+without improving latency.
+.OUTPUTS
+System.String IPv4 on success, $null on timeout.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$TimeoutSeconds = 30,
+        [int]$PollSeconds    = 3
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $candidate = Get-GuestAddress -VMName $VMName
+        if ($candidate -and $candidate -ne $VMName -and $candidate -match '^\d+\.\d+\.\d+\.\d+$') {
+            return [string]$candidate
+        }
+        Start-Sleep -Seconds $PollSeconds
+    }
+    return $null
+}
+
+Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Wait-SshReady, Invoke-GuestSsh, Get-GuestSshUser, Get-GuestAddress, Wait-GuestIp

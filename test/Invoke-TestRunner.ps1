@@ -299,6 +299,60 @@ function Update-TestConfigFromTemplate {
     return $merged
 }
 
+function Sync-RuntimeConfig {
+<#
+.SYNOPSIS
+Re-reads test-config.json mid-cycle so values changed via the status
+server's "Edit config" page take effect on the next step rather than
+waiting for the next git pull / next cycle.
+.DESCRIPTION
+Updates the script-scoped $Config and re-derives the cycle-relevant
+locals that drive subsequent step behaviour:
+  $StopOnFailure        — most-actionable: flips the post-step branch
+                          between "abort cycle" and "log + continue".
+  $VmStartTimeout       — Verify-VM uses this; lets an operator extend
+                          the wait without restarting the runner when a
+                          guest takes longer than expected to boot.
+  $VmBootDelay          — same, applied after Verify-VM passes.
+  $GetImageRefreshHours — picked up at next cycle's Get-Image gate.
+  $CycleDelay           — read at end of cycle, before Start-Sleep.
+
+On read or parse failure (mid-write truncation by the editor, transient
+file lock, manual edit in progress) keeps the previous in-memory copy
+and warns once -- the cycle continues with last-known-good values
+rather than crashing on a half-written file.
+
+Intentionally does NOT call Update-TestConfigFromTemplate: schema
+migration is a per-cycle concern (runs after git pull at cycle start),
+and re-merging mid-cycle would write back to the very file the editor
+just wrote, creating a write-write race with the UI.
+#>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Mutates script-scoped runner state only; no external state change.')]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+
+    try {
+        $script:Config = Get-Content -Raw $ConfigPath -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+    } catch {
+        Write-Warning "Config reload from '$ConfigPath' failed: $_ -- keeping previous values."
+        return
+    }
+
+    $cfg = $script:Config
+    if (-not ($cfg -is [System.Collections.IDictionary])) { return }
+
+    $script:StopOnFailure        = if ($cfg.Contains('stopOnFailure')) { [bool]$cfg.stopOnFailure } else { $false }
+    $script:VmStartTimeout       = if ($cfg.vmStartTimeoutSeconds)  { [int]$cfg.vmStartTimeoutSeconds }  else { 120 }
+    $script:VmBootDelay          = if ($cfg.vmBootDelaySeconds)     { [int]$cfg.vmBootDelaySeconds }     else { 15 }
+    $script:GetImageRefreshHours = if ($cfg.getImageRefreshHours)   { [int]$cfg.getImageRefreshHours }   else { 24 }
+    # $CycleDelaySeconds is the script parameter (default fallback when
+    # the config key is absent); use it not the literal 30 so that
+    # `pwsh Invoke-TestRunner -CycleDelaySeconds 60` keeps its override.
+    $script:CycleDelay           = if ($cfg.cycleDelaySeconds)      { [int]$cfg.cycleDelaySeconds }      else { $script:CycleDelaySeconds }
+}
+
 # === Read config (syncs against template first) ===
 if (-not (Test-Path $ConfigPath) -and -not (Test-Path $TemplatePath)) {
     Write-Error "Neither config nor template found. Config: $ConfigPath  Template: $TemplatePath"; exit 1
@@ -452,6 +506,11 @@ $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
 Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
 Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
+# Test.Ssh exposes Get-GuestAddress + Wait-GuestIp for the per-guest IP
+# suffix printed alongside Start-VM: PASS. Imported even though SSH itself
+# is optional, because IP discovery uses host-side facilities (Hyper-V
+# KVP, utmctl, dhcpd_leases) and works without sshd in the guest.
+Import-Module (Join-Path $ModulesDir "Test.Ssh.psm1") -Force
 $global:VerbosePreference = $savedVerbose
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
@@ -936,6 +995,7 @@ while ($true) {
         # skip their probe: one detection event, one outcome.
         $newVmProxy = if ($cachingProxyUrl) { $cachingProxyUrl } else { "" }
         $r = Invoke-NewVM -HostType $HostType -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName -CachingProxyUrl $newVmProxy
+        Sync-RuntimeConfig -ConfigPath $ConfigPath
         if ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
             Write-Output "  $GuestKey New-VM: PASS"
@@ -954,9 +1014,19 @@ while ($true) {
         Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-VM" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "running"
         $r = Invoke-StartVM -HostType $HostType -VMName $VMName
+        Sync-RuntimeConfig -ConfigPath $ConfigPath
         if ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "pass"
-            Write-Output "  $GuestKey Start-VM: PASS"
+            # Resolve the guest's host-side IP so the operator can ssh /
+            # vmconnect / VNC straight from the cycle log. Polls briefly —
+            # KVP integration services on Hyper-V and utmctl/dhcpd_leases on
+            # UTM typically need a few seconds after start to publish an
+            # address. "(pending)" means no host-side answer within the
+            # budget; the actual address shows up in later runner output
+            # (Verify-VM / extension scripts) once the guest is fully up.
+            $guestIp = Wait-GuestIp -VMName $VMName -TimeoutSeconds 30
+            $ipSuffix = if ($guestIp) { " ==> IP: $guestIp" } else { " ==> IP: (pending)" }
+            Write-Output "  $GuestKey Start-VM: PASS$ipSuffix"
         } else {
             Write-Warning "  ERROR [$GuestKey / Start-VM]: $($r.errorMessage)"
             Write-Output "  Log directory: $env:YURUNA_LOG_DIR"
@@ -973,6 +1043,7 @@ while ($true) {
         Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "running"
         $showExtOutput = -not $NoExtensionOutput
         $r = Invoke-StartTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir -ShowOutput $showExtOutput
+        Sync-RuntimeConfig -ConfigPath $ConfigPath
         if ($r.skipped) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Install-OS" -Status "skipped" -Skipped $true
         } elseif ($r.success) {
@@ -1003,6 +1074,7 @@ while ($true) {
         Set-StepStatus -GuestKey $GuestKey -StepName "Verify-VM" -Status "running"
         $ok = Confirm-VMStarted -HostType $HostType -VMName $VMName `
             -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
+        Sync-RuntimeConfig -ConfigPath $ConfigPath
         if (-not $ok) {
             $err = "VM '$VMName' did not reach running state after start."
             Write-Warning "  ERROR [$GuestKey / Verify-VM]: $err"
@@ -1032,6 +1104,7 @@ while ($true) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "running"
             $r = Invoke-ScreenshotTest -HostType $HostType -GuestKey $GuestKey `
                 -VMName $VMName -ScreenshotsDir $ScreenshotsDir
+            Sync-RuntimeConfig -ConfigPath $ConfigPath
             if ($r.skipped) {
                 Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "skipped" -Skipped $true
             } elseif ($r.success) {
@@ -1062,6 +1135,7 @@ while ($true) {
             Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Invoke-PoolTest" -GuestKey $GuestKey
             Set-StepStatus -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "running"
             $r = Invoke-PoolTest -HostType $HostType -GuestKey $GuestKey -VMName $VMName -ExtensionsDir $ExtensionsDir -ShowOutput $showExtOutput
+            Sync-RuntimeConfig -ConfigPath $ConfigPath
             if ($r.skipped) {
                 Set-StepStatus -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "skipped" -Skipped $true
             } elseif ($r.success) {
@@ -1131,6 +1205,9 @@ while ($true) {
     if (-not $OverallPassed) {
         $ConsecutiveSuccesses = 0
         $ConsecutiveFailures++
+        # Final reload so an edit made during the last step's cleanup
+        # affects the cycle-end abort decision (matches per-step semantics).
+        Sync-RuntimeConfig -ConfigPath $ConfigPath
         if ($StopOnFailure) {
             break
         }

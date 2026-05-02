@@ -1337,25 +1337,36 @@ while ($true) {
     Write-Output "Spawning fresh pwsh for next cycle..."
     $pwshExe = (Get-Process -Id $PID).Path
     # $PSBoundParameters is in-process state and can't be splatted
-    # across a process boundary, so rebuild explicit argv. Switch
-    # parameters become "-Name" with no value when present; bools
-    # become "-Name 1" / "-Name 0" because the pwsh -File binder
-    # rejects "True"/"False" strings ("Boolean parameters accept only
-    # Boolean values and numbers, such as $True, $False, 1 or 0");
-    # everything else becomes "-Name Value".
-    $argList = @('-NoLogo', '-File', $PSCommandPath)
+    # across a process boundary, so rebuild the relaunch as a -Command
+    # string. We can't use -File: pwsh's -File parameter binder treats
+    # every argv entry as a string and refuses to bind strings to
+    # [bool] parameters — even "1" / "0" / "True" fail with "Cannot
+    # convert value 'System.String' to type 'System.Boolean'", despite
+    # the error message claiming numbers work (they only work as
+    # actual numeric tokens, which the command line can't carry).
+    # -Command parses its argument as PowerShell, so $true / $false
+    # become real Boolean literals and bind cleanly.
+    $escapedScript = $PSCommandPath -replace "'", "''"
+    $cmdParts = @("& '$escapedScript'")
     foreach ($k in $PSBoundParameters.Keys) {
         $v = $PSBoundParameters[$k]
         if ($v -is [System.Management.Automation.SwitchParameter]) {
-            if ($v.IsPresent) { $argList += "-$k" }
+            if ($v.IsPresent) { $cmdParts += "-$k" }
         } elseif ($v -is [bool]) {
-            $argList += "-$k"
-            $argList += $(if ($v) { '1' } else { '0' })
+            $cmdParts += "-$k"
+            $cmdParts += $(if ($v) { '$true' } else { '$false' })
+        } elseif ($v -is [int] -or $v -is [long] -or $v -is [double]) {
+            $cmdParts += "-$k"
+            $cmdParts += "$v"
         } else {
-            $argList += "-$k"
-            $argList += "$v"
+            # String (or anything else) — single-quote and escape
+            # inner quotes so spaces / special chars in paths survive.
+            $escaped = ("$v") -replace "'", "''"
+            $cmdParts += "-$k"
+            $cmdParts += "'$escaped'"
         }
     }
+    $argList = @('-NoLogo', '-Command', ($cmdParts -join ' '))
     # YURUNA_RUNNER_RELAUNCH=1 tells the child to skip the single-
     # instance guard at the top of this script; otherwise it would
     # see this parent's runner.pid and kill the only process we want

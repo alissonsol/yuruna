@@ -202,6 +202,42 @@ else
   git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"
 fi
 
+# ── Renormalize line endings under .gitattributes ───────────────────────────
+# .gitattributes (committed at repo root) locks LF for every text type a
+# Linux guest reads — *.sh, *.yml, user-data, meta-data, etc. macOS itself
+# already uses LF natively, but a developer who shares the repo across a
+# Windows + macOS pair (or pulls a branch authored on a CRLF-tainted
+# Windows checkout) can still end up with CRLF in the working tree on
+# this Mac. The host status server then serves those CRLF bytes
+# byte-faithfully to the Linux guest, and bash on the guest chokes with
+# `$'\r': command not found` on line 2 of fetch-and-execute.sh. We force
+# a one-shot rebuild of the working tree from the index so every file
+# picks up the eol= rules.
+#
+# Pin core.autocrlf=input on the LOCAL repo too, so any future file added
+# without a matching .gitattributes rule still avoids CRLF on commit.
+# (Local config beats global; doesn't touch the user's other repos.)
+if [[ -d "$YURUNA_DIR/.git" ]]; then
+  log "Renormalizing repo line endings (per .gitattributes)"
+  git -C "$YURUNA_DIR" config core.autocrlf input
+
+  git -C "$YURUNA_DIR" update-index --refresh >/dev/null 2>&1 || true
+  if ! git -C "$YURUNA_DIR" diff-index --quiet HEAD -- 2>/dev/null; then
+    # Uncommitted local changes — don't clobber them. Only renormalize the
+    # index (stages CRLF->LF for tracked-and-modified files) and tell the
+    # user how to finish the job.
+    warn "  Working tree has uncommitted changes — only renormalizing the index."
+    git -C "$YURUNA_DIR" add --renormalize . || true
+    warn "  After resolving local changes, run: git checkout HEAD -- ."
+  else
+    # Clean tree — empty the index and reset --hard to force every file to
+    # be re-checked-out under the current .gitattributes.
+    git -C "$YURUNA_DIR" rm -r --cached --quiet .
+    git -C "$YURUNA_DIR" reset --hard HEAD >/dev/null
+    log "  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)"
+  fi
+fi
+
 # ── Seed test-config.json from template if missing ─────────────────────────
 TEST_DIR="$YURUNA_DIR/test"
 if [[ ! -f "$TEST_DIR/test-config.json" && -f "$TEST_DIR/test-config.json.template" ]]; then

@@ -334,6 +334,16 @@ function Remove-WindowsHostProxy {
     # removes ProxyServer + ProxyOverride unconditionally -- it is the
     # caller's responsibility to know the current ProxyServer is junk
     # (Test-CachingProxy.ps1 -ClearHostProxy is the documented entrypoint).
+    #
+    # Module-private helper -- the public Remove-HostProxy entry point is
+    # the one that owns the ShouldProcess prompt (see below). Suppressing
+    # the rule here avoids double-prompting; adding ShouldProcess at this
+    # level would ask the user twice for a single Remove-HostProxy call.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Module-private helper; public Remove-HostProxy gates ShouldProcess.')]
+    [CmdletBinding()]
+    param()
     if (Test-Path -LiteralPath $script:WinInetRegPath) {
         Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyEnable' -Value 0 -Type DWord -ErrorAction SilentlyContinue
         Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer'   -ErrorAction SilentlyContinue
@@ -537,6 +547,15 @@ function Remove-MacHostProxy {
     # the server to '0.0.0.0' port 0 is the documented neutralizer (state
     # off keeps it dormant; clearing the value removes the dangling string
     # so a later tool inspecting `getwebproxy` sees no leftover host).
+    #
+    # Module-private helper -- the public Remove-HostProxy entry point is
+    # the one that owns the ShouldProcess prompt. Suppressing the rule
+    # here avoids double-prompting; adding ShouldProcess at this level
+    # would ask the user twice for a single Remove-HostProxy call.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Module-private helper; public Remove-HostProxy gates ShouldProcess.')]
+    [CmdletBinding()]
     param([string]$NetworkService)
     if (-not $NetworkService) { $NetworkService = Get-MacActiveNetworkService }
     if (-not $NetworkService) { return }

@@ -66,6 +66,29 @@
     .\install\windows-install.ps1
 #>
 
+# --- Encoding policy: ASCII-only, NO BOM ---------------------------------
+# This file is invoked from a fresh Windows where pwsh.exe does not yet
+# exist, via the one-liner
+#     irm https://...windows-install.ps1 | iex
+# from the only shell that ships in-box: Windows PowerShell 5.1. PS 5.1's
+# Invoke-RestMethod returns the response body as a string WITHOUT
+# stripping a leading UTF-8 BOM (EF BB BF). When that string is piped to
+# `iex`, the BOM character (U+FEFF) becomes the first token of the parse
+# stream and PS 5.1 fails the very first line with "Unexpected token at
+# the beginning of the script." Direct invocation as a file works fine
+# either way -- both PS 5.1 and pwsh handle BOM-prefixed files on disk
+# -- but the `irm | iex` path is the documented installer entrypoint
+# (see .EXAMPLE) and it MUST work.
+#
+# Consequence: every comment, string, here-doc, and identifier in this
+# file is plain 7-bit ASCII. No em-dashes, no smart quotes, no box-
+# drawing characters. PSScriptAnalyzer's PSUseBOMForUnicodeEncodedFile
+# rule is suppressed below for that reason. If a future edit introduces
+# non-ASCII content, replace it with an ASCII equivalent (e.g. `--`
+# instead of an em-dash) rather than adding a BOM.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+    'PSUseBOMForUnicodeEncodedFile', '',
+    Justification = 'Installer is invoked from PS 5.1 via `irm | iex`, which does not strip a UTF-8 BOM. A BOM would land as the first parse token and break the script. File is kept ASCII-only.')]
 [CmdletBinding()]
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git\yuruna'),
@@ -416,6 +439,47 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
 } else {
     Write-Step "Cloning Yuruna into $YurunaDir"
     & $gitExe clone --branch $YurunaBranch $YurunaRepo $YurunaDir
+}
+
+# -- Renormalize line endings under .gitattributes -------------------------
+# .gitattributes (committed at repo root) locks LF for every text type a
+# Linux guest reads -- *.sh, *.yml, user-data, meta-data, etc. But adding
+# .gitattributes does NOT rewrite files already in the working tree:
+# without this step, a developer who originally cloned with
+# core.autocrlf=true still has fetch-and-execute.sh sitting on disk as
+# CRLF, the host status server serves those CRLF bytes byte-faithfully
+# to the guest, and the guest's bash chokes with `$'\r': command not
+# found` on line 2 of the script. We force a one-shot rebuild of the
+# working tree from the index so every file picks up the eol= rules.
+#
+# Pin core.autocrlf=input on the LOCAL repo too, so any future file
+# added without a matching .gitattributes rule still avoids CRLF on
+# commit. (Local config beats global; doesn't touch the user's other
+# repos.)
+if (Test-Path (Join-Path $YurunaDir '.git')) {
+    Write-Step 'Renormalizing repo line endings (per .gitattributes)'
+    & $gitExe -C $YurunaDir config core.autocrlf input | Out-Null
+
+    # `git diff-index --quiet HEAD` exits 0 when the working tree matches
+    # HEAD (clean), 1 otherwise. Suppress its output and read $LASTEXITCODE.
+    & $gitExe -C $YurunaDir update-index --refresh 2>&1 | Out-Null
+    & $gitExe -C $YurunaDir diff-index --quiet HEAD -- 2>&1 | Out-Null
+    $repoDirty = ($LASTEXITCODE -ne 0)
+
+    if ($repoDirty) {
+        # Uncommitted local changes -- don't clobber them. Only renormalize
+        # the index (stages CRLF->LF for tracked-and-modified files) and
+        # tell the user how to finish the job.
+        Write-Warn '  Working tree has uncommitted changes -- only renormalizing the index.'
+        & $gitExe -C $YurunaDir add --renormalize . | Out-Null
+        Write-Warn '  After resolving local changes, run: git checkout HEAD -- .'
+    } else {
+        # Clean tree -- empty the index and reset --hard to force every
+        # file to be re-checked-out under the current .gitattributes.
+        & $gitExe -C $YurunaDir rm -r --cached --quiet . | Out-Null
+        & $gitExe -C $YurunaDir reset --hard HEAD 2>&1 | Out-Null
+        Write-Step '  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)'
+    }
 }
 
 # -- Seed test-config.json from template -----------------------------------

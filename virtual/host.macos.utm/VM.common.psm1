@@ -722,6 +722,12 @@ function Invoke-HttpsViaSquidBump {
     $handler.Proxy = [System.Net.WebProxy]::new([System.Uri]$ProxyUrl, $true)
     $handler.ServerCertificateCustomValidationCallback = {
         param($req, $cert, $chain, $errors)
+        # $req (HttpRequestMessage) and $chain (the system-built chain)
+        # are part of the delegate signature but unused by our policy --
+        # we make our own chain below seeded with the yuruna CA. Touching
+        # them as $null = ... silences PSReviewUnusedParameter without
+        # changing the delegate's contract.
+        $null = $req; $null = $chain
         if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable) -ne 0) { return $false }
         if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch) -ne 0) { return $false }
         if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors) -eq 0) { return $true }

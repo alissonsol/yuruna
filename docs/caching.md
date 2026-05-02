@@ -242,13 +242,13 @@ Viewer. Pre-provisioned "Yuruna Caching Proxy" dashboard:
 - Data served (kB/s) — Total:
   `rate(squid_client_http_kbytes_out_kbytes_total[5m])`,
   Cached: `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`.
-- Recent 100 requests (client IP / hostname / status / size / URL) — Loki
+- Recent 100 requests (client IP / status / size / method / URL / User-Agent) — Loki
   logs panel parses `/var/log/squid/yuruna_access.log` at query time.
-  Hostname uses `%>A` (PTR lookup, falls back to IP literal); size uses
-  `%<st`. The custom `logformat yuruna` writes to a *separate* file —
-  the stock `access.log` keeps its default format for cachemgr.cgi /
-  manual `tail -f`. Empty until Promtail ships its first line.
-  Cardinality stays bounded: only `job=squid` is a stream label.
+  Size uses `%<st`; User-Agent from `%{User-Agent}>h`. The custom
+  `logformat yuruna` writes to a *separate* file — the stock `access.log`
+  keeps its default format for cachemgr.cgi / manual `tail -f`. Empty
+  until Promtail ships its first line. Cardinality stays bounded: only
+  `job=squid` is a stream label.
 
 No HTTPS-specific client counter — squid's `client_http.*` counters
 aggregate HTTP + HTTPS (CONNECT + ssl-bump), hence "HTTP(S)".

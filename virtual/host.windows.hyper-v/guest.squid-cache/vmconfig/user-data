@@ -830,8 +830,7 @@ runcmd:
   # extra, headers, and microcode .debs land alongside.
   #
   # Wait up to 60s for squid's listener. apt's postinst usually has it up,
-  # but re-check because the preceding `squid -z` can take time on first
-  # boot to initialize the 40 GB swap state.
+  # but start can be slow on first boot.
   - |
     for i in $(seq 1 60); do
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break

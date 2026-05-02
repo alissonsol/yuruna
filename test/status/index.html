@@ -36,7 +36,15 @@
     #header-machine {
       margin-left: auto; color: #9ca3af; font-size: .75rem;
       font-family: 'Menlo','Consolas',monospace;
+      display: inline-flex; align-items: center; gap: .5rem;
     }
+    #header-edit-config {
+      color: #d1d5db; text-decoration: none;
+      border: 1px solid #4b5563;
+      padding: .15rem .5rem; border-radius: .25rem;
+      font-size: .6875rem;
+    }
+    #header-edit-config:hover { background: #1f2937; color: #fff; }
 
     /* ── Status banner ── */
     #banner {
@@ -632,14 +640,28 @@
     const banner = document.getElementById('banner');
     const headerMachine = document.getElementById('header-machine');
 
-    // Update header with machine identity (always, even before run data)
+    // Update header with machine identity (always, even before run data).
+    // The label and the "edit config" trigger share #header-machine, so
+    // this rebuilds both children on each render rather than just setting
+    // textContent — the latter would wipe the link.
+    let labelText;
     if (data && data.hostname) {
       const hostLabel = data.host ? data.host.replace('host.','') : '';
-      headerMachine.textContent = data.hostname + (hostLabel ? ' (' + hostLabel + ')' : '');
+      labelText = data.hostname + (hostLabel ? ' (' + hostLabel + ')' : '');
       document.title = data.hostname + ' — Yuruna status';
     } else {
-      headerMachine.textContent = window.location.hostname || '';
+      labelText = window.location.hostname || '';
     }
+    headerMachine.textContent = '';
+    const lblSpan = document.createElement('span');
+    lblSpan.textContent = labelText;
+    headerMachine.appendChild(lblSpan);
+    const editLink = document.createElement('a');
+    editLink.id = 'header-edit-config';
+    editLink.href = 'test-config.html';
+    editLink.textContent = 'Edit config';
+    editLink.title = 'Edit test/test-config.json';
+    headerMachine.appendChild(editLink);
 
     // status.json persists across rename (the rename was recent — any file
     // written before it still carries the old `runId` key instead of

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>test-config.json — Yuruna</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9fafb; color: #111827; font-size: 14px; line-height: 1.5;
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+
+    .page-header {
+      background: #111827; color: #fff;
+      padding: 1.25rem 2rem;
+      display: flex; align-items: baseline; gap: 1rem;
+    }
+    .page-header h1 {
+      font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em;
+    }
+    .page-header #header-machine {
+      margin-left: auto; color: #9ca3af; font-size: .75rem;
+      font-family: 'Menlo','Consolas',monospace;
+    }
+    .page-header .back-link {
+      color: #d1d5db; text-decoration: none;
+      border: 1px solid #4b5563;
+      padding: .15rem .5rem; border-radius: .25rem;
+      font-size: .6875rem;
+    }
+    .page-header .back-link:hover { background: #1f2937; color: #fff; }
+
+    main {
+      flex: 1; overflow-y: auto;
+      max-width: 880px; width: 100%; margin: 0 auto;
+      padding: 1.25rem 1.5rem;
+      font-family: 'Menlo','Consolas',monospace;
+      font-size: .8125rem;
+    }
+
+    #config-status {
+      padding: .5rem 1.5rem;
+      font-size: .75rem;
+      border-top: 1px solid #e5e7eb;
+      min-height: 2rem;
+      background: #fff;
+      color: #6b7280;
+    }
+    #config-status.error { color: #dc2626; background: #fef2f2; }
+    #config-status.ok    { color: #16a34a; background: #f0fdf4; }
+
+    #config-footer {
+      padding: .75rem 1.5rem;
+      border-top: 1px solid #e5e7eb;
+      display: flex; justify-content: flex-end; gap: .5rem;
+      background: #fff;
+    }
+    .config-btn {
+      padding: .45rem 1rem;
+      border-radius: .375rem;
+      font-weight: 600; font-size: .8125rem;
+      font-family: inherit; cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .config-btn.primary {
+      background: #2563eb; color: #fff;
+      border-color: #1d4ed8;
+    }
+    .config-btn.primary:hover:not([disabled]) { background: #1d4ed8; }
+    .config-btn.primary[disabled] { background: #93c5fd; cursor: default; }
+    .config-btn.secondary {
+      background: #f3f4f6; color: #111827;
+      border-color: #d1d5db;
+    }
+    .config-btn.secondary:hover { background: #e5e7eb; }
+
+    /* Tree nodes */
+    .tree-node { margin: .15rem 0; }
+    .tree-row {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .15rem .25rem;
+    }
+    .tree-row:hover { background: #f3f4f6; }
+    .tree-toggle {
+      width: 1rem; flex-shrink: 0; cursor: pointer;
+      color: #6b7280; user-select: none;
+      text-align: center;
+    }
+    .tree-toggle.leaf { cursor: default; visibility: hidden; }
+    .tree-key {
+      color: #1d4ed8; flex-shrink: 0;
+      min-width: 9rem;
+    }
+    .tree-key.array-index { color: #6b7280; }
+    .tree-type {
+      color: #9ca3af; font-size: .6875rem;
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .tree-children {
+      margin-left: 1.25rem;
+      border-left: 1px dashed #e5e7eb;
+      padding-left: .5rem;
+    }
+    .tree-children.collapsed { display: none; }
+
+    /* Array editing affordances: per-element delete on each row, an
+       "add item" button at the array's tail. Both kept small/subtle so
+       the tree stays readable when nothing is being edited. */
+    .tree-array-delete {
+      flex-shrink: 0;
+      background: transparent; color: #9ca3af;
+      border: 1px solid transparent; border-radius: .25rem;
+      width: 1.4rem; height: 1.4rem; padding: 0;
+      font-size: .75rem; line-height: 1; cursor: pointer;
+      font-family: inherit;
+    }
+    .tree-array-delete:hover {
+      background: #fee2e2; color: #dc2626; border-color: #fecaca;
+    }
+    .tree-array-add {
+      margin: .25rem 0;
+      background: transparent; color: #1d4ed8;
+      border: 1px dashed #93c5fd; border-radius: .25rem;
+      padding: .15rem .5rem;
+      font-size: .75rem; cursor: pointer;
+      font-family: inherit;
+    }
+    .tree-array-add:hover {
+      background: #eff6ff; border-style: solid;
+    }
+
+    /* Type-aware inputs */
+    .tree-input {
+      flex: 1; min-width: 0;
+      font-family: inherit; font-size: .8125rem;
+      padding: .2rem .4rem;
+      border: 1px solid #d1d5db; border-radius: .25rem;
+      background: #fff; color: #111827;
+    }
+    .tree-input:focus {
+      outline: 2px solid #2563eb; outline-offset: -1px;
+      border-color: transparent;
+    }
+    .tree-input.string { font-family: 'Menlo','Consolas',monospace; }
+    .tree-input.number { width: 8rem; flex: 0 0 auto; }
+
+    /* Boolean toggle: a labeled switch with True/False text on the side. */
+    .tree-bool {
+      display: inline-flex; align-items: center; gap: .5rem;
+    }
+    .tree-bool-switch {
+      position: relative; display: inline-block;
+      width: 2.4rem; height: 1.2rem;
+    }
+    .tree-bool-switch input {
+      opacity: 0; width: 0; height: 0;
+    }
+    .tree-bool-track {
+      position: absolute; cursor: pointer;
+      inset: 0; background: #d1d5db; border-radius: 1.2rem;
+      transition: background .15s;
+    }
+    .tree-bool-track::before {
+      content: ''; position: absolute;
+      width: .9rem; height: .9rem; left: .15rem; bottom: .15rem;
+      background: #fff; border-radius: 50%;
+      transition: transform .15s;
+    }
+    .tree-bool-switch input:checked + .tree-bool-track {
+      background: #16a34a;
+    }
+    .tree-bool-switch input:checked + .tree-bool-track::before {
+      transform: translateX(1.2rem);
+    }
+    .tree-bool-label {
+      font-weight: 600; min-width: 3rem;
+      color: #6b7280;
+    }
+    .tree-bool-label.true  { color: #16a34a; }
+    .tree-bool-label.false { color: #dc2626; }
+
+    .tree-null  { color: #9ca3af; font-style: italic; }
+    .tree-empty { color: #9ca3af; font-style: italic; font-size: .75rem; }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Yuruna</h1>
+  <span id="header-machine"></span>
+  <a class="back-link" href="index.html">← Dashboard</a>
+</div>
+
+<main id="config-body">
+  <div class="tree-empty">Loading…</div>
+</main>
+
+<div id="config-status"></div>
+
+<div id="config-footer">
+  <button type="button" class="config-btn secondary" id="config-discard">Discard</button>
+  <button type="button" class="config-btn primary"   id="config-save">Save</button>
+</div>
+
+<script>
+  // Live-edit test/test-config.json. Tree view with type-aware inputs
+  // (bool toggle, number spinner, text), expandable objects/arrays.
+  // Save serializes the in-memory state and POSTs to
+  // /control/test-config; the server validates JSON and atomically
+  // replaces the file. Discard navigates back to the dashboard.
+  let configState = null;  // mutable JSON object backing the tree
+
+  async function loadConfig() {
+    const body   = document.getElementById('config-body');
+    const status = document.getElementById('config-status');
+    const saveBtn = document.getElementById('config-save');
+    body.innerHTML = '<div class="tree-empty">Loading…</div>';
+    status.textContent = '';
+    status.className = '';
+    saveBtn.disabled = true;
+    try {
+      const res = await fetch('control/test-config?_=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      configState = JSON.parse(await res.text());
+    } catch (e) {
+      body.innerHTML = '';
+      status.textContent = 'Could not load config: ' + e.message;
+      status.className = 'error';
+      return;
+    }
+    body.innerHTML = '';
+    // parent=null marks the root; keyOrIndex is unused on the root
+    // branch (the row is labeled "test-config.json" instead).
+    body.appendChild(renderConfigNode(configState, null, null));
+    saveBtn.disabled = false;
+  }
+
+  function discardAndExit() {
+    // Discard means: do not persist. Send the operator back to the
+    // dashboard. Replace (not assign) to avoid a redundant history entry
+    // for the abandoned edit.
+    window.location.replace('index.html');
+  }
+
+  // Render a single node. Returns a DOM element. `parent` is the live
+  // object/array that owns this value (null for the root); `keyOrIndex`
+  // is the property name or array index. Edits write straight into the
+  // live state via parent[keyOrIndex] = newValue.
+  function renderConfigNode(value, parent, keyOrIndex) {
+    const node = document.createElement('div');
+    node.className = 'tree-node';
+    const row = document.createElement('div');
+    row.className = 'tree-row';
+    node.appendChild(row);
+
+    const toggle = document.createElement('span');
+    toggle.className = 'tree-toggle leaf';
+    toggle.textContent = '';
+    row.appendChild(toggle);
+
+    const isRoot = (parent === null);
+    const keyEl = document.createElement('span');
+    keyEl.className = 'tree-key';
+    if (isRoot) {
+      // Root row labels the file rather than showing "object (N)" — the
+      // user is editing test-config.json, not browsing a generic JSON
+      // blob, and the filename is the most useful anchor at the top.
+      keyEl.textContent = 'test-config.json';
+    } else if (Array.isArray(parent)) {
+      keyEl.classList.add('array-index');
+      keyEl.textContent = '[' + keyOrIndex + ']';
+    } else {
+      keyEl.textContent = keyOrIndex;
+    }
+    row.appendChild(keyEl);
+
+    const type = jsonType(value);
+
+    if (type === 'object' || type === 'array') {
+      toggle.classList.remove('leaf');
+      // Default expanded for the root and shallow nodes; collapsed for
+      // deeper leaves would suit much larger configs but ours fits in
+      // a single screen, so expand-everything is the friendlier default.
+      let expanded = true;
+      toggle.textContent = '▼';
+      // Suppress the type-and-count badge at the root: the filename
+      // already identifies the node, and "object (16)" added no signal.
+      // Type-and-count is mutated by the array add/delete affordances —
+      // capture a reference so we can rewrite it after each mutation.
+      let typeEl = null;
+      if (!isRoot) {
+        typeEl = document.createElement('span');
+        typeEl.className = 'tree-type';
+        const c0 = (type === 'array') ? value.length : Object.keys(value).length;
+        typeEl.textContent = type + ' (' + c0 + ')';
+        row.appendChild(typeEl);
+      }
+
+      const children = document.createElement('div');
+      children.className = 'tree-children';
+      node.appendChild(children);
+
+      if (type === 'array') {
+        // Re-render the children container after every structural
+        // mutation (add/delete). Splice shifts indices so a partial
+        // patch would have to renumber every surviving sibling — full
+        // rebuild is simpler and the arrays here are tiny. Recursive
+        // node state (expand/collapse on nested objects) is regenerated
+        // from scratch with the default-expanded behavior, which
+        // matches the initial render.
+        const renderArrayChildren = () => {
+          children.innerHTML = '';
+          value.forEach((item, idx) => {
+            const childNode = renderConfigNode(item, value, idx);
+            // Append a delete button to the child's *own* row so it
+            // sits inline with the value editor. .tree-row is the row
+            // div we appended at the start of renderConfigNode.
+            const childRow = childNode.querySelector(':scope > .tree-row');
+            if (childRow) {
+              const del = document.createElement('button');
+              del.type = 'button';
+              del.className = 'tree-array-delete';
+              del.title = 'Delete item ' + idx;
+              del.setAttribute('aria-label', 'Delete item ' + idx);
+              del.textContent = '✕';
+              del.onclick = (e) => {
+                e.stopPropagation();
+                value.splice(idx, 1);
+                renderArrayChildren();
+              };
+              childRow.appendChild(del);
+            }
+            children.appendChild(childNode);
+          });
+          if (value.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'tree-empty';
+            empty.textContent = '(empty array)';
+            children.appendChild(empty);
+          }
+          const addBtn = document.createElement('button');
+          addBtn.type = 'button';
+          addBtn.className = 'tree-array-add';
+          addBtn.textContent = '+ add item';
+          addBtn.onclick = () => {
+            // Mirror the type of the last existing element so the
+            // input renders the same affordance the user has already
+            // been editing. Empty-array fallback is "" — strings are
+            // by far the most common element type in this config.
+            value.push(defaultForArray(value));
+            renderArrayChildren();
+          };
+          children.appendChild(addBtn);
+          if (typeEl) typeEl.textContent = type + ' (' + value.length + ')';
+        };
+        renderArrayChildren();
+      } else {
+        Object.keys(value).forEach(k => {
+          children.appendChild(renderConfigNode(value[k], value, k));
+        });
+        if (Object.keys(value).length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'tree-empty';
+          empty.textContent = '(empty object)';
+          children.appendChild(empty);
+        }
+      }
+
+      const flip = () => {
+        expanded = !expanded;
+        toggle.textContent = expanded ? '▼' : '▶';
+        children.classList.toggle('collapsed', !expanded);
+      };
+      toggle.onclick = flip;
+      keyEl.onclick = flip;
+      keyEl.style.cursor = 'pointer';
+      return node;
+    }
+
+    // Leaf: type-specific input wired to write back into `parent`.
+    if (type === 'boolean') {
+      row.appendChild(buildBoolInput(value, parent, keyOrIndex));
+    } else if (type === 'number') {
+      row.appendChild(buildNumberInput(value, parent, keyOrIndex));
+    } else if (type === 'string') {
+      row.appendChild(buildStringInput(value, parent, keyOrIndex));
+    } else if (type === 'null') {
+      const span = document.createElement('span');
+      span.className = 'tree-null';
+      span.textContent = 'null';
+      row.appendChild(span);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'tree-null';
+      span.textContent = '(' + type + ')';
+      row.appendChild(span);
+    }
+    return node;
+  }
+
+  function jsonType(v) {
+    if (v === null) return 'null';
+    if (Array.isArray(v)) return 'array';
+    return typeof v;  // 'object' | 'string' | 'number' | 'boolean'
+  }
+
+  // Pick the default value for a freshly added array element. Mirrors
+  // the type of the last existing element so the new row renders the
+  // same kind of input the operator has been editing — adding to
+  // `guestOrder` (array of strings) gives a string field, adding to a
+  // hypothetical array of numbers gives a numeric field, and so on.
+  // Empty-array fallback is "" — strings are the dominant case in
+  // test-config.json.
+  function defaultForArray(arr) {
+    if (arr.length === 0) return '';
+    const last = arr[arr.length - 1];
+    switch (jsonType(last)) {
+      case 'string':  return '';
+      case 'number':  return 0;
+      case 'boolean': return false;
+      case 'array':   return [];
+      case 'object':  return {};
+      default:        return '';
+    }
+  }
+
+  function buildBoolInput(value, parent, key) {
+    const wrap = document.createElement('span');
+    wrap.className = 'tree-bool';
+
+    const label = document.createElement('span');
+    label.className = 'tree-bool-label ' + (value ? 'true' : 'false');
+    label.textContent = value ? 'True' : 'False';
+
+    const sw = document.createElement('label');
+    sw.className = 'tree-bool-switch';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!value;
+    cb.setAttribute('role', 'switch');
+    cb.setAttribute('aria-checked', String(!!value));
+    const track = document.createElement('span');
+    track.className = 'tree-bool-track';
+    sw.appendChild(cb);
+    sw.appendChild(track);
+    cb.onchange = () => {
+      parent[key] = cb.checked;
+      label.textContent = cb.checked ? 'True' : 'False';
+      label.className = 'tree-bool-label ' + (cb.checked ? 'true' : 'false');
+      cb.setAttribute('aria-checked', String(cb.checked));
+    };
+
+    wrap.appendChild(sw);
+    wrap.appendChild(label);
+    return wrap;
+  }
+
+  function buildNumberInput(value, parent, key) {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = 'any';
+    input.className = 'tree-input number';
+    input.value = String(value);
+    input.oninput = () => {
+      // Empty input becomes 0 to avoid NaN poisoning the saved JSON;
+      // the user can clear and retype to set 0 explicitly.
+      const n = input.value === '' ? 0 : Number(input.value);
+      parent[key] = Number.isFinite(n) ? n : 0;
+    };
+    return input;
+  }
+
+  function buildStringInput(value, parent, key) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'tree-input string';
+    input.value = value;
+    input.spellcheck = false;
+    input.oninput = () => { parent[key] = input.value; };
+    return input;
+  }
+
+  async function saveConfig() {
+    const status     = document.getElementById('config-status');
+    const saveBtn    = document.getElementById('config-save');
+    const discardBtn = document.getElementById('config-discard');
+    if (!configState) return;
+    let payload;
+    try {
+      payload = JSON.stringify(configState, null, 2) + '\n';
+    } catch (e) {
+      status.textContent = 'Could not serialize: ' + e.message;
+      status.className = 'error';
+      return;
+    }
+    saveBtn.disabled = true;
+    discardBtn.disabled = true;
+    status.textContent = 'Saving…';
+    status.className = '';
+    try {
+      const res = await fetch('control/test-config', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload
+      });
+      const text = await res.text();
+      let body = null;
+      try { body = JSON.parse(text); } catch (_e) { /* non-JSON error */ }
+      if (!res.ok || !body || !body.ok) {
+        const msg = (body && body.error) ? body.error : ('HTTP ' + res.status);
+        status.textContent = 'Save failed: ' + msg;
+        status.className = 'error';
+        saveBtn.disabled = false;
+        discardBtn.disabled = false;
+        return;
+      }
+      status.textContent = 'Saved. Returning to dashboard…';
+      status.className = 'ok';
+      // Brief delay so the operator sees the confirmation before
+      // navigation; matches the immediate-settle pattern of the
+      // SSH/pause controls on the dashboard.
+      setTimeout(() => { window.location.replace('index.html'); }, 600);
+    } catch (e) {
+      status.textContent = 'Save failed: ' + e.message;
+      status.className = 'error';
+      saveBtn.disabled = false;
+      discardBtn.disabled = false;
+    }
+  }
+
+  // Mirror the dashboard's #header-machine label so the page identifies
+  // the host the operator is editing — e.g. "ALIUS-ALIEN (windows.hyper-v)".
+  // Soft fetch: if status.json is missing (no test cycle has ever run on
+  // this host), fall back to the URL hostname like the dashboard does.
+  async function loadHeaderMachine() {
+    const el = document.getElementById('header-machine');
+    if (!el) return;
+    try {
+      const res = await fetch('track/status.json?_=' + Date.now(), { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.hostname) {
+          const hostLabel = data.host ? data.host.replace('host.', '') : '';
+          el.textContent = data.hostname + (hostLabel ? ' (' + hostLabel + ')' : '');
+          return;
+        }
+      }
+    } catch (_e) { /* fall through to URL hostname */ }
+    el.textContent = window.location.hostname || '';
+  }
+
+  document.getElementById('config-discard').onclick = discardAndExit;
+  document.getElementById('config-save').onclick    = saveConfig;
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') discardAndExit();
+  });
+
+  loadHeaderMachine();
+  loadConfig();
+</script>
+
+</body>
+</html>

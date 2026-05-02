@@ -184,7 +184,12 @@ function Complete-Run {
     $script:Doc.finishedAt    = (Get-UtcTimestamp)
     $script:Doc.overallStatus = $OverallStatus
 
-    $guestSummary = @{}
+    # [ordered]@{} preserves insertion order so the JSON-serialized
+    # history entry's `guestSummary` keeps the keys in guestOrder.
+    # A plain @{} is a [hashtable] whose enumeration is bucketed and
+    # arbitrary, which scrambled the pill order in the dashboard's
+    # "Recent Cycles" table even though the cycle itself ran in order.
+    $guestSummary = [ordered]@{}
     foreach ($g in $script:Doc.guests) { $guestSummary[$g.guestKey] = $g.status }
 
     $entry = [ordered]@{

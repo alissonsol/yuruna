@@ -706,6 +706,101 @@ try {
                 continue
             }
 
+            # --- /control/test-config: read/write test-config.json from UI ---
+            # GET returns the file body as application/json (200). POST/PUT
+            # accepts a JSON body, validates that ConvertFrom-Json parses it,
+            # and atomically replaces the file (write .tmp + Move-Item).
+            # Bypasses the /yuruna-repo/ deny-list because the operator has
+            # explicitly opted into editing this file from the UI; the
+            # response is no-store. All errors come back as
+            # {"ok":false,"error":...}. The deny-list still applies to the
+            # read-only repo route, so curl GET /yuruna-repo/test/test-
+            # config.json continues to 403.
+            if (`$path -eq 'control/test-config') {
+                `$testConfigFile = Join-Path `$repoRoot 'test/test-config.json'
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                if (`$req.HttpMethod -eq 'GET' -or `$req.HttpMethod -eq 'HEAD') {
+                    if (-not (Test-Path -LiteralPath `$testConfigFile)) {
+                        `$res.StatusCode = 404
+                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"test-config.json not found"}')
+                        `$res.ContentLength64 = `$body.Length
+                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                        `$res.OutputStream.Close()
+                        continue
+                    }
+                    `$bytes = [System.IO.File]::ReadAllBytes(`$testConfigFile)
+                    `$res.ContentLength64 = `$bytes.Length
+                    if (`$req.HttpMethod -ne 'HEAD') {
+                        `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+                    }
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                if (`$req.HttpMethod -eq 'POST' -or `$req.HttpMethod -eq 'PUT') {
+                    `$payload = `$null
+                    try {
+                        `$reader = [System.IO.StreamReader]::new(`$req.InputStream, `$req.ContentEncoding)
+                        `$payload = `$reader.ReadToEnd()
+                        `$reader.Close()
+                    } catch {
+                        `$res.StatusCode = 400
+                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"could not read body"}')
+                        `$res.ContentLength64 = `$body.Length
+                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                        `$res.OutputStream.Close()
+                        continue
+                    }
+                    try {
+                        `$null = `$payload | ConvertFrom-Json -ErrorAction Stop
+                    } catch {
+                        `$res.StatusCode = 400
+                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"invalid JSON: ' + `$errMsg + '"}')
+                        `$res.ContentLength64 = `$body.Length
+                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                        `$res.OutputStream.Close()
+                        continue
+                    }
+                    `$tmp = "`$testConfigFile.tmp"
+                    `$writeOk = `$false
+                    try {
+                        Set-Content -LiteralPath `$tmp -Value `$payload -Encoding utf8 -NoNewline
+                        Move-Item -LiteralPath `$tmp -Destination `$testConfigFile -Force
+                        `$writeOk = `$true
+                    } catch {
+                        `$res.StatusCode = 500
+                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
+                        `$res.ContentLength64 = `$body.Length
+                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                        `$res.OutputStream.Close()
+                        Write-ServerErr "test-config write failed: `$errMsg"
+                    } finally {
+                        # On the failure path, Set-Content may have left
+                        # a partial .tmp next to the real file; on the
+                        # success path Move-Item already consumed it.
+                        # Either way, ensure no .tmp is left behind.
+                        if (-not `$writeOk -and (Test-Path -LiteralPath `$tmp)) {
+                            Remove-Item -LiteralPath `$tmp -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                    if (-not `$writeOk) { continue }
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$res.StatusCode = 405
+                `$res.Headers.Add('Allow', 'GET, POST, PUT')
+                `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
             # --- Control endpoints: Pause/Continue back-channel from UI ---
             # Two pause switches, each backed by a flag file, mirrored
             # into status.json so the next UI poll flips the banner:

@@ -1338,15 +1338,19 @@ while ($true) {
     $pwshExe = (Get-Process -Id $PID).Path
     # $PSBoundParameters is in-process state and can't be splatted
     # across a process boundary, so rebuild explicit argv. Switch
-    # parameters become "-Name" with no value when present; everything
-    # else becomes "-Name Value". Stringify $v so [bool]$true/$false
-    # and [int] arguments come through as "True" / "30" rather than
-    # PowerShell's default object-to-string.
+    # parameters become "-Name" with no value when present; bools
+    # become "-Name 1" / "-Name 0" because the pwsh -File binder
+    # rejects "True"/"False" strings ("Boolean parameters accept only
+    # Boolean values and numbers, such as $True, $False, 1 or 0");
+    # everything else becomes "-Name Value".
     $argList = @('-NoLogo', '-File', $PSCommandPath)
     foreach ($k in $PSBoundParameters.Keys) {
         $v = $PSBoundParameters[$k]
         if ($v -is [System.Management.Automation.SwitchParameter]) {
             if ($v.IsPresent) { $argList += "-$k" }
+        } elseif ($v -is [bool]) {
+            $argList += "-$k"
+            $argList += $(if ($v) { '1' } else { '0' })
         } else {
             $argList += "-$k"
             $argList += "$v"

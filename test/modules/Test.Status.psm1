@@ -86,6 +86,13 @@ function Initialize-StatusDocument {
             steps              = @($steps)
             provenanceFilename = ''
             provenanceUrl      = ''
+            # Relative URL (from test/status/) of the debug folder created
+            # by Copy-FailureArtifactsToStatusLog when this guest failed
+            # mid-cycle. Empty string means no folder exists for this run
+            # (guest passed, or failed before any screen capture). Wired
+            # into history.guestSummary at Complete-Run so the dashboard
+            # can hyperlink the per-guest pill straight to the artifacts.
+            failureArtifacts   = ''
         }
     }
 
@@ -189,8 +196,32 @@ function Complete-Run {
     # A plain @{} is a [hashtable] whose enumeration is bucketed and
     # arbitrary, which scrambled the pill order in the dashboard's
     # "Recent Cycles" table even though the cycle itself ran in order.
+    #
+    # Value shape (backward-compatible):
+    #   * "pass" / "fail"            - bare string when no debug folder
+    #                                  was produced (guest passed, or
+    #                                  failed before screenshots were
+    #                                  captured). Old history entries
+    #                                  written before failureArtifacts
+    #                                  existed are also bare strings.
+    #   * { status, failureArtifacts } - object when the cycle created
+    #                                  a per-guest debug folder. The UI
+    #                                  hyperlinks the pill to that URL.
+    # The dispatch keeps payload small (most cycles are all-pass) and
+    # avoids breaking older dashboards that read .guestSummary[k] as a
+    # string.
     $guestSummary = [ordered]@{}
-    foreach ($g in $script:Doc.guests) { $guestSummary[$g.guestKey] = $g.status }
+    foreach ($g in $script:Doc.guests) {
+        $artifacts = if ($g.Contains('failureArtifacts')) { [string]$g.failureArtifacts } else { '' }
+        if ($artifacts) {
+            $guestSummary[$g.guestKey] = [ordered]@{
+                status           = $g.status
+                failureArtifacts = $artifacts
+            }
+        } else {
+            $guestSummary[$g.guestKey] = $g.status
+        }
+    }
 
     $entry = [ordered]@{
         cycleId       = $script:Doc.cycleId
@@ -278,6 +309,35 @@ function Set-LastGetImageTime {
     the document so operators inspecting track/status.json can see where
     the ISO came from without cross-referencing host/*/*.txt sidecars).
 #>
+function Set-GuestFailureArtifacts {
+<#
+.SYNOPSIS
+Records the relative URL of the per-guest debug folder produced by a
+failed cycle, so the dashboard can link the guest pill straight to it.
+.DESCRIPTION
+Called by Copy-FailureArtifactsToStatusLog right after a debug folder
+is created on disk. $RelativeUrl is the URL the dashboard (served from
+test/status/) uses to navigate — typically "log/<logId>.<ts>.failure-
+screens-<vmname>/". Empty string clears the field. Persisted on both
+the live guests[] entry (so a long-running cycle reflects the path
+mid-run) and copied into history.guestSummary by Complete-Run.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseSingularNouns', '',
+        Justification = 'Noun mirrors the JSON field name (failureArtifacts) and the artifact set is genuinely plural — frames plus OCR sidecars.')]
+    param(
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$RelativeUrl
+    )
+    if (-not $script:Doc) { return }
+    if (-not $PSCmdlet.ShouldProcess($GuestKey, "Set failureArtifacts to '$RelativeUrl'")) { return }
+    $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
+    if (-not $g) { return }
+    $g.failureArtifacts = $RelativeUrl
+    Write-StatusJson
+}
+
 function Set-GuestProvenance {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -294,4 +354,4 @@ function Set-GuestProvenance {
     Write-StatusJson
 }
 
-Export-ModuleMember -Function Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Set-GuestProvenance, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime
+Export-ModuleMember -Function Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Set-GuestProvenance, Set-GuestFailureArtifacts, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime

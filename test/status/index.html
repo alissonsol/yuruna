@@ -793,9 +793,24 @@
       document.getElementById('sec-history').style.display = '';
       document.getElementById('history-body').innerHTML = history.map(h => {
         const gs = h.guestSummary || {};
-        const guestPills = Object.entries(gs).map(([k, v]) =>
-          `<span class="badge ${cls(v)}" style="font-size:.625rem;padding:.15rem .4rem">${k.replace('guest.','')}</span>`
-        ).join(' ');
+        // Two value shapes (see Test.Status.psm1 Complete-Run):
+        //   "pass"|"fail"  - bare string, no debug folder produced
+        //   { status, failureArtifacts } - debug folder URL available
+        // The pill always renders; when failureArtifacts is set, wrap
+        // it in an anchor so clicking the per-guest pill jumps straight
+        // to that guest's failure-screens folder (faster than going via
+        // the cycle log). Older history entries pre-dating the schema
+        // change still parse via the typeof === 'string' branch.
+        const guestPills = Object.entries(gs).map(([k, v]) => {
+          const status   = (typeof v === 'string') ? v : (v && v.status) || '';
+          const debugUrl = (typeof v === 'object' && v) ? v.failureArtifacts : '';
+          const label    = k.replace('guest.','');
+          const pill     = `<span class="badge ${cls(status)}" style="font-size:.625rem;padding:.15rem .4rem">${label}</span>`;
+          if (debugUrl) {
+            return `<a href="${debugUrl}" target="_blank" title="Open debug folder for ${label}" style="text-decoration:none">${pill}</a>`;
+          }
+          return pill;
+        }).join(' ');
         // History entries written before the rename still have `runId`;
         // read either field so old persisted rows remain clickable. New
         // writes use `cycleId`; within ~30 cycles the fallback is moot.

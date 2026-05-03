@@ -596,7 +596,15 @@ function Assert-CachingProxyStillReachable {
 
 # === Helper: copy failure artifacts to status/log for remote inspection ===
 function Copy-FailureArtifactsToStatusLog {
-    param([string]$VMName)
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        # Optional GuestKey: when supplied, the URL of any debug folder
+        # produced is recorded on the live status doc via
+        # Set-GuestFailureArtifacts so Complete-Run can promote it into
+        # history.guestSummary, and the dashboard hyperlinks the per-guest
+        # pill straight to the artifacts.
+        [string]$GuestKey = ''
+    )
     try {
         if (-not $LogFile) { return }
         $logId = [System.IO.Path]::GetFileNameWithoutExtension($LogFile)
@@ -629,6 +637,13 @@ function Copy-FailureArtifactsToStatusLog {
             if ($global:__YurunaLogFile) {
                 "  <a href=""$destSeqName/"">Failure screenshot sequence: $destSeqName/ ($copied frames)</a>" |
                     Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -ErrorAction SilentlyContinue
+            }
+            # Persist the URL on the live status doc — relative to test/status/
+            # which is what the dashboard fetches paths against (logFileUrl()
+            # returns the same "log/..." form). Skipped silently if the
+            # caller didn't pass GuestKey (legacy single-arg call site).
+            if ($GuestKey) {
+                Set-GuestFailureArtifacts -GuestKey $GuestKey -RelativeUrl "log/$destSeqName/"
             }
         } else {
             # Fallback: callers (or older code paths) may have only the
@@ -1006,7 +1021,7 @@ while ($true) {
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "New-VM"; $FailureMessage = $r.errorMessage
             if ($StopOnFailure) { break }
-            Copy-FailureArtifactsToStatusLog -VMName $VMName
+            Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
             continue
         }
 
@@ -1034,7 +1049,7 @@ while ($true) {
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Start-VM"; $FailureMessage = $r.errorMessage
             if ($StopOnFailure) { break }
-            Copy-FailureArtifactsToStatusLog -VMName $VMName
+            Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
             continue
         }
 
@@ -1059,7 +1074,7 @@ while ($true) {
                 Write-Output "  VM '$VMName' left running for investigation."
                 break
             }
-            Copy-FailureArtifactsToStatusLog -VMName $VMName
+            Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
             Write-Output "  Cleaning up VM '$VMName' after failure..."
             $savedProgress = $global:ProgressPreference
             $global:ProgressPreference = 'SilentlyContinue'
@@ -1086,7 +1101,7 @@ while ($true) {
                 Write-Output "  VM '$VMName' left running for investigation."
                 break
             }
-            Copy-FailureArtifactsToStatusLog -VMName $VMName
+            Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
             Write-Output "  Cleaning up VM '$VMName' after failure..."
             $savedProgress = $global:ProgressPreference
             $global:ProgressPreference = 'SilentlyContinue'
@@ -1119,7 +1134,7 @@ while ($true) {
                     Write-Output "  VM '$VMName' left running for investigation."
                     break
                 }
-                Copy-FailureArtifactsToStatusLog -VMName $VMName
+                Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
                 Write-Output "  Cleaning up VM '$VMName' after failure..."
                 $savedProgress = $global:ProgressPreference
                 $global:ProgressPreference = 'SilentlyContinue'
@@ -1151,7 +1166,7 @@ while ($true) {
                     Write-Output "  VM '$VMName' left running for investigation."
                     break
                 }
-                Copy-FailureArtifactsToStatusLog -VMName $VMName
+                Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
                 Write-Output "  Cleaning up VM '$VMName' after failure..."
                 $savedProgress = $global:ProgressPreference
                 $global:ProgressPreference = 'SilentlyContinue'

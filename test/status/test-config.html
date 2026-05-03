@@ -15,10 +15,15 @@
       min-height: 100vh; display: flex; flex-direction: column;
     }
 
+    /* align-items:center vertically centers every header item (h1,
+       #header-machine stack, back-link) against the tallest one — the
+       2-line machine stack. Mirrors index.html so both pages share the
+       same header rhythm. Padding trimmed (1.25rem -> .75rem) to match
+       the now-shorter visual weight. */
     .page-header {
       background: #111827; color: #fff;
-      padding: 1.25rem 2rem;
-      display: flex; align-items: baseline; gap: 1rem;
+      padding: .75rem 2rem;
+      display: flex; align-items: center; gap: 1rem;
     }
     .page-header h1 {
       font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em;
@@ -26,12 +31,31 @@
     .page-header #header-machine {
       margin-left: auto; color: #9ca3af; font-size: .75rem;
       font-family: 'Menlo','Consolas',monospace;
+      /* inline-flex + align-items:center mirrors index.html: when the
+         label stacks two lines, the sibling back-link still sits
+         vertically centered against that height instead of jumping to
+         the page-header's first-line baseline. Without this the back-
+         link rendered one text-line higher than index.html's Edit-config
+         link, so the right-edge button shifted on every page nav. */
+      display: inline-flex; align-items: center; gap: .5rem;
     }
+    /* Stack the machine name above its host-type qualifier; mirror of
+       the dashboard's .hm-stack so both pages identify the host the
+       same way. */
+    .hm-stack {
+      display: inline-flex; flex-direction: column; align-items: flex-end;
+      line-height: 1.2;
+    }
+    .hm-stack .hm-host { opacity: .75; }
+    /* Sized identically to index.html's #header-edit-config so the
+       right-edge button keeps the same footprint when navigating between
+       the two pages — header items stay in place. */
     .page-header .back-link {
       color: #d1d5db; text-decoration: none;
       border: 1px solid #4b5563;
       padding: .15rem .5rem; border-radius: .25rem;
       font-size: .6875rem;
+      min-width: 7rem; text-align: center; box-sizing: border-box;
     }
     .page-header .back-link:hover { background: #1f2937; color: #fff; }
 
@@ -148,6 +172,13 @@
     }
     .tree-input.string { font-family: 'Menlo','Consolas',monospace; }
     .tree-input.number { width: 8rem; flex: 0 0 auto; }
+    /* Enum dropdown — same look as the other inputs, sized to fit the
+       longest option. cursor:pointer signals it's pickable, not free-text. */
+    .tree-input.enum {
+      width: auto; flex: 0 0 auto;
+      font-family: 'Menlo','Consolas',monospace;
+      cursor: pointer; padding-right: 1.5rem;
+    }
 
     /* Boolean toggle: a labeled switch with True/False text on the side. */
     .tree-bool {
@@ -193,7 +224,6 @@
 <div class="page-header">
   <h1>Yuruna</h1>
   <span id="header-machine"></span>
-  <a class="back-link" href="index.html">← Dashboard</a>
 </div>
 
 <main id="config-body">
@@ -388,7 +418,15 @@
     } else if (type === 'number') {
       row.appendChild(buildNumberInput(value, parent, keyOrIndex));
     } else if (type === 'string') {
-      row.appendChild(buildStringInput(value, parent, keyOrIndex));
+      // Constrained string fields render as a <select>; free-form
+      // strings get a text input. enumOptions returns null when the
+      // field has no fixed allow-list.
+      const enums = enumOptions(parent, keyOrIndex);
+      if (enums) {
+        row.appendChild(buildEnumInput(value, parent, keyOrIndex, enums));
+      } else {
+        row.appendChild(buildStringInput(value, parent, keyOrIndex));
+      }
     } else if (type === 'null') {
       const span = document.createElement('span');
       span.className = 'tree-null';
@@ -485,6 +523,49 @@
     return input;
   }
 
+  // Allow-list lookup for constrained string fields. Returns the array
+  // of permitted values, or null if the field is free-form. Mirrors the
+  // server-side validation in Update-TestConfigFromTemplate
+  // (Invoke-TestRunner.ps1) — keep the two lists in sync when adding a
+  // new option here. Only top-level (non-array) keys are checked because
+  // every constrained field today lives at the config root.
+  function enumOptions(parent, keyOrIndex) {
+    if (!parent || Array.isArray(parent)) return null;
+    if (keyOrIndex === 'keystrokeMechanism') return ['GUI', 'SSH'];
+    return null;
+  }
+
+  function buildEnumInput(value, parent, key, options) {
+    const sel = document.createElement('select');
+    sel.className = 'tree-input enum';
+    // If the file holds a legacy/typo value not in the allow-list,
+    // surface it as a disabled placeholder so the operator sees what's
+    // being replaced — and silently coerce parent[key] to the canonical
+    // default so a save without further interaction persists a valid
+    // value (matches the runner's Update-TestConfigFromTemplate, which
+    // resets unrecognized values to the template default).
+    const current = String(value);
+    let matched = false;
+    for (const opt of options) {
+      const o = document.createElement('option');
+      o.value = opt;
+      o.textContent = opt;
+      if (opt === current) { o.selected = true; matched = true; }
+      sel.appendChild(o);
+    }
+    if (!matched) {
+      const placeholder = document.createElement('option');
+      placeholder.value = current;
+      placeholder.textContent = current + ' (invalid — pick one)';
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      sel.insertBefore(placeholder, sel.firstChild);
+      parent[key] = options[0];
+    }
+    sel.onchange = () => { parent[key] = sel.value; };
+    return sel;
+  }
+
   async function saveConfig() {
     const status     = document.getElementById('config-status');
     const saveBtn    = document.getElementById('config-save');
@@ -535,9 +616,34 @@
   }
 
   // Mirror the dashboard's #header-machine label so the page identifies
-  // the host the operator is editing — e.g. "ALIUS-ALIEN (windows.hyper-v)".
+  // the host the operator is editing — name on top, "(host-type)" below.
+  // The back-link sits as a sibling of the stack inside #header-machine
+  // so the inline-flex + align-items:center layout puts it at the same
+  // vertical position as index.html's Edit-config link (centered against
+  // the 2-line stack rather than baseline-aligned with the first line).
   // Soft fetch: if status.json is missing (no test cycle has ever run on
   // this host), fall back to the URL hostname like the dashboard does.
+  function renderHeaderMachine(el, name, host) {
+    el.textContent = '';
+    const stack = document.createElement('span');
+    stack.className = 'hm-stack';
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'hm-name';
+    nameSpan.textContent = name;
+    stack.appendChild(nameSpan);
+    if (host) {
+      const hostSpan = document.createElement('span');
+      hostSpan.className = 'hm-host';
+      hostSpan.textContent = '(' + host + ')';
+      stack.appendChild(hostSpan);
+    }
+    el.appendChild(stack);
+    const backLink = document.createElement('a');
+    backLink.className = 'back-link';
+    backLink.href = 'index.html';
+    backLink.textContent = '← Dashboard';
+    el.appendChild(backLink);
+  }
   async function loadHeaderMachine() {
     const el = document.getElementById('header-machine');
     if (!el) return;
@@ -547,12 +653,12 @@
         const data = await res.json();
         if (data && data.hostname) {
           const hostLabel = data.host ? data.host.replace('host.', '') : '';
-          el.textContent = data.hostname + (hostLabel ? ' (' + hostLabel + ')' : '');
+          renderHeaderMachine(el, data.hostname, hostLabel);
           return;
         }
       }
     } catch (_e) { /* fall through to URL hostname */ }
-    el.textContent = window.location.hostname || '';
+    renderHeaderMachine(el, window.location.hostname || '', '');
   }
 
   document.getElementById('config-discard').onclick = discardAndExit;

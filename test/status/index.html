@@ -26,10 +26,15 @@
     }
 
     /* ── Header ── */
+    /* align-items:center vertically centers every header item (h1,
+       #header-machine stack, button) against the tallest one — the
+       2-line machine stack. baseline alignment shifted h1 and the
+       button to the top text-line of the stack. Padding trimmed
+       (1.25rem -> .75rem) to match the now-shorter visual weight. */
     header {
       background: #111827; color: #fff;
-      padding: 1.25rem 2rem;
-      display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+      padding: .75rem 2rem;
+      display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
     }
     header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; }
     header p  { color: #9ca3af; font-size: .875rem; }
@@ -38,11 +43,23 @@
       font-family: 'Menlo','Consolas',monospace;
       display: inline-flex; align-items: center; gap: .5rem;
     }
+    /* Stack the machine name above its host-type qualifier; the row
+       still aligns to the page header's baseline because .hm-stack
+       lays its two children out as flex-column at the right edge. */
+    .hm-stack {
+      display: inline-flex; flex-direction: column; align-items: flex-end;
+      line-height: 1.2;
+    }
+    .hm-stack .hm-host { opacity: .75; }
+    /* Sized identically to test-config.html's .back-link so the right-
+       edge button keeps the same footprint when navigating between the
+       two pages — header items stay in place. */
     #header-edit-config {
       color: #d1d5db; text-decoration: none;
       border: 1px solid #4b5563;
       padding: .15rem .5rem; border-radius: .25rem;
       font-size: .6875rem;
+      min-width: 7rem; text-align: center; box-sizing: border-box;
     }
     #header-edit-config:hover { background: #1f2937; color: #fff; }
 
@@ -644,18 +661,29 @@
     // The label and the "edit config" trigger share #header-machine, so
     // this rebuilds both children on each render rather than just setting
     // textContent — the latter would wipe the link.
-    let labelText;
+    let nameText = '';
+    let hostText = '';
     if (data && data.hostname) {
-      const hostLabel = data.host ? data.host.replace('host.','') : '';
-      labelText = data.hostname + (hostLabel ? ' (' + hostLabel + ')' : '');
+      nameText = data.hostname;
+      hostText = data.host ? data.host.replace('host.','') : '';
       document.title = data.hostname + ' — Yuruna status';
     } else {
-      labelText = window.location.hostname || '';
+      nameText = window.location.hostname || '';
     }
     headerMachine.textContent = '';
-    const lblSpan = document.createElement('span');
-    lblSpan.textContent = labelText;
-    headerMachine.appendChild(lblSpan);
+    const stack = document.createElement('span');
+    stack.className = 'hm-stack';
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'hm-name';
+    nameSpan.textContent = nameText;
+    stack.appendChild(nameSpan);
+    if (hostText) {
+      const hostSpan = document.createElement('span');
+      hostSpan.className = 'hm-host';
+      hostSpan.textContent = '(' + hostText + ')';
+      stack.appendChild(hostSpan);
+    }
+    headerMachine.appendChild(stack);
     const editLink = document.createElement('a');
     editLink.id = 'header-edit-config';
     editLink.href = 'test-config.html';

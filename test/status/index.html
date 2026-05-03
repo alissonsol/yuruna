@@ -152,8 +152,11 @@
                                 lives on the inner #sec-meta-title span */
       letter-spacing: normal;
       color: inherit;
-      padding-bottom: .3rem;
-      margin-bottom: .875rem;
+      /* Vertical rhythm matches the standardized button padding (.15rem
+         top/bottom) so the Cycle-pause button sits flush with the
+         section-title row instead of inflating its height. */
+      padding-bottom: .15rem;
+      margin-bottom: .5rem;
     }
     .section-title.with-controls #sec-meta-title {
       font-size: .6875rem; font-weight: 700; text-transform: uppercase;
@@ -174,14 +177,19 @@
 
     /* ── Meta row ── */
     .meta-grid {
-      display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem;
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: .375rem;
     }
+    /* Vertical padding matches the standardized button padding (.15rem
+       top/bottom). Horizontal kept at 1rem so labels and short values
+       don't crowd the rounded corners. Font sizes drop one notch each
+       (label .6875rem -> .625rem; value .75rem -> .6875rem) to match
+       the now-tighter card. */
     .meta-card {
       background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
-      padding: .75rem 1rem;
+      padding: .15rem 1rem;
     }
-    .meta-card .label { font-size: .6875rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .2rem; }
-    .meta-card .value { font-size: .75rem; font-weight: 500; font-family: 'Menlo','Consolas',monospace; color: #111827; word-break: break-all; }
+    .meta-card .label { font-size: .625rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .1rem; }
+    .meta-card .value { font-size: .6875rem; font-weight: 500; font-family: 'Menlo','Consolas',monospace; color: #111827; word-break: break-all; }
 
     /* ── Guest card ── */
     .guest-card {
@@ -319,9 +327,9 @@
     </div>
     <div class="meta-grid">
       <div class="meta-card"><div class="label">Cycle ID (UTC)</div><div class="value" id="m-cycleid">—</div></div>
-      <div class="meta-card"><div class="label">Started (Local Time)</div><div class="value" id="m-started">—</div></div>
+      <div class="meta-card"><div class="label">Started</div><div class="value" id="m-started">—</div></div>
       <div class="meta-card"><div class="label">Commit</div><div class="value" id="m-commit">—</div></div>
-      <div class="meta-card"><div class="label">Latest image refresh</div><div class="value" id="m-getimage">—</div></div>
+      <div class="meta-card"><div class="label">Images refresh</div><div class="value" id="m-getimage">—</div></div>
     </div>
   </section>
 
@@ -742,7 +750,16 @@
     // Meta
     if (liveCycleId) {
       document.getElementById('sec-meta').style.display = '';
-      document.getElementById('m-commit').textContent   = (data.gitCommit || '—').slice(0, 12);
+      // Hyperlink the commit short-SHA to the upstream commit page when
+      // data.repoUrl is known — same shape as the Recent Cycles table
+      // (each row's gitCommit cell). Falls back to plain text when the
+      // repo URL isn't published yet (e.g. a fresh runner before
+      // test-config.json was loaded). innerHTML — not textContent — so
+      // the anchor renders.
+      const commitText = (data.gitCommit || '—').slice(0, 12);
+      document.getElementById('m-commit').innerHTML = (data.gitCommit && data.repoUrl)
+        ? `<a href="${data.repoUrl}/commit/${data.gitCommit}" target="_blank" style="color:inherit;text-decoration:underline dotted">${commitText}</a>`
+        : commitText;
       const cycleIdLabel = (liveCycleId || '—').slice(0, 19);
       const cycleLogUrl  = logFileUrl(liveCycleId, data.hostname, data.gitCommit);
       const cycleCell = cycleLogUrl

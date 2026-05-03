@@ -64,9 +64,12 @@
     #header-edit-config:hover { background: #1f2937; color: #fff; }
 
     /* ── Status banner ── */
+    /* Vertical padding matches the page header (.75rem) so the two
+       stacked bars share the same rhythm; horizontal stays at 2rem to
+       align with the header's left/right edge. */
     #banner {
       display: flex; align-items: center; gap: .625rem;
-      padding: .9rem 2rem; font-weight: 600; font-size: .9375rem;
+      padding: .75rem 2rem; font-weight: 600; font-size: .9375rem;
       transition: background .3s;
     }
     #banner.idle    { background: #6b7280; color: #fff; }
@@ -87,13 +90,17 @@
       display: flex;
       gap: .5rem;
     }
+    /* Vertical metrics match #header-edit-config (padding .15rem,
+       font .6875rem) so every UI button stands the same height; only
+       horizontal padding varies per context. No min-height — labels
+       that wrap to two lines grow naturally. */
     .banner-btn {
       background: rgba(255,255,255,0.15);
       color: inherit;
       border: 1px solid rgba(255,255,255,0.35);
-      padding: .3rem .75rem;
+      padding: .15rem .75rem;
       border-radius: .375rem;
-      font-weight: 600; font-size: .8125rem;
+      font-weight: 600; font-size: .6875rem;
       font-family: inherit;
       cursor: pointer;
       transition: background .15s, opacity .15s;
@@ -117,9 +124,9 @@
       background: #f3f4f6;
       color: #111827;
       border: 1px solid #d1d5db;
-      padding: .3rem .75rem;
+      padding: .15rem .75rem;
       border-radius: .375rem;
-      font-weight: 600; font-size: .8125rem;
+      font-weight: 600; font-size: .6875rem;
       font-family: inherit;
       cursor: pointer;
       transition: background .15s, opacity .15s;

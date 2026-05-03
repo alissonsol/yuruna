@@ -84,10 +84,14 @@
       display: flex; justify-content: flex-end; gap: .5rem;
       background: #fff;
     }
+    /* Vertical metrics match the header back-link (padding .15rem,
+       font .6875rem) so Save/Discard sit the same height as every
+       other UI button; horizontal padding kept generous for label
+       prominence. No min-height — wrapped labels grow naturally. */
     .config-btn {
-      padding: .45rem 1rem;
+      padding: .15rem 1rem;
       border-radius: .375rem;
-      font-weight: 600; font-size: .8125rem;
+      font-weight: 600; font-size: .6875rem;
       font-family: inherit; cursor: pointer;
       border: 1px solid transparent;
     }

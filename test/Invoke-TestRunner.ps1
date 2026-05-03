@@ -1020,8 +1020,11 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "New-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "New-VM"; $FailureMessage = $r.errorMessage
-            if ($StopOnFailure) { break }
+            # Copy artifacts BEFORE the stopOnFailure break so the debug
+            # folder exists, the log links it, and the dashboard's "fail"
+            # pill points to it on both paths (continue and stop).
             Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
+            if ($StopOnFailure) { break }
             continue
         }
 
@@ -1048,8 +1051,8 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "Start-VM" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Start-VM"; $FailureMessage = $r.errorMessage
-            if ($StopOnFailure) { break }
             Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
+            if ($StopOnFailure) { break }
             continue
         }
 
@@ -1070,11 +1073,11 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "Install-OS" -Status "fail" -ErrorMessage $r.errorMessage
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Install-OS"; $FailureMessage = $r.errorMessage
+            Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
             if ($StopOnFailure) {
                 Write-Output "  VM '$VMName' left running for investigation."
                 break
             }
-            Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
             Write-Output "  Cleaning up VM '$VMName' after failure..."
             $savedProgress = $global:ProgressPreference
             $global:ProgressPreference = 'SilentlyContinue'
@@ -1097,11 +1100,11 @@ while ($true) {
             Set-StepStatus  -GuestKey $GuestKey -StepName "Verify-VM" -Status "fail" -ErrorMessage $err
             Set-GuestStatus -GuestKey $GuestKey -Status "fail"
             $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Verify-VM"; $FailureMessage = $err
+            Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
             if ($StopOnFailure) {
                 Write-Output "  VM '$VMName' left running for investigation."
                 break
             }
-            Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
             Write-Output "  Cleaning up VM '$VMName' after failure..."
             $savedProgress = $global:ProgressPreference
             $global:ProgressPreference = 'SilentlyContinue'
@@ -1130,11 +1133,11 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Screenshots" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Screenshots"; $FailureMessage = $r.errorMessage
+                Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
                 if ($StopOnFailure) {
                     Write-Output "  VM '$VMName' left running for investigation."
                     break
                 }
-                Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
                 Write-Output "  Cleaning up VM '$VMName' after failure..."
                 $savedProgress = $global:ProgressPreference
                 $global:ProgressPreference = 'SilentlyContinue'
@@ -1162,11 +1165,11 @@ while ($true) {
                 Set-StepStatus  -GuestKey $GuestKey -StepName "Invoke-PoolTest" -Status "fail" -ErrorMessage $r.errorMessage
                 Set-GuestStatus -GuestKey $GuestKey -Status "fail"
                 $OverallPassed = $false; $FailedGuest = $GuestKey; $FailedStep = "Invoke-PoolTest"; $FailureMessage = $r.errorMessage
+                Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
                 if ($StopOnFailure) {
                     Write-Output "  VM '$VMName' left running for investigation."
                     break
                 }
-                Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey
                 Write-Output "  Cleaning up VM '$VMName' after failure..."
                 $savedProgress = $global:ProgressPreference
                 $global:ProgressPreference = 'SilentlyContinue'

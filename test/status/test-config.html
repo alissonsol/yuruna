@@ -125,6 +125,10 @@
       min-width: 9rem;
     }
     .tree-key.array-index { color: #6b7280; }
+    /* guestOrder rows only need room for "[N]" — the default 9rem
+       leaves a gap before the dropdown that visually disconnects the
+       index from its value. Applied via JS when parent === guestOrder. */
+    .tree-key.array-index.narrow { min-width: 2.5rem; }
     .tree-type {
       color: #9ca3af; font-size: .6875rem;
       text-transform: uppercase; letter-spacing: .05em;
@@ -248,6 +252,23 @@
   // /control/test-config; the server validates JSON and atomically
   // replaces the file. Discard navigates back to the dashboard.
   let configState = null;  // mutable JSON object backing the tree
+  // Allow-list of guest folders under the current host, fetched once
+  // from /control/guest-folders. Drives the guestOrder dropdown so the
+  // operator picks real folders instead of free-typing. null means the
+  // fetch failed or returned nothing — the editor falls back to plain
+  // text inputs in that case.
+  let availableGuestFolders = null;
+
+  async function loadGuestFolders() {
+    try {
+      const res = await fetch('control/guest-folders?_=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) { availableGuestFolders = null; return; }
+      const data = await res.json();
+      availableGuestFolders = (Array.isArray(data) && data.length) ? data : null;
+    } catch (_e) {
+      availableGuestFolders = null;
+    }
+  }
 
   async function loadConfig() {
     const body   = document.getElementById('config-body');
@@ -257,10 +278,16 @@
     status.textContent = '';
     status.className = '';
     saveBtn.disabled = true;
+    // Fetch both in parallel; the dropdown render needs the folder list
+    // before the first paint, so we await the pair.
+    let configRes;
     try {
-      const res = await fetch('control/test-config?_=' + Date.now(), { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      configState = JSON.parse(await res.text());
+      [configRes] = await Promise.all([
+        fetch('control/test-config?_=' + Date.now(), { cache: 'no-store' }),
+        loadGuestFolders()
+      ]);
+      if (!configRes.ok) throw new Error('HTTP ' + configRes.status);
+      configState = JSON.parse(await configRes.text());
     } catch (e) {
       body.innerHTML = '';
       status.textContent = 'Could not load config: ' + e.message;
@@ -285,7 +312,11 @@
   // object/array that owns this value (null for the root); `keyOrIndex`
   // is the property name or array index. Edits write straight into the
   // live state via parent[keyOrIndex] = newValue.
-  function renderConfigNode(value, parent, keyOrIndex) {
+  // `arrayRerender` is the parent array's renderArrayChildren closure,
+  // passed down so a guestOrder dropdown can re-render its siblings
+  // after a selection change (other rows must drop the now-used value
+  // from their option lists).
+  function renderConfigNode(value, parent, keyOrIndex, arrayRerender) {
     const node = document.createElement('div');
     node.className = 'tree-node';
     const row = document.createElement('div');
@@ -307,6 +338,7 @@
       keyEl.textContent = 'test-config.json';
     } else if (Array.isArray(parent)) {
       keyEl.classList.add('array-index');
+      if (isGuestOrderArray(parent)) keyEl.classList.add('narrow');
       keyEl.textContent = '[' + keyOrIndex + ']';
     } else {
       keyEl.textContent = keyOrIndex;
@@ -349,8 +381,11 @@
         // matches the initial render.
         const renderArrayChildren = () => {
           children.innerHTML = '';
+          const isGuestOrder = isGuestOrderArray(value) && availableGuestFolders;
           value.forEach((item, idx) => {
-            const childNode = renderConfigNode(item, value, idx);
+            // Pass renderArrayChildren down so a guestOrder dropdown
+            // can refresh its siblings' option lists after a change.
+            const childNode = renderConfigNode(item, value, idx, renderArrayChildren);
             // Append a delete button to the child's *own* row so it
             // sits inline with the value editor. .tree-row is the row
             // div we appended at the start of renderConfigNode.
@@ -380,15 +415,40 @@
           const addBtn = document.createElement('button');
           addBtn.type = 'button';
           addBtn.className = 'tree-array-add';
-          addBtn.textContent = '+ add item';
-          addBtn.onclick = () => {
-            // Mirror the type of the last existing element so the
-            // input renders the same affordance the user has already
-            // been editing. Empty-array fallback is "" — strings are
-            // by far the most common element type in this config.
-            value.push(defaultForArray(value));
-            renderArrayChildren();
-          };
+          if (isGuestOrder) {
+            // guestOrder: only let the operator add a guest that
+            // actually exists under this host AND isn't already in the
+            // list. When every available guest is in use, disable the
+            // button instead of letting them add an unresolvable name.
+            const used = new Set(value);
+            const remaining = availableGuestFolders.filter(g => !used.has(g));
+            if (remaining.length === 0) {
+              addBtn.textContent = '+ add item (all guests added)';
+              addBtn.disabled = true;
+              addBtn.title = 'Every guest folder under this host is already in the list';
+            } else {
+              addBtn.textContent = '+ add item';
+              addBtn.onclick = () => {
+                // Re-evaluate at click time in case the operator
+                // changed selections in existing rows since render.
+                const usedNow = new Set(value);
+                const candidate = availableGuestFolders.find(g => !usedNow.has(g));
+                if (!candidate) return;
+                value.push(candidate);
+                renderArrayChildren();
+              };
+            }
+          } else {
+            addBtn.textContent = '+ add item';
+            addBtn.onclick = () => {
+              // Mirror the type of the last existing element so the
+              // input renders the same affordance the user has already
+              // been editing. Empty-array fallback is "" — strings are
+              // by far the most common element type in this config.
+              value.push(defaultForArray(value));
+              renderArrayChildren();
+            };
+          }
           children.appendChild(addBtn);
           if (typeEl) typeEl.textContent = type + ' (' + value.length + ')';
         };
@@ -424,12 +484,19 @@
     } else if (type === 'string') {
       // Constrained string fields render as a <select>; free-form
       // strings get a text input. enumOptions returns null when the
-      // field has no fixed allow-list.
-      const enums = enumOptions(parent, keyOrIndex);
-      if (enums) {
-        row.appendChild(buildEnumInput(value, parent, keyOrIndex, enums));
+      // field has no fixed allow-list. guestOrder elements get a
+      // host-aware dropdown (real folders, no duplicates) when the
+      // /control/guest-folders fetch succeeded; otherwise fall back
+      // to a text input so the editor still works on older servers.
+      if (isGuestOrderArray(parent) && availableGuestFolders) {
+        row.appendChild(buildGuestSelect(value, parent, keyOrIndex, arrayRerender));
       } else {
-        row.appendChild(buildStringInput(value, parent, keyOrIndex));
+        const enums = enumOptions(parent, keyOrIndex);
+        if (enums) {
+          row.appendChild(buildEnumInput(value, parent, keyOrIndex, enums));
+        } else {
+          row.appendChild(buildStringInput(value, parent, keyOrIndex));
+        }
       }
     } else if (type === 'null') {
       const span = document.createElement('span');
@@ -537,6 +604,53 @@
     if (!parent || Array.isArray(parent)) return null;
     if (keyOrIndex === 'keystrokeMechanism') return ['GUI', 'SSH'];
     return null;
+  }
+
+  // Identity-compare against configState.guestOrder so nested arrays
+  // with the same shape but different role (e.g. some hypothetical
+  // future array of strings) keep their plain text inputs.
+  function isGuestOrderArray(arr) {
+    return !!(configState && Array.isArray(arr) && arr === configState.guestOrder);
+  }
+
+  // Dropdown for one guestOrder entry. Stored value is the full folder
+  // name ("guest.amazon.linux") for compatibility with the runner;
+  // displayed label drops the "guest." prefix to match the Guests
+  // column on the dashboard. Already-used folders are filtered out so
+  // each guest can appear at most once in the cycle. The current value
+  // is always kept in the option list — even if it's no longer a real
+  // folder — and tagged so the operator sees what's about to be saved.
+  function buildGuestSelect(value, parent, idx, onChange) {
+    const sel = document.createElement('select');
+    sel.className = 'tree-input enum';
+    const used = new Set(parent.filter((v, i) => i !== idx && typeof v === 'string'));
+    const allowed = availableGuestFolders.filter(g => g === value || !used.has(g));
+    let matched = false;
+    for (const g of allowed) {
+      const o = document.createElement('option');
+      o.value = g;
+      o.textContent = g.replace(/^guest\./, '');
+      if (g === value) { o.selected = true; matched = true; }
+      sel.appendChild(o);
+    }
+    if (!matched) {
+      // Stale/typo entry from the file: surface it as a disabled
+      // placeholder so the operator can see what's being replaced
+      // without us silently rewriting their input.
+      const placeholder = document.createElement('option');
+      placeholder.value = value;
+      placeholder.textContent = (value || '(empty)') + ' (not under host folder)';
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      sel.insertBefore(placeholder, sel.firstChild);
+    }
+    sel.onchange = () => {
+      parent[idx] = sel.value;
+      // Re-render siblings so they drop the now-used value from their
+      // option lists. onChange is the parent array's renderArrayChildren.
+      if (typeof onChange === 'function') onChange();
+    };
+    return sel;
   }
 
   function buildEnumInput(value, parent, key, options) {

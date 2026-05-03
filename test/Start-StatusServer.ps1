@@ -810,6 +810,35 @@ try {
                 continue
             }
 
+            # --- /control/guest-folders: list guest.* dirs under current host ---
+            # Powers the test-config editor's guestOrder dropdown so the
+            # operator picks from real folders instead of free-typing a
+            # name that won't match anything at run time. Host folder is
+            # derived from the host type captured at server startup
+            # (host.windows.hyper-v -> host/windows.hyper-v); empty array
+            # is returned when the host is unknown or has no guests.
+            if (`$path -eq 'control/guest-folders') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$guests = @()
+                if (`$sshHostType) {
+                    `$hostFolderName = `$sshHostType -replace '^host\.', ''
+                    `$hostPath = Join-Path `$repoRoot ('host/' + `$hostFolderName)
+                    if (Test-Path -LiteralPath `$hostPath) {
+                        `$guests = @(Get-ChildItem -LiteralPath `$hostPath -Directory -Filter 'guest.*' -ErrorAction SilentlyContinue |
+                            Select-Object -ExpandProperty Name | Sort-Object)
+                    }
+                }
+                # -AsArray keeps single-element / empty results encoded as
+                # a JSON array (default ConvertTo-Json unwraps to scalar).
+                `$payload = ConvertTo-Json -InputObject `$guests -Compress -AsArray
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
             # --- Control endpoints: Pause/Continue back-channel from UI ---
             # Two pause switches, each backed by a flag file, mirrored
             # into status.json so the next UI poll flips the banner:

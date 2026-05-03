@@ -44,11 +44,9 @@ function Start-StatusServer {
                 $req  = $ctx.Request
                 $res  = $ctx.Response
 
-                # Allow cross-origin requests from any host
                 $res.Headers.Add("Access-Control-Allow-Origin", "*")
 
                 $path = $req.Url.LocalPath.TrimStart('/')
-                # Root or /status/ -> serve index.html
                 if ($path -eq '' -or $path -eq 'status/' -or $path -eq 'status') { $path = 'index.html' }
                 # Strip the optional status/ directory prefix (require the trailing separator
                 # so that /status.json is NOT corrupted into .json)
@@ -64,7 +62,6 @@ function Start-StatusServer {
                         '.txt'  { 'text/plain; charset=utf-8' }
                         default { 'application/octet-stream' }
                     }
-                    # Prevent caching of JSON so the dashboard always gets fresh data
                     if ($ext -eq '.json') {
                         $res.Headers.Add("Cache-Control", "no-store, no-cache, must-revalidate")
                         $res.Headers.Add("Pragma", "no-cache")

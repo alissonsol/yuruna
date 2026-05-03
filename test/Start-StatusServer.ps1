@@ -739,6 +739,15 @@ try {
                 }
                 if (`$req.HttpMethod -eq 'POST' -or `$req.HttpMethod -eq 'PUT') {
                     `$payload = `$null
+                    # ContentLength64 == -1 means chunked/unknown; allow those through.
+                    if (`$req.ContentLength64 -gt 1MB) {
+                        `$res.StatusCode = 413
+                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"payload too large (>1 MB)"}')
+                        `$res.ContentLength64 = `$body.Length
+                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                        `$res.OutputStream.Close()
+                        continue
+                    }
                     try {
                         `$reader = [System.IO.StreamReader]::new(`$req.InputStream, `$req.ContentEncoding)
                         `$payload = `$reader.ReadToEnd()

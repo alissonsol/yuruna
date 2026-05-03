@@ -829,9 +829,14 @@ try {
                             Select-Object -ExpandProperty Name | Sort-Object)
                     }
                 }
-                # -AsArray keeps single-element / empty results encoded as
-                # a JSON array (default ConvertTo-Json unwraps to scalar).
-                `$payload = ConvertTo-Json -InputObject `$guests -Compress -AsArray
+                # Build the JSON array literally: ConvertTo-Json's
+                # array-vs-scalar handling is brittle on PowerShell 7
+                # (-AsArray + -InputObject double-wraps an existing
+                # array, plain pipe drops the empty case to nothing).
+                # Folder names are safe ASCII so a hand-built [...]
+                # avoids the dance entirely.
+                `$items = @(`$guests | ForEach-Object { '"' + (`$_ -replace '\\','\\\\' -replace '"','\"') + '"' })
+                `$payload = '[' + (`$items -join ',') + ']'
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)

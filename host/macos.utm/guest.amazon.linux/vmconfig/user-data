@@ -1,12 +1,9 @@
 #cloud-config
 #vim:syntax=yaml
 users:
-# `ec2-user` exists in the image by default.
   - default
-# Top-level ssh_authorized_keys: cloud-init installs these on the default
-# user (ec2-user). Documented pattern; avoids the unreliable "redefine
-# ec2-user under users:" form, which cloud-init may silently merge or
-# drop when the username matches the distro default.
+# ssh_authorized_keys at top level: avoids cloud-init silently merging/dropping
+# the key when the username matches the distro-default user (ec2-user).
 ssh_authorized_keys:
   - SSH_AUTHORIZED_KEY_PLACEHOLDER
 chpasswd:

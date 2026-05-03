@@ -107,22 +107,16 @@ APT_PROXY_BLOCK_PLACEHOLDER
       ExecStart=
       ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
       EOF
-    # --- Security: user account ---
     - curtin in-target --target=/target -- passwd --expire ubuntu
-    # --- SSH: install yuruna test-harness key for the ubuntu user ---
     # Single curtin-in-target, mirroring the passwd --expire pattern.
     # Previous attempts (autoinstall.ssh.authorized-keys, multi-line raw
     # shell late-commands) silently broke subiquity's identity (empty
     # /etc/shadow). This form runs after identity is committed.
     - curtin in-target --target=/target -- bash -c 'install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh && echo "SSH_AUTHORIZED_KEY_PLACEHOLDER" > /home/ubuntu/.ssh/authorized_keys && chmod 600 /home/ubuntu/.ssh/authorized_keys && chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys'
-    # --- Sudo: passwordless for the ubuntu user (test harness) ---
-    # Lets the SSH-driven workload call /automation/fetch-and-execute.sh
-    # with sudo (no TTY, no askpass under BatchMode). 0440 per sudoers.d.
+    # Passwordless sudo so SSH-driven workload can call /automation/fetch-and-execute.sh without TTY.
     - curtin in-target --target=/target -- bash -c 'echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-yuruna-ubuntu && chmod 440 /etc/sudoers.d/90-yuruna-ubuntu && chown root:root /etc/sudoers.d/90-yuruna-ubuntu'
-    # --- System: disable swap ---
     - sed -i '/ swap / s/^/#/' /target/etc/fstab
     - curtin in-target --target=/target -- systemctl mask swap.target
-    # --- System: disable MOTD ---
     - chmod -x /target/etc/update-motd.d/*
     - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
     # --- GNOME: skip initial setup ---

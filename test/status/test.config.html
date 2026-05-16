@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 60-second freshness with revalidation; matches Start-StatusServer's
+       header for .html. Avoids the prior 'no-store' staleness leak in
+       some intermediary clients while still bounding lag on a host
+       edit + Start-StatusServer restart at one minute. -->
+  <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
+  <title>test.config.yml — Yuruna</title>
+  <style>
+    /*
+      Browser baseline: this stylesheet renders correctly on Safari iOS 9.x
+      as well as current browsers. That rules out flex/grid `gap` (iOS 14.5+
+      for flex), the `inset` shorthand (iOS 14.5+), and CSS Grid (iOS 10.3+).
+      Wherever those would have been natural, the rules below use margins,
+      explicit top/right/bottom/left, or flex-wrap instead. Modern browsers
+      render the same.
+    */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9fafb; color: #111827; font-size: 14px; line-height: 1.5;
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+
+    /* align-items:center vertically centers every header item (h1,
+       #header-machine stack, back-link) against the tallest one — the
+       2-line machine stack. Mirrors index.html so both pages share the
+       same header rhythm. Padding trimmed (1.25rem -> .75rem) to match
+       the now-shorter visual weight. The previous flex `gap: 1rem` is
+       replaced by a per-element margin so iOS 9 spaces them too. */
+    .page-header {
+      background: #111827; color: #fff;
+      padding: .75rem 2rem;
+      display: flex; align-items: center;
+    }
+    .page-header > * + * { margin-left: 1rem; }
+    .page-header h1 {
+      font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em;
+    }
+    /* Hardcoded build/version tag rendered UNDER the "Yuruna" title.
+       Mirror of index.html's #header-version so both pages share the
+       same header rhythm. Block child of <h1> with line-height:1 so it
+       sits tight under the title, left-aligned with the title's left
+       edge. Reset font-weight + letter-spacing so it doesn't inherit
+       h1's bold + tight tracking. Bump the version literal in the
+       <span id="header-version"> below at each release. */
+    .page-header #header-version {
+      display: block; line-height: 1;
+      color: #9ca3af; font-size: .5rem;
+      font-family: 'Menlo','Consolas',monospace;
+      font-weight: 400; letter-spacing: 0;
+    }
+    .page-header #header-machine {
+      margin-left: auto; color: #9ca3af; font-size: .75rem;
+      font-family: 'Menlo','Consolas',monospace;
+      /* inline-flex + align-items:center mirrors index.html: when the
+         label stacks two lines, the sibling back-link still sits
+         vertically centered against that height instead of jumping to
+         the page-header's first-line baseline. Without this the back-
+         link rendered one text-line higher than index.html's Edit-config
+         link, so the right-edge button shifted on every page nav. */
+      display: inline-flex; align-items: center;
+    }
+    /* Spacing between the machine stack and the Dashboard back-link. */
+    .page-header #header-machine > * + * { margin-left: .5rem; }
+    /* Stack the machine name above its host-type qualifier; mirror of
+       the dashboard's .hm-stack so both pages identify the host the
+       same way. */
+    .hm-stack {
+      display: inline-flex; flex-direction: column; align-items: flex-end;
+      line-height: 1.2;
+    }
+    .hm-stack .hm-host { opacity: .75; }
+    /* Sized identically to index.html's #header-edit-config so the
+       right-edge button keeps the same footprint when navigating between
+       the two pages — header items stay in place. */
+    .page-header .back-link {
+      color: #d1d5db; text-decoration: none;
+      border: 1px solid #4b5563;
+      padding: .15rem .5rem; border-radius: .25rem;
+      font-size: .6875rem;
+      min-width: 7rem; text-align: center; box-sizing: border-box;
+    }
+    .page-header .back-link:hover { background: #1f2937; color: #fff; }
+
+    main {
+      flex: 1; overflow-y: auto;
+      max-width: 880px; width: 100%; margin: 0 auto;
+      padding: 1.25rem 1.5rem;
+      font-family: 'Menlo','Consolas',monospace;
+      font-size: .8125rem;
+    }
+
+    #config-status {
+      padding: .5rem 1.5rem;
+      font-size: .75rem;
+      border-top: 1px solid #e5e7eb;
+      min-height: 2rem;
+      background: #fff;
+      color: #6b7280;
+    }
+    #config-status.error { color: #dc2626; background: #fef2f2; }
+    #config-status.ok    { color: #16a34a; background: #f0fdf4; }
+
+    #config-footer {
+      padding: .75rem 1.5rem;
+      border-top: 1px solid #e5e7eb;
+      display: flex; justify-content: flex-end;
+      background: #fff;
+    }
+    #config-footer > * + * { margin-left: .5rem; }
+    /* Vertical metrics match the header back-link (padding .15rem,
+       font .6875rem) so Save/Discard sit the same height as every
+       other UI button; horizontal padding kept generous for label
+       prominence. No min-height — wrapped labels grow naturally. */
+    .config-btn {
+      padding: .15rem 1rem;
+      border-radius: .375rem;
+      font-weight: 600; font-size: .6875rem;
+      font-family: inherit; cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .config-btn.primary {
+      background: #2563eb; color: #fff;
+      border-color: #1d4ed8;
+    }
+    .config-btn.primary:hover:not([disabled]) { background: #1d4ed8; }
+    .config-btn.primary[disabled] { background: #93c5fd; cursor: default; }
+    .config-btn.secondary {
+      background: #f3f4f6; color: #111827;
+      border-color: #d1d5db;
+    }
+    .config-btn.secondary:hover { background: #e5e7eb; }
+
+    /* Tree nodes */
+    .tree-node { margin: .15rem 0; }
+    .tree-row {
+      display: flex; align-items: center;
+      padding: .15rem .25rem;
+    }
+    .tree-row > * + * { margin-left: .5rem; }
+    .tree-row:hover { background: #f3f4f6; }
+    .tree-toggle {
+      width: 1rem; flex-shrink: 0; cursor: pointer;
+      color: #6b7280;
+      -webkit-user-select: none;
+         -moz-user-select: none;
+          -ms-user-select: none;
+              user-select: none;
+      text-align: center;
+    }
+    .tree-toggle.leaf { cursor: default; visibility: hidden; }
+    .tree-key {
+      color: #1d4ed8; flex-shrink: 0;
+      min-width: 9rem;
+    }
+    .tree-key.array-index { color: #6b7280; }
+    /* guestSequence rows only need room for "[N]" — the default 9rem
+       leaves a gap before the dropdown that visually disconnects the
+       index from its value. Applied via JS when parent === guestSequence. */
+    .tree-key.array-index.narrow { min-width: 2.5rem; }
+    .tree-type {
+      color: #9ca3af; font-size: .6875rem;
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .tree-children {
+      margin-left: 1.25rem;
+      border-left: 1px dashed #e5e7eb;
+      padding-left: .5rem;
+    }
+    .tree-children.collapsed { display: none; }
+
+    /* Array editing affordances: per-element delete on each row, an
+       "add item" button at the array's tail. Both kept small/subtle so
+       the tree stays readable when nothing is being edited. */
+    .tree-array-delete {
+      flex-shrink: 0;
+      background: transparent; color: #9ca3af;
+      border: 1px solid transparent; border-radius: .25rem;
+      width: 1.4rem; height: 1.4rem; padding: 0;
+      font-size: .75rem; line-height: 1; cursor: pointer;
+      font-family: inherit;
+    }
+    .tree-array-delete:hover {
+      background: #fee2e2; color: #dc2626; border-color: #fecaca;
+    }
+    .tree-array-add {
+      margin: .25rem 0;
+      background: transparent; color: #1d4ed8;
+      border: 1px dashed #93c5fd; border-radius: .25rem;
+      padding: .15rem .5rem;
+      font-size: .75rem; cursor: pointer;
+      font-family: inherit;
+    }
+    .tree-array-add:hover {
+      background: #eff6ff; border-style: solid;
+    }
+
+    /* Type-aware inputs */
+    .tree-input {
+      flex: 1; min-width: 0;
+      font-family: inherit; font-size: .8125rem;
+      padding: .2rem .4rem;
+      border: 1px solid #d1d5db; border-radius: .25rem;
+      background: #fff; color: #111827;
+    }
+    .tree-input:focus {
+      outline: 2px solid #2563eb; outline-offset: -1px;
+      border-color: transparent;
+    }
+    .tree-input.string { font-family: 'Menlo','Consolas',monospace; }
+    .tree-input.number { width: 8rem; flex: 0 0 auto; }
+    /* Custom <div>-based dropdown -- replaces the prior native <select>
+       because Firefox-on-Wayland fails to render the window-manager
+       popup that holds <select>'s option list (the click is delivered,
+       the page DOM is fine, but the dropdown menu never paints). The
+       custom widget keeps its menu inside the page DOM, so the popup
+       is just an absolutely-positioned <div> -- works on every
+       browser/WM combo, looks identical to a styled <select> in Chrome.
+       Class prefix .ydd = "yuruna dropdown". */
+    .ydd {
+      position: relative;
+      display: inline-flex; align-items: center;
+      flex: 0 0 auto;
+      font-family: 'Menlo','Consolas',monospace;
+      font-size: .8125rem;
+      padding: .2rem 1.5rem .2rem .4rem;
+      border: 1px solid #d1d5db; border-radius: .25rem;
+      background: #fff; color: #111827;
+      cursor: pointer;
+      -webkit-user-select: none;
+         -moz-user-select: none;
+          -ms-user-select: none;
+              user-select: none;
+    }
+    .ydd:focus { outline: 2px solid #2563eb; outline-offset: -1px; border-color: transparent; }
+    .ydd-current { white-space: nowrap; }
+    .ydd-current.ydd-stale { color: #9ca3af; font-style: italic; }
+    .ydd-arrow {
+      position: absolute; right: .4rem; top: 50%;
+      margin-top: -.5rem; height: 1rem; line-height: 1rem;
+      color: #6b7280; font-size: .65rem;
+      pointer-events: none;
+    }
+    .ydd-menu {
+      position: absolute; top: 100%; left: 0;
+      z-index: 100;
+      background: #fff;
+      border: 1px solid #d1d5db; border-radius: .25rem;
+      box-shadow: 0 4px 8px rgba(0,0,0,.08);
+      margin-top: .15rem;
+      max-height: 14rem; overflow-y: auto;
+      min-width: 100%;
+    }
+    .ydd-menu[hidden] { display: none; }
+    .ydd-item {
+      padding: .2rem .6rem;
+      cursor: pointer; white-space: nowrap;
+    }
+    .ydd-item.is-active, .ydd-item:hover {
+      background: #eff6ff; color: #1d4ed8;
+    }
+    .ydd-item.is-selected { font-weight: 600; }
+    .ydd-item.is-disabled {
+      color: #9ca3af; font-style: italic; cursor: default;
+    }
+    .ydd-item.is-disabled:hover { background: transparent; color: #9ca3af; }
+
+    /* Boolean toggle: a labeled switch with True/False text on the side. */
+    .tree-bool {
+      display: inline-flex; align-items: center;
+    }
+    .tree-bool > * + * { margin-left: .5rem; }
+    .tree-bool-switch {
+      position: relative; display: inline-block;
+      width: 2.4rem; height: 1.2rem;
+    }
+    .tree-bool-switch input {
+      opacity: 0; width: 0; height: 0;
+    }
+    /* `inset: 0` was added in iOS Safari 14.5; expand to longhands so iOS 9
+       fills the bool-switch with the track. */
+    .tree-bool-track {
+      position: absolute; cursor: pointer;
+      top: 0; right: 0; bottom: 0; left: 0;
+      background: #d1d5db; border-radius: 1.2rem;
+      transition: background .15s;
+    }
+    .tree-bool-track::before {
+      content: ''; position: absolute;
+      width: .9rem; height: .9rem; left: .15rem; bottom: .15rem;
+      background: #fff; border-radius: 50%;
+      -webkit-transition: -webkit-transform .15s;
+              transition:         transform .15s;
+    }
+    .tree-bool-switch input:checked + .tree-bool-track {
+      background: #16a34a;
+    }
+    .tree-bool-switch input:checked + .tree-bool-track::before {
+      -webkit-transform: translateX(1.2rem);
+              transform: translateX(1.2rem);
+    }
+    .tree-bool-label {
+      font-weight: 600; min-width: 3rem;
+      color: #6b7280;
+    }
+    .tree-bool-label.true  { color: #16a34a; }
+    .tree-bool-label.false { color: #dc2626; }
+
+    .tree-null  { color: #9ca3af; font-style: italic; }
+    .tree-empty { color: #9ca3af; font-style: italic; font-size: .75rem; }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Yuruna<span id="header-version">v2026.05.15</span></h1>
+  <span id="header-machine"></span>
+</div>
+
+<main id="config-body">
+  <div class="tree-empty">Loading…</div>
+</main>
+
+<div id="config-status"></div>
+
+<div id="config-footer">
+  <button type="button" class="config-btn secondary" id="config-discard">Discard</button>
+  <button type="button" class="config-btn primary"   id="config-save">Save</button>
+</div>
+
+<script>
+/*
+  Browser baseline: this script runs unmodified on Safari iOS 9.x as well
+  as current browsers. That's why no ES2015+ syntax sugar appears below —
+  no arrow functions, template literals, async/await, destructuring,
+  optional chaining, nullish coalescing, default params, spread/rest, or
+  for-of with const. iOS 9.0–9.2 ship a ES5-only parser plus partial
+  Promise/Set/Map/Array helpers; the IIFE wrapper keeps everything off
+  the global object the same way the previous `let`-scoped script did.
+*/
+(function(){
+  'use strict';
+
+  // Minimal fetch shim for browsers without native fetch (Safari iOS 9.x).
+  // Implements just enough of the spec for this page: GET/POST, headers,
+  // body, .text() and .json() on the response. Native fetch on every other
+  // browser is left untouched.
+  if (!window.fetch) {
+    window.fetch = function(url, options) {
+      options = options || {};
+      return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open(options.method || 'GET', url, true);
+        var headers = options.headers;
+        if (headers) {
+          for (var k in headers) {
+            if (Object.prototype.hasOwnProperty.call(headers, k)) {
+              xhr.setRequestHeader(k, headers[k]);
+            }
+          }
+        }
+        xhr.onload = function() {
+          var responseText = xhr.responseText;
+          resolve({
+            ok: xhr.status >= 200 && xhr.status < 300,
+            status: xhr.status,
+            statusText: xhr.statusText,
+            text: function() { return Promise.resolve(responseText); },
+            json: function() {
+              return new Promise(function(res, rej) {
+                try { res(JSON.parse(responseText)); }
+                catch (e) { rej(e); }
+              });
+            }
+          });
+        };
+        xhr.onerror = function() { reject(new Error('Network error')); };
+        xhr.send(options.body || null);
+      });
+    };
+  }
+
+  // Live-edit test/test.config.yml. Tree view with type-aware inputs
+  // (bool toggle, number spinner, text), expandable objects/arrays.
+  // Save serializes the in-memory state and POSTs to
+  // /control/test-config; the server validates JSON and atomically
+  // replaces the file. Discard navigates back to the dashboard.
+  var configState = null;  // mutable JSON object backing the tree
+  // Allow-list of guest folders under the current host, fetched once
+  // from /control/guest-folders. Drives the guestSequence dropdown so the
+  // operator picks real folders instead of free-typing. null means the
+  // fetch failed or returned nothing — the editor falls back to plain
+  // text inputs in that case.
+  var availableGuestFolders = null;
+
+  function loadGuestFolders() {
+    return fetch('control/guest-folders?_=' + Date.now(), { cache: 'no-store' })
+      .then(function(res) {
+        if (!res.ok) { availableGuestFolders = null; return null; }
+        return res.json().then(function(data) {
+          availableGuestFolders = (Array.isArray(data) && data.length) ? data : null;
+        });
+      })
+      ['catch'](function() {
+        // Bracket form for `catch` so iOS 9.0–9.2 strict-mode parsers
+        // (which still flag `catch` in member-access position) don't
+        // complain. Same convention used elsewhere in this file.
+        availableGuestFolders = null;
+      });
+  }
+
+  function loadConfig() {
+    var body    = document.getElementById('config-body');
+    var status  = document.getElementById('config-status');
+    var saveBtn = document.getElementById('config-save');
+    body.innerHTML = '<div class="tree-empty">Loading…</div>';
+    status.textContent = '';
+    status.className = '';
+    saveBtn.disabled = true;
+    // Fetch both in parallel; the dropdown render needs the folder list
+    // before the first paint, so we await the pair.
+    return Promise.all([
+      fetch('control/test-config?_=' + Date.now(), { cache: 'no-store' }),
+      loadGuestFolders()
+    ]).then(function(results) {
+      var configRes = results[0];
+      if (!configRes.ok) throw new Error('HTTP ' + configRes.status);
+      return configRes.text();
+    }).then(function(text) {
+      configState = JSON.parse(text);
+      body.innerHTML = '';
+      // parent=null marks the root; keyOrIndex is unused on the root
+      // branch (the row is labeled "test.config.yml" instead).
+      body.appendChild(renderConfigNode(configState, null, null));
+      saveBtn.disabled = false;
+    })['catch'](function(e) {
+      body.innerHTML = '';
+      status.textContent = 'Could not load config: ' + e.message;
+      status.className = 'error';
+    });
+  }
+
+  function discardAndExit() {
+    // Discard means: do not persist. Send the operator back to the
+    // dashboard. Replace (not assign) to avoid a redundant history entry
+    // for the abandoned edit.
+    window.location.replace('index.html');
+  }
+
+  // Render a single node. Returns a DOM element. `parent` is the live
+  // object/array that owns this value (null for the root); `keyOrIndex`
+  // is the property name or array index. Edits write straight into the
+  // live state via parent[keyOrIndex] = newValue.
+  // `arrayRerender` is the parent array's renderArrayChildren closure,
+  // passed down so a guestSequence dropdown can re-render its siblings
+  // after a selection change (other rows must drop the now-used value
+  // from their option lists).
+  function renderConfigNode(value, parent, keyOrIndex, arrayRerender) {
+    var node = document.createElement('div');
+    node.className = 'tree-node';
+    var row = document.createElement('div');
+    row.className = 'tree-row';
+    node.appendChild(row);
+
+    var toggle = document.createElement('span');
+    toggle.className = 'tree-toggle leaf';
+    toggle.textContent = '';
+    row.appendChild(toggle);
+
+    var isRoot = (parent === null);
+    var keyEl = document.createElement('span');
+    keyEl.className = 'tree-key';
+    if (isRoot) {
+      // Root row labels the file rather than showing "object (N)" — the
+      // user is editing test.config.yml, not browsing a generic JSON
+      // blob, and the filename is the most useful anchor at the top.
+      keyEl.textContent = 'test.config.yml';
+    } else if (Array.isArray(parent)) {
+      keyEl.classList.add('array-index');
+      if (isguestSequenceArray(parent)) keyEl.classList.add('narrow');
+      keyEl.textContent = '[' + keyOrIndex + ']';
+    } else {
+      keyEl.textContent = keyOrIndex;
+    }
+    row.appendChild(keyEl);
+
+    var type = jsonType(value);
+
+    if (type === 'object' || type === 'array') {
+      toggle.classList.remove('leaf');
+      // Default expanded for the root and shallow nodes; collapsed for
+      // deeper leaves would suit much larger configs but ours fits in
+      // a single screen, so expand-everything is the friendlier default.
+      var expanded = true;
+      toggle.textContent = '▼';
+      // Suppress the type-and-count badge at the root: the filename
+      // already identifies the node, and "object (16)" added no signal.
+      // Type-and-count is mutated by the array add/delete affordances —
+      // capture a reference so we can rewrite it after each mutation.
+      var typeEl = null;
+      if (!isRoot) {
+        typeEl = document.createElement('span');
+        typeEl.className = 'tree-type';
+        var c0 = (type === 'array') ? value.length : Object.keys(value).length;
+        typeEl.textContent = type + ' (' + c0 + ')';
+        row.appendChild(typeEl);
+      }
+
+      var children = document.createElement('div');
+      children.className = 'tree-children';
+      node.appendChild(children);
+
+      if (type === 'array') {
+        // Re-render the children container after every structural
+        // mutation (add/delete). Splice shifts indices so a partial
+        // patch would have to renumber every surviving sibling — full
+        // rebuild is simpler and the arrays here are tiny. Recursive
+        // node state (expand/collapse on nested objects) is regenerated
+        // from scratch with the default-expanded behavior, which
+        // matches the initial render.
+        var renderArrayChildren = function() {
+          children.innerHTML = '';
+          var isguestSequence = isguestSequenceArray(value) && availableGuestFolders;
+          value.forEach(function(item, idx) {
+            // Pass renderArrayChildren down so a guestSequence dropdown
+            // can refresh its siblings' option lists after a change.
+            var childNode = renderConfigNode(item, value, idx, renderArrayChildren);
+            // Append a delete button to the child's *own* row so it
+            // sits inline with the value editor. .tree-row is the row
+            // div we appended at the start of renderConfigNode.
+            var childRow = childNode.querySelector(':scope > .tree-row');
+            if (childRow) {
+              var del = document.createElement('button');
+              del.type = 'button';
+              del.className = 'tree-array-delete';
+              del.title = 'Delete item ' + idx;
+              del.setAttribute('aria-label', 'Delete item ' + idx);
+              del.textContent = '✕';
+              (function(capturedIdx) {
+                del.onclick = function(e) {
+                  e.stopPropagation();
+                  value.splice(capturedIdx, 1);
+                  renderArrayChildren();
+                };
+              })(idx);
+              childRow.appendChild(del);
+            }
+            children.appendChild(childNode);
+          });
+          if (value.length === 0) {
+            var empty = document.createElement('div');
+            empty.className = 'tree-empty';
+            empty.textContent = '(empty array)';
+            children.appendChild(empty);
+          }
+          var addBtn = document.createElement('button');
+          addBtn.type = 'button';
+          addBtn.className = 'tree-array-add';
+          if (isguestSequence) {
+            // guestSequence: only let the operator add a guest that
+            // actually exists under this host AND isn't already in the
+            // list. When every available guest is in use, disable the
+            // button instead of letting them add an unresolvable name.
+            var used = {};
+            for (var i = 0; i < value.length; i++) used[value[i]] = true;
+            var remaining = availableGuestFolders.filter(function(g) {
+              return !used[g];
+            });
+            if (remaining.length === 0) {
+              addBtn.textContent = '+ add item (all guests added)';
+              addBtn.disabled = true;
+              addBtn.title = 'Every guest folder under this host is already in the list';
+            } else {
+              addBtn.textContent = '+ add item';
+              addBtn.onclick = function() {
+                // Re-evaluate at click time in case the operator
+                // changed selections in existing rows since render.
+                var usedNow = {};
+                for (var j = 0; j < value.length; j++) usedNow[value[j]] = true;
+                var candidate = null;
+                for (var k = 0; k < availableGuestFolders.length; k++) {
+                  if (!usedNow[availableGuestFolders[k]]) {
+                    candidate = availableGuestFolders[k];
+                    break;
+                  }
+                }
+                if (!candidate) return;
+                value.push(candidate);
+                renderArrayChildren();
+              };
+            }
+          } else {
+            addBtn.textContent = '+ add item';
+            addBtn.onclick = function() {
+              // Mirror the type of the last existing element so the
+              // input renders the same affordance the user has already
+              // been editing. Empty-array fallback is "" — strings are
+              // by far the most common element type in this config.
+              value.push(defaultForArray(value));
+              renderArrayChildren();
+            };
+          }
+          children.appendChild(addBtn);
+          if (typeEl) typeEl.textContent = type + ' (' + value.length + ')';
+        };
+        renderArrayChildren();
+      } else {
+        var keys = Object.keys(value);
+        // Display-only override: keep the on-disk file alphabetical, but
+        // float `logLevel` to the top of the root object so the most
+        // commonly tweaked setting is the first thing in the editor.
+        if (isRoot && keys.indexOf('logLevel') > 0) {
+          keys.splice(keys.indexOf('logLevel'), 1);
+          keys.unshift('logLevel');
+        }
+        for (var i = 0; i < keys.length; i++) {
+          children.appendChild(renderConfigNode(value[keys[i]], value, keys[i]));
+        }
+        if (keys.length === 0) {
+          var emptyObj = document.createElement('div');
+          emptyObj.className = 'tree-empty';
+          emptyObj.textContent = '(empty object)';
+          children.appendChild(emptyObj);
+        }
+      }
+
+      var flip = function() {
+        expanded = !expanded;
+        toggle.textContent = expanded ? '▼' : '▶';
+        children.classList.toggle('collapsed', !expanded);
+      };
+      toggle.onclick = flip;
+      keyEl.onclick = flip;
+      keyEl.style.cursor = 'pointer';
+      return node;
+    }
+
+    // Leaf: type-specific input wired to write back into `parent`.
+    if (type === 'boolean') {
+      row.appendChild(buildBoolInput(value, parent, keyOrIndex));
+    } else if (type === 'number') {
+      row.appendChild(buildNumberInput(value, parent, keyOrIndex));
+    } else if (type === 'string') {
+      // Constrained string fields render as a <select>; free-form
+      // strings get a text input. enumOptions returns null when the
+      // field has no fixed allow-list. guestSequence elements get a
+      // host-aware dropdown (real folders, no duplicates) when the
+      // /control/guest-folders fetch succeeded; otherwise fall back
+      // to a text input so the editor still works on older servers.
+      if (isguestSequenceArray(parent) && availableGuestFolders) {
+        row.appendChild(buildGuestSelect(value, parent, keyOrIndex, arrayRerender));
+      } else {
+        var enums = enumOptions(parent, keyOrIndex);
+        if (enums) {
+          row.appendChild(buildEnumInput(value, parent, keyOrIndex, enums));
+        } else {
+          row.appendChild(buildStringInput(value, parent, keyOrIndex));
+        }
+      }
+    } else if (type === 'null') {
+      var span = document.createElement('span');
+      span.className = 'tree-null';
+      span.textContent = 'null';
+      row.appendChild(span);
+    } else {
+      var spanOther = document.createElement('span');
+      spanOther.className = 'tree-null';
+      spanOther.textContent = '(' + type + ')';
+      row.appendChild(spanOther);
+    }
+    return node;
+  }
+
+  function jsonType(v) {
+    if (v === null) return 'null';
+    if (Array.isArray(v)) return 'array';
+    return typeof v;  // 'object' | 'string' | 'number' | 'boolean'
+  }
+
+  // Pick the default value for a freshly added array element. Mirrors
+  // the type of the last existing element so the new row renders the
+  // same kind of input the operator has been editing — adding to
+  // `guestSequence` (array of strings) gives a string field, adding to a
+  // hypothetical array of numbers gives a numeric field, and so on.
+  // Empty-array fallback is "" — strings are the dominant case in
+  // test.config.yml.
+  function defaultForArray(arr) {
+    if (arr.length === 0) return '';
+    var last = arr[arr.length - 1];
+    switch (jsonType(last)) {
+      case 'string':  return '';
+      case 'number':  return 0;
+      case 'boolean': return false;
+      case 'array':   return [];
+      case 'object':  return {};
+      default:        return '';
+    }
+  }
+
+  function buildBoolInput(value, parent, key) {
+    var wrap = document.createElement('span');
+    wrap.className = 'tree-bool';
+
+    var label = document.createElement('span');
+    label.className = 'tree-bool-label ' + (value ? 'true' : 'false');
+    label.textContent = value ? 'True' : 'False';
+
+    var sw = document.createElement('label');
+    sw.className = 'tree-bool-switch';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!value;
+    cb.setAttribute('role', 'switch');
+    cb.setAttribute('aria-checked', String(!!value));
+    var track = document.createElement('span');
+    track.className = 'tree-bool-track';
+    sw.appendChild(cb);
+    sw.appendChild(track);
+    cb.onchange = function() {
+      parent[key] = cb.checked;
+      label.textContent = cb.checked ? 'True' : 'False';
+      label.className = 'tree-bool-label ' + (cb.checked ? 'true' : 'false');
+      cb.setAttribute('aria-checked', String(cb.checked));
+    };
+
+    wrap.appendChild(sw);
+    wrap.appendChild(label);
+    return wrap;
+  }
+
+  function buildNumberInput(value, parent, key) {
+    var input = document.createElement('input');
+    input.type = 'number';
+    input.step = 'any';
+    input.className = 'tree-input number';
+    input.value = String(value);
+    input.oninput = function() {
+      // Empty input becomes 0 to avoid NaN poisoning the saved JSON;
+      // the user can clear and retype to set 0 explicitly.
+      var n = input.value === '' ? 0 : Number(input.value);
+      parent[key] = isFinite(n) ? n : 0;
+    };
+    return input;
+  }
+
+  function buildStringInput(value, parent, key) {
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'tree-input string';
+    input.value = value;
+    input.spellcheck = false;
+    input.oninput = function() { parent[key] = input.value; };
+    return input;
+  }
+
+  // Allow-list lookup for constrained string fields. Returns the array
+  // of permitted values, or null if the field is free-form. Mirrors the
+  // server-side validation in Update-TestConfigFromTemplate
+  // (Invoke-TestRunner.ps1) — keep the two lists in sync when adding a
+  // new option here. Matched by key name on any object parent: logLevel
+  // sits at the config root, keystrokeMechanism lives under the
+  // vmCommunication node — both names stay globally unique so the node
+  // depth does not matter. Array elements never carry an allow-list.
+  function enumOptions(parent, keyOrIndex) {
+    if (!parent || Array.isArray(parent)) return null;
+    if (keyOrIndex === 'keystrokeMechanism') return ['GUI', 'SSH'];
+    // logLevel cascade: each level shows itself + all higher-priority
+    // streams; Error is highest. Order matches the runner's
+    // Resolve-LogLevel rank map (test/Invoke-TestRunner.ps1) so the
+    // dropdown reads in severity order from "loudest only" to "noisiest".
+    if (keyOrIndex === 'logLevel') return ['Error', 'Warning', 'Information', 'Verbose', 'Debug'];
+    return null;
+  }
+
+  // Identity-compare against configState.guestSequence so nested arrays
+  // with the same shape but different role (e.g. some hypothetical
+  // future array of strings) keep their plain text inputs.
+  function isguestSequenceArray(arr) {
+    return !!(configState && Array.isArray(arr) && arr === configState.guestSequence);
+  }
+
+  // Custom <div>-based dropdown. Replaces the prior <select>-based
+  // dropdowns because Firefox-on-Wayland fails to render the window-
+  // manager popup that backs <select> on some Linux sessions (the
+  // page DOM is fine, the click is delivered, but the dropdown menu
+  // never paints). The native widget has no per-page workaround --
+  // a div-based menu rendered inside the page DOM is the durable fix,
+  // works on every browser/WM combo, looks identical to a styled
+  // <select> in Chrome.
+  //
+  // opts:
+  //   value:            current selection (string)
+  //   options:          array of { value, label, disabled? }
+  //   placeholderLabel: optional label for the trigger when value is
+  //                     stale (no matching non-disabled option)
+  //   onChange:         function(newValue) called after each pick
+  function buildCustomSelect(opts) {
+    var wrap = document.createElement('div');
+    wrap.className = 'ydd';
+    wrap.tabIndex = 0;
+    wrap.setAttribute('role', 'combobox');
+    wrap.setAttribute('aria-haspopup', 'listbox');
+    wrap.setAttribute('aria-expanded', 'false');
+
+    var current = document.createElement('span');
+    current.className = 'ydd-current';
+    wrap.appendChild(current);
+
+    var arrow = document.createElement('span');
+    arrow.className = 'ydd-arrow';
+    arrow.textContent = '▾';   // ▾ (down-pointing triangle)
+    wrap.appendChild(arrow);
+
+    var menu = document.createElement('div');
+    menu.className = 'ydd-menu';
+    menu.setAttribute('role', 'listbox');
+    menu.hidden = true;
+    wrap.appendChild(menu);
+
+    var optionEls = [];
+    var selectedValue = opts.value;
+    var activeIndex = -1;
+
+    function findOptionForValue(v) {
+      for (var i = 0; i < opts.options.length; i++) {
+        if (opts.options[i].value === v && !opts.options[i].disabled) return i;
+      }
+      return -1;
+    }
+
+    function render() {
+      var idx = findOptionForValue(selectedValue);
+      if (idx >= 0) {
+        current.textContent = opts.options[idx].label;
+        current.classList.remove('ydd-stale');
+      } else if (opts.placeholderLabel) {
+        current.textContent = opts.placeholderLabel;
+        current.classList.add('ydd-stale');
+      } else {
+        current.textContent = selectedValue || '';
+        current.classList.remove('ydd-stale');
+      }
+      for (var i = 0; i < optionEls.length; i++) {
+        var item = opts.options[i];
+        var sel = item.value === selectedValue && !item.disabled;
+        optionEls[i].classList.toggle('is-selected', sel);
+        optionEls[i].setAttribute('aria-selected', sel ? 'true' : 'false');
+      }
+    }
+
+    for (var i = 0; i < opts.options.length; i++) {
+      (function (item, idx) {
+        var el = document.createElement('div');
+        el.className = 'ydd-item';
+        if (item.disabled) el.classList.add('is-disabled');
+        el.setAttribute('role', 'option');
+        el.textContent = item.label;
+        // mousedown (not click) so the pick happens BEFORE wrap blurs
+        // and our blur handler closes the menu underneath us.
+        el.onmousedown = function (e) {
+          e.preventDefault();
+          if (item.disabled) return;
+          selectedValue = item.value;
+          close();
+          render();
+          if (typeof opts.onChange === 'function') {
+            opts.onChange(selectedValue);
+          }
+        };
+        el.onmouseenter = function () {
+          if (!item.disabled) { activeIndex = idx; updateActive(); }
+        };
+        optionEls.push(el);
+        menu.appendChild(el);
+      })(opts.options[i], i);
+    }
+
+    function updateActive() {
+      for (var i = 0; i < optionEls.length; i++) {
+        optionEls[i].classList.toggle('is-active', i === activeIndex);
+      }
+      if (activeIndex >= 0 && optionEls[activeIndex]) {
+        var el = optionEls[activeIndex];
+        var elTop = el.offsetTop;
+        var elBot = elTop + el.offsetHeight;
+        if (elTop < menu.scrollTop) menu.scrollTop = elTop;
+        else if (elBot > menu.scrollTop + menu.clientHeight) {
+          menu.scrollTop = elBot - menu.clientHeight;
+        }
+      }
+    }
+
+    function open() {
+      if (!menu.hidden) return;
+      menu.hidden = false;
+      wrap.setAttribute('aria-expanded', 'true');
+      wrap.classList.add('is-open');
+      activeIndex = findOptionForValue(selectedValue);
+      if (activeIndex < 0) {
+        for (var i = 0; i < opts.options.length; i++) {
+          if (!opts.options[i].disabled) { activeIndex = i; break; }
+        }
+      }
+      updateActive();
+      // Capture-phase so we see the click before any per-element handler
+      // can stop propagation. Outside-click should always close.
+      document.addEventListener('mousedown', onDocMouseDown, true);
+    }
+
+    function close() {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      wrap.setAttribute('aria-expanded', 'false');
+      wrap.classList.remove('is-open');
+      activeIndex = -1;
+      for (var i = 0; i < optionEls.length; i++) {
+        optionEls[i].classList.remove('is-active');
+      }
+      document.removeEventListener('mousedown', onDocMouseDown, true);
+    }
+
+    function onDocMouseDown(e) {
+      if (!wrap.contains(e.target)) close();
+    }
+
+    function moveActive(delta) {
+      var n = opts.options.length;
+      if (n === 0) return;
+      var i = activeIndex;
+      for (var step = 0; step < n; step++) {
+        i = (i + delta + n) % n;
+        if (!opts.options[i].disabled) { activeIndex = i; break; }
+      }
+      updateActive();
+    }
+
+    function keyOf(e) {
+      // KeyboardEvent.key landed in Safari iOS 10.3; iOS 9 only has
+      // .keyCode. Map the codes we care about.
+      if (e.key) return e.key;
+      switch (e.keyCode) {
+        case 13: return 'Enter';
+        case 27: return 'Escape';
+        case 32: return ' ';
+        case 38: return 'ArrowUp';
+        case 40: return 'ArrowDown';
+        default: return '';
+      }
+    }
+
+    wrap.onclick = function (e) {
+      // mousedown on a menu item already selected + closed; ignore the
+      // trailing click so we don't reopen.
+      if (menu.contains(e.target)) return;
+      if (menu.hidden) open(); else close();
+    };
+
+    wrap.onkeydown = function (e) {
+      var k = keyOf(e);
+      if (menu.hidden) {
+        if (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Enter' || k === ' ') {
+          e.preventDefault(); open();
+        }
+        return;
+      }
+      if (k === 'Escape') {
+        e.preventDefault(); close();
+      } else if (k === 'ArrowDown') {
+        e.preventDefault(); moveActive(1);
+      } else if (k === 'ArrowUp') {
+        e.preventDefault(); moveActive(-1);
+      } else if (k === 'Enter' || k === ' ') {
+        e.preventDefault();
+        if (activeIndex >= 0 && !opts.options[activeIndex].disabled) {
+          selectedValue = opts.options[activeIndex].value;
+          close();
+          render();
+          if (typeof opts.onChange === 'function') {
+            opts.onChange(selectedValue);
+          }
+        }
+      }
+    };
+
+    wrap.onblur = function () {
+      // Defer so a click on a menu item gets to fire mousedown first.
+      setTimeout(function () {
+        if (!wrap.contains(document.activeElement)) close();
+      }, 0);
+    };
+
+    render();
+    return wrap;
+  }
+
+  // Dropdown for one guestSequence entry. Stored value is the full folder
+  // name ("guest.amazon.linux") for compatibility with the runner;
+  // displayed label drops the "guest." prefix to match the Guests
+  // column on the dashboard. Already-used folders are filtered out so
+  // each guest can appear at most once in the cycle. The current value
+  // is always kept in the option list — even if it's no longer a real
+  // folder — and tagged so the operator sees what's about to be saved.
+  function buildGuestSelect(value, parent, idx, onChange) {
+    var used = {};
+    for (var i = 0; i < parent.length; i++) {
+      if (i !== idx && typeof parent[i] === 'string') used[parent[i]] = true;
+    }
+    var allowed = availableGuestFolders.filter(function(g) {
+      return g === value || !used[g];
+    });
+    var matched = false;
+    var options = [];
+    for (var j = 0; j < allowed.length; j++) {
+      var g = allowed[j];
+      if (g === value) matched = true;
+      options.push({ value: g, label: g.replace(/^guest\./, '') });
+    }
+    var placeholderLabel = null;
+    if (!matched) {
+      // Stale/typo entry from the file: surface it as a disabled
+      // placeholder so the operator can see what's being replaced
+      // without us silently rewriting their input.
+      placeholderLabel = (value || '(empty)') + ' (not under host folder)';
+      options.unshift({ value: value, label: placeholderLabel, disabled: true });
+    }
+    return buildCustomSelect({
+      value: value,
+      options: options,
+      placeholderLabel: placeholderLabel,
+      onChange: function (newValue) {
+        parent[idx] = newValue;
+        // Re-render siblings so they drop the now-used value from their
+        // option lists. onChange is the parent array's renderArrayChildren.
+        // Defer so the dropdown's own state update settles before we
+        // tear it down + rebuild.
+        if (typeof onChange === 'function') {
+          setTimeout(onChange, 0);
+        }
+      }
+    });
+  }
+
+  function buildEnumInput(value, parent, key, options) {
+    // If the file holds a legacy/typo value not in the allow-list,
+    // surface it as a disabled placeholder so the operator sees what's
+    // being replaced — and silently coerce parent[key] to the canonical
+    // default so a save without further interaction persists a valid
+    // value (matches the runner's Update-TestConfigFromTemplate, which
+    // resets unrecognized values to the template default).
+    var current = String(value);
+    var matched = false;
+    var optList = [];
+    for (var i = 0; i < options.length; i++) {
+      if (options[i] === current) matched = true;
+      optList.push({ value: options[i], label: options[i] });
+    }
+    var placeholderLabel = null;
+    if (!matched) {
+      placeholderLabel = current + ' (invalid — pick one)';
+      optList.unshift({ value: current, label: placeholderLabel, disabled: true });
+      parent[key] = options[0];
+    }
+    return buildCustomSelect({
+      value: current,
+      options: optList,
+      placeholderLabel: placeholderLabel,
+      onChange: function (newValue) { parent[key] = newValue; }
+    });
+  }
+
+  function saveConfig() {
+    var status     = document.getElementById('config-status');
+    var saveBtn    = document.getElementById('config-save');
+    var discardBtn = document.getElementById('config-discard');
+    if (!configState) return;
+    var payload;
+    try {
+      payload = JSON.stringify(configState, null, 2) + '\n';
+    } catch (e) {
+      status.textContent = 'Could not serialize: ' + e.message;
+      status.className = 'error';
+      return;
+    }
+    saveBtn.disabled = true;
+    discardBtn.disabled = true;
+    status.textContent = 'Saving…';
+    status.className = '';
+    fetch('control/test-config', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload
+    }).then(function(res) {
+      return res.text().then(function(text) {
+        var body = null;
+        try { body = JSON.parse(text); } catch (_e) { /* non-JSON error */ }
+        if (!res.ok || !body || !body.ok) {
+          var msg = (body && body.error) ? body.error : ('HTTP ' + res.status);
+          status.textContent = 'Save failed: ' + msg;
+          status.className = 'error';
+          saveBtn.disabled = false;
+          discardBtn.disabled = false;
+          return;
+        }
+        status.textContent = 'Saved. Returning to dashboard…';
+        status.className = 'ok';
+        // Brief delay so the operator sees the confirmation before
+        // navigation; matches the immediate-settle pattern of the
+        // SSH/pause controls on the dashboard.
+        setTimeout(function() { window.location.replace('index.html'); }, 600);
+      });
+    })['catch'](function(e) {
+      status.textContent = 'Save failed: ' + e.message;
+      status.className = 'error';
+      saveBtn.disabled = false;
+      discardBtn.disabled = false;
+    });
+  }
+
+  // Mirror the dashboard's #header-machine label so the page identifies
+  // the host the operator is editing — name on top, "(host-type)" below.
+  // The back-link sits as a sibling of the stack inside #header-machine
+  // so the inline-flex + align-items:center layout puts it at the same
+  // vertical position as index.html's Edit-config link (centered against
+  // the 2-line stack rather than baseline-aligned with the first line).
+  // Soft fetch: if status.json is missing (no test cycle has ever run on
+  // this host), fall back to the URL hostname like the dashboard does.
+  function renderHeaderMachine(el, name, host) {
+    el.textContent = '';
+    var stack = document.createElement('span');
+    stack.className = 'hm-stack';
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'hm-name';
+    nameSpan.textContent = name;
+    stack.appendChild(nameSpan);
+    if (host) {
+      var hostSpan = document.createElement('span');
+      hostSpan.className = 'hm-host';
+      hostSpan.textContent = '(' + host + ')';
+      stack.appendChild(hostSpan);
+    }
+    el.appendChild(stack);
+    var backLink = document.createElement('a');
+    backLink.className = 'back-link';
+    backLink.href = 'index.html';
+    backLink.textContent = '← Dashboard';
+    el.appendChild(backLink);
+  }
+
+  function loadHeaderMachine() {
+    var el = document.getElementById('header-machine');
+    if (!el) return;
+    fetch('track/status.json?_=' + Date.now(), { cache: 'no-store' })
+      .then(function(res) {
+        if (res.ok) return res.json();
+        return null;
+      })
+      .then(function(data) {
+        if (data && data.hostname) {
+          var hostLabel = data.host ? data.host.replace('host.', '') : '';
+          renderHeaderMachine(el, data.hostname, hostLabel);
+        } else {
+          renderHeaderMachine(el, window.location.hostname || '', '');
+        }
+      })
+      ['catch'](function() {
+        renderHeaderMachine(el, window.location.hostname || '', '');
+      });
+  }
+
+  document.getElementById('config-discard').onclick = discardAndExit;
+  document.getElementById('config-save').onclick    = saveConfig;
+  // KeyboardEvent.key landed in Safari iOS 10.3; iOS 9 only exposes
+  // .keyCode (27 == Escape) and the deprecated .which. Check all three
+  // so the shortcut works across the supported range.
+  document.addEventListener('keydown', function(e) {
+    var isEsc = (e.key === 'Escape') ||
+                (e.key === 'Esc') ||
+                (e.keyCode === 27) ||
+                (e.which === 27);
+    if (isEsc) discardAndExit();
+  });
+
+  loadHeaderMachine();
+  loadConfig();
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,263 @@
+﻿<#PSScriptInfo
+.VERSION 2026.05.15
+.GUID 42b9c0d1-e2f3-4a56-b789-0c1d2e3f4a57
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.com
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
+# Each level shows itself + all higher-priority streams; Error is highest.
+if ($env:YURUNA_LOG_LEVEL) {
+    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
+    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
+        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
+        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
+        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
+        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
+        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
+        if ($_eff -ge $_rank.Verbose) { $ProgressPreference = 'SilentlyContinue' }
+    }
+}
+
+# === Configuration (change these to customize the download) ===
+$downloadDir = "$HOME/yuruna/image/windows.env"
+$baseImageName = "host.macos.utm.guest.windows.11"
+$baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
+$spiceImageName = "host.macos.utm.guest.windows.11.spice.iso"
+$spiceImageFile = Join-Path $downloadDir $spiceImageName
+# UTM Guest Tools ISO (includes SPICE + VirtIO drivers for ARM64 Windows)
+$spiceDownloadUrl = "https://getutm.app/downloads/utm-guest-tools-latest.iso"
+
+# Fido settings (change these to download a different edition/language)
+$fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1"
+$languageFilter = "English"
+
+# Manual download fallback
+$downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11arm64"
+
+Write-Output ""
+Write-Output "=== Image Download ==="
+Write-Output "Download folder: $downloadDir"
+New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+if (!(Test-Path -Path $downloadDir)) {
+    Write-Output "The download folder does not exist and could not be created: $downloadDir"
+    exit 1
+}
+
+# Track whether each image is ready
+$windowsOk = $false
+$spiceOk = $false
+
+# ===========================================================================
+# 1) Windows 11 ARM64 ISO
+# ===========================================================================
+Write-Output ""
+Write-Output "--- Windows 11 ARM64 ISO ---"
+
+if (Test-Path -Path $baseImageFile) {
+    Write-Output "Skipping Windows download since ISO for this host is already present"
+    Write-Output "  File: $baseImageFile"
+    $windowsOk = $true
+} else {
+    # Check if a Windows 11 ARM64 ISO was placed in the download directory with any name
+    $existingIso = Get-ChildItem -Path $downloadDir -Filter "*.iso" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match 'Win11.*ARM|Windows.*11.*ARM|ARM.*Win.*11' } |
+        Select-Object -First 1
+    if ($existingIso) {
+        Write-Output "Found Windows 11 ARM64 ISO: $($existingIso.FullName)"
+        Write-Output "Renaming to: $baseImageFile"
+        $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
+        Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+        if (Test-Path $baseImageFile) {
+            Move-Item -Path $baseImageFile -Destination $previousFile
+            Write-Output "Previous image preserved as: $previousFile"
+        }
+        $existingIsoOriginalPath = $existingIso.FullName
+        Move-Item -Path $existingIso.FullName -Destination $baseImageFile
+        $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+        Set-Content -Path $baseImageOrigin -Value @($existingIso.Name, [System.Uri]::new($existingIsoOriginalPath).AbsoluteUri)
+        Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+        Write-Output "Done: $baseImageFile"
+        $windowsOk = $true
+    }
+}
+
+if (-not $windowsOk) {
+    # === Try Fido (automated) ===
+    Write-Output ""
+    Write-Output "Attempting automated download via Fido..."
+    $fidoScript = Join-Path $PSScriptRoot "Fido.ps1"
+    $downloadUrl = $null
+
+    try {
+        Write-Output "[Step 1/3] Downloading Fido script..."
+        Write-Output "  URL: $fidoUrl"
+        Invoke-WebRequest -Uri $fidoUrl -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
+        Unblock-File $fidoScript
+        Write-Output "  Done."
+
+        Write-Output "[Step 2/3] Retrieving Windows 11 ARM64 ISO download URL..."
+        Write-Output "  Language: $languageFilter | Architecture: arm64"
+        $downloadUrl = & $fidoScript -Win 11 -Lang $languageFilter -Arch arm64 -GetUrl
+
+        if (-not $downloadUrl) {
+            throw "Fido did not return a download URL."
+        }
+        Write-Output "  Download URL: $downloadUrl"
+
+        Write-Output "[Step 3/3] Downloading Windows 11 ARM64 ISO..."
+        $downloadFile = Join-Path $downloadDir "downloaded.iso"
+        Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+        Write-Output "  Destination: $downloadFile"
+        Write-Output "  This may take a while depending on your connection speed..."
+
+        # Use BITS for progress, fall back to Invoke-WebRequest
+        try {
+            Import-Module BitsTransfer -ErrorAction Stop
+            $bitsJob = Start-BitsTransfer -Source $downloadUrl -Destination $downloadFile -Asynchronous -DisplayName "Windows 11 ARM64 ISO"
+            while ($bitsJob.JobState -eq "Transferring" -or $bitsJob.JobState -eq "Connecting") {
+                if ($bitsJob.BytesTotal -gt 0) {
+                    $pct = [math]::Round(($bitsJob.BytesTransferred / $bitsJob.BytesTotal) * 100, 1)
+                    $transferredGB = [math]::Round($bitsJob.BytesTransferred / 1GB, 2)
+                    $totalGB = [math]::Round($bitsJob.BytesTotal / 1GB, 2)
+                    Write-Progress -Activity "Downloading Windows 11 ARM64 ISO" -Status "$transferredGB GB / $totalGB GB ($pct%)" -PercentComplete $pct
+                } else {
+                    Write-Progress -Activity "Downloading Windows 11 ARM64 ISO" -Status "Connecting..."
+                }
+                Start-Sleep -Seconds 2
+            }
+            Write-Progress -Activity "Downloading Windows 11 ARM64 ISO" -Completed
+            if ($bitsJob.JobState -eq "Transferred") {
+                Complete-BitsTransfer -BitsJob $bitsJob
+            } else {
+                Remove-BitsTransfer -BitsJob $bitsJob -ErrorAction SilentlyContinue
+                throw "BITS ended in state: $($bitsJob.JobState)"
+            }
+        } catch {
+            Write-Output "  BITS unavailable or failed. Downloading with Invoke-WebRequest..."
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -ErrorAction Stop
+        }
+
+        if (-not (Test-Path $downloadFile)) {
+            throw "Download failed: file not found."
+        }
+
+        $fileSize = (Get-Item $downloadFile).Length
+        Write-Output "  Downloaded: $([math]::Round($fileSize / 1GB, 2)) GB"
+        if ($fileSize -lt 1GB) {
+            throw "Downloaded file is suspiciously small (< 1 GB). It may not be a valid ISO."
+        }
+
+        $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
+        Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+        if (Test-Path $baseImageFile) {
+            Move-Item -Path $baseImageFile -Destination $previousFile
+            Write-Output "  Previous image preserved as: $previousFile"
+        }
+        Move-Item -Path $downloadFile -Destination $baseImageFile -Force
+        $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+        $originalName = [System.IO.Path]::GetFileName(([System.Uri]$downloadUrl).LocalPath)
+        Set-Content -Path $baseImageOrigin -Value @($originalName, $downloadUrl)
+        Write-Output "  Recorded source filename and URL to: $baseImageOrigin"
+        Write-Output "  Saved as: $baseImageFile"
+        $windowsOk = $true
+
+    } catch {
+        Write-Warning "Automated download failed: $_"
+        if ($downloadFile -and (Test-Path $downloadFile)) {
+            Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+if (-not $windowsOk) {
+    Write-Output ""
+    Write-Output "  Manual download required for Windows 11 ARM64 ISO:"
+    Write-Output ""
+    Write-Output "    1. Open: $downloadPageUrl"
+    Write-Output "    2. Select 'Windows 11 (multi-edition ISO for ARM64 devices)'"
+    Write-Output "    3. Click Confirm"
+    Write-Output "    4. Select 'English' as the language"
+    Write-Output "    5. Click Confirm"
+    Write-Output "    6. Click the 'ARM64 Download' button"
+    Write-Output "    7. Save the ISO file as: $baseImageFile"
+    Write-Output "       Or save any *ARM*.iso file to: $downloadDir"
+    Write-Output ""
+    Write-Output "  Then run this script again to continue."
+}
+
+# ===========================================================================
+# 2) UTM Guest Tools ISO (SPICE + VirtIO drivers, ARM64-compatible)
+# ===========================================================================
+Write-Output ""
+Write-Output "--- UTM Guest Tools ISO (SPICE + VirtIO drivers for ARM64) ---"
+
+if (Test-Path -Path $spiceImageFile) {
+    Write-Output "Already exists: $spiceImageFile"
+    $spiceOk = $true
+} else {
+    Write-Output "Downloading from: $spiceDownloadUrl"
+    $spiceDownloadFile = Join-Path $downloadDir "utm-guest-tools-download.iso"
+    Remove-Item $spiceDownloadFile -Force -ErrorAction SilentlyContinue
+    try {
+        Invoke-WebRequest -Uri $spiceDownloadUrl -OutFile $spiceDownloadFile -ErrorAction Stop
+        if (-not (Test-Path $spiceDownloadFile)) {
+            throw "Download failed: file not found."
+        }
+        $spiceSize = (Get-Item $spiceDownloadFile).Length
+        if ($spiceSize -lt 1MB) {
+            throw "Downloaded file is too small ($spiceSize bytes). It may not be a valid ISO."
+        }
+        $spicePreviousFile = Join-Path $downloadDir "$($spiceImageName -replace '\.iso$','.previous.iso')"
+        Remove-Item $spicePreviousFile -Force -ErrorAction SilentlyContinue
+        if (Test-Path $spiceImageFile) {
+            Move-Item -Path $spiceImageFile -Destination $spicePreviousFile
+            Write-Output "  Previous SPICE image preserved as: $spicePreviousFile"
+        }
+        Move-Item -Path $spiceDownloadFile -Destination $spiceImageFile -Force
+        $spiceImageOrigin = Join-Path $downloadDir ([System.IO.Path]::GetFileNameWithoutExtension($spiceImageName) + ".txt")
+        $spiceOriginalName = [System.IO.Path]::GetFileName(([System.Uri]$spiceDownloadUrl).LocalPath)
+        Set-Content -Path $spiceImageOrigin -Value @($spiceOriginalName, $spiceDownloadUrl)
+        Write-Output "  Recorded source filename and URL to: $spiceImageOrigin"
+        Write-Output "  Saved as: $spiceImageFile"
+        $spiceOk = $true
+    } catch {
+        Write-Warning "Automated download of UTM Guest Tools ISO failed: $_"
+        Remove-Item $spiceDownloadFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if (-not $spiceOk) {
+    Write-Output ""
+    Write-Output "  Manual download required for UTM Guest Tools ISO:"
+    Write-Output ""
+    Write-Output "    1. Open: https://docs.getutm.app/guest-support/windows/"
+    Write-Output "    2. Download the UTM Guest Tools ISO linked on that page"
+    Write-Output "       (contains SPICE tools and VirtIO drivers including arm64)"
+    Write-Output "    3. Save the file as: $spiceImageFile"
+    Write-Output ""
+    Write-Output "  Then run this script again to continue."
+}
+
+# ===========================================================================
+# Final status
+# ===========================================================================
+Write-Output ""
+if ($windowsOk -and $spiceOk) {
+    Write-Output "=== All images ready ==="
+    exit 0
+} else {
+    Write-Output "=== Some images are missing — see manual download instructions above ==="
+    exit 1
+}

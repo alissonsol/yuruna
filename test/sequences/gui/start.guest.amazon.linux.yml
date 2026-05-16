@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# Interaction sequence for driving VM installation.
+# See possible actions in the actions.yml file.
+# ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step
+# parameters. ${ext:area.Method(args)} invokes the active extension under
+# test/extension/<area>/.
+
+description: "Amazon Linux: first login, change password, run update script, reboot."
+baseline:
+  amazon.linux: []
+variables:
+  username: yauser1
+
+steps:
+  - action: waitForText
+    pattern: "login:"
+    timeoutSeconds: 300
+    description: "Initial boot: wait for login prompt to appear"
+
+  - action: inputKey
+    name: Enter
+    description: "Push agetty to redraw a fresh login"
+
+  - action: waitForSeconds
+    seconds: 2
+    description: "Let agetty redraw before resyncing on login:"
+
+  - action: passwdPrompt
+    pattern: "login:"
+    text: "${username}"
+    description: "${vmName} login:"
+
+  - action: passwdPrompt
+    pattern: "Password:"
+    text: "${ext:authentication.GetPassword(${username})}"
+    description: "Password:"
+
+  - action: passwdPrompt
+    pattern: ["Current password", "urrent password:"]
+    text: "${ext:authentication.GetPassword(${username})}"
+    description: "Current password:"
+
+  - action: passwdPrompt
+    pattern: ["New password", "ew password:"]
+    text: "${ext:authentication.NewRandomPassword()}"
+    description: "New password:"
+
+  - action: passwdPrompt
+    pattern: ["Retype new password", "etype new password:"]
+    text: "${ext:authentication.NewRandomPassword()}"
+    description: "Retype new password:"
+
+  - action: callExtension
+    method: authentication.SetPassword
+    args:
+      Username: "${username}"
+      NewPassword: "${ext:authentication.NewRandomPassword()}"
+    description: "Commit the rotated password to the vault."
+
+  - action: waitForSeconds
+    seconds: 15
+    description: "Pause before updating"
+
+  - action: fetchAndExecute
+    text: "sudo bash /automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.update.sh"
+    description: "amazon.linux.update.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 900
+
+  - action: saveSystemDiagnostic
+    id: yuruna.update
+    description: "Capture diagnostics after update, before reboot"
+
+  - action: inputTextAndEnter
+    text: "clear; sudo reboot now"
+    description: "Reboot the VM"

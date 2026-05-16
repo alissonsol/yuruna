@@ -1,0 +1,75 @@
+<#PSScriptInfo
+.VERSION 2026.05.15
+.GUID 42c1e3f4-a5b6-4789-0123-4c5d6e7f8091
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS Yuruna.Clear
+.LICENSEURI https://yuruna.com
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES powershell-yaml
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+$yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
+$modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Import.Yaml.psm1"
+Import-Module -Name $modulePath
+$validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
+Import-Module -Name $validationModulePath
+
+function Clear-Configuration {
+    param (
+        $project_root,
+        $config_subfolder
+    )
+
+    if (!(Confirm-ResourceList $project_root $config_subfolder)) { return $false; }
+    Write-Debug "---- Destroying Resources"
+
+    $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
+    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
+    $yaml = ConvertFrom-File $resourcesFile
+
+    # Global variables saved expanded for reuse
+    if ((-Not ($null -eq $yaml.globalVariables)) -and (-Not ($null -eq $yaml.globalVariables.Keys))) {
+        $keys = @($yaml.globalVariables.Keys)
+        foreach ($key in $keys) {
+            $value = $ExecutionContext.InvokeCommand.ExpandString($yaml.globalVariables[$key])
+            Write-Debug "globalVariables[$key] = $value"
+            Set-Item -Path Env:$key -Value ${value}
+            $yaml.globalVariables[$key] = $value
+        }
+    }
+
+    if ($null -eq $yaml.resources) { Write-Information "Resources null or empty in file: $resourcesFile"; return $true; }
+    foreach ($resource in $yaml.resources) {
+        $resourceName = $ExecutionContext.InvokeCommand.ExpandString($resource['name'])
+        $resourceTemplate = $resource['template']
+        Write-Debug "resource: $resourceName - template: $resourceTemplate"
+        if ([string]::IsNullOrEmpty($resourceName)) { Write-Information "Resource without name in file: $resourcesFile"; return $false; }
+        # Empty template: just naming an already-existing resource, nothing to destroy
+        if (![string]::IsNullOrEmpty($resourceTemplate)) {
+            $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources/$resourceName"
+            if (-Not ([string]::IsNullOrEmpty($workFolder))) {
+                $workFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
+                if (-Not ([string]::IsNullOrEmpty($workFolder))) {
+                    Push-Location $workFolder
+                    Write-Information "-- Clear: $workFolder"
+                    $result = tofu destroy -auto-approve -refresh=false
+                    Write-Debug "OpenTofu destroy: $result"
+                    Pop-Location
+                    Remove-Item -Path $workFolder -Force -Recurse -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
+    return $true;
+}
+
+Export-ModuleMember -Function * -Alias *

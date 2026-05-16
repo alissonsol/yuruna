@@ -1,0 +1,420 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Various IDEs and editors
+*.tmproj
+.idea/
+.project
+.vs/
+.vscode/
+
+# Claude
+.claude/
+CLAUDE.md
+
+# Yuruna test harness SSH keys (generated per-host on first run)
+test/.ssh/
+
+# User-specific files
+*.rsuser
+*.sln.docstates
+*.suo
+*.user
+*.userosscache
+
+# User-specific files (MonoDevelop/Xamarin Studio)
+*.userprefs
+
+# Mono auto generated files
+mono_crash.*
+
+# Build results
+bld/
+build/
+dist/
+x64/
+x86/
+[Bb]in/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Ll]og/
+[Ll]ogs/
+[Oo]bj/
+[Rr]elease/
+[Rr]eleases/
+
+# Distribution packages
+*-dist-*.zip
+
+# Visual Studio 2017 auto generated files
+Generated\ Files/
+
+# MSTest test Results
+[Bb]uild[Ll]og.*
+[Tt]est[Rr]esult*/
+
+# NUnit
+*.VisualState.xml
+nunit-*.xml
+TestResult.xml
+
+# Build Results of an ATL Project
+dlldata.c
+[Dd]ebugPS/
+[Rr]eleasePS/
+
+# Benchmark Results
+BenchmarkDotNet.Artifacts/
+
+# .NET Core
+artifacts/
+project.fragment.lock.json
+project.lock.json
+
+# StyleCop
+StyleCopReport.xml
+
+# Files built by Visual Studio
+*.ilk
+*.iobj
+*.ipdb
+*.log
+*.meta
+*.obj
+*.pch
+*.pdb
+*.pgc
+*.pgd
+*.pidb
+*.rsp
+*.sbr
+*.scc
+*.svclog
+*.tlb
+*.tlh
+*.tli
+*.tmp
+*.tmp_proj
+*.vspscc
+*.vssscc
+*_h.h
+*_i.c
+*_p.c
+*_wpftmp.csproj
+.builds
+
+# Chutzpah Test files
+_Chutzpah*
+
+# Visual C++ cache files
+*.aps
+*.cachefile
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.VC.opendb
+ipch/
+
+# Visual Studio profiler
+*.psess
+*.sap
+*.vsp
+*.vspx
+
+# Visual Studio Trace Files
+*.e2e
+
+# TFS 2012 Local Workspace
+$tf/
+
+# Guidance Automation Toolkit
+*.gpState
+
+# ReSharper is a .NET coding add-in
+*.DotSettings.user
+*.[Rr]e[Ss]harper
+_ReSharper*/
+
+# TeamCity is a build add-in
+_TeamCity*
+
+# DotCover is a Code Coverage Tool
+*.dotCover
+
+# AxoCover is a Code Coverage Tool
+.axoCover/*
+!.axoCover/settings.json
+
+# Visual Studio code coverage results
+*.coverage
+*.coveragexml
+
+# NCrunch
+.*crunch*.local.xml
+nCrunchTemp_*
+_NCrunch_*
+
+# MightyMoose
+*.mm.*
+AutoTest.Net/
+
+# Web workbench (sass)
+.sass-cache/
+
+# Installshield output folder
+[Ee]xpress/
+
+# DocProject is a documentation generator add-in
+DocProject/buildhelp/
+DocProject/Help/*.hhc
+DocProject/Help/*.hhk
+DocProject/Help/*.hhp
+DocProject/Help/*.HxC
+DocProject/Help/*.HxT
+DocProject/Help/html
+DocProject/Help/Html2
+
+# Click-Once directory
+publish/
+
+# Publish Web Output
+*.azurePubxml
+*.publishproj
+*.pubxml
+*.[Pp]ublish.xml
+
+# Microsoft Azure Web App publish settings
+PublishScripts/
+
+# NuGet Packages
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+*.nupkg
+*.snupkg
+
+# Microsoft Azure Build Output
+*.build.csdef
+csx/
+
+# Microsoft Azure Emulator
+ecf/
+rcf/
+
+# Windows Store app package directories and files
+*.appx
+*.appxbundle
+*.appxupload
+AppPackages/
+BundleArtifacts/
+Package.StoreAssociation.xml
+_pkginfo.txt
+
+# Visual Studio cache files
+*.[Cc]ache
+!?*.[Cc]ache/
+
+# Others
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+*~
+ClientBin/
+orleans.codegen.cs
+~$*
+
+# RIA/Silverlight projects
+Generated_Code/
+
+# Backup & report files from converting an old project file
+*.rptproj.bak
+Backup*/
+ServiceFabricBackup/
+UpgradeLog*.htm
+UpgradeLog*.XML
+_UpgradeReport_Files/
+
+# SQL Server files
+*.ldf
+*.mdf
+*.ndf
+
+# Business Intelligence projects
+*- [Bb]ackup ([0-9]).rdl
+*- [Bb]ackup ([0-9][0-9]).rdl
+*- [Bb]ackup.rdl
+*.bim.layout
+*.bim_*.settings
+*.rdl.data
+*.rptproj.rsuser
+
+# Microsoft Fakes
+FakesAssemblies/
+
+# GhostDoc plugin setting file
+*.GhostDoc.xml
+
+# Node.js
+.ntvs_analysis.dat
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Visual Studio 6 build log
+*.plg
+
+# Visual Studio 6 workspace options file
+*.opt
+
+# Visual Studio 6 auto-generated workspace file
+*.vbw
+
+# Visual Studio LightSwitch build output
+**/*.DesktopClient/GeneratedArtifacts
+**/*.DesktopClient/ModelManifest.xml
+**/*.HTMLClient/GeneratedArtifacts
+**/*.Server/GeneratedArtifacts
+**/*.Server/ModelManifest.xml
+_Pvt_Extensions
+
+# Paket dependency manager
+.paket/paket.exe
+paket-files/
+
+# FAKE - F# Make
+.fake/
+
+# CodeRush personal settings
+.cr/personal
+
+# Python
+*.pyc
+__pycache__/
+
+# Tabs Studio
+*.tss
+
+# Telerik's JustMock configuration file
+*.jmconfig
+
+# BizTalk build output
+*.btm.cs
+*.btp.cs
+*.odx.cs
+*.xsd.cs
+
+# OpenCover UI analysis results
+OpenCover/
+
+# Azure Stream Analytics local run output
+ASALocalRun/
+
+# MSBuild Binary and Structured Log
+*.binlog
+
+# NVidia Nsight GPU debugger configuration file
+*.nvuser
+
+# MFractors (Xamarin productivity tool) working folder
+.mfractor/
+
+# Local History for Visual Studio
+.localhistory/
+
+# BeatPulse healthcheck temp database
+healthchecksdb
+
+# Backup folder for Package Reference Convert tool in Visual Studio 2017
+MigrationBackup/
+
+# Ionide (cross platform F# VS Code tools) working folder
+.ionide/
+
+# OpenTofu / Terraform
+**/.terraform*
+*.tfstate
+*.tfstate.*
+*_override.tf
+*_override.tf.json
+override.tf
+override.tf.json
+
+# Web libraries
+**/wwwroot/lib/*
+
+# Kube config
+kubeconfig_*
+
+# Crash log files
+crash.log
+
+# Test configuration (contains credentials)
+test/test-config.json
+test/test.config.yml
+test/test.config.yml.backup
+
+# Per-cycle authentication vault and lock sentinel (test/extension/authentication/).
+# Wiped on cycle success; left in place on failure for debugging. Plaintext.
+test/extension/authentication/vault.lock
+test/extension/authentication/vault.yml
+
+# Notification transports + subscribers (test/extension/notification/).
+# Template ships in-tree; live config is gitignored because it carries Resend API keys.
+test/extension/notification/notification.transports.yml
+
+# Per-cycle authentication event log (JSON-lines; never logs password values).
+test/status/track/extension/
+
+# Project tree (cloned per cycle from test.config.yml's repositories.projectUrl)
+project/
+
+# Runtime tracking files (pids, status.json, control flags, ipaddresses.txt,
+# caching-proxy.txt, server.err, .status-server.ps1, etc.)
+# See Test.TrackDir.psm1 — $env:YURUNA_TRACK_DIR defaults here so the status
+# server can serve /track/<name>.
+test/status/track/*
+!test/status/track/.gitkeep
+
+# Test run logs: HTML transcripts, OCR debug artifacts, failure screenshots.
+# See Test.LogDir.psm1 — $env:YURUNA_LOG_DIR defaults here so the status
+# server can serve /log/<name>.
+test/status/log/*
+!test/status/log/.gitkeep
+
+# Training screenshots (captures are runtime, reference PNGs are committed)
+test/screenshots/*/captures/
+
+# Sequence debug screenshots (captured at runtime)
+test/sequences/captures/
+
+# yuruna
+**/*.certificate-authority
+**/*.client-certificate
+**/*.client-key
+**/.yuruna/*
+**/resources.output.copy.yml
+**/resources.output.local.yml
+**/resources.output.yml
+**/website-tls.crt
+**/website-tls.key
+Fido.ps1
+
+# Rust/Cargo
+**/build-script-build.exe
+**/build_script_build*.exe
+**/build_script_build*.pdb
+**/target/
+
+# Bazel
+**/bazel-*/*
+.bazel
+.bazel-cache
+.bazelrc.user
+MODULE.bazel.lock

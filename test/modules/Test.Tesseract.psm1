@@ -1,0 +1,232 @@
+﻿<#PSScriptInfo
+.VERSION 2026.05.15
+.GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS Test.Tesseract
+.LICENSEURI https://yuruna.com
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Common Tesseract OCR utilities: locate the executable, guide installation, and run OCR.
+
+.DESCRIPTION
+    Provides shared functions for Tesseract OCR used by Invoke-TestRunner,
+    Confirm-Sequence, and the OCR-engine dispatcher (Test.OcrEngine).
+    Works on Windows, macOS, and Linux.
+#>
+
+# --- Locate Tesseract ---
+
+function Find-Tesseract {
+    <#
+    .SYNOPSIS
+        Locates the tesseract executable on the current platform.
+    .OUTPUTS
+        System.String. Full path to the tesseract executable, or $null if not found.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param()
+
+    # Check PATH first
+    $cmd = Get-Command tesseract -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    # Windows: check common install locations (winget / Chocolatey / manual)
+    if ($IsWindows) {
+        $searchPaths = @(
+            "C:\Program Files\Tesseract-OCR"
+            "C:\Program Files (x86)\Tesseract-OCR"
+            "$env:LOCALAPPDATA\Programs\Tesseract-OCR"
+        )
+        foreach ($dir in $searchPaths) {
+            $candidate = Join-Path $dir "tesseract.exe"
+            if (Test-Path $candidate) { return $candidate }
+        }
+    }
+
+    # macOS: check Homebrew locations
+    if ($IsMacOS) {
+        foreach ($candidate in @("/usr/local/bin/tesseract", "/opt/homebrew/bin/tesseract")) {
+            if (Test-Path $candidate) { return $candidate }
+        }
+    }
+
+    return $null
+}
+
+# --- Installation guidance ---
+
+function Get-TesseractInstallGuidance {
+    <#
+    .SYNOPSIS
+        Returns a multi-line string with platform-appropriate install instructions.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param()
+
+    $lines = @(
+        "Tesseract not found in PATH or common install locations."
+        ""
+        "Install via one of:"
+        "  winget install UB-Mannheim.TesseractOCR   (Windows)"
+        "  choco install tesseract                    (Windows)"
+        "  scoop install tesseract                    (Windows)"
+        "  brew install tesseract                     (macOS)"
+        "  sudo apt install tesseract-ocr             (Linux)"
+        ""
+        "After installing, ensure 'tesseract' is available in your PATH,"
+        "or restart your shell so the updated PATH takes effect."
+    )
+    return ($lines -join "`n")
+}
+
+function Assert-TesseractInstalled {
+    <#
+    .SYNOPSIS
+        Checks that Tesseract is installed. Writes guidance and returns $false if not found.
+    .OUTPUTS
+        System.Boolean. $true if Tesseract is available, $false otherwise.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Boolean])]
+    param()
+
+    $exe = Find-Tesseract
+    if ($exe) {
+        Write-Verbose "Tesseract found: $exe"
+        return $true
+    }
+
+    Write-Warning (Get-TesseractInstallGuidance)
+    return $false
+}
+
+# --- Run OCR ---
+
+function Invoke-TesseractOcr {
+    <#
+    .SYNOPSIS
+        Runs Tesseract OCR on the given image file and returns the recognised text.
+    .PARAMETER ImagePath
+        Path to a PNG or image file to OCR.
+    .OUTPUTS
+        System.String. The text recognised by Tesseract.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ImagePath
+    )
+
+    $tesseractExe = Find-Tesseract
+    if (-not $tesseractExe) {
+        throw (Get-TesseractInstallGuidance)
+    }
+
+    $absPath = (Resolve-Path $ImagePath).Path
+
+    # --psm 6 = single uniform block of text. Terminal screenshots ARE
+    # uniform blocks (monospace, equal-size lines, top-aligned), and
+    # PSM 6 walks the whole image as one block, so a sparse top-of-image
+    # text region with empty space below still gets read end-to-end.
+    #
+    # Why not --psm 4 (single column of variable sizes — the previous
+    # default): on screens with TWO visually-distinct content regions
+    # (e.g. a tiny login prompt at the top + cloud-init dump rendered
+    # in a virtual second column at the bottom on retried boots),
+    # PSM 4 picks ONE region as "the column" and silently drops text
+    # in the other one. That was the regression behind the
+    # `test-ubuntu-server-01 login:` line going missing from OCR even
+    # though the screenshot clearly shows it. PSM 6 reads both rows.
+    #
+    # Why not --psm 3 (default, fully automatic): does its own
+    # multi-column detection and re-orders/merges adjacent UI regions
+    # — same `login:` drop-out we hit with PSM 4.
+    #
+    # Why not --psm 11 (sparse text): fragments every word onto its own
+    # output line, breaking the `Wait-ForText -ContainsString` substring
+    # match used by the test harness.
+    $output = & $tesseractExe $absPath stdout --psm 6 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $errOutput = & $tesseractExe $absPath stdout --psm 6 2>&1 |
+            Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
+        $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
+        throw "Tesseract failed with exit code $LASTEXITCODE.`n$errMsg"
+    }
+
+    $text = ($output | Where-Object { $_ -is [string] }) -join "`n"
+    return $text
+}
+
+function Get-TesseractWordBox {
+    <#
+    .SYNOPSIS
+        Runs Tesseract OCR in TSV mode and returns per-word bounding boxes.
+    .DESCRIPTION
+        Uses tesseract's `tsv` output config (standard in every modern install)
+        to get level/x/y/w/h/conf/text rows. We filter to level=5 (word) and
+        skip empty-text rows. Coordinates are in the image's pixel space,
+        origin top-left — the same space the caller captured the screenshot in.
+    .PARAMETER ImagePath
+        Path to a PNG or image file to OCR.
+    .OUTPUTS
+        System.Collections.Hashtable[]. Each entry: @{ text; x; y; w; h; conf }.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable[]])]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ImagePath
+    )
+
+    $tesseractExe = Find-Tesseract
+    if (-not $tesseractExe) { throw (Get-TesseractInstallGuidance) }
+    $absPath = (Resolve-Path $ImagePath).Path
+
+    # `tesseract <img> stdout tsv` prints TSV with columns:
+    #   level page_num block_num par_num line_num word_num left top width height conf text
+    # --psm 6 matches Invoke-TesseractOcr above so word boxes line up with
+    # the text output (otherwise word ordering and line grouping diverge).
+    $output = & $tesseractExe $absPath stdout --psm 6 tsv 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Tesseract TSV mode failed with exit code $LASTEXITCODE."
+    }
+
+    $boxes = [System.Collections.Generic.List[hashtable]]::new()
+    foreach ($line in $output) {
+        $s = "$line"
+        if ([string]::IsNullOrWhiteSpace($s)) { continue }
+        if ($s.StartsWith('level')) { continue }       # header row
+        $cols = $s -split "`t"
+        if ($cols.Count -lt 12) { continue }
+        # level 5 = word; ignore page/block/paragraph/line aggregates
+        if ([int]$cols[0] -ne 5) { continue }
+        $text = $cols[11]
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        $boxes.Add(@{
+            text = $text
+            x    = [int]$cols[6]
+            y    = [int]$cols[7]
+            w    = [int]$cols[8]
+            h    = [int]$cols[9]
+            conf = [int]$cols[10]
+        })
+    }
+    return $boxes.ToArray()
+}
+
+Export-ModuleMember -Function Find-Tesseract, Get-TesseractInstallGuidance, Assert-TesseractInstalled, Invoke-TesseractOcr, Get-TesseractWordBox

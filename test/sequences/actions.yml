@@ -1,0 +1,159 @@
+# yaml-language-server: $schema=../schemas/actions.schema.yml
+
+# Consolidated catalogue of actions available in sequence files
+# (start.guest.*.yml, workload.guest.*.yml under sequences/gui/ and
+# sequences/ssh/). Individual sequence files reference this catalogue
+# instead of redeclaring each action's description. Action names here
+# match the 'action' field in each step. Every step also accepts a
+# step-level 'description' (string, free-form label shown in the cycle
+# log and dashboard) — not repeated under each action's parameter list.
+# Source of truth for which actions actually exist is the switch in
+# test/modules/Invoke-Sequence.psm1; keep this file in sync when adding
+# or removing a case.
+
+# Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}
+# are built-in. Use ${varName} in step parameters.
+
+actions:
+  callExtension: >
+    Side-effecting call into the active extension for an area
+    (e.g. authentication.SetPassword) — used as the dedicated write verb
+    when variable substitution is not allowed to have side effects.
+    Parameters: method (string, 'area.Method' — area selects which extension
+    family loads, Method is a function exported by that extension),
+    args (object, named parameters forwarded to the extension method;
+    string values support ${var} and ${ext:...} substitution).
+
+  fetchAndExecute: >
+    Type a command + Enter, then wait for a completion pattern
+    (freshMatch). Parameters: text (string), charDelayMs (number,
+    default 50), delaySeconds (number, drain pause before Enter,
+    default 2), waitPattern (string), timeoutSeconds (number, OCR-wait
+    deadline for waitPattern; default = vmCommunication.timeoutSeconds),
+    pollSeconds (number, OCR poll interval while waiting for waitPattern;
+    default = vmCommunication.pollSeconds).
+
+  inputKey: >
+    Send a single keystroke. Parameters: name (string).
+    Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.
+
+  inputText: >
+    Type a text string. Parameters: text (string), sensitive
+    (boolean, masks output), charDelayMs (number, delay between chars
+    in ms, default 50). Hyper-V: uses Msvm_Keyboard.TypeText.
+
+  inputTextAndEnter: >
+    Type a text string, wait, then press Enter. Parameters: text
+    (string), sensitive (boolean, masks output), charDelayMs (number,
+    default 50), delaySeconds (number, default 2).
+
+  passwdPrompt: >
+    Like waitForAndEnter, but `text` is always treated as sensitive
+    (no `sensitive` field needed) — for PAM password prompts
+    (e.g. `Current password:`, `Retype new password:`) that get
+    overwritten on the framebuffer by late console messages. The step
+    waits for the pattern, then types the secret + Enter. Parameters:
+    pattern (string or string-array), timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds), pollSeconds (number,
+    default = vmCommunication.pollSeconds), freshMatch (boolean),
+    freshMatchTailLines (number, default 12), failurePatterns (string
+    or string-array), text (string), tabCount (number, Tab presses
+    before typing to navigate focus, default 0), charDelayMs (number,
+    default 50), delaySeconds (number, default 2).
+
+  saveSystemDiagnostic: >
+    Mid-sequence checkpoint dump. SSHes into the guest, runs
+    automation/Get-SystemDiagnostic.ps1, and writes the captured text
+    into the per-guest cycleGuestDataFolder as
+    `yyyy-MM-dd.HH-mm.system.diagnostic.<id>.txt`. Soft-failing on
+    every rung — the step is informational, so an unreachable guest
+    or missing pwsh does not break the sequence. Capture is opt-in:
+    place this step explicitly wherever a snapshot is wanted
+    (e.g. right after a workload deploy, before tearing down state,
+    or as the final step in a guest sequence). The runner does not
+    auto-invoke it. Parameters: id (string, REQUIRED — appended to
+    the saved filename so two captures in the same cycle don't
+    collide; e.g. 'after.k8s.bootstrap', 'before.reboot').
+
+  screenshot: >
+    Capture a screenshot for debugging. Parameters: label
+    (string, used in filename; default 'step<n>').
+
+  sshExec: >
+    Run a command on the guest over SSH. Non-zero exit fails the step
+    unless allowFailure=true. On failure the captured output is included
+    in the warning. Parameters: command (string), timeoutSeconds
+    (number, default = vmCommunication.timeoutSeconds), allowFailure
+    (boolean), sensitive (boolean,
+    masks command in logs).
+
+  sshFetchAndExecute: >
+    Run a long-lived command over SSH (SSH equivalent of
+    fetchAndExecute). No OCR polling, no password-prompt handling —
+    sudo is expected to be passwordless or the command handles its
+    own auth. Parameters: command (string), timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds).
+
+  sshWaitReady: >
+    Wait until the guest accepts SSH using the yuruna harness key
+    (handshakes to an authenticated shell, not just TCP/22).
+    Parameters: timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds), pollSeconds
+    (number, default = vmCommunication.pollSeconds).
+
+  tabsAndEnter: >
+    Send N Tab keystrokes, then press Enter. Use when the target UI
+    element isn't focused by default (e.g. an installer button
+    reachable only by tabbing). Parameters: tabCount (number,
+    default 1), delaySeconds (number, pause before Enter, default 1).
+
+  waitForAndClickButton: >
+    Wait for a button label to appear on the VM screen via OCR, then
+    click at the label's centre. Parameters: label (string or
+    string-array of candidate labels), timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds), pollSeconds (number,
+    default = vmCommunication.pollSeconds), offsetX (number,
+    pixel offset from centre, default 0), offsetY (number, default 0).
+    Hyper-V: uses vmconnect window + SendInput; vmconnect must be
+    open. UTM: not yet implemented.
+
+  waitForAndEnter: >
+    Wait for text pattern on screen via OCR, then type a string and
+    press Enter. Parameters: pattern (string or string-array),
+    timeoutSeconds (number, default = vmCommunication.timeoutSeconds),
+    pollSeconds (number, default = vmCommunication.pollSeconds),
+    freshMatch (boolean), freshMatchTailLines (number,
+    default 12), failurePatterns (string or string-array — see
+    waitForText), text (string), sensitive (boolean), tabCount
+    (number, Tab presses before typing to navigate focus, default 0),
+    charDelayMs (number, default 50), delaySeconds (number, default 2).
+
+  waitForHeartbeat: >
+    Wait until Hyper-V Integration Services heartbeat reports OK.
+    Parameters: timeoutSeconds (number, default = vmCommunication.timeoutSeconds). Hyper-V only;
+    on other host types the step is a no-op skip.
+
+  waitForPort: >
+    Wait until a TCP port responds on the VM. Parameters: port
+    (number), timeoutSeconds (number, default = vmCommunication.timeoutSeconds).
+
+  waitForSeconds: >
+    Wait a fixed number of seconds. Parameters: seconds (number).
+
+  waitForText: >
+    Capture + OCR the VM screen until pattern appears. Parameters:
+    pattern (string or string-array), timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds), pollSeconds (number,
+    default = vmCommunication.pollSeconds),
+    freshMatch (boolean, waits for pattern to clear first if already on screen),
+    freshMatchTailLines (number, default 12), failurePatterns (string
+    or string-array of anti-patterns; matching any short-circuits the
+    wait and fails the step with a label that names the matched pattern
+    — canonical use: subiquity's 'install_fail.crash' / 'Press enter to
+    start a shell' so an installer crash fails the cycle in ~20s
+    instead of waiting the full timeoutSeconds for a login prompt that
+    will never come). Uses ${var} substitution.
+
+  waitForVMStop: >
+    Wait until the VM reaches the Off/stopped state. Parameters:
+    timeoutSeconds (number, default = vmCommunication.timeoutSeconds).

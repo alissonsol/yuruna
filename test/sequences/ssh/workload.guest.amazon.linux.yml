@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# SSH-driven equivalent of gui/workload.guest.amazon.linux.yml. Selected
+# automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.
+# See possible actions in the actions.yml file.
+
+description: "Amazon Linux (SSH): install the Desktop package group and verify — parallel path to the keystroke sequence."
+baseline:
+  amazon.linux:
+    - start.guest.amazon.linux
+variables:
+  username: yauser1
+
+steps:
+  - action: sshWaitReady
+    timeoutSeconds: 300
+    description: "Wait for sshd + authorized_keys"
+
+  - action: sshExec
+    command: "whoami && hostname"
+    description: "Smoke test: whoami/hostname"
+
+  - action: sshFetchAndExecute
+    command: 'sudo dnf groupinstall -y "Desktop"'
+    timeoutSeconds: 1800
+    description: "GUI install"
+
+  - action: sshExec
+    command: 'dnf list installed "*desktop*"'
+    allowFailure: true
+    description: "Show installed desktop packages"

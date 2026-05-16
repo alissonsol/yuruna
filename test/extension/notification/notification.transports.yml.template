@@ -1,0 +1,9 @@
+transports:
+  resend:
+    apiKey: ""
+    fromEmail: ""
+subscribers:
+  cycle.failure:
+    - transport: email
+      address: ""
+  config.smoke: []

@@ -1,0 +1,80 @@
+# Kubernetes Deployment
+
+Deploy containerized applications to Kubernetes across localhost, Azure,
+AWS, and GCP with a single workflow. Write the configuration once; switch
+target clouds by changing a parameter.
+
+See [Yuruna Architecture](architecture.md) for the three-phase model
+(Resources→Components→Workloads), the CLI entry points, and the project
+layout. This doc is the user-facing quick start for Kubernetes itself.
+
+Prerequisites are in [Yuruna Requirements](requirements.md).
+
+## Quick Start (Localhost)
+
+Deploy the sample `.NET` website to Docker Desktop Kubernetes. No cloud
+account required.
+
+```powershell
+git clone https://github.com/alissonsol/yuruna.git
+cd yuruna
+./Add-AutomationToPath.ps1
+```
+
+Create the HTTPS dev certificate (the `ubuntu.server.k8s.sh` workload
+does this automatically on that guest):
+
+```powershell
+$pfxDir = Join-Path $HOME ".aspnet/https"
+if (!(Test-Path $pfxDir)) { New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null }
+openssl req -x509 -newkey rsa:4096 -keyout "$pfxDir/aspnetapp.key" -out "$pfxDir/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>$null
+openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.key" -in "$pfxDir/aspnetapp.crt" -password pass:password
+Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
+```
+
+Deploy:
+
+```powershell
+cd project/example
+Set-Resource.ps1  website localhost -logLevel Debug
+Test-Runtime.ps1
+Set-Component.ps1 website localhost -logLevel Debug
+Set-Workload.ps1  website localhost -logLevel Debug
+```
+
+The output of `Set-Workload.ps1` prints the URL.
+
+## Cloud Deployment
+
+Authenticate once, then swap `localhost` for your cloud:
+
+```powershell
+# Azure
+az login --use-device-code
+az account set --subscription <your-subscription-id>
+Set-Resource.ps1 website azure; Set-Component.ps1 website azure; Set-Workload.ps1 website azure
+
+# AWS
+aws configure
+Set-Resource.ps1 website aws;   Set-Component.ps1 website aws;   Set-Workload.ps1 website aws
+
+# GCP
+gcloud auth application-default login
+Set-Resource.ps1 website gcp;   Set-Component.ps1 website gcp;   Set-Workload.ps1 website gcp
+```
+
+Details, service accounts, and API enablement: [Yuruna Authentication ...](authenticate.md).
+
+## Documentation
+
+- [Yuruna Requirements](requirements.md) · [Yuruna Authentication ...](authenticate.md) ·
+  [Yuruna Syntax](syntax.md) · [Yuruna Frequently ...](faq.md) · [Yuruna Resources ...](cleanup.md)
+- [Yuruna Website ...](../project/example/website/) · [Yuruna Contributing ...](../CONTRIBUTING.md) ·
+  [Yuruna Project ...](contributors.md) · [Yuruna References](references.md)
+- [Yuruna YouTube channel](https://www.youtube.com/channel/UCl36lZ2MwZ0f6_QAUOmGNDw)
+
+Back to [Yuruna](../README.md)
+
+---
+
+Copyright (c) 2019-2026 by Alisson Sol et al.

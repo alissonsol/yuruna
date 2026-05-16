@@ -1,0 +1,263 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/sequence.schema.yml
+title: Yuruna interaction sequence
+description: >
+  Drives a VM through OCR/keystroke or SSH steps. Action set matches the
+  switch in test/modules/Invoke-Sequence.psm1; the catalogue in
+  test/sequences/actions.yml documents per-action parameters and defaults.
+
+type: object
+required: [description, baseline, steps]
+additionalProperties: false
+
+properties:
+
+  description:
+    type: string
+    description: One-line summary shown in cycle logs and the dashboard.
+
+  baseline:
+    type: object
+    description: >
+      Per-guest-OS prerequisite chain. Each key is a guest OS identifier
+      (e.g. "ubuntu.server"); each value is an ordered list of sequence
+      names (no extension, no folder) that must run before this one.
+    minProperties: 1
+    additionalProperties:
+      type: array
+      items:
+        type: string
+        pattern: "^[A-Za-z0-9._-]+$"
+
+  variables:
+    type: object
+    description: >
+      Scalar map injected as ${name} substitutions into step parameters.
+      Built-ins (${vmName}, ${hostType}, ${guestKey}) are added by the
+      runner and should not be redeclared.
+    additionalProperties:
+      type: [string, number, boolean]
+
+  steps:
+    type: array
+    description: Ordered list of actions to execute.
+    items:
+      $ref: "#/$defs/step"
+
+$defs:
+
+  step:
+    type: object
+    description: One action invocation.
+    required: [action]
+    properties:
+      action:
+        type: string
+        description: Which handler in Invoke-Sequence.psm1 to dispatch to.
+        enum:
+          - callExtension
+          - fetchAndExecute
+          - inputKey
+          - inputText
+          - inputTextAndEnter
+          - passwdPrompt
+          - saveSystemDiagnostic
+          - screenshot
+          - sshExec
+          - sshFetchAndExecute
+          - sshWaitReady
+          - tabsAndEnter
+          - typeAndEnter           # deprecated alias for inputTextAndEnter
+          - waitForAndClickButton
+          - waitForAndEnter
+          - waitForHeartbeat
+          - waitForPort
+          - waitForSeconds
+          - waitForText
+          - waitForVMStop
+      description:
+        type: string
+        description: Free-form label shown in the cycle log and dashboard.
+
+    # Per-action required-field constraints. Each branch only declares
+    # what *must* be present and the canonical property types; optional
+    # fields are accepted via additionalProperties on the step itself.
+    allOf:
+
+      - if: { properties: { action: { const: callExtension } } }
+        then:
+          required: [method]
+          properties:
+            method:
+              type: string
+              pattern: "^[A-Za-z0-9_]+\\.[A-Za-z][A-Za-z0-9_-]*$"
+              description: "area.Method form, e.g. authentication.SetPassword."
+            args:
+              type: object
+              additionalProperties:
+                type: [string, number, boolean]
+
+      - if: { properties: { action: { const: fetchAndExecute } } }
+        then:
+          required: [text, waitPattern]
+          properties:
+            text:                   { type: string }
+            waitPattern:            { type: string }
+            charDelayMs:            { type: integer, minimum: 0 }
+            delaySeconds:           { type: number,  minimum: 0 }
+            timeoutSeconds:         { type: integer, minimum: 0 }
+            pollSeconds:            { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: inputKey } } }
+        then:
+          required: [name]
+          properties:
+            name:
+              type: string
+              enum: [Enter, Tab, Space, Escape, Up, Down, Left, Right,
+                     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12]
+
+      - if: { properties: { action: { const: inputText } } }
+        then:
+          required: [text]
+          properties:
+            text:         { type: string }
+            sensitive:    { type: boolean }
+            charDelayMs:  { type: integer, minimum: 0 }
+
+      - if:
+          properties:
+            action: { enum: [inputTextAndEnter, typeAndEnter] }
+        then:
+          required: [text]
+          properties:
+            text:         { type: string }
+            sensitive:    { type: boolean }
+            charDelayMs:  { type: integer, minimum: 0 }
+            delaySeconds: { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: passwdPrompt } } }
+        then:
+          required: [pattern, text]
+          properties:
+            pattern:             { $ref: "#/$defs/patternOrArray" }
+            text:                { type: string }
+            timeoutSeconds:      { type: integer, minimum: 0 }
+            pollSeconds:         { type: number,  minimum: 0 }
+            freshMatch:          { type: boolean }
+            freshMatchTailLines: { type: integer, minimum: 0 }
+            failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+            tabCount:            { type: integer, minimum: 0 }
+            charDelayMs:         { type: integer, minimum: 0 }
+            delaySeconds:        { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: saveSystemDiagnostic } } }
+        then:
+          required: [id]
+          properties:
+            id:
+              type: string
+              description: >
+                Appended to the saved filename so two captures in the
+                same cycle don't collide (e.g. "after.k8s.bootstrap").
+
+      - if: { properties: { action: { const: screenshot } } }
+        then:
+          properties:
+            label: { type: string }
+
+      - if: { properties: { action: { const: sshExec } } }
+        then:
+          required: [command]
+          properties:
+            command:        { type: string }
+            timeoutSeconds: { type: integer, minimum: 0 }
+            allowFailure:   { type: boolean }
+            sensitive:      { type: boolean }
+
+      - if: { properties: { action: { const: sshFetchAndExecute } } }
+        then:
+          required: [command]
+          properties:
+            command:        { type: string }
+            timeoutSeconds: { type: integer, minimum: 0 }
+
+      - if: { properties: { action: { const: sshWaitReady } } }
+        then:
+          properties:
+            timeoutSeconds: { type: integer, minimum: 0 }
+            pollSeconds:    { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: tabsAndEnter } } }
+        then:
+          properties:
+            tabCount:     { type: integer, minimum: 0 }
+            delaySeconds: { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: waitForAndClickButton } } }
+        then:
+          required: [label]
+          properties:
+            label:          { $ref: "#/$defs/patternOrArray" }
+            timeoutSeconds: { type: integer, minimum: 0 }
+            pollSeconds:    { type: number,  minimum: 0 }
+            offsetX:        { type: integer }
+            offsetY:        { type: integer }
+
+      - if: { properties: { action: { const: waitForAndEnter } } }
+        then:
+          required: [pattern, text]
+          properties:
+            pattern:             { $ref: "#/$defs/patternOrArray" }
+            text:                { type: string }
+            timeoutSeconds:      { type: integer, minimum: 0 }
+            pollSeconds:         { type: number,  minimum: 0 }
+            freshMatch:          { type: boolean }
+            freshMatchTailLines: { type: integer, minimum: 0 }
+            failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+            sensitive:           { type: boolean }
+            tabCount:            { type: integer, minimum: 0 }
+            charDelayMs:         { type: integer, minimum: 0 }
+            delaySeconds:        { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: waitForHeartbeat } } }
+        then:
+          properties:
+            timeoutSeconds: { type: integer, minimum: 0 }
+
+      - if: { properties: { action: { const: waitForPort } } }
+        then:
+          required: [port]
+          properties:
+            port:           { type: integer, minimum: 1, maximum: 65535 }
+            timeoutSeconds: { type: integer, minimum: 0 }
+
+      - if: { properties: { action: { const: waitForSeconds } } }
+        then:
+          required: [seconds]
+          properties:
+            seconds: { type: number, minimum: 0 }
+
+      - if: { properties: { action: { const: waitForText } } }
+        then:
+          required: [pattern]
+          properties:
+            pattern:             { $ref: "#/$defs/patternOrArray" }
+            timeoutSeconds:      { type: integer, minimum: 0 }
+            pollSeconds:         { type: number,  minimum: 0 }
+            freshMatch:          { type: boolean }
+            freshMatchTailLines: { type: integer, minimum: 0 }
+            failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+
+      - if: { properties: { action: { const: waitForVMStop } } }
+        then:
+          properties:
+            timeoutSeconds: { type: integer, minimum: 0 }
+
+  patternOrArray:
+    description: A single OCR pattern, or an array of candidate patterns.
+    oneOf:
+      - type: string
+      - type: array
+        minItems: 1
+        items: { type: string }

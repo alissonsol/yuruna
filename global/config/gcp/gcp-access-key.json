@@ -1,0 +1,13 @@
+Placeholder file that you need to replace with the file downloaded from GCP. Check the format is along the lines of the content below...
+{
+  "type": "service_account",
+  "project_id": "project",
+  "private_key_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n Long random string \n-----END PRIVATE KEY-----\n",
+  "client_email": "registry@project.iam.gserviceaccount.com",
+  "client_id": "#####################",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/registry%40yuruna.iam.gserviceaccount.com"
+}

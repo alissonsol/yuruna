@@ -1,0 +1,238 @@
+<#PSScriptInfo
+.VERSION 2026.05.15
+.GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS Yuruna.Component
+.LICENSEURI https://yuruna.com
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES powershell-yaml
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+$yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
+$validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
+Import-Module -Name $validationModulePath
+Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
+Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
+
+function Publish-ComponentList {
+    param (
+        $project_root,
+        $config_subfolder
+    )
+
+    if (!(Confirm-ComponentList $project_root $config_subfolder)) { return $false; }
+    Write-Debug "---- Publishing Components"
+    # For each component: merge variables (resources global + resources.output
+    # + component-level globals + component locals), run buildCommand from the
+    # folder, then tag and push to the registry. Commands come from components.yml.
+
+    $componentsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/components.yml"
+    if (-Not (Test-Path -Path $componentsFile)) { Write-Information "File not found: $componentsFile"; return $false; }
+    $componentsYaml = ConvertFrom-File $componentsFile
+    if ($null -eq $componentsYaml) { Write-Information "Components null or empty in file: $componentsFile"; return $true; }
+    if ($null -eq $componentsYaml.components) { Write-Information "Components null or empty in file: $componentsFile"; return $true; }
+
+    $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/components"
+    $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+    $workFolder = Resolve-Path -Path $workFolder
+    $dtTime = '{0}' -f ([system.string]::format('{0:yyyy-MM-dd-HH-mm-ss}',(Get-Date)))
+    $backupFile = Join-Path -Path $workFolder -ChildPath "components.$dtTime.yml"
+    Copy-Item "$componentsFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
+    Write-Verbose "Backup of: $componentsFile copied to: $backupFile"
+
+    $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
+    $resourcesOutputYaml = $null
+    if (Test-Path -Path $resourcesOutputFile) {
+        $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
+    }
+
+    if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
+        foreach ($resource in $resourcesOutputYaml.Keys) {
+            if ($resource -eq "globalVariables") {
+                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
+                    $resourceKey = "$key"
+                    $value = $resourcesOutputYaml.$resource[$key]
+                    Write-Debug "globalVariables[$resourceKey] = $value"
+                    Set-Item -Path Env:$resourceKey -Value ${value}
+                }
+            }
+            else {
+                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
+                    $resourceKey = "$resource.$key"
+                    $value = $resourcesOutputYaml.$resource[$key].value
+                    Write-Debug "resourcesOutput[$resourceKey] = $value"
+                    Set-Item -Path Env:$resourceKey -Value ${value}
+                }
+            }
+        }
+    }
+
+    if (-Not ($null -eq $componentsYaml.globalVariables)) {
+        foreach ($key in $componentsYaml.globalVariables.Keys) {
+            $value = $componentsYaml.globalVariables[$key]
+            Write-Debug "globalVariables[$key] = $value"
+            Set-Item -Path Env:$key -Value ${value}
+        }
+    }
+
+    $componentsPath = Join-Path -Path $project_root -ChildPath "components/"
+    foreach ($component in $componentsYaml.components) {
+        $projectName = $component['project']
+        if ([string]::IsNullOrEmpty($projectName)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return $false; }
+        $projectNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($projectName)
+        Write-Verbose "$projectName = $projectNameExpanded"
+        $projectName = $projectNameExpanded
+        Set-Item -Path Env:projectName -Value ${projectName}
+        $buildPath = $component['buildPath']
+        if ([string]::IsNullOrEmpty($buildPath)) {
+            $buildPath = $projectName;
+        }
+        $buildPath = $ExecutionContext.InvokeCommand.ExpandString($buildPath)
+
+        $buildFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "components/$buildPath")
+        if (-Not (Test-Path -Path $buildFolder)) { Write-Information "Components folder not found: $buildFolder`nUsed in file: $componentsFile"; return $false; }
+        Write-Information "-- Component: $projectName from $buildFolder"
+
+        # No string expansion for the components script here; values are
+        # layered in order: resources globals, resources.output, components
+        # globals, component locals.
+        $componentVars = [ordered]@{}
+        if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
+            foreach ($resource in $resourcesOutputYaml.Keys) {
+                if ($resource -eq "globalVariables") {
+                    foreach ($key in $resourcesOutputYaml.$resource.Keys) {
+                        $resourceKey = "$key"
+                        $value = $resourcesOutputYaml.$resource[$key]
+                        $componentVars[$resourceKey] = $value
+                        Set-Item -Path Env:$resourceKey -Value ${value}
+                    }
+                }
+                else {
+                    foreach ($key in $resourcesOutputYaml.$resource.Keys) {
+                        $resourceKey = "$resource.$key"
+                        $value = $resourcesOutputYaml.$resource[$key].value
+                        $componentVars[$resourceKey] = $value
+                        Set-Item -Path Env:$resourceKey -Value ${value}
+                    }
+                }
+            }
+        }
+
+        if (-Not ($null -eq $componentsYaml.globalVariables)) {
+            foreach ($key in $componentsYaml.globalVariables.Keys) {
+                $value = $componentsYaml.globalVariables[$key]
+                $componentVars[$key] = $value
+                Set-Item -Path Env:$key -Value ${value}
+            }
+        }
+
+        if ((-Not ($null -eq $component.variables)) -and (-Not ($null -eq  $component.variables.Keys))) {
+            foreach ($key in $component.variables.Keys) {
+                $value = $component.variables[$key]
+                $componentVars[$key] = $value
+                Write-Debug "componentVariables[$key] = $value"
+                Set-Item -Path Env:$key -Value ${value}
+            }
+        }
+
+        # buildCommand comes from components.yml
+        $buildCommand = $component['buildCommand']
+        if ([string]::IsNullOrEmpty($buildCommand)) { $buildCommand = $componentsYaml.globalVariables['buildCommand'] }
+        if ([string]::IsNullOrEmpty($buildCommand)) { Write-Information "buildCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+
+        $dockerfile = Join-Path -Path $buildFolder -ChildPath "Dockerfile"
+        if (-Not (Test-Path -Path $dockerfile)) { $dockerfile = Join-Path -Path $buildFolder -ChildPath "dockerfile"; }
+        if (-Not (Test-Path -Path $dockerfile)) { $dockerfile = Join-Path -Path $buildFolder -ChildPath "$projectName-dockerfile"; }
+        if (-Not (Test-Path -Path $dockerfile)) { Write-Information "Missing dockerfile in folder: $buildFolder"; return $false; }
+
+        $componentVars['project'] = $projectName
+        $componentVars['buildPath'] = $buildPath
+        $componentVars['dockerfile'] = $dockerfile
+        foreach ($key in $componentVars.Keys) {
+            $value = $componentVars[$key]
+            if ([string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
+            Set-Item -Path Env:$key -Value ${value}
+            Write-Debug "$projectName[Env:$key] is $(Get-Content -Path Env:$key)"
+        }
+
+        Push-Location $componentsPath
+        $preProcessor = $componentVars['preProcessor']
+        if ([string]::IsNullOrEmpty($preProcessor)) { $preProcessor = $componentsYaml.globalVariables['preProcessor'] }
+        if (-Not ([string]::IsNullOrEmpty($preProcessor))) {
+            $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($preProcessor)
+            Write-Information "preProcessor: $executionCommand"
+            Invoke-DynamicExpression -Command $executionCommand
+            if (-Not (0 -eq $LASTEXITCODE)) {
+                Write-Information "EXITCODE: $LASTEXITCODE for preProcessor: $executionCommand"
+                return ($ErrorActionPreference -eq "Continue");
+            }
+        }
+
+        $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($buildCommand)
+        Write-Debug "Build: $executionCommand"
+        Invoke-DynamicExpression -Command $executionCommand
+        if (-Not (0 -eq $LASTEXITCODE)) {
+            Write-Information "EXITCODE: $LASTEXITCODE for Build: $executionCommand"
+            return ($ErrorActionPreference -eq "Continue");
+        }
+
+        $postProcessor = $componentVars['postProcessor']
+        if ([string]::IsNullOrEmpty($postProcessor)) { $postProcessor = $componentsYaml.globalVariables['postProcessor'] }
+        if (-Not ([string]::IsNullOrEmpty($postProcessor))) {
+            $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($postProcessor)
+            Write-Information "postProcessor: $executionCommand"
+            Invoke-DynamicExpression -Command $executionCommand
+            if (-Not (0 -eq $LASTEXITCODE)) {
+                Write-Information "EXITCODE: $LASTEXITCODE for postProcessor: $executionCommand"
+                return ($ErrorActionPreference -eq "Continue");
+            }
+        }
+        Pop-Location
+
+        $tagCommand = $component['tagCommand']
+        if ([string]::IsNullOrEmpty($tagCommand)) { $tagCommand = $componentsYaml.globalVariables['tagCommand']; }
+        if ([string]::IsNullOrEmpty($tagCommand)) { Write-Information "tagCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+        $pushCommand = $component['pushCommand']
+        if ([string]::IsNullOrEmpty($pushCommand)) { $pushCommand = $componentsYaml.globalVariables['pushCommand']; }
+        if ([string]::IsNullOrEmpty($pushCommand)) { Write-Information "pushCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+        $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($tagCommand)
+        Write-Debug "Tag: $executionCommand"
+        Invoke-DynamicExpression -Command $executionCommand
+        if (-Not (0 -eq $LASTEXITCODE)) {
+            Write-Information "EXITCODE: $LASTEXITCODE for Tag: $executionCommand"
+            return ($ErrorActionPreference -eq "Continue");
+        }
+
+        # Registry login: Azure ACR only today. Generalising to other
+        # registries (ECR, GAR, Docker Hub, etc.) is tracked in docs/todo.md.
+        $registryLocation = $([Environment]::GetEnvironmentVariable("${env:registryName}.registryLocation"))
+        if ($registryLocation -like '*azurecr.io*') {
+            $executionCommand = $ExecutionContext.InvokeCommand.ExpandString("az acr login -n $registryLocation *>&1")
+            Invoke-DynamicExpression -Command $executionCommand *>&1 | Write-Verbose
+            if (-Not (0 -eq $LASTEXITCODE)) {
+                Write-Information "EXITCODE: $LASTEXITCODE for: $executionCommand"
+                return ($ErrorActionPreference -eq "Continue");
+            }
+        }
+
+        $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($pushCommand)
+        Write-Debug "Push: $executionCommand"
+        Invoke-DynamicExpression -Command $executionCommand
+        if (-Not (0 -eq $LASTEXITCODE)) {
+            Write-Information "EXITCODE: $LASTEXITCODE for Push: $executionCommand"
+            return ($ErrorActionPreference -eq "Continue");
+        }
+    }
+
+    return $true;
+}
+
+Export-ModuleMember -Function * -Alias *

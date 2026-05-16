@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--
+    Cache policy: 60-second freshness with revalidation. Operators often
+    browse the status page through a shared squid-cache (Test-CachingProxy
+    -SetHostProxy, corp proxy, etc.); without a cache window the dashboard
+    re-fetched on every navigation/poll, but the prior 'no-store' header
+    was leaking stale content through some intermediary clients (the
+    symptom that motivated this change). max-age=60 + must-revalidate
+    bounds staleness at 60 s -- on next access after that, the client
+    must revalidate (the server returns 200 with the current body, since
+    we don't issue ETag/If-Modified-Since matching). The status server
+    emits the matching Cache-Control header for .html responses; the
+    meta tag here is the belt to that brace, covering intermediaries
+    that forward HTTP headers but not every client path.
+  -->
+  <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
+  <title>Yuruna Status</title>
+  <style>
+    /*
+      Browser baseline: this stylesheet is written so it renders correctly
+      on Safari iOS 9.x as well as current browsers. That rules out two
+      modern conveniences that don't exist on iOS 9:
+        - flex/grid `gap` (iOS Safari 14.5+ for flex, 10.3+ for grid)
+        - CSS Grid (iOS Safari 10.3+)
+      Wherever those would have been natural, the rules below use margins
+      and flex-wrap instead. Modern browsers render the same.
+    */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9fafb; color: #111827; font-size: 14px; line-height: 1.5;
+      padding-bottom: 3rem;
+    }
+
+    /* ── Header ── */
+    /* align-items:center vertically centers every header item (h1,
+       #header-machine stack, button) against the tallest one — the
+       2-line machine stack. baseline alignment shifted h1 and the
+       button to the top text-line of the stack. Padding trimmed
+       (1.25rem -> .75rem) to match the now-shorter visual weight.
+       `gap` would be ideal here but isn't on iOS 9; #header-machine
+       has `margin-left: auto` so it ends up on the right edge with a
+       generous separation regardless. */
+    header {
+      background: #111827; color: #fff;
+      padding: .75rem 2rem;
+      display: flex; align-items: center; flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; }
+    header p  { color: #9ca3af; font-size: .875rem; }
+    /* Hardcoded build/version tag rendered UNDER the "Yuruna" title.
+       Matches #header-machine's family/color but smaller so the title
+       stays visually dominant. Nested inside the <h1> as a block child
+       so it occupies its own line directly under "Yuruna", left-aligned
+       with the title's left edge. line-height:1 collapses the inherited
+       1.5x leading so the version sits tight under the title rather
+       than floating mid-row. Inherits the h1's bold + tight tracking by
+       default, so reset font-weight and letter-spacing explicitly. Bump
+       the version literal in the <span id="header-version"> below at
+       each release. */
+    #header-version {
+      display: block; line-height: 1;
+      color: #9ca3af; font-size: .5rem;
+      font-family: 'Menlo','Consolas',monospace;
+      font-weight: 400; letter-spacing: 0;
+    }
+    #header-machine {
+      margin-left: auto; color: #9ca3af; font-size: .75rem;
+      font-family: 'Menlo','Consolas',monospace;
+      display: inline-flex; align-items: center;
+    }
+    /* Spacing between the machine stack and the Edit-config link. */
+    #header-machine > * + * { margin-left: .5rem; }
+    /* Stack the machine name above its host-type qualifier; the row
+       still aligns to the page header's baseline because .hm-stack
+       lays its two children out as flex-column at the right edge. */
+    .hm-stack {
+      display: inline-flex; flex-direction: column; align-items: flex-end;
+      line-height: 1.2;
+    }
+    .hm-stack .hm-host { opacity: .75; }
+    /* Sized identically to test.config.html's .back-link so the right-
+       edge button keeps the same footprint when navigating between the
+       two pages — header items stay in place. */
+    #header-edit-config {
+      color: #d1d5db; text-decoration: none;
+      border: 1px solid #4b5563;
+      padding: .15rem .5rem; border-radius: .25rem;
+      font-size: .6875rem;
+      min-width: 7rem; text-align: center; box-sizing: border-box;
+    }
+    #header-edit-config:hover { background: #1f2937; color: #fff; }
+
+    /* ── Status banner ── */
+    /* Vertical padding matches the page header (.75rem) so the two
+       stacked bars share the same rhythm; horizontal stays at 2rem to
+       align with the header's left/right edge. */
+    #banner {
+      display: flex; align-items: center;
+      padding: .75rem 2rem; font-weight: 600; font-size: .9375rem;
+      transition: background .3s;
+    }
+    /* dot ↔ banner-text spacing, equivalent to the prior `gap: .625rem`. */
+    #banner > * + * { margin-left: .625rem; }
+    #banner.idle    { background: #6b7280; color: #fff; }
+    #banner.running { background: #2563eb; color: #fff; }
+    #banner.pass    { background: #16a34a; color: #fff; }
+    #banner.fail    { background: #dc2626; color: #fff; }
+    #banner.paused  { background: #ca8a04; color: #fff; }
+    /* "Stopped" = the test runner process is not running. Distinct from
+       "idle" (which means "no data yet") so the operator can tell at a
+       glance whether the page is showing live state or a frozen snapshot
+       of the last cycle. gray-700 against white = 10.3:1 contrast, well
+       past WCAG AA's 4.5:1 floor and into AAA territory. */
+    #banner.stopped { background: #374151; color: #fff; }
+    #banner .dot {
+      width: .625rem; height: .625rem; border-radius: 50%;
+      background: currentColor; display: inline-block; flex-shrink: 0;
+    }
+    #banner.running .dot {
+      -webkit-animation: pulse 1.4s ease-in-out infinite;
+              animation: pulse 1.4s ease-in-out infinite;
+    }
+    @-webkit-keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+    @keyframes pulse         { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* Meta-section button: shape tuned for the white
+       meta-section background instead of the dark banner. Used for the
+       Cycle pause control on the Latest Cycle header row. */
+    .meta-btn {
+      background: #f3f4f6;
+      color: #111827;
+      border: 1px solid #d1d5db;
+      padding: .15rem .75rem;
+      border-radius: .375rem;
+      font-weight: 600; font-size: .6875rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    .meta-btn:hover:not([disabled]) { background: #e5e7eb; }
+    .meta-btn[disabled] { cursor: default; opacity: .45; }
+    .meta-btn.paused-active,
+    .meta-btn.paused-active:hover:not([disabled]) {
+      background: #fbbf24; color: #111827; border-color: #b45309;
+    }
+
+    /* Header row for sections that host a right-aligned control button
+       (Latest Cycle + Cycle pause). Keeps the bottom border of the original
+       .section-title but lets the button sit on the same baseline. The
+       normal .section-title (without .with-controls) keeps the plain
+       vertical-block layout it has always had. */
+    .section-title.with-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-transform: none; /* contents are a mix of heading + button; styling
+                                lives on the inner #sec-meta-title span */
+      letter-spacing: normal;
+      color: inherit;
+      /* Vertical rhythm matches the standardized button padding (.15rem
+         top/bottom) so the Cycle-pause button sits flush with the
+         section-title row instead of inflating its height. */
+      padding-bottom: .15rem;
+      margin-bottom: .5rem;
+    }
+    .section-title.with-controls > * + * { margin-left: .75rem; }
+    .section-title.with-controls #sec-meta-title,
+    .section-title.with-controls #sec-guests-title {
+      font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #6b7280;
+      flex: 1 1 auto; min-width: 0;
+    }
+
+    /* ── Main container ── */
+    main { max-width: 860px; margin: 1.75rem auto; padding: 0 1.5rem; }
+
+    /* ── Section heading ── */
+    .section-title {
+      font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: #6b7280;
+      border-bottom: 1px solid #e5e7eb; padding-bottom: .4rem; margin-bottom: .875rem;
+    }
+    section { margin-bottom: 2rem; }
+
+    /* ── Meta row ──
+       Was `display: grid; grid-template-columns: repeat(2, 1fr); gap: .375rem`.
+       Grid + gap aren't on iOS 9, so this lays the two columns out with
+       flex-wrap and a calc()-sized width. The odd-child margin-right plus
+       the row-end nth-child(even) absence keeps the inter-column spacing
+       at .375rem while the bottom margin handles row-to-row spacing. */
+    .meta-grid {
+      display: flex; flex-wrap: wrap;
+    }
+    /* ── Guest card ── */
+    .guest-card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
+      padding: .875rem 1.125rem; margin-bottom: .625rem;
+    }
+    /* Row 1 of the card: guest-name + guest-meta on the left, status pill
+       on the right. Row 2 (topLevel, steps, actions, error) flows as
+       block-level siblings of this header inside the card, taking the
+       full width. */
+    .guest-card-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+    }
+    .guest-card-header > * + * { margin-left: 1rem; }
+    .guest-card-header .left { flex: 1; min-width: 0; }
+    .guest-name { font-weight: 600; font-size: .9375rem; margin-bottom: .2rem; }
+    .guest-meta { font-size: .75rem; color: #6b7280; margin-bottom: .45rem; }
+    .guest-toplevel {
+      font-size: .75rem; color: #1e40af; margin-bottom: .45rem;
+      font-family: 'Menlo','Consolas',monospace; word-break: break-all;
+    }
+    .steps      { display: flex; flex-wrap: wrap; }
+    /* Per-pill margin replaces flex `gap`. Last pill's right margin is
+       trimmed off-canvas, last row's bottom margin sits inside the card —
+       both effectively invisible against the card's own padding. */
+    .steps > .step-pill { margin-right: .375rem; margin-bottom: .375rem; }
+    .step-pill  {
+      font-size: .6875rem; font-weight: 600; padding: .2rem .55rem; border-radius: 9999px;
+      white-space: nowrap;
+    }
+    .guest-error {
+      margin-top: .5rem; font-size: .75rem; color: #dc2626;
+      background: #fef2f2; border: 1px solid #fecaca;
+      border-radius: .375rem; padding: .45rem .625rem;
+      font-family: 'Menlo','Consolas',monospace; word-break: break-all;
+    }
+    .guest-action {
+      margin-top: .5rem; font-size: .75rem; color: #1d4ed8;
+      background: #eff6ff; border: 1px solid #bfdbfe;
+      border-radius: .375rem; padding: .45rem .625rem;
+      font-family: 'Menlo','Consolas',monospace; word-break: break-all;
+    }
+    /* When the sequence is paused, the guest-action box matches the banner's
+       amber background so the pause state reads the same across both. */
+    .guest-action.paused {
+      background: #ca8a04; color: #fff; border-color: #a16207;
+    }
+
+    /* ── Meta cards laid out as a 2-column flex grid ── */
+    .meta-grid > .meta-card { width: -webkit-calc(50% - .1875rem); width: calc(50% - .1875rem); margin-bottom: .375rem; }
+    .meta-grid > .meta-card:nth-child(odd) { margin-right: .375rem; }
+
+    /* Vertical padding matches the standardized button padding (.15rem
+       top/bottom). Horizontal kept at 1rem so labels and short values
+       don't crowd the rounded corners. Font sizes drop one notch each
+       (label .6875rem -> .625rem; value .75rem -> .6875rem) to match
+       the now-tighter card. */
+    .meta-card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
+      padding: .15rem 1rem;
+    }
+    .meta-card .label { font-size: .625rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .1rem; }
+    .meta-card .value { font-size: .6875rem; font-weight: 500; font-family: 'Menlo','Consolas',monospace; color: #111827; word-break: break-all; }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-flex; align-items: center;
+      font-size: .75rem; font-weight: 700; padding: .25rem .7rem;
+      border-radius: 9999px; white-space: nowrap;
+    }
+    /* Recent Cycles pills (cycle ID + guests): smaller, unweighted, mono
+       variant so both columns render with identical typography. The
+       cycle ID cell already forces .mono on the td; pinning font-family
+       on the badge itself makes the guests pill match without depending
+       on its parent td. The cycle ID pill keeps the default
+       white-space:nowrap so hyphens in YYYY-MM-DD don't trigger breaks;
+       an explicit <wbr> after the date/time space is the ONLY break
+       opportunity, which forces wrap exactly at that space. */
+    #history-body .badge {
+      font-size: .625rem;
+      padding: .15rem .4rem;
+      font-weight: 400;
+      font-family: 'Menlo','Consolas',monospace;
+    }
+    /* Latest Cycle "Cycle ID (UTC)" pill: same un-bolded weight as the
+       Recent Cycles row so the two cycle-ID cells read as the same data
+       class. Without this, the .badge default (700) made the latest
+       cycle ID stand out as if it were a status badge. */
+    #m-cycleid .badge { font-weight: 400; }
+
+    /* Colours for badges & pills */
+    .idle, .idle-bg     { background: #f3f4f6; color: #6b7280; }
+    .pending, .pending-bg { background: #f3f4f6; color: #6b7280; }
+    .running, .running-bg { background: #dbeafe; color: #1d4ed8; }
+    .pass, .pass-bg     { background: #dcfce7; color: #16a34a; }
+    .fail, .fail-bg     { background: #fee2e2; color: #dc2626; }
+    .skipped, .skipped-bg { background: #fef9c3; color: #a16207; }
+    .paused, .paused-bg { background: #fef3c7; color: #ca8a04; }
+
+    /* ── History table ── */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%; border-collapse: collapse;
+      background: #fff; border: 1px solid #e5e7eb;
+      border-radius: .5rem; overflow: hidden; font-size: .8125rem;
+    }
+    th {
+      background: #f9fafb; padding: .625rem 1rem; text-align: left;
+      font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb;
+      white-space: nowrap;
+    }
+    td { padding: .625rem 1rem; border-bottom: 1px solid #f3f4f6; color: #374151; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #f9fafb; }
+    .mono { font-family: 'Menlo','Consolas',monospace; font-size: .75rem; }
+
+    /* ── No data ── */
+    .no-data {
+      text-align: center; padding: 3.5rem 1rem; color: #9ca3af;
+    }
+    .no-data h3 { font-size: 1.125rem; margin-bottom: .5rem; color: #6b7280; }
+    .no-data code {
+      background: #f3f4f6; padding: .125rem .375rem; border-radius: .25rem;
+      font-family: 'Menlo','Consolas',monospace; font-size: .8125rem;
+    }
+
+    /* ── Footer bar ── */
+    /* `justify-content: space-between` distributes the three spans across
+       the bar's width, so the prior flex `gap: 1rem` only set a minimum
+       separation. With wide content the auto-distribution dominates;
+       we omit the explicit gap since iOS 9 has no flex `gap`. */
+    #footer-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #111827; color: #9ca3af; font-size: .6875rem;
+      padding: .35rem 1rem; display: flex; justify-content: space-between;
+      align-items: center;
+    }
+    /* IP list lives in a readonly textarea — up to two lines (IPv4 / IPv6),
+       capped at 1/3 of the page width. Rows are set dynamically by JS to
+       match the content line count (1 or 2), so the box never has vertical
+       empty space — this is what makes the field visually centered on the
+       footer row regardless of how many lines the file has.
+       `overflow:auto` (not hidden) keeps the textarea's native scroll-on-
+       caret behavior alive: clicking in and pressing End / arrow keys
+       scrolls the clipped content into view. `scrollbar-width:none` +
+       the ::-webkit-scrollbar rule below suppress the visible scrollbars
+       so nothing is drawn until the user interacts. `resize:none` keeps
+       the footer stable. */
+    #footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
+    #footer-ips > * + * { margin-left: .5rem; }
+    #footer-ips .label { flex-shrink: 0; }
+    textarea#footer-ip-list {
+      flex: 1 1 auto; min-width: 0;
+      font-family: 'Menlo','Consolas',monospace; font-size: .6875rem;
+      color: #9ca3af; background: #0b1220; border: 1px solid #374151;
+      border-radius: 3px; padding: .15rem .35rem;
+      resize: none; overflow: auto; white-space: pre;
+      line-height: 1.25; vertical-align: middle;
+      scrollbar-width: none;
+    }
+    textarea#footer-ip-list::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Yuruna<span id="header-version">v2026.05.15</span></h1>
+  <span id="header-machine"></span>
+</header>
+
+<div id="banner" class="idle">
+  <span class="dot"></span>
+  <span id="banner-text">Loading…</span>
+</div>
+
+<main>
+
+  <section id="sec-meta" style="display:none">
+    <div class="section-title with-controls">
+      <span id="sec-meta-title">Latest Cycle</span>
+      <button id="cycle-pause-btn" class="meta-btn" type="button" disabled>Pause after cycle</button>
+    </div>
+    <div class="meta-grid">
+      <div class="meta-card"><div class="label">Cycle ID (UTC)</div><div class="value" id="m-cycleid">—</div></div>
+      <div class="meta-card"><div class="label">Started</div><div class="value" id="m-started">—</div></div>
+      <div class="meta-card"><div class="label">Commit</div><div class="value" id="m-commit">—</div></div>
+      <div class="meta-card"><div class="label">Images refresh</div><div class="value" id="m-getimage">—</div></div>
+    </div>
+  </section>
+
+  <section id="sec-guests" style="display:none">
+    <div class="section-title with-controls">
+      <span id="sec-guests-title">Guests</span>
+      <button id="step-pause-btn" class="meta-btn" type="button" disabled>Pause after step</button>
+    </div>
+    <div id="guest-list"></div>
+  </section>
+
+  <section id="sec-history" style="display:none">
+    <div class="section-title">Recent Cycles</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Cycle ID (UTC)</th><th>Duration</th>
+            <th>Guests</th><th>Commit</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div id="no-data" class="no-data">
+    <h3>No test data yet</h3>
+    <p>Run <code>Invoke-TestRunner.ps1</code> to start a test cycle.</p>
+  </div>
+
+</main>
+
+<div id="footer-bar">
+  <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" aria-label="Host IP addresses">—</textarea></span>
+  <span>Loaded: <span id="last-loaded">—</span></span>
+  <span><a href="#" onclick="location.reload();return false" style="color:#6b7280">Refresh</a>: <span id="countdown">30</span>s</span>
+</div>
+
+<script>
+/*
+  Browser baseline: this script runs unmodified on Safari iOS 9.x as well
+  as current browsers. That's why no ES2015+ syntax sugar appears below —
+  no arrow functions, template literals, async/await, destructuring,
+  optional chaining, nullish coalescing, default params, or spread/rest.
+  iOS 9.0–9.2 ship a ES5-only parser plus partial Promise/Set/Map/Array
+  helpers; the IIFE wrapper keeps everything off the global object the
+  same way the previous `let`-scoped script did.
+*/
+(function(){
+  'use strict';
+
+  // Minimal fetch shim for browsers without native fetch (Safari iOS 9.x).
+  // Implements just enough of the spec for this page: GET/POST, headers,
+  // body, .text() and .json() on the response. Native fetch on every other
+  // browser is left untouched.
+  if (!window.fetch) {
+    window.fetch = function(url, options) {
+      options = options || {};
+      return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open(options.method || 'GET', url, true);
+        var headers = options.headers;
+        if (headers) {
+          for (var k in headers) {
+            if (Object.prototype.hasOwnProperty.call(headers, k)) {
+              xhr.setRequestHeader(k, headers[k]);
+            }
+          }
+        }
+        xhr.onload = function() {
+          var responseText = xhr.responseText;
+          resolve({
+            ok: xhr.status >= 200 && xhr.status < 300,
+            status: xhr.status,
+            statusText: xhr.statusText,
+            text: function() { return Promise.resolve(responseText); },
+            json: function() {
+              return new Promise(function(res, rej) {
+                try { res(JSON.parse(responseText)); }
+                catch (e) { rej(e); }
+              });
+            }
+          });
+        };
+        xhr.onerror = function() { reject(new Error('Network error')); };
+        xhr.send(options.body || null);
+      });
+    };
+  }
+
+  function safeWarn(msg, err) {
+    if (window.console && console.warn) {
+      console.warn(msg, err && err.message ? err.message : err);
+    }
+  }
+
+  var BANNER = {
+    idle:    'No test data available',
+    running: 'Test in progress',
+    pass:    'All guests operational',
+    fail:    'Incident detected — see details below',
+    stopped: 'Test runner stopped'
+  };
+  // Pause banner text is computed by pauseBannerText() below because a
+  // single 'Test paused' string doesn't capture the three real states
+  // (armed after step, armed after cycle, actually paused).
+
+  // Raw HTML from $env:YURUNA_TRACK_DIR/caching-proxy.txt (served at
+  // /track/caching-proxy.txt). The server rewrites this file at the start
+  // of every test cycle (Start-StatusServer.ps1 runs with -Restart from
+  // Invoke-TestRunner.ps1 on each cycle, and its proxy-cache probe
+  // re-runs then). The UI re-fetches on every loadStatus() poll so a
+  // page left open sees the new cycle's proxy state without a manual
+  // reload. Appended to the "Latest Cycle" section title (see renderStatus).
+  var cachingProxyHtml = '';
+
+  // Populate the footer with the host's IP addresses, written by
+  // Start-StatusServer.ps1 to $env:YURUNA_TRACK_DIR/ipaddresses.txt and
+  // served at /track/ipaddresses.txt. Fetched once on load — the file
+  // only changes when the status server restarts, and a browser reload
+  // picks that up.
+  function loadIpAddresses() {
+    var el = document.getElementById('footer-ip-list');
+    if (!el) return;
+    fetch('track/ipaddresses.txt?_=' + Date.now(), { cache: 'no-store' })
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      })
+      .then(function(raw) {
+        // Preserve the writer's two-line format (IPv4 on line 1, IPv6 on
+        // line 2). Only trim trailing whitespace so a final \n doesn't
+        // render as an empty third row inside the textarea.
+        var text = (raw || '').replace(/\s+$/, '');
+        var value = text || '—';
+        el.value = value;
+        // Size the textarea to match its content so the field has no
+        // blank vertical padding — this is what keeps it visually centered
+        // on the footer row whether the file has 1 line or 2.
+        var lineCount = Math.min(2, Math.max(1, value.split('\n').length));
+        el.rows = lineCount;
+      })
+      ['catch'](function(e) {
+        // Bracket form for `catch` so iOS 9.0–9.2 strict-mode parsers
+        // (which still flag `catch` as a reserved word in member-access
+        // position) don't complain.
+        el.value = '—';
+        el.rows = 1;
+        safeWarn('Could not load track/ipaddresses.txt:', e);
+      });
+  }
+
+  function cls(status) {
+    var valid = ['idle','running','pass','fail','skipped','pending','paused'];
+    return valid.indexOf(status) !== -1 ? status : 'idle';
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Write the banner text. The proxy-cache state used to live here but
+  // was moved to the "Latest Cycle" section title (see renderStatus),
+  // so this helper is now a plain text-setter.
+  function setBannerText(statusText) {
+    var el = document.getElementById('banner-text');
+    if (!el) return;
+    el.textContent = statusText || '';
+  }
+
+  // Refresh the "Latest Cycle" section title with proxy-cache HTML.
+  // Split out from renderStatus so the first loadCachingProxyText() can
+  // update the UI even before the first status.json poll lands.
+  function refreshCycleTitle() {
+    var el = document.getElementById('sec-meta-title');
+    if (!el) return;
+    // cachingProxyHtml is trusted server-generated HTML (may include an
+    // <a href> to the cachemgr URL). "Latest Cycle" is a literal
+    // constant so there's nothing to escape on the left side.
+    el.innerHTML = cachingProxyHtml
+      ? ('Latest Cycle - ' + cachingProxyHtml)
+      : 'Latest Cycle';
+  }
+
+  function loadCachingProxyText() {
+    fetch('track/caching-proxy.txt?_=' + Date.now(), { cache: 'no-store' })
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      })
+      .then(function(text) {
+        cachingProxyHtml = (text || '').replace(/^\s+|\s+$/g, '');
+      })
+      ['catch'](function(e) {
+        cachingProxyHtml = '';
+        safeWarn('Could not load track/caching-proxy.txt:', e);
+      })
+      .then(function() {
+        refreshCycleTitle();
+      });
+  }
+
+  // Shared pause-button updater. Handles both the Step pause (banner) and
+  // Cycle pause (sec-meta) buttons, which share identical toggle mechanics
+  // but differ in placement, base CSS class, and control endpoint prefix:
+  //   kind === 'step'  → #step-pause-btn  in Guests section (.meta-btn base)
+  //   kind === 'cycle' → #cycle-pause-btn in Latest Cycle section (.meta-btn base)
+  // `armed` reflects whether the matching pause flag is currently set
+  // (server-side source of truth, echoed in status.json). `cycleActive` is
+  // true whenever there is an in-flight cycle — the button is otherwise
+  // disabled. When armed, the button flips to "Continue" + amber, matches
+  // the banner's paused color without affecting the rest of the UI.
+  function updatePauseButton(kind, armed, cycleActive) {
+    var btn = document.getElementById(kind + '-pause-btn');
+    if (!btn) return;
+    var pauseLabel = (kind === 'step') ? 'Pause after step' : 'Pause after cycle';
+    if (armed) {
+      btn.textContent = 'Continue';
+      btn.classList.add('paused-active');
+      btn.disabled = false;
+      btn.onclick = function() { controlAction(kind, 'resume'); };
+    } else if (cycleActive) {
+      btn.textContent = pauseLabel;
+      btn.classList.remove('paused-active');
+      btn.disabled = false;
+      btn.onclick = function() { controlAction(kind, 'pause'); };
+    } else {
+      btn.textContent = pauseLabel;
+      btn.classList.remove('paused-active');
+      btn.disabled = true;
+      btn.onclick = null;
+    }
+  }
+
+  // Post to the control endpoint, then force an immediate status refresh
+  // so the banner flips to yellow (or back) without waiting for the 30s
+  // poll. action is 'pause' or 'resume'; kind is 'step' or 'cycle' — the
+  // endpoint is /control/<kind>-<action>, matching Start-StatusServer.ps1.
+  function controlAction(kind, action) {
+    var btn = document.getElementById(kind + '-pause-btn');
+    if (btn) btn.disabled = true;
+    var endpoint = 'control/' + kind + '-' + action;
+    fetch(endpoint, { method: 'POST', cache: 'no-store' })
+      ['catch'](function(e) {
+        safeWarn(endpoint + ' failed:', e);
+      })
+      .then(function() {
+        loadStatus();
+      });
+  }
+
+  function badge(status, label) {
+    var c = cls(status);
+    return '<span class="badge ' + c + '">' + (label || status) + '</span>';
+  }
+
+  // Display-only relabelling for the runner's internal step names. Keeps
+  // step.name (and all references) intact so status.json shape, log files,
+  // and the collapse logic stay unchanged — only the pill text gets the
+  // shorter operator-facing label.
+  var PILL_LABELS = {
+    'New-VM.Resource':     'New VM',
+    'Start-GuestOS':       'Start OS',
+    'Start-GuestWorkload': 'Workload'
+  };
+  function pill(step) {
+    var c = cls(step.status);
+    var skip = step.skipped ? ' (skip)' : '';
+    var err  = step.errorMessage ? ' title="' + step.errorMessage.replace(/"/g,'&quot;') + '"' : '';
+    var label = PILL_LABELS[step.name] || step.name;
+    return '<span class="step-pill ' + c + '"' + err + '>' + label + skip + '</span>';
+  }
+
+  // Collapse the VM-prep triplet (New-VM, Start-VM, New-VM.Resource)
+  // into a single "New-VM.Resource" pill. The runner reports them
+  // separately so the status sidecar still has individual diagnostics,
+  // but operators only care about the user-defined sequences — "the VM
+  // resource is up" is one observable end state and seeing three near-
+  // identical pills for it adds noise. The pill's status is the worst
+  // of the three (fail wins over running wins over pass; skipped only
+  // when all three are skipped) so any prep failure remains visible.
+  // The error tooltip is the first non-empty errorMessage from the
+  // triplet so a New-VM failure surfaces under the merged pill rather
+  // than disappearing.
+  var VM_PREP_STEPS = ['New-VM', 'Start-VM', 'New-VM.Resource'];
+  function collapseVmPrep(steps) {
+    var prep = [];
+    var rest = [];
+    for (var i = 0; i < steps.length; i++) {
+      if (VM_PREP_STEPS.indexOf(steps[i].name) >= 0) prep.push(steps[i]);
+      else rest.push(steps[i]);
+    }
+    if (prep.length === 0) return steps;
+    // Status precedence: fail > running > pass > skipped > pending.
+    var rank = { fail: 5, running: 4, pass: 3, skipped: 2, pending: 1 };
+    var bestStatus = 'pending';
+    var bestRank   = 0;
+    var allSkipped = true;
+    var firstErr   = null;
+    var earliestStart = null;
+    var latestFinish  = null;
+    for (var j = 0; j < prep.length; j++) {
+      var s = prep[j];
+      var r = rank[s.status] || 0;
+      if (r > bestRank) { bestRank = r; bestStatus = s.status; }
+      if (!s.skipped) allSkipped = false;
+      if (!firstErr && s.errorMessage) firstErr = s.errorMessage;
+      if (s.startedAt && (!earliestStart || s.startedAt < earliestStart)) earliestStart = s.startedAt;
+      if (s.finishedAt && (!latestFinish || s.finishedAt > latestFinish)) latestFinish = s.finishedAt;
+    }
+    var merged = {
+      name:         'New-VM.Resource',
+      status:       bestStatus,
+      skipped:      allSkipped,
+      errorMessage: firstErr,
+      startedAt:    earliestStart,
+      finishedAt:   latestFinish
+    };
+    // Splice merged pill in place of the first prep entry, preserving
+    // the original ordering of the remaining steps.
+    var out = [];
+    var inserted = false;
+    for (var k = 0; k < steps.length; k++) {
+      if (VM_PREP_STEPS.indexOf(steps[k].name) >= 0) {
+        if (!inserted) { out.push(merged); inserted = true; }
+        continue;
+      }
+      out.push(steps[k]);
+    }
+    return out;
+  }
+
+  // Resolve the URL of a cycle's HTML log file.
+  //
+  // New layout (cycleFolder per cycle, since 2026-05): the runner stores
+  // the folder URL on the record as `cycleFolderUrl`
+  // (e.g. "log/000001.2026-05-11.16-24-39.HOST/"), and the HTML log lives
+  // inside it with the same base name. When that field is present we use
+  // it directly -- no derivation needed.
+  //
+  // Legacy layout: log files were flat in test/status/log/ named
+  // "<cycleId>.<hostname>.<gitCommit>.html". History rows from older
+  // cycles still have that shape, so we keep the derivation as a
+  // fallback so the dashboard remains useful for historical browsing.
+  function logFileUrl(cycleId, hostname, gitCommit, cycleFolderUrl) {
+    if (cycleFolderUrl) {
+      // Strip trailing slash, append "<cycleFolderBaseName>.html". The
+      // base name IS the last path segment of cycleFolderUrl.
+      var trimmed = cycleFolderUrl.replace(/\/+$/, '');
+      var parts = trimmed.split('/');
+      var base = parts[parts.length - 1];
+      return trimmed + '/' + base + '.html';
+    }
+    if (!cycleId || !hostname || !gitCommit) return null;
+    var safeCycleId = cycleId.replace(/:/g, '-');
+    return 'log/' + safeCycleId + '.' + hostname + '.' + gitCommit + '.html';
+  }
+
+  // Normalize a record's commit info to an array of {sha, repoUrl},
+  // accepting both the new schema (gitCommits: [...]) and the legacy
+  // schema (gitCommit: '...' + a sibling repoUrl). Returning [] is a
+  // legitimate "no commits yet" state (Reset-StatusDocumentForCycleStart
+  // window between cycles, fresh runner before any cycle, etc.).
+  // Used by both the live "Commit" meta-card and each Recent Cycles row.
+  // legacyRepoUrl: the top-level data.repoUrl when reading a history row
+  // pre-dating the schema rename (the row itself only carries gitCommit).
+  function gitCommitsForRender(rec, legacyRepoUrl) {
+    if (rec.gitCommits && rec.gitCommits.length > 0) return rec.gitCommits;
+    if (rec.gitCommit) return [{ sha: rec.gitCommit, repoUrl: rec.repoUrl || legacyRepoUrl || null }];
+    return [];
+  }
+  // Render the gitCommits array as comma-separated short-SHA links.
+  // No labels: each link goes directly to its repo's commit page so the
+  // operator gets full context on click. Plain-text fallback when a
+  // record has no repo URL yet (commit cell on a fresh status.json).
+  // Defense-in-depth: validate scheme + escape both halves before
+  // joining. status.json is operator-trusted today, but the
+  // /control/test-config POST endpoint is unauthenticated — a hostile
+  // repoUrl could otherwise land a `javascript:...` URL or break out of
+  // the href attribute via embedded quote.
+  function renderCommitLinks(commits) {
+    if (!commits || commits.length === 0) return '—';
+    return commits.map(function(c) {
+      var sha   = (c && c.sha) ? c.sha.slice(0, 8) : '';
+      var rawSha = (c && c.sha) ? c.sha : '';
+      if (!sha) return '—';
+      if (c.repoUrl && /^https?:\/\//i.test(c.repoUrl) && /^[A-Za-z0-9]+$/.test(rawSha)) {
+        var href = escHtml(c.repoUrl + '/commit/' + rawSha);
+        return '<a href="' + href + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + escHtml(sha) + '</a>';
+      }
+      return escHtml(sha);
+    }).join(', ');
+  }
+  // The per-cycle log file is named with the framework SHA only (it's
+  // the file the runner actually wrote). Convention: gitCommits[0] is
+  // framework. Fall back to legacy gitCommit for old history rows.
+  function primaryShaForLog(rec) {
+    var commits = gitCommitsForRender(rec, null);
+    if (commits.length > 0 && commits[0].sha) return commits[0].sha;
+    return rec.gitCommit || null;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    // dateStyle/timeStyle are ES2020 (Safari 14.1+); iOS 9 ignores
+    // unknown options per ECMA-402, so the call still returns a usable
+    // (longer) localized string there. Wrap in try/catch in case a
+    // particular runtime is stricter.
+    try {
+      return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+    } catch (e) {
+      return d.toLocaleString();
+    }
+  }
+
+  // Resolve the banner text when a pause is armed or active. Distinguishes
+  // three real states behind a single amber banner:
+  //   'Test paused'                           — the runner is actually blocked
+  //   'Test will pause (after current step)'  — stepPaused armed, step still
+  //                                              running (happens next)
+  //   'Test will pause (after current cycle)' — cyclePaused armed, cycle still
+  //                                              running
+  // Effectiveness signals match what each runner writes:
+  //   step  — Invoke-Sequence writes "Paused (waiting for resume)" into
+  //           current-action.json while sitting in its wait loop.
+  //   cycle — Invoke-TestRunner hits its cycle-pause gate AFTER the cycle has
+  //           finalized, so overallStatus has already flipped off 'running'.
+  // When both are armed but neither effective, step wins because the step
+  // boundary is always reached before the cycle boundary.
+  // Returns null when no pause is armed — caller falls back to BANNER[status].
+  function pauseBannerText(stepPaused, cyclePaused, status, actionData) {
+    var stepEffective  = stepPaused &&
+      !!(actionData && actionData.line && /Paused \(waiting for resume\)/.test(actionData.line));
+    var cycleEffective = cyclePaused && status !== 'running';
+    if (stepEffective)  return 'Test paused';
+    if (stepPaused)     return 'Test will pause (after current step)';
+    if (cycleEffective) return 'Test paused';
+    if (cyclePaused)    return 'Test will pause (after current cycle)';
+    return null;
+  }
+
+  function fmtDuration(a, b) {
+    if (!a || !b) return '—';
+    var s = Math.round((new Date(b) - new Date(a)) / 1000);
+    if (s < 0) return '—';
+    var m = Math.floor(s / 60), r = s % 60;
+    if (m) {
+      return r ? (m + 'm ' + r + 's') : (m + 'm');
+    }
+    return s + 's';
+  }
+
+  // Return an HTML fragment for the "current action" line on a guest card,
+  // or '' when there is nothing to show. The current-action.json sidecar
+  // is written by Invoke-Sequence at each step boundary; we only surface
+  // it on the guest whose key matches and while that guest is still
+  // running. The box only picks up the amber paused variant once the
+  // running step has actually ended and Invoke-Sequence has written the
+  // "Paused (waiting for resume)" marker. While a step is still running
+  // after the user clicks Pause, the banner is already amber but the
+  // action box stays blue to signal "pause will take effect at the next
+  // step".
+  function guestActionHtml(g, actionData, paused) {
+    if (!actionData || !actionData.line) return '';
+    if (g.status !== 'running') return '';
+    if (actionData.guestKey && actionData.guestKey !== g.guestKey) return '';
+    var safe = actionData.line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var waitingForResume = paused && /Paused \(waiting for resume\)/.test(actionData.line);
+    var actionCls = waitingForResume ? 'guest-action paused' : 'guest-action';
+    return '<div class="' + actionCls + '">' + safe + '</div>';
+  }
+
+  function renderStatus(data, actionData, runnerStatus) {
+    var noData = document.getElementById('no-data');
+    var banner = document.getElementById('banner');
+    var headerMachine = document.getElementById('header-machine');
+
+    // Update header with machine identity (always, even before run data).
+    // The label and the "edit config" trigger share #header-machine, so
+    // this rebuilds both children on each render rather than just setting
+    // textContent — the latter would wipe the link.
+    var nameText = '';
+    var hostText = '';
+    if (data && data.hostname) {
+      nameText = data.hostname;
+      hostText = data.host ? data.host.replace('host.','') : '';
+      document.title = data.hostname + ' — Yuruna status';
+    } else {
+      nameText = window.location.hostname || '';
+    }
+    headerMachine.textContent = '';
+    var stack = document.createElement('span');
+    stack.className = 'hm-stack';
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'hm-name';
+    nameSpan.textContent = nameText;
+    stack.appendChild(nameSpan);
+    if (hostText) {
+      var hostSpan = document.createElement('span');
+      hostSpan.className = 'hm-host';
+      hostSpan.textContent = '(' + hostText + ')';
+      stack.appendChild(hostSpan);
+    }
+    headerMachine.appendChild(stack);
+    var editLink = document.createElement('a');
+    editLink.id = 'header-edit-config';
+    editLink.href = 'test.config.html';
+    editLink.textContent = 'Edit config';
+    editLink.title = 'Edit test/test.config.yml';
+    headerMachine.appendChild(editLink);
+
+    // status.json persists across rename (the rename was recent — any
+    // file written before it still carries the old `runId` key instead
+    // of `cycleId`). Read either so the page renders the same whether
+    // the file pre-dates or post-dates the rename; new writes always go
+    // to cycleId, so this fallback quietly ages out once every guest
+    // has recycled.
+    var liveCycleId = data && (data.cycleId || data.runId);
+    var hasGuests   = !!(data && data.guests && data.guests.length);
+    var hasHistory  = !!(data && data.history && data.history.length);
+
+    // Runner liveness override: when /control/runner-status reports
+    // running=false the banner is forced to "stopped" so the operator
+    // can distinguish a live cycle's state from a frozen snapshot of
+    // the last cycle. Fetch failures (older server, network blip) leave
+    // runnerStatus null and the banner falls back to its data-driven
+    // state, preserving prior behavior.
+    var runnerStopped = !!(runnerStatus && runnerStatus.running === false);
+
+    if (!data || (!liveCycleId && !hasGuests && !hasHistory)) {
+      banner.className = runnerStopped ? 'stopped' : 'idle';
+      setBannerText(runnerStopped ? BANNER.stopped : BANNER.idle);
+      updatePauseButton('step',  false, false);
+      updatePauseButton('cycle', false, false);
+      var ids = ['sec-meta','sec-guests','sec-history'];
+      for (var i = 0; i < ids.length; i++) {
+        var s = document.getElementById(ids[i]);
+        if (s) s.style.display = 'none';
+      }
+      noData.style.display = '';
+      return;
+    }
+    noData.style.display = 'none';
+
+    var status = data.overallStatus || 'idle';
+    var stepPaused  = !!data.stepPaused;
+    var cyclePaused = !!data.cyclePaused;
+    // The banner turns amber whenever EITHER pause is armed, so the
+    // overall state reads the same color regardless of which button was
+    // pressed. The text, however, distinguishes three cases — see
+    // pauseBannerText(). Internal controls (step pills, guest-action
+    // boxes) keep their normal colors until the pause actually takes
+    // effect inside Invoke-Sequence / Invoke-TestRunner.
+    var pauseText = pauseBannerText(stepPaused, cyclePaused, status, actionData);
+    var anyPaused = pauseText !== null;
+    var effective = anyPaused ? 'paused' : cls(status);
+    // Runner liveness wins over status.json's `overallStatus` and any
+    // pause text: if the runner process is gone, the displayed state
+    // below is by definition a snapshot, not live. The page still
+    // renders the latest history / guest list (operator-useful context
+    // for "what was the last run doing?") -- only the banner overrides.
+    if (runnerStopped) {
+      banner.className = 'stopped';
+      setBannerText(BANNER.stopped);
+    } else {
+      banner.className = effective;
+      setBannerText(pauseText !== null ? pauseText : (BANNER[status] || status));
+    }
+    // Both buttons are enabled whenever a cycle is in flight (running,
+    // paused at step, or already paused at cycle boundary). Outside of
+    // that they're idle-disabled. "cycleActive" lumps running + either
+    // pause together so a user who just clicked Cycle pause can still
+    // arm Step pause (or vice versa) without waiting for the next poll.
+    var cycleActive = (status === 'running') || anyPaused;
+    updatePauseButton('step',  stepPaused,  cycleActive);
+    updatePauseButton('cycle', cyclePaused, cycleActive);
+
+    // Meta
+    if (liveCycleId) {
+      document.getElementById('sec-meta').style.display = '';
+      // Hyperlink each repo's commit short-SHA to its upstream commit
+      // page. Multiple repos render as comma-separated links, no labels
+      // (clicking takes you straight to the change with enough context).
+      // The same renderer is used for each Recent Cycles row.
+      var liveCommits = gitCommitsForRender(data, data.repoUrl);
+      document.getElementById('m-commit').innerHTML = renderCommitLinks(liveCommits);
+      // slice(0,19) trims the ISO timestamp to "YYYY-MM-DDTHH:MM:SS"; the
+      // replace turns the bare 'T' separator into ' T' so the date and time
+      // halves are visually distinct in the badge.
+      var cycleIdLabel = (liveCycleId || '—').slice(0, 19).replace('T', ' T');
+      var cycleLogUrl  = logFileUrl(liveCycleId, data.hostname, primaryShaForLog(data), data.cycleFolderUrl);
+      var cycleCell = cycleLogUrl
+        ? ('<a href="' + cycleLogUrl + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + cycleIdLabel + '</a>')
+        : cycleIdLabel;
+      document.getElementById('m-cycleid').innerHTML = '<span class="badge ' + cls(status) + '">' + cycleCell + '</span>';
+      document.getElementById('m-started').textContent  = fmtDate(data.startedAt);
+      document.getElementById('m-getimage').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';
+    }
+
+    // Guests
+    var guests = data.guests || [];
+    if (guests.length) {
+      document.getElementById('sec-guests').style.display = '';
+      document.getElementById('guest-list').innerHTML = guests.map(function(g) {
+        var stepsArr = collapseVmPrep(g.steps || []);
+        var steps    = stepsArr.map(pill).join('');
+        var firstStartedAt = stepsArr[0] ? stepsArr[0].startedAt : null;
+        var lastFinishedAt = stepsArr.length ? stepsArr[stepsArr.length - 1].finishedAt : null;
+        var dur            = fmtDuration(firstStartedAt, lastFinishedAt);
+        var errStep = null;
+        for (var i = 0; i < stepsArr.length; i++) {
+          if (stepsArr[i].errorMessage) { errStep = stepsArr[i]; break; }
+        }
+        var errHtml = errStep ? ('<div class="guest-error">' + escHtml(errStep.errorMessage) + '</div>') : '';
+        // Pass stepPaused (not anyPaused): the amber "Paused (waiting
+        // for resume)" box is only meaningful for a step-level pause,
+        // which is what Invoke-Sequence actually blocks on. A cycle-
+        // level pause is armed-but-pending during the currently running
+        // steps and takes effect only at the cycle boundary.
+        var actHtml = guestActionHtml(g, actionData, stepPaused);
+        // guest-meta row, driven by g.status:
+        //   running   → "VM: <vmName>"  (the live VM the operator can target)
+        //   terminal  → "Duration: <d>" (the VM is gone; only the timing
+        //               survives — full provenance is in the per-cycle log)
+        //   otherwise → " · "           (visual placeholder so the row keeps
+        //               its height before the guest has started)
+        var metaParts = ' · ';
+        if (g.status === 'running' && g.vmName) {
+          metaParts = 'VM: ' + escHtml(g.vmName);
+        } else if (g.status && g.status !== 'running' && g.status !== 'pending' && dur !== '—') {
+          metaParts = 'Duration: ' + dur;
+        }
+        // Top-level workload(s) the cycle planner mapped this guest to.
+        // Rendered just below guest-meta so the operator can see at a
+        // glance which user-defined workload is being driven through
+        // this VM. Empty string (legacy guestSequence path or no plan)
+        // collapses out cleanly.
+        var topLevelStr = (g.topLevel || '').replace(/^\s+|\s+$/g, '');
+        var topHtml = topLevelStr
+          ? ('<div class="guest-toplevel">' + escHtml(topLevelStr) + '</div>')
+          : '';
+        // Live guest title: a link to the cycleGuestDataFolder as soon
+        // as that folder has been published on g.failureArtifacts. The
+        // folder is created eagerly at the top of the per-guest loop in
+        // Invoke-TestInnerRunner.ps1 and its URL is recorded on the live
+        // status doc immediately, so the tile is clickable mid-cycle --
+        // operators can navigate to in-flight diagnostics without waiting
+        // for the guest to reach pass/fail (an explicit
+        // saveSystemDiagnostic step late in a sequence can hold the guest
+        // in "running" for minutes after the test sequence has visibly
+        // finished, especially on UTM where sequences end with "Reboot
+        // the VM" and Wait-SshReady chews most of its 180s budget). The
+        // folder is mkdir'd at loop entry so the link
+        // target physically exists from the start. Field name
+        // (failureArtifacts) is kept for back-compat with the JSON
+        // schema; semantics are "the per-guest folder URL, success or
+        // failure". Defensive guard on folderUrl so a row without the
+        // URL field (a guest whose loop iteration hasn't begun yet)
+        // still renders cleanly as plain text.
+        var folderUrl = g.failureArtifacts || '';
+        var titleHtml = folderUrl
+          ? ('<a href="' + folderUrl + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="color:inherit;text-decoration:underline dotted">' + escHtml(g.guestKey) + '</a>')
+          : escHtml(g.guestKey);
+        // Wrap the colored status badge in the same folder anchor as the
+        // title so the pass/fail/running pill is also clickable. Eligible
+        // as soon as failureArtifacts is published (which happens at the
+        // top of each guest's iteration in Invoke-TestInnerRunner, i.e.
+        // pending -> running) -- intermediate diagnostics in the running
+        // state are reachable without waiting for cycle completion.
+        var badgeHtml = folderUrl
+          ? ('<a href="' + folderUrl + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="text-decoration:none">' + badge(g.status) + '</a>')
+          : badge(g.status);
+        return '<div class="guest-card">' +
+          '<div class="guest-card-header">' +
+            '<div class="left">' +
+              '<div class="guest-name">' + titleHtml + '</div>' +
+              '<div class="guest-meta">' + metaParts + '</div>' +
+            '</div>' +
+            '<div>' + badgeHtml + '</div>' +
+          '</div>' +
+          topHtml +
+          '<div class="steps">' + steps + '</div>' +
+          actHtml +
+          errHtml +
+        '</div>';
+      }).join('');
+    }
+
+    // History
+    var history = data.history || [];
+    if (history.length) {
+      document.getElementById('sec-history').style.display = '';
+      document.getElementById('history-body').innerHTML = history.map(function(h) {
+        var gs = h.guestSummary || {};
+        // Two value shapes (see Test.Status.psm1 Complete-Run):
+        //   "pass"|"fail"  - bare string, no per-guest folder URL on record
+        //                   (very old history entries pre-dating the
+        //                   cycleGuestDataFolder rework).
+        //   { status, failureArtifacts } - per-guest folder URL available
+        //                   (set on every guest now, success or fail).
+        // When failureArtifacts is set we wrap the pill in an anchor so
+        // clicking the per-guest tile jumps straight to that guest's
+        // cycleGuestDataFolder -- where every file for the guest in
+        // this cycle (diagnostics, failure screens if any, logs) lives.
+        // The field name is kept for back-compat with the JSON schema
+        // and older dashboards; semantics changed from "set on failure
+        // only" to "set whenever a per-guest folder exists".
+        var guestPills = Object.keys(gs).map(function(k) {
+          var v        = gs[k];
+          var status   = (typeof v === 'string') ? v : (v && v.status) || '';
+          var debugUrl = (typeof v === 'object' && v) ? v.failureArtifacts : '';
+          var label    = k.replace('guest.','');
+          var pillHtml = '<span class="badge ' + cls(status) + '">' + label + '</span>';
+          if (debugUrl) {
+            return '<a href="' + debugUrl + '" target="_blank" title="Open debug folder for ' + label + '" style="text-decoration:none">' + pillHtml + '</a>';
+          }
+          return pillHtml;
+        }).join(' ');
+        // History entries written before the rename still have `runId`;
+        // read either field so old persisted rows remain clickable.
+        // New writes use `cycleId`; within ~30 cycles the fallback is moot.
+        // cycleFolderUrl is the new schema: when present, logFileUrl
+        // returns the in-cycleFolder HTML path; older entries fall back
+        // to the flat <cycleId>.<host>.<sha>.html naming.
+        var hCycleId    = h.cycleId || h.runId;
+        var hLogUrl     = logFileUrl(hCycleId, h.hostname, primaryShaForLog(h), h.cycleFolderUrl);
+        // The literal " T" stays as the visible separator; the <wbr>
+        // gives the line-breaker its only legal break point (hyphens in
+        // YYYY-MM-DD are suppressed by the badge's white-space:nowrap).
+        var hCycleLabel = (hCycleId || '—').slice(0, 19).replace('T', ' <wbr>T');
+        var hCycleCell  = hLogUrl
+          ? ('<a href="' + hLogUrl + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + hCycleLabel + '</a>')
+          : hCycleLabel;
+        var statusCls  = cls(h.overallStatus);
+        // gitCommitsForRender accepts the new schema (h.gitCommits) AND
+        // legacy entries (h.gitCommit + the top-level data.repoUrl) so
+        // history rows from before the rename keep linking through to
+        // the framework commit page.
+        var commitCell = renderCommitLinks(gitCommitsForRender(h, data.repoUrl));
+        return '<tr>' +
+          '<td class="mono"><span class="badge ' + statusCls + '">' + hCycleCell + '</span></td>' +
+          '<td>' + fmtDuration(h.startedAt, h.finishedAt) + '</td>' +
+          '<td>' + guestPills + '</td>' +
+          '<td class="mono">' + commitCell + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+  }
+
+  var countdown = 30;
+
+  function loadStatus() {
+    var data = null;
+    var actionData = null;
+    var runnerStatus = null;
+    fetch('track/status.json?_=' + Date.now())
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function(d) { data = d; })
+      ['catch'](function(e) {
+        safeWarn('Could not load track/status.json:', e);
+      })
+      .then(function() {
+        // Soft fetch — 404 is normal when no sequence has run yet.
+        return fetch('track/current-action.json?_=' + Date.now())
+          .then(function(res) {
+            if (res.ok) return res.json();
+            return null;
+          })
+          ['catch'](function() { return null; });
+      })
+      .then(function(a) {
+        actionData = a;
+        // PID-based liveness probe: server reads <track>/runner.pid and
+        // validates the process is an Invoke-Test(Inner)?Runner. Soft
+        // fetch — a missing endpoint (old server binary, transient
+        // network blip) leaves runnerStatus null and the banner falls
+        // back to its data-driven state, preserving prior behavior.
+        return fetch('control/runner-status', { cache: 'no-store' })
+          .then(function(res) { return res.ok ? res.json() : null; })
+          ['catch'](function() { return null; });
+      })
+      .then(function(rs) {
+        runnerStatus = rs;
+        renderStatus(data, actionData, runnerStatus);
+        document.getElementById('last-loaded').textContent = new Date().toLocaleTimeString();
+        countdown = 60;
+        // Re-read caching-proxy.txt every poll. Start-StatusServer.ps1
+        // rewrites it at the beginning of every test cycle
+        // (Invoke-TestRunner runs it with -Restart, which re-triggers
+        // the Test-CachingProxyAvailable probe), so the UI picks up a
+        // new cycle's cache state within one poll interval even if the
+        // page was left open across cycles.
+        loadCachingProxyText();
+      });
+  }
+
+  setInterval(function() {
+    countdown = Math.max(0, countdown - 1);
+    var el = document.getElementById('countdown');
+    if (el) el.textContent = countdown;
+    if (countdown === 0) loadStatus();
+  }, 1000);
+
+  loadIpAddresses();
+  // loadCachingProxyText() also runs inside loadStatus() on every poll —
+  // this first call just populates cachingProxyHtml before the first
+  // renderStatus fires so the section title has it immediately.
+  loadCachingProxyText();
+  loadStatus();
+})();
+</script>
+
+</body>
+</html>

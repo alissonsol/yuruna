@@ -1,0 +1,20 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/extension-config.schema.yml
+title: Yuruna extension area config
+description: >
+  Per-area config that names which extension scripts under the same
+  directory are active. Authentication uses exactly active[0];
+  notification iterates the full list.
+
+type: object
+additionalProperties: false
+required: [active]
+
+properties:
+  active:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      pattern: '^[A-Za-z0-9._-]+$'
+      description: Base name of a sibling <name>.psm1 (no extension).

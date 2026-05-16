@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# Interaction sequence for driving VM workload testing.
+# See possible actions in the actions.yml file.
+
+description: "Windows 11: workload test sequence (placeholder)."
+baseline:
+  windows.11:
+    - start.guest.windows.11
+variables: {}
+steps: []

@@ -1,0 +1,314 @@
+<#PSScriptInfo
+.VERSION 2026.05.15
+.GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS Yuruna.Workload
+.LICENSEURI https://yuruna.com
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES powershell-yaml
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+$yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
+$validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
+Import-Module -Name $validationModulePath
+Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
+
+function Publish-WorkloadList {
+    param (
+        $project_root,
+        $config_subfolder
+    )
+
+    if (!(Confirm-WorkloadList $project_root $config_subfolder)) { return $false; }
+    Write-Debug "---- Publish Workloads"
+    # For each workload: switch to its kube context, run each deployment
+    # (chart | kubectl | helm | shell). For `chart`, copy to the .yuruna work
+    # folder, merge variables (resources globals + resources.output + workload
+    # globals + workload locals + deployment locals), write values.yaml, run
+    # helm install. Non-chart deployments read the same merged variables via
+    # ${env:vars}.
+    $workloadsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/workloads.yml"
+    if (-Not (Test-Path -Path $workloadsFile)) { Write-Information "File not found: $workloadsFile"; return $false; }
+    $workloadsYaml = ConvertFrom-File $workloadsFile
+    if ($null -eq $workloadsYaml) { Write-Information "Workloads null or empty in file: $workloadsFile"; return $true; }
+    if ($null -eq $workloadsYaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; return $true; }
+
+    # Backup workloadsFile to the .yuruna work folder
+    $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads"
+    $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+    $workFolder = Resolve-Path -Path $workFolder
+    $dtTime = '{0}' -f ([system.string]::format('{0:yyyy-MM-dd-HH-mm-ss}',(Get-Date)))
+    $backupFile = Join-Path -Path $workFolder -ChildPath "workloads.$dtTime.yml"
+    Copy-Item "$workloadsFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
+    Write-Verbose "Backup of: $workloadsFile copied to: $backupFile"
+
+    $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
+    $resourcesOutputYaml = $null
+    if (Test-Path -Path $resourcesOutputFile) {
+        $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
+    }
+    else {
+        # Allow phased workload deployment by reusing an upper-level resource output
+        $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/../resources.output.yml"
+        if (Test-Path -Path $resourcesOutputFile) {
+            $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
+        }
+    }
+
+    # Resources output is expanded for env lookup but not persisted back
+    if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
+        foreach ($resource in $resourcesOutputYaml.Keys) {
+            if ($resource -eq "globalVariables") {
+                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
+                    $resourceKey = "$key"
+                    $value = $ExecutionContext.InvokeCommand.ExpandString($resourcesOutputYaml.$resource[$key])
+                    Write-Debug "globalVariables[$resourceKey] = $value"
+                    Set-Item -Path Env:$resourceKey -Value ${value}
+                }
+            }
+            else {
+                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
+                    $resourceKey = "$resource.$key"
+                    $value = $ExecutionContext.InvokeCommand.ExpandString($resourcesOutputYaml.$resource[$key].value)
+                    Write-Debug "resourcesOutput[$resourceKey] = $value"
+                    Set-Item -Path Env:$resourceKey -Value ${value}
+                }
+            }
+        }
+    }
+
+    # Global variables saved expanded for reuse after first pass
+    if ((-Not ($null -eq $workloadsYaml.globalVariables)) -and (-Not ($null -eq $workloadsYaml.globalVariables.Keys))) {
+        $keys = @($workloadsYaml.globalVariables.Keys)
+        foreach ($key in $keys) {
+            $value = $ExecutionContext.InvokeCommand.ExpandString($workloadsYaml.globalVariables[$key])
+            Write-Debug "globalVariables[$key] = $value"
+            Set-Item -Path Env:$key -Value ${value}
+            $workloadsYaml.globalVariables[$key] = $value
+        }
+    }
+
+    foreach ($workload in $workloadsYaml.workloads) {
+        $contextName = $ExecutionContext.InvokeCommand.ExpandString($workload['context'])
+        Write-Information "-- Workloads for context: $contextName"
+        if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return $false; }
+        $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
+        if (-Not ([string]::IsNullOrEmpty($workFolder))) {
+            $resolvedFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
+            if (-Not ([string]::IsNullOrEmpty($resolvedFolder))) {
+                Remove-Item -Path $resolvedFolder -Force -Recurse -ErrorAction SilentlyContinue
+            }
+        }
+        if ([string]::IsNullOrEmpty($workFolder)) { Write-Information "workFolder cannot be null or empty in file: $workloadsFile"; return $false; }
+        Set-Item -Path Env:contextName -Value ${contextName}
+        Set-Item -Path Env:workFolder -Value ${workFolder}
+
+        if ((-Not ($null -eq $workload.variables)) -and (-Not ($null -eq $workload.variables.Keys))) {
+            foreach ($key in $workload.variables.Keys) {
+                $value = $ExecutionContext.InvokeCommand.ExpandString($workload.variables[$key])
+                Write-Debug "workloadVariables[$key] = $value"
+                Set-Item -Path Env:$key -Value ${value}
+            }
+        }
+
+        $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
+        $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+        # Context must exist
+        $originalContext = kubectl config current-context
+        kubectl config use-context $contextName *>&1 | Write-Verbose
+        $currentContext = kubectl config current-context
+        kubectl config use-context $originalContext *>&1 | Write-Verbose
+        if ($currentContext -ne $contextName) { Write-Information "K8S context not found: $contextName`nFile: $workloadsFile"; return $false; }
+        kubectl config use-context $contextName *>&1 | Write-Verbose
+
+        foreach ($deployment in $workload.deployments) {
+            # Deployment kinds: chart | kubectl | helm | shell
+            $isChart = !([string]::IsNullOrEmpty($deployment['chart']))
+            $isKubectl = !([string]::IsNullOrEmpty($deployment['kubectl']))
+            $isHelm = !([string]::IsNullOrEmpty($deployment['helm']))
+            $isShell = !([string]::IsNullOrEmpty($deployment['shell']))
+            if (!($isChart -or $isKubectl -or $isHelm -or $isShell)) { Write-Information "context.deployment should be 'chart', 'kubectl', 'helm' or 'shell' in file: $workloadsFile"; return $false; }
+
+            # Build merged variable set (the earlier loops only printed debug info)
+            $deploymentVars = [ordered]@{}
+            if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
+                foreach ($resource in $resourcesOutputYaml.Keys) {
+                    if ($resource -eq "globalVariables") {
+                        foreach ($key in $resourcesOutputYaml.$resource.Keys) {
+                            $resourceKey = "$key"
+                            $value = $ExecutionContext.InvokeCommand.ExpandString($resourcesOutputYaml.$resource[$key])
+                            $deploymentVars[$resourceKey] = $value
+                            Set-Item -Path Env:$resourceKey -Value ${value}
+                        }
+                    }
+                    else {
+                        foreach ($key in $resourcesOutputYaml.$resource.Keys) {
+                            $resourceKey = "$resource.$key"
+                            $value = $ExecutionContext.InvokeCommand.ExpandString($resourcesOutputYaml.$resource[$key].value)
+                            $deploymentVars[$resourceKey] = $value
+                            Set-Item -Path Env:$resourceKey -Value ${value}
+                        }
+                    }
+                }
+            }
+
+            if ((-Not ($null -eq $workloadsYaml.globalVariables)) -and (-Not ($null -eq $workloadsYaml.globalVariables.Keys))) {
+                foreach ($key in $workloadsYaml.globalVariables.Keys) {
+                    $value = $ExecutionContext.InvokeCommand.ExpandString($workloadsYaml.globalVariables[$key])
+                    $deploymentVars[$key] = $value
+                    Set-Item -Path Env:$key -Value ${value}
+                }
+            }
+
+            if ((-Not ($null -eq $workload.variables)) -and (-Not ($null -eq $workload.variables.Keys))) {
+                foreach ($key in $workload.variables.Keys) {
+                    $value = $ExecutionContext.InvokeCommand.ExpandString($workload.variables[$key])
+                    $deploymentVars[$key] = $value
+                    Set-Item -Path Env:$key -Value ${value}
+                }
+            }
+
+            if ((-Not ($null -eq $deployment.variables)) -and (-Not ($null -eq $deployment.variables.Keys))) {
+                foreach ($key in $deployment.variables.Keys) {
+                    $rawValue = $deployment.variables[$key]
+                    $value = $ExecutionContext.InvokeCommand.ExpandString($rawValue)
+                    if ([string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
+                    $deploymentVars[$key] = $value
+                    Set-Item -Path Env:$key -Value ${value}
+                    Write-Debug "deploymentVariables[$key] = $value"
+                }
+            }
+
+            if ($isChart) {
+                $chartName = $deployment['chart']
+                if ([string]::IsNullOrEmpty($chartName)) { Write-Information "context.chart cannot be null or empty in file: $workloadsFile"; return $false; }
+                $chartFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "workloads/$chartName")
+                if (-Not (Test-Path -Path $chartFolder)) { Write-Information "workload[$contextName]chart[$chartName] folder not found: $chartFolder"; return $false; }
+                $installName = $ExecutionContext.InvokeCommand.ExpandString($deployment.variables['installName'])
+                if ([string]::IsNullOrEmpty($installName)) {
+                    Write-Information "Chart[$chartName] missing variables['installName'] in file: $workloadsFile"; return $false;
+                }
+                $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName/$installName"
+                $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+                $workFolder = Resolve-Path -Path $workFolder
+                Write-Debug "Copying chart from: $chartFolder to $workFolder"
+                Copy-Item "$chartFolder/*" -Destination $workFolder -Recurse -Container -ErrorAction SilentlyContinue
+
+                # Write deploymentVars to values.yaml. Backslashes are stripped
+                # per helm's --set format constraints:
+                # https://helm.sh/docs/intro/using_helm/#the-format-and-limitations-of---set
+                $helmValuesFile = Join-Path -Path $workFolder -ChildPath "values.yaml"
+                $null = New-Item -Path $helmValuesFile -ItemType File -Force
+                foreach ($key in $deploymentVars.Keys) {
+                    $value = $deploymentVars[$key]
+                    $value =  $value -replace '\\', ''
+                    $line = "${key}: `"$value`""
+                    if (($value.ToString().StartsWith("`"")) -and ($value.ToString().EndsWith("`""))) {
+                        $line = "${key}: $value"
+                    }
+                    Add-Content -Path $helmValuesFile -Value $line
+                }
+                $line = "contextName: `"$contextName`""
+                Add-Content -Path $helmValuesFile -Value $line
+                Write-Debug "Helm execute from: $workFolder"
+                Push-Location $workFolder
+
+                # Helm lint. Exit non-zero indicates the chart has a
+                # schema/required-field violation that WILL cascade to a
+                # failed install (e.g. an "image: /<repo>:<tag>" produced
+                # when componentsRegistry.registryLocation rendered as ""
+                # because resources.output.yml had `componentsRegistry: {}`).
+                # Surface the captured output on the Information stream
+                # and abort the cycle BEFORE attempting install.
+                Write-Debug "Helm lint"
+                $lintOutput = helm lint *>&1
+                $lintExit = $LASTEXITCODE
+                $lintOutput | ForEach-Object { Write-Verbose "$_" }
+                if ($lintExit -ne 0) {
+                    Write-Information "helm lint FAILED (exit $lintExit) for chart '$installName' in $workFolder"
+                    $lintOutput | ForEach-Object { Write-Information "$_" }
+                    Pop-Location
+                    return $false
+                }
+
+                # Helm uninstall is best-effort: on the first deploy the
+                # release doesn't exist and helm exits non-zero with
+                # "Error: uninstall: Release not loaded". That's expected,
+                # so we DO NOT propagate the exit code here; just log to
+                # Verbose. A genuine uninstall failure on a redeploy will
+                # surface in the subsequent install (release-already-
+                # exists), which IS propagated below.
+                Write-Debug "Helm uninstall $installName"
+                $uninstallOutput = helm uninstall $installName *>&1
+                $uninstallOutput | ForEach-Object { Write-Verbose "$_" }
+
+                # Helm install. Non-zero exit is authoritative -- the
+                # release did NOT land. We ALSO scan the captured output
+                # for lines starting with "Error:" because helm has
+                # historically returned 0 on certain post-render
+                # rejections (server-side admission failures that
+                # surface only in the trailing log). Either signal aborts
+                # the test sequence so an empty-namespace tombstone is
+                # never mistaken for success.
+                Write-Debug "Helm install $installName"
+                $installOutput = helm install $installName . --debug *>&1
+                $installExit = $LASTEXITCODE
+                $installOutput | ForEach-Object { Write-Verbose "$_" }
+                $installErrorLines = @($installOutput | Where-Object { $_ -match '^\s*Error:' })
+                if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
+                    Write-Information "helm install '$installName' FAILED (exit $installExit, $($installErrorLines.Count) Error: line(s)) in $workFolder"
+                    $installOutput | ForEach-Object { Write-Information "$_" }
+                    Pop-Location
+                    return $false
+                }
+                Pop-Location
+            }
+            else {
+                # Push deploymentVars to the environment for command expansion
+                foreach ($key in $deploymentVars.Keys) {
+                    $value = $deploymentVars[$key]
+                    Set-Item -Path Env:$key -Value ${value}
+                }
+                Set-Item -Path Env:contextName -Value ${contextName}
+                $expression = $null
+                if ($isKubectl) { $value = $deployment['kubectl']; $expression = "kubectl $value" }
+                if ($isHelm) { $value = $deployment['helm']; $expression = "helm $value"; }
+                if ($isShell) { $value = $deployment['shell']; $expression = "$value"}
+
+                $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
+                $workFolder = Resolve-Path -Path $workFolder
+                Set-Item -Path Env:workFolder -Value ${workFolder}
+                Push-Location $workFolder
+                $expression = $ExecutionContext.InvokeCommand.ExpandString($expression)
+                Write-Debug "$expression"
+                # Shell can Write-Information back to the user, so stream visibly
+                if ($isShell) {
+                    $result = Invoke-DynamicExpression -Command $expression *>&1 | Write-Information
+                }
+                else {
+                    $result = Invoke-DynamicExpression -Command $expression *>&1 | Write-Verbose
+                }
+                if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
+                if (-Not (0 -eq $LASTEXITCODE)) {
+                    Write-Information "EXITCODE: $LASTEXITCODE for: $expression"
+                    Pop-Location
+                    return ($ErrorActionPreference -eq "Continue");
+                }
+                Pop-Location
+            }
+        }
+        kubectl config use-context $originalContext *>&1 | Write-Verbose
+    }
+
+    return $true;
+}
+
+Export-ModuleMember -Function * -Alias *

@@ -1,0 +1,23 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/vault.schema.yml
+title: Yuruna authentication vault
+description: >
+  Per-cycle plaintext credential cache. Wiped on cycle success;
+  left in place on cycle failure for debugging.
+
+type: object
+additionalProperties: false
+required: [users]
+
+properties:
+  users:
+    type: object
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required: [password, updatedUtc]
+      properties:
+        password:   { type: string, minLength: 1 }
+        updatedUtc: { type: string, format: date-time }
+    propertyNames:
+      pattern: '^[A-Za-z0-9._-]+$'

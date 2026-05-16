@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# Interaction sequence for driving VM installation.
+# See possible actions in the actions.yml file.
+
+description: "Windows 11: bypass 'Press any key to boot from CD/DVD' then let autounattend.xml drive the install."
+baseline:
+  windows.11: []
+
+steps:
+  - action: waitForSeconds
+    seconds: 3
+    description: "Wait for UEFI + vmconnect init"
+
+  - action: inputKey
+    name: Enter
+    description: "Boot from CD/DVD (first attempt)"
+
+  - action: waitForSeconds
+    seconds: 5
+    description: "Retry in case Enter was early"
+
+  - action: inputKey
+    name: Enter
+    description: "Boot from CD/DVD (retry)"

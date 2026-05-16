@@ -1,0 +1,195 @@
+<#PSScriptInfo
+.VERSION 2026.05.15
+.GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS Yuruna.Resource
+.LICENSEURI https://yuruna.com
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES powershell-yaml
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+$yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
+$validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
+Import-Module -Name $validationModulePath
+Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
+
+$globalVariables = [ordered]@{}
+
+function Publish-ResourceListHelper {
+    [OutputType([Boolean])]
+    [CmdletBinding(PositionalBinding=$false)]
+    param (
+        [string] $project_root,
+        [string] $config_subfolder,
+        [string] $executionCommand,
+        [bool] $isInitialization
+    )
+
+    Write-Debug "     Execution command: $executionCommand"
+    # For each resource in resources.yml: copy template to .yuruna work folder,
+    # apply variables, run tofu apply there (creates local .terraform that
+    # tofu destroy will reuse).
+
+    $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"
+    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
+    $yaml = ConvertFrom-File $resourcesFile
+
+    if ($isInitialization) {
+        # Global variables are saved expanded after first time so resources.output
+        # can re-use them.
+        if ((-Not ($null -eq $yaml.globalVariables)) -and (-Not ($null -eq $yaml.globalVariables.Keys))) {
+            $keys = @($yaml.globalVariables.Keys)
+            foreach ($key in $keys) {
+                $value = $ExecutionContext.InvokeCommand.ExpandString($yaml.globalVariables[$key])
+                Write-Debug "resources.globalVariables[$key] = $value"
+                Set-Item -Path Env:$key -Value ${value}
+                $yaml.globalVariables[$key] = $value
+                $globalVariables.Add($key, $value)
+            }
+        }
+    }
+    else {
+        $yamlExpanded = @{ }
+        $yamlExpanded.Add("globalVariables", $globalVariables)
+        $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
+        $null = New-Item -Path $resourcesOutputFile -ItemType File -Force
+        Add-Content -Path $resourcesOutputFile -Value $(ConvertTo-Yaml $yamlExpanded)
+    }
+
+    if ($null -eq $yaml.resources) { Write-Information "Resources null or empty in file: $resourcesFile"; return $true; }
+    foreach ($resource in $yaml.resources) {
+        $resourceName = $resource['name']
+        $resourceNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($resourceName)
+        Write-Verbose "$resourceName = $resourceNameExpanded"
+        $resourceName = $resourceNameExpanded
+        $resourceTemplate = $resource['template']
+        if ([string]::IsNullOrEmpty($resourceName)) { Write-Information "Resource without name in file: $resourcesFile"; return $false; }
+        # Empty template: just naming an already-existing resource
+        if (![string]::IsNullOrEmpty($resourceTemplate)) {
+            $templateFolder = Join-Path -Path $project_root -ChildPath "resources/$resourceTemplate" -ErrorAction SilentlyContinue
+            if (($null -eq $templateFolder) -or (-Not (Test-Path -Path $templateFolder))) {
+                $templateFolder = Join-Path -Path $yuruna_root  -ChildPath "global/resources/$resourceTemplate" -ErrorAction SilentlyContinue
+                if (($null -eq $templateFolder) -or (-Not (Test-Path -Path $templateFolder))) {
+                    Write-Information "Resources template not found locally or globally: $resourceTemplate`nUsed in file: $resourcesFile";
+                    return $false;
+                }
+            }
+            if ($isInitialization) {
+                Write-Information "-- Initializing: $resourceName from template $templateFolder"
+            }
+            else {
+                Write-Information "-- Creating: $resourceName from template $templateFolder"
+            }
+            $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources/$resourceName"
+            $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+            $workFolder = Resolve-Path -Path $workFolder
+            Get-ChildItem -Path "$workFolder/*.tf" | Remove-Item -Force -ErrorAction SilentlyContinue
+            Copy-Item "$templateFolder/*" -Destination $workFolder -Recurse -Container -ErrorAction SilentlyContinue
+
+            Set-Item -Path Env:resourceName -Value ${resourceName}
+            $terraformVarsFile = Join-Path -Path $workFolder -ChildPath "terraform.tfvars"
+            $null = New-Item -Path $terraformVarsFile -ItemType File -Force
+            $terraformVars = [ordered]@{}
+            foreach ($key in $globalVariables.Keys) {
+                $value = $globalVariables[$key]
+                $terraformVars[$key] = $value
+                Set-Item -Path Env:$key -Value ${value}
+            }
+            if (-Not ($null -eq $resource.variables)) {
+                foreach ($key in $resource.variables.Keys) {
+                    $value = $resource.variables[$key]
+                    $terraformVars[$key] = $value
+                    Write-Verbose "resourceVariables[$key] = $value"
+                    Set-Item -Path Env:$key -Value ${value}
+                }
+            }
+            foreach ($key in $terraformVars.Keys) {
+                $value = $ExecutionContext.InvokeCommand.ExpandString($terraformVars[$key])
+                if ([string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
+                $line = "$key = `"$value`""
+                Add-Content -Path $terraformVarsFile -Value $line
+                Set-Item -Path Env:$key -Value ${value}
+                Write-Debug "$line"
+            }
+            Push-Location $workFolder
+
+            $terraformPath = Join-Path -Path $workFolder -ChildPath ".terraform"
+            if ($isInitialization -and (Test-Path -Path $terraformPath)) {
+                Write-Information "-- WARNING: tofu already initialized: $terraformPath `n   Resource may not be created. Use 'yuruna clear' to clear tofu state.";
+                Pop-Location;
+                return $false;
+            }
+            Write-Debug "OpenTofu init"
+            $result = $(tofu init *>&1 | Write-Verbose)
+            if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
+            Write-Debug "Executing tofu command from $workFolder"
+            $result = $($(Invoke-DynamicExpression -Command $executionCommand) *>&1 | Write-Verbose)
+            if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
+            if (-Not $isInitialization) {
+                $jsonOutput = "$(tofu output -json)"
+                if (![string]::IsNullOrEmpty($jsonOutput)) {
+                    $terraformYaml = $jsonOutput | ConvertFrom-Json
+                    # --- See https://yuruna.link/memory#why-set-resource-surfaces-empty-tofu-outputs-via-write-information
+                    $propsList = @($terraformYaml.PSObject.Properties)
+                    if ($propsList.Count -eq 0) {
+                        Write-Information "WARNING: resource '$resourceName' produced no tofu outputs ('tofu output -json' returned {}). Downstream charts that look up '$resourceName.<field>' will receive empty strings, which typically renders to a malformed image ref (e.g. '/<image>:<tag>'). Check the 'output' blocks in $templateFolder/*.tf."
+                    }
+                    $tuple = @{ }
+                    $tuple."$resourceName" = $terraformYaml
+                    Add-Content -Path $resourcesOutputFile -Value $(ConvertTo-Yaml $tuple)
+                }
+                else {
+                    Write-Information "WARNING: 'tofu output -json' returned empty for resource '$resourceName' -- the resources.output.yml block will be missing this resource entirely, and any downstream lookup of '$resourceName.<field>' will fail."
+                }
+            }
+            Pop-Location
+        }
+    }
+
+    if (-Not $isInitialization) {
+        if ((Get-Item $resourcesOutputFile).Length -gt 0) { Write-Information "Resources output file: $resourcesOutputFile"; }
+    }
+
+    return $true;
+}
+
+function Publish-ResourceList {
+    param (
+        $project_root,
+        $config_subfolder
+    )
+
+    Write-Debug "---- Publishing Resources"
+    # Runs: tofu plan -compact-warnings, then tofu apply -auto-approve.
+    # (tofu graph | dot -Tsvg > graph.svg is useful for debugging.)
+    if (!(Confirm-ResourceList $project_root $config_subfolder)) { return $false; }
+
+    $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"
+    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
+    $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources"
+    $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+    $workFolder = Resolve-Path -Path $workFolder
+    $dtTime = '{0}' -f ([system.string]::format('{0:yyyy-MM-dd-HH-mm-ss}',(Get-Date)))
+    $backupFile = Join-Path -Path $workFolder -ChildPath "resources.$dtTime.yml"
+    Copy-Item "$resourcesFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
+    Write-Verbose "Backup of: $resourcesFile copied to: $backupFile"
+
+    $executionCommand = "tofu plan -compact-warnings"
+    $result = Publish-ResourceListHelper -project_root $project_root -config_subfolder $config_subfolder -executionCommand $executionCommand -isInitialization $true
+    if ($result) {
+        $executionCommand = "tofu apply -auto-approve"
+        return Publish-ResourceListHelper -project_root $project_root -config_subfolder $config_subfolder -executionCommand $executionCommand -isInitialization $false
+    }
+
+    return $false;
+}
+
+Export-ModuleMember -Function * -Alias *

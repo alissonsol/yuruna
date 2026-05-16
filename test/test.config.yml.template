@@ -1,0 +1,32 @@
+guestSequence:
+  - guest.amazon.linux
+  - guest.ubuntu.server
+hostSshServer:
+  enabled: false
+logLevel: Information
+notification:
+  failuresBeforeAlert: 2
+  successesBeforeRearm: 5
+repositories:
+  frameworkUrl: https://github.com/alissonsol/yuruna
+  projectUrl: https://github.com/alissonsol/yuruna-project
+statusServer:
+  isEnabled: true
+  port: 8080
+testCycle:
+  cycleDelaySeconds: 300
+  recentDisplayCount: 30
+  shouldStopOnFailure: false
+vmCommunication:
+  characterDelayMs: 20
+  keystrokeMechanism: GUI
+  pollSeconds: 5
+  timeoutSeconds: 180
+  vncPort: 5900
+vmImage:
+  alwaysRedownload: false
+  refreshHours: 24
+vmStart:
+  bootDelaySeconds: 15
+  startTimeoutSeconds: 120
+  testVmNamePrefix: test-

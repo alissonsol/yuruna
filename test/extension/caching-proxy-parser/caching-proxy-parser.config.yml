@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../../schemas/extension-config.schema.json
+
+# Active provider for the caching-proxy-parser extension. Single-provider
+# area; the Go source under default.go gets fetched + built into the
+# squid-cache VM via that VM's cloud-init user-data.
+active:
+  - default

@@ -10,7 +10,7 @@ Execute the following command to clear the resources for a given configuration.
 Invoke-Clear.ps1 [project_root] [config_subfolder]
 ```
 
-Clearing the resources for the project `website` in the `Azure` cloud (assuming [Yuruna Authentication ...](authenticate.md) steps were followed).
+Clearing the resources for the project `website` in the `Azure` cloud (assuming [Yuruna Authentication ...](authentication.md) steps were followed).
 
 ```shell
 Invoke-Clear.ps1 website azure

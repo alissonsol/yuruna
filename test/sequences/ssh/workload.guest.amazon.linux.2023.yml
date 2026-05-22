@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# SSH-driven equivalent of gui/workload.guest.amazon.linux.2023.yml. Selected
+# automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.
+# See possible actions in the actions.yml file.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 4246401e-0173-4605-b3b0-e2a85c16ade5
+sequenceRevision: 1
+
+description: "Amazon Linux 2023 (SSH): install the Desktop package group and verify — parallel path to the keystroke sequence."
+baseline:
+  amazon.linux.2023:
+    - start.guest.amazon.linux.2023
+variables:
+  username: yauser1
+
+steps:
+  - action: sshWaitReady
+    timeoutSeconds: 300
+    description: "Wait for sshd + authorized_keys"
+
+  - action: sshExec
+    command: "whoami && hostname"
+    description: "Smoke test: whoami/hostname"
+
+  - action: sshFetchAndExecute
+    command: 'sudo dnf groupinstall -y "Desktop"'
+    timeoutSeconds: 1800
+    description: "GUI install"
+
+  - action: sshExec
+    command: 'dnf list installed "*desktop*"'
+    allowFailure: true
+    description: "Show installed desktop packages"

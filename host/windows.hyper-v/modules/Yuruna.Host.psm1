@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,7 +109,7 @@ function CreateIso {
 
 # --- squid-cache IP discovery (shared by producer + consumers) --------------
 # Prior state copy-pasted the KVP+ARP dual strategy across squid-cache
-# and ubuntu.server New-VM.ps1s plus a KVP-only variant in
+# and ubuntu.server.24 New-VM.ps1s plus a KVP-only variant in
 # test/Start-CachingProxy.ps1. The variants drifted — Start-SquidCache's
 # KVP-only summary printed "(discovery failed)" even while the inner
 # ARP path had already succeeded and the cache was serving. These three
@@ -2588,11 +2588,18 @@ public class HyperVCapture {
                 # DWM isn't actively painting the synthetic GPU. Warn
                 # ONCE per process so a long Invoke-TestRunner cycle
                 # doesn't flood the log with the same message every step.
+                # Emitted at Write-Warning (not Write-Verbose) so the
+                # operator sees the troubleshooting pointer at the
+                # default log level -- Test-Sequence in particular runs
+                # interactively and silently-black framebuffers used to
+                # look like a Test-Sequence regression vs. the runner;
+                # surfacing the warning makes the host-side root cause
+                # (no monitor / RDP session / dummy plug) self-evident.
                 if (-not $script:__YurunaHyperVBlankWarned -and
                     [HyperVCapture]::IsImageMostlyBlack(
                         [byte[]]$result.ImageData, [int]$reqW, [int]$reqH, 0.99)) {
-                    Write-Verbose "Hyper-V WMI thumbnail came back all-black for '$VMName'."
-                    Write-Verbose "See https://yuruna.link/monitorless"
+                    Write-Warning "Hyper-V WMI thumbnail came back all-black for '$VMName' -- DWM is not painting the synthetic GPU (likely no monitor / RDP session on this host)."
+                    Write-Warning "See https://yuruna.link/monitorless"
                     $script:__YurunaHyperVBlankWarned = $true
                 }
                 $ok = [HyperVCapture]::SaveRawImageAsPng(
@@ -2664,7 +2671,7 @@ function Get-HyperVWindowScreenshot {
         [HyperVCapture]::EnsureDpiAware()
         $hWnd = [HyperVCapture]::FindWindow($VMName)
         if ($hWnd -eq [IntPtr]::Zero) {
-            Write-Warning "vmconnect window not found for '$VMName'. Open a vmconnect session for this VM before using waitForAndClickButton."
+            Write-Warning "vmconnect window not found for '$VMName'. Open a vmconnect session for this VM before using tapOn."
             return $null
         }
         $ok = [HyperVCapture]::CaptureToFile($hWnd, $OutputPath)
@@ -2701,31 +2708,52 @@ function New-VM {
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
-        [string]$CachingProxyUrl
+        [string]$CachingProxyUrl,
+        # Planner-cascaded username override (resolved by Test.SequencePlanner
+        # from variables.username on the chain's top sequence). Forwarded
+        # to the per-guest New-VM.ps1 only when (a) the caller bound it
+        # AND (b) the target script declares a -Username parameter -- some
+        # guests (windows.11, squid-cache, macos.26) don't take one and
+        # would error on the unexpected arg.
+        [string]$Username
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) { return @{ success = $false; errorMessage = 'WhatIf' } }
     # Run the per-guest New-VM.ps1 as a child process so exit codes are
-    # captured cleanly. -CachingProxyUrl is forwarded only when (a) the
-    # caller bound it and (b) the target script declares it -- some
-    # guests (amazon.linux, windows.11) don't wire a proxy into install.
+    # captured cleanly. -CachingProxyUrl and -Username are forwarded
+    # only when (a) the caller bound them and (b) the target script
+    # declares them -- this lets the contract grow new pass-through
+    # arguments without breaking guests that don't consume them.
     $scriptPath = Join-Path $RepoRoot (Join-Path 'host\windows.hyper-v' (Join-Path $GuestKey 'New-VM.ps1'))
     if (-not (Test-Path $scriptPath)) {
         return @{ success = $false; errorMessage = "New-VM.ps1 not found at: $scriptPath" }
     }
     $childArgs = @('-VMName', $VMName)
-    $scriptAcceptsProxy = $false
+    $scriptAcceptsProxy    = $false
+    $scriptAcceptsUsername = $false
     try {
         $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
-        $scriptAcceptsProxy = [bool]($cmdInfo.Parameters -and $cmdInfo.Parameters.ContainsKey('CachingProxyUrl'))
+        if ($cmdInfo.Parameters) {
+            $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyUrl')
+            $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
+        }
     } catch {
-        $scriptAcceptsProxy = $false
+        $scriptAcceptsProxy    = $false
+        $scriptAcceptsUsername = $false
     }
     if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
         $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
-        Write-Verbose "Running: $scriptPath -VMName $VMName -CachingProxyUrl '$CachingProxyUrl'"
-    } else {
-        Write-Verbose "Running: $scriptPath -VMName $VMName"
     }
+    if ($PSBoundParameters.ContainsKey('Username') -and $Username -and $scriptAcceptsUsername) {
+        $childArgs += @('-Username', $Username)
+    } elseif ($PSBoundParameters.ContainsKey('Username') -and $Username -and -not $scriptAcceptsUsername) {
+        # Cascade was resolved at the planner but the per-guest script
+        # doesn't take -Username (e.g. guest.windows.11, guest.macos.26).
+        # Surface this so the operator notices the cascade is being
+        # silently dropped for that guest -- not fatal, since the script
+        # carries its own hardcoded user, but worth a verbose note.
+        Write-Verbose "Cascaded -Username '$Username' NOT forwarded: $scriptPath does not declare a -Username parameter."
+    }
+    Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
     $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) {
@@ -2795,6 +2823,173 @@ function Remove-VM {
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove VM')) { return $false }
     return [bool](Remove-HyperVTestVM -VMName $VMName -Confirm:$false)
+}
+
+<#
+.SYNOPSIS
+    Rename a stopped VM and relocate its on-disk storage to a folder
+    matching the new name.
+.DESCRIPTION
+    Hyper-V's Rename-VM only renames the registry entry; the VHDX files
+    stay at <vhdPath>\<oldName>\. Leaving them there would let
+    Remove-OrphanedVMFiles.ps1 reclaim the directory on the next cycle
+    because the dir name no longer matches any registered VM, killing
+    the persisted snapshot. Move-VMStorage relocates VHDX + .vmcx +
+    snapshot data into a fresh <vhdPath>\<NewName>\ tree so the new
+    name owns the disk layout.
+
+    Requires the VM to be stopped; the caller (Save-VMDiskSnapshot) is
+    responsible for the stop. Returns $false on rename or storage-move
+    failure -- a partial rename (registry succeeded, move failed) is
+    surfaced rather than swallowed so the operator sees the broken state.
+#>
+function Rename-VM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$NewName
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Rename to '$NewName' and relocate storage")) { return $false }
+    if ($VMName -eq $NewName) { return $true }
+    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if (-not $vm) {
+        Write-Warning "Rename-VM: source VM '$VMName' not registered."
+        return $false
+    }
+    if (Hyper-V\Get-VM -Name $NewName -ErrorAction SilentlyContinue) {
+        Write-Warning "Rename-VM: destination name '$NewName' already exists."
+        return $false
+    }
+    try {
+        Hyper-V\Rename-VM -Name $VMName -NewName $NewName -Confirm:$false -ErrorAction Stop
+    } catch {
+        Write-Warning "Rename-VM: Hyper-V Rename-VM failed: $($_.Exception.Message)"
+        return $false
+    }
+    # Relocate storage so the on-disk dir-name matches the new VM-name.
+    # Without this, Remove-OrphanedVMFiles' "dir name with no matching
+    # VM" sweep would later wipe the persisted snapshot's files.
+    $vhdRoot = (Hyper-V\Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+    if ($vhdRoot) {
+        $destDir = Join-Path $vhdRoot $NewName
+        try {
+            Hyper-V\Move-VMStorage -VMName $NewName -DestinationStoragePath $destDir -Confirm:$false -ErrorAction Stop
+        } catch {
+            Write-Warning "Rename-VM: registry renamed to '$NewName' but Move-VMStorage to '$destDir' failed: $($_.Exception.Message). Files still live under '<vhdPath>\$VMName\' and may be swept by the orphan-file sweep."
+            return $false
+        }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Save a disk-only snapshot of the VM, then rename the VM (and
+    relocate its storage) so it persists across test-cycle cleanup.
+.DESCRIPTION
+    Hyper-V's Checkpoint-VM captures runtime state by default. For a
+    disk-only point this function stops the VM first (graceful, then
+    Stop-VMForce on graceful timeout); with no RAM to checkpoint, the
+    resulting .avhdx differencing disk + .vmrs pair is effectively a
+    disk-only point. Leaves the VM stopped on return so the caller's
+    sequence can decide when to restart -- mirrors KVM and UTM
+    semantics where the underlying tool requires an offline VM.
+
+    After a successful checkpoint, the VM is renamed to $Id and its
+    storage is moved into <vhdPath>\<Id>\ so the next cycle's
+    Remove-TestVMFiles.ps1 (which sweeps every name matching the
+    test-* prefix) leaves the persisted VM and its snapshot alone.
+    Caller is expected to update its local $VMName reference to $Id;
+    the sequence engine does this automatically after a successful
+    saveDiskSnapshot step so subsequent steps target the persisted VM.
+#>
+function Save-VMDiskSnapshot {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Save disk snapshot '$Id' and rename to '$Id'")) { return $false }
+    if ((Get-VMState -VMName $VMName) -eq 'running') {
+        if (-not (Stop-VM -VMName $VMName)) {
+            [void](Stop-VMForce -VMName $VMName)
+        }
+    }
+    $existing = Hyper-V\Get-VMCheckpoint -VMName $VMName -Name $Id -ErrorAction SilentlyContinue
+    if ($existing) {
+        try { Hyper-V\Remove-VMCheckpoint -VMName $VMName -Name $Id -Confirm:$false -ErrorAction Stop }
+        catch { Write-Warning "Save-VMDiskSnapshot: removing prior checkpoint '$Id' failed: $($_.Exception.Message)"; return $false }
+    }
+    try {
+        Hyper-V\Checkpoint-VM -Name $VMName -SnapshotName $Id -Confirm:$false -ErrorAction Stop
+    } catch {
+        Write-Warning "Save-VMDiskSnapshot: Checkpoint-VM failed for '$VMName/$Id': $($_.Exception.Message)"
+        return $false
+    }
+    # Promote the VM out of the test-* namespace so it survives the
+    # next cycle's Remove-TestVMFiles sweep. If the VM is already named
+    # $Id (re-running the same sequence against the persisted VM),
+    # Rename-VM is a $VMName -eq $NewName no-op.
+    if ($VMName -ne $Id) {
+        if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
+            Write-Warning "Save-VMDiskSnapshot: snapshot '$Id' saved but rename '$VMName' -> '$Id' failed; VM will be wiped on next cycle cleanup."
+            return $false
+        }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Revert the VM to a previously saved disk-only snapshot. VM is
+    stopped first if running and left stopped on return.
+#>
+<#
+.SYNOPSIS
+    Returns $true when checkpoint $Id is present on $VMName, $false
+    otherwise (including when the VM does not exist). Used by
+    Test-Sequence.ps1's requiresSnapshot warm-path probe before
+    deciding whether to walk the baseline chain.
+#>
+function Test-VMDiskSnapshot {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if ((Get-VMState -VMName $VMName) -eq 'absent') { return $false }
+    $cp = Hyper-V\Get-VMCheckpoint -VMName $VMName -Name $Id -ErrorAction SilentlyContinue
+    return [bool]$cp
+}
+
+function Restore-VMDiskSnapshot {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Restore disk snapshot '$Id'")) { return $false }
+    $cp = Hyper-V\Get-VMCheckpoint -VMName $VMName -Name $Id -ErrorAction SilentlyContinue
+    if (-not $cp) {
+        Write-Warning "Restore-VMDiskSnapshot: no checkpoint '$Id' on '$VMName'."
+        return $false
+    }
+    if ((Get-VMState -VMName $VMName) -eq 'running') {
+        if (-not (Stop-VM -VMName $VMName)) {
+            [void](Stop-VMForce -VMName $VMName)
+        }
+    }
+    try {
+        Hyper-V\Restore-VMCheckpoint -VMName $VMName -Name $Id -Confirm:$false -ErrorAction Stop
+        return $true
+    } catch {
+        Write-Warning "Restore-VMDiskSnapshot: Restore-VMCheckpoint failed for '$VMName/$Id': $($_.Exception.Message)"
+        return $false
+    }
 }
 
 <#
@@ -2891,8 +3086,8 @@ function Get-ImagePath {
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$GuestKey)
     $fileNames = @{
-        'guest.amazon.linux'    = 'host.windows.hyper-v.guest.amazon.linux.vhdx'
-        'guest.ubuntu.server'   = 'host.windows.hyper-v.guest.ubuntu.server.iso'
+        'guest.amazon.linux.2023'    = 'host.windows.hyper-v.guest.amazon.linux.2023.vhdx'
+        'guest.ubuntu.server.24'   = 'host.windows.hyper-v.guest.ubuntu.server.24.iso'
         'guest.windows.11'      = 'host.windows.hyper-v.guest.windows.11.iso'
     }
     $fileName = $fileNames[$GuestKey]
@@ -2900,7 +3095,7 @@ function Get-ImagePath {
     try {
         $vhdPath = (Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
         return Join-Path $vhdPath $fileName
-    } catch { return $null }
+    } catch { $null = $_; return $null }
 }
 
 # Helper for Get-Image: emits a line to the console AND -- if active -- to
@@ -3206,7 +3401,7 @@ function Add-PortMap {
         [int[]]$Port = @(3000),
         [hashtable]$PortRemap = @{},
         [int[]]$ProxyProtocolPort = @(),
-        [string]$TrackDir
+        [string]$RuntimeDir
     )
     if (-not $PSCmdlet.ShouldProcess($VMIp, "Install netsh portproxy + pwsh forwarders for ports $($Port -join ',')")) { return $false }
     if (-not (Test-Ipv4Address $VMIp)) {
@@ -3232,7 +3427,7 @@ function Add-PortMap {
     foreach ($k in $remapHostPorts.Keys) {
         $mappings += [PSCustomObject]@{ HostPort = [int]$k; VMPort = [int]$remapHostPorts[$k] }
     }
-    $statePath = Get-PortMapStatePath -TrackDir $TrackDir
+    $statePath = Get-PortMapStatePath -RuntimeDir $RuntimeDir
     # Tear down every prior Yuruna mapping (state-file ports + firewall-
     # rule ports + live forwarder pidfiles) before adding the new set.
     [void](Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
@@ -3303,7 +3498,7 @@ function Add-PortMap {
 function Remove-PortMap {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
-    param([string]$TrackDir)
+    param([string]$RuntimeDir)
     if (-not $PSCmdlet.ShouldProcess('netsh portproxy mappings + pwsh forwarders', 'Clear all yuruna port mappings')) { return $false }
     if (-not (Test-IsAdministrator)) {
         $pendingPorts = Get-YurunaMappedPortFromFirewall
@@ -3312,7 +3507,7 @@ function Remove-PortMap {
         }
         return $false
     }
-    $statePath = Get-PortMapStatePath -TrackDir $TrackDir
+    $statePath = Get-PortMapStatePath -RuntimeDir $RuntimeDir
     $cleared = @(Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
     foreach ($p in $cleared) {
         Write-Information "  Port map removed: host:${p}"
@@ -3632,7 +3827,8 @@ function Get-SshServerStatus {
 # === Exports ================================================================
 
 Export-ModuleMember -Function `
-    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Get-VMState, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `
+    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `

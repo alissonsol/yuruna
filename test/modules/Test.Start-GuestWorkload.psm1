@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,9 @@ function Start-GuestWorkload {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$SequencesDir,
         [string[]]$SequenceNames = @(),
+        # Planner-cascaded variable overrides; see Start-GuestOS / Test.SequencePlanner.
+        # IDictionary (not [hashtable]) preserves planner ordering.
+        [System.Collections.IDictionary]$EffectiveVariables,
         [bool]$ShowOutput = $true
     )
     # ShowOutput is a transitional shim. The flag has never been read inside
@@ -68,7 +71,7 @@ function Start-GuestWorkload {
     }
     foreach ($s in $SequenceNames) {
         Write-Information "  Running: $s" -InformationAction Continue
-        $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s
+        $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s -EffectiveVariables $EffectiveVariables
         if (-not $ok) {
             $errMsg = "Workload sequence '$s' failed"
             $logDir = Initialize-YurunaLogDir

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@ Write-Output ""
 
 # === Discover base image names from guest.* subfolders ===
 # Base image filenames follow the legacy convention "host.<short>.guest.<name>"
-# (e.g. host.windows.hyper-v.guest.amazon.linux.vhdx). The script now lives at
+# (e.g. host.windows.hyper-v.guest.amazon.linux.2023.vhdx). The script now lives at
 # host/<short>/, so Split-Path -Leaf returns just <short>; prepend "host." to
 # reconstruct the prefix that every guest's Get-Image.ps1 / New-VM.ps1 writes.
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -218,7 +218,7 @@ $protectedFiles = [System.Collections.Generic.List[string]]::new()
 foreach ($f in $allFiles) {
     if ($claimedFiles.Contains($f)) { continue }
 
-    # Match against base-image names (e.g. host.windows.hyper-v.guest.amazon.linux.vhdx).
+    # Match against base-image names (e.g. host.windows.hyper-v.guest.amazon.linux.2023.vhdx).
     $fileName = [System.IO.Path]::GetFileNameWithoutExtension($f)
     $isBaseImage = $false
     foreach ($baseImageName in $baseImageNames) {

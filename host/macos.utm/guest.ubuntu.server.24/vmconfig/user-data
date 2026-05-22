@@ -1,0 +1,197 @@
+#cloud-config
+autoinstall:
+  version: 1
+  # --- See https://yuruna.link/vmconfig#apt-proxy-block
+  # --- See https://yuruna.link/vmconfig#why-server-iso-over-desktop-iso
+APT_PROXY_BLOCK_PLACEHOLDER
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  packages:
+    - console-setup
+    - keyboard-configuration
+  identity:
+    hostname: HOSTNAME_PLACEHOLDER
+    username: USERNAME_PLACEHOLDER
+    password: "HASH_PLACEHOLDER"
+  # Pin IPv4-only DHCP on enp0s1 and refuse IPv6 router advertisements.
+  # On the QEMU + `-netdev vmnet-shared` backend, the host's VMnet stub
+  # sends IPv6 RAs that systemd-networkd interprets as interface CHANGE
+  # events. Subiquity's NetworkController treats each CHANGE as a model
+  # update, fires _send_update, and never proceeds past the network
+  # detection step -- the install wedges with the framebuffer scrolling
+  #   start: subiquity/Network/_send_update: CHANGE enp0s1
+  #   finish: subiquity/Network/_send_update: CHANGE enp0s1
+  # forever. The Apple Virtualization backend didn't emit these so the
+  # autoinstall config could omit `network:` and let subiquity
+  # auto-detect; on QEMU the explicit netplan is required.
+  network:
+    version: 2
+    ethernets:
+      enp0s1:
+        dhcp4: true
+        dhcp6: false
+        accept-ra: false
+  storage:
+    # --- See https://yuruna.link/vmconfig#lvm-sizing-policy
+    layout:
+      name: lvm
+      sizing-policy: all
+  ssh:
+    install-server: true
+    allow-pw: true
+    authorized-keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+  # --- See https://yuruna.link/vmconfig#pass-through-user-data-silence-ssh-fingerprints
+  user-data:
+    no_ssh_fingerprints: true
+    ssh:
+      emit_keys_to_console: false
+  # --- See https://yuruna.link/vmconfig#empty-interactive-sections
+  interactive-sections: []
+  late-commands:
+    # --- See https://yuruna.link/vmconfig#apt-cache-persist-proxy
+    - |
+      if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
+        echo 'Acquire::http::Proxy "CACHING_PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        if [ -n "CA_CERT_BASE64_PLACEHOLDER" ]; then
+          mkdir -p /target/usr/local/share/ca-certificates
+          printf '%s' "CA_CERT_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
+          chmod 0644 /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
+          curtin in-target --target=/target -- update-ca-certificates
+          CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+          echo "Acquire::https::Proxy \"http://${CACHE_HOST}:3129\";" >> /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        fi
+      fi
+    # --- See https://yuruna.link/vmconfig#enforce-proxy-egress
+    - |
+      if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
+        CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+        CACHE_HTTP_PORT=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -nE 's|^https?://[^:/]+:([0-9]+).*|\1|p')
+        [ -z "$CACHE_HTTP_PORT" ] && CACHE_HTTP_PORT=3128
+        NO_PROXY_LIST="localhost,127.0.0.1,${CACHE_HOST},YURUNA_HOST_IP_PLACEHOLDER,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1"
+        cat >> /target/etc/environment << EOF
+      http_proxy="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
+      https_proxy="http://${CACHE_HOST}:3129/"
+      HTTP_PROXY="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
+      HTTPS_PROXY="http://${CACHE_HOST}:3129/"
+      no_proxy="${NO_PROXY_LIST}"
+      NO_PROXY="${NO_PROXY_LIST}"
+      EOF
+        mkdir -p /target/etc/profile.d
+        cat > /target/etc/profile.d/yuruna-proxy.sh << EOF
+      export http_proxy="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
+      export https_proxy="http://${CACHE_HOST}:3129/"
+      export HTTP_PROXY="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
+      export HTTPS_PROXY="http://${CACHE_HOST}:3129/"
+      export no_proxy="${NO_PROXY_LIST}"
+      export NO_PROXY="${NO_PROXY_LIST}"
+      EOF
+        chmod 0644 /target/etc/profile.d/yuruna-proxy.sh
+        mkdir -p /target/etc/systemd/system.conf.d
+        cat > /target/etc/systemd/system.conf.d/yuruna-proxy.conf << EOF
+      [Manager]
+      DefaultEnvironment="http_proxy=http://${CACHE_HOST}:${CACHE_HTTP_PORT}/" "https_proxy=http://${CACHE_HOST}:3129/" "HTTP_PROXY=http://${CACHE_HOST}:${CACHE_HTTP_PORT}/" "HTTPS_PROXY=http://${CACHE_HOST}:3129/" "no_proxy=${NO_PROXY_LIST}" "NO_PROXY=${NO_PROXY_LIST}"
+      EOF
+        echo iptables-persistent iptables-persistent/autosave_v4 boolean false | curtin in-target --target=/target -- debconf-set-selections
+        echo iptables-persistent iptables-persistent/autosave_v6 boolean false | curtin in-target --target=/target -- debconf-set-selections
+        curtin in-target --target=/target -- env DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent || \
+          echo "yuruna: iptables-persistent install failed - egress lock will not survive reboot." >&2
+        mkdir -p /target/etc/iptables
+        cat > /target/etc/iptables/rules.v4 << 'EOF'
+      *filter
+      :INPUT ACCEPT [0:0]
+      :FORWARD ACCEPT [0:0]
+      :OUTPUT ACCEPT [0:0]
+      -A OUTPUT -o lo -j ACCEPT
+      -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+      -A OUTPUT -p icmp -j ACCEPT
+      -A OUTPUT -p udp --dport 53 -j ACCEPT
+      -A OUTPUT -p tcp --dport 53 -j ACCEPT
+      -A OUTPUT -p udp --dport 67:68 -j ACCEPT
+      -A OUTPUT -p udp --dport 123 -j ACCEPT
+      -A OUTPUT -d 10.0.0.0/8 -j ACCEPT
+      -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
+      -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
+      -A OUTPUT -d 169.254.0.0/16 -j ACCEPT
+      -A OUTPUT -p tcp --dport 80  -j REJECT --reject-with icmp-port-unreachable
+      -A OUTPUT -p tcp --dport 443 -j REJECT --reject-with icmp-port-unreachable
+      COMMIT
+      EOF
+        cat > /target/etc/iptables/rules.v6 << 'EOF'
+      *filter
+      :INPUT ACCEPT [0:0]
+      :FORWARD ACCEPT [0:0]
+      :OUTPUT ACCEPT [0:0]
+      -A OUTPUT -o lo -j ACCEPT
+      -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+      COMMIT
+      EOF
+        chmod 0644 /target/etc/iptables/rules.v4 /target/etc/iptables/rules.v6
+        curtin in-target --target=/target -- systemctl enable netfilter-persistent || true
+      fi
+    # --- See https://yuruna.link/vmconfig#cap-systemd-networkd-wait-online
+    - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
+    - |
+      cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf << 'EOF'
+      [Service]
+      ExecStart=
+      ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
+      EOF
+    # --- See https://yuruna.link/vmconfig#force-first-login-password-change
+    - curtin in-target --target=/target -- passwd --expire USERNAME_PLACEHOLDER
+    # --- See https://yuruna.link/vmconfig#login-session-budget
+    - bash -c 'sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /target/etc/login.defs && echo "LOGIN_TIMEOUT 180" >> /target/etc/login.defs'
+    # --- See https://yuruna.link/vmconfig#passwordless-sudo-for-harness-user
+    - curtin in-target --target=/target -- bash -c 'echo "USERNAME_PLACEHOLDER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER && chmod 440 /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER && chown root:root /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER'
+    # --- See https://yuruna.link/vmconfig#disable-swap
+    - sed -i '/ swap / s/^/#/' /target/etc/fstab
+    - curtin in-target --target=/target -- systemctl mask swap.target
+    # --- See https://yuruna.link/vmconfig#mask-snapd-seeded
+    - curtin in-target --target=/target -- systemctl mask snapd.seeded.service
+    # --- See https://yuruna.link/vmconfig#disable-motd
+    - chmod -x /target/etc/update-motd.d/*
+    - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
+    # --- See https://yuruna.link/vmconfig#console-quiet
+    - mkdir -p /target/etc/default/grub.d
+    - |
+      cat > /target/etc/default/grub.d/99-yuruna-console-quiet.cfg << 'GRUBCFG'
+      GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no"
+      GRUBCFG
+    # --- See https://yuruna.link/vmconfig#update-grub
+    - curtin in-target --target=/target -- update-grub
+    # --- See https://yuruna.link/vmconfig#console-hold-getty-until-cloud-init-signals-done
+    - mkdir -p /target/etc/systemd/system/getty@.service.d
+    - |
+      cat > /target/etc/systemd/system/getty@.service.d/override.conf << 'EOF'
+      [Service]
+      ExecStartPre=-/usr/bin/cloud-init status --wait
+      EOF
+    # --- See https://yuruna.link/vmconfig#yuruna-host-coordinates
+    - mkdir -p /target/etc/yuruna
+    - |
+      cat > /target/etc/yuruna/host.env << 'EOF'
+      YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
+      YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+      EOF
+    - |
+      grep -q yuruna-host /target/etc/hosts || \
+        echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /target/etc/hosts
+    # --- See https://yuruna.link/vmconfig#wget-no_proxy
+    - |
+      cat >> /target/etc/wgetrc << 'EOF'
+      no_proxy = YURUNA_HOST_IP_PLACEHOLDER
+      EOF
+    # --- See https://yuruna.link/vmconfig#download-fetch-and-execute-utility
+    - mkdir -p /target/automation
+    - |
+      wget --no-cache --timeout=5 -O /target/automation/fetch-and-execute.sh "http://YURUNA_HOST_IP_PLACEHOLDER:YURUNA_HOST_PORT_PLACEHOLDER/yuruna-repo/automation/fetch-and-execute.sh" || \
+      wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
+    - curtin in-target --target=/target -- chmod +x /automation/fetch-and-execute.sh
+    # --- See https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
+    - curtin in-target --target=/target -- timedatectl set-ntp true
+    - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "https://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'
+    # --- See https://yuruna.link/vmconfig#quiet-post-install-reboot-teardown
+    - umount -lf /cdrom || true
+    - losetup -D || true

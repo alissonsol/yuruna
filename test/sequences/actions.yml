@@ -10,11 +10,41 @@
 # Source of truth for which actions actually exist is the switch in
 # test/modules/Invoke-Sequence.psm1; keep this file in sync when adding
 # or removing a case.
+#
+# Rendered, prose-style companion (with per-host Yuruna.Host contract
+# notes — including the saveDiskSnapshot rename behaviour and its
+# divergence across Hyper-V / KVM / UTM): see actions.md.
 
 # Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}
 # are built-in. Use ${varName} in step parameters.
 
 actions:
+  break: >
+    Cooperative breakpoint. Writes a marker file under the per-guest
+    cycleGuestDataFolder (or the log dir root when no cycle folder is
+    established) and busy-waits until an operator either deletes the
+    marker OR clicks the "Continue" button that appears on the status
+    UI (http://localhost:8080/status/) for the running guest -- intended
+    as a "stop here so I can take control" debugging primitive. NOT a
+    failure: the step succeeds either way. Set YURUNA_BREAK_DISABLED=1
+    in the environment to turn the action into a no-op (logs a warning
+    and continues) so CI / unattended runs do not deadlock. The marker
+    filename embeds the step number (`.yuruna-break-<NNN>.lock`) so two
+    breakpoints in the same sequence do not collide. The status UI
+    learns the break is parked by polling /track/break-active.json,
+    which the action writes on entry and clears on exit. Continue
+    POSTs to /control/break-continue; the action sees the flag, calls
+    Restore-VMDiskSnapshot -Id <break.id> (skipped if no id), then
+    Start-VM, then resumes. Manual marker-delete resumes without
+    snapshot restore. Login (and any other guest-side recovery) is
+    the sequence author's responsibility -- place login steps after
+    the break so the post-Continue, fresh-from-snapshot guest reaches
+    the same state the sequence expects. Parameters: reason (string,
+    optional -- free-form text written into the marker file so the
+    operator knows why execution stopped here), id (string, optional
+    -- snapshot id to restore when Continue is clicked; commonly the
+    id of a same-cycle saveDiskSnapshot earlier in the sequence).
+
   callExtension: >
     Side-effecting call into the active extension for an area
     (e.g. authentication.SetPassword) — used as the dedicated write verb
@@ -33,9 +63,20 @@ actions:
     pollSeconds (number, OCR poll interval while waiting for waitPattern;
     default = vmCommunication.pollSeconds).
 
-  inputKey: >
+  pressKey: >
     Send a single keystroke. Parameters: name (string).
     Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.
+
+  retry: >
+    Failure-recovery wrapper around a block of inner steps. Re-runs the
+    block from its first step on any inner-step failure, up to a maximum
+    attempt count. The block succeeds when one attempt completes every
+    inner step; if all attempts fail, the retry step fails the sequence
+    and the deepest inner failure label is wrapped with a
+    "retry exhausted (N attempts)" prefix in last_failure.json. retry
+    blocks may nest. Parameters: maxAttempts (integer, default 3, must
+    be >= 1), steps (array of step objects -- the same shape as a
+    top-level sequence's `steps:` list, recursively).
 
   inputText: >
     Type a text string. Parameters: text (string), sensitive
@@ -61,6 +102,44 @@ actions:
     before typing to navigate focus, default 0), charDelayMs (number,
     default 50), delaySeconds (number, default 2).
 
+  saveDiskSnapshot: >
+    Disk-only snapshot of the sequence's VM via Yuruna.Host's
+    Save-VMDiskSnapshot contract. The host driver stops the VM first
+    if running (graceful, with Stop-VMForce fallback) and LEAVES IT
+    STOPPED on return -- a sequence that wants to keep going must
+    follow up with an explicit host-specific start step. No RAM-state
+    is captured. Pre-existing snapshots with the same Id are
+    overwritten. Backends: Hyper-V Checkpoint-VM on the offline guest;
+    KVM `virsh snapshot-create-as --atomic`; UTM `qemu-img snapshot -c`
+    against every *.qcow2 in the bundle's Data/ folder.
+    AFTER the snapshot succeeds, the VM is RENAMED to the snapshot Id
+    (and storage relocated where the host supports it) so the next
+    cycle's Remove-TestVMFiles.ps1 -- which sweeps every name matching
+    the test-* prefix -- leaves the persisted VM and its snapshot
+    alone. Rename support: Hyper-V (full: Rename-VM + Move-VMStorage);
+    KVM (full: `virsh domrename` + dir rename + XML disk-path rewrite);
+    UTM (best-effort: AppleScript `set name`, which is read-only in
+    some UTM builds; on failure the snapshot is preserved but the VM
+    will be wiped by the next cleanup). The sequence engine updates
+    its internal $VMName to the new name on success, so subsequent
+    steps target the persisted VM transparently.
+    Parameters: id (string, REQUIRED -- snapshot name AND the new VM
+    name; must be valid as a VM name on every host you target).
+
+  loadDiskSnapshot: >
+    Revert the sequence's VM to a previously saved disk-only snapshot
+    via Yuruna.Host's Restore-VMDiskSnapshot contract, then start the
+    VM so the next step interacts with a live guest. The host driver
+    stops the VM first if running, restores the disk, and returns; the
+    sequence engine then calls Start-VM (Hyper-V / KVM / UTM all
+    implement the contract). No RAM-state is restored -- the guest
+    boots fresh from the snapshot disk, so callers must expect a
+    re-DHCP and an SSH re-handshake (gate downstream consumers on
+    sshWaitReady, and on-screen consumers on waitForText for the
+    login prompt).
+    Parameters: id (string, REQUIRED -- snapshot name previously
+    written by saveDiskSnapshot).
+
   saveSystemDiagnostic: >
     Mid-sequence checkpoint dump. SSHes into the guest, runs
     automation/Get-SystemDiagnostic.ps1, and writes the captured text
@@ -75,7 +154,7 @@ actions:
     the saved filename so two captures in the same cycle don't
     collide; e.g. 'after.k8s.bootstrap', 'before.reboot').
 
-  screenshot: >
+  takeScreenshot: >
     Capture a screenshot for debugging. Parameters: label
     (string, used in filename; default 'step<n>').
 
@@ -101,13 +180,7 @@ actions:
     default = vmCommunication.timeoutSeconds), pollSeconds
     (number, default = vmCommunication.pollSeconds).
 
-  tabsAndEnter: >
-    Send N Tab keystrokes, then press Enter. Use when the target UI
-    element isn't focused by default (e.g. an installer button
-    reachable only by tabbing). Parameters: tabCount (number,
-    default 1), delaySeconds (number, pause before Enter, default 1).
-
-  waitForAndClickButton: >
+  tapOn: >
     Wait for a button label to appear on the VM screen via OCR, then
     click at the label's centre. Parameters: label (string or
     string-array of candidate labels), timeoutSeconds (number,
@@ -128,15 +201,6 @@ actions:
     (number, Tab presses before typing to navigate focus, default 0),
     charDelayMs (number, default 50), delaySeconds (number, default 2).
 
-  waitForHeartbeat: >
-    Wait until Hyper-V Integration Services heartbeat reports OK.
-    Parameters: timeoutSeconds (number, default = vmCommunication.timeoutSeconds). Hyper-V only;
-    on other host types the step is a no-op skip.
-
-  waitForPort: >
-    Wait until a TCP port responds on the VM. Parameters: port
-    (number), timeoutSeconds (number, default = vmCommunication.timeoutSeconds).
-
   waitForSeconds: >
     Wait a fixed number of seconds. Parameters: seconds (number).
 
@@ -153,7 +217,3 @@ actions:
     start a shell' so an installer crash fails the cycle in ~20s
     instead of waiting the full timeoutSeconds for a login prompt that
     will never come). Uses ${var} substitution.
-
-  waitForVMStop: >
-    Wait until the VM reaches the Off/stopped state. Parameters:
-    timeoutSeconds (number, default = vmCommunication.timeoutSeconds).

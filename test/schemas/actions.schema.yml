@@ -18,26 +18,26 @@ properties:
     description: Map<actionName, plain-prose description>.
     propertyNames:
       enum:
+        - break
         - callExtension
         - fetchAndExecute
-        - inputKey
         - inputText
         - inputTextAndEnter
+        - loadDiskSnapshot
         - passwdPrompt
+        - pressKey
+        - retry
+        - saveDiskSnapshot
         - saveSystemDiagnostic
-        - screenshot
         - sshExec
         - sshFetchAndExecute
         - sshWaitReady
-        - tabsAndEnter
+        - takeScreenshot
+        - tapOn
         - typeAndEnter
-        - waitForAndClickButton
         - waitForAndEnter
-        - waitForHeartbeat
-        - waitForPort
         - waitForSeconds
         - waitForText
-        - waitForVMStop
     additionalProperties:
       type: string
       minLength: 1

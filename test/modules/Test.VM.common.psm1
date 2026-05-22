@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.15
+<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,15 +29,15 @@
     Initially empty; populated as the refactor proceeds.
 #>
 
-# Test.TrackDir.psm1 owns $env:YURUNA_TRACK_DIR + Initialize-YurunaTrackDir;
+# Test.RuntimeDir.psm1 owns $env:YURUNA_RUNTIME_DIR + Initialize-YurunaRuntimeDir;
 # import here so Get-PortMapStatePath can resolve the state file even when
 # a caller hasn't bootstrapped the full runner path. -Global so a caller
-# that already imported Test.TrackDir into its own session keeps seeing
-# Initialize-YurunaTrackDir afterwards -- a -Force re-import without
+# that already imported Test.RuntimeDir into its own session keeps seeing
+# Initialize-YurunaRuntimeDir afterwards -- a -Force re-import without
 # -Global evicts the caller's binding into Test.VM.common's private scope,
 # which is exactly what broke Start-StatusServer.ps1 at "Initialize-
-# YurunaTrackDir is not recognized".
-Import-Module (Join-Path $PSScriptRoot 'Test.TrackDir.psm1') -Force -Global
+# YurunaRuntimeDir is not recognized".
+Import-Module (Join-Path $PSScriptRoot 'Test.RuntimeDir.psm1') -Force -Global
 
 function Wait-VMRunning {
 <#
@@ -141,17 +141,17 @@ function Get-PortMapStatePath {
 <#
 .SYNOPSIS
     Return the path of the port-map state JSON. Cross-host: same name
-    in $env:YURUNA_TRACK_DIR / status/track on every platform.
+    in $env:YURUNA_RUNTIME_DIR / status/runtime on every platform.
 #>
     [CmdletBinding()]
     [OutputType([string])]
-    param([string]$TrackDir)
-    if (-not $TrackDir) {
-        $TrackDir = Initialize-YurunaTrackDir
-    } elseif (-not (Test-Path $TrackDir)) {
-        New-Item -ItemType Directory -Path $TrackDir -Force | Out-Null
+    param([string]$RuntimeDir)
+    if (-not $RuntimeDir) {
+        $RuntimeDir = Initialize-YurunaRuntimeDir
+    } elseif (-not (Test-Path $RuntimeDir)) {
+        New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
     }
-    return (Join-Path $TrackDir 'caching-proxy-port-map.json')
+    return (Join-Path $RuntimeDir 'caching-proxy-port-map.json')
 }
 
 function Test-IsAdministrator {
@@ -254,6 +254,12 @@ function Invoke-ScreenshotTest {
     Host-agnostic test orchestrator: relies on the host driver's
     Get-VMScreenshot (Yuruna.Host) for capture and on Compare-Screenshot
     here for the pixel comparison.
+
+    Reference PNGs (committed by Train-Screenshots.ps1) live under
+    $ScreenshotsDir/<guestKey>/reference/ in the source tree. Runtime
+    captures (compared against the references each cycle) land under
+    test/status/captures/training/<guestKey>/ -- gitignored, wiped when
+    cleaning the host.
 #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -266,8 +272,16 @@ function Invoke-ScreenshotTest {
     if ($schedule.Count -eq 0) {
         return @{ success=$true; skipped=$true; errorMessage=$null }
     }
-    $guestDir   = Join-Path $ScreenshotsDir $GuestKey
-    $captureDir = Join-Path $guestDir "captures"
+    $guestDir = Join-Path $ScreenshotsDir $GuestKey
+    # Module file lives at test/modules/Test.VM.common.psm1; one Split-Path
+    # -Parent reaches test/. Runtime captures separate from reference PNGs
+    # so cleaning status/ never wipes operator training output. Files are
+    # written with the guest key prefixed onto the filename (one flat
+    # captures/training/ folder; no per-guest subdir, to honor the
+    # "max two subfolder levels under status/" rule).
+    $testRoot   = Split-Path -Parent $PSScriptRoot
+    $captureDir = Join-Path -Path $testRoot -ChildPath 'status' `
+                       -AdditionalChildPath 'captures', 'training'
     if (-not (Test-Path $captureDir)) { New-Item -ItemType Directory -Force -Path $captureDir | Out-Null }
     foreach ($cp in $schedule) {
         $cpName    = $cp.name
@@ -279,7 +293,7 @@ function Invoke-ScreenshotTest {
         }
         Write-Information "  Screenshot checkpoint '$cpName': waiting ${delay}s..."
         Start-Sleep -Seconds $delay
-        $capFile = Join-Path $captureDir "$cpName.png"
+        $capFile = Join-Path $captureDir "${GuestKey}__${cpName}.png"
         $captured = Get-VMScreenshot -VMName $VMName -OutFile $capFile
         if (-not $captured) {
             return @{ success=$false; skipped=$false; errorMessage="Failed to capture screenshot for checkpoint '$cpName'" }
@@ -490,4 +504,100 @@ function Test-IpAddress {
     }
 }
 
-Export-ModuleMember -Function Wait-VMRunning, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Test-IpAddress, Format-IpUrlHost
+function ConvertTo-Sha512CryptHash {
+<#
+.SYNOPSIS
+    Returns the SHA-512 ($6$) crypt hash for a plaintext password.
+    Cross-host helper for guest user-data / autoinstall password fields.
+.DESCRIPTION
+    Wraps `openssl passwd -6` with two non-negotiable guarantees:
+
+    1. The plaintext is passed AFTER the `--` end-of-options marker.
+       `New-RandomPassword` draws from an alphabet that includes `-`,
+       so ~1/72 of generated passwords start with `-`. Without `--`,
+       `openssl passwd -6 -4aWj*CRw` parses `-4aWj*CRw` as an unknown
+       option flag, prints `passwd: Use -help for summary` to stderr,
+       returns nothing on stdout, and exits non-zero. The cycle then
+       writes a malformed (or empty) HASH_PLACEHOLDER into cloud-init
+       user-data and the guest comes up with no working password.
+       Any future password-handling consumer should pass plaintext
+       AFTER `--` (or via stdin) for the same reason.
+
+    2. The shape of the result is validated (`$6$...`) before return.
+       Older openssl builds lack `-6`; we surface a clear error rather
+       than substituting a bogus hash.
+
+    Platform-specific binary probe mirrors what the per-host New-VM.ps1
+    scripts used to do inline (Git for Windows paths, Homebrew paths,
+    PATH fallback on Linux). Centralising it here means the three
+    parallel host copies no longer drift.
+
+    The plaintext is briefly visible in the openssl process's argv
+    while it runs (process listings). This is acceptable in the
+    repo's threat model: vault.yml itself stores plaintext on disk
+    (see test/extension/authentication/default.psm1 -- Set-Password
+    docstring), and the harness runs in a private dev context.
+    `-stdin` is the stricter alternative but introduces a CRLF/encoding
+    surface on Windows pwsh that the `--` form sidesteps.
+.PARAMETER Plaintext
+    The plaintext password to hash. Must be non-empty.
+.PARAMETER OpenSslPath
+    Optional explicit path to an openssl binary, bypassing the probe.
+    Mostly useful for tests.
+.OUTPUTS
+    [string] -- the `$6$<salt>$<hash>` crypt string.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSAvoidUsingPlainTextForPassword', '',
+        Justification = 'Plaintext IS the input; this function exists to convert it to a hash. Vault context is plaintext-on-disk by design.')]
+    param(
+        [Parameter(Mandatory)][string]$Plaintext,
+        [string]$OpenSslPath
+    )
+    if (-not $Plaintext) { throw 'ConvertTo-Sha512CryptHash: Plaintext is empty.' }
+
+    $candidates = @()
+    if ($OpenSslPath) {
+        $candidates += $OpenSslPath
+    } else {
+        if ($IsWindows) {
+            $candidates += @(
+                "$env:ProgramFiles\Git\usr\bin\openssl.exe",
+                "$env:ProgramFiles\Git\mingw64\bin\openssl.exe",
+                "$env:ProgramFiles\OpenSSL-Win64\bin\openssl.exe",
+                "${env:ProgramFiles(x86)}\OpenSSL-Win32\bin\openssl.exe"
+            )
+        } elseif ($IsMacOS) {
+            $candidates += @(
+                '/opt/homebrew/opt/openssl@3/bin/openssl',
+                '/opt/homebrew/opt/openssl/bin/openssl',
+                '/usr/local/opt/openssl@3/bin/openssl',
+                '/usr/local/opt/openssl/bin/openssl'
+            )
+        }
+        $candidates += 'openssl'
+    }
+
+    foreach ($p in $candidates) {
+        if ($p -ne 'openssl' -and -not (Test-Path -LiteralPath $p)) { continue }
+        try {
+            # `--` MUST stay -- a leading dash in $Plaintext would
+            # otherwise be parsed as an option. See function description.
+            $raw = (& $p passwd -6 -- $Plaintext 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $raw) {
+                $hash = ([string]$raw).Trim()
+                if ($hash.StartsWith('$6$')) {
+                    Write-Verbose "ConvertTo-Sha512CryptHash: hashed via '$p'"
+                    return $hash
+                }
+            }
+        } catch {
+            Write-Verbose "ConvertTo-Sha512CryptHash: '$p' not usable: $($_.Exception.Message)"
+        }
+    }
+    throw "ConvertTo-Sha512CryptHash: no working openssl with SHA-512 (-6) support found. Tried: $($candidates -join ', '). Install OpenSSL >= 1.1 (Linux/macOS) or Git for Windows."
+}
+
+Export-ModuleMember -Function Wait-VMRunning, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Test-IpAddress, Format-IpUrlHost, ConvertTo-Sha512CryptHash

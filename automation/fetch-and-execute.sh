@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.15
+# Version: 2026.05.22
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 # --- See https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
@@ -76,10 +76,44 @@ fi
 echo "  bytes: $byte_count"
 echo ""
 
+# Tee a copy of the inner script's output into a well-known per-run log
+# file so the harness can `scp` it back on failure
+# (Copy-FailureArtifactsToStatusLog → Save-GuestFetchAndExecuteLog). The
+# file is truncated at every fetch-and-execute call so it always holds
+# the LAST script's output, which is the most useful artifact for
+# post-mortem of a sequence that ended on a fetchAndExecute step. Without
+# the tee, when a workload wrapper exits 0 but produces no useful output,
+# the wrapper's console output is already scrolled off-screen by the
+# test-localhost.sh poll loop and the OCR screenshot only captures the
+# polling, not the wrapper itself.
+#
+# Header records WHICH script was fetched so a reader of the file alone
+# can tell whether the last fetch was the workload wrapper or a smaller
+# helper (test-localhost.sh, etc.). The tee runs inside a subshell so
+# the inner script still sees a "regular" stdout/stderr (some tools
+# behave differently under a pipe -- e.g. docker build's progress UI).
+fae_log='/tmp/yuruna-last-fetch-and-execute.log'
+{
+  echo "# Yuruna fetch-and-execute log"
+  echo "# script:    $FILE_PATH"
+  echo "# url:       $FULL_URL"
+  echo "# source:    $BASE_SOURCE"
+  echo "# bytes:     $byte_count"
+  echo "# started:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "# ---"
+} > "$fae_log" 2>/dev/null || true
+
 # Run the fetched script and capture its exit code before any further output
-# so the FETCHED AND EXECUTED marker is always the final line.
-/bin/bash -c "$script_content"
-rc=$?
+# so the FETCHED AND EXECUTED marker is always the final line. `2>&1` merges
+# stderr into the tee so the log captures the full picture; `tee -a`
+# appends after the header above.
+/bin/bash -c "$script_content" 2>&1 | tee -a "$fae_log"
+rc=${PIPESTATUS[0]}
+{
+  echo "# ---"
+  echo "# exit code: $rc"
+  echo "# ended:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} >> "$fae_log" 2>/dev/null || true
 
 if [ $rc -ne 0 ]; then
     echo ""

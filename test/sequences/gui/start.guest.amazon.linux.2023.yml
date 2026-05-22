@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# Interaction sequence for driving VM installation.
+# See possible actions in the actions.yml file.
+# ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step
+# parameters. ${ext:area.Method(args)} invokes the active extension under
+# test/extension/<area>/.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
+sequenceRevision: 1
+
+description: "Amazon Linux 2023: first login, change password, run update script, reboot."
+baseline:
+  amazon.linux.2023: []
+variables:
+  username: yauser1
+  currentPassword: ${ext:authentication.GetPassword(${username})}
+  newPassword: ${ext:authentication.NewRandomPassword()}
+
+steps:
+  - action: retry
+    maxAttempts: 3
+    description: "Login, password rotation, and vault commit (restart on timeout)"
+    steps:
+      - action: waitForText
+        pattern: "login:"
+        timeoutSeconds: 300
+        description: "Initial boot: wait for login prompt to appear"
+
+      - action: pressKey
+        name: Enter
+        description: "Push agetty to redraw a fresh login"
+
+      - action: waitForSeconds
+        seconds: 2
+        description: "Let agetty redraw before resyncing on login:"
+
+      - action: passwdPrompt
+        pattern: "login:"
+        text: "${username}"
+        description: "${vmName} login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${currentPassword}"
+        description: "Password:"
+
+      - action: passwdPrompt
+        pattern: ["Current password", "urrent password:"]
+        text: "${currentPassword}"
+        description: "Current password:"
+
+      - action: passwdPrompt
+        pattern: ["New password", "ew password:"]
+        text: "${newPassword}"
+        description: "New password:"
+
+      - action: passwdPrompt
+        pattern: ["Retype new password", "etype new password:"]
+        text: "${newPassword}"
+        description: "Retype new password:"
+
+      - action: callExtension
+        method: authentication.SetPassword
+        args:
+          Username: "${username}"
+          NewPassword: "${newPassword}"
+        description: "Commit the rotated password to the vault."
+
+  - action: waitForSeconds
+    seconds: 15
+    description: "Pause before updating"
+
+  - action: fetchAndExecute
+    text: "sudo bash /automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"
+    description: "amazon.linux.2023.update.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 900
+
+  - action: saveSystemDiagnostic
+    id: yuruna.update
+    description: "Capture diagnostics after update, before reboot"
+
+  - action: inputTextAndEnter
+    text: "clear; sudo reboot now"
+    description: "Reboot the VM"

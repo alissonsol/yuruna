@@ -13,7 +13,7 @@ lands at Setup Assistant.
 * Xcode command line tools — `swift` is on PATH; the embedded VZ
   helpers in `Get-Image.ps1` / `New-VM.ps1` need it.
 
-Cross-host concepts: [../../README.md](../../README.md).
+Cross-host concepts: [Hosts — ...](../../README.md).
 
 ## One-time
 
@@ -58,7 +58,7 @@ by hand. Treat this guest as "scaffolding-ready, sequence-pending".
 
 When the test sequence lands it will live under
 `test/sequences/gui/start.guest.macos.26.yml` and follow the same
-contract as `start.guest.ubuntu.server.yml` — a `baseline: { macos.26: [] }`
+contract as `start.guest.ubuntu.server.24.yml` — a `baseline: { macos.26: [] }`
 entry plus the GUI steps that walk Setup Assistant to a logged-in
 desktop and rotate the operator-chosen initial password.
 

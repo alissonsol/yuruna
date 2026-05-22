@@ -1,26 +1,23 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-resource "null_resource" "registry" {
-  provisioner "local-exec" {
-    command = "./localhost-registry.ps1"
-    interpreter = ["pwsh", "-Command"]
-
-    environment = {
-    }
-  }
+#
+# The workload bash (e.g. ubuntu.server.24.workload.k8s.website.sh)
+# starts the registry container with retry + rate-limit diagnostics
+# BEFORE invoking Set-Resource. This data source VERIFIES the container
+# is up and bubbles a meaningful error otherwise. It replaces a prior
+# null_resource + pwsh provisioner whose spawn was a recurring failure
+# point under pwsh 7.6.1 / .NET 10 (FileLoadException on
+# System.Collections.Specialized with a truncated PublicKeyToken at
+# process startup). The check program is POSIX bash + docker inspect,
+# and Set-Resource's planfile-pinned apply means it runs at plan time
+# only -- never re-invoked at apply.
+data "external" "registry" {
+  program = ["bash", "./localhost-registry-check.sh"]
 }
 
-data "external" "registryLocation" {
-  program = [
-    "pwsh",
-    "./registry-location.ps1",
-    "placeholder",
-  ]
-
-  query = {
-    placeholder = "placeholder" 
-  }
+locals {
+  registryLocation = data.external.registry.result.registryLocation
 }
 
 output "registryLocation" {
-  value = data.external.registryLocation.result.registryLocation
+  value = local.registryLocation
 }

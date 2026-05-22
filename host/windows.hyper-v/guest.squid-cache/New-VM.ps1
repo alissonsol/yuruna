@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,27 +132,31 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 
 # Squid-cache 'yuruna' user password.
 #
-# This guest is the per-cycle vault's only persistent identity --
-# vault.yml is wiped at cycle end (Clear-VaultStorage), so an
-# in-vault entry only survives within a cycle. Cross-cycle persistence
-# lives in <track>/yuruna-caching-proxy.yml (host-agnostic, under the
-# framework's status/track dir) managed by Test.CachingProxy. New-VM.ps1
-# rehydrates the vault from there on the next cycle's first call.
-# Keeps the authentication extension generic (it never sees the track
-# path); the host-specific New-VM.ps1 is the one that bridges the two.
+# The vault now simulates an external auth provider and persists
+# across cycles, but the squid-cache password also lives in
+# <track>/yuruna-caching-proxy.yml (host-agnostic, under the
+# framework's status/runtime dir, managed by Test.CachingProxy). The
+# runtime state file is treated as the source of truth: if it has a value,
+# Set-Password rewrites the vault entry from it before Get-Password
+# reads it back. This keeps the runtime state file and vault aligned even if
+# they ever diverge (e.g. the vault is rebuilt from scratch or the
+# runtime state file is restored from a backup). Keeps the authentication
+# extension generic (it never sees the runtime state path); the host-specific
+# New-VM.ps1 is the one that bridges the two.
 #
 # Order of operations:
-#   1. If the track file has a password, Set-Password 'yuruna' from it.
+#   1. If the runtime state file has a password, Set-Password 'yuruna' from it.
 #   2. Get-Password 'yuruna' returns either the rehydrated value or a
 #      fresh random one (first-ever install).
-#   3. Write the value back to the track file (idempotent on rebuild).
+#   3. Write the value back to the runtime state file (idempotent on rebuild).
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-# Cross-cycle persistence in <track>/yuruna-caching-proxy.yml. Rehydrate
-# the vault from there on the first call of cycle 1; subsequent reads
-# come from the live vault (until Clear-VaultStorage at cycle end).
+# Re-align the vault with <track>/yuruna-caching-proxy.yml. The track
+# file is the source of truth for the cache VM's yuruna user, so
+# Set-Password rewrites the vault entry from it before Get-Password
+# reads it back. Idempotent on every cycle.
 $persisted = (Read-CachingProxyState).password
 if ($persisted) { Set-Password -Username 'yuruna' -NewPassword $persisted }
 $YurunaPassword = Get-Password -Username 'yuruna'
@@ -462,7 +466,7 @@ Accessing the VM for debugging:
               password: $PasswordFile
               (cloud-init sets it from user-data; does NOT expire.)
   * SSH:      ssh yuruna@<candidate>    (try each of: $candidateList)
-              (uses the yuruna harness key at test\.ssh\yuruna_ed25519 --
+              (uses the yuruna harness key at test\status\ssh\yuruna_ed25519 --
                same key the Ubuntu Server guest uses; passwordless)
 
 === Step 1: find the actual apt / cloud-init error ===

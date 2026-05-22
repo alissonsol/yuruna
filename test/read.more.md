@@ -63,8 +63,8 @@ event code (`cycle.failure`, `config.smoke`).
    [Domains](https://resend.com/domains), or use `onboarding@resend.dev`
    for testing.
 4. Copy
-   [`extension/notification/notification.transports.yml.template`](extension/notification/notification.transports.yml.template)
-   to `extension/notification/notification.transports.yml` and fill in:
+   [`extension/notification/transports.yml.template`](extension/notification/transports.yml.template)
+   to `test/status/extension/notification/transports.yml` and fill in:
     - `transports.resend.apiKey`
     - `transports.resend.fromEmail`
     - `subscribers["cycle.failure"][].address` (one entry per recipient)
@@ -77,26 +77,30 @@ Legacy `secrets.resend` and `notification.toEmailAddress` keys in
 `test.config.yml` are no longer read; the runner warns at cycle start
 when it sees populated legacy values that need a manual move.
 
-### Authentication vault (per-cycle credentials)
+### Authentication vault (external-provider simulation)
 
 VM passwords come from the active extension under
 [`test/extension/authentication/`](extension/authentication/). The
-default extension keeps a YAML vault (`vault.yml`, gitignored) scoped
-to a single test cycle:
+default extension keeps a YAML vault (`vault.yml`, gitignored) that
+SIMULATES an external authentication provider: users are never
+deleted and passwords never change without an explicit Set-Password
+call. The vault is persisted across cycles -- the "fake" behaviour
+is the lazy-create branch in Get-Password (first reference for a
+username generates+stores a password; every later call returns the
+same stored value).
 
-- `Initialize-VaultConnection` runs once at cycle start.
+- `Initialize-VaultConnection` ensures vault.yml exists. Idempotent:
+  a no-op when the file is already present.
 - `Get-Password -Username <name>` returns the stored value or
   generates+stores one on first call.
 - `New-RandomPassword` is a pure helper used by the rotation flow.
 - `Set-Password -Username <name> -NewPassword <value>` commits a
-  rotation.
+  rotation (the only path that changes an existing password).
 - A named system mutex serialises read-modify-write so multiple guests
   provisioning in parallel cannot race.
 
-The vault is wiped on cycle success (`Clear-VaultStorage`); a failed
-cycle leaves it in plaintext for debugging. The squid-cache `yuruna`
-user persists across cycles via
-[`test/status/track/yuruna-caching-proxy.yml`](status/track/)
+The squid-cache `yuruna` user persists across cycles via
+[`test/status/runtime/yuruna-caching-proxy.yml`](status/runtime/)
 (host-agnostic, gitignored, managed by
 [`test/modules/Test.CachingProxy.psm1`](modules/Test.CachingProxy.psm1)),
 which the squid-cache `New-VM.ps1` writes back to the vault on each
@@ -106,41 +110,178 @@ image.
 
 The test user is configured per-guest in `test/sequences/**/*.yml`
 (under `variables.username`) and mirrored as the `-Username` default
-in each host's `guest.<type>/New-VM.ps1`. The names follow a
-`y[aw]user1` pattern that encodes the guest family in the second
-character: `yauser1` for amazon.linux, `yuuser1` for ubuntu.server,
-`ywuser1` for windows.11 -- intentionally unique/greppable versus the
-cloud-image defaults `ubuntu` and `ec2-user`. The trailing digit
-anticipates the multi-user future (a second user per guest, etc.)
-which will be defined in a manifest, not created on the fly.
+in each host's `guest.<type>/New-VM.ps1`. Ubuntu guests carry the
+major version in the suffix so 24.04 and 26.04 don't collide in shared
+logs: `yuuser24` for ubuntu.server.24, `yuuser26` for ubuntu.server.26.
+Other guests use the greppable `y[aw]user1` form encoding the family in
+the second character: `yauser1` for amazon.linux.2023, `ywuser1` for
+windows.11 -- intentionally unique/greppable versus the cloud-image
+defaults `ubuntu` and `ec2-user`. Trailing digits anticipate the
+multi-user future (a second user per guest, etc.) which will be defined
+in a manifest, not created on the fly.
 
 Sequence steps fetch live values via the inline `${ext:area.Method(args)}`
 substitution form, e.g. `${ext:authentication.GetPassword(${username})}` and
-`${ext:authentication.NewRandomPassword()}`. Substitutions are memoised within a
-single sequence run, so a `New password:` prompt and the matching
-`Retype:` prompt receive the same generated value. Side-effecting
-commits (e.g. `authentication.SetPassword`) use the `callExtension` action verb.
+`${ext:authentication.NewRandomPassword()}`. Each `${ext:...}` is invoked
+fresh on every reference — there is no caching. To pin a generated
+value across multiple steps (e.g. `New password:` and the matching
+`Retype:`), assign the call to a variable in the sequence's `variables:`
+block:
+
+```yaml
+variables:
+  username: yuuser24
+  currentPassword: ${ext:authentication.GetPassword(${username})}
+  newPassword: ${ext:authentication.NewRandomPassword()}
+```
+
+Entries there are evaluated eagerly at sequence start, in file order, so
+each entry can reference earlier entries and the built-ins
+(`${vmName}`, `${hostType}`, `${guestKey}`). Use `$$` for a literal `$`
+(in particular `$${foo}` stores the four-character literal `${foo}`).
+
+### Username cascade + corporate identity mapping
+
+A top-level workload's `variables.username` propagates down through its
+entire dependency chain. Example:
+
+  - `start.guest.ubuntu.server.26.yml` declares `username: yuuser26`
+    (the baseline default for any chain rooted here).
+  - `workload.guest.ubuntu.server.26.k8s.website.yml` declares
+    `username: webuser`. As the cycle's top-level, it wins.
+  - The planner injects `webuser` as the effective username across
+    the entire chain (`start.*` → `workload.*` → workload-website).
+  - Cloud-init creates a local OS account named `webuser`, **not**
+    `yuuser26`. Every `${username}` substitution in every sequence
+    of the chain renders as `webuser`. The baseline `start.*.yml`
+    keeps its `username: yuuser26` line as the stand-alone-invocation
+    default (used only by `Test-Sequence.ps1` runs outside a
+    workload context).
+
+The cascade applies to **any** key declared under `variables:` (not
+just `username`). For each key, the first non-empty value encountered
+walking the chain top-down wins. Sequences lower in the chain can
+declare defaults; sequences higher in the chain redefine them.
+
+Logical usernames map to corporate identities (Active Directory /
+Entra / SSSD-against-LDAP / ...) via
+`test/status/extension/authentication/users.yml`. The committed
+template at `test/extension/authentication/users.yml.template` ships
+pre-seeded with the four bundled logical users (`yuuser24`,
+`yuuser26`, `yauser1`, `ywuser1`) plus the cache-VM `yuruna` user,
+all with empty corporate fields → out of the box, behaviour is
+identical to today's local-only flow (`${loginUser}` = `${username}`,
+vault auto-generates passwords).
+
+```yaml
+# Example users.yml entry that maps the logical user 'webuser' to a
+# corporate AD identity (DOMAIN\sam form). Sequence-login steps render
+# ${loginUser} as "CORP\alisson.sol"; ${ext:authentication.GetPassword(${username})}
+# returns vault[corp.alisson.sol].password (must be pre-populated --
+# the vault NEVER auto-generates for an operator-supplied vaultKey).
+# The LOCAL OS account on the transient test VM is decoupled: it
+# receives a fresh auto-gen password from vault[webuser] so the
+# corporate plaintext never lands in the guest's /etc/shadow.
+webuser:
+  localOsUser: webuser
+  corporate:
+    domain: "CORP"
+    sam:    "alisson.sol"
+  vaultKey:           "corp.alisson.sol"
+  localOsPasswordRef: ""
+```
+
+Inside sequences, use:
+
+  - `${username}` — logical/local-OS user name (cascade-resolved).
+    Use this for shell-side references (`/home/${username}`, `whoami`).
+  - `${loginUser}` — rendered corporate identity from `users.yml`
+    (`CORP\alisson.sol` or `user@upn.domain`); falls back to
+    `${username}` when no corporate mapping is set. Use this for
+    interactive login prompts.
+  - `${ext:authentication.GetPassword(${username})}` — password for
+    the sequence-login prompt. Routed through `users.yml`'s `vaultKey`.
+  - `${ext:authentication.GetLocalOsPassword(${username})}` — password
+    for the local OS account at cloud-init time. Routed through
+    `users.yml`'s `localOsPasswordRef`.
+
+`users.yml` is validated with `strict: true` by default. Every logical
+username referenced by an active sequence MUST be declared, and every
+populated `vaultKey` MUST exist in `vault.yml` -- `Test-Config.ps1`
+blocks the cycle on the first violation, and `Invoke-TestRunner.ps1`
+runs `Test-Config.ps1` automatically as a pre-cycle gate (bypass with
+`-NoConfigGate` for ad-hoc / in-progress edit runs).
+Side-effecting commits (e.g. `authentication.SetPassword`) use the
+`callExtension` action verb.
 
 ## Developing test sequences
 
-[`Confirm-Sequence.ps1`](Confirm-Sequence.ps1) runs a single
+[`Test-Sequence.ps1`](Test-Sequence.ps1) runs a single
 sequence without downloading images or recreating a VM:
 
 ```powershell
-pwsh test/Confirm-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server"
-pwsh test/Confirm-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server" -StartStep 5
-pwsh test/Confirm-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server" -StartStep 3 -StopStep 7
-pwsh test/Confirm-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server" -VMName "private-ubuntu"
+pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24"
+pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 5
+pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
+pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -VMName "private-ubuntu"
+pwsh test/Test-Sequence.ps1 ..\project\example\text-to-sql\test\gui\workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline.yml
 ```
 
-Pass the sequence **name** only (no folder, `.yml`, or `.ssh.` suffix);
-the script resolves against `keystrokeMechanism`, falling back to
-`gui/`. It prints a numbered step list with run markers; `-StopStep`
-leaves the VM running. Missing sequence → listing from `sequences/gui/`
-and `sequences/ssh/`.
+`-SequenceName` accepts either a **name** (no folder, no `.yml`, no
+`.ssh.` suffix) or a **path** to an existing `.yml` file -- the path
+form is shell-tab-completion friendly and supplies the top-level file
+directly (useful when `yuruna-project` is mounted as a sibling working
+tree, not cloned under `<RepoRoot>/project/`), skipping mode/host-variant
+resolution. Both forms still walk the baseline chain. Name form
+resolves against `keystrokeMechanism`, falling back to `gui/`.
+Missing sequence → listing from `sequences/gui/` and `sequences/ssh/`.
+When the path form points to a generic `.yml` and a
+`<name>.<hostShort>.yml` sibling exists, Test-Sequence warns -- the
+runner would have picked the variant on this host, so the path form is
+hiding a tier the runner sees.
+
+Guest folder lookup walks dotted prefixes longest-first so cascade-child
+sequences (e.g. `workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline`)
+auto-resolve to the existing `guest.ubuntu.server.24` folder. Pass
+`-GuestKey` to override the walk.
+
+To minimise surprises when a sequence is later wired into the runner,
+Test-Sequence mirrors the relevant runner-side resolutions:
+
+* **Baseline chain walk** -- the same `Resolve-CyclePlan` logic the runner
+  uses. When a sequence's `baseline:` field declares prereqs, every
+  prereq is run in dependency order (deepest first, top-level last)
+  before the named sequence. `-StartStep`/`-StopStep` index into the
+  CONCATENATED step list across the whole chain, so step 1 is always
+  the first step of the deepest prereq -- not the named sequence's
+  step 1. Both name form and path form walk the chain; the path form
+  just supplies the top-level file directly. Prereqs still resolve via
+  the standard search (framework `test/sequences/` and project
+  `<RepoRoot>/project/...`).
+* `Test-Config.ps1` runs as a pre-cycle gate (same as Invoke-TestRunner).
+  Pass `-NoConfigGate` to skip while iterating on test.config.yml,
+  vault.yml, or users.yml edits.
+* The chain's `effectiveUsername` (cascaded top-down from the named
+  sequence's `variables.username` through every prereq) is forwarded as
+  `-Username` to `New-VM`, matching the runner's same forward. The
+  full `effectiveVariables` map is passed as `-EffectiveVariables` to
+  each `Invoke-Sequence` call so a workload-level `username: webuser`
+  propagates into the baseline's `${username}` substitutions.
+* `Test-CachingProxyAvailable` is consulted and the resolved URL is
+  forwarded as `-CachingProxyUrl` to `New-VM`. `vmStart.cachingProxyIP`
+  from test.config.yml is promoted to `$Env:YURUNA_CACHING_PROXY_IP`
+  before the probe (same precedence the runner uses).
+* `control.cycle-restart` is consumed at startup so leftover state from a
+  Ctrl-C'd runner can't make a clean Test-Sequence run look broken.
+* `-ShowSensitive` is OFF by default (matches Invoke-TestRunner's masked
+  output). Add the switch when local debugging actually needs cleartext.
+
+The script prints a numbered step list with run markers, grouped under
+each sequence in the chain; `-StopStep` leaves the VM running.
 
 Parameters: `-SequenceName` (required), `-StartStep` (default 1),
-`-StopStep`, `-ConfigPath`, `-VMName`, `-logLevel`.
+`-StopStep`, `-ConfigPath`, `-VMName`, `-GuestKey`, `-ShowSensitive`,
+`-NoConfigGate`, `-logLevel`.
 
 ## Logging knobs
 
@@ -194,7 +335,7 @@ callers — they only see the extension's `Enable-SshServer` /
 Train references once per guest:
 
 ```powershell
-pwsh test/Train-Screenshots.ps1 -GuestKey guest.amazon.linux
+pwsh test/Train-Screenshots.ps1 -GuestKey guest.amazon.linux.2023
 ```
 
 The tool creates a VM and waits for capture commands:
@@ -218,7 +359,7 @@ Training produces `test/screenshots/<guestKey>/schedule.json` and
 ```
 
 `threshold` is minimum pixel-similarity to pass (0.85 = 85% match).
-Per-run captures land in `screenshots/<guestKey>/captures/`
+Per-run captures land in `status/captures/training/`
 (git-ignored).
 
 ## Adding a test sequence
@@ -227,7 +368,7 @@ Drop a YAML sequence under `test/sequences/{gui,ssh}/` (framework
 generic) or `project/<...>/test/{gui,ssh}/` (project-specific), wire
 its `baseline` to declare prerequisites, then reference the top-level
 sequence from `project/test/test.sequence.yml` `baseline`. Full
-architecture: [modules/README.md](modules/README.md).
+architecture: [Test Modules ...](modules/README.md).
 
 Back to [Test runner](README.md) · [Yuruna](../README.md)
 

@@ -21,7 +21,7 @@ cd yuruna
 ./Add-AutomationToPath.ps1
 ```
 
-Create the HTTPS dev certificate (the `ubuntu.server.k8s.sh` workload
+Create the HTTPS dev certificate (the `ubuntu.server.24.k8s.sh` workload
 does this automatically on that guest):
 
 ```powershell
@@ -63,15 +63,40 @@ gcloud auth application-default login
 Set-Resource.ps1 website gcp;   Set-Component.ps1 website gcp;   Set-Workload.ps1 website gcp
 ```
 
-Details, service accounts, and API enablement: [Yuruna Authentication ...](authenticate.md).
+Details, service accounts, and API enablement: [Yuruna Authentication ...](authentication.md).
 
-## Documentation
+## Guest-side prerequisites
 
-- [Yuruna Requirements](requirements.md) · [Yuruna Authentication ...](authenticate.md) ·
-  [Yuruna Syntax](syntax.md) · [Yuruna Frequently ...](faq.md) · [Yuruna Resources ...](cleanup.md)
-- [Yuruna Website ...](../project/example/website/) · [Yuruna Contributing ...](../CONTRIBUTING.md) ·
-  [Yuruna Project ...](contributors.md) · [Yuruna References](references.md)
-- [Yuruna YouTube channel](https://www.youtube.com/channel/UCl36lZ2MwZ0f6_QAUOmGNDw)
+Workload that installs SSH, Git, Docker, Kubernetes, PowerShell, Helm,
+OpenTofu, mkcert, Graphviz, and cloud CLIs (Azure, AWS, GCP) on a running
+guest VM. Full tool list: [Yuruna Requirements](requirements.md). Guest
+workload pattern: [Yuruna Architecture](architecture.md).
+
+| Guest | Command |
+|---|---|
+| **Ubuntu Server 24.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
+| **Ubuntu Server 26.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
+| **Windows 11** | `irm "…/guest/windows.11/windows.11.k8s.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
+
+**Ubuntu — optional after:** change hostname with
+`sudo hostnamectl set-hostname <name>`; a terminal restart may be
+needed for new group permissions.
+
+### Verify
+
+```bash
+docker images
+docker ps -a
+kubectl get nodes
+kubectl get pods -A
+kubectl config current-context
+```
+
+## See also
+
+- [Yuruna Syntax](syntax.md) — CLI reference for the three phases
+- [Yuruna Frequently Asked Questions](faq.md), [Yuruna Workarounds](workarounds.md), [Yuruna Resources Clean Up](cleanup.md)
+- [Yuruna Website example](../project/example/website/), [Yuruna References](references.md)
 
 Back to [Yuruna](../README.md)
 

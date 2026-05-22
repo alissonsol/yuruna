@@ -133,7 +133,7 @@ module "eks" {
       ami_id   = data.aws_ami.eks_default_bottlerocket.image_id
       platform = "bottlerocket"
 
-      # use module user data template to boostrap
+      # use module user data template to bootstrap
       enable_bootstrap_user_data = true
       # this will get added to the template
       bootstrap_extra_args = <<-EOT
@@ -164,7 +164,7 @@ module "eks" {
       # Current default AMI used by managed node groups - pseudo "custom"
       ami_id = data.aws_ami.eks_default_arm.image_id
 
-      # This will ensure the boostrap user data is used to join the node
+      # This will ensure the bootstrap user data is used to join the node
       # By default, EKS managed node groups will not append bootstrap script;
       # this adds it back in using the default template provided by the module
       # Note: this assumes the AMI provided is an EKS optimized AMI derivative
@@ -315,8 +315,8 @@ module "eks" {
 # References to resources that do not exist yet when creating a cluster will cause a plan failure due to https://github.com/hashicorp/terraform/issues/4149
 # There are two options users can take
 # 1. Create the dependent resources before the cluster => `terraform apply -target <your policy or your security group> and then `terraform apply`
-#   Note: this is the route users will have to take for adding additonal security groups to nodes since there isn't a separate "security group attachment" resource
-# 2. For addtional IAM policies, users can attach the policies outside of the cluster definition as demonstrated below
+#   Note: this is the route users will have to take for adding additional security groups to nodes since there isn't a separate "security group attachment" resource
+# 2. For additional IAM policies, users can attach the policies outside of the cluster definition as demonstrated below
 resource "aws_iam_role_policy_attachment" "additional" {
   for_each = module.eks.eks_managed_node_groups
 
@@ -509,10 +509,10 @@ data "aws_iam_policy_document" "ebs" {
 }
 
 # This is based on the LT that EKS would create if no custom one is specified (aws ec2 describe-launch-template-versions --launch-template-id xxx)
-# there are several more options one could set but you probably dont need to modify them
+# there are several more options one could set but you probably don't need to modify them
 # you can take the default and add your custom AMI and/or custom tags
 #
-# Trivia: AWS transparently creates a copy of your LaunchTemplate and actually uses that copy then for the node group. If you DONT use a custom AMI,
+# Trivia: AWS transparently creates a copy of your LaunchTemplate and actually uses that copy then for the node group. If you DON'T use a custom AMI,
 # then the default user-data for bootstrapping a cluster is merged in the copy.
 
 resource "aws_launch_template" "external" {
@@ -542,7 +542,7 @@ resource "aws_launch_template" "external" {
   # if you want to use a custom AMI
   # image_id      = var.ami_id
 
-  # If you use a custom AMI, you need to supply via user-data, the bootstrap script as EKS DOESNT merge its managed user-data then
+  # If you use a custom AMI, you need to supply via user-data, the bootstrap script as EKS DOESN'T merge its managed user-data then
   # you can add more than the minimum code you see in the template, e.g. install SSM agent, see https://github.com/aws/containers-roadmap/issues/593#issuecomment-577181345
   # (optionally you can use https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/cloudinit_config to render the script, example: https://github.com/terraform-aws-modules/terraform-aws-eks/pull/997#issuecomment-705286151)
   # user_data = base64encode(data.template_file.launch_template_userdata.rendered)

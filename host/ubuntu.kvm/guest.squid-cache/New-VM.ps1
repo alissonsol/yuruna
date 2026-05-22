@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,7 +156,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # === Yuruna harness SSH key ===
-# The harness uses one ed25519 key pair at test/.ssh/yuruna_ed25519,
+# The harness uses one ed25519 key pair at test/status/ssh/yuruna_ed25519,
 # owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
 # failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
 # so the public bytes seeded into the guest's authorized_keys MUST be
@@ -166,20 +166,22 @@ Import-Module $TestSshModule -Force -DisableNameChecking
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# === Cache-VM yuruna password (cross-cycle persistence) ===
+# === Cache-VM yuruna password (cross-host persistence) ===
 # Same model as the Hyper-V and macOS UTM squid-cache New-VM.ps1: the
-# per-cycle vault is wiped at cycle end (Clear-VaultStorage), so an
-# in-vault entry only survives within a cycle. Cross-cycle persistence
-# lives in <track>/yuruna-caching-proxy.yml (host-agnostic, under the
-# framework's status/track dir) managed by Test.CachingProxy. This is
-# the same file the Hyper-V and UTM hosts write to, so a cache VM
+# vault persists across cycles (external-auth simulation), but the
+# cache VM's yuruna password also lives in
+# <track>/yuruna-caching-proxy.yml (host-agnostic, under the
+# framework's status/runtime dir, managed by Test.CachingProxy). The
+# runtime state file is the source of truth: Set-Password rewrites the vault
+# entry from it before Get-Password reads it back. The same track
+# file is shared with the Hyper-V and UTM hosts, so a cache VM
 # rebuilt by any host hands the same credentials to the harness.
 #
 # Order of operations:
-#   1. If the track file has a password, Set-Password 'yuruna' from it.
+#   1. If the runtime state file has a password, Set-Password 'yuruna' from it.
 #   2. Get-Password 'yuruna' returns either the rehydrated value or a
 #      fresh random one (first-ever install).
-#   3. Write the value back to the track file (idempotent on rebuild).
+#   3. Write the value back to the runtime state file (idempotent on rebuild).
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
@@ -264,7 +266,7 @@ if ($networkName -eq 'default') {
 
 # === virt-install ===
 # `--import` (no install phase) since the cloud image is bootable.
-# `--events on_reboot=restart` matches the amazon.linux guest -- a
+# `--events on_reboot=restart` matches the amazon.linux.2023 guest -- a
 # system_reset inside the VM (e.g. unattended-upgrades pulling a kernel)
 # performs QMP reset rather than exiting QEMU; the libvirt domain stays
 # defined and re-boots from its NVRAM-stored boot entry. Without this,
@@ -276,7 +278,7 @@ $arch = (& uname -m).Trim()
 
 # Ubuntu 26.04 may not be in the host's osinfo-db yet. Probe what
 # virt-install accepts and fall back through ubuntu24.04 -> linux2022
-# generic. Same pattern as guest.ubuntu.server/New-VM.ps1.
+# generic. Same pattern as guest.ubuntu.server.24/New-VM.ps1.
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
 if ($LASTEXITCODE -eq 0) {
@@ -334,7 +336,7 @@ $installArgs = @(
 # aarch64 has no BIOS option in QEMU, so UEFI is mandatory.
 # x86_64 cloud images boot fine with the libvirt default (i440fx + SeaBIOS)
 # from the qcow2's hybrid GRUB MBR, so no --boot uefi here for x86_64
-# (avoids the NVRAM-empty fallback issue described in the amazon.linux
+# (avoids the NVRAM-empty fallback issue described in the amazon.linux.2023
 # New-VM.ps1 SeaBIOS comment).
 if ($arch -eq 'aarch64') {
     $installArgs += @('--machine', 'virt', '--boot', 'uefi')
@@ -519,7 +521,7 @@ Accessing the VM for debugging:
               password: $PasswordFile
               (cloud-init sets it from user-data; does NOT expire.)
   * SSH:      ssh yuruna@$cacheIp
-              (uses the yuruna harness key at test/.ssh/yuruna_ed25519 --
+              (uses the yuruna harness key at test/status/ssh/yuruna_ed25519 --
                same key the Ubuntu Server guest uses; passwordless)
 
 === Step 1: find the actual apt / cloud-init error ===

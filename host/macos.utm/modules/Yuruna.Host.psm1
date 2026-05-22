@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,7 +77,7 @@ function Remove-UtmBundleWithRetry {
         try {
             Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
             if ($attempt -gt 1) {
-                Write-Output "Removed UTM bundle after $attempt attempt(s): $Path"
+                Write-Information "Removed UTM bundle after $attempt attempt(s): $Path" -InformationAction Continue
             }
             return $true
         } catch {
@@ -268,7 +268,7 @@ function Start-CachingProxyForwarder {
     [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
 
     $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
-    Write-Output "  Launching host-side forwarder: 0.0.0.0:${Port} ? ${CacheIp}:${VMPort}${proxyTag}"
+    Write-Information "  Launching host-side forwarder: 0.0.0.0:${Port} ? ${CacheIp}:${VMPort}${proxyTag}" -InformationAction Continue
     # RedirectStandard* is required: without them pwsh inherits the
     # parent TTY and dies when Start-CachingProxy.ps1 exits. The
     # forwarder's own log gets live traffic; stdout/stderr go to files.
@@ -295,7 +295,7 @@ function Start-CachingProxyForwarder {
     # (e.g. Invoke-TestRunner) may not have cached ? and the correct CacheIp
     # is already baked into the running process. Only restart if crashed.
     if ($needsSudo -and (Get-CachingProxyForwarder -Port $Port)) {
-        Write-Output "  Port ${Port} forwarder already running (root-owned); skipping restart."
+        Write-Information "  Port ${Port} forwarder already running (root-owned); skipping restart." -InformationAction Continue
         return $true
     }
 
@@ -327,7 +327,7 @@ function Start-CachingProxyForwarder {
                 } else {
                     "Forwarder up (pid $actualPid): host :${Port} -> ${CacheIp}:${VMPort}"
                 }
-                Write-Output "  $upMsg"
+                Write-Information "  $upMsg" -InformationAction Continue
                 return $true
             }
         } catch {
@@ -1855,7 +1855,10 @@ function New-VM {
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
-        [string]$CachingProxyUrl
+        [string]$CachingProxyUrl,
+        # Planner-cascaded username override; forwarded only when the
+        # per-guest script declares -Username (introspected below).
+        [string]$Username
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) { return @{ success = $false; errorMessage = 'WhatIf' } }
     $scriptPath = Join-Path $RepoRoot (Join-Path 'host/macos.utm' (Join-Path $GuestKey 'New-VM.ps1'))
@@ -1863,19 +1866,27 @@ function New-VM {
         return @{ success = $false; errorMessage = "New-VM.ps1 not found at: $scriptPath" }
     }
     $childArgs = @('-VMName', $VMName)
-    $scriptAcceptsProxy = $false
+    $scriptAcceptsProxy    = $false
+    $scriptAcceptsUsername = $false
     try {
         $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
-        $scriptAcceptsProxy = [bool]($cmdInfo.Parameters -and $cmdInfo.Parameters.ContainsKey('CachingProxyUrl'))
+        if ($cmdInfo.Parameters) {
+            $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyUrl')
+            $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
+        }
     } catch {
-        $scriptAcceptsProxy = $false
+        $scriptAcceptsProxy    = $false
+        $scriptAcceptsUsername = $false
     }
     if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
         $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
-        Write-Verbose "Running: $scriptPath -VMName $VMName -CachingProxyUrl '$CachingProxyUrl'"
-    } else {
-        Write-Verbose "Running: $scriptPath -VMName $VMName"
     }
+    if ($PSBoundParameters.ContainsKey('Username') -and $Username -and $scriptAcceptsUsername) {
+        $childArgs += @('-Username', $Username)
+    } elseif ($PSBoundParameters.ContainsKey('Username') -and $Username -and -not $scriptAcceptsUsername) {
+        Write-Verbose "Cascaded -Username '$Username' NOT forwarded: $scriptPath does not declare a -Username parameter."
+    }
+    Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
     $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) {
@@ -1973,6 +1984,337 @@ function Get-VMState {
 
 <#
 .SYNOPSIS
+    Rename a stopped UTM VM by editing its .utm bundle and UTM's Registry
+    plist while UTM.app is quit.
+.DESCRIPTION
+    UTM exposes no rename verb in utmctl, and macOS 26 builds mark the
+    AppleScript `name` property of `virtual machine` as read-only
+    (osascript fails with -10006). The reliable workaround is on-disk
+    surgery while UTM is offline:
+
+      1. Quit UTM.app (and any QEMUHelper child) so cfprefsd flushes the
+         in-memory Registry to its plist on disk, then flush cfprefsd's
+         cache so our subsequent edits aren't clobbered.
+      2. Rename `<guest.nosync>/<VMName>.utm` -> `<guest.nosync>/<NewName>.utm`.
+         The qcow2 disks (including snapshots written by Save-VMDiskSnapshot)
+         move with the bundle.
+      3. PlistBuddy: set `:Information:Name` in the new bundle's
+         config.plist to NewName.
+      4. PlistBuddy: set `:Registry:<UUID>:Name` and
+         `:Registry:<UUID>:Package:Path` inside
+         `~/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist`.
+      5. killall cfprefsd so UTM re-reads our edited plist on relaunch.
+      6. `open -a UTM` and poll utmctl until the new name surfaces.
+
+    The Package.Bookmark blob is left untouched: macOS file bookmarks
+    resolve via catalog inode + volume UUID, so a directory rename within
+    the same volume continues to resolve to the new path.
+
+    Requires the VM to be stopped (UTM holds an exclusive lock on the
+    bundle while running). Caller (Save-VMDiskSnapshot) handles the stop.
+#>
+function Rename-VM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$NewName
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Rename to '$NewName' (bundle + Registry surgery)")) { return $false }
+    if ($VMName -eq $NewName) { return $true }
+    if ($VMName -match '[/"\\]' -or $NewName -match '[/"\\]') {
+        Write-Warning "Rename-VM: refusing to rename '$VMName' -> '$NewName' (names must not contain '/', '\\', or '`"')."
+        return $false
+    }
+    if ((Get-VMState -VMName $VMName) -eq 'absent') {
+        Write-Warning "Rename-VM: source VM '$VMName' not registered with UTM."
+        return $false
+    }
+    if ((Get-VMState -VMName $NewName) -ne 'absent') {
+        Write-Warning "Rename-VM: destination name '$NewName' already exists."
+        return $false
+    }
+    if ((Get-VMState -VMName $VMName) -eq 'running') {
+        Write-Warning "Rename-VM: '$VMName' is still running; UTM holds an exclusive lock on the bundle. Stop the VM first."
+        return $false
+    }
+
+    $guestDir  = "$HOME/yuruna/guest.nosync"
+    $srcBundle = Join-Path $guestDir "$VMName.utm"
+    $dstBundle = Join-Path $guestDir "$NewName.utm"
+    $srcConfig = Join-Path $srcBundle 'config.plist'
+    if (-not (Test-Path -LiteralPath $srcConfig)) {
+        Write-Warning "Rename-VM: source config.plist not found at '$srcConfig'."
+        return $false
+    }
+    if (Test-Path -LiteralPath $dstBundle) {
+        Write-Warning "Rename-VM: destination bundle already exists: '$dstBundle'."
+        return $false
+    }
+
+    # UUID is the only stable key in UTM's Registry; read it from the
+    # bundle's own config.plist rather than parsing `defaults` output.
+    $uuid = (& /usr/libexec/PlistBuddy -c 'Print :Information:UUID' $srcConfig 2>&1).ToString().Trim()
+    if ($LASTEXITCODE -ne 0 -or $uuid -notmatch '^[0-9A-Fa-f-]{36}$') {
+        Write-Warning "Rename-VM: could not read :Information:UUID from '$srcConfig' (got '$uuid')."
+        return $false
+    }
+
+    $utmPrefs = "$HOME/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist"
+    if (-not (Test-Path -LiteralPath $utmPrefs)) {
+        Write-Warning "Rename-VM: UTM preferences plist not found at '$utmPrefs'."
+        return $false
+    }
+
+    # Quit UTM so cfprefsd flushes the Registry to disk before our edits.
+    & osascript -e 'tell application "UTM" to quit' 2>&1 | Out-Null
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        $procs   = & pgrep -i -x UTM 2>$null
+        $helpers = & pgrep -f QEMUHelper 2>$null
+        if (-not $procs -and -not $helpers) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    & pkill -f QEMUHelper 2>$null | Out-Null
+    & pkill -i -x UTM     2>$null | Out-Null
+    Start-Sleep -Seconds 1
+    # Drop cfprefsd cache so PlistBuddy reads/writes go straight to the
+    # plist file rather than being shadowed by stale daemon state.
+    & killall cfprefsd 2>$null | Out-Null
+    Start-Sleep -Milliseconds 500
+
+    try {
+        Rename-Item -LiteralPath $srcBundle -NewName "$NewName.utm" -ErrorAction Stop
+    } catch {
+        Write-Warning "Rename-VM: bundle rename '$srcBundle' -> '$dstBundle' failed: $($_.Exception.Message)."
+        & open -a UTM 2>$null | Out-Null
+        return $false
+    }
+
+    $dstConfig = Join-Path $dstBundle 'config.plist'
+    & /usr/libexec/PlistBuddy -c "Set :Information:Name $NewName" $dstConfig 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Rename-VM: PlistBuddy could not update :Information:Name in '$dstConfig'."
+        try { Rename-Item -LiteralPath $dstBundle -NewName "$VMName.utm" -ErrorAction Stop }
+        catch { Write-Debug "Rename-VM revert: bundle rename back failed: $_" }
+        & open -a UTM 2>$null | Out-Null
+        return $false
+    }
+
+    & /usr/libexec/PlistBuddy -c "Set :Registry:${uuid}:Name $NewName"            $utmPrefs 2>&1 | Out-Null
+    $regExitName = $LASTEXITCODE
+    & /usr/libexec/PlistBuddy -c "Set :Registry:${uuid}:Package:Path $dstBundle" $utmPrefs 2>&1 | Out-Null
+    $regExitPath = $LASTEXITCODE
+    if ($regExitName -ne 0 -or $regExitPath -ne 0) {
+        Write-Warning "Rename-VM: PlistBuddy could not update UTM Registry for UUID $uuid (Name exit=$regExitName, Path exit=$regExitPath)."
+        # Best-effort revert: undo plist Name + bundle rename so the
+        # next cycle sees a coherent state.
+        & /usr/libexec/PlistBuddy -c "Set :Information:Name $VMName" $dstConfig 2>$null | Out-Null
+        try { Rename-Item -LiteralPath $dstBundle -NewName "$VMName.utm" -ErrorAction Stop }
+        catch { Write-Debug "Rename-VM revert: bundle rename back failed: $_" }
+        & killall cfprefsd 2>$null | Out-Null
+        & open -a UTM 2>$null | Out-Null
+        return $false
+    }
+
+    # Force cfprefsd to reload from our edited file on next access.
+    & killall cfprefsd 2>$null | Out-Null
+    Start-Sleep -Milliseconds 500
+    & open -a UTM 2>$null | Out-Null
+
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        if ((Get-VMState -VMName $NewName) -ne 'absent') { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Warning "Rename-VM: UTM relaunch did not surface '$NewName' within timeout."
+    return $false
+}
+
+<#
+.SYNOPSIS
+    Save a disk-only snapshot of each qcow2 disk in the UTM bundle,
+    then attempt to rename the VM (best-effort) so it persists across
+    test-cycle cleanup.
+.DESCRIPTION
+    UTM owns its QEMU process and does not expose a stable QMP/CLI
+    snapshot verb, so this contract drops to qemu-img with the VM
+    offline. The .utm bundle lives at $HOME/yuruna/guest.nosync/<vm>.utm
+    and disks are *.qcow2 under <bundle>/Data/. For multi-disk VMs the
+    same Id is written into every qcow2 -- Restore-VMDiskSnapshot
+    reverts the same set as a group so the disks stay coherent.
+
+    After a successful snapshot, Rename-VM renames the VM to $Id by
+    on-disk surgery (bundle dir + config.plist + UTM Registry) so the
+    snapshot survives the next cycle's Remove-TestVMFiles sweep. If the
+    rename fails, the qcow2 snapshot is still on disk and can be
+    restored manually from the original bundle path.
+#>
+function Save-VMDiskSnapshot {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Save disk snapshot '$Id' and rename to '$Id'")) { return $false }
+    $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
+    $dataDir   = Join-Path $utmBundle 'Data'
+    if (-not (Test-Path -LiteralPath $dataDir)) {
+        Write-Warning "Save-VMDiskSnapshot: UTM bundle data dir not found: $dataDir"
+        return $false
+    }
+    $disks = @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
+    if ($disks.Count -eq 0) {
+        Write-Warning "Save-VMDiskSnapshot: no *.qcow2 disks under $dataDir."
+        return $false
+    }
+    if (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) {
+        Write-Warning "Save-VMDiskSnapshot: qemu-img not on PATH (brew install qemu)."
+        return $false
+    }
+    if ((Get-VMState -VMName $VMName) -eq 'running') {
+        if (-not (Stop-VM -VMName $VMName)) {
+            [void](Stop-VMForce -VMName $VMName)
+        }
+        # utmctl stop is synchronous but the QEMU helper can still hold
+        # the qcow2 open briefly afterwards; a short settle pause avoids
+        # "Failed to lock byte 100" from qemu-img -c.
+        Start-Sleep -Seconds 2
+    }
+    foreach ($disk in $disks) {
+        # Idempotent overwrite: drop a prior snapshot with the same id
+        # if present, then create.
+        & qemu-img snapshot -d $Id $disk.FullName 2>&1 | Out-Null
+        & qemu-img snapshot -c $Id $disk.FullName 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Save-VMDiskSnapshot: qemu-img snapshot -c failed for $($disk.Name) (exit $LASTEXITCODE)."
+            return $false
+        }
+    }
+    if ($VMName -ne $Id) {
+        if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
+            Write-Warning "Save-VMDiskSnapshot: snapshot '$Id' saved into '$utmBundle' but rename '$VMName' -> '$Id' failed; VM will be wiped on next cycle cleanup. The qcow2 snapshot is on disk and can be restored manually."
+            return $false
+        }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Revert each qcow2 disk in the UTM bundle to a previously saved
+    snapshot id. VM is stopped first if running and left stopped on
+    return.
+#>
+<#
+.SYNOPSIS
+    Returns $true when snapshot $Id is present on every qcow2 disk of
+    the UTM bundle for $VMName. False on missing bundle, missing
+    qemu-img, or any disk lacking the snapshot. Used by Test-Sequence's
+    requiresSnapshot warm-path probe before deciding whether to walk
+    the baseline chain.
+#>
+function Test-VMDiskSnapshot {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
+    $dataDir   = Join-Path $utmBundle 'Data'
+    if (-not (Test-Path -LiteralPath $dataDir)) { return $false }
+    $disks = @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
+    if ($disks.Count -eq 0) { return $false }
+    if (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) { return $false }
+    foreach ($disk in $disks) {
+        # -U (--force-share) so a running QEMU's exclusive lock on the
+        # qcow2 doesn't fail this metadata-only read with "Failed to get
+        # shared write lock". Test-VMDiskSnapshot is a pure read; it
+        # never mutates the disk, so force-share is safe.
+        $info = & qemu-img snapshot -l -U $disk.FullName 2>&1
+        # `$array -notmatch <rx>` returns the filtered array of NON-matching
+        # lines, not a Boolean -- with qemu-img's two header lines that's a
+        # non-empty (truthy) array even when the data row matches, so the
+        # naive `if (-notmatch)` form always reports "not present" on UTM.
+        # Use Where-Object + .Count for an unambiguous count of hits.
+        $hits = @($info | Where-Object { $_ -match ("^\s*\d+\s+" + [regex]::Escape($Id) + "\s") })
+        if ($hits.Count -eq 0) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Restore-VMDiskSnapshot {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Restore disk snapshot '$Id'")) { return $false }
+    $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
+    $dataDir   = Join-Path $utmBundle 'Data'
+    if (-not (Test-Path -LiteralPath $dataDir)) {
+        Write-Warning "Restore-VMDiskSnapshot: UTM bundle data dir not found: $dataDir"
+        return $false
+    }
+    $disks = @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)
+    if ($disks.Count -eq 0) {
+        Write-Warning "Restore-VMDiskSnapshot: no *.qcow2 disks under $dataDir."
+        return $false
+    }
+    if (-not (Get-Command qemu-img -ErrorAction SilentlyContinue)) {
+        Write-Warning "Restore-VMDiskSnapshot: qemu-img not on PATH (brew install qemu)."
+        return $false
+    }
+    # Verify the id exists on every disk before stopping the VM, so a
+    # typo on a healthy guest does not bounce it for nothing. Multi-disk
+    # VMs must have the snapshot on all disks to stay coherent.
+    foreach ($disk in $disks) {
+        # -U (--force-share) so a running QEMU's exclusive lock doesn't
+        # fail this metadata-only read with "Failed to get shared write
+        # lock". This is a verify probe; the actual `qemu-img snapshot
+        # -a` apply below runs AFTER the VM is stopped, so there is no
+        # risk of read-while-write inconsistency here.
+        $info = & qemu-img snapshot -l -U $disk.FullName 2>&1
+        # `$array -notmatch <rx>` returns the filtered NON-matching lines,
+        # not a Boolean -- qemu-img's two header lines make that array
+        # truthy even when the data row matches. Count Where-Object hits
+        # explicitly instead.
+        $hits = @($info | Where-Object { $_ -match ("^\s*\d+\s+" + [regex]::Escape($Id) + "\s") })
+        if ($hits.Count -eq 0) {
+            Write-Warning "Restore-VMDiskSnapshot: snapshot '$Id' not present on $($disk.Name)."
+            return $false
+        }
+    }
+    if ((Get-VMState -VMName $VMName) -eq 'running') {
+        if (-not (Stop-VM -VMName $VMName)) {
+            [void](Stop-VMForce -VMName $VMName)
+        }
+        Start-Sleep -Seconds 2
+    }
+    # Removing vmstate at this point mirrors Start-UtmVM's cold-boot
+    # prep -- the saved RAM (if any) belongs to the post-snapshot
+    # universe and would collide with the reverted disk on next start.
+    $vmstatePath = Join-Path $utmBundle 'Data/vmstate'
+    if (Test-Path -LiteralPath $vmstatePath) {
+        Remove-Item -LiteralPath $vmstatePath -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($disk in $disks) {
+        & qemu-img snapshot -a $Id $disk.FullName 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Restore-VMDiskSnapshot: qemu-img snapshot -a failed for $($disk.Name) (exit $LASTEXITCODE)."
+            return $false
+        }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
     Returns true when a console window is open for the given VM.
 #>
 function Test-VMConsoleOpen {
@@ -2044,12 +2386,12 @@ function Get-ImagePath {
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$GuestKey)
     # Per-guest paths under $HOME/yuruna/image/ -- not a single-dir pattern;
-    # subdir names are part of the legacy convention (amazon.linux,
+    # subdir names are part of the legacy convention (amazon.linux.2023,
     # ubuntu.env, windows.env). Keep the explicit table so a typo or new
     # guest fails loud instead of silently composing the wrong path.
     $paths = @{
-        'guest.amazon.linux'    = "$HOME/yuruna/image/amazon.linux/host.macos.utm.guest.amazon.linux.qcow2"
-        'guest.ubuntu.server'   = "$HOME/yuruna/image/ubuntu.env/host.macos.utm.guest.ubuntu.server.iso"
+        'guest.amazon.linux.2023'    = "$HOME/yuruna/image/amazon.linux.2023/host.macos.utm.guest.amazon.linux.2023.qcow2"
+        'guest.ubuntu.server.24'   = "$HOME/yuruna/image/ubuntu.env/host.macos.utm.guest.ubuntu.server.24.iso"
         'guest.windows.11'      = "$HOME/yuruna/image/windows.env/host.macos.utm.guest.windows.11.iso"
     }
     return $paths[$GuestKey]
@@ -2432,7 +2774,7 @@ function Get-BestHostIp {
     this repo), guests always reach the host at 192.168.64.1 -- that is the
     VZ gateway IP set by the framework, not configurable per VM. The same
     constant is hardcoded as the squid-cache forwarder URL in
-    guest.ubuntu.server/New-VM.ps1, by long convention.
+    guest.ubuntu.server.24/New-VM.ps1, by long convention.
 
     Bridged networking (not the repo default) would route guests via the
     host's LAN IP instead. If/when that mode is added, this helper needs a
@@ -2810,7 +3152,8 @@ function Get-SshServerStatus {
 # === Exports ================================================================
 
 Export-ModuleMember -Function `
-    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Get-VMState, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `
+    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `

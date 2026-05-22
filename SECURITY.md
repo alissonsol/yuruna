@@ -3,12 +3,12 @@
 Yuruna provisions VMs, deploys workloads to Kubernetes, and runs a
 test harness across host/guest combinations. This policy covers how
 to report vulnerabilities and the security expectations that come
-with the project's [MIT license](LICENSE.md).
+with the project's [Yuruna License](LICENSE.md).
 
 ## Supported versions
 
 Yuruna uses [Calendar Versioning](https://calver.org/) (`YYYY.MM.DD`,
-see [CHANGELOG.md](CHANGELOG.md)). Security fixes land on `main` and
+see [Changelog](CHANGELOG.md)). Security fixes land on `main` and
 are picked up by the next tagged release; older tags are not
 patched. Run the latest release before reporting.
 
@@ -38,7 +38,7 @@ In scope:
 - [Installer entry points](install/README.md) executed via `curl | bash`
   / `irm | iex` from `raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/`.
 - Cloud-init `user-data` and "fetch-and-execute" patterns documented
-  in [CONTRIBUTING.md](CONTRIBUTING.md) — these download from `main`
+  in [Yuruna Contributor Guidance](CONTRIBUTING.md) — these download from `main`
   at VM-creation time.
 - Default configurations shipped with the
   [test harness](test/README.md) and
@@ -60,14 +60,14 @@ Yuruna's design assumes the operator controls the host. Treat the
 following as your responsibility, not the project's:
 
 - **Credentials** — files matching `*.config.yml`,
-  `notification.transports.yml`, and the per-cycle authentication
-  vault under [test/extension/authentication/](test/extension/authentication/)
+  `transports.yml` (notification), and the per-cycle authentication
+  vault under [test/status/extension/authentication/](test/status/extension/authentication/)
   hold secrets and are git-ignored. Never commit them.
 - **Network exposure** — Kubernetes deployments, the status server,
   and the caching proxy bind to the host. Restrict ingress before
   running outside a trusted LAN.
 - **Cloud cost and blast radius** — see the cost warning in
-  [README.md](README.md) and [docs/cleanup.md](docs/cleanup.md).
+  [Yuruna ...](README.md) and [Yuruna Resources Clean Up](docs/cleanup.md).
 - **Verifying fetched scripts** — installer one-liners and
   cloud-init pull from `main`. Pin to a commit SHA if you require
   reproducibility.
@@ -76,11 +76,11 @@ following as your responsibility, not the project's:
 
 Once a fix is merged and a release is tagged, the advisory is
 published via GitHub Security Advisories. Reporters are credited
-in [docs/contributors.md](docs/contributors.md) on request.
+in [Yuruna Project Contributors](docs/contributors.md) on request.
 
 ## License reminder
 
-Yuruna is provided "AS IS" under the [MIT License](LICENSE.md),
+Yuruna is provided "AS IS" under the [Yuruna License](LICENSE.md),
 without warranty of any kind. This policy describes how the
 maintainers handle reports; it does not extend the warranty or
 liability terms of the license.

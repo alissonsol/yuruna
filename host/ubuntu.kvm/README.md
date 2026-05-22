@@ -3,7 +3,7 @@
 One-time setup for an Ubuntu host running KVM via libvirt. Cross-host
 concepts (install-one-liner convention, post-install steps, optional
 Squid cache VM, guest workload pattern) live in
-[../README.md](../README.md).
+[Hosts — ...](../README.md).
 
 ## Quick install (one line)
 
@@ -30,18 +30,25 @@ After group membership changes the operator must log out and back in
 (or `newgrp libvirt`) before `virsh` and `virt-install` work without
 sudo.
 
+Disabling display sleep / screen lock for unattended runs is a
+separate opt-in step — run
+[`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) manually after
+install.
+
 ## Architecture support
 
 | Guest          | x86_64 | aarch64 |
 |----------------|--------|---------|
-| Ubuntu Server  | Yes    | Yes |
-| Amazon Linux   | Yes    | Yes |
+| Ubuntu Server 24.04 | Yes    | Yes |
+| Ubuntu Server 26.04 | Yes    | Yes |
+| Amazon Linux 2023   | Yes    | Yes |
 | Windows 11     | Yes    | No (use macOS UTM) |
 
 ## Next: Create a Guest VM
 
-- [Amazon Linux](guest.amazon.linux/README.md)
-- [Ubuntu Server](guest.ubuntu.server/README.md)
+- [Amazon Linux 2023](guest.amazon.linux.2023/README.md)
+- [Ubuntu Server 24.04](guest.ubuntu.server.24/README.md)
+- [Ubuntu Server 26.04](guest.ubuntu.server.26/README.md)
 - [Windows 11](guest.windows.11/README.md)
 
 Back to [Hosts](../README.md) · [Yuruna](../../README.md)

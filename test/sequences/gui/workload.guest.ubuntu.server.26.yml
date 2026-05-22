@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# Interaction sequence for driving VM workload testing.
+# See possible actions in the actions.yml file.
+# ${vmName}, ${hostType}, ${guestKey} are built-in. ${ext:area.Method(args)}
+# invokes the active extension under test/extension/<area>/.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 422cbc66-4a66-47de-9487-d08b4c3b97cd
+sequenceRevision: 1
+
+description: "Ubuntu Server 26.04: log in, install VS Code via the guest.ubuntu.server.26 workload scripts."
+baseline:
+  ubuntu.server.26:
+    - start.guest.ubuntu.server.26
+variables:
+  username: yuuser26
+
+steps:
+  - action: retry
+    maxAttempts: 2
+    description: "Login (restart on timeout)"
+    steps:
+      - action: passwdPrompt
+        pattern: "login:"
+        timeoutSeconds: 600
+        text: "${username}"
+        description: "${vmName} login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${ext:authentication.GetPassword(${username})}"
+        description: "Password:"
+
+  - action: waitForText
+    pattern: "${username}@${vmName}"
+    timeoutSeconds: 90
+    description: "${username}@${vmName}"
+
+  - action: waitForSeconds
+    seconds: 9
+    description: "Pause before installing toolset"
+
+  - action: fetchAndExecute
+    text: "/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh"
+    description: "ubuntu.server.26.code.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 600
+
+  - action: inputTextAndEnter
+    text: "clear; exit;"
+    description: "Exit back to login"

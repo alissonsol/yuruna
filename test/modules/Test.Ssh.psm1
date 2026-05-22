@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -7,53 +7,33 @@
 
 #requires -version 7
 
-# Test.Ssh -- SSH-based guest driver for yuruna test harness.
+# SSH-based guest driver. Parallel to the GUI keystroke flow in
+# Invoke-Sequence.psm1; selected by test.config.yml "keystrokeMechanism"
+# ("GUI"|"SSH", case-insensitive, normalized uppercase by the validator).
+# A per-host ed25519 key pair lives under test/status/ssh/ (runtime,
+# gitignored) and is injected into each guest's cloud-init user-data via
+# SSH_AUTHORIZED_KEY_PLACEHOLDER.
 #
-# Parallel path to the keystroke-injection flow in Invoke-Sequence.psm1.
-# Selected via the "keystrokeMechanism" flag in test/test.config.yml:
-#   "GUI" (default) -- type characters into the VM console
-#   "SSH"           -- run commands over SSH
-# Comparisons are case-insensitive; the canonical form stored in
-# test.config.yml is uppercase (normalized by the test-config validator).
-#
-# A single per-host ed25519 key pair is generated on first use and stored
-# under test/.ssh/. The public key is injected into each guest's cloud-init
-# user-data at VM creation time (see SSH_AUTHORIZED_KEY_PLACEHOLDER).
-#
-# === SSH host-key policy ===================================================
-# Yuruna destroys and recreates guest VMs constantly, and each fresh guest
-# regenerates its own SSH host key on first boot. Because VM name + IP are
-# reused across cycles (libvirt's NAT pool hands out the same 192.168.122.x
-# slot to the next VM with the same MAC seed, KVP/utmctl/dhcpd_leases all
-# do the same), each cycle's guest presents a DIFFERENT host key under an
-# address that previously had a different key. OpenSSH's stock behaviour
-# is to print "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" on the
-# first mismatch and (with StrictHostKeyChecking=ask) refuse to connect.
-#
-# Every yuruna ssh call site therefore passes these three options together,
-# which collectively make ssh treat each fresh guest as if it were never
-# seen before:
-#   -o StrictHostKeyChecking=no       accept any host key without prompting
-#   -o UserKnownHostsFile=/dev/null   don't read or write ~/.ssh/known_hosts
-#   -o GlobalKnownHostsFile=/dev/null don't read /etc/ssh/ssh_known_hosts
-#                                     (closes the "operator once ran
-#                                      ssh-keyscan into the system file"
-#                                      regression path)
-#
-# OpenSSH on Windows accepts /dev/null verbatim (Microsoft's port special-
-# cases the literal string), so the same line works on every host. New ssh
-# call sites in this module / Test.Diagnostic MUST include all three.
+# Host-key policy: yuruna recreates guests constantly and reuses VM names
+# and NAT-assigned IPs, so every fresh guest presents a different host
+# key on an address that previously had a different one. Every ssh call
+# site MUST pass all three of:
+#   -o StrictHostKeyChecking=no
+#   -o UserKnownHostsFile=/dev/null
+#   -o GlobalKnownHostsFile=/dev/null   (closes the ssh-keyscan-into-
+#                                        /etc/ssh/ssh_known_hosts trap)
+# Microsoft's OpenSSH port accepts /dev/null verbatim, so one line works
+# on every host.
 
-# -Global: Test.Ssh is loaded transitively by Invoke-Sequence (line 2411)
-# during Start-GuestOS. Without -Global, -Force evicts the existing -Global
-# Test.VM.common from the process and reloads it into Test.Ssh's private
-# scope -- so the runner's global session loses Wait-VMRunning and the
-# next New-VM.Resource step crashes with "Wait-VMRunning is not recognized".
-# Test.Host.psm1's module-load self-heal only fires at cycle start, not
-# mid-cycle after Start-GuestOS triggers this eviction.
+# -Global is load-bearing: without it, -Force evicts Test.VM.common from
+# the runner's session mid-cycle (Start-GuestOS triggers this re-import)
+# and the next New-VM.Resource step crashes on missing Wait-VMRunning.
 Import-Module (Join-Path $PSScriptRoot 'Test.VM.common.psm1') -Force -DisableNameChecking -Global
 
-$script:SshKeyDir  = Join-Path (Split-Path -Parent $PSScriptRoot) ".ssh"
+# test/modules/Test.Ssh.psm1 -> test/ is one Split-Path up; the SSH key
+# pair lives under test/status/ssh/ so it sits with the rest of the
+# harness runtime state (gitignored, wiped together by status/ cleanup).
+$script:SshKeyDir  = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'status' -AdditionalChildPath 'ssh'
 $script:SshKeyPath = Join-Path $script:SshKeyDir "yuruna_ed25519"
 $script:SshPubPath = "$script:SshKeyPath.pub"
 
@@ -62,8 +42,8 @@ function Initialize-YurunaSshKey {
 .SYNOPSIS
 Ensures the per-host yuruna SSH key pair exists and returns the private key path.
 .DESCRIPTION
-Creates test/.ssh/yuruna_ed25519 (and .pub) on first call via ssh-keygen, tightens
-permissions so ssh will accept it, and is a no-op on subsequent calls.
+Creates test/status/ssh/yuruna_ed25519 (and .pub) on first call via ssh-keygen,
+tightens permissions so ssh will accept it, and is a no-op on subsequent calls.
 Throws if ssh-keygen is not on PATH or key creation fails.
 .OUTPUTS
 System.String. Absolute path to the private key file.
@@ -81,12 +61,10 @@ System.String. Absolute path to the private key file.
         throw "ssh-keygen not found on PATH. Install OpenSSH client."
     }
 
-    # If a key already exists, verify it can be loaded with an EMPTY passphrase.
-    # Earlier versions of this module passed -N '""' to ssh-keygen, which under
-    # PowerShell native-command quoting becomes the literal 2-character string
-    # "" -- encrypting the key with that as a passphrase. Such keys cannot be
-    # used under BatchMode=yes, and ssh fails silently after "Server accepts key".
-    # If we detect an unreadable existing key, delete and regenerate.
+    # Reject keys created with the legacy quoting bug: an earlier -N '""'
+    # encrypted the key with the literal 2-char passphrase "", which fails
+    # silently under BatchMode=yes after "Server accepts key". If the
+    # existing key won't load with an empty passphrase, regenerate.
     if (Test-Path $script:SshKeyPath -PathType Leaf) {
         $probe = & $sshKeygen -y -P '' -f $script:SshKeyPath 2>&1
         if ($LASTEXITCODE -ne 0) {
@@ -98,26 +76,22 @@ System.String. Absolute path to the private key file.
     }
 
     if (-not (Test-Path $script:SshKeyPath -PathType Leaf)) {
-        # -N "" = empty passphrase so the runner can connect non-interactively.
-        # PowerShell 7 with the default Standard argument-passing mode DOES pass
-        # an empty string as a real empty arg to native commands, so "" is correct.
+        # -N "" = empty passphrase (PowerShell 7 passes "" as a real empty arg).
         & $sshKeygen -t ed25519 -f $script:SshKeyPath -N "" -C "yuruna-test-harness@$env:COMPUTERNAME" -q 2>&1 | Out-Null
         if (-not (Test-Path $script:SshKeyPath -PathType Leaf)) {
             throw "ssh-keygen failed to create key at $script:SshKeyPath"
         }
-        # Verify the freshly generated key can be loaded with an empty passphrase.
-        # Catches future regressions of the same quoting bug immediately at creation.
+        # Probe the just-created key: catches the legacy quoting regression at creation.
         $probe = & $sshKeygen -y -P '' -f $script:SshKeyPath 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "Newly generated key is not loadable with empty passphrase. ssh-keygen output: $($probe | Out-String)"
         }
     }
 
-    # Enforce strict private-key permissions on EVERY call (not just on creation).
-    # Windows OpenSSH refuses keys whose ACL lets unauthorized principals read,
-    # and a prior loose ACL from an earlier run would silently break authentication.
+    # Enforce strict private-key permissions on EVERY call: Windows OpenSSH
+    # rejects keys readable by other principals, and a prior loose ACL would
+    # silently break authentication.
     if ($IsWindows) {
-        # Full reset: remove inheritance, strip every non-owner ACL, grant owner only.
         & icacls $script:SshKeyPath /inheritance:r 2>&1 | Out-Null
         foreach ($principal in @('Authenticated Users','Users','Everyone','BUILTIN\Users','BUILTIN\Administrators','Administrators','NT AUTHORITY\SYSTEM','SYSTEM')) {
             & icacls $script:SshKeyPath /remove:g "$principal" 2>&1 | Out-Null
@@ -262,18 +236,20 @@ function Get-GuestSshUser {
 .SYNOPSIS
 Maps a yuruna guest key to its default SSH login user.
 .DESCRIPTION
-Returns the harness's greppable per-guest test user. The 'y[aw]user1'
-pattern keeps the name unique enough to grep cleanly out of OS logs
-while encoding the guest family in the second character:
-  guest.amazon.linux   -> yauser1   (seeded on top of the cloud-image
+Returns the harness's greppable per-guest test user. Names are unique
+enough to grep cleanly out of OS logs; ubuntu guests carry the major
+version in the suffix so 24.04 and 26.04 don't collide in shared logs:
+  guest.amazon.linux.2023   -> yauser1   (seeded on top of the cloud-image
                                      default 'ec2-user')
-  guest.ubuntu.server  -> yuuser1   (replaces the cloud-image default
+  guest.ubuntu.server.24  -> yuuser24  (replaces the cloud-image default
+                                     'ubuntu' via autoinstall)
+  guest.ubuntu.server.26  -> yuuser26  (replaces the cloud-image default
                                      'ubuntu' via autoinstall)
   guest.windows.11     -> ywuser1   (created by autounattend.xml)
 The username for each guest must match the `username:` variable in
 the corresponding test/sequences/**/*.<guest>.yml file.
 .PARAMETER GuestKey
-The guest identifier used throughout the harness (e.g. guest.ubuntu.server).
+The guest identifier used throughout the harness (e.g. guest.ubuntu.server.24).
 .OUTPUTS
 System.String. Username to log in as over SSH.
 #>
@@ -281,8 +257,9 @@ System.String. Username to log in as over SSH.
     [OutputType([string])]
     param([string]$GuestKey)
     switch ($GuestKey) {
-        "guest.ubuntu.server"  { return "yuuser1" }
-        "guest.amazon.linux"   { return "yauser1" }
+        "guest.ubuntu.server.24"  { return "yuuser24" }
+        "guest.ubuntu.server.26"  { return "yuuser26" }
+        "guest.amazon.linux.2023"   { return "yauser1" }
         "guest.windows.11"     { return "ywuser1" }
         default { return "root" }
     }
@@ -298,7 +275,7 @@ trivial `echo` and matching its output. Returns $false if the deadline elapses.
 .PARAMETER VMName
 Hostname or IP the VM is reachable by from this host.
 .PARAMETER GuestKey
-Guest identifier (e.g. guest.amazon.linux); determines the SSH login user.
+Guest identifier (e.g. guest.amazon.linux.2023); determines the SSH login user.
 .PARAMETER TimeoutSeconds
 Maximum total seconds to keep retrying. Default 300.
 .PARAMETER PollSeconds
@@ -320,6 +297,18 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     $lastError  = ''
     $attempts   = 0
     $lastTarget = ''
+    # Per-probe wall-clock cap. ConnectTimeout=5 only bounds TCP setup; if
+    # the SSH banner / kex_exchange_identification stalls (or the post-
+    # handshake session goes half-dead -- TCP ESTABLISHED both ends, no
+    # data flowing), ssh has no further timeout of its own. Running the
+    # probe foreground in the runner runspace then makes the outer
+    # `while ((Get-Date) -lt $deadline)` deadline useless: it is only
+    # checked between iterations, so one stuck ssh holds the loop forever
+    # and saveSystemDiagnostic blows past Save-GuestDiagnostic's 300s cap.
+    # Start-Job + Wait-Job gives a hard per-probe cap; the ServerAlive
+    # options below shorten the in-flight detection of a half-dead session
+    # to ~6s so most probes complete well under the cap on a healthy guest.
+    $probeCapSeconds = 15
     while ((Get-Date) -lt $deadline) {
         $attempts++
         # Re-resolve each iteration: on Hyper-V the IP may not be reported
@@ -329,19 +318,39 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             Write-Debug "  sshWaitReady target: $user@$target (from VMName '$VMName')"
             $lastTarget = $target
         }
-        $result = & ssh -i $key `
-            -o BatchMode=yes `
-            -o StrictHostKeyChecking=no `
-            -o UserKnownHostsFile=/dev/null `
-            -o GlobalKnownHostsFile=/dev/null `
-            -o ConnectTimeout=5 `
-            -o LogLevel=ERROR `
-            "$user@$target" "echo yuruna-ssh-ready" 2>&1
-        if ($LASTEXITCODE -eq 0 -and "$result" -match "yuruna-ssh-ready") {
-            Write-Debug "SSH ready after $attempts attempt(s): $user@$target"
-            return $true
+        $job = Start-Job -ScriptBlock {
+            $out = & ssh -i $using:key `
+                -o BatchMode=yes `
+                -o StrictHostKeyChecking=no `
+                -o UserKnownHostsFile=/dev/null `
+                -o GlobalKnownHostsFile=/dev/null `
+                -o ConnectTimeout=5 `
+                -o ServerAliveInterval=3 `
+                -o ServerAliveCountMax=2 `
+                -o LogLevel=ERROR `
+                "$($using:user)@$($using:target)" "echo yuruna-ssh-ready" 2>&1
+            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($out | Out-String) }
         }
-        $lastError = ($result | Out-String).Trim()
+        $completed = Wait-Job -Job $job -Timeout $probeCapSeconds
+        if (-not $completed) {
+            Stop-Job   -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            # Stop-Job kills the runspace, not the OS-level ssh.exe child --
+            # the leaked process is harmless (no TCP backlog, sshd MaxStartups
+            # is not at risk for a single-digit per-cycle leak), and the outer
+            # loop continues to its deadline check on the next iteration.
+            $lastError = "probe timed out after ${probeCapSeconds}s (ssh hung post-TCP; runspace stopped)"
+        } else {
+            $r = Receive-Job -Job $job
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            $exit = [int]$r.ExitCode
+            $resultText = ([string]$r.Output)
+            if ($exit -eq 0 -and $resultText -match "yuruna-ssh-ready") {
+                Write-Debug "SSH ready after $attempts attempt(s): $user@$target"
+                return $true
+            }
+            $lastError = $resultText.Trim()
+        }
         Start-Sleep -Seconds $PollSeconds
     }
 
@@ -399,7 +408,7 @@ command itself). On timeout, the job is stopped and exitCode is set to -1.
 .PARAMETER VMName
 Hostname or IP the VM is reachable by from this host.
 .PARAMETER GuestKey
-Guest identifier (e.g. guest.amazon.linux); determines the SSH login user.
+Guest identifier (e.g. guest.amazon.linux.2023); determines the SSH login user.
 .PARAMETER Command
 Shell command to run on the guest. Passed as a single argument to ssh.
 .PARAMETER TimeoutSeconds

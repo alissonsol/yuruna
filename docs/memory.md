@@ -19,8 +19,8 @@ text, strip everything that isn't `[a-z0-9_ -]`, then replace spaces
 with hyphens. So `### Why we patch virt-install's phase-1 XML?` becomes
 `#why-we-patch-virt-installs-phase-1-xml`.
 
-This file is the sibling of [`definition.md`](definition.md) (for
-terminology entries) and of [`host/vmconfig.md`](../host/vmconfig.md)
+This file is the sibling of [Yuruna definitions](definition.md) (for
+terminology entries) and of [vmconfig topic reference](vmconfig.md)
 (for `user-data` topic rationale). The same `# --- See` convention is
 used in all three.
 
@@ -40,7 +40,7 @@ Adding a new entry:
 
 ### Why we patch virt-install's phase-1 XML on KVM
 
-The ubuntu.server KVM guest uses `virt-install --cdrom --print-xml=1`,
+The ubuntu.server.24 KVM guest uses `virt-install --cdrom --print-xml=1`,
 patches the emitted XML, then `virsh define` + `virsh start` instead of
 letting virt-install orchestrate the install. Each piece of the dance
 addresses a specific virt-install behaviour:
@@ -74,9 +74,9 @@ addresses a specific virt-install behaviour:
   on reboot, virt-install sees it gone, then generates phase 2 XML
   (without install media, `on_reboot=restart`) and starts the domain
   again. The `--events on_reboot=restart` flag does NOT override
-  phase 1's hardcoded destroy; verified empirically on the 2026-05-06
-  run — subiquity's post-install reboot at ~105 s killed the domain
-  and `virsh screenshot failed` looped forever. Letting virt-install
+  phase 1's hardcoded destroy; verified empirically — subiquity's
+  post-install reboot at ~105 s killed the domain and
+  `virsh screenshot failed` looped forever. Letting virt-install
   do its own phase-2 transition is not an option either: it requires
   `--wait > 0` (blocks until install completes), which the test runner
   can't tolerate.
@@ -98,7 +98,7 @@ virt-install warns about them when combined with `--print-xml` in some
 versions.
 
 Source:
-[`host/ubuntu.kvm/guest.ubuntu.server/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server/New-VM.ps1).
+[`host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1).
 
 ### Why we swap boot order 1 and 2 in the install XML?
 
@@ -145,7 +145,7 @@ silent regression back into the same `virsh screenshot failed` reboot
 loop.
 
 Source:
-[`host/ubuntu.kvm/guest.ubuntu.server/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server/New-VM.ps1).
+[`host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1).
 
 ### Why the bootstrap installer must stay ASCII-only?
 
@@ -178,7 +178,7 @@ Source:
 
 ### Why the arm64 autoinstall apt block writes a curtin-owned sources.list.d entry?
 
-The macOS UTM ubuntu.server guest is arm64-only. When a cache is
+The macOS UTM ubuntu.server.24 guest is arm64-only. When a cache is
 reachable, the autoinstall apt block injects:
 
 - **`proxy`** — routes apt (and, unavoidably, `http_proxy` /
@@ -218,7 +218,7 @@ consumes in `update_link → _send_update`. Pinning `primary` +
 disabling `geoip` makes the mirror election succeed on the first try.
 
 Source:
-[`host/macos.utm/guest.ubuntu.server/New-VM.ps1`](../host/macos.utm/guest.ubuntu.server/New-VM.ps1).
+[`host/macos.utm/guest.ubuntu.server.24/New-VM.ps1`](../host/macos.utm/guest.ubuntu.server.24/New-VM.ps1).
 
 ### Why osinfo-db variant detection parses canonical-token-first?
 
@@ -227,7 +227,7 @@ package can predate the release). The KVM `New-VM.ps1` probes
 `virt-install --osinfo list` and falls back through `ubuntu22.04` →
 `linux2022` generic so a fresh host doesn't fail at VM-create time
 with "Unknown OS name 'ubuntu24.04'". Same pattern as
-`guest.amazon.linux/New-VM.ps1`.
+`guest.amazon.linux.2023/New-VM.ps1`.
 
 Each line of `virt-install --osinfo list` is `<canonical>, <aliases>`
 (e.g. `ubuntu24.04, ubuntunoble`), NOT one short-id per line. The
@@ -236,11 +236,11 @@ token, trailing comma removed) before equality-checking, otherwise the
 lookup never matches even when the variant is present.
 
 Source:
-[`host/ubuntu.kvm/guest.ubuntu.server/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server/New-VM.ps1).
+[`host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1).
 
 ### Why the amazonlinux KVM guest uses SeaBIOS, not UEFI?
 
-x86_64 amazon.linux on KVM uses the libvirt default (i440fx + SeaBIOS).
+x86_64 amazon.linux.2023 on KVM uses the libvirt default (i440fx + SeaBIOS).
 Commit `766e0a7` previously switched to UEFI/q35 chasing a
 `dracut-initqueue: starting timeout scripts` stall the original author
 observed; that change broke fresh boots with "No bootable option or
@@ -263,7 +263,7 @@ root-cause those rather than re-disabling boot entirely.
 aarch64 has no BIOS option in QEMU, so UEFI is mandatory there.
 
 Source:
-[`host/ubuntu.kvm/guest.amazon.linux/New-VM.ps1`](../host/ubuntu.kvm/guest.amazon.linux/New-VM.ps1).
+[`host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1`](../host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1).
 
 ### Why the macOS UTM ubuntu-server guest switched from AVF to QEMU and HVF?
 
@@ -278,7 +278,7 @@ If a cycle depends on nested virt, that needs to move to a different
 host (Hyper-V on Windows ships nested virt for Linux guests today).
 
 Source:
-[`host/macos.utm/guest.ubuntu.server/New-VM.ps1`](../host/macos.utm/guest.ubuntu.server/New-VM.ps1).
+[`host/macos.utm/guest.ubuntu.server.24/New-VM.ps1`](../host/macos.utm/guest.ubuntu.server.24/New-VM.ps1).
 
 ### Why cache VHDX uses Resize-VHD instead of qemu-img resize?
 
@@ -443,7 +443,7 @@ tree:
 - **Windows 11:** `--cdrom $winIso`
   (`~/yuruna/image/windows.11/host.ubuntu.kvm.guest.windows.11.iso`)
   plus `virtio-win.iso` (same dir).
-- **Ubuntu Server:** `--cdrom $baseImageFile`
+- **Ubuntu Server 24.04:** `--cdrom $baseImageFile`
   (`~/yuruna/image/ubuntu.env/...iso`).
 
 So `--remove-all-storage` silently nukes the upstream artifact every
@@ -677,22 +677,87 @@ Source:
 
 ## Resource / project pipeline
 
-### Why Set-Resource surfaces empty tofu outputs via Write-Information?
+### Why Set-Resource fails fast on empty tofu outputs?
 
-Detect the "tofu apply succeeded but declared no outputs" case:
-`$jsonOutput` is the literal `'{}'`, so `ConvertFrom-Json` yields a
-`PSCustomObject` with zero properties. The resulting YAML block is
-`resourceName: {}` which downstream helm charts silently treat as an
-empty `.Values` lookup — the exact failure mode that produced the
-`/<image>:tag` `InvalidImageName` cascade seen in prior cycles.
+`tofu output -json` returning `'{}'` means apply ran but every `output`
+block evaluated to nothing. Empirically the cause is always an upstream
+silent failure inside a `null_resource` provisioner — typically a
+`local-exec` script that wrote no JSON to stdout when its underlying
+command (a `docker run`, a `pwsh` data-source program) failed without
+propagating a non-zero exit. Letting that empty block flow downstream
+causes the helm step to render an `InvalidImageName` pod, masking the
+real cause in a long helm trace.
 
-The empty case is surfaced on the Information stream so it shows up
-in the cycle log and in `Get-SystemDiagnostic`'s YURUNA PROJECT
-section, but `$false` is NOT returned: some resources legitimately
-produce no outputs (side-effect-only templates), and aborting here
-would block those flows. The downstream helm step has its own
-propagated failure now and will fail the test sequence if the empty
-output actually breaks the install.
+The throw surfaces the failing resource's template path and the tail
+of `tofu.stderr.log`, so the operator lands on the provisioner script,
+not on a confused kubelet event.
+
+Source:
+[`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
+
+### Why tofu init retries before failing?
+
+`tofu init` downloads providers from `registry.opentofu.org`,
+`releases.opentofu.org`, and the GitHub release CDN. All three return
+transient 5xx under load; a single blip on any of them is enough to
+fail provider download. A swallowed first-attempt exit then cascades
+into `tofu output -json` returning `{}`, an empty `resources.output.yml`
+block, and a helm chart rendering an `InvalidImageName` pod — the
+failure surfaces ~30 minutes downstream from the cause.
+
+Three attempts with a 5 s + 10 s backoff cover ~15 s of upstream
+wobble. Longer outages still surface, but framed as
+"tofu init failed after 3 attempts" with the stderr tail attached, so
+the operator immediately sees whether it's a 5xx, a checksum mismatch,
+or something else entirely. The retry sits **inside** the per-resource
+helper so the captured `tofu.stderr.log` records each attempt's exit
+code separately.
+
+Source:
+[`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
+
+### Why Set-Resource uses a saved planfile for apply?
+
+Default `tofu apply` re-runs refresh before applying, which
+re-evaluates every `data` source and re-invokes any provisioner
+program lookups. A successful plan does not guarantee a successful
+apply because the apply pass exercises those external programs a
+second time — pwsh cold-start jitter, transient HTTPS errors, or a
+script's stdout being briefly empty are all enough to fail the second
+read even though the plan cleared. `data "external"` blocks were the
+most common offender: spawning pwsh, parsing stdin JSON, and emitting
+JSON on stdout, on every apply.
+
+Switching to `tofu plan -out=tfplan` followed by `tofu apply tfplan`
+makes apply deterministic: the planfile pins all values, no refresh
+runs, no external programs re-execute. The class of "plan succeeded
+but apply failed" failures collapses to zero.
+
+Defensive fallback: if the planfile is missing at apply time (e.g.
+someone called the apply helper directly without a prior plan pass),
+the helper logs a verbose note and falls back to the previous
+refreshing-apply behavior rather than hard-failing.
+
+Source:
+[`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
+
+### Why tofu failure throws include the stderr tail?
+
+The per-resource `tofu.stderr.log` lives inside the guest VM and gets
+cleaned up after a failed cycle, so "Inspect $tofuLogFile" alone
+forces the operator to SSH into a VM that may no longer exist.
+Appending the last 30 lines of that log to every throw makes the
+cycle log self-contained — the test-runner output already captures
+the throw message, so the actual tofu Error frame (header, frame
+hint, inner provider message) is preserved without any extra
+plumbing.
+
+Thirty lines is sized to capture a typical tofu Error block
+(`Error: ...` header + 1-2 frame lines + provider message) without
+flooding the test-runner log on a multi-screen warning dump. The
+helper that builds the tail is null-safe: a missing log file yields
+an empty string, so throws that fire before the first
+`Add-Content -LiteralPath $tofuLogFile` still surface cleanly.
 
 Source:
 [`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).

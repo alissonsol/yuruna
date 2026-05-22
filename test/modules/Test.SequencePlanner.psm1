@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,8 +99,14 @@ function Add-CyclePrereqChainEntry {
     )
     if ($Visited.Contains($SequenceName)) { return }
     $path = Resolve-SequencePath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
-    if (-not (Test-Path $path)) {
-        throw "Prereq sequence not found: $SequenceName (resolved path: $path)"
+    if (-not $path) {
+        # PlannerFatal so the runner's Resolve-CyclePlan catch hits the
+        # banner branch instead of degrading to legacy guestSequence on a
+        # silent typo. List the actual searched locations -- the previous
+        # "resolved path: <X>" naming the last-attempted file was a fake.
+        $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
+        $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+        throw "PlannerFatal: prereq sequence not found: $SequenceName (referenced by an entry in project/test/test.sequence.yml)`nSearched (no match):`n$list"
     }
     $seq = Read-SequenceFile -Path $path
     if ($seq.baseline -and $seq.baseline.Contains($OsKey)) {
@@ -147,9 +153,17 @@ function Resolve-CyclePlan {
         # to `.yml` shouldn't break those clones.
         $topName = ([string]$raw) -replace '\.(ya?ml|json)$',''
         $topPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $topName -HostType $HostType -RepoRoot $RepoRoot
-        if (-not (Test-Path $topPath)) {
-            Write-Warning "Cycle baseline references missing sequence: $topName (resolved to $topPath)"
-            continue
+        if (-not $topPath) {
+            # Throw PlannerFatal so the runner aborts the cycle (via the
+            # !!!!! banner branch in Invoke-TestInnerRunner.ps1's catch)
+            # instead of warn-and-continue with a fake "resolved to <last
+            # attempted path>" pointer. A typo in the baseline used to
+            # silently skip the entry, leaving operators chasing an empty
+            # cycle; now the searched locations are spelled out and the
+            # cycle stops on the spot.
+            $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $topName -HostType $HostType -RepoRoot $RepoRoot
+            $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+            throw "PlannerFatal: cycle baseline references missing sequence: $topName (in $(Get-CycleConfigPath -RepoRoot $RepoRoot))`nSearched (no match):`n$list"
         }
         $topSeq = Read-SequenceFile -Path $topPath
         if (-not $topSeq.baseline) {
@@ -163,6 +177,10 @@ function Resolve-CyclePlan {
             try {
                 Add-CyclePrereqChainEntry -SequenceName $topName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -OsKey $osKey -Chain $chain -Visited $visited
             } catch {
+                # PlannerFatal (duplicate project sequence file) MUST propagate.
+                # Per the message-prefix marker pattern, every intervening catch
+                # has to re-throw or the cycle keeps running on an ambiguous plan.
+                if ($_.Exception.Message -like 'PlannerFatal:*') { throw }
                 Write-Warning "Skipping $topName / $osKey - $($_.Exception.Message)"
                 continue
             }
@@ -171,12 +189,47 @@ function Resolve-CyclePlan {
             foreach ($s in $chain) {
                 if ($s -match '^start\.') { [void]$startSeqs.Add($s) } else { [void]$workSeqs.Add($s) }
             }
+            # --- Cascade variables top-down across the chain --------------
+            # `effectiveVariables` is a flattened {key: value} map computed
+            # by walking the chain from TOP (the workload sequence; last
+            # entry of $chain because the chain is dependency-ordered
+            # deepest-first) down to the baseline. For each key declared
+            # under any sequence's `variables:` block, the FIRST non-empty
+            # value encountered from the top wins -- so a workload's
+            # `username: webuser` overrides the baseline's `username:
+            # yuuser26` end-to-end, and the same propagation applies to
+            # any other variable a workload chooses to redefine.
+            #
+            # The runner injects this map as the sequence's variable scope
+            # when running each sequence in the chain (overriding the
+            # sequence-local `variables:` block); the planner also exposes
+            # `effectiveUsername` as a convenience shortcut for the
+            # `New-VM -Username` call site, which needs the OS account
+            # name BEFORE any sequence runs.
+            $effectiveVars = [ordered]@{}
+            for ($i = $chain.Count - 1; $i -ge 0; $i--) {
+                $sName = $chain[$i]
+                $sPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $sName -HostType $HostType -RepoRoot $RepoRoot
+                if (-not $sPath) { continue }
+                try { $sSeq = Read-SequenceFile -Path $sPath } catch { continue }
+                if (-not $sSeq.variables) { continue }
+                foreach ($vk in $sSeq.variables.Keys) {
+                    if ($effectiveVars.Contains($vk)) { continue }   # higher level already won
+                    $vv = $sSeq.variables[$vk]
+                    if ($null -eq $vv) { continue }
+                    if ($vv -is [string] -and -not $vv.Trim()) { continue }
+                    $effectiveVars[$vk] = $vv
+                }
+            }
+            $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
             $entries.Add([pscustomobject]@{
-                topLevel          = $topName
-                guestKey          = $guestKey
-                fullChain         = @($chain.ToArray())
-                startSequences    = @($startSeqs.ToArray())
-                workloadSequences = @($workSeqs.ToArray())
+                topLevel            = $topName
+                guestKey            = $guestKey
+                fullChain           = @($chain.ToArray())
+                startSequences      = @($startSeqs.ToArray())
+                workloadSequences   = @($workSeqs.ToArray())
+                effectiveVariables  = $effectiveVars
+                effectiveUsername   = $effectiveUsername
             })
         }
     }
@@ -223,17 +276,186 @@ function Get-CyclePlanSequencesForGuest {
     $seen   = [System.Collections.Generic.HashSet[string]]::new()
     $start  = New-Object System.Collections.Generic.List[string]
     $work   = New-Object System.Collections.Generic.List[string]
+    # Merge cascaded variables across all plan entries hitting this guest.
+    # When two top-levels both depend on the same guest, the FIRST entry's
+    # effectiveVariables win for keys they share (plan order = order top-
+    # levels appear in project/test/test.sequence.yml). Other entries fill
+    # in keys the first one didn't declare. The 'username' shortcut is
+    # surfaced separately because every guest needs one for New-VM.
+    $mergedVars     = [ordered]@{}
+    $mergedUsername = ''
     foreach ($e in $Plan) {
         if ($e.guestKey -ne $GuestKey) { continue }
         foreach ($s in $e.fullChain) {
             if (-not $seen.Add($s)) { continue }
             if ($s -match '^start\.') { [void]$start.Add($s) } else { [void]$work.Add($s) }
         }
+        if ($e.effectiveVariables) {
+            foreach ($vk in $e.effectiveVariables.Keys) {
+                if (-not $mergedVars.Contains($vk)) {
+                    $mergedVars[$vk] = $e.effectiveVariables[$vk]
+                }
+            }
+        }
+        if (-not $mergedUsername -and $e.effectiveUsername) { $mergedUsername = $e.effectiveUsername }
     }
     return @{
-        startSequences    = @($start.ToArray())
-        workloadSequences = @($work.ToArray())
+        startSequences      = @($start.ToArray())
+        workloadSequences   = @($work.ToArray())
+        effectiveVariables  = $mergedVars
+        effectiveUsername   = $mergedUsername
     }
 }
 
-Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequencesForGuest
+<#
+.SYNOPSIS
+    Walks the baseline chain of a single named sequence (Test-Sequence helper).
+.DESCRIPTION
+    Resolve-CyclePlan keys off project/test/test.sequence.yml, which the
+    runner consumes but Test-Sequence does not. This sibling takes a top-
+    level sequence NAME directly (the same name a Test-Sequence operator
+    types) and produces the same per-entry shape Resolve-CyclePlan would
+    have emitted for that sequence:
+      topLevel / guestKey / fullChain / startSequences / workloadSequences
+      / effectiveVariables / effectiveUsername / chainPaths
+
+    When the named sequence has no `baseline:` block (rare -- the framework
+    convention is that every workload declares the prereq it needs), the
+    chain degenerates to the sequence itself.
+
+    -OsKey is optional; absent, the first key of the sequence's own
+    `baseline:` map is used. Pass it explicitly when a sequence supports
+    more than one OS and the caller wants a specific one (Test-Sequence
+    derives it from the resolved GuestKey, stripping the "guest." prefix).
+
+    -TopLevelPath is the path-override escape hatch for Test-Sequence dev
+    setups where the project repo is NOT cloned under <RepoRoot>/project/
+    (e.g. yuruna-project as a sibling working tree). When provided, the
+    walker uses that path verbatim for the top-level sequence -- but still
+    walks its `baseline:` chain via Resolve-SequencePath, so prereqs that
+    live in the framework tree (test/sequences/) resolve normally.
+    Prereqs outside both standard search paths still fail with the usual
+    PlannerFatal error.
+#>
+function Resolve-NamedSequenceChain {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [string]$HostType,
+        [Parameter(Mandatory)][string]$SequenceName,
+        [string]$OsKey,
+        [string]$TopLevelPath
+    )
+    # Top-level: prefer the explicit override (Test-Sequence path-form),
+    # fall back to Resolve-SequencePath for the name form.
+    $topPath = if ($TopLevelPath) { $TopLevelPath } else {
+        Resolve-SequencePath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
+    }
+    if (-not $topPath -or -not (Test-Path -LiteralPath $topPath)) {
+        $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
+        $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+        throw "Sequence file not found: $SequenceName`nSearched (no match):`n$list"
+    }
+    $topSeq = Read-SequenceFile -Path $topPath
+
+    # Resolve the OS key once. Sequences without a baseline are run
+    # standalone (no prereq chain); the operator sees just the named
+    # sequence in the printed plan, matching the pre-cascade behaviour.
+    if (-not $OsKey) {
+        if ($topSeq.baseline -and $topSeq.baseline.Keys.Count -gt 0) {
+            $OsKey = @($topSeq.baseline.Keys)[0]
+        }
+    }
+
+    $guestKey = if ($OsKey) { "guest.$OsKey" } else { '' }
+
+    # No-baseline degenerate chain: just the top-level. chainPaths is
+    # still populated so callers can use one lookup path.
+    if (-not $OsKey) {
+        $vars = if ($topSeq.variables) { $topSeq.variables } else { [ordered]@{} }
+        $uname = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('username')) { [string]$vars['username'] } else { '' }
+        $paths = [ordered]@{ $SequenceName = $topPath }
+        return [pscustomobject]@{
+            topLevel            = $SequenceName
+            guestKey            = ''
+            fullChain           = @($SequenceName)
+            startSequences      = @()
+            workloadSequences   = @($SequenceName)
+            effectiveVariables  = $vars
+            effectiveUsername   = $uname
+            chainPaths          = $paths
+        }
+    }
+
+    # Walk the top-level's prereqs depth-first; append the top-level
+    # ourselves at the end. This avoids handing the entry-point name to
+    # Add-CyclePrereqChainEntry, whose first call is `Resolve-SequencePath`
+    # -- which would override $TopLevelPath if the named sequence happens
+    # to be resolvable by some other lookup tier (and would fail outright
+    # when the project tree is not under <RepoRoot>/project/).
+    $chain   = New-Object System.Collections.Generic.List[string]
+    $visited = [System.Collections.Generic.HashSet[string]]::new()
+    if ($topSeq.baseline -and $topSeq.baseline.Contains($OsKey)) {
+        foreach ($prereq in $topSeq.baseline[$OsKey]) {
+            Add-CyclePrereqChainEntry -SequenceName $prereq -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -OsKey $OsKey -Chain $chain -Visited $visited
+        }
+    }
+    [void]$visited.Add($SequenceName)
+    [void]$chain.Add($SequenceName)
+
+    # Build name -> path map. Top-level uses the resolved/overridden
+    # $topPath; every other entry uses Resolve-SequencePath (which the
+    # recursive walker already validated, so misses here are unexpected
+    # but recorded as $null for defensive checks downstream).
+    $paths = [ordered]@{}
+    foreach ($s in $chain) {
+        if ($s -eq $SequenceName) {
+            $paths[$s] = $topPath
+        } else {
+            $paths[$s] = Resolve-SequencePath -SequencesDir $SequencesDir -Name $s -HostType $HostType -RepoRoot $RepoRoot
+        }
+    }
+
+    $startSeqs = New-Object System.Collections.Generic.List[string]
+    $workSeqs  = New-Object System.Collections.Generic.List[string]
+    foreach ($s in $chain) {
+        if ($s -match '^start\.') { [void]$startSeqs.Add($s) } else { [void]$workSeqs.Add($s) }
+    }
+
+    # Cascade variables top-down: chain is dependency-ordered (deepest
+    # prereqs first, top-level last), so walking high index -> low index
+    # = top-of-chain -> baseline. First non-empty value wins per key.
+    # Use $paths (not Resolve-SequencePath) so the top-level entry reads
+    # from $TopLevelPath when supplied.
+    $effectiveVars = [ordered]@{}
+    for ($i = $chain.Count - 1; $i -ge 0; $i--) {
+        $sName = $chain[$i]
+        $sPath = $paths[$sName]
+        if (-not $sPath) { continue }
+        try { $sSeq = Read-SequenceFile -Path $sPath } catch { continue }
+        if (-not $sSeq.variables) { continue }
+        foreach ($vk in $sSeq.variables.Keys) {
+            if ($effectiveVars.Contains($vk)) { continue }
+            $vv = $sSeq.variables[$vk]
+            if ($null -eq $vv) { continue }
+            if ($vv -is [string] -and -not $vv.Trim()) { continue }
+            $effectiveVars[$vk] = $vv
+        }
+    }
+    $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
+
+    return [pscustomobject]@{
+        topLevel            = $SequenceName
+        guestKey            = $guestKey
+        fullChain           = @($chain.ToArray())
+        startSequences      = @($startSeqs.ToArray())
+        workloadSequences   = @($workSeqs.ToArray())
+        effectiveVariables  = $effectiveVars
+        effectiveUsername   = $effectiveUsername
+        chainPaths          = $paths
+    }
+}
+
+Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain

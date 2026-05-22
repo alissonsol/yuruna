@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@ Write-Output ""
 
 # === Discover base image names from guest.* subfolders ===
 # Base image filenames follow the legacy convention "host.<short>.guest.<name>"
-# (e.g. host.macos.utm.guest.amazon.linux.qcow2). The script now lives at
+# (e.g. host.macos.utm.guest.amazon.linux.2023.qcow2). The script now lives at
 # host/<short>/, so Split-Path -Leaf returns just <short>; prepend "host." to
 # reconstruct the prefix that every guest's Get-Image.ps1 / New-VM.ps1 writes.
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

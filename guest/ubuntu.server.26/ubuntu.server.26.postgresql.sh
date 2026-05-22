@@ -1,0 +1,83 @@
+#!/bin/bash
+# Version: 2026.05.22
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+set -euo pipefail
+
+# Non-interactive mode for all installations
+export DEBIAN_FRONTEND=noninteractive
+export NONINTERACTIVE=1
+
+# ===== Detect architecture =====
+ARCH=$(uname -m)
+echo "Detected architecture: $ARCH"
+case "$ARCH" in
+  x86_64)
+    echo "Environment: x86_64/amd64 (Hyper-V)"
+    ;;
+  aarch64)
+    echo "Environment: aarch64/arm64 (UTM on Apple Silicon)"
+    ;;
+  *)
+    echo "WARNING: Unsupported architecture: $ARCH"
+    echo "This script supports x86_64 (Hyper-V) and aarch64 (UTM on Apple Silicon)."
+    exit 1
+    ;;
+esac
+
+# --- See https://yuruna.link/network#defining-package-manager-retry
+apt_retry() {
+    local max_attempts=5 attempt=1 delay=15 rc=0
+    while [ $attempt -le $max_attempts ]; do
+        if [ $attempt -gt 1 ]; then
+            echo ""
+            echo ">> apt_retry: attempt $attempt/$max_attempts for: $*"
+        fi
+        rc=0; "$@" || rc=$?
+        if [ $rc -eq 0 ]; then return 0; fi
+        echo "!! apt_retry: attempt $attempt/$max_attempts failed (rc=$rc): $*"
+        if [ $attempt -lt $max_attempts ]; then
+            echo "!! apt_retry: sleeping ${delay}s before retry"
+            sleep $delay
+            delay=$((delay * 2))
+        fi
+        attempt=$((attempt + 1))
+    done
+    echo "!! apt_retry: all $max_attempts attempts exhausted for: $*"
+    return $rc
+}
+
+echo ""
+echo -e "\e[1;36m>>> Installing PostgreSQL...\e[0m"
+# Install prerequisites
+# PostgreSQL APT repository handles architecture automatically
+apt_retry sudo apt-get install -y postgresql-common
+
+# Set up the official PostgreSQL APT repository
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+
+apt_retry sudo apt-get update -y
+
+# Install PostgreSQL 18 server and contrib modules
+apt_retry sudo apt-get install -y postgresql-18 postgresql-contrib-18
+
+# Stop PostgreSQL if running and wait for full shutdown before re-creating cluster
+if sudo systemctl is-active postgresql &>/dev/null; then
+  sudo systemctl stop postgresql
+  while sudo systemctl is-active postgresql &>/dev/null; do
+    echo "Waiting for PostgreSQL to stop..."
+    sleep 1
+  done
+fi
+if sudo pg_lsclusters -h 2>/dev/null | grep -q '18'; then
+  echo "Note: Dropping existing PostgreSQL 18 cluster for re-initialization"
+  sudo pg_dropcluster --stop 18 main 2>/dev/null || true
+fi
+sudo pg_createcluster 18 main --start
+
+# Enable and start the PostgreSQL service
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+echo -e "\e[1;32m<<< PostgreSQL installation complete.\e[0m"
+
+echo ""
+echo "PostgreSQL: $(psql --version)"

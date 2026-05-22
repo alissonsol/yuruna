@@ -35,7 +35,7 @@ resource "azurerm_kubernetes_cluster" "default" {
   # Imports the cluster context to local .kube/config
   provisioner "local-exec" {
     command = "./cluster-import.ps1"
-    interpreter = ["pwsh", "-Command"]
+    interpreter = ["pwsh", "-NoProfile", "-NonInteractive", "-File"]
 
     environment = {
       RESOURCE_GROUP = var.resourceGroup

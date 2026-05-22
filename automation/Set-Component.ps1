@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42c3d4e5-f6a7-4b89-0123-4c5d6e7f8091
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,7 +92,7 @@ if (-Not $result) {
     Write-Output $result
     Write-Output $(Get-Content -Path $transcriptFileName)
     # Propagate the failure as a non-zero process exit so bash wrappers
-    # using `set -e` (e.g. ubuntu.server.workload.k8s.website.sh) see it.
+    # using `set -e` (e.g. ubuntu.server.24.workload.k8s.website.sh) see it.
     # Without this, Publish-ComponentList returning $false (e.g. docker
     # build/push failure) would print the transcript but exit 0, and the
     # wrapper would march into Set-Workload with a missing image.

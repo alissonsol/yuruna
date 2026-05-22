@@ -1,15 +1,19 @@
 # Install scripts
 
 One bootstrap installer per host. Each one is idempotent, prompts for
-elevation once with an up-front banner, clones the repo to
-`~/git/yuruna` (or `%USERPROFILE%\git\yuruna` on Windows), and runs
-the per-host `Enable-TestAutomation.ps1`.
+elevation once with an up-front banner, and clones the repo to
+`~/git/yuruna` (or `%USERPROFILE%\git\yuruna` on Windows).
+
+Enabling the host as a Yuruna test host (display sleep / screen lock /
+storage-pool tweaks) is intentionally NOT done automatically. Run
+`host/<platform>/Enable-TestAutomation.ps1` after install if you want this
+machine to act as a test host.
 
 | Host | Installer | Setup notes |
 |------|-----------|-------------|
-| macOS UTM | [macos.utm.sh](macos.utm.sh) | [host/macos.utm/README.md](../host/macos.utm/README.md) |
-| Windows Hyper-V | [windows.hyper-v.ps1](windows.hyper-v.ps1) | [host/windows.hyper-v/README.md](../host/windows.hyper-v/README.md) |
-| Ubuntu KVM/libvirt | [ubuntu.kvm.sh](ubuntu.kvm.sh) | [host/ubuntu.kvm/README.md](../host/ubuntu.kvm/README.md) |
+| macOS UTM | [macos.utm.sh](macos.utm.sh) | [macOS UTM ...](../host/macos.utm/README.md) |
+| Windows Hyper-V | [windows.hyper-v.ps1](windows.hyper-v.ps1) | [Windows Hyper-V ...](../host/windows.hyper-v/README.md) |
+| Ubuntu KVM/libvirt | [ubuntu.kvm.sh](ubuntu.kvm.sh) | [Ubuntu KVM/libvirt ...](../host/ubuntu.kvm/README.md) |
 
 ## Remote one-liners
 
@@ -42,6 +46,21 @@ edge case some Ubuntu terminals trip on.
 Each link in the table above goes to the per-host README with the
 post-install steps (group membership, screen-saver settings, TCC
 grants, etc.).
+
+## GitHub CLI (`gh`)
+
+Each installer also installs the [GitHub CLI](https://cli.github.com/)
+as one of its package steps (`GitHub.cli` via winget on Windows,
+`brew install gh` on macOS, the `cli.github.com` apt repo on Ubuntu).
+The binary lands on PATH but is unauthenticated -- run
+
+```bash
+gh auth login
+```
+
+once per host to authenticate. The installer cannot do this for you:
+authentication requires an interactive web flow (or a personal-access
+token paste) that the operator has to drive.
 
 Back to [Yuruna](../README.md)
 

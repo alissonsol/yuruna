@@ -2,11 +2,11 @@
 
 Continuous test cycle across hosts and guests. For the internal
 architecture (modules, directories, sequences, extension API) see
-[Test harness](CODE.md).
+[Test harness](../docs/test-harness.md).
 
 ## What it does
 
-Cycle summary in [Test harness](CODE.md). On first failure the runner
+Cycle summary in [Test harness](../docs/test-harness.md). On first failure the runner
 copies debug artifacts to `test/status/log/`, sends a Resend
 notification, and either preserves the VM or cleans it up depending on
 `testCycle.shouldStopOnFailure`.
@@ -29,7 +29,7 @@ cp test/test.config.yml.template test/test.config.yml
 Most operators only ever set `guestSequence`, `repositories.frameworkUrl`,
 `repositories.projectUrl`, `statusServer.port`, and `testCycle.shouldStopOnFailure`.
 Notification credentials moved to
-`test/extension/notification/notification.transports.yml` -- see the
+`test/status/extension/notification/transports.yml` -- see the
 "Notifications (Resend)" section below.
 Full key table, defaults, and behavioral notes:
 [Test Runner](read.more.md).
@@ -45,8 +45,8 @@ a hardcoded list. Adding a new guest = creating the folder with
 1. Create a free account at [resend.com](https://resend.com) and an
    [API key](https://resend.com/api-keys).
 2. Copy
-   `test/extension/notification/notification.transports.yml.template` to
-   `notification.transports.yml` (gitignored). Fill
+   `test/extension/notification/transports.yml.template` to
+   `test/status/extension/notification/transports.yml` (gitignored). Fill
    `transports.resend.apiKey` and `transports.resend.fromEmail`, then
    add subscribers under `subscribers["cycle.failure"]` (one entry per
    recipient). Leave `subscribers["config.smoke"]` empty unless you
@@ -74,7 +74,7 @@ pwsh test/Invoke-TestRunner.ps1
 
 Setup, monitoring, SSL-bump, and offline replay:
 [Caching](../docs/caching.md). Test-harness wrappers:
-[Caching proxy](CachingProxy.md).
+[Caching proxy](../docs/caching-proxy.md).
 
 ## Usage
 
@@ -92,13 +92,16 @@ highest priority, default is `Information` so progress narration is
 visible; only errors are shown if you set it to `Error`). See
 [Test Runner](read.more.md). Status dashboard while the runner is
 active: `http://localhost:8080/status/` (architecture in
-[Test harness](CODE.md)).
+[Test harness](../docs/test-harness.md)).
 
 ## Sequences and screenshots
 
-- Test sequences are JSON under `test/sequences/` (framework-generic)
+- Test sequences are YAML under `test/sequences/` (framework-generic)
   or `project/<...>/test/` (project-specific), dispatched via the
   cycle planner. Full architecture: [Test Modules](modules/README.md).
+  Action reference + per-host
+  [Yuruna.Host](../host) contract notes (snapshot + rename behaviour,
+  screen I/O divergence): [Sequence actions](../docs/test-sequences.md).
 - Screenshot-based testing: train references with
   `pwsh test/Train-Screenshots.ps1 -GuestKey <key>`. Capture commands
   and `schedule.json` schema: [Test Runner](read.more.md).
@@ -107,7 +110,7 @@ active: `http://localhost:8080/status/` (architecture in
 
 Each cycle writes `test/status/log/{cycleId}.{hostname}.{gitCommit}.html`
 (git-ignored; linked from the status page). Exit codes:
-[Test harness](CODE.md#exit-codes).
+[Test harness](../docs/test-harness.md#exit-codes).
 
 Read more: [Test Runner](read.more.md).
 

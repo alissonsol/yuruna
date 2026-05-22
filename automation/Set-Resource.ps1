@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42b2c3d4-e5f6-4a78-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,7 +92,7 @@ if (-Not $result) {
     Write-Output $result
     Write-Output $(Get-Content -Path $transcriptFileName)
     # Propagate the failure as a non-zero process exit so bash wrappers
-    # using `set -e` (e.g. ubuntu.server.workload.k8s.website.sh) see it.
+    # using `set -e` (e.g. ubuntu.server.24.workload.k8s.website.sh) see it.
     # Without this, Publish-ResourceList returning $false would print the
     # transcript but exit 0, and the wrapper would march into a later
     # `kubectl wait` that times out -- losing the deploy-time error.

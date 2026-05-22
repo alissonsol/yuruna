@@ -8,11 +8,9 @@ Before installing certificates on localhost, run `mkcert -install` once to creat
 
 Install each of the tools linked below. After installing PowerShell, run `Test-Requirement.ps1` to check which tools are installed and whether their versions meet the ones used in testing.
 
-- Install [PowerShell Core](https://github.com/powershell/powershell), the cross-platform automation and configuration tool/framework, version 7.5+.
-  - For Windows: learn about [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170)
-    - From PowerShell as Administrator, run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned`
-  - While in the Administrator PowerShell window, install the module "powershell-yaml"
-    - Execute: `Install-Module -Name powershell-yaml`
+- Install [PowerShell Core](https://github.com/powershell/powershell) 7.5+. On Windows, from an Administrator PowerShell:
+  - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (see [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170))
+  - `Install-Module -Name powershell-yaml`
 - Install [Git](https://git-scm.com/downloads)
   - `git config --global user.name "Your Name"`
   - `git config --global user.email "Your@email.address"`

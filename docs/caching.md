@@ -134,7 +134,7 @@ pwsh ./New-VM.ps1
 
 The bridged `yuruna-external` network is auto-provisioned by
 `test/Start-CachingProxy.ps1` on first run; see
-[host/ubuntu.kvm/guest.squid-cache/README.md](../host/ubuntu.kvm/guest.squid-cache/README.md)
+[Squid Cache ...](../host/ubuntu.kvm/guest.squid-cache/README.md)
 for manual bridge setup and rollback.
 
 ### Finding the cache VM's IP
@@ -171,7 +171,7 @@ through the cache.
 |------|--------|
 | **Hyper-V** | `Get-VM yuruna-caching-proxy` → IP via ARP on Default Switch (matched by MAC) or KVP, then TCP-probe `:3128`. |
 | **UTM** | `utmctl status yuruna-caching-proxy` → if `started`, subnet-probe 192.168.64.2-30. Fallback subnet probe runs even without `utmctl`. |
-| **KVM/libvirt** | `virsh domifaddr --source agent\|lease\|arp` cascade (see `Get-VMIp` in `host/ubuntu.kvm/modules/Yuruna.Host.psm1`), filtering loopback and link-local. The cache VM's IP is then persisted under `test/status/track/yuruna-caching-proxy.yml` for fast-path lookup on subsequent calls. |
+| **KVM/libvirt** | `virsh domifaddr --source agent\|lease\|arp` cascade (see `Get-VMIp` in `host/ubuntu.kvm/modules/Yuruna.Host.psm1`), filtering loopback and link-local. The cache VM's IP is then persisted under `test/status/runtime/yuruna-caching-proxy.yml` for fast-path lookup on subsequent calls. |
 
 ### Severity policy
 
@@ -180,7 +180,7 @@ Silent fallback-to-CDN can't mask a 429:
 - **No cache VM registered / not running** → **WARNING**, proceed against CDN.
 - **Cache VM running but `:3128` unreachable** → **ERROR**, exit 1.
 
-See [Caching proxy](../test/CachingProxy.md) for the test-harness
+See [Caching proxy](caching-proxy.md) for the test-harness
 operator reference.
 
 ## Cache configuration
@@ -211,8 +211,47 @@ arch-specific package list).
 - Aggressive `refresh_pattern` for content-addressable files
   (`.deb .udeb .tar.xz .tar.gz .tar.bz2 .iso`):
   `override-expire override-lastmod ignore-reload ignore-no-store
-  ignore-must-revalidate ignore-private`. Apt metadata uses a shorter
+  ignore-private`. Apt metadata uses a shorter
   TTL so apt still sees fresh package lists.
+
+### OpenTofu provider + binary caching
+
+The squid drop-in pins year-long TTLs on four OpenTofu-adjacent
+hostnames so a single warmup makes every subsequent `tofu init` and
+every `tofu` binary install survive upstream blips:
+
+| Host                         | What it serves                                              |
+|------------------------------|-------------------------------------------------------------|
+| `registry.opentofu.org`      | `/v1/providers/.../<ver>/download/...` JSON metadata        |
+| `releases.opentofu.org`      | First-party (`hashicorp/*`) provider artifacts              |
+| `packages.opentofu.org`      | Apt repo for the `tofu` binary (`/opentofu/tofu/any/...`)   |
+| `get.opentofu.org`           | `opentofu.gpg` + `install-opentofu.sh`                      |
+
+Every path served by those hostnames is content-addressed by version
+(provider zips are immutable per release; `.deb` files include the
+version in the URL), so a long-TTL `refresh_pattern` with
+`override-expire override-lastmod ignore-reload ignore-no-store
+ignore-private` is safe — there is no observable downside to caching
+forever.
+
+Apt repository indexes under `packages.opentofu.org/.../dists/` would
+otherwise be frozen by the host-level pattern, but the
+`/InRelease|/Release|/Release.gpg|/Packages*` short-TTL
+`refresh_pattern` entries declared earlier in `yuruna.conf` match
+first and keep apt metadata fresh. A second class of provider zips
+lives on the GitHub release CDN (`github.com/.../releases/download/`
+→ 302 → `objects.githubusercontent.com/...`); both endpoints get the
+same year-long TTL via their own dedicated `refresh_pattern` entries.
+
+Guests reach these endpoints through the SSL-bumped `:3129` listener
+(see [HTTPS caching](#https-caching)): cloud-init exports
+`https_proxy=http://<cache>:3129/` system-wide, so `curl`,
+`apt-get update`, and `tofu init` all flow through squid and pick up
+cached responses without the install scripts having to know about
+the proxy.
+
+Source: the `refresh_pattern` block in
+[`host/{ubuntu.kvm,windows.hyper-v,macos.utm}/guest.squid-cache/vmconfig/user-data`](../host/ubuntu.kvm/guest.squid-cache/vmconfig/user-data).
 
 ### offline_mode
 
@@ -270,11 +309,17 @@ The VM runs these services alongside squid:
 **Grafana (primary UI)** — `http://<squid-cache-vm-ip>:3000`. Anonymous
 Viewer. Pre-provisioned "Yuruna Caching Proxy" dashboard:
 
-- Client HTTP(S) requests/sec — `rate(squid_client_http_requests_total[5m])`
-- Client HTTP(S) hits/sec — `rate(squid_client_http_hits_total[5m])`
-- Data served (kB/s) — Total:
+- Client HTTP(S) data served (kB/s): total vs cached — Total:
   `rate(squid_client_http_kbytes_out_kbytes_total[5m])`,
   Cached: `rate(squid_client_http_hit_kbytes_out_bytes_total[5m])`.
+- Served / From cache (7 days, 24 hours) — four stat panels driven by
+  `increase(squid_client_http_kbytes_out_kbytes_total[…]) * 1024` and
+  `increase(squid_client_http_hit_kbytes_out_bytes_total[…]) * 1024`.
+- Internet connectivity / Offline mode support — `squid_internet_reachable`
+  and `squid_offline_mode_configured` from `squid-meta-exporter.sh`.
+- Cached (Mem) / Cached (Disk) — current cached content ready to be served:
+  `squid_info_Storage_Mem_size * 1024` (in-memory) and
+  `squid_info_Storage_Swap_size * 1024` (on-disk).
 - Recent 100 requests (client IP / status / size / method / URL / User-Agent) — Loki
   logs panel parses `/var/log/squid/yuruna_access.log` at query time.
   Size uses `%<st`; User-Agent from `%{User-Agent}>h`. The custom
@@ -341,20 +386,26 @@ Cloud-init creates a single `yuruna` debug user (replaces the cloud
 image's default `ubuntu` — `users:` without a `- default` entry
 suppresses ubuntu creation):
 
-- **Password** — managed by the per-cycle authentication vault under
-  [`test/extension/authentication/`](../test/extension/authentication/).
-  Cross-cycle persistence lives in
-  `test/status/track/yuruna-caching-proxy.yml` (host-agnostic; replaces
-  the previous per-platform `squid-cache-password.txt` sidecars near
-  the VHD / raw image), managed via
+- **Password** — managed by the authentication extension
+  (code at
+  [`test/extension/authentication/`](../test/extension/authentication/);
+  per-cycle vault.yml at
+  `test/status/extension/authentication/vault.yml`). Cross-cycle
+  persistence lives in `test/status/runtime/yuruna-caching-proxy.yml`
+  (host-agnostic; replaces the previous per-platform
+  `squid-cache-password.txt` sidecars near the VHD / raw image),
+  managed via
   [`test/modules/Test.CachingProxy.psm1`](../test/modules/Test.CachingProxy.psm1).
-  `New-VM.ps1` rehydrates that file's password into the vault on each
-  cycle's first call (the per-cycle vault itself is wiped on cycle
-  success). Printed in the ready banner; baked into the seed via
+  `New-VM.ps1` aligns the vault entry with that file's password on
+  each cycle's first call (the vault itself persists across cycles to
+  simulate an external auth provider, but the runtime file remains the
+  source of truth for the cache VM's yuruna user, so divergence is
+  corrected on every rebuild). Printed in the ready banner; baked
+  into the seed via
   `chpasswd`. Expiry disabled. The first-ever rebuild on a host
   generates a fresh 10-char alphanumeric password; subsequent rebuilds
   preserve it.
-- **SSH key** — harness public key from `test/.ssh/yuruna_ed25519` via
+- **SSH key** — harness public key from `test/status/ssh/yuruna_ed25519` via
   [Test.Ssh.psm1](../test/modules/Test.Ssh.psm1). `ssh yuruna@<ip>` is
   passwordless from the host.
 - **Sudo** — passwordless (`NOPASSWD:ALL`). VM is on a private switch,
@@ -584,7 +635,7 @@ Best-effort: if CA fetch fails, the guest keeps HTTP proxy and lets
 HTTPS apt go direct.
 
 **UTM (host pre-fetch + base64 in seed):** `guest.ubuntu.*/New-VM.ps1`
-reads the cache VM IP from `test/status/track/yuruna-caching-proxy.yml`
+reads the cache VM IP from `test/status/runtime/yuruna-caching-proxy.yml`
 (written by `Start-CachingProxy.ps1` via `Test.CachingProxy.psm1`) or
 `$Env:YURUNA_CACHING_PROXY_IP`, fetches the CA, base64-encodes it, and
 splices into the seed as `CA_CERT_BASE64_PLACEHOLDER`. Guest

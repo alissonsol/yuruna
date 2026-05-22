@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# SSH-driven equivalent of gui/workload.guest.ubuntu.server.26.yml. Selected
+# automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.
+# See possible actions in the actions.yml file.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 422cbc66-4a66-47de-9487-d08b4c3b97cd
+sequenceRevision: 1
+
+description: "Ubuntu Server 26.04: install VS Code and verify — parallel path to the keystroke sequence."
+baseline:
+  ubuntu.server.26:
+    - start.guest.ubuntu.server.26
+variables:
+  username: yuuser26
+
+steps:
+  - action: sshWaitReady
+    timeoutSeconds: 300
+    description: "Wait for sshd after reboot"
+
+  - action: sshExec
+    command: "whoami && hostname"
+    description: "Smoke test: whoami/hostname"
+
+  - action: sshFetchAndExecute
+    command: "/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh"
+    timeoutSeconds: 1800
+    description: "ubuntu.server.26.code.sh"
+
+  - action: sshExec
+    command: "dpkg -l | grep -i 'code ' || true"
+    allowFailure: true
+    description: "Show installed VS Code package"

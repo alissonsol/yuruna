@@ -2,7 +2,7 @@
 
 One-time setup for a Windows host with Hyper-V. Cross-host concepts
 (install-one-liner convention, post-install steps, optional Squid cache
-VM, guest workload pattern) live in [../README.md](../README.md).
+VM, guest workload pattern) live in [Hosts — ...](../README.md).
 
 ## Quick install (one line)
 
@@ -17,11 +17,13 @@ Installs PowerShell 7, Git, Windows ADK Deployment Tools (for
 `oscdimg.exe`), QEMU tools (for `qemu-img` used by
 `guest.squid-cache/Get-Image.ps1`), and Tesseract OCR via `winget`;
 enables **Microsoft-Hyper-V-All** via `dism.exe`; clones the repo to
-`%USERPROFILE%\git\yuruna`; seeds `test\test.config.yml`; runs
-[`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1). Idempotent;
-elevation requested once.
+`%USERPROFILE%\git\yuruna`; seeds `test\test.config.yml`. Idempotent;
+elevation requested once. Disabling display timeout and screen lock
+for unattended runs is a separate opt-in step — run
+[`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) manually
+after install.
 
-Then follow [../README.md](../README.md#install-one-liner-convention). On
+Then follow [Hosts — ...](../README.md#install-one-liner-convention). On
 Windows: step 2's reboot only applies when Hyper-V was just enabled;
 step 4's hypervisor UI is Hyper-V Manager:
 
@@ -33,24 +35,25 @@ Not auto-launched: Hyper-V Manager personalizes per user on first run
 and enterprise-managed machines may need interactive acknowledgement.
 Prefer `pwsh` over `powershell.exe` afterwards.
 
-Manual walk-through: [read.more.md](read.more.md).
+Manual walk-through: [Windows Hyper-V Host Setup - Nerd-Level Details](read.more.md).
 
 ## Optional: Squid cache VM
 
-See [../README.md](../README.md#optional-squid-cache-vm) and
-[../../docs/caching.md](../../docs/caching.md). Once `squid-cache` is
-running, Ubuntu Server `New-VM.ps1` auto-detects it and injects the
-proxy URL into the seed ISO.
+See [Hosts — ...](../README.md#optional-squid-cache-vm) and
+[Caching](../../docs/caching.md). Once `squid-cache` is
+running, the Ubuntu Server `New-VM.ps1` scripts auto-detect it and
+inject the proxy URL into the seed ISO.
 
 ## Next: Create a Guest VM
 
-- [Amazon Linux](guest.amazon.linux/README.md)
-- [Ubuntu Server](guest.ubuntu.server/README.md)
+- [Amazon Linux 2023](guest.amazon.linux.2023/README.md)
+- [Ubuntu Server 24.04](guest.ubuntu.server.24/README.md)
+- [Ubuntu Server 26.04](guest.ubuntu.server.26/README.md)
 - [Windows 11](guest.windows.11/README.md)
 
-Read more: [read.more.md](read.more.md).
+Read more: [Windows Hyper-V Host Setup - Nerd-Level Details](read.more.md).
 
-[Troubleshooting](troubleshooting.md) · Back to [Hosts](../README.md) · [Yuruna](../../README.md)
+[Troubleshooting](../../docs/host-hyperv.md) · Back to [Hosts](../README.md) · [Yuruna](../../README.md)
 
 ---
 

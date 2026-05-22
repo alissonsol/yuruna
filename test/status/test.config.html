@@ -4,88 +4,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- 60-second freshness with revalidation; matches Start-StatusServer's
-       header for .html. Avoids the prior 'no-store' staleness leak in
-       some intermediary clients while still bounding lag on a host
-       edit + Start-StatusServer restart at one minute. -->
+  <!-- --- See https://yuruna.link/definition#defining-the-status-page-cache-policy -->
   <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
   <title>test.config.yml — Yuruna</title>
+  <link rel="stylesheet" href="yuruna.common.css">
   <style>
-    /*
-      Browser baseline: this stylesheet renders correctly on Safari iOS 9.x
-      as well as current browsers. That rules out flex/grid `gap` (iOS 14.5+
-      for flex), the `inset` shorthand (iOS 14.5+), and CSS Grid (iOS 10.3+).
-      Wherever those would have been natural, the rules below use margins,
-      explicit top/right/bottom/left, or flex-wrap instead. Modern browsers
-      render the same.
-    */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f9fafb; color: #111827; font-size: 14px; line-height: 1.5;
-      min-height: 100vh; display: flex; flex-direction: column;
-    }
+    /* Shared rules live in yuruna.common.css. Page-specific below. */
 
-    /* align-items:center vertically centers every header item (h1,
-       #header-machine stack, back-link) against the tallest one — the
-       2-line machine stack. Mirrors index.html so both pages share the
-       same header rhythm. Padding trimmed (1.25rem -> .75rem) to match
-       the now-shorter visual weight. The previous flex `gap: 1rem` is
-       replaced by a per-element margin so iOS 9 spaces them too. */
-    .page-header {
-      background: #111827; color: #fff;
-      padding: .75rem 2rem;
-      display: flex; align-items: center;
-    }
-    .page-header > * + * { margin-left: 1rem; }
-    .page-header h1 {
-      font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em;
-    }
-    /* Hardcoded build/version tag rendered UNDER the "Yuruna" title.
-       Mirror of index.html's #header-version so both pages share the
-       same header rhythm. Block child of <h1> with line-height:1 so it
-       sits tight under the title, left-aligned with the title's left
-       edge. Reset font-weight + letter-spacing so it doesn't inherit
-       h1's bold + tight tracking. Bump the version literal in the
-       <span id="header-version"> below at each release. */
-    .page-header #header-version {
-      display: block; line-height: 1;
-      color: #9ca3af; font-size: .5rem;
-      font-family: 'Menlo','Consolas',monospace;
-      font-weight: 400; letter-spacing: 0;
-    }
-    .page-header #header-machine {
-      margin-left: auto; color: #9ca3af; font-size: .75rem;
-      font-family: 'Menlo','Consolas',monospace;
-      /* inline-flex + align-items:center mirrors index.html: when the
-         label stacks two lines, the sibling back-link still sits
-         vertically centered against that height instead of jumping to
-         the page-header's first-line baseline. Without this the back-
-         link rendered one text-line higher than index.html's Edit-config
-         link, so the right-edge button shifted on every page nav. */
-      display: inline-flex; align-items: center;
-    }
-    /* Spacing between the machine stack and the Dashboard back-link. */
-    .page-header #header-machine > * + * { margin-left: .5rem; }
-    /* Stack the machine name above its host-type qualifier; mirror of
-       the dashboard's .hm-stack so both pages identify the host the
-       same way. */
-    .hm-stack {
-      display: inline-flex; flex-direction: column; align-items: flex-end;
-      line-height: 1.2;
-    }
-    .hm-stack .hm-host { opacity: .75; }
-    /* Sized identically to index.html's #header-edit-config so the
-       right-edge button keeps the same footprint when navigating between
-       the two pages — header items stay in place. */
-    .page-header .back-link {
-      color: #d1d5db; text-decoration: none;
-      border: 1px solid #4b5563;
-      padding: .15rem .5rem; border-radius: .25rem;
-      font-size: .6875rem;
-      min-width: 7rem; text-align: center; box-sizing: border-box;
-    }
-    .page-header .back-link:hover { background: #1f2937; color: #fff; }
+    /* main (scrollable) + #config-status + #config-footer stacked. */
+    body { min-height: 100vh; display: flex; flex-direction: column; }
 
     main {
       flex: 1; overflow-y: auto;
@@ -109,14 +36,15 @@
     #config-footer {
       padding: .75rem 1.5rem;
       border-top: 1px solid #e5e7eb;
-      display: flex; justify-content: flex-end;
+      display: flex;
       background: #fff;
     }
     #config-footer > * + * { margin-left: .5rem; }
-    /* Vertical metrics match the header back-link (padding .15rem,
-       font .6875rem) so Save/Discard sit the same height as every
-       other UI button; horizontal padding kept generous for label
-       prominence. No min-height — wrapped labels grow naturally. */
+    /* margin-left:auto on Discard pushes Discard + Save to the right
+       while #config-save-start stays at the far left. Higher specificity
+       than the .5rem sibling rule above so it wins. */
+    #config-footer > #config-discard { margin-left: auto; }
+    /* Matches .header-cta metrics so all UI buttons share a height. */
     .config-btn {
       padding: .15rem 1rem;
       border-radius: .375rem;
@@ -135,6 +63,14 @@
       border-color: #d1d5db;
     }
     .config-btn.secondary:hover { background: #e5e7eb; }
+    /* Orange + far-left placement so the destructive action is hard to
+       click by accident: kills in-progress VMs and forces a new cycle. */
+    .config-btn.destructive {
+      background: #f97316; color: #fff;
+      border-color: #ea580c;
+    }
+    .config-btn.destructive:hover:not([disabled]) { background: #ea580c; }
+    .config-btn.destructive[disabled] { background: #fdba74; cursor: default; }
 
     /* Tree nodes */
     .tree-node { margin: .15rem 0; }
@@ -159,9 +95,7 @@
       min-width: 9rem;
     }
     .tree-key.array-index { color: #6b7280; }
-    /* guestSequence rows only need room for "[N]" — the default 9rem
-       leaves a gap before the dropdown that visually disconnects the
-       index from its value. Applied via JS when parent === guestSequence. */
+    /* guestSequence rows: tighter so "[N]" doesn't gap before the dropdown. */
     .tree-key.array-index.narrow { min-width: 2.5rem; }
     .tree-type {
       color: #9ca3af; font-size: .6875rem;
@@ -174,9 +108,7 @@
     }
     .tree-children.collapsed { display: none; }
 
-    /* Array editing affordances: per-element delete on each row, an
-       "add item" button at the array's tail. Both kept small/subtle so
-       the tree stays readable when nothing is being edited. */
+    /* Array editing: per-row delete + "add item" at array tail. */
     .tree-array-delete {
       flex-shrink: 0;
       background: transparent; color: #9ca3af;
@@ -214,14 +146,77 @@
     }
     .tree-input.string { font-family: 'Menlo','Consolas',monospace; }
     .tree-input.number { width: 8rem; flex: 0 0 auto; }
-    /* Custom <div>-based dropdown -- replaces the prior native <select>
-       because Firefox-on-Wayland fails to render the window-manager
-       popup that holds <select>'s option list (the click is delivered,
-       the page DOM is fine, but the dropdown menu never paints). The
-       custom widget keeps its menu inside the page DOM, so the popup
-       is just an absolutely-positioned <div> -- works on every
-       browser/WM combo, looks identical to a styled <select> in Chrome.
-       Class prefix .ydd = "yuruna dropdown". */
+    .tree-input.invalid-ip {
+      border-color: #dc2626;
+      background: #fef2f2;
+    }
+    .tree-input.invalid-ip:focus {
+      outline-color: #dc2626;
+    }
+    /* cachingProxyIP wrap: editable input on top, read-only mirror of
+       $env:YURUNA_CACHING_PROXY_IP beneath. Replaces the bare input slot
+       inside .tree-row so the env-var value lives directly under its
+       config sibling. */
+    .cache-ip-wrap {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column;
+      gap: .25rem;
+    }
+    .cache-ip-envrow {
+      display: flex; align-items: center; gap: .5rem;
+      font-size: .75rem;
+    }
+    .cache-ip-envlabel {
+      color: #6b7280;
+      font-family: 'Menlo','Consolas',monospace;
+      white-space: nowrap;
+    }
+    .tree-input.cache-ip-envinput {
+      background: #f3f4f6;
+      color: #6b7280;
+      cursor: default;
+    }
+    .tree-input.cache-ip-envinput:focus { outline: none; }
+    /* Live caching-proxy connectivity verdict, rendered next to each IP
+       input. Three states: ok (green ✓), fail (red ✗), disabled (gray
+       ✗ — IP is empty/invalid OR the probe has not run yet). The mark
+       is purely informational; the canonical pre-save validation still
+       happens in /control/test-config. */
+    .cache-ip-input-row {
+      display: flex; align-items: center; gap: .4rem;
+    }
+    .cache-ip-mark {
+      flex: 0 0 auto;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 1.25rem; height: 1.25rem;
+      font-size: .9rem; font-weight: 700;
+      font-family: 'Menlo','Consolas',monospace;
+      line-height: 1;
+      cursor: help;
+      user-select: none;
+    }
+    .cache-ip-mark.ok       { color: #16a34a; }   /* green ✓ */
+    .cache-ip-mark.fail     { color: #dc2626; }   /* red ✗ */
+    .cache-ip-mark.disabled { color: #9ca3af; }   /* gray ✗ */
+    /* pending: amber hourglass (⏳) with a gentle pulse so the operator
+       sees the test is in flight. Distinct from `disabled` (which is also
+       gray) and from `fail` (which is red) so the three live states are
+       unambiguous at a glance. */
+    .cache-ip-mark.pending  { color: #d97706; animation: cache-ip-pulse 1.1s ease-in-out infinite; }
+    @keyframes cache-ip-pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: .45; }
+    }
+    /* Probe disables vmStart.cachingProxyIP while in flight so the operator
+       can't queue a stale value mid-test. Browser default disabled styling
+       is usually muted enough; the explicit cursor reinforces "wait". */
+    .tree-input[disabled] {
+      background: #f3f4f6; color: #6b7280;
+      cursor: progress;
+    }
+    /* Custom div-based dropdown (.ydd = "yuruna dropdown"). Replaces
+       native <select> because Firefox-on-Wayland fails to render the
+       window-manager popup on some Linux sessions. */
     .ydd {
       position: relative;
       display: inline-flex; align-items: center;
@@ -270,7 +265,7 @@
     }
     .ydd-item.is-disabled:hover { background: transparent; color: #9ca3af; }
 
-    /* Boolean toggle: a labeled switch with True/False text on the side. */
+    /* Boolean toggle with True/False side label. */
     .tree-bool {
       display: inline-flex; align-items: center;
     }
@@ -282,8 +277,6 @@
     .tree-bool-switch input {
       opacity: 0; width: 0; height: 0;
     }
-    /* `inset: 0` was added in iOS Safari 14.5; expand to longhands so iOS 9
-       fills the bool-switch with the track. */
     .tree-bool-track {
       position: absolute; cursor: pointer;
       top: 0; right: 0; bottom: 0; left: 0;
@@ -317,10 +310,10 @@
 </head>
 <body>
 
-<div class="page-header">
-  <h1>Yuruna<span id="header-version">v2026.05.15</span></h1>
+<header class="page-header">
+  <h1><span id="header-title">Yuruna</span><span id="header-version"></span></h1>
   <span id="header-machine"></span>
-</div>
+</header>
 
 <main id="config-body">
   <div class="tree-empty">Loading…</div>
@@ -329,73 +322,28 @@
 <div id="config-status"></div>
 
 <div id="config-footer">
+  <button type="button" class="config-btn destructive" id="config-save-start">Save and start cycle</button>
   <button type="button" class="config-btn secondary" id="config-discard">Discard</button>
   <button type="button" class="config-btn primary"   id="config-save">Save</button>
 </div>
 
+<script src="yuruna.common.js"></script>
 <script>
 /*
-  Browser baseline: this script runs unmodified on Safari iOS 9.x as well
-  as current browsers. That's why no ES2015+ syntax sugar appears below —
-  no arrow functions, template literals, async/await, destructuring,
-  optional chaining, nullish coalescing, default params, spread/rest, or
-  for-of with const. iOS 9.0–9.2 ship a ES5-only parser plus partial
-  Promise/Set/Map/Array helpers; the IIFE wrapper keeps everything off
-  the global object the same way the previous `let`-scoped script did.
+  Live-edit test/test.config.yml. Shared helpers live in yuruna.common.js.
+  --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
 */
 (function(){
   'use strict';
 
-  // Minimal fetch shim for browsers without native fetch (Safari iOS 9.x).
-  // Implements just enough of the spec for this page: GET/POST, headers,
-  // body, .text() and .json() on the response. Native fetch on every other
-  // browser is left untouched.
-  if (!window.fetch) {
-    window.fetch = function(url, options) {
-      options = options || {};
-      return new Promise(function(resolve, reject) {
-        var xhr = new XMLHttpRequest();
-        xhr.open(options.method || 'GET', url, true);
-        var headers = options.headers;
-        if (headers) {
-          for (var k in headers) {
-            if (Object.prototype.hasOwnProperty.call(headers, k)) {
-              xhr.setRequestHeader(k, headers[k]);
-            }
-          }
-        }
-        xhr.onload = function() {
-          var responseText = xhr.responseText;
-          resolve({
-            ok: xhr.status >= 200 && xhr.status < 300,
-            status: xhr.status,
-            statusText: xhr.statusText,
-            text: function() { return Promise.resolve(responseText); },
-            json: function() {
-              return new Promise(function(res, rej) {
-                try { res(JSON.parse(responseText)); }
-                catch (e) { rej(e); }
-              });
-            }
-          });
-        };
-        xhr.onerror = function() { reject(new Error('Network error')); };
-        xhr.send(options.body || null);
-      });
-    };
-  }
+  var PAGE_CTA = { href: 'index.html', label: '← Dashboard' };
 
-  // Live-edit test/test.config.yml. Tree view with type-aware inputs
-  // (bool toggle, number spinner, text), expandable objects/arrays.
-  // Save serializes the in-memory state and POSTs to
-  // /control/test-config; the server validates JSON and atomically
-  // replaces the file. Discard navigates back to the dashboard.
+  // Tree view + type-aware inputs (bool / number / text). Save POSTs
+  // to /control/test-config (atomic file replace server-side); Discard
+  // navigates back without persisting.
   var configState = null;  // mutable JSON object backing the tree
-  // Allow-list of guest folders under the current host, fetched once
-  // from /control/guest-folders. Drives the guestSequence dropdown so the
-  // operator picks real folders instead of free-typing. null means the
-  // fetch failed or returned nothing — the editor falls back to plain
-  // text inputs in that case.
+  // /control/guest-folders allow-list. null = fetch failed → fall
+  // back to plain text inputs for guestSequence.
   var availableGuestFolders = null;
 
   function loadGuestFolders() {
@@ -406,24 +354,20 @@
           availableGuestFolders = (Array.isArray(data) && data.length) ? data : null;
         });
       })
-      ['catch'](function() {
-        // Bracket form for `catch` so iOS 9.0–9.2 strict-mode parsers
-        // (which still flag `catch` in member-access position) don't
-        // complain. Same convention used elsewhere in this file.
-        availableGuestFolders = null;
-      });
+      ['catch'](function() { availableGuestFolders = null; });
   }
 
   function loadConfig() {
-    var body    = document.getElementById('config-body');
-    var status  = document.getElementById('config-status');
-    var saveBtn = document.getElementById('config-save');
+    var body     = document.getElementById('config-body');
+    var status   = document.getElementById('config-status');
+    var saveBtn  = document.getElementById('config-save');
+    var startBtn = document.getElementById('config-save-start');
     body.innerHTML = '<div class="tree-empty">Loading…</div>';
     status.textContent = '';
     status.className = '';
-    saveBtn.disabled = true;
-    // Fetch both in parallel; the dropdown render needs the folder list
-    // before the first paint, so we await the pair.
+    saveBtn.disabled  = true;
+    startBtn.disabled = true;
+    // Folder list must be present before the first dropdown renders.
     return Promise.all([
       fetch('control/test-config?_=' + Date.now(), { cache: 'no-store' }),
       loadGuestFolders()
@@ -434,10 +378,9 @@
     }).then(function(text) {
       configState = JSON.parse(text);
       body.innerHTML = '';
-      // parent=null marks the root; keyOrIndex is unused on the root
-      // branch (the row is labeled "test.config.yml" instead).
       body.appendChild(renderConfigNode(configState, null, null));
-      saveBtn.disabled = false;
+      saveBtn.disabled  = false;
+      startBtn.disabled = false;
     })['catch'](function(e) {
       body.innerHTML = '';
       status.textContent = 'Could not load config: ' + e.message;
@@ -445,21 +388,15 @@
     });
   }
 
+  // Replace (not assign) avoids a history entry for the abandoned edit.
   function discardAndExit() {
-    // Discard means: do not persist. Send the operator back to the
-    // dashboard. Replace (not assign) to avoid a redundant history entry
-    // for the abandoned edit.
     window.location.replace('index.html');
   }
 
-  // Render a single node. Returns a DOM element. `parent` is the live
-  // object/array that owns this value (null for the root); `keyOrIndex`
-  // is the property name or array index. Edits write straight into the
-  // live state via parent[keyOrIndex] = newValue.
-  // `arrayRerender` is the parent array's renderArrayChildren closure,
-  // passed down so a guestSequence dropdown can re-render its siblings
-  // after a selection change (other rows must drop the now-used value
-  // from their option lists).
+  // Render one tree node. parent === null marks the root; otherwise
+  // edits write back via parent[keyOrIndex] = newValue. arrayRerender
+  // is the parent array's renderArrayChildren closure (used by the
+  // guestSequence dropdown to refresh siblings' option lists).
   function renderConfigNode(value, parent, keyOrIndex, arrayRerender) {
     var node = document.createElement('div');
     node.className = 'tree-node';
@@ -476,9 +413,6 @@
     var keyEl = document.createElement('span');
     keyEl.className = 'tree-key';
     if (isRoot) {
-      // Root row labels the file rather than showing "object (N)" — the
-      // user is editing test.config.yml, not browsing a generic JSON
-      // blob, and the filename is the most useful anchor at the top.
       keyEl.textContent = 'test.config.yml';
     } else if (Array.isArray(parent)) {
       keyEl.classList.add('array-index');
@@ -493,15 +427,11 @@
 
     if (type === 'object' || type === 'array') {
       toggle.classList.remove('leaf');
-      // Default expanded for the root and shallow nodes; collapsed for
-      // deeper leaves would suit much larger configs but ours fits in
-      // a single screen, so expand-everything is the friendlier default.
+      // Default-expanded: the file fits one screen.
       var expanded = true;
       toggle.textContent = '▼';
-      // Suppress the type-and-count badge at the root: the filename
-      // already identifies the node, and "object (16)" added no signal.
-      // Type-and-count is mutated by the array add/delete affordances —
-      // capture a reference so we can rewrite it after each mutation.
+      // Root has no "object (N)" badge — the filename already labels it.
+      // typeEl is captured so array add/delete can refresh its count.
       var typeEl = null;
       if (!isRoot) {
         typeEl = document.createElement('span');
@@ -516,23 +446,14 @@
       node.appendChild(children);
 
       if (type === 'array') {
-        // Re-render the children container after every structural
-        // mutation (add/delete). Splice shifts indices so a partial
-        // patch would have to renumber every surviving sibling — full
-        // rebuild is simpler and the arrays here are tiny. Recursive
-        // node state (expand/collapse on nested objects) is regenerated
-        // from scratch with the default-expanded behavior, which
-        // matches the initial render.
+        // Full rebuild on every add/delete: splice shifts indices so a
+        // partial patch would renumber every sibling. Arrays are tiny.
         var renderArrayChildren = function() {
           children.innerHTML = '';
           var isguestSequence = isguestSequenceArray(value) && availableGuestFolders;
           value.forEach(function(item, idx) {
-            // Pass renderArrayChildren down so a guestSequence dropdown
-            // can refresh its siblings' option lists after a change.
             var childNode = renderConfigNode(item, value, idx, renderArrayChildren);
-            // Append a delete button to the child's *own* row so it
-            // sits inline with the value editor. .tree-row is the row
-            // div we appended at the start of renderConfigNode.
+            // Delete button on the child's own row so it sits inline.
             var childRow = childNode.querySelector(':scope > .tree-row');
             if (childRow) {
               var del = document.createElement('button');
@@ -562,10 +483,7 @@
           addBtn.type = 'button';
           addBtn.className = 'tree-array-add';
           if (isguestSequence) {
-            // guestSequence: only let the operator add a guest that
-            // actually exists under this host AND isn't already in the
-            // list. When every available guest is in use, disable the
-            // button instead of letting them add an unresolvable name.
+            // guestSequence: only add real-folder guests, never twice.
             var used = {};
             for (var i = 0; i < value.length; i++) used[value[i]] = true;
             var remaining = availableGuestFolders.filter(function(g) {
@@ -597,10 +515,6 @@
           } else {
             addBtn.textContent = '+ add item';
             addBtn.onclick = function() {
-              // Mirror the type of the last existing element so the
-              // input renders the same affordance the user has already
-              // been editing. Empty-array fallback is "" — strings are
-              // by far the most common element type in this config.
               value.push(defaultForArray(value));
               renderArrayChildren();
             };
@@ -611,9 +525,7 @@
         renderArrayChildren();
       } else {
         var keys = Object.keys(value);
-        // Display-only override: keep the on-disk file alphabetical, but
-        // float `logLevel` to the top of the root object so the most
-        // commonly tweaked setting is the first thing in the editor.
+        // Display-only: float `logLevel` to the top of the root object.
         if (isRoot && keys.indexOf('logLevel') > 0) {
           keys.splice(keys.indexOf('logLevel'), 1);
           keys.unshift('logLevel');
@@ -640,18 +552,14 @@
       return node;
     }
 
-    // Leaf: type-specific input wired to write back into `parent`.
+    // Leaf: type-specific input wired to write back into parent.
     if (type === 'boolean') {
       row.appendChild(buildBoolInput(value, parent, keyOrIndex));
     } else if (type === 'number') {
       row.appendChild(buildNumberInput(value, parent, keyOrIndex));
     } else if (type === 'string') {
-      // Constrained string fields render as a <select>; free-form
-      // strings get a text input. enumOptions returns null when the
-      // field has no fixed allow-list. guestSequence elements get a
-      // host-aware dropdown (real folders, no duplicates) when the
-      // /control/guest-folders fetch succeeded; otherwise fall back
-      // to a text input so the editor still works on older servers.
+      // guestSequence -> host-aware dropdown; enum keys -> select;
+      // else -> free-form text input.
       if (isguestSequenceArray(parent) && availableGuestFolders) {
         row.appendChild(buildGuestSelect(value, parent, keyOrIndex, arrayRerender));
       } else {
@@ -682,13 +590,8 @@
     return typeof v;  // 'object' | 'string' | 'number' | 'boolean'
   }
 
-  // Pick the default value for a freshly added array element. Mirrors
-  // the type of the last existing element so the new row renders the
-  // same kind of input the operator has been editing — adding to
-  // `guestSequence` (array of strings) gives a string field, adding to a
-  // hypothetical array of numbers gives a numeric field, and so on.
-  // Empty-array fallback is "" — strings are the dominant case in
-  // test.config.yml.
+  // Mirror the last element's type so the new row renders the same
+  // input affordance. Empty-array fallback is "".
   function defaultForArray(arr) {
     if (arr.length === 0) return '';
     var last = arr[arr.length - 1];
@@ -740,8 +643,7 @@
     input.className = 'tree-input number';
     input.value = String(value);
     input.oninput = function() {
-      // Empty input becomes 0 to avoid NaN poisoning the saved JSON;
-      // the user can clear and retype to set 0 explicitly.
+      // Empty input -> 0 to avoid NaN poisoning the saved JSON.
       var n = input.value === '' ? 0 : Number(input.value);
       parent[key] = isFinite(n) ? n : 0;
     };
@@ -754,51 +656,288 @@
     input.className = 'tree-input string';
     input.value = value;
     input.spellcheck = false;
-    input.oninput = function() { parent[key] = input.value; };
+
+    // Per-key affordances. Server-side validation in Start-StatusServer.ps1
+    // is the authoritative gate (returns 400 on bad format / unreachable);
+    // the placeholder + live-format hint here just shortens the feedback
+    // loop. Reachability cannot be checked from the browser, so unreachable
+    // values are only surfaced at save time.
+    var refreshHint = null;
+    if (key === 'cachingProxyIP') {
+      input.placeholder = 'e.g. 192.168.1.42 (empty = no external cache)';
+      refreshHint = function() {
+        var v = input.value.trim();
+        if (v === '' || isIpAddressLike(v)) {
+          input.classList.remove('invalid-ip');
+          input.removeAttribute('title');
+        } else {
+          input.classList.add('invalid-ip');
+          input.title = 'Not a valid IPv4 or IPv6 address. Save will be rejected.';
+        }
+      };
+      refreshHint();
+    }
+
+    input.oninput = function() {
+      parent[key] = input.value;
+      if (refreshHint) refreshHint();
+    };
+
+    // cachingProxyIP: wrap so the read-only env-var mirror sits directly
+    // beneath the editable input. The env-var path takes priority over
+    // the persisted value at cycle start (see Invoke-TestInnerRunner.ps1),
+    // so showing both side-by-side makes it obvious which one the next
+    // run will actually use.
+    if (key === 'cachingProxyIP') {
+      var wrap = document.createElement('div');
+      wrap.className = 'cache-ip-wrap';
+
+      // Editable-input row: <input> <mark>. Wrapping in a flex row keeps
+      // the mark vertically aligned with the input regardless of the
+      // input growing/shrinking with the value.
+      var editRow = document.createElement('div');
+      editRow.className = 'cache-ip-input-row';
+      editRow.appendChild(input);
+      var editMark = buildCacheIpMark();
+      editRow.appendChild(editMark);
+      wrap.appendChild(editRow);
+
+      // Probe ONLY on blur, not per-keystroke: typing "192.168.7.46" passes
+      // through the valid-looking prefix "192.168.7.4" — per-keystroke
+      // probing would lock the field on the prefix and wedge the operator.
+      // While the field is being edited, just invalidate the previous mark
+      // to "needs-test" so a stale ✓ from a different IP doesn't mislead.
+      // The driver also disables `input` while the probe is in flight
+      // (passed as the second arg). Initial render probes immediately so
+      // the loaded-from-config value gets a verdict without needing focus.
+      var editProbe = makeCacheIpProbeDriver(editMark, input);
+      var originalOnInput = input.oninput;
+      input.oninput = function() {
+        if (originalOnInput) originalOnInput();
+        editProbe(input.value, false); // invalidate-only, no network
+      };
+      input.addEventListener('blur', function() {
+        editProbe(input.value, true);  // leaving field — run the probe
+      });
+      editProbe(input.value, true); // initial verdict for the value loaded from config
+
+      var envRow = document.createElement('div');
+      envRow.className = 'cache-ip-envrow';
+      var envLabel = document.createElement('span');
+      envLabel.className = 'cache-ip-envlabel';
+      envLabel.textContent = '$env:YURUNA_CACHING_PROXY_IP =';
+      var envInput = document.createElement('input');
+      envInput.type = 'text';
+      envInput.className = 'tree-input string cache-ip-envinput';
+      envInput.readOnly = true;
+      envInput.spellcheck = false;
+      envInput.tabIndex = -1;
+      envInput.value = '(loading…)';
+      envInput.title = 'Process-environment value the status server inherited at startup. Read-only here; export it in the shell that launches Invoke-TestRunner.ps1 (or set vmStart.cachingProxyIP above) to take effect.';
+      var envMark = buildCacheIpMark();
+      envRow.appendChild(envLabel);
+      envRow.appendChild(envInput);
+      envRow.appendChild(envMark);
+      wrap.appendChild(envRow);
+
+      // No second arg: the env input is already readOnly + tabIndex=-1.
+      // Disabling it on top of that would just flicker the styling.
+      // trigger=true on every call because the env value is one-shot —
+      // there's no "user editing" state to defer to a later blur.
+      var envProbe = makeCacheIpProbeDriver(envMark, null);
+      fetchRuntimeEnv().then(function(envObj) {
+        var v = (envObj && typeof envObj.YURUNA_CACHING_PROXY_IP === 'string') ? envObj.YURUNA_CACHING_PROXY_IP : '';
+        envInput.value = v === '' ? '(unset)' : v;
+        envProbe(v, true); // empty/placeholder -> disabled gray ✗
+      }).catch(function() {
+        envInput.value = '(unavailable)';
+        envProbe('', true);
+      });
+
+      return wrap;
+    }
+
     return input;
   }
 
-  // Allow-list lookup for constrained string fields. Returns the array
-  // of permitted values, or null if the field is free-form. Mirrors the
-  // server-side validation in Update-TestConfigFromTemplate
-  // (Invoke-TestRunner.ps1) — keep the two lists in sync when adding a
-  // new option here. Matched by key name on any object parent: logLevel
-  // sits at the config root, keystrokeMechanism lives under the
-  // vmCommunication node — both names stay globally unique so the node
-  // depth does not matter. Array elements never carry an allow-list.
+  // Build the verdict mark element with a default disabled state. setState
+  // mutates className + title so the same element can flip between ok /
+  // fail / disabled / pending without being rebuilt. Pending uses an
+  // hourglass (⏳) so it's visually distinct from disabled-✗.
+  function buildCacheIpMark() {
+    var mark = document.createElement('span');
+    mark.className = 'cache-ip-mark disabled';
+    mark.textContent = '✗'; // ✗
+    mark.title = 'Enter a valid IP address to test caching-proxy connectivity from host.';
+    mark.setCacheIpState = function(state, tooltip) {
+      mark.className = 'cache-ip-mark ' + state;
+      if (state === 'ok')           mark.textContent = '✓'; // ✓
+      else if (state === 'pending') mark.textContent = '⏳'; // ⏳ HOURGLASS NOT DONE
+      else                          mark.textContent = '✗'; // ✗ (disabled or fail)
+      mark.title = tooltip;
+    };
+    return mark;
+  }
+
+  // Returns a function(ip, trigger) that updates the verdict mark:
+  //   trigger=false  →  invalidate-only (no network). Called per-keystroke
+  //                     to clear a stale ✓/✗ once the value diverges from
+  //                     whatever was last probed; shows "needs-test"
+  //                     disabled state with a "leave the field" tooltip.
+  //   trigger=true   →  actually call /control/test-caching-proxy. Used on
+  //                     field blur, initial render, and the env-side one-
+  //                     shot. Empty/invalid IP short-circuits to disabled
+  //                     without an HTTP round-trip ("no time wasted").
+  //
+  // Out-of-order responses are dropped via latestId; only the latest call
+  // updates the mark. Network errors fall back to 'disabled' (not 'fail')
+  // so the operator distinguishes "host can't reach proxy" from "status
+  // server is unhappy". `lastProbedValue` skips a redundant probe when
+  // the user focus-blurs the field without changing the value.
+  //
+  // `inputEl` (optional): when provided, the input is .disabled = true
+  // for the duration of the actual HTTP probe (after the debounce
+  // settles, so brief focus thrash doesn't lock the field). Focus is
+  // restored on re-enable. The probe takes ~few seconds (single-threaded
+  // server, four TCP timeouts + a CA-cert HTTP fetch) and locking the
+  // input prevents the operator from queuing a stale value mid-test.
+  function makeCacheIpProbeDriver(markEl, inputEl) {
+    var debounceTimer    = null;
+    var latestId         = 0;
+    var lockedByMe       = false; // tracks whether THIS driver disabled inputEl
+    var lastProbedValue  = null;  // the value that produced the current verdict
+
+    function unlockInput() {
+      if (inputEl && lockedByMe) {
+        var hadFocus = (document.activeElement === inputEl);
+        inputEl.disabled = false;
+        lockedByMe = false;
+        if (hadFocus) { try { inputEl.focus(); } catch (e) { /* ignore */ } }
+      }
+    }
+
+    return function(ip, trigger) {
+      // Always cancel a pending debounce + invalidate any in-flight fetch
+      // first, so the function reflects the freshest call.
+      if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+      var myId = ++latestId;
+      var v = (ip || '').trim();
+
+      if (v === '' || !isIpAddressLike(v)) {
+        unlockInput();
+        lastProbedValue = null;
+        markEl.setCacheIpState('disabled',
+          v === '' ? 'No IP set — nothing to test.'
+                   : 'Not a valid IPv4 or IPv6 address — test skipped.');
+        return;
+      }
+
+      // Invalidate-only: keystroke path. If value matches the last probed
+      // value (user typed something then backspaced back), keep the prior
+      // verdict; otherwise switch the mark to "needs-test" disabled.
+      if (!trigger) {
+        if (v === lastProbedValue) return;
+        unlockInput();
+        markEl.setCacheIpState('disabled', 'Leave the field to test caching proxy from host.');
+        return;
+      }
+
+      // Trigger path. Skip the probe if this exact value already has a
+      // verdict — avoids re-probing on a focus-blur with no edit.
+      if (v === lastProbedValue) return;
+
+      markEl.setCacheIpState('pending', 'Testing caching proxy from host…');
+      debounceTimer = setTimeout(function() {
+        if (myId !== latestId) return; // a newer call superseded us during debounce
+        if (inputEl) { inputEl.disabled = true; lockedByMe = true; }
+        fetch('control/test-caching-proxy?ip=' + encodeURIComponent(v) + '&_=' + Date.now(),
+              { cache: 'no-store' })
+          .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+          })
+          .then(function(j) {
+            if (myId !== latestId) return; // newer call superseded us mid-fetch
+            unlockInput();
+            if (!j || j.valid !== true) {
+              lastProbedValue = null;
+              markEl.setCacheIpState('disabled', 'Server reports IP not valid — test skipped.');
+              return;
+            }
+            lastProbedValue = v;
+            if (j.success === true) {
+              markEl.setCacheIpState('ok',
+                'Test caching proxy from host succeeded (' + j.passCount + ' pass'
+                + (j.warnCount ? ', ' + j.warnCount + ' warn' : '') + ').');
+            } else {
+              markEl.setCacheIpState('fail',
+                'Test caching proxy from host failed (' + j.failCount + ' fail'
+                + (j.warnCount ? ', ' + j.warnCount + ' warn' : '')
+                + (j.passCount ? ', ' + j.passCount + ' pass' : '') + ').');
+            }
+          })
+          ['catch'](function(e) {
+            if (myId !== latestId) return;
+            unlockInput();
+            lastProbedValue = null;
+            markEl.setCacheIpState('disabled', 'Caching-proxy test endpoint unavailable: ' + e.message);
+          });
+      }, 350);
+    };
+  }
+
+  // One-shot, lazy fetch of /control/runtime-env. Memoized so multiple
+  // buildStringInput calls within a single page render share a single
+  // HTTP round-trip; result is a Promise<{YURUNA_CACHING_PROXY_IP:string}>.
+  var _runtimeEnvPromise = null;
+  function fetchRuntimeEnv() {
+    if (_runtimeEnvPromise) return _runtimeEnvPromise;
+    _runtimeEnvPromise = fetch('control/runtime-env', { cache: 'no-store' })
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    return _runtimeEnvPromise;
+  }
+
+  // Loose IPv4/IPv6 recognizer for the cachingProxyIP live hint. Mirrors
+  // Test-IpAddress in test/modules/Test.VM.common.psm1 closely enough to
+  // catch obvious typos; the server still re-validates definitively.
+  function isIpAddressLike(s) {
+    if (!s) return false;
+    // IPv4: four 0-255 octets.
+    var v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);
+    if (v4) {
+      for (var i = 1; i <= 4; i++) {
+        var n = parseInt(v4[i], 10);
+        if (!(n >= 0 && n <= 255)) return false;
+        // Reject leading-zero octets ("192.168.01.1") to match the
+        // server-side rejection.
+        if (v4[i].length > 1 && v4[i].charAt(0) === '0') return false;
+      }
+      return true;
+    }
+    // IPv6: rough hex/colon shape, allows :: compression.
+    if (/^([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}$/.test(s)) return true;
+    if (/^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(s) && s.indexOf('::') >= 0) return true;
+    return false;
+  }
+
+  // Returns the allow-list for keyOrIndex, or null if free-form.
+  // Mirrors Update-TestConfigFromTemplate in Invoke-TestRunner.ps1 —
+  // keep in sync. logLevel is severity-ordered (loudest first).
   function enumOptions(parent, keyOrIndex) {
     if (!parent || Array.isArray(parent)) return null;
     if (keyOrIndex === 'keystrokeMechanism') return ['GUI', 'SSH'];
-    // logLevel cascade: each level shows itself + all higher-priority
-    // streams; Error is highest. Order matches the runner's
-    // Resolve-LogLevel rank map (test/Invoke-TestRunner.ps1) so the
-    // dropdown reads in severity order from "loudest only" to "noisiest".
     if (keyOrIndex === 'logLevel') return ['Error', 'Warning', 'Information', 'Verbose', 'Debug'];
     return null;
   }
 
-  // Identity-compare against configState.guestSequence so nested arrays
-  // with the same shape but different role (e.g. some hypothetical
-  // future array of strings) keep their plain text inputs.
+  // Identity-compare so hypothetical other string arrays keep plain inputs.
   function isguestSequenceArray(arr) {
     return !!(configState && Array.isArray(arr) && arr === configState.guestSequence);
   }
 
-  // Custom <div>-based dropdown. Replaces the prior <select>-based
-  // dropdowns because Firefox-on-Wayland fails to render the window-
-  // manager popup that backs <select> on some Linux sessions (the
-  // page DOM is fine, the click is delivered, but the dropdown menu
-  // never paints). The native widget has no per-page workaround --
-  // a div-based menu rendered inside the page DOM is the durable fix,
-  // works on every browser/WM combo, looks identical to a styled
-  // <select> in Chrome.
-  //
-  // opts:
-  //   value:            current selection (string)
-  //   options:          array of { value, label, disabled? }
-  //   placeholderLabel: optional label for the trigger when value is
-  //                     stale (no matching non-disabled option)
-  //   onChange:         function(newValue) called after each pick
+  // Custom div-based <select> replacement (.ydd). Native <select>
+  // popups don't paint on Firefox-on-Wayland.
+  // opts: { value, options:[{value,label,disabled?}], placeholderLabel?, onChange }
   function buildCustomSelect(opts) {
     var wrap = document.createElement('div');
     wrap.className = 'ydd';
@@ -998,13 +1137,10 @@
     return wrap;
   }
 
-  // Dropdown for one guestSequence entry. Stored value is the full folder
-  // name ("guest.amazon.linux") for compatibility with the runner;
-  // displayed label drops the "guest." prefix to match the Guests
-  // column on the dashboard. Already-used folders are filtered out so
-  // each guest can appear at most once in the cycle. The current value
-  // is always kept in the option list — even if it's no longer a real
-  // folder — and tagged so the operator sees what's about to be saved.
+  // One guestSequence entry. Stored value is the full folder name
+  // ("guest.amazon.linux.2023"); label drops the prefix to match the dashboard.
+  // Already-used folders are filtered out so each guest appears at most
+  // once; current value is always kept in the list and flagged stale.
   function buildGuestSelect(value, parent, idx, onChange) {
     var used = {};
     for (var i = 0; i < parent.length; i++) {
@@ -1022,9 +1158,8 @@
     }
     var placeholderLabel = null;
     if (!matched) {
-      // Stale/typo entry from the file: surface it as a disabled
-      // placeholder so the operator can see what's being replaced
-      // without us silently rewriting their input.
+      // Stale entry kept visible as a disabled option so the operator
+      // sees what's being replaced.
       placeholderLabel = (value || '(empty)') + ' (not under host folder)';
       options.unshift({ value: value, label: placeholderLabel, disabled: true });
     }
@@ -1034,24 +1169,16 @@
       placeholderLabel: placeholderLabel,
       onChange: function (newValue) {
         parent[idx] = newValue;
-        // Re-render siblings so they drop the now-used value from their
-        // option lists. onChange is the parent array's renderArrayChildren.
-        // Defer so the dropdown's own state update settles before we
-        // tear it down + rebuild.
-        if (typeof onChange === 'function') {
-          setTimeout(onChange, 0);
-        }
+        // Defer so siblings rebuild after this dropdown settles.
+        if (typeof onChange === 'function') setTimeout(onChange, 0);
       }
     });
   }
 
   function buildEnumInput(value, parent, key, options) {
-    // If the file holds a legacy/typo value not in the allow-list,
-    // surface it as a disabled placeholder so the operator sees what's
-    // being replaced — and silently coerce parent[key] to the canonical
-    // default so a save without further interaction persists a valid
-    // value (matches the runner's Update-TestConfigFromTemplate, which
-    // resets unrecognized values to the template default).
+    // Legacy value not in the allow-list is shown as disabled and
+    // parent[key] is coerced to the canonical default (mirrors the
+    // runner's Update-TestConfigFromTemplate).
     var current = String(value);
     var matched = false;
     var optList = [];
@@ -1077,6 +1204,7 @@
     var status     = document.getElementById('config-status');
     var saveBtn    = document.getElementById('config-save');
     var discardBtn = document.getElementById('config-discard');
+    var startBtn   = document.getElementById('config-save-start');
     if (!configState) return;
     var payload;
     try {
@@ -1086,8 +1214,9 @@
       status.className = 'error';
       return;
     }
-    saveBtn.disabled = true;
+    saveBtn.disabled    = true;
     discardBtn.disabled = true;
+    startBtn.disabled   = true;
     status.textContent = 'Saving…';
     status.className = '';
     fetch('control/test-config', {
@@ -1103,81 +1232,125 @@
           var msg = (body && body.error) ? body.error : ('HTTP ' + res.status);
           status.textContent = 'Save failed: ' + msg;
           status.className = 'error';
-          saveBtn.disabled = false;
+          saveBtn.disabled    = false;
           discardBtn.disabled = false;
+          startBtn.disabled   = false;
           return;
         }
         status.textContent = 'Saved. Returning to dashboard…';
         status.className = 'ok';
-        // Brief delay so the operator sees the confirmation before
-        // navigation; matches the immediate-settle pattern of the
-        // SSH/pause controls on the dashboard.
         setTimeout(function() { window.location.replace('index.html'); }, 600);
       });
     })['catch'](function(e) {
       status.textContent = 'Save failed: ' + e.message;
       status.className = 'error';
-      saveBtn.disabled = false;
+      saveBtn.disabled    = false;
       discardBtn.disabled = false;
+      startBtn.disabled   = false;
     });
   }
 
-  // Mirror the dashboard's #header-machine label so the page identifies
-  // the host the operator is editing — name on top, "(host-type)" below.
-  // The back-link sits as a sibling of the stack inside #header-machine
-  // so the inline-flex + align-items:center layout puts it at the same
-  // vertical position as index.html's Edit-config link (centered against
-  // the 2-line stack rather than baseline-aligned with the first line).
-  // Soft fetch: if status.json is missing (no test cycle has ever run on
-  // this host), fall back to the URL hostname like the dashboard does.
-  function renderHeaderMachine(el, name, host) {
-    el.textContent = '';
-    var stack = document.createElement('span');
-    stack.className = 'hm-stack';
-    var nameSpan = document.createElement('span');
-    nameSpan.className = 'hm-name';
-    nameSpan.textContent = name;
-    stack.appendChild(nameSpan);
-    if (host) {
-      var hostSpan = document.createElement('span');
-      hostSpan.className = 'hm-host';
-      hostSpan.textContent = '(' + host + ')';
-      stack.appendChild(hostSpan);
-    }
-    el.appendChild(stack);
-    var backLink = document.createElement('a');
-    backLink.className = 'back-link';
-    backLink.href = 'index.html';
-    backLink.textContent = '← Dashboard';
-    el.appendChild(backLink);
-  }
-
-  function loadHeaderMachine() {
-    var el = document.getElementById('header-machine');
-    if (!el) return;
-    fetch('track/status.json?_=' + Date.now(), { cache: 'no-store' })
+  // "Save and start cycle": save, then POST /control/start-cycle which
+  // clears pause flags, runs Remove-TestVMFiles, and either signals the
+  // running inner to break its delay OR spawns a fresh runner if none.
+  // Confirms first ONLY if a runner is currently alive -- starting from
+  // a stopped state is non-destructive so no prompt is needed.
+  function saveAndStartCycle() {
+    fetch('control/runner-status?_=' + Date.now(), { cache: 'no-store' })
       .then(function(res) {
-        if (res.ok) return res.json();
-        return null;
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
       })
-      .then(function(data) {
-        if (data && data.hostname) {
-          var hostLabel = data.host ? data.host.replace('host.', '') : '';
-          renderHeaderMachine(el, data.hostname, hostLabel);
-        } else {
-          renderHeaderMachine(el, window.location.hostname || '', '');
+      .then(function(status) {
+        var isRunning = !!(status && status.running);
+        if (isRunning) {
+          var ok = window.confirm(
+            'A cycle is currently running. Save the config, abort the ' +
+            'running cycle, and start a new one? In-progress VMs will be ' +
+            'removed.'
+          );
+          if (!ok) return;
         }
+        doSaveAndStartCycle();
       })
-      ['catch'](function() {
-        renderHeaderMachine(el, window.location.hostname || '', '');
+      ['catch'](function(e) {
+        // Runner-status check failed -- confirm before doing anything
+        // destructive, since we don't know whether VMs are in play.
+        var ok = window.confirm(
+          'Could not determine runner status (' + e.message + '). ' +
+          'Save and start cycle anyway? In-progress VMs (if any) will ' +
+          'be removed.'
+        );
+        if (ok) doSaveAndStartCycle();
       });
   }
 
-  document.getElementById('config-discard').onclick = discardAndExit;
-  document.getElementById('config-save').onclick    = saveConfig;
-  // KeyboardEvent.key landed in Safari iOS 10.3; iOS 9 only exposes
-  // .keyCode (27 == Escape) and the deprecated .which. Check all three
-  // so the shortcut works across the supported range.
+  function doSaveAndStartCycle() {
+    var status     = document.getElementById('config-status');
+    var saveBtn    = document.getElementById('config-save');
+    var discardBtn = document.getElementById('config-discard');
+    var startBtn   = document.getElementById('config-save-start');
+    if (!configState) return;
+    var payload;
+    try {
+      payload = JSON.stringify(configState, null, 2) + '\n';
+    } catch (e) {
+      status.textContent = 'Could not serialize: ' + e.message;
+      status.className = 'error';
+      return;
+    }
+    saveBtn.disabled    = true;
+    discardBtn.disabled = true;
+    startBtn.disabled   = true;
+    status.textContent = 'Saving config…';
+    status.className = '';
+    fetch('control/test-config', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload
+    }).then(function(res) {
+      return res.text().then(function(text) {
+        var body = null;
+        try { body = JSON.parse(text); } catch (_e) { /* non-JSON error */ }
+        if (!res.ok || !body || !body.ok) {
+          var msg = (body && body.error) ? body.error : ('HTTP ' + res.status);
+          throw new Error(msg);
+        }
+        status.textContent = 'Saved. Stopping VMs and starting new cycle…';
+        return fetch('control/start-cycle', {
+          method: 'POST',
+          cache: 'no-store'
+        });
+      });
+    }).then(function(res) {
+      return res.text().then(function(text) {
+        var body = null;
+        try { body = JSON.parse(text); } catch (_e) { /* non-JSON error */ }
+        if (!res.ok || !body || !body.ok) {
+          var msg = (body && body.error) ? body.error : ('HTTP ' + res.status);
+          throw new Error(msg);
+        }
+        var verb = body.action === 'spawned' ? 'Runner started' : 'Cycle restarted';
+        status.textContent = verb + '. Returning to dashboard in 6 seconds…';
+        status.className = 'ok';
+        // 6-second dwell so the operator can read the final status line
+        // before the dashboard takes over (cycle log will repaint).
+        setTimeout(function() { window.location.replace('index.html'); }, 6000);
+      });
+    })['catch'](function(e) {
+      status.textContent = 'Save and start cycle failed: ' + e.message;
+      status.className = 'error';
+      saveBtn.disabled    = false;
+      discardBtn.disabled = false;
+      startBtn.disabled   = false;
+    });
+  }
+
+  document.getElementById('config-discard').onclick    = discardAndExit;
+  document.getElementById('config-save').onclick       = saveConfig;
+  document.getElementById('config-save-start').onclick = saveAndStartCycle;
+  // iOS 9 only exposes .keyCode (27=Escape) and .which; check all three.
   document.addEventListener('keydown', function(e) {
     var isEsc = (e.key === 'Escape') ||
                 (e.key === 'Esc') ||
@@ -1186,7 +1359,7 @@
     if (isEsc) discardAndExit();
   });
 
-  loadHeaderMachine();
+  Yuruna.populateHeader(PAGE_CTA);
   loadConfig();
 })();
 </script>

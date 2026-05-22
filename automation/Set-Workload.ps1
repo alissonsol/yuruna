@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42d4e5f6-a7b8-4c90-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ if (-Not $result) {
     Write-Output $result
     Write-Output $(Get-Content -Path $transcriptFileName)
     # Propagate the failure as a non-zero process exit so bash wrappers
-    # using `set -e` (e.g. ubuntu.server.workload.k8s.website.sh) see it.
+    # using `set -e` (e.g. ubuntu.server.24.workload.k8s.website.sh) see it.
     # Without this, Publish-WorkloadList returning $false (e.g. helm lint
     # or helm install failure -- empty componentsRegistry.registryLocation
     # cascading to an InvalidImageName render) would print the transcript

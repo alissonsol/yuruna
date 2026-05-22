@@ -1,0 +1,83 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/users.schema.yml
+title: Yuruna authentication users mapping
+description: >
+  Maps logical (sequence-level) usernames onto the actual identity used
+  at login time. Empty corporate.* fields keep today's local-only
+  behaviour; populated fields select an AD/Entra/etc. identity. The
+  template lists the four bundled logical users (yuuser24, yuuser26,
+  yauser1, ywuser1) with empty corporate fields so existing sequences
+  work unchanged.
+
+type: object
+additionalProperties: false
+required: [users]
+
+properties:
+  strict:
+    type: boolean
+    default: true
+    description: >
+      When true (default), every logical username referenced by an
+      active sequence must be declared in users.yml AND any populated
+      vaultKey/localOsPasswordRef must resolve to a non-empty vault.yml
+      entry; Test-Config.ps1 blocks the cycle otherwise. Setting false
+      reverts to a lenient fall-through (unknown logical user -> treat
+      as local-only, vault auto-generates) for dev iterations.
+
+  users:
+    type: object
+    description: >
+      Map from logical username (the value of variables.username in a
+      sequence file) to its identity-mapping entry.
+    propertyNames:
+      pattern: '^[A-Za-z0-9._-]+$'
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      properties:
+        localOsUser:
+          type: string
+          description: >
+            OS account name cloud-init creates on the guest. Defaults
+            to the logical key when empty. Set to a different value
+            only when you need to decouple the OS-side name from the
+            sequence-side logical name (rare).
+        corporate:
+          type: object
+          additionalProperties: false
+          description: >
+            Corporate identity used by sequence login steps (rendered
+            by the ${loginUser} substitution). Leave all fields empty
+            for purely-local operation: ${loginUser} then equals
+            ${username}. Provide {domain, sam} for the pre-Windows2000
+            DOMAIN\sam form, OR {upn} for the user@domain form. Both
+            can coexist; the renderer prefers {domain, sam} when both
+            are populated.
+          properties:
+            domain: { type: string }
+            sam:    { type: string }
+            upn:    { type: string }
+        vaultKey:
+          type: string
+          description: >
+            Vault entry consulted by Get-Password for this logical
+            user (and by Get-LoginCredential). Defaults to the logical
+            key when empty (today's behaviour: vault auto-generates a
+            random password). Populate with a non-empty value when the
+            password must be operator-supplied (e.g. real AD account);
+            the vault NEVER auto-generates for a populated vaultKey,
+            so Test-Config.ps1 will block the cycle until the operator
+            stores the password under that key in vault.yml.
+        localOsPasswordRef:
+          type: string
+          description: >
+            Vault entry used to set the LOCAL OS account password at
+            cloud-init time (decoupled from the sequence-login
+            password). Defaults to the logical key when empty: vault
+            auto-generates a per-user random secret nobody knows,
+            which is what the local account on a transient test VM
+            should normally have. Set explicitly to vaultKey when you
+            want the local OS account to share its password with the
+            corporate identity (operator-convenience console fallback,
+            see docs/caching.md for the squid-cache pattern).

@@ -4,13 +4,14 @@ Each subfolder holds the workload scripts (Code, k8s, n8n, postgresql,
 …) that run **inside** a running guest, independent of which host
 created the VM.
 
-- [Amazon Linux](amazon.linux/README.md)
+- [Amazon Linux 2023](amazon.linux.2023/README.md)
 - [macOS 26](macos.26/README.md) — Apple Silicon only; Setup Assistant not yet automated
-- [Ubuntu Server](ubuntu.server/README.md)
+- [Ubuntu Server 24.04](ubuntu.server.24/README.md)
+- [Ubuntu Server 26.04](ubuntu.server.26/README.md)
 - [Windows 11](windows.11/README.md)
 
-Project-wide architecture: [../docs/architecture.md](../docs/architecture.md). VM provisioning
-scripts (per hypervisor): [../host/README.md](../host/README.md).
+Project-wide architecture: [Yuruna Architecture](../docs/architecture.md). VM provisioning
+scripts (per hypervisor): [Hosts — ...](../host/README.md).
 
 ## Guest workload pattern
 
@@ -28,9 +29,13 @@ $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else {
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/<workload>.ps1$nc" | iex
 ```
 
-Available workloads are listed in each [<name>/README.md](.) and
-documented per-workload under [../docs/](../docs/) (see `code.md`,
-`k8s.md`, `n8n.md`, `openclaw.md`, `postgresql.md`).
+Available workloads are listed in each guest folder's `README.md`
+(e.g. [Amazon Linux 2023](amazon.linux.2023/README.md),
+[Ubuntu Server 24.04](ubuntu.server.24/README.md),
+[Ubuntu Server 26.04](ubuntu.server.26/README.md),
+[Windows 11](windows.11/README.md)) and documented per-workload under
+[../docs/](../docs/) (see `code.md`, `kubernetes.md`, `n8n.md`,
+`openclaw.md`, `postgresql.md`).
 
 Back to [Yuruna](../README.md)
 

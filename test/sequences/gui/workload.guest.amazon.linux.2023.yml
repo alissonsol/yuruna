@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# Interaction sequence for driving VM workload testing.
+# See possible actions in the actions.yml file.
+# ${vmName}, ${hostType}, ${guestKey} are built-in. ${ext:area.Method(args)}
+# invokes the active extension under test/extension/<area>/.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 4246401e-0173-4605-b3b0-e2a85c16ade5
+sequenceRevision: 1
+
+description: "Amazon Linux 2023: log in, install the Desktop package group."
+baseline:
+  amazon.linux.2023:
+    - start.guest.amazon.linux.2023
+variables:
+  username: yauser1
+
+steps:
+  - action: retry
+    maxAttempts: 2
+    description: "Login (restart on timeout)"
+    steps:
+      - action: passwdPrompt
+        pattern: "login:"
+        timeoutSeconds: 600
+        text: "${username}"
+        description: "${vmName} login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${ext:authentication.GetPassword(${username})}"
+        description: "Password:"
+
+  - action: waitForText
+    pattern: "${username}@${vmName}"
+    timeoutSeconds: 90
+    description: "${username}@${vmName}"
+
+  - action: waitForSeconds
+    seconds: 9
+    description: "Pause before installing toolset"
+
+  - action: inputTextAndEnter
+    text: 'sudo dnf groupinstall -y "Desktop"'
+    description: "GUI install"
+
+  - action: waitForSeconds
+    seconds: 15
+    description: "HACK: scroll login prompt off"
+
+  - action: waitForText
+    pattern: "${username}@${vmName}"
+    timeoutSeconds: 300
+    freshMatch: true
+    description: "${username}@${vmName}"
+
+  - action: inputTextAndEnter
+    text: 'dnf list installed "*desktop*"'
+    description: "Show installed desktop packages"
+
+  - action: waitForSeconds
+    seconds: 30
+    description: "Pause to see output."

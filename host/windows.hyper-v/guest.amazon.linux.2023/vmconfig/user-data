@@ -1,0 +1,100 @@
+#cloud-config
+#vim:syntax=yaml
+# NoCloud user-data for Amazon Linux 2023 cloud image on Hyper-V.
+# Aligned with the ubuntu.kvm and macos.utm guest.amazon.linux.2023 variants
+# so the first-boot end state is comparable across hosts. See
+# docs/vmconfig.md for the topic-by-topic rationale.
+# Two users: ec2-user (cloud-image default, kept for SSH parity with the
+# AL2023 cloud-image baseline) plus USERNAME_PLACEHOLDER, the harness's
+# greppable test user (default 'yauser1' for amazon.linux.2023) with
+# passwordless sudo and the same SSH key. The console GUI sequence
+# logs in as USERNAME_PLACEHOLDER and exercises the Current/New/Retype
+# rotation.
+users:
+  - default
+  - name: USERNAME_PLACEHOLDER
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- See https://yuruna.link/vmconfig#ssh_authorized_keys-at-top-level
+ssh_authorized_keys:
+  - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- See https://yuruna.link/vmconfig#chpasswd-list-schema
+chpasswd:
+  list: |
+    USERNAME_PLACEHOLDER:PLAINTEXT_PASSWORD_PLACEHOLDER
+ssh_pwauth: true
+
+# --- See https://yuruna.link/vmconfig#hv_balloon-denylist
+write_files:
+  - path: /etc/modprobe.d/denylist-hv-balloon.conf
+    content: |
+      blacklist hv_balloon
+    permissions: '0644'
+
+runcmd:
+  - rmmod hv_balloon 2>/dev/null || true
+  # --- See https://yuruna.link/vmconfig#login-session-budget
+  - bash -c 'sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /etc/login.defs && echo "LOGIN_TIMEOUT 180" >> /etc/login.defs'
+  # --- See https://yuruna.link/vmconfig#enable-sshd-on-first-boot
+  - systemctl enable --now sshd || true
+  # --- See https://yuruna.link/vmconfig#al2023-framebuffer-console
+  - systemctl enable --now getty@tty1.service || true
+  - chvt 1 2>/dev/null || true
+  - bash -c 'setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true'
+  # --- See https://yuruna.link/vmconfig#hyperv_fb-framebuffer-pin
+  - grubby --update-kernel=ALL --args="video=hyperv_fb:1024x768" || true
+  # --- See https://yuruna.link/vmconfig#console-quiet
+  - grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true
+  # --- See https://yuruna.link/vmconfig#headless-host-reboot-on-framebuffer-collapse
+  - |
+    if [ -r /sys/class/graphics/fb0/virtual_size ]; then
+      VS=$(cat /sys/class/graphics/fb0/virtual_size)
+      W=${VS%,*}
+      if [ -n "$W" ] && [ "$W" -lt 800 ]; then
+        echo "yuruna: hyperv_fb collapsed (virtual_size=${VS}); flagging reboot to apply new cmdline" >&2
+        touch /run/yuruna-needs-reboot
+      fi
+    fi
+  # --- See https://yuruna.link/vmconfig#gnome-auto-open-terminal-on-login
+  - mkdir -p /etc/xdg/autostart
+  - |
+    cat > /etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
+    [Desktop Entry]
+    Type=Application
+    Name=Open Terminal
+    Exec=ptyxis --new-window
+    X-GNOME-Autostart-enabled=true
+    NoDisplay=true
+    DESKTOP
+  # --- See https://yuruna.link/vmconfig#yuruna-host-coordinates
+  - mkdir -p /etc/yuruna
+  - |
+    cat > /etc/yuruna/host.env << 'EOF'
+    YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
+    YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+    EOF
+  - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
+  # --- See https://yuruna.link/vmconfig#wget-no_proxy
+  - |
+    cat >> /etc/wgetrc << 'EOF'
+    no_proxy = YURUNA_HOST_IP_PLACEHOLDER
+    EOF
+  # --- See https://yuruna.link/vmconfig#download-fetch-and-execute-utility
+  - mkdir -p /automation
+  - |
+    wget --no-cache --timeout=5 -O /automation/fetch-and-execute.sh "http://YURUNA_HOST_IP_PLACEHOLDER:YURUNA_HOST_PORT_PLACEHOLDER/yuruna-repo/automation/fetch-and-execute.sh" || \
+    wget --no-cache -O /automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
+  - chmod +x /automation/fetch-and-execute.sh
+  # --- See https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
+  - timedatectl set-ntp true
+  - bash -c 'command -v curl >/dev/null 2>&1 && TZ=$(curl -s --max-time 5 https://ip-api.com/line?fields=timezone) && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check curl, network, or API)" >&2'
+
+# --- See https://yuruna.link/vmconfig#headless-host-reboot-on-framebuffer-collapse
+power_state:
+  delay: now
+  mode: reboot
+  message: "Yuruna: rebooting to apply video=hyperv_fb:1024x768 cmdline (headless host)."
+  condition: ["/bin/sh", "-c", "test -f /run/yuruna-needs-reboot"]

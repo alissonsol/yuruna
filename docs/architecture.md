@@ -14,7 +14,7 @@ rather than repeat.
    [Kubernetes Deployment](kubernetes.md).
 3. **Test harness** — continuous VM creation + validation across hosts
    and guests, with status server, notifications, and extensible
-   sequences. See [Test harness](../test/CODE.md).
+   sequences. See [Test harness](test-harness.md).
 
 ## Three-phase deployment model
 
@@ -48,19 +48,17 @@ Test-Runtime.ps1
 
 `<cloud>` is `localhost`, `aws`, `azure`, or `gcp`. Cloud variants require
 a one-time auth step (`az login`, `aws configure`, `gcloud auth …`) — see
-[Yuruna Authentication](authenticate.md). Syntax reference:
+[Yuruna Authentication](authentication.md). Syntax reference:
 [Yuruna Syntax](syntax.md).
 
 ## Project layout
 
 ```text
 yuruna/
-├── automation/         # Set-*, Test-*, yuruna-* PowerShell modules
+├── automation/         # Set-*, Test-*, Invoke-*, Get-* scripts and Yuruna.*.psm1 modules
 ├── global/resources/   # OpenTofu templates per cloud
+├── install/            # Per-host installer entry points (curl|bash, irm|iex)
 ├── project/            # Project under verification (cloned from test.config.yml's repositories.projectUrl each cycle)
-│   ├── example/        # Reference project (website)
-│   ├── template/       # Scaffold for a new project
-│   └── test/           # Cycle-level test sequences (test.sequence.yml)
 ├── docs/               # User-facing documentation
 ├── host/               # Per-hypervisor VM provisioning (macos.utm, windows.hyper-v, ubuntu.kvm)
 ├── guest/              # Workload scripts run inside a running guest
@@ -89,7 +87,7 @@ Before cloning on Windows:
 
 ## License
 
-Scripts and examples are provided "as is". See [MIT License](../LICENSE.md).
+Scripts and examples are provided "as is". See [Yuruna License](../LICENSE.md).
 
 Back to [Yuruna](../README.md)
 

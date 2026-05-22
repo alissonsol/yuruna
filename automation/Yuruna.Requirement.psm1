@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42f4b6c7-d8e9-4012-3456-7f8091021324
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,8 @@ Import-Module -Name $modulePath
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 
 function Confirm-RequirementList {
+    [CmdletBinding()]
+    param ()
 
     $requirementsFile = Join-Path -Path $PSScriptRoot -ChildPath "Yuruna.Requirement.yml"
     if (-Not (Test-Path -Path $requirementsFile)) { Write-Information "File not found: $requirementsFile"; return $false; }

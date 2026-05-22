@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456782
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,7 @@
         audit-trail hint about where the ISO came from.
       * Invoke-TestRunner — seeds each guest entry in status.json with
         provenance{Filename,Url}, letting the UI swap the card title from
-        the generic "guest.ubuntu.server" to the actual ISO filename.
+        the generic "guest.ubuntu.server.24" to the actual ISO filename.
     The sidecar path is computed by swapping the image extension for .txt.
 .PARAMETER BaseImagePath
     Full path to the base image (e.g. .iso / .vhdx / .qcow2). The companion

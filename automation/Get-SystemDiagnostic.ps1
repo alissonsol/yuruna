@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,19 +36,47 @@
      10. KUBE    -- cluster info, nodes, all-namespaces inventory,
                     port-forwards (detected via host-process scan),
                     recent Warning events
-     11. LINUX   -- (Linux only) netplan + /etc/resolv.conf + /etc/hosts,
-                    resolvectl/systemd-resolve status, ip route (full),
-                    ss listening sockets, ping connectivity probe,
-                    iptables -S + nft list ruleset, dmesg -T (with OOM
-                    scan), lsmod (virtualization modules), journalctl
-                    -xe, per-unit journals for docker/containerd/kubelet,
-                    /opt/cni/bin/ + /etc/cni/net.d/ state.
+     11. HOST DETAIL -- starts with the Yuruna runner process tree
+                    (descendants of $YURUNA_RUNTIME_DIR/inner.pid or
+                    runner.pid) so a stuck cycle's blocking child
+                    (ssh.exe, virsh, vmconnect, ...) is visible. Then
+                    per-platform:
+                      * Windows: Hyper-V VMs, listening sockets
+                        (Get-NetTCPConnection), firewall profiles,
+                        recent System log errors.
+                      * macOS:   netstat -nr, ifconfig, scutil DNS,
+                        lsof listening sockets, UTM/utmctl state,
+                        unified log errors.
+                      * Linux:   netplan, /etc/resolv.conf, /etc/hosts,
+                        resolvectl/systemd-resolve status, ip route
+                        (full), ss listening sockets, ping connectivity
+                        probe, iptables -S, dmesg -T with OOM scan,
+                        lsmod (virtualization modules), journalctl -xe,
+                        per-unit journals for docker/containerd/kubelet,
+                        /opt/cni/bin/ + /etc/cni/net.d/ state.
+     11b. INSTALL TIMELINE (Linux only) -- /var/log/installer/* (subiquity
+                    server-debug + curtin-install logs, autoinstall-user-data
+                    that actually shipped), /var/log/cloud-init.log tail,
+                    cloud-init status --long + analyze blame, /run/cloud-init
+                    result+status JSON, systemd-analyze time/blame, the
+                    boot list and the install boot's journal, networkctl
+                    + ip -br link/addr, and a dmesg grep for eth0/netvsc/
+                    accept_ra/carrier events. Diagnoses install-time
+                    wedges (subiquity _send_update CHANGE eth0 loop,
+                    apt mirror retry storms, IPv6 RA-driven netplan
+                    re-apply) that runtime sections cannot see.
      12. YURUNA PROJECT -- ../project tree scan for resources.output.yml
                     files (path + content + empty-block analysis) and a
                     grep across every .yuruna/ working folder for any
                     line mentioning error/fail/warning, so a stuck cycle
                     can be triaged from one diagnostic dump.
-     13. SUMMARY -- list of problems detected
+     13. GAP HEURISTICS -- four cross-section checks for silent failure
+                    modes where one phase wrote artifacts but a downstream
+                    phase produced nothing in the cluster (tofu-state-
+                    without-helm-releases, declared-namespace-missing,
+                    cluster-Ready-but-no-user-pods, registry-image-not-
+                    referenced).
+     14. SUMMARY -- list of problems detected
 
     Side-effect-free: nothing is started, stopped, or modified.
 
@@ -182,13 +210,162 @@ try {
 
     # ===== 1. HOST =====================================================
     Invoke-DiagnosticSection "HOST" {
-    $platform = if ($IsWindows) { 'Windows' } elseif ($IsMacOS) { 'macOS' } elseif ($IsLinux) { 'Linux' } else { 'Unknown' }
-    Write-Output ("Platform     : {0}" -f $platform)
     Write-Output ("Hostname     : {0}" -f [System.Net.Dns]::GetHostName())
     Write-Output ("Time (UTC)   : {0}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
     Write-Output ("Time (local) : {0}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))
-    Write-Output ("PowerShell   : {0}" -f $PSVersionTable.PSVersion)
-    Write-Output ("Edition      : {0}" -f $PSVersionTable.PSEdition)
+
+    # ---- Software ----------------------------------------------------
+    # Probes follow automation/Yuruna.Requirement.yml plus tools that
+    # show up in the codebase (>10 mentions) but aren't in the YAML:
+    # git, python3, node/npm, containerd, curl, tesseract, qemu-img.
+    # Each entry is resilient to the tool being absent OR present-but-
+    # broken (e.g. Windows App Execution Alias for python3 that resolves
+    # via Get-Command but refuses to execute) -- a failure renders as
+    # "(not installed)" rather than aborting the whole HOST section.
+    Write-Sub "Software"
+    function Get-VersionLine {
+        param(
+            [Parameter(Mandatory)][string]$Name,
+            [Parameter(Mandatory)][scriptblock]$Probe
+        )
+        $value = $null
+        try {
+            $value = & $Probe
+        } catch {
+            $value = $null
+        }
+        if ($value -is [array]) { $value = $value | Where-Object { $_ } | Select-Object -First 1 }
+        $text = if ($null -ne $value) { ([string]$value).Trim() } else { '' }
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            Write-Output ("  {0,-20} : (not installed)" -f $Name)
+        } else {
+            Write-Output ("  {0,-20} : {1}" -f $Name, $text)
+        }
+    }
+    # PowerShell -- always available since this script requires v7.
+    Get-VersionLine 'PowerShell' {
+        '{0} ({1})' -f $PSVersionTable.PSVersion, $PSVersionTable.PSEdition
+    }
+    Get-VersionLine 'git' {
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            ((& git --version 2>$null) -replace '^git version ','')
+        }
+    }
+    Get-VersionLine 'python3' {
+        if (Get-Command python3 -ErrorAction SilentlyContinue) {
+            ((& python3 --version 2>$null) -replace '^Python ','')
+        }
+    }
+    Get-VersionLine 'node' {
+        if (Get-Command node -ErrorAction SilentlyContinue) { & node --version 2>$null }
+    }
+    Get-VersionLine 'npm' {
+        if (Get-Command npm -ErrorAction SilentlyContinue) { & npm --version 2>$null }
+    }
+    # `docker --version` is local (no daemon roundtrip) -- safer than
+    # `docker version -f json` from the YAML, which hangs ~30s when
+    # dockerd is unreachable.
+    Get-VersionLine 'Docker' {
+        if (Get-Command docker -ErrorAction SilentlyContinue) {
+            ((& docker --version 2>$null) -replace '^Docker version ','' -replace ',\s*build.*$','')
+        }
+    }
+    Get-VersionLine 'Docker buildx' {
+        if (Get-Command docker -ErrorAction SilentlyContinue) {
+            $bx = & docker buildx version 2>$null | Select-Object -First 1
+            if ($bx) { ($bx -split '\s+')[1] }
+        }
+    }
+    Get-VersionLine 'containerd' {
+        if (Get-Command containerd -ErrorAction SilentlyContinue) {
+            $cd = & containerd --version 2>$null | Select-Object -First 1
+            if ($cd) {
+                $parts = $cd -split '\s+' | Where-Object { $_ -match '^v?\d+\.' } | Select-Object -First 1
+                if ($parts) { $parts } else { $cd }
+            }
+        }
+    }
+    Get-VersionLine 'Kubernetes' {
+        if (Get-Command kubectl -ErrorAction SilentlyContinue) {
+            $j = & kubectl version --client -o json 2>$null
+            if ($LASTEXITCODE -eq 0 -and $j) {
+                (($j -join "`n") | ConvertFrom-Json).clientVersion.gitVersion
+            }
+        }
+    }
+    Get-VersionLine 'Helm' {
+        if (Get-Command helm -ErrorAction SilentlyContinue) {
+            & helm version --short 2>$null | Select-Object -First 1
+        }
+    }
+    Get-VersionLine 'OpenTofu' {
+        if (Get-Command tofu -ErrorAction SilentlyContinue) {
+            $j = & tofu version -json 2>$null
+            if ($LASTEXITCODE -eq 0 -and $j) {
+                (($j -join "`n") | ConvertFrom-Json).terraform_version
+            }
+        }
+    }
+    Get-VersionLine 'mkcert' {
+        if (Get-Command mkcert -ErrorAction SilentlyContinue) {
+            & mkcert -version 2>&1 | Select-Object -First 1
+        }
+    }
+    Get-VersionLine 'curl' {
+        if (Get-Command curl -ErrorAction SilentlyContinue) {
+            # First line is `curl X.Y.Z (build/triplet) libcurl/X.Y.Z ...`;
+            # everything after the opening paren is libcurl feature noise.
+            (& curl --version 2>$null | Select-Object -First 1) -replace '\s*\(.*$',''
+        }
+    }
+    Get-VersionLine 'wget' {
+        if (Get-Command wget -ErrorAction SilentlyContinue) {
+            & wget --version 2>$null | Select-Object -First 1
+        }
+    }
+    Get-VersionLine 'tesseract' {
+        if (Get-Command tesseract -ErrorAction SilentlyContinue) {
+            & tesseract --version 2>&1 | Select-Object -First 1
+        }
+    }
+    Get-VersionLine 'qemu-img' {
+        if (Get-Command qemu-img -ErrorAction SilentlyContinue) {
+            # First line is `qemu-img version X.Y.Z, Copyright (c) ... Fabrice Bellard`;
+            # the Copyright tail is constant noise.
+            (& qemu-img --version 2>$null | Select-Object -First 1) -replace ',\s*Copyright.*$',''
+        }
+    }
+    Get-VersionLine 'AWS cli' {
+        if (Get-Command aws -ErrorAction SilentlyContinue) {
+            # `aws-cli/X.Y.Z Python/X.Y.Z OS/build prompt/...`; everything
+            # after the first whitespace is environment context, not version.
+            (& aws --version 2>&1 | Select-Object -First 1) -replace '\s.*$',''
+        }
+    }
+    Get-VersionLine 'Azure cli' {
+        if (Get-Command az -ErrorAction SilentlyContinue) {
+            $j = & az version 2>$null
+            if ($LASTEXITCODE -eq 0 -and $j) {
+                (($j -join "`n") | ConvertFrom-Json).'azure-cli'
+            }
+        }
+    }
+    Get-VersionLine 'Google Cloud' {
+        if (Get-Command gcloud -ErrorAction SilentlyContinue) {
+            # Use 2>$null (not 2>&1) so a broken bundled-python install
+            # produces "(not installed)" rather than dumping a Python
+            # traceback into the table. `gcloud -v` writes the version
+            # line to stdout on healthy installs.
+            & gcloud -v 2>$null | Select-Object -First 1
+        }
+    }
+    Get-VersionLine 'Visual Studio Code' {
+        if (Get-Command code -ErrorAction SilentlyContinue) {
+            & code -v 2>$null | Select-Object -First 1
+        }
+    }
+
+    # ---- OS details --------------------------------------------------
     if ($IsWindows) {
         $osi = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
         if ($osi) {
@@ -410,6 +587,276 @@ try {
         Write-Output "  FAILED: $($_.Exception.Message)"
         Add-Problem "NETWORK: DNS resolution of 'one.one.one.one' failed -- check resolver configuration."
     }
+
+    Write-Sub "Connectivity"
+
+    # Detect env-configured HTTP proxy (cloud-init writes these into
+    # /etc/environment, /etc/profile.d, and systemd DefaultEnvironment).
+    # When set, direct TCP/443 to public IPs is typically REJECTed by the
+    # egress lock that the same cloud-init also installs, so probe via
+    # the proxy instead of pretending direct works.
+    $proxyUrl  = $null
+    $proxyHost = $null
+    $proxyPort = 0
+    foreach ($v in 'https_proxy','HTTPS_PROXY','http_proxy','HTTP_PROXY') {
+        $val = [System.Environment]::GetEnvironmentVariable($v)
+        if ($val) {
+            try {
+                $u = [Uri]$val
+                if ($u.Host) {
+                    $proxyUrl  = $val
+                    $proxyHost = $u.Host
+                    $proxyPort = if ($u.Port -gt 0) { $u.Port } else { 3128 }
+                    break
+                }
+            } catch { $null = $_ }
+        }
+    }
+
+    # Gate probe: prove we can reach the proxy (if set) or the public
+    # internet (if not) before launching the full endpoint matrix.
+    $gateHost = if ($proxyUrl) { $proxyHost } else { '8.8.8.8' }
+    $gatePort = if ($proxyUrl) { $proxyPort } else { 443 }
+    $gateOk = $false
+    $gateRejected = $false
+    $gateMsg = $null
+    try {
+        $gateClient = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $gateAsync = $gateClient.BeginConnect($gateHost, $gatePort, $null, $null)
+            if ($gateAsync.AsyncWaitHandle.WaitOne(1500)) {
+                try {
+                    $gateClient.EndConnect($gateAsync)
+                    $gateOk = $true
+                } catch [System.Net.Sockets.SocketException] {
+                    if ($_.Exception.SocketErrorCode -eq [System.Net.Sockets.SocketError]::ConnectionRefused) {
+                        $gateRejected = $true
+                    }
+                    $gateMsg = $_.Exception.Message
+                }
+            } else {
+                $gateMsg = "no response in 1500 ms"
+            }
+        } finally { $gateClient.Dispose() }
+    } catch { $gateMsg = $_.Exception.Message }
+
+    if (-not $gateOk) {
+        if ($proxyUrl) {
+            Write-Output "(egress proxy ${proxyHost}:${proxyPort} unreachable: $gateMsg -- skipping endpoint probes)"
+            Add-Problem "NETWORK: egress proxy ${proxyHost}:${proxyPort} unreachable ($gateMsg)."
+        } elseif ($gateRejected) {
+            Write-Output "(direct TCP/443 to 8.8.8.8 refused by local egress filter; no http(s)_proxy in env -- skipping endpoint probes)"
+            Add-Problem "NETWORK: direct TCP/443 refused by local egress filter and no http(s)_proxy is set."
+        } else {
+            Write-Output "(no outbound connectivity to 8.8.8.8:443 within 1500 ms -- skipping endpoint probes)"
+            Add-Problem "NETWORK: no outbound connectivity (gate probe to 8.8.8.8:443 failed: $gateMsg)."
+        }
+    } else {
+        $connectivityEndpoints = @(
+            # Yuruna sites
+            '8.8.8.8',
+            'ports.ubuntu.com',
+            'archive.ubuntu.com',
+            'registry.k8s.io',
+            'ghcr.io',
+            'pkg.dev',
+            'github.com',
+            'security.ubuntu.com',
+            'registry.opentofu.org',
+            'download.docker.com',
+            'pkgs.k8s.io',
+            'packages.opentofu.org',
+            'mcr.microsoft.com',
+
+            # AWS EC2 regional service endpoints
+            'ec2.us-east-1.amazonaws.com',
+            'ec2.us-west-2.amazonaws.com',
+            'ec2.eu-west-1.amazonaws.com',
+
+            # Azure core infrastructure endpoints
+            'eastus.blob.core.windows.net',
+            'lgmsapewus2.blob.core.windows.net',
+            'lgmsapeweu.blob.core.windows.net',
+
+            # Google Cloud Storage locational endpoints
+            'us-central1-storage.googleapis.com',
+            'us-east1-storage.googleapis.com',
+            'europe-west1-storage.googleapis.com'
+        )
+
+        if ($proxyUrl) {
+            # Forced through the cache: report end-to-end round-trip via
+            # HTTP CONNECT (single TCP to proxy + tunnel-setup reply from
+            # the upstream target). The reply timing approximates
+            # client->proxy + proxy->target without doing a full TLS
+            # handshake, which would skew the number with crypto cost.
+            Write-Output ("Egress goes through ${proxyHost}:${proxyPort} ({0}); reporting round-trip via HTTP CONNECT." -f $proxyUrl)
+            $probeTimeoutMs = 4000
+            $probeDeadline  = [System.Environment]::TickCount + $probeTimeoutMs
+
+            # Phase 1: kick TCP connects to the proxy for every target.
+            $probes = foreach ($t in $connectivityEndpoints) {
+                $entry = [pscustomobject]@{
+                    Target       = $t
+                    RTT          = $null
+                    Status       = $null
+                    Client       = $null
+                    ConnectAsync = $null
+                    Stream       = $null
+                    ReadBuf      = $null
+                    ReadAsync    = $null
+                    StartTick    = [System.Environment]::TickCount
+                    Stage        = 'Connecting'
+                }
+                try {
+                    $entry.Client = [System.Net.Sockets.TcpClient]::new()
+                    $entry.ConnectAsync = $entry.Client.BeginConnect($proxyHost, $proxyPort, $null, $null)
+                } catch {
+                    $entry.Stage  = 'Failed'
+                    $entry.Status = "proxy connect start failed: $($_.Exception.Message)"
+                    if ($entry.Client) { try { $entry.Client.Dispose() } catch { $null = $_ } }
+                    $entry.Client = $null
+                }
+                $entry
+            }
+
+            # Phase 2: as each proxy-TCP completes, send CONNECT and kick the read.
+            foreach ($p in ($probes | Where-Object { $_.Stage -eq 'Connecting' })) {
+                $remain = $probeDeadline - [System.Environment]::TickCount
+                if ($remain -lt 0) { $remain = 0 }
+                try {
+                    if ($p.ConnectAsync.AsyncWaitHandle.WaitOne($remain)) {
+                        $p.Client.EndConnect($p.ConnectAsync)
+                        $p.Stream = $p.Client.GetStream()
+                        $req = "CONNECT $($p.Target):443 HTTP/1.1`r`nHost: $($p.Target):443`r`nProxy-Connection: close`r`n`r`n"
+                        $bytes = [System.Text.Encoding]::ASCII.GetBytes($req)
+                        $p.Stream.Write($bytes, 0, $bytes.Length)
+                        $p.ReadBuf   = New-Object byte[] 1024
+                        $p.ReadAsync = $p.Stream.BeginRead($p.ReadBuf, 0, $p.ReadBuf.Length, $null, $null)
+                        $p.Stage     = 'Reading'
+                    } else {
+                        $p.Stage  = 'Failed'
+                        $p.Status = "proxy TCP timeout (>${probeTimeoutMs} ms)"
+                        try { $p.Client.Dispose() } catch { $null = $_ }
+                    }
+                } catch {
+                    $p.Stage  = 'Failed'
+                    $p.Status = "proxy TCP failed"
+                    try { $p.Client.Dispose() } catch { $null = $_ }
+                }
+            }
+
+            # Phase 3: collect proxy CONNECT responses.
+            foreach ($p in ($probes | Where-Object { $_.Stage -eq 'Reading' })) {
+                $remain = $probeDeadline - [System.Environment]::TickCount
+                if ($remain -lt 0) { $remain = 0 }
+                try {
+                    if ($p.ReadAsync.AsyncWaitHandle.WaitOne($remain)) {
+                        $n = $p.Stream.EndRead($p.ReadAsync)
+                        if ($n -gt 0) {
+                            $resp = [System.Text.Encoding]::ASCII.GetString($p.ReadBuf, 0, $n)
+                            $firstLine = ($resp -split "`r`n", 2)[0]
+                            $parts = $firstLine -split '\s+', 3
+                            if ($parts.Count -ge 2 -and $parts[0] -match '^HTTP/\d\.\d$' -and $parts[1] -match '^\d{3}$') {
+                                $code = $parts[1]
+                                $reason = if ($parts.Count -ge 3) { $parts[2] } else { '' }
+                                if ($code -eq '200') {
+                                    $p.RTT    = [System.Environment]::TickCount - $p.StartTick
+                                    $p.Status = "$($p.RTT) ms"
+                                } else {
+                                    $p.Status = ("proxy $code $reason").Trim()
+                                }
+                            } else {
+                                $p.Status = "proxy bad reply"
+                            }
+                        } else {
+                            $p.Status = "proxy closed (no bytes)"
+                        }
+                    } else {
+                        $p.Status = "proxy reply timeout (>${probeTimeoutMs} ms)"
+                    }
+                } catch {
+                    $p.Status = "proxy read failed"
+                } finally {
+                    try { $p.Stream.Dispose() } catch { $null = $_ }
+                    try { $p.Client.Dispose() } catch { $null = $_ }
+                }
+            }
+
+            $connectResults = $probes | ForEach-Object {
+                [pscustomobject]@{ Target = $_.Target; RTT = $_.RTT; Status = $_.Status }
+            }
+        } else {
+            # No env proxy: hit each target directly on TCP/443 in parallel.
+            Write-Output "Probing each target via direct TCP/443 (no http(s)_proxy in env)."
+            $connectTimeoutMs = 2500
+            $connectDeadline = [System.Environment]::TickCount + $connectTimeoutMs
+
+            $connectProbes = foreach ($t in $connectivityEndpoints) {
+                $client = $null
+                $async  = $null
+                $startErr = $null
+                try {
+                    $client = [System.Net.Sockets.TcpClient]::new()
+                    $async  = $client.BeginConnect($t, 443, $null, $null)
+                } catch {
+                    $startErr = $_.Exception.Message
+                    if ($client) { try { $client.Dispose() } catch { $null = $_ } }
+                    $client = $null
+                    $async  = $null
+                }
+                [pscustomobject]@{
+                    Target     = $t
+                    Client     = $client
+                    Async      = $async
+                    StartTick  = [System.Environment]::TickCount
+                    StartError = $startErr
+                }
+            }
+
+            $connectResults = foreach ($p in $connectProbes) {
+                $status = $null
+                $rttMs  = $null
+                if ($p.StartError) {
+                    $status = "start failed: $($p.StartError)"
+                } elseif (-not $p.Async) {
+                    $status = "couldn't connect"
+                } else {
+                    $remain = $connectDeadline - [System.Environment]::TickCount
+                    if ($remain -lt 0) { $remain = 0 }
+                    try {
+                        if ($p.Async.AsyncWaitHandle.WaitOne($remain)) {
+                            $p.Client.EndConnect($p.Async)
+                            $rttMs  = [System.Environment]::TickCount - $p.StartTick
+                            $status = "${rttMs} ms"
+                        } else {
+                            $status = "timeout (>${connectTimeoutMs} ms)"
+                        }
+                    } catch {
+                        $status = "couldn't connect"
+                    } finally {
+                        try { $p.Client.Dispose() } catch { $null = $_ }
+                    }
+                }
+                [pscustomobject]@{
+                    Target = $p.Target
+                    RTT    = $rttMs
+                    Status = $status
+                }
+            }
+        }
+
+        $connectResults |
+            Sort-Object @{ Expression = { if ($null -eq $_.RTT) { [int]::MaxValue } else { $_.RTT } } }, Target |
+            Select-Object Target, Status |
+            Format-Table -AutoSize | Out-String | ForEach-Object { Write-Output $_ }
+
+        $connectFailures = @($connectResults | Where-Object { $null -eq $_.RTT })
+        if ($connectFailures.Count -gt 0) {
+            Add-Problem ("NETWORK: {0}/{1} endpoint(s) unreachable: {2}" -f `
+                $connectFailures.Count, $connectResults.Count, (($connectFailures.Target) -join ', '))
+        }
+    }
     }
 
     # ===== 7. TOP PROCESSES ============================================
@@ -467,6 +914,73 @@ try {
                 $dm | ForEach-Object { Write-Output $_ }
             } catch {
                 Write-Output "(dmesg requires elevation; skipping)"
+            }
+        }
+    }
+
+    Write-Sub "Full *.stderr.log files under project/.yuruna/ (verbatim, for tofu/helm/kubectl/docker post-mortems)"
+    # Per-phase stderr logs the yuruna automation writes to .yuruna/<env>/...
+    # (each captures the full stdout+stderr of the phase's tool calls with a
+    # "=== <cmd> (exit=N) ===" header so the operator can reconstruct what
+    # failed):
+    #   tofu.stderr.log    -- Yuruna.Resource.psm1   (Set-Resource)
+    #   helm.stderr.log    -- Yuruna.Workload.psm1   (chart install + ad-hoc helm: deployments)
+    #   kubectl.stderr.log -- Yuruna.Workload.psm1   (kubectl: deployments)
+    #   shell.stderr.log   -- Yuruna.Workload.psm1   (shell: deployments)
+    #   docker.stderr.log  -- Yuruna.Component.psm1  (build/tag/push pipeline)
+    # The matching *.rc sidecar holds the LAST observed exit code; the gap
+    # heuristics below cross-check rc against in-cluster state to flag a
+    # silent success-without-effect (e.g. helm.rc=0 but no helm releases).
+    $projectCandidate = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
+    $tofuProjectRoot = $null
+    if (Test-Path -LiteralPath $projectCandidate) {
+        $tofuProjectRoot = (Resolve-Path -LiteralPath $projectCandidate).Path
+    }
+    if (-not $tofuProjectRoot) {
+        Write-Output "(no project directory at $projectCandidate -- skipping)"
+    } else {
+        $phaseLogs = @(Get-ChildItem -Path $tofuProjectRoot -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like '*.stderr.log' })
+        if ($phaseLogs.Count -eq 0) {
+            Write-Output "(no *.stderr.log under $tofuProjectRoot -- no phase has produced output here)"
+        } else {
+            foreach ($tl in ($phaseLogs | Sort-Object FullName)) {
+                $sizeNote = ''
+                $content  = ''
+                try {
+                    if ($tl.Length -gt 64KB) {
+                        $sizeNote = " (last 64 KB shown of $($tl.Length) bytes)"
+                        $stream = [System.IO.File]::Open($tl.FullName, 'Open', 'Read', 'ReadWrite')
+                        try {
+                            $null = $stream.Seek([Math]::Max(0L, [int64]$tl.Length - 65536L), 'Begin')
+                            $reader = New-Object System.IO.StreamReader($stream)
+                            $content = $reader.ReadToEnd()
+                            $reader.Close()
+                        } finally { $stream.Dispose() }
+                    } else {
+                        $content = Get-Content -LiteralPath $tl.FullName -Raw -ErrorAction Stop
+                    }
+                } catch {
+                    Write-Output ("{0}: (read failed: {1})" -f $tl.FullName, $_.Exception.Message)
+                    continue
+                }
+                # Sidecar exit-code file (helm.stderr.log -> helm.rc, etc.)
+                $rcSidecar = [System.IO.Path]::ChangeExtension($tl.FullName, $null).TrimEnd('.') -replace '\.stderr$', '.rc'
+                $rcNote = ''
+                if (Test-Path -LiteralPath $rcSidecar) {
+                    $rcText = (Get-Content -LiteralPath $rcSidecar -Raw -ErrorAction SilentlyContinue)
+                    if ($null -ne $rcText) {
+                        $rcNote = " (last rc={0})" -f $rcText.Trim()
+                    }
+                }
+                $mtime = $tl.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ')
+                Write-Output ''
+                Write-Output ("--- {0}  ({1} bytes, mtime {2}){3}{4} ---" -f $tl.FullName, $tl.Length, $mtime, $sizeNote, $rcNote)
+                if ([string]::IsNullOrWhiteSpace($content)) {
+                    Write-Output '(empty)'
+                } else {
+                    Write-Output $content.TrimEnd()
+                }
             }
         }
     }
@@ -715,13 +1229,242 @@ try {
     }
     }
 
-    # ===== 11. LINUX HOST DETAIL =======================================
-    Invoke-DiagnosticSection "LINUX HOST DETAIL" {
-        if (-not $IsLinux) {
-            Write-Output "(skipped: not a Linux host)"
+    # ===== 11. HOST DETAIL =============================================
+    # Per-platform host facts plus the runner process tree (which is
+    # cross-platform). On a stuck cycle the process tree is the most
+    # actionable artifact in this section: it shows the runner pwsh's
+    # descendants (ssh.exe, virsh, vmconnect, ...) so the operator can
+    # tell whether the inner is wedged on a specific child vs spinning
+    # on its own logic.
+    Invoke-DiagnosticSection "HOST DETAIL" {
+
+        # ---- Runner process tree (all platforms) ----------------------
+        # Read the inner pwsh pid from $env:YURUNA_RUNTIME_DIR/inner.pid,
+        # falling back to runner.pid (outer's pid) if the inner isn't
+        # currently running. Walks descendants iteratively with a visited
+        # set so a process recycling its parent's pid can't loop us.
+        Write-Sub "Yuruna runner process tree (descendants of inner.pid / runner.pid)"
+        $runtimeDir = $env:YURUNA_RUNTIME_DIR
+        if (-not $runtimeDir) {
+            # Common default when Get-SystemDiagnostic is invoked outside
+            # a runner cycle. The status server publishes its own copy
+            # of the env var to its child pwsh; absent here, derive from
+            # script location.
+            $runtimeDir = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'test' -AdditionalChildPath 'status', 'track'
+        }
+        $rootPid = 0
+        $rootSource = ''
+        foreach ($candidate in @('inner.pid','runner.pid')) {
+            $candidateFile = Join-Path $runtimeDir $candidate
+            if (Test-Path -LiteralPath $candidateFile) {
+                try { $rootPid = [int]((Get-Content -LiteralPath $candidateFile -Raw -ErrorAction Stop).Trim()) } catch { $rootPid = 0 }
+                if ($rootPid -gt 0) { $rootSource = $candidate; break }
+            }
+        }
+        if ($rootPid -le 0) {
+            Write-Output "(no inner.pid or runner.pid under $runtimeDir -- runner not active or runtime dir undiscoverable)"
+        } elseif (-not (Get-Process -Id $rootPid -ErrorAction SilentlyContinue)) {
+            Write-Output "(pid $rootPid (from $rootSource) is not currently running -- runner has exited)"
+        } else {
+            Write-Output "Root pid: $rootPid (from $rootSource)"
+            # Build (pid -> {ppid, etime, pcpu, cmd}) map per platform.
+            $procMap = @{}
+            if ($IsWindows) {
+                try {
+                    # Win32_Process has Handle (=pid), ParentProcessId, CommandLine,
+                    # CreationDate. No wall-elapsed column -- compute it from
+                    # CreationDate. No %CPU -- approximate via UserModeTime+KernelModeTime.
+                    $allProcs = Get-CimInstance Win32_Process -ErrorAction Stop
+                    foreach ($p in $allProcs) {
+                        $etimeSec = $null
+                        if ($p.CreationDate) {
+                            try { $etimeSec = [int]((Get-Date) - $p.CreationDate).TotalSeconds } catch { $etimeSec = $null }
+                        }
+                        $procMap[[int]$p.ProcessId] = @{
+                            ppid  = [int]$p.ParentProcessId
+                            etime = $etimeSec
+                            cpu   = $null    # CIM doesn't expose pcpu; row formatter just shows '-'
+                            cmd   = [string]$p.CommandLine
+                        }
+                    }
+                } catch {
+                    Write-Output "(Get-CimInstance Win32_Process failed: $($_.Exception.Message))"
+                }
+            } elseif ($IsLinux -or $IsMacOS) {
+                # `-ww` forces unlimited column width so the cmd column
+                # isn't truncated to the terminal width (BSD ps default).
+                # Tab-separated columns avoid having to count spaces in
+                # the cmd field. ETIME is wall-clock since the process
+                # started in [[dd-]hh:]mm:ss; we leave it as the raw
+                # string for human readability.
+                try {
+                    $psLines = & '/bin/ps' -ww -axo 'pid=,ppid=,etime=,pcpu=,args=' 2>$null
+                    foreach ($line in $psLines) {
+                        $trim = ([string]$line).Trim()
+                        if (-not $trim) { continue }
+                        # Split on first 4 whitespace runs; rest is args.
+                        $parts = $trim -split '\s+', 5
+                        if ($parts.Count -lt 5) { continue }
+                        $procMap[[int]$parts[0]] = @{
+                            ppid  = [int]$parts[1]
+                            etime = $parts[2]
+                            cpu   = $parts[3]
+                            cmd   = $parts[4]
+                        }
+                    }
+                } catch {
+                    Write-Output "(ps -axo failed: $($_.Exception.Message))"
+                }
+            }
+            if ($procMap.Count -gt 0 -and $procMap.ContainsKey($rootPid)) {
+                # Iterative breadth-first walk with depth tracking. Children
+                # by ppid index built once for O(N) walk.
+                $childIdx = @{}
+                foreach ($entry in $procMap.GetEnumerator()) {
+                    $pp = $entry.Value.ppid
+                    if (-not $childIdx.ContainsKey($pp)) { $childIdx[$pp] = New-Object System.Collections.Generic.List[int] }
+                    $childIdx[$pp].Add([int]$entry.Key)
+                }
+                $stack   = [System.Collections.Generic.Stack[object]]::new()
+                $stack.Push(@{ pid = $rootPid; depth = 0 })
+                $visited = [System.Collections.Generic.HashSet[int]]::new()
+                Write-Output ("{0,-6} {1,-6} {2,-12} {3,-6}  CMD" -f 'PID','PPID','ETIME','CPU')
+                while ($stack.Count -gt 0) {
+                    $cur = $stack.Pop()
+                    $cpid = [int]$cur.pid
+                    if (-not $visited.Add($cpid)) { continue }
+                    if (-not $procMap.ContainsKey($cpid)) { continue }
+                    $info  = $procMap[$cpid]
+                    $indent = ('  ' * [int]$cur.depth)
+                    $etimeStr = if ($null -ne $info.etime) { ('{0}' -f $info.etime) } else { '-' }
+                    $cpuStr   = if ($null -ne $info.cpu)   { ('{0}' -f $info.cpu)   } else { '-' }
+                    $cmdLine  = ([string]$info.cmd)
+                    if ($cmdLine.Length -gt 240) { $cmdLine = $cmdLine.Substring(0, 240) + ' ...' }
+                    Write-Output ("{0,-6} {1,-6} {2,-12} {3,-6}  {4}{5}" -f $cpid, $info.ppid, $etimeStr, $cpuStr, $indent, $cmdLine)
+                    if ($childIdx.ContainsKey($cpid)) {
+                        # Push in reverse so the first child is popped first.
+                        $kids = $childIdx[$cpid]
+                        for ($i = $kids.Count - 1; $i -ge 0; $i--) {
+                            $stack.Push(@{ pid = $kids[$i]; depth = [int]$cur.depth + 1 })
+                        }
+                    }
+                }
+            } else {
+                Write-Output "(no process info collected -- runner pid $rootPid likely exited between probe and walk)"
+            }
+        }
+
+        if (-not ($IsLinux -or $IsMacOS -or $IsWindows)) {
+            Write-Output ""
+            Write-Output "(skipped per-platform detail: unknown OS)"
             return
         }
 
+        if ($IsWindows) {
+            # ---- Windows-specific facts -------------------------------
+            Write-Sub "Hyper-V VMs (if present)"
+            if (Test-CommandAvailable 'Get-VM') {
+                try {
+                    $vms = Get-VM -ErrorAction Stop | Select-Object Name, State, CPUUsage, MemoryAssigned, Uptime
+                    if ($vms) {
+                        $vms | Format-Table -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Output $_.TrimEnd() }
+                    } else {
+                        Write-Output "(no VMs registered with Hyper-V)"
+                    }
+                } catch {
+                    Write-Output "(Get-VM failed: $($_.Exception.Message); needs Hyper-V role + elevation)"
+                }
+            } else {
+                Write-Output "(Get-VM not available -- Hyper-V management tools not installed)"
+            }
+
+            Write-Sub "Listening sockets (Get-NetTCPConnection -State Listen, first 40)"
+            try {
+                $listen = Get-NetTCPConnection -State Listen -ErrorAction Stop |
+                    Select-Object LocalAddress, LocalPort, OwningProcess |
+                    Sort-Object LocalPort
+                if ($listen) {
+                    $listen | Select-Object -First 40 | Format-Table -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Output $_.TrimEnd() }
+                    if (@($listen).Count -gt 40) { Write-Output ("(... {0} more entries omitted)" -f (@($listen).Count - 40)) }
+                } else {
+                    Write-Output "(no listening sockets reported)"
+                }
+            } catch {
+                Write-Output "(Get-NetTCPConnection failed: $($_.Exception.Message))"
+            }
+
+            Write-Sub "Windows firewall profiles"
+            try {
+                Get-NetFirewallProfile -ErrorAction Stop |
+                    Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction |
+                    Format-Table -AutoSize | Out-String | ForEach-Object { Write-Output $_.TrimEnd() }
+            } catch {
+                Write-Output "(Get-NetFirewallProfile failed: $($_.Exception.Message))"
+            }
+
+            Write-Sub "Recent System log errors (last 1h, 25 most recent)"
+            try {
+                $sinceStart = (Get-Date).AddHours(-1)
+                $evts = Get-WinEvent -FilterHashtable @{ LogName='System'; Level=@(1,2); StartTime=$sinceStart } -MaxEvents 25 -ErrorAction Stop
+                if ($evts) {
+                    $evts | Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+                        Format-Table -AutoSize -Wrap | Out-String -Width 240 | ForEach-Object { Write-Output $_.TrimEnd() }
+                } else {
+                    Write-Output "(no System log errors/warnings in the last 1h)"
+                }
+            } catch {
+                Write-Output "(Get-WinEvent System failed: $($_.Exception.Message))"
+            }
+            return
+        }
+
+        if ($IsMacOS) {
+            # ---- macOS-specific facts ---------------------------------
+            Write-Sub "Default route + interfaces (netstat -nr | head; ifconfig brief)"
+            if (Test-CommandAvailable 'netstat') {
+                & netstat -nrf inet 2>$null | Select-Object -First 12 | ForEach-Object { Write-Output $_ }
+            }
+            if (Test-CommandAvailable 'ifconfig') {
+                & ifconfig 2>$null | Where-Object { $_ -match '^[a-z]|inet ' } | ForEach-Object { Write-Output $_ }
+            }
+
+            Write-Sub "DNS (scutil --dns | head -40)"
+            if (Test-CommandAvailable 'scutil') {
+                & scutil --dns 2>$null | Select-Object -First 40 | ForEach-Object { Write-Output $_ }
+            } else {
+                Write-Output "(scutil not in PATH)"
+            }
+
+            Write-Sub "Listening sockets (lsof -nP -iTCP -sTCP:LISTEN | head -40)"
+            if (Test-CommandAvailable 'lsof') {
+                & lsof -nP -iTCP -sTCP:LISTEN 2>$null | Select-Object -First 40 | ForEach-Object { Write-Output $_ }
+            } else {
+                Write-Output "(lsof not in PATH)"
+            }
+
+            Write-Sub "Virtualization stack (UTM/QEMU/utmctl)"
+            foreach ($cmd in @('utmctl','qemu-img','virsh')) {
+                if (Test-CommandAvailable $cmd) {
+                    Write-Output ("  {0}: $(& which $cmd 2>$null)" -f $cmd)
+                } else {
+                    Write-Output ("  {0}: (not in PATH)" -f $cmd)
+                }
+            }
+            if (Test-CommandAvailable 'utmctl') {
+                Write-Output ""
+                & utmctl list 2>$null | ForEach-Object { Write-Output $_ }
+            }
+
+            Write-Sub "Kernel ring buffer (dmesg -- needs root; otherwise sudo log show)"
+            if (Test-CommandAvailable 'log') {
+                # macOS unified log: pull errors/warnings from the last hour.
+                & log show --last 1h --predicate 'eventMessage contains[c] "error" OR eventMessage contains[c] "fail"' --info --debug 2>$null |
+                    Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
+            }
+            return
+        }
+
+        # ---- Linux-specific facts (unchanged below) -------------------
         Write-Sub "Netplan config (/etc/netplan/*.yaml)"
         $netplanFiles = @(Get-ChildItem -Path '/etc/netplan' -Filter '*.yaml' -File -ErrorAction SilentlyContinue)
         if ($netplanFiles.Count -eq 0) {
@@ -911,6 +1654,189 @@ try {
         }
     }
 
+    # ===== 11b. INSTALL & EARLY-BOOT TIMELINE (Linux) ==================
+    # Captures evidence the runtime-state sections cannot: what the
+    # autoinstall actually shipped, how subiquity/curtin progressed,
+    # whether cloud-init / systemd-networkd hit retries, and what the
+    # install boot's journal looked like. Motivating case: the
+    # `subiquity/Network/_send_update: CHANGE eth0` loop on
+    # host.windows.hyper-v -- the discriminating signal (RAs vs apt
+    # mirror retries vs hv_netvsc VF flap) only exists in
+    # /var/log/installer/subiquity-server-debug.log and the previous
+    # boot's journal, neither of which section 11 collects.
+    if ($IsLinux) {
+        Invoke-DiagnosticSection "INSTALL & EARLY-BOOT TIMELINE (Linux)" {
+            Write-Sub "/var/log/installer/ (dir listing)"
+            if (Test-Path '/var/log/installer') {
+                $instItems = @(Get-ChildItem -Path '/var/log/installer' -Force -ErrorAction SilentlyContinue | Sort-Object Name)
+                if ($instItems.Count -eq 0) {
+                    Write-Output "(directory exists but empty)"
+                } else {
+                    foreach ($it in $instItems) {
+                        $size = if ($it.PSIsContainer) { '<DIR>' } else { ("{0,10}" -f $it.Length) }
+                        Write-Output ("  {0}  {1}" -f $size, $it.Name)
+                    }
+                }
+            } else {
+                Write-Output "(no /var/log/installer -- not an Ubuntu Server / subiquity install, or logs were wiped)"
+            }
+
+            Write-Sub "/var/log/installer/autoinstall-user-data (full -- placeholders resolved)"
+            if (Test-Path '/var/log/installer/autoinstall-user-data') {
+                Get-Content -LiteralPath '/var/log/installer/autoinstall-user-data' -ErrorAction SilentlyContinue |
+                    ForEach-Object { Write-Output $_ }
+            } else {
+                Write-Output "(absent)"
+            }
+
+            Write-Sub "/var/log/installer/subiquity-server-debug.log (smoking-gun scan + tail 100)"
+            if (Test-Path '/var/log/installer/subiquity-server-debug.log') {
+                $sub = Get-Content -LiteralPath '/var/log/installer/subiquity-server-debug.log' -ErrorAction SilentlyContinue
+                $sendUpdate = @($sub | Where-Object { $_ -match '_send_update' })
+                $changeIfaces = @($sub | Where-Object { $_ -match 'CHANGE\s+(eth0|enp0s1|ens3|en0)' })
+                Write-Output ("_send_update lines: {0}" -f $sendUpdate.Count)
+                Write-Output ("CHANGE <iface>   : {0}" -f $changeIfaces.Count)
+                if ($sendUpdate.Count -ge 200) {
+                    Add-Problem ("INSTALL: subiquity _send_update fired {0} times -- network model is being re-emitted, classic CHANGE-loop signature (IPv6 RAs, mirror retry storm, or VF flap)." -f $sendUpdate.Count)
+                }
+                $mirrorRetry = @($sub | Where-Object { $_ -match 'Retrying|mirror.*retry|elect.*mirror|geoip' })
+                if ($mirrorRetry.Count -gt 0) {
+                    Write-Output ""
+                    Write-Output "Mirror-election / retry hits (first 20):"
+                    $mirrorRetry | Select-Object -First 20 | ForEach-Object { Write-Output $_ }
+                }
+                Write-Output ""
+                Write-Output "Tail (last 100 lines):"
+                $sub | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
+            } else {
+                Write-Output "(absent)"
+            }
+
+            Write-Sub "/var/log/installer/subiquity-curtin-install.log (retry scan + tail 80)"
+            if (Test-Path '/var/log/installer/subiquity-curtin-install.log') {
+                $curtin = Get-Content -LiteralPath '/var/log/installer/subiquity-curtin-install.log' -ErrorAction SilentlyContinue
+                $retries = @($curtin | Where-Object { $_ -match 'Retrying|retry|TimeoutError|ConnectionError|temporary failure' })
+                Write-Output ("Retry/Timeout/Connection-error lines: {0}" -f $retries.Count)
+                if ($retries.Count -ge 5) {
+                    Add-Problem ("INSTALL: curtin saw {0} retry/timeout/connection-error lines -- proxy or mirror was slow/unreachable; check apt block in autoinstall-user-data." -f $retries.Count)
+                    Write-Output "First 10 retry/error lines:"
+                    $retries | Select-Object -First 10 | ForEach-Object { Write-Output $_ }
+                }
+                Write-Output ""
+                Write-Output "Tail (last 80 lines):"
+                $curtin | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
+            } else {
+                Write-Output "(absent)"
+            }
+
+            Write-Sub "cloud-init status --long"
+            if (Test-CommandAvailable 'cloud-init') {
+                Invoke-Tool -Tool 'cloud-init' -ToolArgs @('status','--long')
+            } else {
+                Write-Output "(cloud-init not in PATH)"
+            }
+
+            Write-Sub "cloud-init analyze blame (top 20)"
+            if (Test-CommandAvailable 'cloud-init') {
+                $analyzeOut = & cloud-init analyze blame 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    $analyzeOut | Select-Object -First 25 | ForEach-Object { Write-Output $_ }
+                } else {
+                    Write-Output ("(cloud-init analyze blame exit {0})" -f $LASTEXITCODE)
+                }
+            }
+
+            Write-Sub "/run/cloud-init/result.json"
+            if (Test-Path '/run/cloud-init/result.json') {
+                Get-Content -LiteralPath '/run/cloud-init/result.json' -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
+            } else { Write-Output "(absent)" }
+
+            Write-Sub "/run/cloud-init/status.json"
+            if (Test-Path '/run/cloud-init/status.json') {
+                Get-Content -LiteralPath '/run/cloud-init/status.json' -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
+            } else { Write-Output "(absent)" }
+
+            Write-Sub "/var/log/cloud-init.log (tail 200)"
+            if (Test-Path '/var/log/cloud-init.log') {
+                Get-Content -LiteralPath '/var/log/cloud-init.log' -Tail 200 -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
+            } else { Write-Output "(absent)" }
+
+            Write-Sub "/var/log/cloud-init-output.log (tail 200)"
+            if (Test-Path '/var/log/cloud-init-output.log') {
+                Get-Content -LiteralPath '/var/log/cloud-init-output.log' -Tail 200 -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
+            } else { Write-Output "(absent)" }
+
+            Write-Sub "systemd-analyze time"
+            if (Test-CommandAvailable 'systemd-analyze') {
+                Invoke-Tool -Tool 'systemd-analyze' -ToolArgs @('time')
+                Write-Output ""
+                Write-Output "Blame (top 20):"
+                $blame = & systemd-analyze blame 2>$null
+                $blame | Select-Object -First 20 | ForEach-Object { Write-Output $_ }
+            } else {
+                Write-Output "(systemd-analyze not in PATH)"
+            }
+
+            Write-Sub "journalctl --list-boots"
+            if (Test-CommandAvailable 'journalctl') {
+                Invoke-Tool -Tool 'journalctl' -ToolArgs @('--list-boots','--no-pager')
+            } else { Write-Output "(journalctl not available)" }
+
+            Write-Sub "journalctl -b -1 -p warning --no-pager (PREVIOUS boot -- usually the install boot; head 60 + tail 60)"
+            if (Test-CommandAvailable 'journalctl') {
+                $prev = & journalctl -b -1 -p warning --no-pager 2>$null
+                if ($prev) {
+                    $prev | Select-Object -First 60 | ForEach-Object { Write-Output $_ }
+                    if ($prev.Count -gt 120) {
+                        Write-Output ("... ({0} middle lines omitted) ..." -f ($prev.Count - 120))
+                        $prev | Select-Object -Last 60 | ForEach-Object { Write-Output $_ }
+                    } elseif ($prev.Count -gt 60) {
+                        $prev | Select-Object -Skip 60 | ForEach-Object { Write-Output $_ }
+                    }
+                } else {
+                    Write-Output "(no previous boot, or no warning+ entries)"
+                }
+            }
+
+            Write-Sub "journalctl -b 0 -u systemd-networkd --no-pager (last 100)"
+            if (Test-CommandAvailable 'journalctl') {
+                $nw = & journalctl -b 0 -u systemd-networkd --no-pager 2>$null
+                if ($nw) {
+                    $nw | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
+                } else {
+                    Write-Output "(no systemd-networkd entries this boot)"
+                }
+            }
+
+            Write-Sub "networkctl status --all"
+            if (Test-CommandAvailable 'networkctl') {
+                Invoke-Tool -Tool 'networkctl' -ToolArgs @('status','--all','--no-pager')
+            } else { Write-Output "(networkctl not in PATH)" }
+
+            Write-Sub "ip -br link / ip -br addr"
+            if (Test-CommandAvailable 'ip') {
+                Invoke-Tool -Tool 'ip' -ToolArgs @('-br','link')
+                Write-Output ""
+                Invoke-Tool -Tool 'ip' -ToolArgs @('-br','addr')
+            }
+
+            Write-Sub "dmesg | grep -iE 'eth0|netvsc|hv_|carrier|link is|accept_ra|NEWLINK' (last 80 matches)"
+            if (Test-CommandAvailable 'dmesg') {
+                $dm = & dmesg -T 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    $hits = @($dm | Where-Object { $_ -match '(?i)eth0|netvsc|hv_|carrier|link is|accept_ra|NEWLINK' })
+                    if ($hits.Count -eq 0) {
+                        Write-Output "(no eth0/netvsc/carrier/RA lines in kernel ring buffer)"
+                    } else {
+                        $hits | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
+                    }
+                } else {
+                    Write-Output "(dmesg restricted -- rerun as root for kernel ring buffer)"
+                }
+            }
+        }
+    }
+
     # ===== 12. YURUNA PROJECT ==========================================
     Invoke-DiagnosticSection "YURUNA PROJECT" {
         $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
@@ -921,6 +1847,66 @@ try {
         if (-not $projectRoot) {
             Write-Output "(no project directory at $candidate -- run this script from a yuruna checkout to populate this section)"
             return
+        }
+        $yurunaRoot     = (Split-Path -Parent $PSScriptRoot)
+        $yurunaVerFile  = Join-Path -Path $yurunaRoot  -ChildPath 'VERSION'
+        $projectVerFile = Join-Path -Path $projectRoot -ChildPath 'VERSION'
+
+        function Get-RemoteOriginUrl {
+            param([Parameter(Mandatory)][string]$RepoPath)
+            if (Test-CommandAvailable 'git') {
+                try {
+                    $url = & git -C $RepoPath config --get remote.origin.url 2>$null
+                    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($url)) {
+                        return ([string]$url).Trim()
+                    }
+                } catch {
+                    Write-Verbose "Get-RemoteOriginUrl: git config failed for '$RepoPath' ($($_.Exception.Message)); trying sidecar."
+                }
+            }
+            # Tarball-extracted trees have no .git/, so fall back to the
+            # sidecar Start-StatusServer.ps1 injects via `git archive --add-file`.
+            $marker = Join-Path -Path $RepoPath -ChildPath '.yuruna-origin'
+            if (Test-Path -LiteralPath $marker) {
+                $line = Get-Content -LiteralPath $marker -TotalCount 1 -ErrorAction SilentlyContinue
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                    return ([string]$line).Trim()
+                }
+            }
+            return $null
+        }
+
+        $yurunaVersion  = $null
+        if (Test-Path -LiteralPath $yurunaVerFile) {
+            $firstLine = Get-Content -LiteralPath $yurunaVerFile -TotalCount 1 -ErrorAction SilentlyContinue
+            if ($null -ne $firstLine) { $yurunaVersion = ([string]$firstLine).Trim() }
+        }
+        if ([string]::IsNullOrWhiteSpace($yurunaVersion)) {
+            Write-Output "Yuruna version: (not found at $yurunaVerFile)"
+            Add-Problem "YURUNA: VERSION file missing or empty at $yurunaVerFile"
+        } else {
+            $yurunaOrigin = Get-RemoteOriginUrl -RepoPath $yurunaRoot
+            if ([string]::IsNullOrWhiteSpace($yurunaOrigin)) {
+                Write-Output "Yuruna version: $yurunaVersion"
+            } else {
+                Write-Output "Yuruna version: $yurunaVersion - $yurunaOrigin"
+            }
+        }
+        $projectVersion = $null
+        if (Test-Path -LiteralPath $projectVerFile) {
+            $firstLine = Get-Content -LiteralPath $projectVerFile -TotalCount 1 -ErrorAction SilentlyContinue
+            if ($null -ne $firstLine) { $projectVersion = ([string]$firstLine).Trim() }
+        }
+        if ([string]::IsNullOrWhiteSpace($projectVersion)) {
+            Write-Output "Project version: (not found at $projectVerFile)"
+            Add-Problem "YURUNA: project VERSION file missing or empty at $projectVerFile"
+        } else {
+            $projectOrigin = Get-RemoteOriginUrl -RepoPath $projectRoot
+            if ([string]::IsNullOrWhiteSpace($projectOrigin)) {
+                Write-Output "Project version: $projectVersion"
+            } else {
+                Write-Output "Project version: $projectVersion - $projectOrigin"
+            }
         }
         Write-Output "Project root: $projectRoot"
 
@@ -1090,7 +2076,187 @@ try {
         }
     }
 
-    # ===== 13. SUMMARY =================================================
+    # ===== 13. GAP HEURISTICS ==========================================
+    # Cross-section sanity checks. Each one catches a documented silent-
+    # failure mode where one phase wrote its artifacts but a downstream
+    # phase produced nothing -- the kind of incident where every section
+    # above looks fine in isolation but the cluster ended up empty. Run
+    # AFTER YURUNA PROJECT so we have the same projectRoot resolution; we
+    # also re-query helm/kubectl read-only so a stale variable from the
+    # KUBE section doesn't mislead.
+    Invoke-DiagnosticSection "GAP HEURISTICS" {
+        $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
+        $projectRoot = $null
+        if (Test-Path -LiteralPath $candidate) {
+            $projectRoot = (Resolve-Path -LiteralPath $candidate).Path
+        }
+        if (-not $projectRoot) {
+            Write-Output "(no project directory at $candidate -- skipping gap heuristics)"
+            return
+        }
+
+        $kubectlReady = ($null -ne (Get-Command 'kubectl' -ErrorAction SilentlyContinue)) -and (-not $SkipKube)
+        $helmReady    = $null -ne (Get-Command 'helm'    -ErrorAction SilentlyContinue)
+
+        # --- Heuristic 1: tofu.tfstate exists but helm has zero releases ---
+        # If Set-Resource (tofu) wrote state, the project intends to deploy
+        # something; if the matching workloads phase didn't produce a single
+        # helm release across ALL namespaces, the wrapper script most likely
+        # exited 0 without invoking Set-Workload (or Set-Workload silently
+        # short-circuited).
+        Write-Sub "Heuristic 1: tofu state without helm releases"
+        $tfStateFiles = @(Get-ChildItem -Path $projectRoot -Recurse -Filter 'tofu.tfstate' -File -ErrorAction SilentlyContinue)
+        $tfStateCount = $tfStateFiles.Count
+        if ($tfStateCount -eq 0) {
+            Write-Output "(no tofu.tfstate files under $projectRoot -- Set-Resource has not run; skipping)"
+        } elseif (-not $helmReady) {
+            Write-Output "($tfStateCount tofu.tfstate file(s) present but helm not in PATH; cannot check)"
+        } else {
+            $helmCount = 0
+            try {
+                $helmJson = & helm list -A -o json 2>$null
+                if ($null -ne $helmJson -and -not [string]::IsNullOrWhiteSpace($helmJson)) {
+                    $helmList = $helmJson | ConvertFrom-Json -ErrorAction SilentlyContinue
+                    if ($helmList) { $helmCount = @($helmList).Count }
+                }
+            } catch {
+                Write-Verbose ("helm list failed: {0}" -f $_.Exception.Message)
+            }
+            Write-Output ("tofu.tfstate files: {0}; helm releases (all namespaces): {1}" -f $tfStateCount, $helmCount)
+            if ($helmCount -eq 0) {
+                Add-Problem ("GAP: $tfStateCount tofu.tfstate file(s) present but helm has 0 releases across all namespaces -- the workloads phase appears to have been skipped or exited 0 without calling Set-Workload. Check the helm.stderr.log files above and the wrapper script's last lines.")
+            }
+        }
+
+        # --- Heuristic 2: resources.output.yml declares a namespace that
+        #     doesn't exist in the cluster ---
+        # globalVariables.namespace is the canonical Helm/kubectl target. If
+        # it's declared in any resources.output.yml but kubectl get ns
+        # doesn't list it, the workloads phase never ran `kubectl create
+        # namespace` (or it ran but errored). Symptom of the same class of
+        # silent failure as heuristic 1, but works even on projects that
+        # don't use helm.
+        Write-Sub "Heuristic 2: declared namespaces missing from cluster"
+        $outputFiles = @(Get-ChildItem -Path $projectRoot -Recurse -Filter 'resources.output.yml' -File -ErrorAction SilentlyContinue)
+        if ($outputFiles.Count -eq 0) {
+            Write-Output "(no resources.output.yml under $projectRoot -- skipping)"
+        } elseif (-not $kubectlReady) {
+            Write-Output "($($outputFiles.Count) resources.output.yml file(s) present but kubectl not in PATH; cannot check)"
+        } else {
+            $declaredNs = New-Object System.Collections.Generic.List[object]
+            foreach ($of in $outputFiles) {
+                try {
+                    $content = Get-Content -LiteralPath $of.FullName -Raw -ErrorAction Stop
+                } catch { continue }
+                # globalVariables.namespace lives two-space-indented under the
+                # globalVariables key in the synthesized output. Cheap regex
+                # avoids pulling in powershell-yaml just for one field.
+                $inGlobals = $false
+                foreach ($raw in ($content -split "`r?`n")) {
+                    if ($raw -match '^globalVariables:\s*$') { $inGlobals = $true; continue }
+                    if ($inGlobals -and $raw -match '^\S') { $inGlobals = $false; continue }
+                    if ($inGlobals -and $raw -match '^\s+namespace:\s*[''"]?([^''"\s]+)[''"]?\s*$') {
+                        $declaredNs.Add(@{ Name = $Matches[1]; File = $of.FullName })
+                    }
+                }
+            }
+            if ($declaredNs.Count -eq 0) {
+                Write-Output "(no globalVariables.namespace declarations found in any resources.output.yml)"
+            } else {
+                $clusterNs = @(& kubectl get ns -o name 2>$null | ForEach-Object { ($_ -replace '^namespace/','').Trim() } | Where-Object { $_ })
+                foreach ($d in $declaredNs) {
+                    if ($clusterNs -contains $d.Name) {
+                        Write-Output ("  namespace '{0}' declared in {1} -- present in cluster" -f $d.Name, $d.File)
+                    } else {
+                        Write-Output ("  namespace '{0}' declared in {1} -- MISSING from cluster" -f $d.Name, $d.File)
+                        Add-Problem ("GAP: namespace '$($d.Name)' declared in $($d.File) but does not exist in the cluster -- workloads phase never created it (helm install / kubectl create namespace did not run, or errored).")
+                    }
+                }
+            }
+        }
+
+        # --- Heuristic 3: nodes Ready but zero user-namespace pods ---
+        # Same shape as 1 + 2 but doesn't need any project context, so it
+        # catches a deploy-nothing-at-all failure even when resources.output
+        # .yml and tofu.tfstate are both missing. A fresh kubeadm cluster
+        # only ships kube-system + kube-flannel + kube-public + kube-node-
+        # lease; anything outside that set is "user content" we should see
+        # once Set-Workload / Set-Component land.
+        Write-Sub "Heuristic 3: cluster Ready but no user-namespace pods"
+        if (-not $kubectlReady) {
+            Write-Output "(kubectl not in PATH; cannot check)"
+        } else {
+            $readyNodes = @(& kubectl get nodes --no-headers 2>$null |
+                Where-Object { ($_ -split '\s+')[1] -match '^Ready' })
+            if ($readyNodes.Count -eq 0) {
+                Write-Output "(no Ready nodes -- cluster is not up; not a deploy gap, see KUBE section)"
+            } else {
+                $systemNs = @('default','kube-system','kube-public','kube-node-lease','kube-flannel','kube-proxy')
+                $userPods = @(& kubectl get pods -A --no-headers 2>$null |
+                    ForEach-Object {
+                        $cols = $_ -split '\s+'
+                        if ($cols.Count -ge 2 -and $systemNs -notcontains $cols[0]) { $_ }
+                    })
+                Write-Output ("Ready nodes: {0}; user-namespace pods: {1}" -f $readyNodes.Count, $userPods.Count)
+                if ($userPods.Count -eq 0) {
+                    Add-Problem ("GAP: cluster has $($readyNodes.Count) Ready node(s) but zero pods outside the system namespaces -- nothing has been deployed (workloads/components phase did not land).")
+                }
+            }
+        }
+
+        # --- Heuristic 4: image in local registry but no pod references it ---
+        # If Set-Component pushed an image to the localhost:5000 registry and
+        # nothing in the cluster is pulling it, either the workloads phase
+        # didn't run (covered by 1/3) or it ran but the chart's image ref
+        # doesn't match what was pushed (e.g. registryLocation rendered
+        # empty -- the "InvalidImageName" failure mode the chart template's
+        # `required` guardrail was added to catch). Either way, surfacing
+        # the mismatch helps narrow the diagnosis fast.
+        Write-Sub "Heuristic 4: local registry image not referenced by any pod"
+        if (-not $kubectlReady) {
+            Write-Output "(kubectl not in PATH; cannot check)"
+        } else {
+            $registryRepos = @()
+            try {
+                $probe = Invoke-WebRequest -Uri 'http://localhost:5000/v2/_catalog' -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+                if ($probe -and $probe.Content) {
+                    $catalog = $probe.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+                    if ($catalog -and $catalog.repositories) { $registryRepos = @($catalog.repositories) }
+                }
+            } catch {
+                Write-Verbose ("local registry probe failed: {0}" -f $_.Exception.Message)
+            }
+            if ($registryRepos.Count -eq 0) {
+                Write-Output "(no local registry at :5000 or its catalog is empty; nothing to cross-check)"
+            } else {
+                # Containers + initContainers + ephemeralContainers, all namespaces
+                $allImages = @(& kubectl get pods -A `
+                    -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"`n"}{end}{range .spec.initContainers[*]}{.image}{"`n"}{end}{range .spec.ephemeralContainers[*]}{.image}{"`n"}{end}{end}' 2>$null `
+                    -split "`n" | Where-Object { $_ })
+                $orphans = @()
+                foreach ($repo in $registryRepos) {
+                    # Pod image refs against localhost:5000 take the form
+                    # "localhost:5000/<repo>:<tag>" or sometimes
+                    # "<host>:5000/<repo>:<tag>" if the chart was rendered
+                    # with a non-localhost registryLocation. Match on the
+                    # /<repo>: substring so both shapes resolve.
+                    $needle = "/$repo`:"
+                    $matched = @($allImages | Where-Object { $_ -like "*$needle*" })
+                    if ($matched.Count -eq 0) {
+                        $orphans += $repo
+                        Write-Output ("  registry repo '{0}' -- NO pod references it" -f $repo)
+                    } else {
+                        Write-Output ("  registry repo '{0}' -- referenced by {1} container(s)" -f $repo, $matched.Count)
+                    }
+                }
+                if ($orphans.Count -gt 0) {
+                    Add-Problem ("GAP: $($orphans.Count) image(s) pushed to local registry but not referenced by any pod -- $($orphans -join ', '). The workloads phase either didn't deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml).")
+                }
+            }
+        }
+    }
+
+    # ===== 14. SUMMARY =================================================
     Write-Section "PROBLEMS DETECTED"
     if ($script:Problems.Count -eq 0) {
         Write-Output "(none)"

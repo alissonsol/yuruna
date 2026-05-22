@@ -14,7 +14,7 @@ Hardware floor (enforced by `host/macos.utm/guest.macos.26/New-VM.ps1`):
   guests' host scripts already depend on).
 * Apple Silicon **M4** or later. macOS guests technically run on M1+,
   but Yuruna pins to M4+ to keep one chip floor across the macos.utm
-  guest set — `guest.ubuntu.server` and friends already require M3+
+  guest set — `guest.ubuntu.server.24` and friends already require M3+
   for nested virt, and aligning at M4+ avoids "works for OS guest X but
   not OS guest Y on the same host" support matrices.
 * UTM 4.6 or later (Apple backend, `ConfigurationVersion 4`).
@@ -39,6 +39,10 @@ For now the supported workflow is:
 `macos.26.update.sh` runs `softwareupdate -i -a` and is intended for
 the eventual workload step that runs *after* an operator-provisioned
 guest is online; it is not invoked by `New-VM.ps1`.
+
+The `code`, `k8s`, `n8n`, `openclaw`, and `postgresql` workloads are
+intentionally out of scope for the macOS 26 guest; use the Ubuntu Server
+or Amazon Linux 2023 guests for those workloads.
 
 Back to [Yuruna](../../README.md).
 

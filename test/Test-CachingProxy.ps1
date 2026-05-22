@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Smoke-tests a squid-cache (local or remote) before Invoke-TestRunner.
     Probes :3128, :3129, :80, :3000 and GETs /yuruna-squid-ca.crt, PASS/
-    FAIL/WARN per check. See test/CachingProxy.md for the full story.
+    FAIL/WARN per check. See docs/caching-proxy.md for the full story.
     Falls back to local discovery when $Env:YURUNA_CACHING_PROXY_IP and
     -CacheIp are unset.
 
@@ -50,6 +50,10 @@ $global:ProgressPreference    = "SilentlyContinue"
 # block at "$httpPort = Get-CachingProxyPort -Scheme http" fails with
 # "Get-CachingProxyPort is not recognized" whenever the cache IP is given.
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.VM.common.psm1') -DisableNameChecking
+# Invoke-CachingProxyProbe lives in Test.CachingProxy.psm1 and is the
+# shared cache-side probe also used by the cycle-start gate in
+# Invoke-TestInnerRunner.ps1.
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -DisableNameChecking
 
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
 # group set is stale -- the local-discovery branch (no -CacheIp / env
@@ -66,24 +70,6 @@ $script:WarnCount = 0
 function Write-Pass { param([string]$msg) Write-Output "  [PASS] $msg"; $script:PassCount++ }
 function Write-Fail { param([string]$msg) Write-Output "  [FAIL] $msg"; $script:FailCount++ }
 function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
-
-function Test-TcpPort {
-    param(
-        [Parameter(Mandatory)][string]$IpAddress,
-        [Parameter(Mandatory)][int]$Port,
-        [int]$TimeoutMs = 1500
-    )
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    try {
-        $async = $tcp.BeginConnect($IpAddress, $Port, $null, $null)
-        return ($async.AsyncWaitHandle.WaitOne($TimeoutMs) -and $tcp.Connected)
-    } catch {
-        Write-Verbose "Test-TcpPort ${IpAddress}:${Port} failed: $($_.Exception.Message)"
-        return $false
-    } finally {
-        $tcp.Close()
-    }
-}
 
 # === Resolve the cache IP ===============================================
 # Priority: -CacheIp parameter > $Env:YURUNA_CACHING_PROXY_IP > local
@@ -141,66 +127,22 @@ if ($CacheIp) {
 Write-Output "  Target: $resolvedIp  (source: $resolvedFrom)"
 Write-Output ""
 
-# === Port probes ========================================================
-# Treat :80 as WARN rather than FAIL — a cache without :80 exposed still
-# serves HTTP caching, just not HTTPS (no CA distribution). :3128 / :3129 /
-# :3000 are harder requirements: :3128 must answer for the runner to
-# consider the cache "detected", :3129 is needed for HTTPS body caching,
-# :3000 is the dashboard every other caller links to.
+# === Port probes + CA cert fetch =======================================
+# Shared with the cycle-start gate in Invoke-TestInnerRunner.ps1 via
+# Invoke-CachingProxyProbe in Test.CachingProxy.psm1 -- both callers see
+# the same PASS/WARN/FAIL classification:
+#   :3128 / :3129 / :3000 -- FAIL on unreachable (hard requirements)
+#   :80, CA cert          -- WARN (HTTPS caching disabled on guests but
+#                            HTTP still works)
+# Lines and counters are folded back into this script's $script:* state
+# so the Summary line and exit code keep their pre-refactor semantics.
 
-$httpPort  = Get-CachingProxyPort -Scheme http
-$httpsPort = Get-CachingProxyPort -Scheme https
-$ports = @(
-    @{ Port = $httpPort;  Name = 'Squid HTTP proxy';       Level = 'FAIL' }
-    @{ Port = $httpsPort; Name = 'Squid ssl-bump (HTTPS)';  Level = 'FAIL' }
-    @{ Port = 80;         Name = 'Apache (CA cert)';        Level = 'WARN' }
-    @{ Port = 3000;       Name = 'Grafana dashboard';       Level = 'FAIL' }
-)
-foreach ($p in $ports) {
-    $label = "{0,-5} ({1})" -f $p.Port, $p.Name
-    if (Test-TcpPort -IpAddress $resolvedIp -Port $p.Port) {
-        Write-Pass "TCP :$label"
-    } elseif ($p.Level -eq 'WARN') {
-        Write-Warn "TCP :$label — not reachable (HTTPS caching will be disabled on guests, HTTP unaffected)"
-    } else {
-        Write-Fail "TCP :$label — not reachable"
-    }
-}
-
-# === CA cert fetch ======================================================
-# Only meaningful if :80 is up. We fetch the whole cert (a few KB), parse
-# it as an X.509 to confirm it's really a certificate — catches the case
-# where Apache is answering but serving its default index instead of the
-# ca.pem we copied into /var/www/html. Fetch failure is a WARN because,
-# again, HTTP caching still works; only HTTPS body caching breaks.
-
-$caUrl = "http://$(Format-IpUrlHost $resolvedIp)/yuruna-squid-ca.crt"
-try {
-    # -NoProxy: we're fetching the cache's own Apache on :80. If the host
-    # already has a proxy configured (including a stale yuruna one from a
-    # prior cycle), routing this request through it would either loop or
-    # fail against a dead endpoint -- the .42 fetch getting tunneled via a
-    # leftover .63:3128 setting is exactly how this bug was spotted.
-    $resp = Invoke-WebRequest -Uri $caUrl -UseBasicParsing -NoProxy -TimeoutSec 5 -ErrorAction Stop
-    if ($resp.StatusCode -eq 200 -and $resp.RawContentLength -gt 0) {
-        $raw = if ($resp.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($resp.Content) } else { [string]$resp.Content }
-        if ($raw -match '-----BEGIN CERTIFICATE-----' -and $raw -match '-----END CERTIFICATE-----') {
-            # Try parsing — catches "looks PEM-shaped but is actually corrupt".
-            try {
-                $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([System.Text.Encoding]::UTF8.GetBytes($raw))
-                Write-Pass "CA cert $caUrl -> $($cert.Subject) (expires $($cert.NotAfter.ToString('yyyy-MM-dd')))"
-            } catch {
-                Write-Warn "CA cert $caUrl returned PEM-looking bytes but X509 parse failed: $($_.Exception.Message)"
-            }
-        } else {
-            Write-Warn "CA cert $caUrl returned $($raw.Length) bytes but no BEGIN/END CERTIFICATE markers found."
-        }
-    } else {
-        Write-Warn "CA cert $caUrl returned HTTP $($resp.StatusCode) with $($resp.RawContentLength) bytes."
-    }
-} catch {
-    Write-Warn "CA cert $caUrl fetch failed: $($_.Exception.Message)"
-}
+$probe = Invoke-CachingProxyProbe -CacheIp $resolvedIp
+foreach ($line in $probe.Lines) { Write-Output $line }
+$script:PassCount += $probe.PassCount
+$script:WarnCount += $probe.WarnCount
+$script:FailCount += $probe.FailCount
+$httpPort  = $probe.HttpPort
 
 # === Host system-proxy check ===========================================
 # A stale system proxy (e.g. a previous Start-CachingProxy.ps1 -PromoteToHost

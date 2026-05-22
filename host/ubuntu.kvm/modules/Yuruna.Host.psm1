@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,8 +49,8 @@ Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force
 # and the per-guest Get-Image.ps1 scripts in agreement. A typo or new guest
 # fails loud here instead of silently composing the wrong path.
 $script:ImagePathTable = @{
-    'guest.amazon.linux'  = "$HOME/yuruna/image/amazon.linux/host.ubuntu.kvm.guest.amazon.linux.qcow2"
-    'guest.ubuntu.server' = "$HOME/yuruna/image/ubuntu.env/host.ubuntu.kvm.guest.ubuntu.server.iso"
+    'guest.amazon.linux.2023'  = "$HOME/yuruna/image/amazon.linux.2023/host.ubuntu.kvm.guest.amazon.linux.2023.qcow2"
+    'guest.ubuntu.server.24' = "$HOME/yuruna/image/ubuntu.env/host.ubuntu.kvm.guest.ubuntu.server.24.iso"
     'guest.windows.11'    = "$HOME/yuruna/image/windows.11/host.ubuntu.kvm.guest.windows.11.iso"
 }
 
@@ -96,7 +96,10 @@ function New-VM {
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
-        [string]$CachingProxyUrl
+        [string]$CachingProxyUrl,
+        # Planner-cascaded username override; forwarded only when the
+        # per-guest script declares -Username (introspected below).
+        [string]$Username
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) {
         return @{ success = $false; errorMessage = 'WhatIf' }
@@ -106,19 +109,27 @@ function New-VM {
         return @{ success = $false; errorMessage = "New-VM.ps1 not found at: $scriptPath" }
     }
     $childArgs = @('-VMName', $VMName)
-    $scriptAcceptsProxy = $false
+    $scriptAcceptsProxy    = $false
+    $scriptAcceptsUsername = $false
     try {
         $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
-        $scriptAcceptsProxy = [bool]($cmdInfo.Parameters -and $cmdInfo.Parameters.ContainsKey('CachingProxyUrl'))
+        if ($cmdInfo.Parameters) {
+            $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyUrl')
+            $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
+        }
     } catch {
-        $scriptAcceptsProxy = $false
+        $scriptAcceptsProxy    = $false
+        $scriptAcceptsUsername = $false
     }
     if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
         $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
-        Write-Verbose "Running: $scriptPath -VMName $VMName -CachingProxyUrl '$CachingProxyUrl'"
-    } else {
-        Write-Verbose "Running: $scriptPath -VMName $VMName"
     }
+    if ($PSBoundParameters.ContainsKey('Username') -and $Username -and $scriptAcceptsUsername) {
+        $childArgs += @('-Username', $Username)
+    } elseif ($PSBoundParameters.ContainsKey('Username') -and $Username -and -not $scriptAcceptsUsername) {
+        Write-Verbose "Cascaded -Username '$Username' NOT forwarded: $scriptPath does not declare a -Username parameter."
+    }
+    Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
     $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) {
@@ -270,6 +281,195 @@ function Get-VMState {
         '^(idle|pmsuspended)$'      { return 'stopped' }
         default                     { return 'unknown' }
     }
+}
+
+<#
+.SYNOPSIS
+    Rename a stopped libvirt domain and relocate its on-disk artifacts.
+.DESCRIPTION
+    libvirt 1.2.19+ ships `virsh domrename` which mutates the domain
+    name atomically in the registry; that's the fast path. We follow up
+    by renaming the per-VM artifact directory (~/yuruna/vms/<old> ->
+    ~/yuruna/vms/<new>) and rewriting the XML's <disk source file=...>
+    paths to point at the new dir, then re-defining the domain so the
+    new XML is canonical. Without the dir+XML rewrite the qcow2 still
+    lives under the old path and the next cycle's
+    Remove-OrphanedVMFiles.ps1 would reclaim it on the
+    "directory-named-after-an-absent-VM" heuristic.
+
+    Requires the domain to be stopped; the caller (Save-VMDiskSnapshot)
+    handles the stop. Returns $false on any sub-step failure.
+#>
+function Rename-VM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$NewName
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Rename to '$NewName' and relocate storage")) { return $false }
+    if ($VMName -eq $NewName) { return $true }
+    if ((Get-VMState -VMName $VMName) -eq 'absent') {
+        Write-Warning "Rename-VM: source domain '$VMName' not defined."
+        return $false
+    }
+    if ((Get-VMState -VMName $NewName) -ne 'absent') {
+        Write-Warning "Rename-VM: destination name '$NewName' already exists."
+        return $false
+    }
+    # virsh domrename is libvirt >= 1.2.19; ubuntu 18.04+ has it. We do
+    # not implement the older dumpxml/undefine/define fallback because
+    # the supported KVM baseline (ubuntu.server.24/26) ships >= 9.x.
+    Invoke-Virsh -VirshArgs @('domrename', $VMName, $NewName) 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Rename-VM: virsh domrename '$VMName' -> '$NewName' failed."
+        return $false
+    }
+    # Move the per-VM artifact dir. The qcow2 and seed.iso inside still
+    # carry the old basename; rename them too so the on-disk layout is
+    # self-consistent (handy when an operator goes looking with `ls`).
+    $oldDir = Join-Path $script:VmRootDir $VMName
+    $newDir = Join-Path $script:VmRootDir $NewName
+    if (Test-Path -LiteralPath $oldDir) {
+        try {
+            Rename-Item -LiteralPath $oldDir -NewName $NewName -ErrorAction Stop
+        } catch {
+            Write-Warning "Rename-VM: domain renamed to '$NewName' but moving '$oldDir' -> '$newDir' failed: $($_.Exception.Message). Domain XML still references old paths; restore-snapshot may fail."
+            return $false
+        }
+        foreach ($f in (Get-ChildItem -LiteralPath $newDir -File -ErrorAction SilentlyContinue)) {
+            if ($f.Name -like "$VMName*") {
+                $renamed = $NewName + $f.Name.Substring($VMName.Length)
+                try { Rename-Item -LiteralPath $f.FullName -NewName $renamed -ErrorAction Stop }
+                catch { Write-Warning "Rename-VM: could not rename '$($f.FullName)' -> '$renamed' ($($_.Exception.Message))." }
+            }
+        }
+    }
+    # Rewrite XML disk paths. virsh domrename only touches <name>; disk
+    # sources still point at the old dir + old basename. dumpxml ->
+    # sed-replace -> define is the idiomatic libvirt way; we keep the
+    # destination scope narrow by only replacing $oldDir occurrences.
+    $xml = Invoke-Virsh -VirshArgs @('dumpxml', $NewName)
+    if ($LASTEXITCODE -eq 0 -and $xml) {
+        $xmlText = ($xml -join "`n")
+        # Replace path AND the leaf basename when it was derived from $VMName.
+        # The escape on $oldDir is so a name with regex metachars (unlikely
+        # but possible: '.' in 'ubuntu.server.24' is fine literal but a
+        # plain Replace is safer than a regex here).
+        $newXmlText = $xmlText.Replace($oldDir, $newDir).Replace("$VMName.", "$NewName.")
+        if ($newXmlText -ne $xmlText) {
+            $tmpXml = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-rename-{0}.xml" -f [Guid]::NewGuid())
+            try {
+                Set-Content -LiteralPath $tmpXml -Value $newXmlText -Encoding utf8 -NoNewline -Force
+                Invoke-Virsh -VirshArgs @('define', $tmpXml) 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warning "Rename-VM: virsh define with rewritten XML failed; domain renamed but disk paths still point at old dir."
+                    return $false
+                }
+            } finally {
+                Remove-Item -LiteralPath $tmpXml -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Save a disk-only snapshot of the VM, then rename the VM (and
+    relocate its storage) so it persists across test-cycle cleanup.
+.DESCRIPTION
+    Uses libvirt's `virsh snapshot-create-as --atomic` against an
+    offline domain. With the guest stopped there is no runtime state
+    to capture, so the snapshot is purely a disk-level point. The
+    --atomic flag rolls back partially-created snapshots on failure.
+
+    After a successful snapshot, the domain is renamed to $Id (via
+    Rename-VM, which also relocates ~/yuruna/vms/<old> -> .../<Id>
+    and rewrites the XML disk sources) so the next cycle's
+    Remove-TestVMFiles.ps1 leaves the persisted domain alone.
+#>
+function Save-VMDiskSnapshot {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Save disk snapshot '$Id' and rename to '$Id'")) { return $false }
+    if ((Get-VMState -VMName $VMName) -eq 'running') {
+        if (-not (Stop-VM -VMName $VMName)) {
+            [void](Stop-VMForce -VMName $VMName)
+        }
+    }
+    # Idempotent overwrite: drop any prior snapshot with the same name
+    # before creating a new one. Failure here (no such snapshot) is
+    # expected on the common path and intentionally ignored.
+    Invoke-Virsh -VirshArgs @('snapshot-delete', $VMName, '--snapshotname', $Id) 2>&1 | Out-Null
+    $out = Invoke-Virsh -VirshArgs @('snapshot-create-as', '--domain', $VMName, '--name', $Id, '--atomic')
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Save-VMDiskSnapshot: virsh snapshot-create-as failed for '$VMName/$Id': $($out -join '; ')"
+        return $false
+    }
+    if ($VMName -ne $Id) {
+        if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
+            Write-Warning "Save-VMDiskSnapshot: snapshot '$Id' saved but rename '$VMName' -> '$Id' failed; domain will be wiped on next cycle cleanup."
+            return $false
+        }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Revert the VM to a previously saved disk-only snapshot. VM is
+    stopped first if running and left stopped on return.
+#>
+<#
+.SYNOPSIS
+    Returns $true when snapshot $Id is present on $VMName, $false
+    otherwise (including when the domain does not exist). Used by
+    Test-Sequence.ps1's requiresSnapshot warm-path probe before
+    deciding whether to walk the baseline chain.
+#>
+function Test-VMDiskSnapshot {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if ((Get-VMState -VMName $VMName) -eq 'absent') { return $false }
+    Invoke-Virsh -VirshArgs @('snapshot-info', '--domain', $VMName, '--snapshotname', $Id) 2>&1 | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Restore-VMDiskSnapshot {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Restore disk snapshot '$Id'")) { return $false }
+    # Verify the snapshot exists before stopping the VM, so a typo'd Id
+    # doesn't bounce a healthy guest for nothing.
+    Invoke-Virsh -VirshArgs @('snapshot-info', '--domain', $VMName, '--snapshotname', $Id) 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Restore-VMDiskSnapshot: no snapshot '$Id' on '$VMName'."
+        return $false
+    }
+    if ((Get-VMState -VMName $VMName) -eq 'running') {
+        if (-not (Stop-VM -VMName $VMName)) {
+            [void](Stop-VMForce -VMName $VMName)
+        }
+    }
+    $out = Invoke-Virsh -VirshArgs @('snapshot-revert', '--domain', $VMName, '--snapshotname', $Id)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Restore-VMDiskSnapshot: virsh snapshot-revert failed for '$VMName/$Id': $($out -join '; ')"
+        return $false
+    }
+    return $true
 }
 
 <#
@@ -684,7 +884,7 @@ function Get-YurunaDefaultRouteIface {
     if ($LASTEXITCODE -ne 0 -or -not $jsonLines) { return $null }
     try {
         $routes = ($jsonLines -join "`n") | ConvertFrom-Json -ErrorAction Stop
-    } catch { return $null }
+    } catch { $null = $_; return $null }
     $first = @($routes) | Where-Object { $_.dev } | Select-Object -First 1
     if (-not $first) { return $null }
     return [string]$first.dev
@@ -2031,7 +2231,8 @@ function Get-SshServerStatus {
 # === Exports ================================================================
 
 Export-ModuleMember -Function `
-    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Get-VMState, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `
+    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `

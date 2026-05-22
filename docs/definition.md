@@ -17,8 +17,8 @@ text, strip everything that isn't `[a-z0-9_ -]`, then replace spaces
 with hyphens. So `### Defining the two-source scheme` becomes
 `#defining-the-two-source-scheme`.
 
-This file is the sibling of [`memory.md`](memory.md) (for historical /
-incident rationale) and of [`host/vmconfig.md`](../host/vmconfig.md)
+This file is the sibling of [Yuruna memory](memory.md) (for historical /
+incident rationale) and of [vmconfig topic reference](vmconfig.md)
 (for `user-data` topic rationale). The same `# --- See` convention is
 used in all three.
 
@@ -195,8 +195,8 @@ Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 ### Defining the two-source scheme for framework and project URLs
 
 Guest scripts that need to clone the yuruna framework and/or the
-project repo (e.g. `ubuntu.server.update.sh`, `amazon.linux.update.sh`,
-`ubuntu.server.workload.k8s.website.sh`) follow a uniform two-source
+project repo (e.g. `ubuntu.server.24.update.sh`, `amazon.linux.2023.update.sh`,
+`ubuntu.server.24.workload.k8s.website.sh`) follow a uniform two-source
 scheme so framework + project URLs are NOT duplicated across guest
 scripts:
 
@@ -219,8 +219,8 @@ to.
 Sources (every guest script that needs framework/project repos
 re-implements this same scheme):
 
-- [`guest/ubuntu.server/ubuntu.server.update.sh`](../guest/ubuntu.server/ubuntu.server.update.sh)
-- [`guest/amazon.linux/amazon.linux.update.sh`](../guest/amazon.linux/amazon.linux.update.sh)
+- [`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh)
+- [`guest/amazon.linux.2023/amazon.linux.2023.update.sh`](../guest/amazon.linux.2023/amazon.linux.2023.update.sh)
 - Per-workload guest scripts in the yuruna-project tree (e.g.
   `project/example/website/...`) repeat the same shape.
 
@@ -267,7 +267,7 @@ Source:
 
 ### Defining containerd hosts.toml cache mirror
 
-The guest's `ubuntu.server.k8s.sh` reconfigures containerd to:
+The guest's `ubuntu.server.24.k8s.sh` reconfigures containerd to:
 
 1. **Enable the CRI plugin** (disabled by default in the
    `containerd.io` package).
@@ -288,7 +288,7 @@ workload pulling from those will also flow through cache on the first
 hit.
 
 Source:
-[`guest/ubuntu.server/ubuntu.server.k8s.sh`](../guest/ubuntu.server/ubuntu.server.k8s.sh).
+[`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`](../guest/ubuntu.server.24/ubuntu.server.24.k8s.sh).
 
 ---
 
@@ -321,7 +321,7 @@ incident-driven design rationale for specific checks (see
   the inner exception's `PositionMessage` (file:line:col so the line
   is jumpable from the console), and falls through to the next
   section. Rationale in
-  [memory.md](memory.md#why-get-systemdiagnostic-wraps-each-section-in-invoke-diagnosticsection).
+  [Yuruna memory](memory.md#why-get-systemdiagnostic-wraps-each-section-in-invoke-diagnosticsection).
 - **`Invoke-Tool`** — runs a native command and streams stdout +
   stderr. Returns nothing (output streams to the parent). Logs a
   problem on non-zero exit so the summary catches missing / broken
@@ -356,7 +356,7 @@ blowing up on `-f` format. `$cores` is defaulted to 0 so the
 `loadavg` branch has a sane denominator. `@(...)` wraps the
 processor-line count so `.Count` is always an int. Failure-mode
 rationale in
-[memory.md](memory.md#why-the-cpu-section-guards-against-proccpuinfo-automationnull).
+[Yuruna memory](memory.md#why-the-cpu-section-guards-against-proccpuinfo-automationnull).
 
 **3. MEMORY** — Linux iterates `/proc/meminfo` with a literal
 `foreach` rather than `$mi -match '...'` because the latter is filter
@@ -409,7 +409,7 @@ Deployments, excluding the k8s built-ins `default`, `kube-system`,
 `kubectl port-forward` runs as a host process — `Win32_Process` on
 Windows, `/bin/ps` on Unix — because it's not a cluster resource.
 Failure-mode rationale for helm + empty-namespace flagging in
-[memory.md](memory.md#why-get-systemdiagnostic-flags-helm-releases-not-in-deployedsuperseded-states).
+[Yuruna memory](memory.md#why-get-systemdiagnostic-flags-helm-releases-not-in-deployedsuperseded-states).
 
 **11. LINUX HOST DETAIL** — Linux-only deep dive. Networking
 blueprint (netplan, `/etc/resolv.conf`, `/etc/hosts`, resolvectl /
@@ -420,7 +420,7 @@ lines + full-ring OOM and hardware-error scan); virtualization
 kernel modules (`lsmod` filtered to KVM / virtio / Hyper-V / VMware
 / VirtualBox / Xen prefixes); `journalctl -xe` last 100 lines with
 PowerShell `ScriptBlock_Compile_Detail` entries redacted (see
-[memory.md](memory.md#why-the-journalctl-sample-redacts-get-systemdiagnostics-own-script-echo));
+[Yuruna memory](memory.md#why-the-journalctl-sample-redacts-get-systemdiagnostics-own-script-echo));
 container runtime journals for docker / containerd / kubelet (last
 100 warning+ since 6 h ago); CNI plugin presence under
 `/opt/cni/bin/` and config under `/etc/cni/net.d/`. Each sub-section
@@ -460,10 +460,10 @@ hours later:
   - **Identifier denylist**: PowerShell preference variables
     (`ErrorAction*`), helm/k8s threshold knobs (`failureThreshold*`),
     log-level constants (`WarningLevel*`). Denylist mechanism is in
-    [memory.md](memory.md#why-the-yuruna-grep-filters-trigger-word-identifiers-via-a-denylist).
+    [Yuruna memory](memory.md#why-the-yuruna-grep-filters-trigger-word-identifiers-via-a-denylist).
 - **(c) Recent cycle footprint** — top-100 most recently modified
   files under any `.yuruna/`, with mtime + size. See
-  [memory.md](memory.md#why-the-diagnostic-shows-recent-yuruna-file-mtime-as-cycle-footprint)
+  [Yuruna memory](memory.md#why-the-diagnostic-shows-recent-yuruna-file-mtime-as-cycle-footprint)
   for the design rationale.
 
 Path is resolved from `$PSScriptRoot` (the `automation/` folder) so
@@ -471,7 +471,7 @@ the section works regardless of where the operator launched pwsh.
 
 **13. SUMMARY** — list of problems detected. Intentionally OUTSIDE
 `Invoke-DiagnosticSection` — see
-[memory.md](memory.md#why-summary-is-outside-invoke-diagnosticsection).
+[Yuruna memory](memory.md#why-summary-is-outside-invoke-diagnosticsection).
 `Stop-Transcript` failures in the cleanup `finally` are swallowed
 (best-effort tee for the operator; we don't want a transient
 transcript error to drown the dump in red text).
@@ -527,9 +527,178 @@ still be ≥ 4 or `New-VM.ps1` exits with the same error.
 
 Source files (each implements the policy in line):
 
-- `host/macos.utm/guest.<amazon.linux|ubuntu.server|windows.11|squid-cache|macos.26>/New-VM.ps1`
-- `host/windows.hyper-v/guest.<amazon.linux|ubuntu.server|windows.11|squid-cache>/New-VM.ps1`
-- `host/ubuntu.kvm/guest.<amazon.linux|ubuntu.server|windows.11|squid-cache>/New-VM.ps1`
+- `host/macos.utm/guest.<amazon.linux.2023|ubuntu.server.24|windows.11|squid-cache|macos.26>/New-VM.ps1`
+- `host/windows.hyper-v/guest.<amazon.linux.2023|ubuntu.server.24|windows.11|squid-cache>/New-VM.ps1`
+- `host/ubuntu.kvm/guest.<amazon.linux.2023|ubuntu.server.24|windows.11|squid-cache>/New-VM.ps1`
+
+---
+
+## Status pages (UI)
+
+### Defining the status-page browser baseline
+
+The Yuruna status pages (`test/status/index.html`,
+`test/status/test.config.html`, and any future page mounted under
+`test/status/`) are written so they render correctly on Safari iOS
+9.x as well as current browsers. iOS 9.0–9.2 ship an ES5-only
+JavaScript parser and a partial CSS implementation; supporting them
+rules out:
+
+- **JavaScript:** ES2015+ syntax (arrow functions, template literals,
+  `async`/`await`, destructuring, optional chaining, nullish
+  coalescing, default params, spread/rest, `for-of` with `const`).
+  Wrap each page's code in an IIFE to keep helpers off the global
+  object.
+- **CSS:** the `inset` shorthand (iOS 14.5+), flex `gap` (iOS 14.5+),
+  grid `gap` (iOS 10.3+), CSS Grid (iOS 10.3+), and CSS custom
+  properties / variables (iOS 9.3+). Use margins, explicit
+  `top/right/bottom/left`, and flex-wrap instead.
+- **DOM API:** `KeyboardEvent.key` landed in iOS 10.3 — read `.key`,
+  fall through to `.keyCode` (`27 == Escape`) and `.which`. Use the
+  bracket form `['catch'](...)` on promises because iOS 9.0–9.2
+  strict-mode parsers still treat `catch` as reserved in member
+  position.
+
+`fetch` is shimmed inside
+[`test/status/yuruna.common.js`](../test/status/yuruna.common.js) for
+browsers that lack it; native fetch on every other browser is left
+untouched.
+
+### Defining the status-page cache policy
+
+Every `.html` response from `Start-StatusServer.ps1` carries
+`Cache-Control: public, max-age=60, must-revalidate`, and each HTML
+file includes a matching `<meta http-equiv="Cache-Control">` tag.
+Operators often browse the status page through a shared squid-cache
+(`Test-CachingProxy -SetHostProxy`, corp proxy, etc.); without a
+cache window the dashboard re-fetched on every navigation/poll, but
+the prior `no-store` header was leaking stale content through some
+intermediary clients. `max-age=60 + must-revalidate` bounds staleness
+at 60 s — on next access after that, the client must revalidate (the
+server returns 200 with the current body; ETag / If-Modified-Since
+matching is not issued). The meta tag is the belt to that brace,
+covering intermediaries that forward HTTP headers but not every
+client path.
+
+Other extensions (`.json`, `.txt`, `.css`, `.js`, `.sh`, `.ps1`,
+`.psm1`, `.yml`, `.yaml`, `.md`) are served `no-store` so polled
+data lands fresh.
+
+### Defining the status-page HostInfo aggregator
+
+`Yuruna.getHostInfo()` (in
+[`test/status/yuruna.common.js`](../test/status/yuruna.common.js))
+returns a Promise that resolves to a single object aggregating every
+piece of host-level data the status pages need. Three sources are
+fetched in parallel; the result is cached for the lifetime of the
+page so additional consumers do not re-fetch.
+
+| Field         | Source                    | Notes |
+|---------------|---------------------------|-------|
+| `repoName`    | `status.json.repoUrl`     | Trailing path segment, `.git` stripped, first letter upper-cased. |
+| `version`     | `/yuruna-repo/VERSION`    | First line only. |
+| `hostname`    | `status.json.hostname`    | Falls back to `window.location.hostname`. |
+| `host`        | `status.json.host`        | `host.` prefix stripped. |
+| `ipAddresses` | `/track/ipaddresses.txt`  | Raw text, trailing whitespace stripped. |
+
+Each field is `null` (or `''` for hostname) when its source is
+unavailable; the renderer is expected to no-op rather than throw.
+
+`Yuruna.populateHeader(cta)` consumes HostInfo to fill
+`#header-title`, `#header-version`, and `#header-machine` in one
+pass. Callers that need to refresh the machine identity from live
+polled data (e.g. the dashboard's `renderStatus`) call
+`Yuruna.renderHeaderMachine(el, name, host, cta)` directly with the
+freshly polled fields.
+
+### Defining the status-page header anatomy
+
+Every status page renders the same header shape:
+
+```html
+<header class="page-header">
+  <h1><span id="header-title">Yuruna</span><span id="header-version"></span></h1>
+  <span id="header-machine"></span>
+</header>
+```
+
+| Element            | Populated by                           | Content                              |
+|--------------------|----------------------------------------|--------------------------------------|
+| `#header-title`    | `Yuruna.populateHeader`                | Capitalised repo name (`Yuruna`, `Yurunadev`, …). Hard-coded `Yuruna` is the no-JS fallback. |
+| `#header-version`  | `Yuruna.populateHeader`                | `v<VERSION>` from the project root.  |
+| `#header-machine`  | `Yuruna.populateHeader` then per page  | Hostname stack (`name` / `(host-type)`) plus a right-edge CTA link. |
+
+Pages pass a `cta` object (`{ href, label, title? }`) so the CTA
+varies per page (`Edit config` on the dashboard, `← Dashboard` on the
+config editor). The CTA class is `.header-cta` in
+[`yuruna.common.css`](../test/status/yuruna.common.css) so its
+footprint is identical across pages — navigating between them does
+not shift the header items.
+
+### Defining the status-page hostinfo dump
+
+Clicking the hostname in any status page's header navigates to
+[`hostinfo.html`](../test/status/hostinfo.html), which renders a
+fresh run of
+[`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1)
+for the host the page is being served from (not any guest).
+
+Round trip:
+
+1. The page's bootstrap fires a `GET /control/host-diagnostic` (single
+   round trip, no separate trigger).
+2. `Start-StatusServer.ps1` invokes the script via a child `pwsh`
+   (`pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory
+   <repoRoot> -File <script>`), captures both stdout and stderr
+   through `Out-String`, writes the result to
+   `[System.IO.Path]::GetTempPath()/yuruna-hostinfo.txt` (overwriting
+   any previous run), and returns the captured text as
+   `text/plain; no-store`.
+3. The page renders the text inside a `<pre>` with
+   `white-space: pre-wrap` so the diagnostic's column-aligned tables
+   keep their layout while still wrapping on narrow viewports.
+
+**Why a child `pwsh`.** The status server is itself running in pwsh,
+but invoking the diagnostic in the same process would interleave the
+script's transcript writes with the server's own logging and could
+mutate global preference variables
+(`InformationPreference`/`WarningPreference`/etc.) the script sets
+for its `-logLevel` handling. A child process keeps the script's
+side-effects isolated.
+
+**Why a fixed temp filename.** The file is overwritten on every
+request — operators get one canonical "most recent host diagnostic"
+they can grep from the shell (`cat /tmp/yuruna-hostinfo.txt` or
+`type %TEMP%\yuruna-hostinfo.txt`) without timestamped clutter. The
+file is not web-accessible by path (the temp directory is outside
+`$statusDir` / `$trackDir`); the only way to read it through the
+server is via the same `/control/host-diagnostic` request, which
+regenerates it.
+
+**Why synchronous.** The diagnostic typically completes in a few
+seconds; making the request asynchronous (trigger + poll) would
+double the moving parts for no real benefit at Yuruna's
+single-operator scale. The endpoint blocks the server's request loop
+for the duration of the run, which is acceptable because the polling
+dashboard re-tries on the next 30 s tick.
+
+**Why the hostname is the click target.** It is the same string the
+operator reads at the top right of every page, so the affordance
+"click my host to see its diagnostic" needs no extra label. The link
+is styled (`a.hm-name`) so it is indistinguishable from the prior
+text span at rest and underlines only on hover.
+
+### Defining the status-page caching-proxy banner
+
+`$env:YURUNA_RUNTIME_DIR/caching-proxy.txt` is rewritten at the start
+of every test cycle by `Start-StatusServer.ps1` (run with `-Restart`
+from `Invoke-TestRunner.ps1` on each cycle; its
+`Test-CachingProxyAvailable` probe re-runs then). The file contains
+trusted server-generated HTML — possibly an `<a href>` to the
+`cachemgr` URL — and the dashboard renders it inside the "Latest
+Cycle" section title via `innerHTML`. The dashboard re-fetches the
+file on every `loadStatus()` poll so a page left open sees the new
+cycle's cache state within one poll interval, even across cycles.
 
 ---
 
@@ -555,8 +724,8 @@ relies on them. Pointers, not duplicates:
 - **Forwarder** (host-side squid TCP forwarder) — see
   [`host/macos.utm/Start-CachingProxyForwarder.ps1`](../host/macos.utm/Start-CachingProxyForwarder.ps1).
 
-For deeper architectural context see [`architecture.md`](architecture.md) (framework
-architecture) and [`test/CODE.md`](../test/CODE.md) (test-harness
+For deeper architectural context see [Yuruna Architecture](architecture.md) (framework
+architecture) and [Test harness — architecture](test-harness.md) (test-harness
 architecture).
 
 ---

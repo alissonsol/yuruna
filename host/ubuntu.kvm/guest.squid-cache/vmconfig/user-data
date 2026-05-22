@@ -1,10 +1,5 @@
 #cloud-config
 # --- See https://yuruna.link/vmconfig
-# OS-side hostname kept in lock-step with the libvirt domain name
-# (yuruna-caching-proxy). Renaming here only -- the source-tree directory
-# `guest.squid-cache/` and the image filename keep the historical
-# `squid-cache` token because they identify the guest type/template,
-# not the running VM.
 hostname: yuruna-caching-proxy
 # Replace the Ubuntu cloud image's default `ubuntu` user with `yuruna`.
 # Listing a `users:` block WITHOUT `- default` suppresses ubuntu creation
@@ -301,6 +296,29 @@ write_files:
       # successfully next time.
       negative_ttl 0 seconds
 
+      # Offline mode: serve cached objects without ever revalidating
+      # them with origin. Aggressive on purpose -- this VM exists to
+      # keep test cycles running when upstream registries (Docker Hub,
+      # registry.k8s.io, registry.opentofu.org, public.ecr.aws, etc.)
+      # have intermittent 5xx / rate-limit incidents. With offline_mode
+      # off (squid default), the catch-all `refresh_pattern .` still
+      # revalidates every hit and a single upstream 5xx tears down the
+      # cycle even when squid has everything else cached. With
+      # offline_mode on, cache MISSES still fall through to upstream
+      # (otherwise the VM could never warm up);
+      # only HITS are served unconditionally.
+      offline_mode on
+
+      # Expose the running config via /squid-internal-mgr/config without
+      # a password. Required by squid-meta-exporter.sh so the dashboard
+      # reads the daemon's RUNTIME state (what squid is actually
+      # applying), not just the on-disk /etc/squid/conf.d/yuruna.conf
+      # (which can be stale between an edit and `squid -k reconfigure`).
+      # Scope is localhost-only via the stock `http_access allow
+      # localhost manager` ACL in squid.conf, so the config dump is not
+      # exposed to the LAN.
+      cachemgr_passwd none config
+
       # Never abort partial downloads. If a client disconnects mid-fetch
       # (e.g. guest reboot), squid finishes so the next client hits
       # cache. -1 KB disables the quick-abort threshold entirely.
@@ -332,18 +350,21 @@ write_files:
       # override/ignore flags keep squid serving regardless of origin or
       # intermediate cache-control hints (no-store, must-revalidate,
       # private, reload-from-client). 525600 min = 1 year.
-      refresh_pattern -i \.deb$      525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
-      refresh_pattern -i \.udeb$     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
-      refresh_pattern -i \.tar\.xz$  525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
-      refresh_pattern -i \.tar\.gz$  525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
-      refresh_pattern -i \.tar\.bz2$ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
-      refresh_pattern -i \.iso$      525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
+      refresh_pattern -i \.deb$      525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i \.udeb$     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i \.tar\.xz$  525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i \.tar\.gz$  525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i \.tar\.bz2$ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i \.iso$      525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       # Apt metadata (InRelease, Packages.*) moves -- poll origin each time.
       refresh_pattern -i /InRelease$                    0 0%  60
       refresh_pattern -i /Release$                      0 0%  60
       refresh_pattern -i /Release\.gpg$                 0 0%  60
       refresh_pattern -i /Packages(\.gz|\.xz|\.bz2)?$   0 0%  60
       refresh_pattern -i /Sources(\.gz|\.xz|\.bz2)?$    0 0%  60
+      # dep11 Components-<arch>.yml drifts faster than catch-all LM-factor on
+      # dev pockets; mismatched InRelease vs dep11 -> "Hash Sum mismatch".
+      refresh_pattern -i /dep11/.+\.yml(\.gz|\.xz)?$    0 0%  60
 
       # --- Container registry caching (OCI + Docker v2) ---
       # Diagnostic against active cycles has shown identical
@@ -364,12 +385,52 @@ write_files:
       # aws, us-east4-docker.pkg.dev, and the CDNs they 307-redirect to
       # (cloudfront, S3, R2 cloudflarestorage) -- those all carry the
       # `sha256:` segment in the redirected path.
-      refresh_pattern -i /(manifests|blobs)/sha256:[0-9a-f]+ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-must-revalidate ignore-private
+      refresh_pattern -i /(manifests|blobs)/sha256:[0-9a-f]+ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       # Tag-based manifests: short freshness window so concurrent guests
       # in the same cycle hit cache, but a tag move within a few minutes
       # is still picked up. collapsed_forwarding already pools parallel
       # fetches; this just stretches the window past `must-revalidate`.
-      refresh_pattern -i /v2/.+/manifests/[^/]+$        5 50%  60 ignore-must-revalidate
+      refresh_pattern -i /v2/.+/manifests/[^/]+$        5 50%  60
+
+      # --- OpenTofu / Terraform provider + binary caching ---
+      # See https://yuruna.link/caching#opentofu-provider-binary-caching
+      refresh_pattern -i \.zip$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i ^https?://registry\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i ^https?://releases\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i ^https?://packages\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i ^https?://get\.opentofu\.org/                     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+
+      # --- GitHub release binary caching ---
+      # GitHub release assets (kubectl, helm, gh, jq, terraform-provider-*,
+      # tofu, etc.) live at
+      #   github.com/<owner>/<repo>/releases/download/<tag>/<asset>
+      # which 302-redirects to objects.githubusercontent.com/<token>/... .
+      # Both URLs are content-addressed by tag + asset name (release assets
+      # are immutable in GitHub's data model), so pin the full year.
+      # Generalizes the previous `objects.githubusercontent.com/.*
+      # terraform-provider` filter -- non-extensioned binaries (raw
+      # `kubectl`, `helm`, etc.) wouldn't otherwise match the catch-all
+      # `.zip` / `.tar.gz` patterns above.
+      refresh_pattern -i ^https?://github\.com/[^/]+/[^/]+/releases/download/ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      refresh_pattern -i ^https?://objects\.githubusercontent\.com/        525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+
+      # --- Helm chart + repo index caching ---
+      # `helm install <repo>/<chart>` downloads chart packages whose URLs end
+      # in .tgz (e.g. https://kubernetes.github.io/ingress-nginx/ingress-
+      # nginx-X.Y.Z.tgz). The `\.tar\.gz$` pattern above does NOT match the
+      # `.tgz` short-form; without this rule the package falls through to
+      # the catch-all `refresh_pattern .` and revalidates every install --
+      # which becomes a hard failure during a kubernetes.github.io blip.
+      # Chart packages are version-tagged and immutable in helm's data
+      # model, so pin the full year like the GitHub release rule.
+      refresh_pattern -i \.tgz$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      # `helm repo update` fetches the repo's index.yaml; treat it as a
+      # short-lived but cacheable index (60 min freshness, 20% LM factor)
+      # so back-to-back cycles inside an hour hit cache while still
+      # picking up new chart versions on the same day. Scoped to known
+      # helm-repo hosts to avoid over-caching unrelated YAML.
+      refresh_pattern -i ^https?://kubernetes\.github\.io/.*/index\.yaml$  60     20%  60
+      refresh_pattern -i ^https?://charts\.jetstack\.io/.*/index\.yaml$    60     20%  60
 
       logfile_rotate 2
 
@@ -475,6 +536,17 @@ write_files:
         - job_name: zot
           static_configs:
             - targets: ['localhost:5000']
+        # Squid metadata: tiny systemd-timer-driven script writes a
+        # Prometheus text-format file at /var/www/html/squid-meta with
+        # two gauges (squid_listening, squid_offline_mode_configured).
+        # Apache serves it on port 80 like any static file; Prometheus
+        # scrapes it as if it were an exporter. Decoupled from squid-
+        # exporter so the offline-mode signal survives even when squid
+        # itself is down. See write_files for the script + units.
+        - job_name: squid_meta
+          metrics_path: /squid-meta
+          static_configs:
+            - targets: ['localhost:80']
   # --- Loki: loopback-only (same 0.0.0.0 default as Prometheus). 7d retention caps disk
   # for a "last 100 requests" UX. Pre-written here because cloud-init's --force-confold
   # preserves it through package upgrades.
@@ -606,6 +678,97 @@ write_files:
     content: |
       [Service]
       SupplementaryGroups=proxy zot
+  # --- Squid metadata exporter: tiny script that reads the on-disk
+  # squid.conf and reports `squid_offline_mode_configured` (1 if
+  # `offline_mode on` is set) + `squid_listening` (1 if squid is bound
+  # to :3128). Output is a Prom-format file under /var/www/html, served
+  # by apache, scraped by Prometheus (job: squid_meta). Two reasons NOT
+  # to fold this into squid-exporter:
+  #   1. squid-exporter taps squid's cachemgr counters; offline_mode is
+  #      a config directive, not a counter. squid-exporter would need
+  #      a fork to surface it.
+  #   2. When squid is DOWN, squid-exporter's metrics stop publishing
+  #      and Grafana shows "No data" -- exactly when the operator
+  #      needs to know whether offline_mode was supposed to be on. This
+  #      exporter reads the file directly, so the signal survives a
+  #      crashed squid.
+  - path: /usr/local/bin/squid-meta-exporter.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      # Yuruna: squid meta exporter (config-file probe).
+      # Run periodically via squid-meta-exporter.timer; writes a Prom-
+      # format file at /var/www/html/squid-meta.
+      set +e
+      TMP=$(mktemp)
+      trap 'rm -f "$TMP"' EXIT
+
+      OFFLINE=0
+      # Query squid's RUNTIME config via the cachemgr pseudo-URL.
+      # `cachemgr_passwd none config` in yuruna.conf permits passwordless
+      # access from the localhost manager ACL. Querying the daemon
+      # directly means the metric reflects what squid is APPLYING right
+      # now -- not what /etc/squid/conf.d/yuruna.conf says (which could
+      # be stale if someone edited the file but skipped `squid -k
+      # reconfigure`). If squid is down, the curl fails and OFFLINE=0,
+      # which is the correct answer: a stopped daemon serves nothing.
+      if curl -fsS -m 3 --noproxy '*' http://127.0.0.1:3128/squid-internal-mgr/config 2>/dev/null \
+            | grep -qE '^offline_mode[[:space:]]+on[[:space:]]*$'; then
+          OFFLINE=1
+      fi
+
+      LISTENING=0
+      if ss -lnt 2>/dev/null | awk '{print $4}' | grep -qE '(^|:)3128$'; then
+          LISTENING=1
+      fi
+
+      # Internet connectivity: HTTPS GET to Google's well-known 204 endpoint
+      # (Android/Chrome OS captive-portal canary). Direct, no proxy chain --
+      # this VM IS the proxy. 5s upper bound: anything slower is "not really
+      # reachable" for the cache's purposes. The cache can still serve HITS
+      # offline; this metric reflects whether MISSES can be filled.
+      INTERNET=0
+      if curl -fsS --noproxy '*' -m 5 -o /dev/null https://www.google.com/generate_204 2>/dev/null; then
+          INTERNET=1
+      fi
+
+      cat > "$TMP" <<EOF_METRICS
+      # HELP squid_offline_mode_configured 1 if the running squid daemon has 'offline_mode on' (queried via /squid-internal-mgr/config)
+      # TYPE squid_offline_mode_configured gauge
+      squid_offline_mode_configured $OFFLINE
+      # HELP squid_listening 1 if squid is bound to its proxy port (3128)
+      # TYPE squid_listening gauge
+      squid_listening $LISTENING
+      # HELP squid_internet_reachable 1 if HTTPS to https://www.google.com/generate_204 succeeds within 5s (no proxy)
+      # TYPE squid_internet_reachable gauge
+      squid_internet_reachable $INTERNET
+      EOF_METRICS
+
+      install -m 0644 "$TMP" /var/www/html/squid-meta
+  - path: /etc/systemd/system/squid-meta-exporter.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Yuruna squid metadata exporter (offline_mode + listening probe)
+      After=apache2.service
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/squid-meta-exporter.sh
+  - path: /etc/systemd/system/squid-meta-exporter.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Run squid-meta-exporter every 30 seconds
+      [Timer]
+      OnBootSec=20s
+      OnUnitActiveSec=30s
+      AccuracySec=5s
+      Unit=squid-meta-exporter.service
+      [Install]
+      WantedBy=timers.target
   # --- squid-exporter unit: binary go-installed in runcmd, loopback-only (Prometheus scrapes it).
   - path: /etc/systemd/system/squid-exporter.service
     permissions: '0644'
@@ -913,45 +1076,12 @@ write_files:
         "time": {"from": "now-2h", "to": "now"},
         "panels": [
           {
-            "id": 2,
-            "type": "timeseries",
-            "title": "Client HTTP(S) requests/sec",
-            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 0, "y": 0, "w": 24, "h": 6},
-            "fieldConfig": {
-              "defaults": {},
-              "overrides": [
-                {
-                  "matcher": {"id": "byFrameRefID", "options": "A"},
-                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
-                }
-              ]
-            },
-            "targets": [{"expr": "rate(squid_client_http_requests_total[5m])", "refId": "A"}]
-          },
-          {
-            "id": 3,
-            "type": "timeseries",
-            "title": "Client HTTP(S) hits/sec",
-            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 0, "y": 6, "w": 24, "h": 6},
-            "fieldConfig": {
-              "defaults": {},
-              "overrides": [
-                {
-                  "matcher": {"id": "byFrameRefID", "options": "A"},
-                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
-                }
-              ]
-            },
-            "targets": [{"expr": "rate(squid_client_http_hits_total[5m])", "refId": "A"}]
-          },
-          {
             "id": 6,
             "type": "timeseries",
             "title": "Client HTTP(S) data served (kB/s): total vs cached",
+            "description": "Throughput delivered to clients over a 5-minute window: 'Total' (yellow) is every response, 'Cached' (green) is the subset answered from cache. The gap = upstream bandwidth needed.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 0, "y": 12, "w": 24, "h": 8},
+            "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
             "fieldConfig": {
               "defaults": {},
               "overrides": [
@@ -974,8 +1104,9 @@ write_files:
             "id": 7,
             "type": "logs",
             "title": "Recent 100 requests (client IP / status / size / method / URL / User-Agent)",
+            "description": "Last 100 client requests pulled from /var/log/squid/yuruna_access.log via Loki. Columns: client IP, status code, response bytes, HTTP method, URL, and User-Agent.",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
-            "gridPos": {"x": 0, "y": 20, "w": 24, "h": 12},
+            "gridPos": {"x": 0, "y": 8, "w": 24, "h": 12},
             "options": {
               "showTime": true,
               "showLabels": false,
@@ -997,9 +1128,10 @@ write_files:
           {
             "id": 8,
             "type": "stat",
-            "title": "Total bytes transferred (last 7 days)",
+            "title": "Served (7 days)",
+            "description": "Total bytes squid served to clients over the last 7 days, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 0, "y": 32, "w": 6, "h": 4},
+            "gridPos": {"x": 0, "y": 20, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1019,9 +1151,10 @@ write_files:
           {
             "id": 9,
             "type": "stat",
-            "title": "Total bytes from cache (last 7 days)",
+            "title": "From cache (7 days)",
+            "description": "Bytes served from cache hits over the last 7 days -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 6, "y": 32, "w": 6, "h": 4},
+            "gridPos": {"x": 6, "y": 20, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1041,9 +1174,10 @@ write_files:
           {
             "id": 10,
             "type": "stat",
-            "title": "Total bytes transferred (last 24 hours)",
+            "title": "Served (24 hours)",
+            "description": "Total bytes squid served to clients over the last 24 hours, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 12, "y": 32, "w": 6, "h": 4},
+            "gridPos": {"x": 12, "y": 20, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1063,9 +1197,10 @@ write_files:
           {
             "id": 11,
             "type": "stat",
-            "title": "Total bytes from cache (last 24 hours)",
+            "title": "From cache (24 hours)",
+            "description": "Bytes served from cache hits over the last 24 hours -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 18, "y": 32, "w": 6, "h": 4},
+            "gridPos": {"x": 18, "y": 20, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1081,6 +1216,104 @@ write_files:
               "overrides": []
             },
             "targets": [{"expr": "increase(squid_client_http_hit_kbytes_out_bytes_total[24h]) * 1024", "refId": "A", "instant": true}]
+          },
+          {
+            "id": 12,
+            "type": "stat",
+            "title": "Internet connectivity",
+            "description": "1 = the cache VM can reach the upstream internet (HTTPS GET https://www.google.com/generate_204 succeeds within 5s, no proxy). 0 = upstream unreachable. Driven by squid_internet_reachable from squid-meta-exporter.sh.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 24, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "background",
+              "graphMode": "none",
+              "textMode": "value",
+              "justifyMode": "center",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "mappings": [
+                  {"type": "value", "options": {"0": {"text": "Off", "color": "red"},  "1": {"text": "On", "color": "green"}}}
+                ],
+                "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+                "noValue": "Unknown"
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "squid_internet_reachable", "refId": "A", "instant": true}]
+          },
+          {
+            "id": 13,
+            "type": "stat",
+            "title": "Offline mode support",
+            "description": "1 = squid's runtime config has `offline_mode on` (cache HITS served unconditionally on upstream 5xx). 0 = otherwise. Queried live from /squid-internal-mgr/config -- reflects what the daemon is actually applying.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 6, "y": 24, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "background",
+              "graphMode": "none",
+              "textMode": "value",
+              "justifyMode": "center",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "mappings": [
+                  {"type": "value", "options": {"0": {"text": "Off", "color": "red"},  "1": {"text": "On", "color": "green"}}}
+                ],
+                "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+                "noValue": "Unknown"
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "squid_offline_mode_configured", "refId": "A", "instant": true}]
+          },
+          {
+            "id": 14,
+            "type": "stat",
+            "title": "Cached (Mem)",
+            "description": "Currently cached content in memory ready to be served. Driven by squid_info_Storage_Mem_size (KB) from squid-exporter; converted to bytes for display.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 12, "y": 24, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "textMode": "value",
+              "justifyMode": "auto",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "unit": "bytes",
+                "color": {"mode": "fixed", "fixedColor": "green"}
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "squid_info_Storage_Mem_size * 1024", "refId": "A", "instant": true}]
+          },
+          {
+            "id": 15,
+            "type": "stat",
+            "title": "Cached (Disk)",
+            "description": "Currently cached content on disk ready to be served. Driven by squid_info_Storage_Swap_size (KB) from squid-exporter; converted to bytes for display.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 18, "y": 24, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "textMode": "value",
+              "justifyMode": "auto",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "unit": "bytes",
+                "color": {"mode": "fixed", "fixedColor": "green"}
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "squid_info_Storage_Swap_size * 1024", "refId": "A", "instant": true}]
           }
         ]
       }
@@ -1096,10 +1329,20 @@ write_files:
   # that has taken out multiple test hosts simultaneously.
   #
   # Guests reach zot at http://<cache-vm>:5000 and configure dockerd
-  # with `registry-mirrors` (set by guest/ubuntu.server/ubuntu.server.
+  # with `registry-mirrors` (set by guest/ubuntu.server.24/ubuntu.server.24.
   # k8s.sh at provision time). Plain HTTP (no TLS) -- intra-LAN, same
   # trust boundary as the squid SSL-bump CA the guests already trust.
   # zot binary is fetched from GitHub releases in runcmd below.
+  #
+  # mcr.microsoft.com appears TWICE in registries[] below: once with
+  # onDemand+prefix:** (the catch-all for any future MCR image) and
+  # once with pollInterval:6h + tagged content for dotnet/sdk:10.0 and
+  # dotnet/aspnet:10.0. Cycle 256 (2026-05-21) failed because zot's
+  # first onDemand sync of dotnet/sdk:10.0 took 30s end-to-end (skopeo
+  # walks the index + per-arch manifests + config blobs + disk commit)
+  # and tripped the workload probe's curl --max-time 30 boundary. The
+  # scheduled pre-warm keeps the two manifests resident so subsequent
+  # probes return in 0ms instead of racing the boundary.
   - path: /etc/zot/config.json
     permissions: '0644'
     owner: root:root
@@ -1182,6 +1425,28 @@ write_files:
                 "retryDelay": "15s",
                 "content": [
                   { "prefix": "**" }
+                ]
+              },
+              {
+                "urls": ["https://mcr.microsoft.com"],
+                "onDemand": true,
+                "tlsVerify": true,
+                "maxRetries": 3,
+                "retryDelay": "15s",
+                "content": [
+                  { "prefix": "**" }
+                ]
+              },
+              {
+                "urls": ["https://mcr.microsoft.com"],
+                "onDemand": false,
+                "tlsVerify": true,
+                "pollInterval": "6h",
+                "maxRetries": 3,
+                "retryDelay": "15s",
+                "content": [
+                  { "prefix": "dotnet/sdk",    "tags": { "regex": "^10\\.0$" } },
+                  { "prefix": "dotnet/aspnet", "tags": { "regex": "^10\\.0$" } }
                 ]
               }
             ]
@@ -1433,6 +1698,14 @@ runcmd:
   # vars take effect even if the deb postinst already started it.
   - systemctl daemon-reload
   - systemctl enable --now squid-exporter.service
+  # Squid meta exporter: timer drives a oneshot that writes
+  # /var/www/html/squid-meta every 30s. Started AFTER apache2 (already
+  # active by the packages phase) so the first scrape doesn't 404.
+  - systemctl enable --now squid-meta-exporter.timer
+  # Run the script once immediately so /var/www/html/squid-meta exists
+  # before Prometheus's first scrape -- avoids a 15-second "No data"
+  # window on the dashboard at boot.
+  - /usr/local/bin/squid-meta-exporter.sh || true
   - systemctl enable --now prometheus.service
   # caching-proxy-parser fails closed (the binary may not be present
   # if the build above failed); `|| true` keeps the rest of runcmd

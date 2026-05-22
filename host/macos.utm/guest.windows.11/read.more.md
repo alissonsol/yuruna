@@ -1,6 +1,6 @@
 # Windows 11 guest on macOS UTM host — Nerd-Level Details
 
-See [../../README.md](../../README.md) for host prerequisites, VM sizing,
+See [Hosts — ...](../../README.md) for host prerequisites, VM sizing,
 and connectivity. macOS counterpart of
 [Hyper-V version](../../windows.hyper-v/guest.windows.11/). Uses
 UTM with the QEMU backend (aarch64, hardware-accelerated via Apple

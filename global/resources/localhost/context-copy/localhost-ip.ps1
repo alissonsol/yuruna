@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42028304-b526-4734-a567-89012e6f7081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,6 @@
 #requires -version 7
 
 # Write the localhost IP back for further processing
-# Use DNS to get host addresses, filter for IPv4 and non-loopback, return first match
 $hostname = [System.Net.Dns]::GetHostName()
 $addresses = [System.Net.Dns]::GetHostAddresses($hostname) |
     Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and -not [System.Net.IPAddress]::IsLoopback($_) }

@@ -17,7 +17,14 @@ properties:
       additionalProperties: false
       required: [password, updatedUtc]
       properties:
-        password:   { type: string, minLength: 1 }
-        updatedUtc: { type: string, format: date-time }
+        password:         { type: string, minLength: 1 }
+        # previousPassword carries the prior secret across a Set-Password
+        # rotation -- empty for entries created via Get-Password's lazy
+        # auto-gen, populated by Set-Password when an existing entry is
+        # overwritten. Either form is valid (no minLength), so the
+        # schema accepts the empty-string default that fresh entries ship
+        # with as well as a non-empty rotation breadcrumb.
+        previousPassword: { type: string }
+        updatedUtc:       { type: string, format: date-time }
     propertyNames:
       pattern: '^[A-Za-z0-9._-]+$'

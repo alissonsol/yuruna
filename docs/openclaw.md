@@ -4,8 +4,9 @@ Installs Git, Node.js, and [OpenClaw](https://docs.openclaw.ai/start/getting-sta
 
 | Guest | Command |
 |---|---|
-| **Amazon Linux** | `/automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.openclaw.sh` |
-| **Ubuntu Server** | `/automation/fetch-and-execute.sh guest/ubuntu.server/ubuntu.server.openclaw.sh` |
+| **Amazon Linux 2023** | `/automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh` |
+| **Ubuntu Server 24.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.openclaw.sh` |
+| **Ubuntu Server 26.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.openclaw.sh` |
 
 After reboot, configure:
 
@@ -19,8 +20,9 @@ openclaw onboard --install-daemon
 
 See [Getting Started](https://docs.openclaw.ai/start/getting-started).
 
-Back to [Amazon Linux ...](../guest/amazon.linux/README.md) ·
-[Ubuntu Server ...](../guest/ubuntu.server/README.md) ·
+Back to [Amazon Linux 2023 ...](../guest/amazon.linux.2023/README.md) ·
+[Ubuntu Server 24.04 ...](../guest/ubuntu.server.24/README.md) ·
+[Ubuntu Server 26.04 ...](../guest/ubuntu.server.26/README.md) ·
 [Yuruna](../README.md)
 
 ---

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,23 +49,77 @@ param(
 
 $TestRoot = $PSScriptRoot
 if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test.config.yml" }
-$TemplatePath        = Join-Path $TestRoot "test.config.yml.template"
-$ExtensionRoot       = Join-Path $TestRoot "extension"
-$SchemasRoot         = Join-Path $TestRoot "schemas"
-$NotificationCfgPath = Join-Path $ExtensionRoot "notification/notification.transports.yml"
-$NotificationTmplPath = Join-Path $ExtensionRoot "notification/notification.transports.yml.template"
+$TemplatePath         = Join-Path $TestRoot "test.config.yml.template"
+$ExtensionRoot        = Join-Path $TestRoot "extension"
+$ExtensionStateRoot   = Join-Path -Path $TestRoot -ChildPath "status" -AdditionalChildPath "extension"
+$SchemasRoot          = Join-Path $TestRoot "schemas"
+$NotificationCfgPath  = Join-Path $ExtensionStateRoot "notification/transports.yml"
+$NotificationTmplPath = Join-Path $ExtensionRoot      "notification/transports.yml.template"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-$script:PassCount = 0
-$script:FailCount = 0
-$script:WarnCount = 0
+$script:PassCount     = 0
+$script:FailCount     = 0
+$script:WarnCount     = 0
+$script:CurrentSection = ''                       # last Write-Section header, threaded into Failure rows
+$script:Failures      = New-Object System.Collections.Generic.List[pscustomobject]
 
 function Write-Pass  { param([string]$msg) Write-Output "  [PASS] $msg"; $script:PassCount++ }
-function Write-Fail  { param([string]$msg) Write-Output "  [FAIL] $msg"; $script:FailCount++ }
+function Write-Fail  {
+    # FullPath is optional, surfaced in the end-of-run FAILURES block so
+    # the operator can copy-paste the absolute location of the failing
+    # file without having to re-derive it from the message. Use it for
+    # every file-specific failure (schema-invalid, parse error, etc.).
+    param([string]$msg, [string]$FullPath)
+    Write-Output "  [FAIL] $msg"
+    $script:FailCount++
+    $script:Failures.Add([pscustomobject]@{
+        Section  = $script:CurrentSection
+        Message  = $msg
+        FullPath = $FullPath
+    })
+}
 function Write-Warn  { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
 function Write-Info  { param([string]$msg) Write-Output "        $msg" }
-function Write-Section { param([string]$msg) Write-Output "`n=== $msg ===" }
+function Write-Section { param([string]$msg) $script:CurrentSection = $msg; Write-Output "`n=== $msg ===" }
+
+# Centralized exit so every termination path -- including the early
+# exits sprinkled through the script (missing config file, YAML parse
+# error, abort-before-network-checks) -- prints the PASS/WARN/FAIL
+# tally AND the repeated FAILURES block. Operators previously had to
+# scroll back through the transcript to find the one FAIL line; the
+# block now lives at the bottom of every run, always.
+function Write-Summary {
+    Write-Output ""
+    Write-Output "─────────────────────────────────────────"
+    Write-Output ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:PassCount, $script:WarnCount, $script:FailCount)
+    Write-Output "─────────────────────────────────────────"
+    if ($script:FailCount -gt 0) {
+        Write-Output ""
+        Write-Output "============================================================"
+        Write-Output "  FAILURES ($($script:FailCount)) -- the cycle gate refuses to start until these are resolved:"
+        Write-Output "============================================================"
+        $i = 0
+        foreach ($f in $script:Failures) {
+            $i++
+            Write-Output ""
+            Write-Output ("  [{0}/{1}] in section: {2}" -f $i, $script:FailCount, $f.Section)
+            Write-Output ("        {0}" -f $f.Message)
+            if ($f.FullPath) {
+                Write-Output ("        File: {0}" -f $f.FullPath)
+            }
+        }
+        Write-Output ""
+        Write-Output "============================================================"
+        Write-Output "  END OF FAILURES ($($script:FailCount))"
+        Write-Output "============================================================"
+    }
+}
+function Exit-WithSummary {
+    param([int]$Code)
+    Write-Summary
+    exit $Code
+}
 
 # Returns $true when a value is a non-empty string, $false otherwise.
 function Test-IsSet { param($v) return ($null -ne $v -and "$v".Trim() -ne "") }
@@ -82,12 +136,18 @@ function Test-AgainstSchema {
         [Parameter(Mandatory)][string]$YamlPath,
         [Parameter(Mandatory)][string]$SchemaPath
     )
-    if (-not (Test-Path $YamlPath))   { Write-Fail "${Label}: file not found ($YamlPath)"; return }
+    # Resolve to an absolute path so every FAIL row carries an operator-
+    # actionable location (the message used to say just "vault.yml" --
+    # forcing the operator to guess which of the several vault.yml
+    # locations was meant).
+    $YamlFull = try { [System.IO.Path]::GetFullPath($YamlPath) } catch { $YamlPath }
+    if (-not (Test-Path $YamlPath))   { Write-Fail "${Label}: file not found ($YamlFull)" -FullPath $YamlFull; return }
     if (-not (Test-Path $SchemaPath)) { Write-Warn "${Label}: schema not found ($SchemaPath)"; return }
     try {
         $doc = Get-Content -Raw $YamlPath | ConvertFrom-Yaml -Ordered
     } catch {
-        Write-Fail "${Label}: YAML parse error -- $($_.Exception.Message)"; return
+        Write-Fail "${Label}: YAML parse error in ${YamlFull} -- $($_.Exception.Message)" -FullPath $YamlFull
+        return
     }
     $hasTestJson = Get-Command Test-Json -ErrorAction SilentlyContinue
     if ($hasTestJson) {
@@ -95,12 +155,12 @@ function Test-AgainstSchema {
             $schemaJson = Get-Content -Raw $SchemaPath | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 20
             $docJson    = $doc | ConvertTo-Json -Depth 20
             if (Test-Json -Json $docJson -Schema $schemaJson -ErrorAction Stop) {
-                Write-Pass "${Label}: schema-valid ($YamlPath)"
+                Write-Pass "${Label}: schema-valid ($YamlFull)"
             } else {
-                Write-Fail "${Label}: schema-invalid"
+                Write-Fail "${Label}: schema-invalid -- ${YamlFull}" -FullPath $YamlFull
             }
         } catch {
-            Write-Fail "${Label}: schema validation failed -- $($_.Exception.Message)"
+            Write-Fail "${Label}: schema validation failed in ${YamlFull} -- $($_.Exception.Message)" -FullPath $YamlFull
         }
     } else {
         Write-Pass "${Label}: parse-only check passed (Test-Json unavailable; schema not enforced)"
@@ -112,17 +172,23 @@ function Test-AgainstSchema {
 Write-Section "Config file"
 
 if (-not (Test-Path $ConfigPath)) {
-    Write-Fail "Config file not found: $ConfigPath"
     if (Test-Path $TemplatePath) {
-        Write-Info "To create it, run:"
-        Write-Info "  cp test/test.config.yml.template test/test.config.yml"
-        Write-Info "Then edit test/test.config.yml with your notification settings."
+        try {
+            Copy-Item -LiteralPath $TemplatePath -Destination $ConfigPath -Force
+            Write-Pass "Config file bootstrapped from template: $TemplatePath -> $ConfigPath"
+            Write-Info "Defaults applied. Edit $ConfigPath later to customize notification, repositories, etc."
+        } catch {
+            Write-Fail "Config file not found and template copy failed ($TemplatePath -> ${ConfigPath}): $($_.Exception.Message)" -FullPath $ConfigPath
+            Exit-WithSummary 1
+        }
     } else {
+        Write-Fail "Config file not found: $ConfigPath" -FullPath $ConfigPath
         Write-Info "Template not found either ($TemplatePath). Check your repository."
+        Exit-WithSummary 1
     }
-    exit 1
+} else {
+    Write-Pass "Config file found: $ConfigPath"
 }
-Write-Pass "Config file found: $ConfigPath"
 
 # ── Section 2: YAML parsing ───────────────────────────────────────────────────
 
@@ -132,9 +198,9 @@ try {
     $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered
     Write-Pass "YAML is valid and parsed successfully."
 } catch {
-    Write-Fail "YAML parse error: $_"
+    Write-Fail "YAML parse error in ${ConfigPath}: $_" -FullPath $ConfigPath
     Write-Info "Open test.config.yml and fix the syntax error above."
-    exit 1
+    Exit-WithSummary 1
 }
 
 # ── Section 3: Host requirements (quick) ─────────────────────────────────────
@@ -339,11 +405,98 @@ function Test-RepoFreshness {
 
 Test-RepoFreshness -Label "framework ($RepoRoot)" -Path $RepoRoot
 
+# projectUrl is needed to classify the <RepoRoot>/project/ state below
+# (empty dir + projectUrl set = post-failure leftover from a prior cycle;
+# empty dir + no projectUrl = operator never populated the in-tree layout)
+# AND for the reachability probe that follows.
+$projectUrlConfigured = $null
+if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.Contains('projectUrl')) {
+    $projectUrlConfigured = [string]$Config.repositories.projectUrl
+}
+
 $projectClone = Join-Path $RepoRoot 'project'
 if (Test-Path (Join-Path $projectClone '.git')) {
     Test-RepoFreshness -Label "project ($projectClone)" -Path $projectClone
+} elseif (Test-Path $projectClone) {
+    # No .git -- could be the in-tree project layout (files committed to
+    # the framework repo) OR the post-failure empty-dir state where
+    # Update-ProjectClone wiped the previous clone and then `git clone`
+    # failed, leaving an empty target dir. Status-server then 404s
+    # /yuruna-project-archive.tar.gz and guests fall through to their
+    # own (also-broken) clone -- which is the cascade the operator hit.
+    $entries = (Get-ChildItem -LiteralPath $projectClone -Force -ErrorAction SilentlyContinue | Measure-Object).Count
+    if ($entries -eq 0) {
+        $hint = if (Test-IsSet $projectUrlConfigured) {
+            "Last cycle's Update-ProjectClone removed the previous clone and then 'git clone $projectUrlConfigured' failed, leaving an empty target dir. Status server will 404 /yuruna-project-archive.tar.gz and guests will fall through to their own clone of the same URL. Delete this folder and fix repositories.projectUrl before rerunning."
+        } else {
+            "<RepoRoot>/project/ is empty AND repositories.projectUrl is unset -- nothing will populate it. Either commit the in-tree project layout under project/, or set repositories.projectUrl."
+        }
+        Write-Fail "<RepoRoot>/project/ exists but is empty (no .git, no files): $projectClone. $hint" -FullPath $projectClone
+    } else {
+        Write-Info "<RepoRoot>/project/ has $entries entries but no .git -- treating as in-tree project layout (no clone to check)."
+    }
 } else {
-    Write-Info "project/ not present under framework root -- in-tree project path (no clone to check)."
+    if (Test-IsSet $projectUrlConfigured) {
+        Write-Info "<RepoRoot>/project/ not present -- will be created at cycle start by Update-ProjectClone from '$projectUrlConfigured'."
+    } else {
+        Write-Info "<RepoRoot>/project/ not present and repositories.projectUrl is unset -- in-tree project layout assumed."
+    }
+}
+
+# projectUrl reachability probe. Catches three classes of operator
+# error before a cycle wastes ~30 s on Update-ProjectClone:
+#   * typo / private repo / non-existent repo  -> ls-remote fails fast
+#   * file:// URL pointing at a non-existent or non-git path -> Test-Path
+#   * file:// URL semantics: host-only, guest fallback structurally broken
+if (Test-IsSet $projectUrlConfigured) {
+    if ($projectUrlConfigured -match '^(?i)file://') {
+        $localPath = $null
+        try { $localPath = ([System.Uri]::new($projectUrlConfigured)).LocalPath } catch { $localPath = $null }
+        if (-not $localPath) {
+            Write-Fail "projectUrl='$projectUrlConfigured' is not a parseable file:// URL." -FullPath $ConfigPath
+        } elseif (-not (Test-Path -LiteralPath $localPath)) {
+            Write-Fail "projectUrl='$projectUrlConfigured' points to '$localPath' which does not exist on this host. Fix repositories.projectUrl in test.config.yml." -FullPath $ConfigPath
+        } elseif (-not (Test-Path -LiteralPath (Join-Path $localPath '.git'))) {
+            Write-Fail "projectUrl='$projectUrlConfigured' resolves to '$localPath' which exists but has no .git -- 'git clone' will fail with 'does not appear to be a git repository'." -FullPath $localPath
+        } else {
+            Write-Pass "projectUrl resolves to local git repo: $localPath"
+        }
+        Write-Warn "projectUrl is a file:// URL -- only the host can resolve it. Guests that hit the tarball-fallback path (status server 404 on /yuruna-project-archive.tar.gz) will attempt 'git clone $projectUrlConfigured' on their OWN Linux filesystem and fail. Use an HTTPS/SSH URL guests can reach if you rely on the guest fallback."
+    } elseif ($projectUrlConfigured -match '^(?i)(https?|ssh|git)://') {
+        # Cheap, no-fetch reachability probe. GIT_TERMINAL_PROMPT=0
+        # makes a private/missing repo exit non-zero instead of blocking
+        # on a credential dialog (Git Credential Manager on Windows).
+        $prevPrompt = $env:GIT_TERMINAL_PROMPT
+        $env:GIT_TERMINAL_PROMPT = '0'
+        try {
+            $lsOut = & git ls-remote --exit-code --quiet $projectUrlConfigured HEAD 2>&1
+            $lsRc  = $LASTEXITCODE
+            if ($lsRc -eq 0) {
+                Write-Pass "projectUrl reachable (git ls-remote HEAD exit 0): $projectUrlConfigured"
+            } else {
+                $msg = ($lsOut | Out-String).Trim()
+                Write-Fail "projectUrl='$projectUrlConfigured' is not reachable (git ls-remote exit $lsRc). Common causes: typo, private repo without cached credentials, or repo doesn't exist. ls-remote output: $msg" -FullPath $ConfigPath
+            }
+        } catch {
+            Write-Fail "projectUrl='$projectUrlConfigured': ls-remote threw -- $($_.Exception.Message)" -FullPath $ConfigPath
+        } finally {
+            if ($null -eq $prevPrompt) { Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue }
+            else                       { $env:GIT_TERMINAL_PROMPT = $prevPrompt }
+        }
+    } else {
+        # No scheme -- accept a bare local path (rare, but git clone
+        # treats it identically to file://). Same host-only caveat.
+        if (Test-Path -LiteralPath $projectUrlConfigured) {
+            if (Test-Path -LiteralPath (Join-Path $projectUrlConfigured '.git')) {
+                Write-Pass "projectUrl resolves to local git repo (no scheme): $projectUrlConfigured"
+            } else {
+                Write-Fail "projectUrl='$projectUrlConfigured' exists but has no .git." -FullPath $projectUrlConfigured
+            }
+            Write-Warn "projectUrl is a local path -- guests cannot resolve it on their own filesystem. Use an HTTPS/SSH URL if guests need the fallback clone path."
+        } else {
+            Write-Fail "projectUrl='$projectUrlConfigured' has no recognized scheme (http/https/ssh/git/file) and isn't a local path. Update-ProjectClone will fail at cycle start." -FullPath $ConfigPath
+        }
+    }
 }
 
 # ── Section 7: GitHub connectivity ───────────────────────────────────────────
@@ -427,6 +580,20 @@ if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repos
     Write-Warn "'repositories.frameworkUrl' not set — status page commit links may not work, and the failure-pause break-out trigger that watches the framework repo will be a no-op."
 }
 
+# Deeper validation (URL reachability, <RepoRoot>/project/ state) lives in
+# Section 6; here we only flag presence so the top-level summary matches
+# frameworkUrl's treatment.
+if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.Contains("projectUrl")) {
+    $projectUrlVal = [string]$Config.repositories.projectUrl
+    if (Test-IsSet $projectUrlVal) {
+        Write-Pass "'repositories.projectUrl' = '$projectUrlVal'"
+    } else {
+        Write-Warn "'repositories.projectUrl' is empty — in-tree <RepoRoot>/project/ will be used (no clone)."
+    }
+} else {
+    Write-Warn "'repositories.projectUrl' not set — in-tree <RepoRoot>/project/ will be used (no clone)."
+}
+
 if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("shouldStopOnFailure")) {
     Write-Pass "'testCycle.shouldStopOnFailure' = $($Config.testCycle.shouldStopOnFailure)"
 } else {
@@ -434,16 +601,16 @@ if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycl
 }
 
 # Abort here if notification block is missing; nothing more to check.
-if (-not $Config.Contains("notification")) { exit 1 }
+if (-not $Config.Contains("notification")) { Exit-WithSummary 1 }
 
 $notif = $Config.notification
 
-# Soft migration: surface legacy keys that have moved to notification.transports.yml.
+# Soft migration: surface legacy keys that have moved to status/extension/notification/transports.yml.
 if ($notif.Contains('toEmailAddress') -and (Test-IsSet $notif.toEmailAddress)) {
-    Write-Warn "notification.toEmailAddress is set in test.config.yml -- this key has moved to test/extension/notification/notification.transports.yml (subscribers list). Move it manually before the next cycle."
+    Write-Warn "notification.toEmailAddress is set in test.config.yml -- this key has moved to test/status/extension/notification/transports.yml (subscribers list). Move it manually before the next cycle."
 }
 if ($Config.Contains('secrets') -and $Config.secrets -is [System.Collections.IDictionary] -and $Config.secrets.Contains('resend')) {
-    Write-Warn "secrets.resend is set in test.config.yml -- this block has moved to test/extension/notification/notification.transports.yml (transports.resend). Move it manually before the next cycle."
+    Write-Warn "secrets.resend is set in test.config.yml -- this block has moved to test/status/extension/notification/transports.yml (transports.resend). Move it manually before the next cycle."
 }
 
 # ── Section 9: Extension configs ─────────────────────────────────────────────
@@ -460,23 +627,190 @@ Test-AgainstSchema -Label "notification/notification.config.yml" `
 
 if (-not (Test-Path $NotificationCfgPath)) {
     if (Test-Path $NotificationTmplPath) {
-        Write-Warn "notification.transports.yml missing -- copy from notification.transports.yml.template and populate before the next cycle: $NotificationTmplPath -> $NotificationCfgPath"
+        Write-Warn "status/extension/notification/transports.yml missing -- copy from transports.yml.template and populate before the next cycle: $NotificationTmplPath -> $NotificationCfgPath"
     } else {
-        Write-Fail "notification.transports.yml missing and no template found at $NotificationTmplPath"
+        Write-Fail "status/extension/notification/transports.yml missing and no template found at $NotificationTmplPath" -FullPath $NotificationCfgPath
     }
 } else {
-    Test-AgainstSchema -Label "notification.transports.yml" `
+    Test-AgainstSchema -Label "transports.yml" `
         -YamlPath   $NotificationCfgPath `
         -SchemaPath (Join-Path $SchemasRoot "notification.transports.schema.yml")
 }
 
-$VaultPath = Join-Path $ExtensionRoot "authentication/vault.yml"
+$VaultPath = Join-Path $ExtensionStateRoot "authentication/vault.yml"
 if (Test-Path $VaultPath) {
     Test-AgainstSchema -Label "vault.yml" `
         -YamlPath   $VaultPath `
         -SchemaPath (Join-Path $SchemasRoot "vault.schema.yml")
 } else {
     Write-Info "vault.yml not present (expected; created on cycle start)."
+}
+
+# ── Section 9b: Authentication users mapping (users.yml) ────────────────────
+#
+# users.yml maps logical (sequence-level) usernames onto corporate
+# identities (AD/Entra/...) plus the vault keys that hold the
+# corresponding passwords. Bootstrap-from-template runs on first cycle,
+# so a fresh checkout has a runtime file pre-seeded with the four
+# bundled logical users + the cache-VM 'yuruna' user, all with empty
+# corporate fields (today's local-only behaviour).
+#
+# Strict-mode (default) blocks the cycle when an active sequence
+# references a logical username that's missing from users.yml, when
+# corporate fields are half-populated (sam set without domain etc.),
+# or when a populated vaultKey doesn't exist in vault.yml. The dev
+# path therefore exercises the production AD-join path every cycle.
+
+Write-Section "Authentication users mapping (users.yml)"
+
+$UsersTemplate = Join-Path $ExtensionRoot      "authentication/users.yml.template"
+$UsersPath     = Join-Path $ExtensionStateRoot "authentication/users.yml"
+$UsersSchema   = Join-Path $SchemasRoot        "users.schema.yml"
+
+if (-not (Test-Path $UsersPath)) {
+    if (Test-Path $UsersTemplate) {
+        Write-Warn "status/extension/authentication/users.yml missing -- will be bootstrapped from template on first cycle. To customize corporate mappings ahead of that, copy: $UsersTemplate -> $UsersPath"
+    } else {
+        Write-Fail "status/extension/authentication/users.yml AND its template are both missing. Restore $UsersTemplate from the repository." -FullPath $UsersTemplate
+    }
+}
+
+if (Test-Path $UsersPath) {
+    Test-AgainstSchema -Label "users.yml" `
+        -YamlPath   $UsersPath `
+        -SchemaPath $UsersSchema
+
+    # Parse the file ourselves (Test-AgainstSchema only validates; we
+    # need the data structure for the completeness checks below).
+    $usersDoc = $null
+    try {
+        $usersDoc = Get-Content -Raw $UsersPath | ConvertFrom-Yaml -Ordered
+    } catch {
+        Write-Fail "users.yml parse error in ${UsersPath}: $($_.Exception.Message)" -FullPath $UsersPath
+    }
+
+    if ($usersDoc) {
+        $strict   = $true
+        if ($usersDoc.Contains('strict')) { $strict = [bool]$usersDoc['strict'] }
+        $declared = [ordered]@{}
+        if ($usersDoc.Contains('users') -and $usersDoc['users'] -is [System.Collections.IDictionary]) {
+            foreach ($k in $usersDoc['users'].Keys) { $declared[$k] = $usersDoc['users'][$k] }
+        }
+        Write-Pass ("users.yml: strict=$strict, $($declared.Keys.Count) logical user(s) declared.")
+
+        # Per-entry shape: forbid half-populated corporate fields. A
+        # `sam` without a matching `domain` is almost always an operator
+        # mistake (AD prompts want DOMAIN\sam, never bare `sam`); same
+        # for `upn` with the @host part missing. Empty-everything is
+        # fine (local-only mode).
+        foreach ($logical in $declared.Keys) {
+            $e = $declared[$logical]
+            if ($e -isnot [System.Collections.IDictionary]) { continue }
+            $corp = if ($e.Contains('corporate') -and $e['corporate'] -is [System.Collections.IDictionary]) { $e['corporate'] } else { $null }
+            if ($corp) {
+                $d = if ($corp.Contains('domain')) { [string]$corp['domain'] } else { '' }
+                $s = if ($corp.Contains('sam'))    { [string]$corp['sam']    } else { '' }
+                $u = if ($corp.Contains('upn'))    { [string]$corp['upn']    } else { '' }
+                if ($s -and -not $d -and -not $u) {
+                    Write-Warn "users.yml[$logical]: corporate.sam='$s' is set but corporate.domain is empty and corporate.upn is empty. Provide one of (sam + domain) or (upn) -- bare 'sam' won't render a usable loginUser."
+                }
+                if ($d -and -not $s) {
+                    Write-Fail "users.yml[$logical]: corporate.domain='$d' is set but corporate.sam is empty. Provide both or neither." -FullPath $UsersPath
+                }
+                if ($u -and ($u -notmatch '@')) {
+                    Write-Warn "users.yml[$logical]: corporate.upn='$u' doesn't contain '@'. UPNs are typically of the form 'user@domain.example'."
+                }
+            }
+        }
+
+        # vaultKey resolution: a populated vaultKey MUST exist in
+        # vault.yml (the vault NEVER auto-generates for an operator-
+        # supplied key -- the password is the operator's, not ours).
+        # localOsPasswordRef can auto-gen, so we only warn there.
+        $vaultDoc = $null
+        if (Test-Path $VaultPath) {
+            try { $vaultDoc = Get-Content -Raw $VaultPath | ConvertFrom-Yaml -Ordered } catch { Write-Verbose "vault.yml parse for users.yml cross-check failed: $_" }
+        }
+        $vaultUsers = if ($vaultDoc -and $vaultDoc.Contains('users') -and $vaultDoc['users'] -is [System.Collections.IDictionary]) { $vaultDoc['users'] } else { $null }
+        foreach ($logical in $declared.Keys) {
+            $e = $declared[$logical]
+            if ($e -isnot [System.Collections.IDictionary]) { continue }
+            $vk = if ($e.Contains('vaultKey')) { [string]$e['vaultKey'] } else { '' }
+            if (-not $vk) { continue }
+            if (-not $vaultUsers -or -not $vaultUsers.Contains($vk)) {
+                if ($strict) {
+                    Write-Fail "users.yml[$logical]: vaultKey='$vk' has no matching entry in vault.yml ($VaultPath). The vault NEVER auto-generates for an operator-supplied key. Add the corporate password manually: vault.yml -> users.$vk.password." -FullPath $VaultPath
+                } else {
+                    Write-Warn "users.yml[$logical]: vaultKey='$vk' has no entry in vault.yml (lenient mode). Cycle will throw at the first Get-Password call against '$logical'."
+                }
+            } else {
+                $pwEntry = $vaultUsers[$vk]
+                if ($pwEntry -isnot [System.Collections.IDictionary] -or -not "$($pwEntry['password'])".Trim()) {
+                    Write-Fail "users.yml[$logical]: vaultKey='$vk' resolves but its 'password' is empty in ${VaultPath}." -FullPath $VaultPath
+                } else {
+                    Write-Pass "users.yml[$logical]: vaultKey='$vk' resolves -> vault entry present."
+                }
+            }
+        }
+
+        # Strict-mode completeness: every logical username referenced
+        # by an active sequence must be declared. Scan framework
+        # sequences under test/sequences/ AND project-tree sequences
+        # under <repoRoot>/project/**/test/{gui,ssh}/. The project layout
+        # is `project/<category>/<name>/test/<mode>/*.yml` (e.g.
+        # `project/example/website/test/gui/...`) -- the same shape
+        # Get-ProjectTestSearchDir walks at runtime, replicated here so
+        # Test-Config stays standalone and doesn't have to import the
+        # sequence engine module.
+        if ($strict) {
+            $RepoRoot = Split-Path -Parent $TestRoot
+            $sequencesDirs = New-Object System.Collections.Generic.List[string]
+            [void]$sequencesDirs.Add((Join-Path $TestRoot 'sequences'))
+            # Project tree: every directory whose name is 'gui' or 'ssh'
+            # AND whose immediate parent is 'test', anywhere under
+            # <repo>/project/. Matches the runtime resolver exactly.
+            $projectRoot = Join-Path $RepoRoot 'project'
+            if (Test-Path -LiteralPath $projectRoot) {
+                Get-ChildItem -LiteralPath $projectRoot -Directory -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        ($_.Name -eq 'gui' -or $_.Name -eq 'ssh') -and
+                        ((Split-Path -Leaf (Split-Path -Parent $_.FullName)) -eq 'test')
+                    } |
+                    ForEach-Object { [void]$sequencesDirs.Add($_.FullName) }
+            }
+            $referenced = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            $referencedBy = @{}   # logical user -> first sequence file that introduced it (for the diagnostic)
+            foreach ($sd in $sequencesDirs) {
+                if (-not (Test-Path -LiteralPath $sd)) { continue }
+                Get-ChildItem -LiteralPath $sd -Recurse -File -Include '*.yml' -ErrorAction SilentlyContinue |
+                    ForEach-Object {
+                        try {
+                            $seq = Get-Content -Raw $_.FullName | ConvertFrom-Yaml -Ordered
+                            if ($seq -is [System.Collections.IDictionary] -and $seq.Contains('variables') -and $seq['variables'] -is [System.Collections.IDictionary]) {
+                                if ($seq['variables'].Contains('username')) {
+                                    $u = [string]$seq['variables']['username']
+                                    if ($u.Trim()) {
+                                        $uTrim = $u.Trim()
+                                        if ([void]$referenced.Add($uTrim)) { $referencedBy[$uTrim] = $_.FullName }
+                                    }
+                                }
+                            }
+                        } catch { Write-Verbose "Skipped unparseable sequence $($_.FullName): $_" }
+                    }
+            }
+            $missing = @($referenced | Where-Object { -not $declared.Contains($_) })
+            if ($missing.Count -gt 0) {
+                $details = ($missing | ForEach-Object {
+                    $by = $referencedBy[$_]
+                    if ($by) { "$_ (first seen in $by)" } else { $_ }
+                }) -join '; '
+                Write-Fail ("users.yml strict mode: the following logical username(s) are referenced by sequence files but not declared in users.yml ($UsersPath): $details. Add each as a users.yml entry (copy an existing one and adjust localOsUser/corporate fields), or set 'strict: false' in users.yml to skip this check (lenient mode).") -FullPath $UsersPath
+            } else {
+                $scannedDirs = ($sequencesDirs | ForEach-Object { $_ }) -join ', '
+                Write-Pass "users.yml strict mode: every sequence-referenced logical username is declared (scanned: $scannedDirs)."
+            }
+        }
+    }
 }
 
 # ── Section 10: Resend transport settings ────────────────────────────────────
@@ -491,12 +825,12 @@ if (Test-Path $NotificationCfgPath) {
             $resend = $notifCfg.transports.resend
         }
     } catch {
-        Write-Fail "notification.transports.yml parse error: $($_.Exception.Message)"
+        Write-Fail "transports.yml parse error in ${NotificationCfgPath}: $($_.Exception.Message)" -FullPath $NotificationCfgPath
     }
 }
 
 if (-not $resend) {
-    Write-Warn "transports.resend not configured in notification.transports.yml -- email transport will warn at runtime."
+    Write-Warn "transports.resend not configured in transports.yml -- email transport will warn at runtime."
 } else {
     if (Test-IsSet $resend.apiKey) {
         Write-Pass "transports.resend.apiKey is set (not shown)."
@@ -504,20 +838,23 @@ if (-not $resend) {
             Write-Warn "transports.resend.apiKey does not start with 're_' -- Resend API keys typically begin with 're_'."
         }
     } else {
-        Write-Fail "transports.resend.apiKey is not set. Get your API key at https://resend.com/api-keys"
+        Write-Fail "transports.resend.apiKey is not set in ${NotificationCfgPath}. Get your API key at https://resend.com/api-keys" -FullPath $NotificationCfgPath
     }
 
     if (Test-IsSet $resend.fromEmail) {
         Write-Pass "transports.resend.fromEmail = '$($resend.fromEmail)'"
     } else {
-        Write-Fail "transports.resend.fromEmail is not set. Example: 'Yuruna <notifications@yourdomain.com>'"
+        Write-Fail "transports.resend.fromEmail is not set in ${NotificationCfgPath}. Example: 'Yuruna <notifications@yourdomain.com>'" -FullPath $NotificationCfgPath
     }
 }
 
-# Abort if any FAIL was recorded before network checks.
+# Abort if any FAIL was recorded before network checks. Use
+# Exit-WithSummary so the FAILURES block is printed at the bottom of
+# the transcript -- this is the most common exit path, hit when a
+# config-file or schema check failed early.
 if ($script:FailCount -gt 0) {
     Write-Output "`nFix the errors above before testing network connectivity."
-    exit 1
+    Exit-WithSummary 1
 }
 
 # ── Section 11: Resend API connectivity ──────────────────────────────────────
@@ -530,7 +867,7 @@ try {
 } catch {
     Write-Fail "DNS resolution failed for 'api.resend.com': $_"
     Write-Info "Check that DNS is available and api.resend.com is reachable."
-    exit 1
+    Exit-WithSummary 1
 }
 
 try {
@@ -571,7 +908,7 @@ This is a smoke notification fired by Test-Config.ps1 against the
 extensions and their transports are wired correctly.
 
 Add subscribers under subscribers.config.smoke in
-test/extension/notification/notification.transports.yml to receive these.
+test/status/extension/notification/transports.yml to receive these.
 With no subscribers, this run is a verbose no-op (which is fine).
 
 Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
@@ -584,16 +921,18 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
             Write-Info "Empty subscribers list is normal -- check subscribers.config.smoke if you expected delivery."
         } catch {
             Write-Fail "Send-Notification failed: $_"
-            Write-Info "Verify your transports.resend.apiKey and fromEmail in notification.transports.yml"
+            Write-Info "Verify your transports.resend.apiKey and fromEmail in transports.yml"
         }
     }
 }
 
 # ── Summary ───────────────────────────────────────────────────────────────────
+#
+# Exit-WithSummary prints the PASS/WARN/FAIL tally AND the repeated
+# FAILURES block (every Write-Fail's message + full path, grouped by
+# section). Centralized so every early-exit site upstream (missing
+# config file, YAML parse error, network probe failure, abort-before-
+# network-checks) lands on the same final layout -- the operator never
+# has to scroll up to find what failed.
 
-Write-Output ""
-Write-Output "─────────────────────────────────────────"
-Write-Output ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:PassCount, $script:WarnCount, $script:FailCount)
-Write-Output "─────────────────────────────────────────"
-
-exit ($script:FailCount -gt 0 ? 1 : 0)
+Exit-WithSummary ($script:FailCount -gt 0 ? 1 : 0)

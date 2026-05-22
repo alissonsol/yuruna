@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.15
+# Version: 2026.05.22
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # Yuruna Ubuntu host (KVM/libvirt) bootstrap installer.
@@ -18,7 +18,18 @@
 
 set -euo pipefail
 
-YURUNA_REPO="${YURUNA_REPO:-https://github.com/alissonsol/yuruna.git}"
+# This installer ships in TWO repos that share the same install script:
+#   * public   https://github.com/alissonsol/yuruna       (clone works unauthenticated)
+#   * private  https://github.com/alissonsol/yurunadev    (clone needs GitHub auth)
+# The copy committed to each repo points YURUNA_REPO at its OWN URL so the
+# curl|bash one-liner clones the repo the operator chose to download the
+# script from. Both constants stay defined regardless of which copy is
+# running so the existing-checkout logic further down can recognize the
+# remote a previous run cloned from -- and skip a pull that would just
+# stall waiting for GitHub credentials this run doesn't have.
+YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
+YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
+YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
 YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
@@ -149,9 +160,8 @@ sudo -v
 export YURUNA_SUDO_PRIMED=1
 # `|| true` is load-bearing: under `set -e` (top of file), a transient
 # `sudo -n true` failure -- e.g. brief timestamp-lock contention while
-# apt's own sudo runs internally -- would otherwise kill this subshell,
-# the cache would expire after the sudoers timeout, and the pwsh
-# Enable-TestAutomation step would re-prompt for the password.
+# apt's own sudo runs internally -- would otherwise kill this subshell
+# and the cache would expire mid-install.
 ( while true; do sudo -n true 2>/dev/null || true; sleep 30; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!
 
@@ -191,12 +201,12 @@ fi
 # -- Stop any running yuruna processes so the repo can be updated cleanly ----
 stop_yuruna_processes() {
   # Kill any running Invoke-TestRunner (outer), Invoke-TestInnerRunner
-  # (per-cycle inner under modules/), Confirm-Sequence (dev helper), or
+  # (per-cycle inner under modules/), Test-Sequence (dev helper), or
   # Start-StatusServer under the current user.
   local patterns=(
     "Invoke-TestRunner.ps1"
     "Invoke-TestInnerRunner.ps1"
-    "Confirm-Sequence.ps1"
+    "Test-Sequence.ps1"
     "Start-StatusServer.ps1"
   )
   for pat in "${patterns[@]}"; do
@@ -545,21 +555,28 @@ ensure_default_network
 # -- Preserve test/status runtime state across the clone/update --------------
 # Re-running the installer on a host that's been executing test cycles must
 # not lose the dashboard's history, per-cycle log transcripts, or the
-# track-dir state (status.json with history[], runner.gating.json,
+# runtime-dir state (status.json with history[], runner.gating.json,
 # runner.pid, control flags). None of those are tracked by git -- per
-# .gitignore they live under test/status/{track,log}/ as runtime
-# artifacts. The clone/update/renormalize block below is designed to leave
+# .gitignore every subdir under test/status/ is gitignored as runtime
+# state. The clone/update/renormalize block below is designed to leave
 # untracked files alone (`git rm -r --cached . && git reset --hard HEAD`
 # only touches tracked files), but we backstop that contract with an
 # explicit snapshot-and-restore so a future regression in the renormalize
 # logic, or a manual `rm -rf YURUNA_DIR` between attempts, can't silently
 # wipe weeks of cycle history.
+#
+# All harness runtime state lives under test/status/<sub>/ for the layout
+# introduced in the status reorg: runtime/, perf/, log/, extension/,
+# captures/, ssh/. Preserve every subdir so cycle history, perf JSONL,
+# vault state, training/sequence captures, and the generated SSH key pair
+# all survive a clone/update.
+TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)
 preserve_test_status() {
   local src="$YURUNA_DIR/test/status"
   [[ -d "$src" ]] || return 0
   local has_runtime=""
   local sub
-  for sub in track log; do
+  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
     [[ -d "$src/$sub" ]] || continue
     if find "$src/$sub" -mindepth 1 -not -name '.gitkeep' -print -quit 2>/dev/null | grep -q .; then
       has_runtime=1; break
@@ -567,10 +584,10 @@ preserve_test_status() {
   done
   [[ -n "$has_runtime" ]] || return 0
   YURUNA_STATUS_BACKUP=$(mktemp -d) || { warn "  could not create temp dir; skipping test/status preservation"; return 0; }
-  log "Preserving test/status runtime state (cycle history, logs)"
+  log "Preserving test/status runtime state (cycle history, logs, perf, vault, captures, ssh keys)"
   log "  source : $src"
   log "  backup : $YURUNA_STATUS_BACKUP"
-  for sub in track log; do
+  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
     if [[ -d "$src/$sub" ]]; then
       mkdir -p "$YURUNA_STATUS_BACKUP/$sub"
       cp -a "$src/$sub/." "$YURUNA_STATUS_BACKUP/$sub/" 2>/dev/null || true
@@ -582,7 +599,7 @@ restore_test_status() {
   local dst="$YURUNA_DIR/test/status"
   log "Restoring preserved test/status runtime state"
   local sub
-  for sub in track log; do
+  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
     if [[ -d "$YURUNA_STATUS_BACKUP/$sub" ]]; then
       mkdir -p "$dst/$sub"
       cp -a "$YURUNA_STATUS_BACKUP/$sub/." "$dst/$sub/" 2>/dev/null || true
@@ -602,31 +619,78 @@ preserve_test_status
 mkdir -p "$(dirname "$YURUNA_DIR")"
 if [[ -d "$YURUNA_DIR/.git" ]]; then
   log "Updating existing Yuruna checkout at $YURUNA_DIR"
-  git -C "$YURUNA_DIR" fetch --tags origin
-  git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH"
-  if ! git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; then
-    # Fast-forward not possible: uncommitted changes, divergent commits,
-    # detached HEAD, file-mode quirks across mount points, or just a
-    # working tree that diverged identically-but-not-as-a-ff (e.g. a
-    # local revert that happens to match HEAD content-wise but adds
-    # commits the remote doesn't have). Rather than leaving the
-    # installer in a half-updated state, move the existing checkout
-    # aside as a timestamped backup and re-clone fresh. The
-    # test/status runtime state was already captured to TEMP by
-    # preserve_test_status above, so cycle history survives this path.
-    YURUNA_BACKUP_DIR="${YURUNA_DIR}.backup.$(date +%Y-%m-%d.%H-%M)"
-    warn "git pull --ff-only failed -- moving the existing checkout aside and re-cloning."
-    warn "  from: $YURUNA_DIR"
-    warn "  to:   $YURUNA_BACKUP_DIR"
-    if ! mv "$YURUNA_DIR" "$YURUNA_BACKUP_DIR"; then
-      die "Could not move '$YURUNA_DIR' to '$YURUNA_BACKUP_DIR'. Close any shells / editors / file managers holding the path open and re-run this installer."
+  # Pull from whatever remote the LOCAL repo was cloned from -- not from
+  # whichever YURUNA_REPO default this copy of the installer ships. A
+  # previous run may have cloned the OTHER repo (the public 'yuruna'
+  # checkout works for everyone; the private 'yurunadev' checkout needs
+  # GitHub auth) and we must not silently migrate the operator's local
+  # tree to a different remote.
+  actual_remote="$(git -C "$YURUNA_DIR" remote get-url origin 2>/dev/null || true)"
+  remote_normalized="${actual_remote%/}"
+  remote_basename="$(basename "${remote_normalized%.git}" 2>/dev/null || true)"
+  log "  remote : ${actual_remote:-<none>}"
+
+  skip_pull=0
+  if [[ "$remote_basename" == "yurunadev" ]]; then
+    # Private remote: require demonstrated access before we attempt
+    # `git fetch`. `ls-remote` fails fast on 401/403, sparing the
+    # operator a stalled credential prompt or an error transcript
+    # that looks like the test harness broke when really only auth
+    # was missing. The pull is skipped (not the rest of the install)
+    # so a contributor on a flaky/unauthenticated session can still
+    # keep iterating with the last-known-good code on disk.
+    # GIT_TERMINAL_PROMPT=0: fail fast on missing credentials instead of
+    # blocking the installer on an interactive `Username:` prompt.
+    if ! GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$actual_remote" HEAD >/dev/null 2>&1; then
+      warn ""
+      warn "============================================================"
+      warn "  $actual_remote requires GitHub authentication to pull, and"
+      warn "  the current credentials don't grant access (or no credentials"
+      warn "  are configured)."
+      warn ""
+      warn "  Authenticate first, then re-run this installer:"
+      warn "    gh auth login     # interactive GitHub CLI sign-in"
+      warn "    # OR configure an SSH key with read access to the repo"
+      warn ""
+      warn "  Continuing this run WITHOUT updating $YURUNA_DIR --"
+      warn "  existing on-disk content will be used as-is."
+      warn "============================================================"
+      warn ""
+      skip_pull=1
     fi
-    YURUNA_BACKUP_CREATED="$YURUNA_BACKUP_DIR"
-    log "Cloning fresh Yuruna into $YURUNA_DIR"
-    git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"
+  fi
+
+  if [[ $skip_pull -eq 0 ]]; then
+    git -C "$YURUNA_DIR" fetch --tags origin
+    git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH"
+    if ! git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; then
+      # Fast-forward not possible: uncommitted changes, divergent commits,
+      # detached HEAD, file-mode quirks across mount points, or just a
+      # working tree that diverged identically-but-not-as-a-ff (e.g. a
+      # local revert that happens to match HEAD content-wise but adds
+      # commits the remote doesn't have). Rather than leaving the
+      # installer in a half-updated state, move the existing checkout
+      # aside as a timestamped backup and re-clone fresh. The
+      # test/status runtime state was already captured to TEMP by
+      # preserve_test_status above, so cycle history survives this path.
+      YURUNA_BACKUP_DIR="${YURUNA_DIR}.backup.$(date +%Y-%m-%d.%H-%M)"
+      warn "git pull --ff-only failed -- moving the existing checkout aside and re-cloning."
+      warn "  from: $YURUNA_DIR"
+      warn "  to:   $YURUNA_BACKUP_DIR"
+      if ! mv "$YURUNA_DIR" "$YURUNA_BACKUP_DIR"; then
+        die "Could not move '$YURUNA_DIR' to '$YURUNA_BACKUP_DIR'. Close any shells / editors / file managers holding the path open and re-run this installer."
+      fi
+      YURUNA_BACKUP_CREATED="$YURUNA_BACKUP_DIR"
+      # Re-clone from whatever remote the local repo had, falling back
+      # to the per-copy YURUNA_REPO default only if the original remote
+      # could not be read for some reason.
+      reclone_remote="${actual_remote:-$YURUNA_REPO}"
+      log "Cloning fresh Yuruna into $YURUNA_DIR from $reclone_remote"
+      git clone --branch "$YURUNA_BRANCH" "$reclone_remote" "$YURUNA_DIR"
+    fi
   fi
 else
-  log "Cloning Yuruna into $YURUNA_DIR"
+  log "Cloning Yuruna into $YURUNA_DIR from $YURUNA_REPO"
   git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"
 fi
 
@@ -715,35 +779,44 @@ else
 fi
 
 # -- Host configuration: disable display sleep, etc. ------------------------
-# Mirrors the role host/macos.utm/Enable-TestAutomation.ps1 plays on macOS.
-# On Ubuntu Server (no GUI) most of these are no-ops, but the script also
-# tunes the VM image storage pool path -- always run so the layout is
-# predictable.
+# Enable-TestAutomation.ps1 is NOT run automatically. It is the explicit
+# opt-in step that turns this Ubuntu host into a Yuruna test host (display
+# sleep / screensaver off, VM image storage pool path tuning) and is
+# therefore left for the operator to invoke manually after install.
 HOST_SETUP="$YURUNA_DIR/host/ubuntu.kvm/Enable-TestAutomation.ps1"
-if [[ -f "$HOST_SETUP" ]]; then
-  log "Running host/ubuntu.kvm/Enable-TestAutomation.ps1"
-  # NO `sudo -v` here. Honoring the "ONCE" promise printed at the top
-  # of this script means we DO NOT re-prompt before the pwsh call. The
-  # keep-alive loop above is responsible for keeping the sudo cache
-  # warm; the pwsh script itself calls Initialize-SudoCache which
-  # checks `sudo -n true` first and only prompts (with an explicit box
-  # notice) in the genuinely-cold edge case.
-  #
-  # No `sg libvirt`/`sg kvm` wrapping here. Every virsh call in
-  # Enable-TestAutomation.ps1 already goes through sudo, so it doesn't
-  # need libvirt/kvm in its effective group set. An earlier revision
-  # wrapped this call as `sg libvirt -c "sg kvm -c '...'"` to make the
-  # script's group-membership probe (`id -nG`) report both groups and
-  # suppress the "not in libvirt/kvm yet" warning -- but nested `sg`
-  # calls initgroups() fresh each invocation, so only the INNER group
-  # ever survives and the warning fired for the outer one anyway. The
-  # probe in Enable-TestAutomation.ps1 now reads /etc/group via getent
-  # (matching preflight #3 below), which answers the question without
-  # depending on the running shell's stale group snapshot.
-  pwsh -NoLogo -NoProfile -File "$HOST_SETUP"
-else
-  warn "Enable-TestAutomation.ps1 not found at $HOST_SETUP -- skipping host config."
+log ""
+log "Host configuration (test-host setup) is NOT auto-applied."
+log "To enable this machine as a test host, run:"
+log "    pwsh '$HOST_SETUP'"
+
+# -- GitHub CLI (gh) --------------------------------------------------------
+# Not pinned to a current version in Ubuntu's default archive; follow
+# cli.github.com's recommended apt-repo install. Mirrors the Microsoft
+# pwsh path above: keyring under /etc/apt/keyrings, repo source under
+# /etc/apt/sources.list.d, then apt-get install. Idempotent on re-runs --
+# an existing keyring or source-list file triggers a no-op.
+install_gh_apt() {
+  log "Installing GitHub CLI (gh) via cli.github.com apt repo"
+  sudo install -d -m 0755 /etc/apt/keyrings
+  if [[ ! -f /etc/apt/keyrings/githubcli-archive-keyring.gpg ]]; then
+    # The key at cli.github.com is already binary GPG (not armored), so
+    # save it verbatim. `dd status=none` keeps the transcript clean; the
+    # explicit chmod is belt-and-suspenders in case the umask drops bits.
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | sudo dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg status=none
+    sudo chmod 0644 /etc/apt/keyrings/githubcli-archive-keyring.gpg
+  fi
+  if [[ ! -f /etc/apt/sources.list.d/github-cli.list ]]; then
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+  fi
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y gh
+}
+if ! command -v gh >/dev/null 2>&1; then
+  install_gh_apt
 fi
+command -v gh >/dev/null 2>&1 || die "gh not found after install."
 
 # -- Final preflight: assert every requirement is met -----------------------
 # Up to here we APPLIED configuration. Below we VERIFY the host actually
@@ -866,7 +939,7 @@ if command -v virt-install >/dev/null 2>&1; then
     PREFLIGHT_WARNINGS+=("osinfo-db is missing variant 'linux2022' -- per-guest scripts may fail to find any usable variant.")
   fi
   if ! osinfo_has_variant 'ubuntu24.04' && ! osinfo_has_variant 'ubuntu22.04'; then
-    PREFLIGHT_WARNINGS+=("osinfo-db has neither 'ubuntu24.04' nor 'ubuntu22.04' -- guest.ubuntu.server New-VM.ps1 will fall back to the 'linux2022' generic profile (still boots, just less hypervisor tuning). Update the osinfo-db package on the host to silence this.")
+    PREFLIGHT_WARNINGS+=("osinfo-db has neither 'ubuntu24.04' nor 'ubuntu22.04' -- guest.ubuntu.server.24 New-VM.ps1 will fall back to the 'linux2022' generic profile (still boots, just less hypervisor tuning). Update the osinfo-db package on the host to silence this.")
   fi
 fi
 
@@ -887,6 +960,13 @@ for bin in swtpm swtpm_setup; do
   command -v "$bin" >/dev/null 2>&1 || \
     PREFLIGHT_ERRORS+=("'$bin' missing -- Windows 11 guest cannot satisfy TPM 2.0 requirement. Verify 'swtpm' / 'swtpm-tools' apt packages installed.")
 done
+
+# 14. GitHub CLI (gh) on PATH. Not used by Invoke-TestRunner itself, but
+# the installer just put it on the system; if it is not visible here,
+# the cli.github.com apt step silently fell through.
+if ! command -v gh >/dev/null 2>&1; then
+  PREFLIGHT_ERRORS+=("'gh' missing from PATH after install -- check 'apt-cache policy gh' for the cli.github.com source, then re-run.")
+fi
 
 # -- Report -----------------------------------------------------------------
 if (( ${#PREFLIGHT_WARNINGS[@]} > 0 )); then
@@ -944,8 +1024,18 @@ cat <<EOF
   1. Review and edit the test config:
        \$EDITOR $TEST_DIR/test.config.yml
 
-  2. Run the test runner:
+  2. (Optional) Enable this machine as a test host -- disables display sleep
+     and tunes the libvirt image pool path. NOT run automatically; opt in
+     only if this Ubuntu host will run Invoke-TestRunner:
+       pwsh $YURUNA_DIR/host/ubuntu.kvm/Enable-TestAutomation.ps1
+
+  3. Run the test runner:
        cd $TEST_DIR && pwsh ./Invoke-TestRunner.ps1
+
+  4. (Optional, one-time) Authenticate the GitHub CLI so 'gh' can act on
+     your behalf -- the installer installs the binary, but authentication
+     requires an interactive web-or-token flow you have to drive:
+       gh auth login
 
 Re-running this installer is safe; it will refresh apt packages and
 fast-forward the Yuruna checkout when possible.

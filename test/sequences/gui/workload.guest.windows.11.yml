@@ -3,6 +3,10 @@
 # Interaction sequence for driving VM workload testing.
 # See possible actions in the actions.yml file.
 
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 420fdc4b-2a49-40a4-89cf-b157d8585be5
+sequenceRevision: 1
+
 description: "Windows 11: workload test sequence (placeholder)."
 baseline:
   windows.11:

@@ -4,8 +4,9 @@ Installs [n8n](https://n8n.io/) workflow automation.
 
 | Guest | Command |
 |---|---|
-| **Amazon Linux** | `/automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.n8n.sh` |
-| **Ubuntu Server** | `/automation/fetch-and-execute.sh guest/ubuntu.server/ubuntu.server.n8n.sh` |
+| **Amazon Linux 2023** | `/automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.n8n.sh` |
+| **Ubuntu Server 24.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.n8n.sh` |
+| **Ubuntu Server 26.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.n8n.sh` |
 
 Verify + run:
 
@@ -16,8 +17,9 @@ n8n start     # open http://localhost:5678
 
 Full docs: [n8n.io/docs](https://docs.n8n.io/).
 
-Back to [Amazon Linux ...](../guest/amazon.linux/README.md) ·
-[Ubuntu Server ...](../guest/ubuntu.server/README.md) ·
+Back to [Amazon Linux 2023 ...](../guest/amazon.linux.2023/README.md) ·
+[Ubuntu Server 24.04 ...](../guest/ubuntu.server.24/README.md) ·
+[Ubuntu Server 26.04 ...](../guest/ubuntu.server.26/README.md) ·
 [Yuruna](../README.md)
 
 ---

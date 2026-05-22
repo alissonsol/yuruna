@@ -1,7 +1,7 @@
 # Windows 11 guest on Windows Hyper-V host
 
-Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
-concepts: [../../README.md](../../README.md).
+Minimal commands. Walk-through: [Windows 11 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md). Cross-host
+concepts: [Hosts — ...](../../README.md).
 
 ## One-time
 
@@ -38,13 +38,13 @@ Restart-Computer
 ```
 
 `$env:YurunaCacheContent` / `setx`: see
-[../../../docs/caching.md](../../../docs/caching.md).
+[Caching](../../../docs/caching.md).
 
 ## Next
 
 [Windows 11 workloads](../../../guest/windows.11/README.md)
 
-Read more: [read.more.md](read.more.md).
+Read more: [Windows 11 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md).
 
 Back to [Windows Hyper-V](../README.md) · [Yuruna](../../../README.md)
 

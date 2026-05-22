@@ -1,6 +1,6 @@
 # Windows Hyper-V Host Setup - Nerd-Level Details
 
-The one-line installer in [README.md](README.md) automates the steps
+The one-line installer in [Windows Hyper-V ...](README.md) automates the steps
 below. This walk-through reproduces them by hand for audit / learning.
 Every step needs an **elevated** PowerShell (Run as Administrator).
 
@@ -16,7 +16,7 @@ winget install --id Microsoft.PowerShell --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
 
-Tested with 7.5.4. Verify: `Get-Host | Select-Object Version`.
+Verify: `Get-Host | Select-Object Version`.
 
 ## 2) Install Git
 
@@ -126,8 +126,8 @@ Start-Process virtmgmt.msc      # registers with the user profile
 
 ## 12) Optional: Squid cache VM
 
-See [../README.md](../README.md#optional-squid-cache-vm) and
-[../../docs/caching.md](../../docs/caching.md).
+See [Hosts — ...](../README.md#optional-squid-cache-vm) and
+[Caching](../../docs/caching.md).
 
 ## 13) Run the Test Harness
 
@@ -136,7 +136,7 @@ pwsh $HOME\git\yuruna\test\Invoke-TestRunner.ps1
 ```
 
 [Guest VMs](README.md#next-create-a-guest-vm) ·
-[Troubleshooting](troubleshooting.md) ·
+[Troubleshooting](../../docs/host-hyperv.md) ·
 Back to [Hyper-V setup](README.md) · [Yuruna](../../README.md)
 
 ---

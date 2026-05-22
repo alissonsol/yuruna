@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<!-- --- See https://yuruna.link/definition#defining-the-status-page-hostinfo-dump -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- --- See https://yuruna.link/definition#defining-the-status-page-cache-policy -->
+  <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
+  <title>hostinfo — Yuruna</title>
+  <link rel="stylesheet" href="yuruna.common.css">
+  <style>
+    body { min-height: 100vh; display: flex; flex-direction: column; }
+    main {
+      flex: 1; max-width: 1100px; width: 100%; margin: 0 auto;
+      padding: 1.25rem 1.5rem;
+    }
+    pre#hostinfo-output {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
+      padding: 1rem 1.25rem;
+      font-family: 'Menlo','Consolas',monospace; font-size: .75rem;
+      line-height: 1.4;
+      white-space: pre-wrap; word-break: break-word;
+      color: #111827;
+    }
+    pre#hostinfo-output.loading { color: #9ca3af; font-style: italic; }
+    pre#hostinfo-output.error   { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
+  </style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1><span id="header-title">Yuruna</span><span id="header-version"></span></h1>
+  <span id="header-machine"></span>
+</header>
+
+<main>
+  <pre id="hostinfo-output" class="loading">Running Get-SystemDiagnostic on host…</pre>
+</main>
+
+<script src="yuruna.common.js"></script>
+<script>
+(function(){
+  'use strict';
+  Yuruna.populateHeader({ href: 'index.html', label: '← Dashboard' });
+  var el = document.getElementById('hostinfo-output');
+  fetch('control/host-diagnostic?_=' + Date.now(), { cache: 'no-store' })
+    .then(function(res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
+    .then(function(text) { el.className = ''; el.textContent = text || '(no output)'; })
+    ['catch'](function(e) { el.className = 'error'; el.textContent = 'Could not load: ' + (e.message || e); });
+})();
+</script>
+
+</body>
+</html>

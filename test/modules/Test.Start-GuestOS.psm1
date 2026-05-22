@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456716
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,6 +60,16 @@ function Start-GuestOS {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$SequencesDir,
         [string[]]$SequenceNames = @(),
+        # Planner-cascaded variable overrides (Test.SequencePlanner ->
+        # Invoke-Sequence). Forwarded to each Invoke-SequenceByName call
+        # so the workload's `variables.username` override reaches the
+        # baseline `start.*.yml` despite the baseline declaring its own
+        # default value.
+        # IDictionary (not [hashtable]) preserves the planner's
+        # [ordered]@{} insertion order through parameter binding so
+        # `${username}` resolves before `${currentPassword}` in the
+        # downstream Invoke-Sequence expansion loop.
+        [System.Collections.IDictionary]$EffectiveVariables,
         [bool]$ShowOutput = $true
     )
     # ShowOutput is a transitional shim. The flag has never been read inside
@@ -73,7 +83,7 @@ function Start-GuestOS {
     }
     foreach ($s in $SequenceNames) {
         Write-Information "  Running: $s" -InformationAction Continue
-        $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s
+        $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s -EffectiveVariables $EffectiveVariables
         if (-not $ok) {
             $errMsg = "Start sequence '$s' failed"
             $logDir = Initialize-YurunaLogDir

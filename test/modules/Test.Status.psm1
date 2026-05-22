@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -303,36 +303,67 @@ function Complete-Run {
     $script:Doc.finishedAt    = (Get-UtcTimestamp)
     $script:Doc.overallStatus = $OverallStatus
 
+    # Returns integer wall-clock seconds between two ISO-8601-Z
+    # timestamps. Null/unparseable inputs and negative deltas (rare
+    # clock-skew between Set-StepStatus writes) both yield 0 so the
+    # serialized map never has missing or negative values that would
+    # complicate downstream trend analysis. All step timestamps the
+    # runner writes are Z-suffixed UTC, so a plain DateTime.Parse
+    # diff is timezone-safe.
+    function Get-StepDurationSec {
+        param($StartedAt, $FinishedAt)
+        if (-not $StartedAt -or -not $FinishedAt) { return 0 }
+        try {
+            $s = [datetime]::Parse($StartedAt, [cultureinfo]::InvariantCulture)
+            $f = [datetime]::Parse($FinishedAt, [cultureinfo]::InvariantCulture)
+            $dt = ($f - $s).TotalSeconds
+            if ($dt -lt 0) { return 0 }
+            return [int][math]::Round($dt)
+        } catch { return 0 }
+    }
+
     # [ordered]@{} preserves insertion order so the JSON-serialized
     # history entry's `guestSummary` keeps the keys in guestSequence order.
     # A plain @{} is a [hashtable] whose enumeration is bucketed and
     # arbitrary, which scrambled the pill order in the dashboard's
     # "Recent Cycles" table even though the cycle itself ran in order.
     #
-    # Value shape (backward-compatible):
-    #   * "pass" / "fail"            - bare string when no debug folder
-    #                                  was produced (guest passed, or
-    #                                  failed before screenshots were
-    #                                  captured). Old history entries
-    #                                  written before failureArtifacts
-    #                                  existed are also bare strings.
-    #   * { status, failureArtifacts } - object when the cycle created
-    #                                  a per-guest debug folder. The UI
-    #                                  hyperlinks the pill to that URL.
-    # The dispatch keeps payload small (most cycles are all-pass) and
-    # avoids breaking older dashboards that read .guestSummary[k] as a
-    # string.
+    # Per-guest value shape (backward-compatible):
+    #   * "pass" / "fail"                - bare string in legacy history
+    #                                      rows written before
+    #                                      stepDurationsSec/failureArtifacts
+    #                                      existed. Older dashboards still
+    #                                      render these.
+    #   * { status,
+    #       stepDurationsSec,
+    #       [failureArtifacts] }         - current form. stepDurationsSec
+    #                                      is the per-step wall-clock
+    #                                      seconds map (one entry per step
+    #                                      in the guest's step list, e.g.
+    #                                      New-VM, Start-VM, Start-GuestOS,
+    #                                      New-VM.Resource, optionally
+    #                                      Screenshots / Start-GuestWorkload).
+    #                                      Unlocks p50/p95 trend analysis
+    #                                      across history without log-grep.
+    #                                      failureArtifacts is present only
+    #                                      when a debug folder exists, so
+    #                                      pass-only cycles keep the payload
+    #                                      tight.
+    # The dashboard reads .status off object form and falls back to the
+    # whole value as a string, so both shapes still render correctly.
     $guestSummary = [ordered]@{}
     foreach ($g in $script:Doc.guests) {
         $artifacts = if ($g.Contains('failureArtifacts')) { [string]$g.failureArtifacts } else { '' }
-        if ($artifacts) {
-            $guestSummary[$g.guestKey] = [ordered]@{
-                status           = $g.status
-                failureArtifacts = $artifacts
-            }
-        } else {
-            $guestSummary[$g.guestKey] = $g.status
+        $stepDurationsSec = [ordered]@{}
+        foreach ($s in $g.steps) {
+            $stepDurationsSec[$s.name] = (Get-StepDurationSec $s.startedAt $s.finishedAt)
         }
+        $guestEntry = [ordered]@{
+            status           = $g.status
+            stepDurationsSec = $stepDurationsSec
+        }
+        if ($artifacts) { $guestEntry.failureArtifacts = $artifacts }
+        $guestSummary[$g.guestKey] = $guestEntry
     }
 
     # History entries carry their OWN gitCommits snapshot so a row
@@ -342,16 +373,23 @@ function Complete-Run {
     # comma-separated linked SHAs (framework first, project second).
     # cycleFolderUrl is snapshotted too so the history-row cycle-id
     # link survives even after the live $Doc rolls to the next cycle.
+    # totalDurationSec is the cycle's wall-clock seconds; the dashboard
+    # already derives this from startedAt/finishedAt on the fly, so the
+    # field is additive — its purpose is to let programmatic trend
+    # analysis (jq / Python) read a number directly without re-parsing
+    # ISO timestamps.
+    $totalDurationSec = (Get-StepDurationSec $script:Doc.startedAt $script:Doc.finishedAt)
     $entry = [ordered]@{
-        cycleId        = $script:Doc.cycleId
-        startedAt      = $script:Doc.startedAt
-        finishedAt     = $script:Doc.finishedAt
-        overallStatus  = $OverallStatus
-        gitCommits     = @($script:Doc.gitCommits)
-        host           = $script:Doc.host
-        hostname       = $script:Doc.hostname
-        cycleFolderUrl = $script:Doc.cycleFolderUrl
-        guestSummary   = $guestSummary
+        cycleId          = $script:Doc.cycleId
+        startedAt        = $script:Doc.startedAt
+        finishedAt       = $script:Doc.finishedAt
+        totalDurationSec = $totalDurationSec
+        overallStatus    = $OverallStatus
+        gitCommits       = @($script:Doc.gitCommits)
+        host             = $script:Doc.host
+        hostname         = $script:Doc.hostname
+        cycleFolderUrl   = $script:Doc.cycleFolderUrl
+        guestSummary     = $guestSummary
     }
     $script:Doc.history = @($entry) + @($script:Doc.history) | Select-Object -First $MaxHistoryRuns
     Write-StatusJson
@@ -363,24 +401,24 @@ function Complete-Run {
 .DESCRIPTION
     Before serializing, refreshes $script:Doc.stepPaused and
     $script:Doc.cyclePaused from the presence of control.step-pause and
-    control.cycle-pause in $env:YURUNA_TRACK_DIR. Those files are the
+    control.cycle-pause in $env:YURUNA_RUNTIME_DIR. Those files are the
     source of truth for the two UI Pause/Continue buttons: the status
     server creates/removes them and the runner + Invoke-Sequence poll
     them. Mirroring the flags here keeps the parent's periodic status
     writes from clobbering the server-written values.
 
-    Reads the track dir directly from $env:YURUNA_TRACK_DIR rather than
-    deriving it from the status.json path (Split-Path -Parent $script:File)
-    so every consumer of the pause flags — status server, runner,
-    sequence interpreter, this module — uses the same single source of
-    truth. An earlier revision derived it from the file path and was
-    correct by coincidence; a caller that ever moved status.json outside
-    the track dir would have silently desynced.
+    Reads the runtime dir directly from $env:YURUNA_RUNTIME_DIR rather
+    than deriving it from the status.json path (Split-Path -Parent
+    $script:File) so every consumer of the pause flags -- status
+    server, runner, sequence interpreter, this module -- uses the same
+    single source of truth. An earlier revision derived it from the
+    file path and was correct by coincidence; a caller that ever moved
+    status.json outside the runtime dir would have silently desynced.
 #>
 function Write-StatusJson {
-    $trackDir = $env:YURUNA_TRACK_DIR
-    $stepPauseFlag  = Join-Path $trackDir 'control.step-pause'
-    $cyclePauseFlag = Join-Path $trackDir 'control.cycle-pause'
+    $runtimeDir = $env:YURUNA_RUNTIME_DIR
+    $stepPauseFlag  = Join-Path $runtimeDir 'control.step-pause'
+    $cyclePauseFlag = Join-Path $runtimeDir 'control.cycle-pause'
     $script:Doc.stepPaused  = (Test-Path $stepPauseFlag)
     $script:Doc.cyclePaused = (Test-Path $cyclePauseFlag)
     $tmp = "$($script:File).tmp"
@@ -401,7 +439,7 @@ function Get-LastGetImageTime {
     try {
         $doc = Get-Content -Raw $StatusFilePath | ConvertFrom-Json
         return $doc.lastGetImageAt
-    } catch { return $null }
+    } catch { $null = $_; return $null }
 }
 
 <#
@@ -422,7 +460,7 @@ function Set-LastGetImageTime {
     Records the base-image provenance (downloaded filename + source URL) for
     a guest and flushes status.json.
 .DESCRIPTION
-    The UI swaps the guest-card title from "guest.ubuntu.server" to the
+    The UI swaps the guest-card title from "guest.ubuntu.server.24" to the
     actual ISO filename (e.g. "ubuntu-24.04.4-live-server-amd64.iso")
     when provenanceFilename is populated; a blank value means fall back
     to guestKey. provenanceUrl is informational (not rendered today;
@@ -543,7 +581,7 @@ function Set-GuestProvenance {
     flushed to status.json via Write-StatusJson.
 .PARAMETER GuestKey
     Guest identifier as it appears in $script:Doc.guests (e.g.
-    "guest.ubuntu.server"). Silently no-ops when the key isn't found.
+    "guest.ubuntu.server.24"). Silently no-ops when the key isn't found.
 .PARAMETER Filename
     Base-image filename to display in the dashboard. Empty clears it.
 .PARAMETER Url

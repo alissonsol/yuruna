@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,15 +16,10 @@
 
 #requires -version 7
 
-# global:__YurunaLogFile is the cross-module communication channel with
-# Yuruna.Log: this module assigns it; the proxy module reads it.
-#
-# global:__YurunaCycleFolder is the absolute path of this cycle's
-# folder under test/status/log/, populated by Start-LogFile. Consumers
-# (Copy-FailureArtifactsToStatusLog, the saveSystemDiagnostic action,
-# Invoke-TestInnerRunner's per-guest folder creation) read it to
-# locate the cycleGuestDataFolder (folder per guest VM under cycleFolder)
-# without having to plumb the path through every call site.
+# Two cross-module channels are intentionally process-wide: __YurunaLogFile
+# (set here, read by the Yuruna.Log proxy) and __YurunaCycleFolder (the
+# cycle's folder under test/status/log/, read by failure / diagnostics
+# helpers so the path doesn't have to thread through every call site).
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'global:__YurunaLogFile is the cross-module log-file handle read by Yuruna.Log.psm1; global:__YurunaCycleFolder is the cycle folder path read by failure / diagnostics handlers; both intentionally process-wide.')]
 param()
@@ -49,7 +44,7 @@ function Format-CycleFolderBaseName {
     $padded = '{0:D6}' -f $CycleNumber
     # CycleId is "2026-05-11T16:24:39Z" -- index 0..9 is the date,
     # index 11..18 is HH:mm:ss. Defensive .Length checks so a caller
-    # passing a non-ISO timestamp (Confirm-Sequence.ps1 one-shots) still
+    # passing a non-ISO timestamp (Test-Sequence.ps1 one-shots) still
     # yields a usable folder name with whatever the substring produces.
     $cycleDate = if ($CycleId.Length -ge 10) { $CycleId.Substring(0,10) } else { 'unknown-date' }
     $cycleTime = if ($CycleId.Length -ge 19) { ($CycleId.Substring(11,8) -replace ':','-') } else { 'unknown-time' }
@@ -90,11 +85,6 @@ function Start-LogFile {
         downstream helpers (Copy-FailureArtifactsToStatusLog,
         saveSystemDiagnostic action) can locate per-guest subfolders
         without having to plumb the path through every call site.
-
-        GitCommit is retained in the signature for back-compat with the
-        Confirm-Sequence.ps1 caller, but is no longer part of the file
-        name (commit info lives in status.json's gitCommits[] array,
-        which the dashboard renders independently).
     .OUTPUTS
         The absolute path to the HTML log file (existing callers store
         it as $LogFile and pass it around).
@@ -104,9 +94,8 @@ function Start-LogFile {
         [Parameter(Mandatory)] [string]$TestRoot,
         [Parameter(Mandatory)] [string]$CycleId,
         [Parameter(Mandatory)] [string]$Hostname,
-        [Parameter(Mandatory)] [string]$GitCommit,
         # Monotonic cycle counter (1, 2, 3, ...). Defaults to 0 for
-        # callers without cycle context (Confirm-Sequence.ps1); the
+        # callers without cycle context (Test-Sequence.ps1); the
         # resulting folder is 000000.YYYY-MM-DD.HH-mm-ss.HOSTNAME which
         # is still unique-per-invocation thanks to the timestamp.
         [int]$CycleNumber = 0
@@ -115,10 +104,6 @@ function Start-LogFile {
     $cycleBase = Format-CycleFolderBaseName -CycleNumber $CycleNumber -CycleId $CycleId -Hostname $Hostname
     $cycleFolder = Join-Path $logDir $cycleBase
     $logFile = Join-Path $cycleFolder "$cycleBase.html"
-    # GitCommit is intentionally unused here -- the file name no longer
-    # includes the commit (see DESCRIPTION). Referenced via $null assign
-    # so PSScriptAnalyzer's PSReviewUnusedParameter rule is satisfied.
-    $null = $GitCommit
     if ($PSCmdlet.ShouldProcess($logFile, 'Start log file')) {
         if (-not (Test-Path $cycleFolder)) {
             New-Item -ItemType Directory -Path $cycleFolder -Force | Out-Null
@@ -156,7 +141,7 @@ function Start-LogFile {
         # Persist the cycle folder URL on the status doc so the dashboard
         # can build per-guest tile links without re-deriving the format.
         # Soft-import-and-call: Test.Status may not be loaded for callers
-        # that drive Start-LogFile directly (Confirm-Sequence.ps1); in
+        # that drive Start-LogFile directly (Test-Sequence.ps1); in
         # those contexts there's no status doc to update either.
         if (Get-Command Set-CycleFolderUrl -ErrorAction SilentlyContinue) {
             Set-CycleFolderUrl -RelativeUrl "log/$cycleBase/"
@@ -194,6 +179,49 @@ function Get-CycleGuestDataFolder {
     return $folder
 }
 
+function Get-CycleScreenDir {
+    <#
+    .SYNOPSIS
+        Returns the absolute path of the per-VM Wait-ForText ring-buffer
+        directory ({cycleFolder}/screens_{VMName}/), creating it on demand.
+    .DESCRIPTION
+        Wait-ForText captures every pre-OCR screenshot + its OCR sidecar
+        into this directory so the failure path can surface the run-up
+        to the bug. Nested INSIDE the cycle folder (not at the
+        YURUNA_LOG_DIR root) so a cycle that hangs / restarts with no
+        failure-path firing still leaves its evidence behind under the
+        cycle that produced it -- the next cycle gets its own folder
+        and can't overwrite earlier captures.
+        Falls back to {YURUNA_LOG_DIR}/screens_{VMName}/ when no cycle
+        folder is established (Test-Sequence.ps1 normally calls
+        Start-LogFile, but defensive in case future drivers don't).
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'global:__YurunaCycleFolder is the cross-module cycle folder handle set by Start-LogFile.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)] [string]$VMName
+    )
+    if ($global:__YurunaCycleFolder) {
+        $folder = Join-Path $global:__YurunaCycleFolder "screens_${VMName}"
+    } else {
+        if (-not $env:YURUNA_LOG_DIR) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.LogDir.psm1') -Force -ErrorAction SilentlyContinue
+            if (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue) {
+                Initialize-YurunaLogDir | Out-Null
+            }
+        }
+        $folder = Join-Path $env:YURUNA_LOG_DIR "screens_${VMName}"
+    }
+    if ($PSCmdlet.ShouldProcess($folder, 'Ensure cycle screen dir exists')) {
+        if (-not (Test-Path $folder)) {
+            New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        }
+    }
+    return $folder
+}
+
 function Stop-LogFile {
     <#
     .SYNOPSIS
@@ -214,4 +242,4 @@ function Stop-LogFile {
     }
 }
 
-Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Get-CycleGuestDataFolder, Format-CycleFolderBaseName
+Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Get-CycleGuestDataFolder, Get-CycleScreenDir, Format-CycleFolderBaseName

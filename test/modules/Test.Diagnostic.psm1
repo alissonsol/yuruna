@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,6 +72,65 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Extension.psm1')  -Force -Global
 # guest) rather than a hardcoded /home/<user>/ -- works for ec2-user,
 # the per-guest test user, ubuntu without any per-guest fork.
 $script:RemoteDiagScript = '$HOME/yuruna/automation/Get-SystemDiagnostic.ps1'
+
+function Get-RemoteDiagnosticsCommand {
+<#
+.SYNOPSIS
+    Returns the bash one-liner the SSH rungs run on the guest to
+    produce a diagnostic capture, with an optional curl bootstrap
+    fallback for the case where the yuruna tarball hasn't yet been
+    extracted on the guest.
+.DESCRIPTION
+    Without -BootstrapUrl, the command is the bare
+    `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`
+    that earlier versions of this module produced verbatim.
+
+    With -BootstrapUrl, the command tests for the materialized script
+    first; if absent, it falls through to `curl -fsSL <url>/yuruna-repo
+    /automation/Get-SystemDiagnostic.ps1` and runs the downloaded copy
+    out of /tmp. This rescues the failure mode where the cycle
+    watchdog fires mid-update.sh -- e.g. apt-get update stalled on UTM
+    bridge networking before reaching the tarball-extract step -- so
+    pwsh would otherwise exit 64 with its usage banner and the
+    captured artifact would be useless. The status server's
+    /yuruna-repo/ mount serves the host's working tree, so the
+    downloaded script is the same one that would have been in the
+    tarball.
+
+    Bash conditional rather than `&&` so an exit code from pwsh
+    inside the bootstrap branch doesn't suppress the trailing
+    `rm /tmp/yuruna-diag.ps1` cleanup.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$BootstrapUrl)
+
+    if ([string]::IsNullOrWhiteSpace($BootstrapUrl)) {
+        return "pwsh -NoProfile -File $script:RemoteDiagScript"
+    }
+    $u      = $BootstrapUrl.TrimEnd('/')
+    $remote = $script:RemoteDiagScript
+    return ("if [ -f $remote ]; then " +
+            "pwsh -NoProfile -File $remote; " +
+            "elif curl -fsSL '$u/yuruna-repo/automation/Get-SystemDiagnostic.ps1' -o /tmp/yuruna-diag.ps1; then " +
+            "pwsh -NoProfile -File /tmp/yuruna-diag.ps1; rm -f /tmp/yuruna-diag.ps1; " +
+            "else echo 'diag-bootstrap: yuruna not extracted and status server unreachable' >&2; exit 64; fi")
+}
+
+# --- Save-GuestDiagnostic timeouts -----------------------------------------
+# Module-level on purpose: not a parameter so every caller (sequence
+# action, failure-artifact path, ad-hoc test driver) shares the same
+# cap. Tune by editing here -- the values below are calibrated for a
+# healthy guest finishing in well under a minute, plus a margin for
+# the pathological case where one section of Get-SystemDiagnostic
+# hangs and we still want to bail before the cycle timer fires.
+# Both budgets are enforced explicitly: any SSH call that returns
+# 'Timed out after Xs' surfaces a Write-Warning here, and any total
+# elapsed beyond $SaveGuestDiagnosticTotalTimeoutSeconds emits a
+# closing Write-Warning so the operator sees the cap was hit instead
+# of attributing the missing artifact to a connectivity issue.
+$script:SaveGuestDiagnosticTotalTimeoutSeconds      = 300   # 5 min wall-clock cap on the whole capture
+$script:SaveGuestDiagnosticPerCommandTimeoutSeconds = 60    # 60 s cap on each individual ssh command
 
 function Get-DiagnosticsFileName {
 <#
@@ -169,7 +228,8 @@ function Invoke-RemoteDiagnosticsPasswordSsh {
         [Parameter(Mandatory)][string]$Address,
         [Parameter(Mandatory)][string]$Password,
         [Parameter(Mandatory)][string]$SshpassPath,
-        [int]$TimeoutSeconds = 180
+        [int]$TimeoutSeconds = 180,
+        [string]$BootstrapUrl
     )
     # Outer-scope references so PSScriptAnalyzer treats both as used; their
     # real consumption is via $using:Password / $using:SshpassPath inside
@@ -177,7 +237,7 @@ function Invoke-RemoteDiagnosticsPasswordSsh {
     $null = $Password
     $null = $SshpassPath
     $target  = "$User@$Address"
-    $command = "pwsh -NoProfile -File $script:RemoteDiagScript"
+    $command = Get-RemoteDiagnosticsCommand -BootstrapUrl $BootstrapUrl
 
     $job = Start-Job -ScriptBlock {
         $env:SSHPASS = $using:Password
@@ -236,9 +296,10 @@ function Invoke-RemoteDiagnosticsKeySsh {
     param(
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$GuestKey,
-        [int]$TimeoutSeconds = 180
+        [int]$TimeoutSeconds = 180,
+        [string]$BootstrapUrl
     )
-    $command = "pwsh -NoProfile -File $script:RemoteDiagScript"
+    $command = Get-RemoteDiagnosticsCommand -BootstrapUrl $BootstrapUrl
     # Re-assert Test.Ssh. The console rung above invokes Yuruna.Host's
     # Send-Text + Send-Key, each of which does
     #   Import-Module $invokeSequence -Force
@@ -527,7 +588,7 @@ function Save-GuestDiagnostic {
 .PARAMETER VMName
     Guest VM name as registered with the host hypervisor.
 .PARAMETER GuestKey
-    Guest identifier (e.g. guest.ubuntu.server). Determines the SSH
+    Guest identifier (e.g. guest.ubuntu.server.24). Determines the SSH
     login user via Get-GuestSshUser.
 .PARAMETER OutputFolder
     Absolute path of the destination folder. Typically the
@@ -539,11 +600,15 @@ function Save-GuestDiagnostic {
     for the exact format. Sequence steps supply their own value: the
     saveSystemDiagnostic action requires an 'id' field on each step so
     multiple captures in the same cycle land in distinct files.
-.PARAMETER TimeoutSeconds
-    Total runtime budget for the remote diagnostic capture. Default
-    180 -- Get-SystemDiagnostic on a healthy guest finishes in well
-    under a minute; the cap exists for the pathological case where the
-    guest is hung mid-section.
+
+    The wall-clock budget for the whole capture, and the per-SSH-call
+    timeout for each attempt, are NOT parameters -- they're module-
+    level variables ($SaveGuestDiagnosticTotalTimeoutSeconds and
+    $SaveGuestDiagnosticPerCommandTimeoutSeconds at the top of this
+    file) so every caller picks up the same cap and changes are made
+    in one place. The function emits Write-Warning lines when either
+    cap is hit so the operator sees the budget was exceeded instead
+    of attributing the missing artifact to a connectivity issue.
 .OUTPUTS
     [bool] -- $true on success (file written), $false on any failure.
     Diagnostic file path is also emitted via Write-Information so the
@@ -555,9 +620,40 @@ function Save-GuestDiagnostic {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$OutputFolder,
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Id,
-        [int]$TimeoutSeconds = 180
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Id
     )
+
+    # Wall-clock budget for the whole capture. Each downstream call
+    # below clamps its own timeout to `min(perCommandCap, remaining)`
+    # so a near-deadline rung doesn't overshoot. Surface caps in logs
+    # so a stuck cycle's transcript points the operator at the bound.
+    $diagStart    = Get-Date
+    $diagDeadline = $diagStart.AddSeconds($script:SaveGuestDiagnosticTotalTimeoutSeconds)
+    $perCmdCap    = [int]$script:SaveGuestDiagnosticPerCommandTimeoutSeconds
+    Write-Verbose ("Save-GuestDiagnostic: total cap {0}s, per-ssh cap {1}s" -f $script:SaveGuestDiagnosticTotalTimeoutSeconds, $perCmdCap)
+    function Get-DiagBudgetRemaining {
+        $remaining = [int]($diagDeadline - (Get-Date)).TotalSeconds
+        if ($remaining -lt 0) { $remaining = 0 }
+        return $remaining
+    }
+    function Get-PerCmdBudget {
+        # Clamp the per-command cap to whatever remains in the total
+        # budget so a long-running rung at minute 4 of the 5-minute cap
+        # can't blow through the cycle's outer timeout.
+        $remain = Get-DiagBudgetRemaining
+        if ($remain -le 0) { return 0 }
+        return [math]::Min($perCmdCap, $remain)
+    }
+    function Test-DiagSshTimeoutHit {
+        # Each Invoke-* rung returns @{ output = "Timed out after Xs" }
+        # on its inner Wait-Job timeout. Surface the cap-hit so the
+        # operator sees the deadline was reached instead of attributing
+        # the missing artifact to a connectivity issue.
+        param($Result, [string]$Rung)
+        if ($Result -and $Result.output -and ([string]$Result.output) -match 'Timed out after (\d+)s') {
+            Write-Warning ("Save-GuestDiagnostic: '{0}' rung hit the {1}s per-ssh-command cap (defined in `$script:SaveGuestDiagnosticPerCommandTimeoutSeconds at the top of Test.Diagnostic.psm1)." -f $Rung, $Matches[1])
+        }
+    }
 
     if (-not (Test-Path -LiteralPath $OutputFolder -PathType Container)) {
         try {
@@ -646,8 +742,16 @@ function Save-GuestDiagnostic {
     # to the operator that the guest was unreachable in time.
     # 180s budget covers: ARP probe (~5 s) + a typical Linux
     # post-reboot bring-up (60-120 s on this hardware) + slack.
-    if (-not (Test.Ssh\Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds 180 -PollSeconds 5)) {
-        Write-Warning "Save-GuestDiagnostic: SSH did not become ready within 180s for VM '$VMName' (mid-reboot, late-binding KVP, or sshd not yet up); skipping diagnostics capture."
+    # Cap Wait-SshReady's polling budget by what remains of the 5-min
+    # total cap. 180s is the previous fixed budget; we use min(180,
+    # remaining) so a near-deadline call doesn't push us past the cap.
+    $waitBudget = [math]::Min(180, (Get-DiagBudgetRemaining))
+    if ($waitBudget -le 0) {
+        Write-Warning ("Save-GuestDiagnostic: total {0}s budget already exhausted before Wait-SshReady; skipping." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
+        return $false
+    }
+    if (-not (Test.Ssh\Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $waitBudget -PollSeconds 5)) {
+        Write-Warning ("Save-GuestDiagnostic: SSH did not become ready within {0}s for VM '{1}' (mid-reboot, late-binding KVP, or sshd not yet up); skipping diagnostics capture." -f $waitBudget, $VMName)
         return $false
     }
 
@@ -665,6 +769,24 @@ function Save-GuestDiagnostic {
     $sshpassPath = (Get-Command sshpass -ErrorAction SilentlyContinue)?.Source
     $password    = Resolve-StoredPassword -Username $user
 
+    # Resolve the host status-server URL once and feed it to BOTH SSH
+    # rungs as their curl-bootstrap fallback. The previous chain treated
+    # the curl bootstrap as a console-rung-only concern; that left a gap
+    # when SSH was healthy but the guest had not yet extracted the yuruna
+    # tarball (e.g. cycle watchdog fired mid-update.sh during the apt-get
+    # phase). The SSH command then exited 64 from pwsh's usage banner and
+    # the diagnostic file ended up containing that banner instead of real
+    # state. Soft-fail to $null if the endpoint can't be resolved -- the
+    # rungs degrade to the bare `pwsh -File` command and the console rung
+    # is still the final fallback.
+    $bootstrapUrl = $null
+    try {
+        $endpoint = Resolve-StatusServerEndpoint -VMName $VMName
+        if ($endpoint) { $bootstrapUrl = [string]$endpoint.url }
+    } catch {
+        Write-Verbose "Save-GuestDiagnostic: Resolve-StatusServerEndpoint threw: $($_.Exception.Message)"
+    }
+
     # Strategy chain: key SSH -> password SSH -> console. SSH is the
     # default because it works the same on every host (Linux/macOS/
     # Windows) without depending on a per-host keyboard injector, the
@@ -674,7 +796,7 @@ function Save-GuestDiagnostic {
     # the bug (sshd down, host-key mismatch, auth failure) -- when SSH
     # is healthy we ship the diagnostic immediately without paying the
     # console-typing latency or risking keystroke corruption (e.g.
-    # macOS UTM AVF Shift handling, character-table misses).
+    # character-table misses, host-specific Shift handling quirks).
     #
     # Earlier rungs' outputs are not discarded if they produced text --
     # $lastResult keeps the most informative one so a partial-and-failed
@@ -688,17 +810,24 @@ function Save-GuestDiagnostic {
     $attempted   = @()
 
     # Primary: key SSH (most reliable rung on a healthy guest).
-    $attempted += 'key-ssh'
-    Write-Verbose "  Diagnostics: ssh ${user}@${address} (key auth via yuruna_ed25519)"
-    $keyResult = Invoke-RemoteDiagnosticsKeySsh `
-        -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $TimeoutSeconds
-    if ($keyResult.output -and -not $lastResult.output) {
-        $lastResult = $keyResult
-    }
-    if ($keyResult.success) {
-        $result = $keyResult
+    $keyBudget = Get-PerCmdBudget
+    if ($keyBudget -le 0) {
+        Write-Warning ("Save-GuestDiagnostic: total {0}s budget exhausted before key-ssh rung; skipping further rungs." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
     } else {
-        Write-Verbose "  Diagnostics: key SSH failed (exit=$($keyResult.exitCode)); trying password SSH if available."
+        $attempted += 'key-ssh'
+        Write-Verbose ("  Diagnostics: ssh {0}@{1} (key auth via yuruna_ed25519, budget {2}s)" -f $user, $address, $keyBudget)
+        $keyResult = Invoke-RemoteDiagnosticsKeySsh `
+            -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $keyBudget `
+            -BootstrapUrl $bootstrapUrl
+        Test-DiagSshTimeoutHit -Result $keyResult -Rung 'key-ssh'
+        if ($keyResult.output -and -not $lastResult.output) {
+            $lastResult = $keyResult
+        }
+        if ($keyResult.success) {
+            $result = $keyResult
+        } else {
+            Write-Verbose "  Diagnostics: key SSH failed (exit=$($keyResult.exitCode)); trying password SSH if available."
+        }
     }
 
     # Backup: password SSH. Useful for the early-bootstrap case where
@@ -706,12 +835,17 @@ function Save-GuestDiagnostic {
     # on PATH (Linux-only out of the box -- the macOS installer does
     # not bring it in by design).
     if (-not $result) {
-        if ($sshpassPath -and $password) {
+        $pwBudget = Get-PerCmdBudget
+        if ($pwBudget -le 0) {
+            Write-Warning ("Save-GuestDiagnostic: total {0}s budget exhausted before password-ssh rung; skipping further rungs." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
+        } elseif ($sshpassPath -and $password) {
             $attempted += 'password-ssh'
-            Write-Verbose "  Diagnostics: ssh ${user}@${address} (password auth via sshpass)"
+            Write-Verbose ("  Diagnostics: ssh {0}@{1} (password auth via sshpass, budget {2}s)" -f $user, $address, $pwBudget)
             $passwordResult = Invoke-RemoteDiagnosticsPasswordSsh `
                 -User $user -Address $address -Password $password `
-                -SshpassPath $sshpassPath -TimeoutSeconds $TimeoutSeconds
+                -SshpassPath $sshpassPath -TimeoutSeconds $pwBudget `
+                -BootstrapUrl $bootstrapUrl
+            Test-DiagSshTimeoutHit -Result $passwordResult -Rung 'password-ssh'
             if ($passwordResult.output -and -not $lastResult.output) {
                 $lastResult = $passwordResult
             }
@@ -733,18 +867,24 @@ function Save-GuestDiagnostic {
     # auth misconfigured, network partition) -- the only case where
     # typing into tty1 still has a chance.
     if (-not $result) {
-        $attempted += 'console'
-        $consoleResult = Invoke-RemoteDiagnosticsConsole `
-            -VMName $VMName -FailureFolderPath $FailureFolderPath `
-            -DiagnosticsFileName $fileName -TimeoutSeconds $TimeoutSeconds
-        if ($consoleResult.success) {
-            Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=console, attempts=$($attempted -join ','))"
-            return $true
+        $consoleBudget = Get-PerCmdBudget
+        if ($consoleBudget -le 0) {
+            Write-Warning ("Save-GuestDiagnostic: total {0}s budget exhausted before console rung; skipping." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
+        } else {
+            $attempted += 'console'
+            $consoleResult = Invoke-RemoteDiagnosticsConsole `
+                -VMName $VMName -FailureFolderPath $FailureFolderPath `
+                -DiagnosticsFileName $fileName -TimeoutSeconds $consoleBudget
+            Test-DiagSshTimeoutHit -Result $consoleResult -Rung 'console'
+            if ($consoleResult.success) {
+                Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=console, attempts=$($attempted -join ','))"
+                return $true
+            }
+            if ($consoleResult.output -and -not $lastResult.output) {
+                $lastResult = $consoleResult
+            }
+            Write-Verbose "  Diagnostics: console failed (exit=$($consoleResult.exitCode))."
         }
-        if ($consoleResult.output -and -not $lastResult.output) {
-            $lastResult = $consoleResult
-        }
-        Write-Verbose "  Diagnostics: console failed (exit=$($consoleResult.exitCode))."
     }
 
     # All rungs exhausted -- surface whatever output we collected so the
@@ -781,7 +921,11 @@ function Save-GuestDiagnostic {
         return $false
     }
 
-    Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=$($result.mechanism), exit=$($result.exitCode))"
+    $elapsedSec = [int]((Get-Date) - $diagStart).TotalSeconds
+    if ($elapsedSec -gt $script:SaveGuestDiagnosticTotalTimeoutSeconds) {
+        Write-Warning ("Save-GuestDiagnostic: total elapsed {0}s exceeded the {1}s cap (`$script:SaveGuestDiagnosticTotalTimeoutSeconds in Test.Diagnostic.psm1) -- rung sequence ran long for VM '{2}'. Inspect SSH responsiveness or raise the cap." -f $elapsedSec, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName)
+    }
+    Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=$($result.mechanism), exit=$($result.exitCode), elapsed=${elapsedSec}s)"
     return [bool]$result.success
 }
 

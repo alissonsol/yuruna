@@ -1,0 +1,380 @@
+<#PSScriptInfo
+.VERSION 2026.05.22
+.GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.com
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Creates a libvirt VM that installs Ubuntu Server 24.04 via the
+    live-server ISO + subiquity autoinstall.
+
+.DESCRIPTION
+    Mirrors host/macos.utm/guest.ubuntu.server.24/New-VM.ps1 and
+    host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1 so all three
+    hosts run the same boot sequence: GRUB -> "Continue with autoinstall?"
+    confirmation -> subiquity unattended install -> reboot -> text-mode
+    login prompt with an EXPIRED `password` so the harness's first login
+    triggers the current/new/retype dialog.
+
+    Workflow:
+      1. Build seed.iso from vmconfig/user-data + meta-data (CIDATA volume).
+         Subiquity scans CD/DVD drives for cidata at boot and consumes the
+         autoinstall config from there.
+      2. Create a fresh empty 32 G qcow2 disk -- subiquity installs onto it.
+      3. virt-install with two CDs (live-server ISO + cidata seed) plus
+         the empty install-target qcow2; --noautoconsole because the
+         harness's Restart-VMConsole launches virt-viewer separately
+         (and detached, so the harness pipe still EOFs cleanly).
+
+    The earlier KVM revision used the pre-baked Ubuntu cloud image (.img,
+    qcow2-format) + NoCloud cloud-init seed. That boots in ~30s but
+    DOES NOT show the "Continue with autoinstall?" prompt, does not run
+    subiquity's late-commands, and lands at the login prompt without
+    expiring the password -- making the GUI test sequence's first three
+    steps non-comparable across hosts. The new flow is slower (~5-10 min
+    install) but produces the same boot sequence and end state as
+    macos.utm and hyper-v.
+#>
+
+param(
+    [string]$VMName = "ubuntu-server01",
+    [string]$CachingProxyUrl,
+    # OS user created by autoinstall and exercised by the test
+    # sequences. Default 'yuuser24' chosen for greppability (vs the
+    # cloud-image default 'ubuntu', which collides with anything Ubuntu)
+    # and version-tagged so 24.04 and 26.04 guests don't collide in
+    # shared logs.
+    [string]$Username = 'yuuser24'
+)
+
+if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
+    Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
+    exit 1
+}
+if (-not $IsLinux) {
+    Write-Error "host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1 only runs on Linux."
+    exit 1
+}
+
+$ErrorActionPreference = 'Stop'
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# -- libvirt-qemu search ACL on $HOME (self-heal) --------------------------
+# Ubuntu 24.04 cloud images create /home/<user> at mode 0750, which blocks
+# the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu processes
+# from traversing $HOME to reach the qcow2 below it. virt-install then
+# warns "You will need to grant the 'libvirt-qemu' user search permissions
+# for ['/home/<user>']" and errors out with "Cannot access storage file ...
+# Permission denied". A traverse-only POSIX ACL is the narrowest fix and
+# does not change read/write/listing for any other user. Idempotent --
+# safe to run every cycle.
+if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
+    & getent passwd libvirt-qemu *>$null
+    if ($LASTEXITCODE -eq 0) {
+        & setfacl -m 'u:libvirt-qemu:--x' $HOME 2>$null
+    }
+}
+
+# -- Inputs ----------------------------------------------------------------
+$arch = (& uname -m).Trim()
+switch ($arch) {
+    'x86_64'  { $virtArch = 'x86_64';  $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
+    'aarch64' { $virtArch = 'aarch64'; $primaryUri = 'http://ports.ubuntu.com/ubuntu-ports' }
+    default   { Write-Error "Unsupported arch: $arch"; exit 1 }
+}
+
+$downloadDir   = "$HOME/yuruna/image/ubuntu.env"
+$baseImageName = "host.ubuntu.kvm.guest.ubuntu.server.24"
+$baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
+# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
+# only error out when it's still missing afterward. Saves a round-trip
+# when the operator forgot to run Get-Image and let New-VM run anyway.
+if (-not (Test-Path -LiteralPath $baseImageFile)) {
+    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
+    if (Test-Path -LiteralPath $getImageScript) {
+        Write-Output "Base image missing: $baseImageFile"
+        Write-Output "Auto-running $getImageScript to fetch it..."
+        & pwsh -NoProfile -File $getImageScript
+        $getImageExit = $LASTEXITCODE
+        if ($getImageExit -ne 0) {
+            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
+            exit 1
+        }
+    }
+    if (-not (Test-Path -LiteralPath $baseImageFile)) {
+        Write-Error "Base image missing after auto Get-Image: $baseImageFile. Run Get-Image.ps1 manually."
+        exit 1
+    }
+}
+
+$vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
+$diskImg = Join-Path $vmDir "$VMName.qcow2"
+$seedImg = Join-Path $vmDir 'seed.iso'
+New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
+
+# -- SSH key (single harness key; matches macOS/Hyper-V variants) ---------
+# The harness uses one ed25519 key pair at test/status/ssh/yuruna_ed25519,
+# owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
+# failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
+# so the public bytes seeded into the guest's authorized_keys MUST be
+# this key -- not an ad-hoc per-host pair. Prior versions of this
+# script generated test/status/ssh/host.ubuntu.kvm and silently broke
+# diagnostics (Permission denied (publickey,password)).
+$repoRoot      = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+$TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
+Import-Module $TestSshModule -Force -DisableNameChecking
+$sshPub = Get-YurunaSshPublicKey
+if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+
+# -- Password hash for cloud-init identity --------------------------------
+# Resolve the autoinstall password from the per-cycle authentication
+# vault (test/extension/authentication/default.psm1). Get-Password
+# auto-generates and stores on first call; later calls within the same
+# cycle return the rotated value committed by an earlier guest's
+# Set-Password. Cycle-end cleanup wipes vault.yml on success.
+# YURUNA_GUEST_PASSWORD env-var is honoured for ad-hoc dev-loop
+# overrides (skips the vault -- nothing is committed back).
+if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
+    Write-Error "openssl is required for the autoinstall password hash. apt install openssl."
+    exit 1
+}
+$plaintextPassword = $env:YURUNA_GUEST_PASSWORD
+if (-not $plaintextPassword) {
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
+    $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
+    $plaintextPassword = Get-LocalOsPassword -Username $Username
+    if (-not $plaintextPassword) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
+    Write-Output "Password came from authentication mechanism: $_authActiveName"
+    Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
+} else {
+    Write-Output "Password came from environment variable: YURUNA_GUEST_PASSWORD"
+}
+Import-Module (Join-Path $repoRoot 'test/modules/Test.VM.common.psm1') -Force -DisableNameChecking
+try {
+    $pwHash = ConvertTo-Sha512CryptHash -Plaintext $plaintextPassword
+} catch {
+    Write-Error "Password hashing failed: $($_.Exception.Message)"
+    exit 1
+}
+
+# -- Yuruna host coordinates (best-effort) --------------------------------
+# The libvirt 'default' net is 192.168.122.0/24 with the host on .1; the
+# guest reaches the status server at that gateway. Status server port is
+# read from test.config.yml when available, otherwise defaults to 8080.
+$hostIp = '192.168.122.1'
+$hostPort = '8080'
+$cfg = Join-Path $repoRoot 'test/test.config.yml'
+if (Test-Path -LiteralPath $cfg) {
+    try {
+        $j = Get-Content -Raw -LiteralPath $cfg | ConvertFrom-Yaml -Ordered
+        if ($j.statusServer.port) { $hostPort = "$($j.statusServer.port)" }
+    } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
+}
+
+# -- Build the autoinstall apt block --------------------------------------
+# Always emit `geoip: false` + a pinned primary mirror, even when no
+# squid-cache is reachable -- subiquity's default `geoip: true` fires an
+# HTTPS lookup to geoip.ubuntu.com that adds seconds to mirror election.
+# Pinning primary makes the election deterministic. Format / placement
+# match the hyper-v variant.
+$AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
+$AptProxyBlock = @"
+  apt:
+    geoip: false
+    primary:
+      - arches: [default]
+        uri: $primaryUri$($AptProxyLine)
+"@
+
+# -- Fetch squid-cache CA cert (base64-embedded in seed) -------------------
+# Mirrors host/macos.utm/guest.ubuntu.server.24/New-VM.ps1. The installer's
+# late-commands write the cert from CA_CERT_BASE64_PLACEHOLDER before
+# any HTTPS apt fetch, so SSL-bump caching works from the first install
+# request. Any failure (no URL, unreachable cache, HTTP error, empty
+# body) leaves $CaCertBase64 empty and the guest's HTTPS proxy block
+# becomes a no-op -- HTTP caching via :3128 still works.
+$CaCertBase64 = ""
+if ($CachingProxyUrl) {
+    try {
+        $uri = [System.Uri]$CachingProxyUrl
+        $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
+        $cacheCaUrl = "http://$cacheHost/yuruna-squid-ca.crt"
+        $caResp = Invoke-WebRequest -Uri $cacheCaUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+        if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
+            $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
+            $CaCertBase64 = [Convert]::ToBase64String($caBytes)
+            Write-Verbose "  Fetched squid-cache CA from $cacheCaUrl ($($caBytes.Length) bytes) -- embedded in seed."
+        }
+    } catch {
+        Write-Warning "  Could not fetch CA cert from squid-cache : $($_.Exception.Message)"
+        Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
+    }
+}
+
+# -- Render user-data / meta-data ------------------------------------------
+$userDataTemplate = Join-Path $ScriptDir 'vmconfig/user-data'
+$metaDataTemplate = Join-Path $ScriptDir 'vmconfig/meta-data'
+foreach ($f in @($userDataTemplate, $metaDataTemplate)) {
+    if (-not (Test-Path -LiteralPath $f)) {
+        Write-Error "Template missing: $f"
+        exit 1
+    }
+}
+$userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
+    Replace('HOSTNAME_PLACEHOLDER', $VMName).
+    Replace('USERNAME_PLACEHOLDER', $Username).
+    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $sshPub).
+    Replace('HASH_PLACEHOLDER', $pwHash).
+    Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).
+    Replace('CACHING_PROXY_URL_PLACEHOLDER', ($CachingProxyUrl ?? '')).
+    Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).
+    Replace('YURUNA_HOST_IP_PLACEHOLDER', $hostIp).
+    Replace('YURUNA_HOST_PORT_PLACEHOLDER', $hostPort)
+$metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
+    Replace('HOSTNAME_PLACEHOLDER', $VMName)
+
+$seedDir = Join-Path $vmDir 'seed.src'
+New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
+Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
+Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
+
+# -- Build the seed ISO ----------------------------------------------------
+# CIDATA volume label is what cloud-init's NoCloud datasource scans for.
+& genisoimage -output $seedImg -volid cidata -joliet -rock `
+    (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "genisoimage failed (exit $LASTEXITCODE)"
+    exit 1
+}
+
+# -- Create empty install target -------------------------------------------
+# Fresh 64 G qcow2; subiquity will partition + install onto it. Paired with
+# sizing-policy: all in vmconfig/user-data so the root LV consumes the
+# whole PV instead of subiquity's default ~50% server heuristic that left
+# kubelet's image filesystem at ~14 GiB and tripped ephemeral-storage
+# eviction during the website test.
+if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
+& qemu-img create -f qcow2 $diskImg 64G | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
+
+# -- Define + start the VM via virt-install ---------------------------------
+$virshUri = 'qemu:///system'
+& virsh --connect $virshUri destroy $VMName 2>$null | Out-Null
+& virsh --connect $virshUri undefine --nvram $VMName 2>$null | Out-Null
+
+# --- See https://yuruna.link/memory#why-we-patch-virt-installs-phase-1-xml-on-kvm
+
+# --- See https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
+$osVariant = 'linux2022'
+$osList = & virt-install --osinfo list 2>$null
+if ($LASTEXITCODE -eq 0) {
+    $canonicalIds = @($osList | ForEach-Object {
+        $first = ("$_".Trim() -split '[\s,]', 2)[0]
+        ($first -replace ',$', '').Trim()
+    } | Where-Object { $_ })
+    foreach ($candidate in @('ubuntu24.04', 'ubuntu22.04')) {
+        if ($canonicalIds -contains $candidate) { $osVariant = $candidate; break }
+    }
+    if ($osVariant -eq 'linux2022') {
+        # Verbose, not Warning: the fallback variant works fine on every
+        # host we've seen the message on, so it's noise at Info level.
+        Write-Verbose "osinfo-db has no 'ubuntu24.04' or 'ubuntu22.04' entry; using 'linux2022' generic variant."
+    }
+}
+
+# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+$hostCores = [int](& nproc --all)
+if ($hostCores -lt 4) {
+    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    exit 1
+}
+$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+
+$installArgs = @(
+    '--connect', $virshUri,
+    '--name',    $VMName,
+    '--memory',  '4096',
+    '--vcpus',   "$vmCores",
+    '--cpu',     'host-passthrough',
+    '--os-variant', $osVariant,
+    '--disk',    "path=$diskImg,format=qcow2,bus=virtio",
+    '--cdrom',   $baseImageFile,
+    '--disk',    "path=$seedImg,device=cdrom,readonly=on",
+    '--network', 'network=default,model=virtio',
+    '--graphics','vnc,listen=127.0.0.1',
+    # Force paravirtual virtio video instead of the q35+UEFI default
+    # (bochs-display). The bochs DRM driver in the resolute live-server
+    # kernel (7.0.0-15) thrashes drm_fb_helper_damage_work during the
+    # subiquity install phase, correlating with an overlayfs oops that
+    # stalls autoinstall before the post-install login prompt appears.
+    # virtio-vga is paravirtual, has no DRM driver burn, and works
+    # identically on noble, so we pin it for both 24 and 26.
+    # See log/000088 on host.ubuntu.kvm for the failure that triggered this.
+    '--video',   'virtio'
+)
+switch ($virtArch) {
+    'x86_64'  { $installArgs += @('--machine', 'q35',  '--boot', 'uefi') }
+    'aarch64' { $installArgs += @('--machine', 'virt', '--boot', 'uefi') }
+}
+
+Write-Verbose "virt-install --print-xml=1 $($installArgs -join ' ')"
+$installXml = (& virt-install @installArgs --print-xml=1 2>&1) -join "`n"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "virt-install --print-xml failed (exit $LASTEXITCODE):`n$installXml"
+    exit 1
+}
+
+# Force on_reboot=restart so subiquity's post-install reboot doesn't kill
+# the domain. Sanity-check the substitution actually fired -- if a future
+# virt-install version stops emitting the destroy literal we want a noisy
+# failure here, not a silent regression that lands us back in the same
+# `virsh screenshot failed` loop.
+$patchedXml = $installXml -replace '<on_reboot>[^<]*</on_reboot>', '<on_reboot>restart</on_reboot>'
+if ($patchedXml -eq $installXml -and $installXml -notmatch '<on_reboot>restart</on_reboot>') {
+    Write-Error "Failed to locate <on_reboot> element in virt-install --print-xml output. Refusing to define a domain that would kill itself on first reboot."
+    exit 1
+}
+
+# --- See https://yuruna.link/memory#why-we-swap-boot-order-1-and-2-in-the-install-xml
+$preBootSwap = $patchedXml
+if ($patchedXml -match "<boot order='1'/>" -and $patchedXml -match "<boot order='2'/>") {
+    $patchedXml = $patchedXml -replace "<boot order='1'/>", "<boot order='__YURUNA_BOOT_SWAP__'/>"
+    $patchedXml = $patchedXml -replace "<boot order='2'/>", "<boot order='1'/>"
+    $patchedXml = $patchedXml -replace "<boot order='__YURUNA_BOOT_SWAP__'/>", "<boot order='2'/>"
+}
+elseif ($patchedXml -match '<boot dev="cdrom"/>' -and $patchedXml -match '<boot dev="hd"/>') {
+    $patchedXml = $patchedXml -replace '<boot dev="cdrom"/>(\s*)<boot dev="hd"/>', '<boot dev="hd"/>$1<boot dev="cdrom"/>'
+}
+if ($patchedXml -eq $preBootSwap) {
+    Write-Error "Failed to locate <boot order='1'/>+<boot order='2'/> OR <boot dev=`"cdrom`"/>+<boot dev=`"hd`"/> pair in virt-install --print-xml output. Refusing to define a domain whose post-install reboot would loop back to the install CDROM. XML follows:`n$installXml"
+    exit 1
+}
+
+$xmlFile = New-TemporaryFile
+try {
+    Set-Content -LiteralPath $xmlFile.FullName -Value $patchedXml -NoNewline
+    & virsh --connect $virshUri define $xmlFile.FullName
+    if ($LASTEXITCODE -ne 0) { Write-Error "virsh define failed (exit $LASTEXITCODE)"; exit 1 }
+    & virsh --connect $virshUri start $VMName
+    if ($LASTEXITCODE -ne 0) { Write-Error "virsh start failed (exit $LASTEXITCODE)"; exit 1 }
+} finally {
+    Remove-Item -LiteralPath $xmlFile.FullName -Force -ErrorAction SilentlyContinue
+}
+
+Write-Verbose "VM '$VMName' created. Subiquity will autoinstall (~5-10 min)."
+Write-Verbose "Default credentials - username: $Username, password: <vault-managed> (must be changed on first login). Vault: test/status/extension/authentication/vault.yml (set YURUNA_GUEST_PASSWORD to bypass vault for ad-hoc dev runs)"
+Write-Verbose "Console:  virt-viewer --connect $virshUri $VMName"
+Write-Verbose "Get IP via 'virsh -c $virshUri domifaddr $VMName' once cloud-init finishes."

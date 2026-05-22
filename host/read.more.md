@@ -1,6 +1,6 @@
 # Hosts — Nerd-Level Details
 
-The crisp version lives in [README.md](README.md); this file holds the
+The crisp version lives in [Hosts — ...](README.md); this file holds the
 detail on macOS TCC grants, VM resizing, and IP discovery.
 
 ## macOS TCC grants
@@ -13,7 +13,7 @@ permissions on macOS, granted to the terminal app at
 - **Screen Recording** — window enumeration
   (`CGWindowListCopyWindowInfo` returns titles only to callers holding
   this grant) and per-window capture. Without it,
-  `waitForAndClickButton` loops on "UTM window for `<vm>` not found".
+  `tapOn` loops on "UTM window for `<vm>` not found".
 
 `Enable-TestAutomation.ps1` fires the consent dialog for each, but TCC
 forbids automating the toggle itself. Dismissed a dialog? Toggle

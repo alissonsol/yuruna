@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Yuruna VM config · https://yuruna.link/vmconfig -->
+<!-- QEMU backend (not Apple Virtualization) so we can pass -vnc to QEMU.
+     QEMU's built-in RFB server gives the test harness focus-independent
+     screen capture (Get-VncScreenshot) AND keystroke injection
+     (Send-TextVNC / Send-KeyVNC) over a localhost TCP port. With the
+     Apple backend there was no remote-display protocol, forcing
+     Send-TextUTM to call utm.activate() + AXRaise + CGEventPost(0,...)
+     which steals focus from whatever app the operator is using.
+     The deterministic per-VM port (5900 + Get-VncDisplayForVm) is
+     substituted in by New-VM.ps1 as __VNC_DISPLAY__. -->
+<plist version="1.0">
+<dict>
+	<key>Backend</key>
+	<string>QEMU</string>
+	<key>ConfigurationVersion</key>
+	<integer>4</integer>
+	<key>Information</key>
+	<dict>
+		<key>Icon</key>
+		<string>linux</string>
+		<key>IconCustom</key>
+		<false/>
+		<key>Name</key>
+		<string>__VM_NAME__</string>
+		<key>UUID</key>
+		<string>__VM_UUID__</string>
+	</dict>
+	<key>System</key>
+	<dict>
+		<key>Architecture</key>
+		<string>aarch64</string>
+		<key>CPU</key>
+		<string>default</string>
+		<key>CPUCount</key>
+		<integer>__CPU_COUNT__</integer>
+		<key>CPUFlagsAdd</key>
+		<array/>
+		<key>CPUFlagsRemove</key>
+		<array/>
+		<key>ForceMulticore</key>
+		<false/>
+		<key>JITCacheSize</key>
+		<integer>0</integer>
+		<key>MemorySize</key>
+		<integer>__MEMORY_SIZE__</integer>
+		<key>Target</key>
+		<string>virt</string>
+	</dict>
+	<key>QEMU</key>
+	<dict>
+		<!-- -vnc 127.0.0.1:N exposes a localhost-only RFB server.
+		     N == Get-VncDisplayForVm(VMName), so the harness's
+		     Get-VncPortForVm derives the right TCP port (5900 + N)
+		     without a sidecar. The harness prefers VNC over the
+		     AppleScript/CGEvent fallback when this listener is up.
+
+		     SCHEMA: UTM stores AdditionalArguments as an array of
+		     plain strings (one per argv token). The dict-with-
+		     "Argument"-key form used by some older UTM templates
+		     made `import virtual machine` AND in-place plist edits
+		     silently fail validation. Probed empirically against
+		     UTM v118 / macOS 26.4.1.
+
+		     SCHEMA: Display.Hardware must be virtio-gpu-pci (NOT
+		     virtio-ramfb-gl, NOT virtio-ramfb). The -gl variant aborts
+		     QEMU at start ("The console requires a GL context"); the
+		     plain ramfb is too minimal — UEFI EDK2 never publishes a
+		     Graphics Output Protocol for it, so GRUB / early kernel
+		     never paint, and capture stays stuck on QEMU's "Display
+		     output is not active" stub.
+
+		     The -global virtio-gpu-pci.xres/yres pair below forces
+		     the device's preferred mode to 1920x1080 (UTM emits
+		     `-device virtio-gpu-pci` without xres/yres, so the kernel
+		     would otherwise pick 1280x800 and break OCR calibration). -->
+		<!-- share=force-shared: the harness's Get-VncScreenshot opens its
+		     own RFB client per poll while Send-TextVNC keeps a cached
+		     client for keystrokes. With QEMU's default share=allow-
+		     exclusive, the two clients silently kick / half-close each
+		     other; cached writes still succeed at TCP level (data buffers
+		     locally) so Send-Text returns $true but keys never reach the
+		     guest. force-shared keeps both clients alive concurrently. -->
+		<key>AdditionalArguments</key>
+		<array>
+			<string>-vnc</string>
+			<string>127.0.0.1:__VNC_DISPLAY__,share=force-shared</string>
+			<string>-global</string>
+			<string>virtio-gpu-pci.xres=1920</string>
+			<string>-global</string>
+			<string>virtio-gpu-pci.yres=1080</string>
+		</array>
+		<key>BalloonDevice</key>
+		<false/>
+		<key>DebugLog</key>
+		<false/>
+		<key>Hypervisor</key>
+		<true/>
+		<key>PS2Controller</key>
+		<false/>
+		<key>RNGDevice</key>
+		<true/>
+		<key>RTCLocalTime</key>
+		<false/>
+		<key>TPMDevice</key>
+		<false/>
+		<key>TSO</key>
+		<false/>
+		<key>UEFIBoot</key>
+		<true/>
+	</dict>
+	<!-- Display: Fixed 1920x1080 via virtio-gpu-pci (QEMU, non-GL — see
+	     the AdditionalArguments comment above for the device-choice
+	     rationale; the -vnc/-gl conflict and the UEFI GOP problem both
+	     point at virtio-gpu-pci as the only working option here).
+	     DynamicResolution is disabled so UTM does not scale to the host
+	     Retina display.
+	     WARNING: The test harness OCR is calibrated for 1920x1080.
+	     Changing this resolution may break automated screen-text detection
+	     in waitForText sequence steps. -->
+	<key>Display</key>
+	<array>
+		<dict>
+			<key>WidthPixels</key>
+			<integer>1920</integer>
+			<key>HeightPixels</key>
+			<integer>1080</integer>
+			<key>DownscalingFilter</key>
+			<string>Linear</string>
+			<key>DynamicResolution</key>
+			<false/>
+			<key>Hardware</key>
+			<string>virtio-gpu-pci</string>
+			<key>NativeResolution</key>
+			<false/>
+			<key>UpscalingFilter</key>
+			<string>Nearest</string>
+		</dict>
+	</array>
+	<!-- Three drives:
+	       Disk (VirtIO)   — BootIndex 0 (UEFI tries this first)
+	       Installer ISO   — BootIndex 1 (only when disk has no boot loader)
+	       cidata seed ISO — unindexed, just mounted for autoinstall
+	     UTM emits the BootIndex value verbatim as QEMU's `bootindex=` per-
+	     device hint, which seeds the initial UEFI BootOrder. After the
+	     first successful subiquity install, efibootmgr writes an
+	     `ubuntu` entry to /boot/efi pointing at shimaa64.efi and pushes
+	     that ahead of the firmware default order — the explicit
+	     BootIndex below just covers the gap *before* that efibootmgr
+	     write lands. Without it the installer ISO sits ahead of the
+	     disk and every post-install reboot re-runs subiquity, looping
+	     the cycle.
+	     The Apple Virtualization plist (pre-QEMU-switch) avoided this
+	     by listing the disk FIRST in the Drive array; AVF's VZBootLoader
+	     boots in array order. UTM's QEMU back-end uses an explicit
+	     BootIndex instead. -->
+	<key>Drive</key>
+	<array>
+		<dict>
+			<key>Identifier</key>
+			<string>__DISK_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__DISK_IMAGE_NAME__</string>
+			<key>ImageType</key>
+			<string>Disk</string>
+			<key>Interface</key>
+			<string>VirtIO</string>
+			<key>InterfaceVersion</key>
+			<integer>1</integer>
+			<key>BootIndex</key>
+			<integer>0</integer>
+			<key>ReadOnly</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Identifier</key>
+			<string>__ISO_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__ISO_IMAGE_NAME__</string>
+			<key>ImageType</key>
+			<string>CD</string>
+			<key>Interface</key>
+			<string>USB</string>
+			<key>InterfaceVersion</key>
+			<integer>1</integer>
+			<key>BootIndex</key>
+			<integer>1</integer>
+			<key>ReadOnly</key>
+			<true/>
+		</dict>
+		<!-- Seed bus is VirtIO (not USB) to match the fix in
+		     guest.amazon.linux.2023/config.plist.template -- the
+		     USB-enumeration race on QEMU+EDK2 aarch64 doesn't bite
+		     ubuntu the same way (subiquity polls for cidata on a
+		     longer schedule, and the installed system's first-boot
+		     cloud-init reads from /var/lib/cloud/seed rather than
+		     the cdrom), but VirtIO is uniformly faster and keeps the
+		     macOS.UTM guests consistent. See that file for the long
+		     rationale. -->
+		<dict>
+			<key>Identifier</key>
+			<string>__SEED_IDENTIFIER__</string>
+			<key>ImageName</key>
+			<string>__SEED_IMAGE_NAME__</string>
+			<key>ImageType</key>
+			<string>CD</string>
+			<key>Interface</key>
+			<string>VirtIO</string>
+			<key>InterfaceVersion</key>
+			<integer>1</integer>
+			<key>ReadOnly</key>
+			<true/>
+		</dict>
+	</array>
+	<key>Input</key>
+	<dict>
+		<key>MaximumUsbShare</key>
+		<integer>3</integer>
+		<key>UsbBusSupport</key>
+		<string>3.0</string>
+		<key>UsbSharing</key>
+		<false/>
+	</dict>
+	<key>Network</key>
+	<array>
+		<dict>
+			<key>Hardware</key>
+			<string>virtio-net-pci</string>
+			<key>IsolateFromHost</key>
+			<false/>
+			<key>MacAddress</key>
+			<string>__MAC_ADDRESS__</string>
+			<key>Mode</key>
+			<string>Shared</string>
+			<key>PortForward</key>
+			<array/>
+		</dict>
+	</array>
+	<key>Serial</key>
+	<array/>
+	<key>Sharing</key>
+	<dict>
+		<key>ClipboardSharing</key>
+		<true/>
+		<key>DirectoryShareMode</key>
+		<string>WebDAV</string>
+		<key>DirectoryShareReadOnly</key>
+		<false/>
+	</dict>
+	<key>Sound</key>
+	<array>
+		<dict>
+			<key>Hardware</key>
+			<string>intel-hda</string>
+		</dict>
+	</array>
+</dict>
+</plist>

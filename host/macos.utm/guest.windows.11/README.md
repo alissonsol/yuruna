@@ -1,7 +1,7 @@
 # Windows 11 guest on macOS UTM host
 
-Minimal commands. Walk-through: [read.more.md](read.more.md). Cross-host
-concepts: [../../README.md](../../README.md).
+Minimal commands. Walk-through: [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md). Cross-host
+concepts: [Hosts — ...](../../README.md).
 
 **Requirements**: macOS 12+, Apple Silicon (M1+), UTM v4.0+ — verified
 by `New-VM.ps1`.
@@ -16,7 +16,7 @@ pwsh ./Get-Image.ps1
 
 Downloads the Windows 11 ARM64 ISO and UTM Guest Tools (SPICE + VirtIO)
 into `~/yuruna/image/windows.env/`. Prints manual instructions for ISOs that
-can't be fetched automatically — see [read.more.md](read.more.md).
+can't be fetched automatically — see [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md).
 
 ## For each VM
 
@@ -53,13 +53,13 @@ Restart-Computer
 ```
 
 `$env:YurunaCacheContent`: see
-[../../../docs/caching.md](../../../docs/caching.md).
+[Caching](../../../docs/caching.md).
 
 ## Next
 
 [Windows 11 workloads](../../../guest/windows.11/README.md)
 
-Read more: [read.more.md](read.more.md).
+Read more: [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md).
 
 Back to [macOS UTM](../README.md) · [Yuruna](../../../README.md)
 

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456730
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,8 +33,8 @@
 
 .PARAMETER GuestKey
     The guest to train. Any guest.<name> whose host/<short-host>/<guestKey>/ folder
-    exists on the current host is accepted (e.g. guest.amazon.linux,
-    guest.ubuntu.server, guest.windows.11).
+    exists on the current host is accepted (e.g. guest.amazon.linux.2023,
+    guest.ubuntu.server.24, guest.windows.11).
 
 .PARAMETER ConfigPath
     Path to test.config.yml. Defaults to test/test.config.yml.
@@ -43,7 +43,7 @@
     Default similarity threshold for screenshot comparisons (0.0-1.0). Default: 0.85.
 
 .EXAMPLE
-    pwsh test/Train-Screenshots.ps1 -GuestKey guest.amazon.linux
+    pwsh test/Train-Screenshots.ps1 -GuestKey guest.amazon.linux.2023
 
 .EXAMPLE
     pwsh test/Train-Screenshots.ps1 -GuestKey guest.windows.11 -Threshold 0.80
@@ -161,7 +161,7 @@ while ($true) {
                 checkpoints = @($checkpoints)
             }
             $scheduleFile = Join-Path $guestDir "schedule.json"
-            $schedule | ConvertTo-Json -Depth 5 | Set-Content -Path $scheduleFile -Encoding utf8
+            $schedule | ConvertTo-Json -Depth 5 | Set-Content -Path $scheduleFile -Encoding utf8BOM
             Write-Output ""
             Write-Output "Schedule saved: $scheduleFile"
             Write-Output "Reference screenshots: $refDir"

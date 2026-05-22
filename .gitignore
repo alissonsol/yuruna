@@ -13,7 +13,11 @@ Thumbs.db
 .claude/
 CLAUDE.md
 
-# Yuruna test harness SSH keys (generated per-host on first run)
+# Yuruna test harness SSH keys are generated per-host on first run and now
+# live under test/status/ssh/ (covered by the umbrella status-subdirs
+# ignore below). The legacy test/.ssh/ path is kept here so that an
+# upgrade with a stale per-host key folder doesn't suddenly appear as
+# untracked in `git status`.
 test/.ssh/
 
 # User-specific files
@@ -360,38 +364,48 @@ test/test-config.json
 test/test.config.yml
 test/test.config.yml.backup
 
-# Per-cycle authentication vault and lock sentinel (test/extension/authentication/).
-# Wiped on cycle success; left in place on failure for debugging. Plaintext.
-test/extension/authentication/vault.lock
-test/extension/authentication/vault.yml
-
-# Notification transports + subscribers (test/extension/notification/).
-# Template ships in-tree; live config is gitignored because it carries Resend API keys.
-test/extension/notification/notification.transports.yml
-
-# Per-cycle authentication event log (JSON-lines; never logs password values).
-test/status/track/extension/
-
 # Project tree (cloned per cycle from test.config.yml's repositories.projectUrl)
 project/
 
-# Runtime tracking files (pids, status.json, control flags, ipaddresses.txt,
-# caching-proxy.txt, server.err, .status-server.ps1, etc.)
-# See Test.TrackDir.psm1 — $env:YURUNA_TRACK_DIR defaults here so the status
-# server can serve /track/<name>.
-test/status/track/*
-!test/status/track/.gitkeep
+# All harness runtime state lives under test/status/<subdir>/ -- one
+# umbrella rule covers every subdirectory the runner creates:
+#   test/status/runtime/    pids, status.json, control flags,
+#                           ipaddresses.txt, caching-proxy.txt, server.err,
+#                           yuruna-caching-proxy.yml, host.uuid,
+#                           .status-server.ps1, etc. See Test.RuntimeDir.psm1
+#                           -- $env:YURUNA_RUNTIME_DIR defaults here so the
+#                           status server can serve /runtime/<name>.
+#   test/status/log/        HTML transcripts, OCR debug artifacts, failure
+#                           screenshots. See Test.LogDir.psm1 --
+#                           $env:YURUNA_LOG_DIR defaults here so the status
+#                           server can serve /log/<name>.
+#   test/status/perf/       JSONL perf rows + content-addressed host/guest
+#                           dump sidecars.
+#   test/status/extension/  Per-extension runtime state. Today:
+#                           authentication/vault.yml, vault.lock,
+#                           events.log (plaintext); notification/
+#                           transports.yml (Resend API key).
+#   test/status/captures/   Sequence debug screenshots
+#                           (sequences/*.png) and per-cycle training
+#                           captures (training/<guest>__<cp>.png). The
+#                           committed reference PNGs live in
+#                           test/screenshots/<guest>/reference/ -- those
+#                           ARE source content and stay tracked.
+#   test/status/ssh/        Generated per-host ed25519 key pair injected
+#                           into every guest's cloud-init.
+# Only the committed UI files at the test/status/ root (index.html,
+# hostinfo.html, test.config.html, yuruna.common.css, yuruna.common.js,
+# status.json.template) and the .gitkeep stay tracked.
+test/status/*/
 
-# Test run logs: HTML transcripts, OCR debug artifacts, failure screenshots.
-# See Test.LogDir.psm1 — $env:YURUNA_LOG_DIR defaults here so the status
-# server can serve /log/<name>.
-test/status/log/*
-!test/status/log/.gitkeep
-
-# Training screenshots (captures are runtime, reference PNGs are committed)
+# Legacy paths from before the status reorg. The umbrella rule above
+# catches the new locations; these explicit rules cover the OLD paths so
+# an upgrade with leftover files does not surface them as untracked.
+test/status/track/
+test/extension/authentication/vault.lock
+test/extension/authentication/vault.yml
+test/extension/notification/notification.transports.yml
 test/screenshots/*/captures/
-
-# Sequence debug screenshots (captured at runtime)
 test/sequences/captures/
 
 # yuruna

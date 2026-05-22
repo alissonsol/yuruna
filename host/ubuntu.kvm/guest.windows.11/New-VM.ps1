@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,7 @@ $autoXml = (Get-Content -Raw -LiteralPath $autoTemplate).
     Replace('COMPUTERNAME_PLACEHOLDER', $VMName)
 $autoSrc = Join-Path $vmDir 'autounattend.src'
 New-Item -ItemType Directory -Force -Path $autoSrc | Out-Null
-Set-Content -LiteralPath (Join-Path $autoSrc 'autounattend.xml') -Value $autoXml -Encoding utf8 -NoNewline
+Set-Content -LiteralPath (Join-Path $autoSrc 'autounattend.xml') -Value $autoXml -Encoding utf8BOM -NoNewline
 
 & genisoimage -output $autoIso -volid AUTOUNATTEND -joliet -rock `
     (Join-Path $autoSrc 'autounattend.xml') 2>&1 | Out-Null

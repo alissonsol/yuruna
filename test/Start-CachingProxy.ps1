@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Brings up the yuruna-caching-proxy VM and exposes its ports
-    (80, 3128, 3129, 3000, 9302) on the host. See test/CachingProxy.md
+    (80, 3128, 3129, 3000, 9302) on the host. See docs/caching-proxy.md
     for remote-client setup, elevation requirements (Windows admin;
     macOS `sudo -E` to bind :80), and the YURUNA_CACHING_PROXY_IP
     override that makes this a no-op.
@@ -125,7 +125,7 @@ if ($IsMacOS) {
 }
 
 # Single cross-cycle persistence file (yuruna password + cache VM IP)
-# under the framework's track directory. Replaces the per-platform
+# under the framework's runtime directory. Replaces the per-platform
 # squid-cache-password.txt and cache-ip.txt sidecars that used to live
 # next to each host's VHD/raw image. See test/modules/Test.CachingProxy.psm1.
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
@@ -649,7 +649,7 @@ if ($IsMacOS) {
     }
 } elseif ($IsWindows) {
     # Use the same KVP+ARP+:3128-probe discovery the guest consumers
-    # (guest.ubuntu.server/desktop/New-VM.ps1) use, so the summary line
+    # (guest.ubuntu.server.24/desktop/New-VM.ps1) use, so the summary line
     # below matches what a subsequent guest install will actually see.
     # Prior code used KVP-only and printed "(discovery failed)" whenever
     # hv_kvp_daemon wasn't warm, even though the inner New-VM.ps1's ARP

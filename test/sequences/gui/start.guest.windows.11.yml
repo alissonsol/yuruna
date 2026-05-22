@@ -3,6 +3,10 @@
 # Interaction sequence for driving VM installation.
 # See possible actions in the actions.yml file.
 
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 4270d664-926a-4f4c-8a1a-74e041ad3902
+sequenceRevision: 1
+
 description: "Windows 11: bypass 'Press any key to boot from CD/DVD' then let autounattend.xml drive the install."
 baseline:
   windows.11: []
@@ -12,7 +16,7 @@ steps:
     seconds: 3
     description: "Wait for UEFI + vmconnect init"
 
-  - action: inputKey
+  - action: pressKey
     name: Enter
     description: "Boot from CD/DVD (first attempt)"
 
@@ -20,6 +24,6 @@ steps:
     seconds: 5
     description: "Retry in case Enter was early"
 
-  - action: inputKey
+  - action: pressKey
     name: Enter
     description: "Boot from CD/DVD (retry)"

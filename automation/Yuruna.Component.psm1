@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,7 @@ Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExp
 Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 
 function Publish-ComponentList {
+    [CmdletBinding()]
     param (
         $project_root,
         $config_subfolder
@@ -84,6 +85,37 @@ function Publish-ComponentList {
     }
 
     $componentsPath = Join-Path -Path $project_root -ChildPath "components/"
+
+    # Per-environment docker stderr/stdout log + final-rc sidecar. Mirrors
+    # Set-Resource's tofu.stderr.log pattern so Get-SystemDiagnostic.ps1's
+    # *.stderr.log glob picks it up on failure. All components in this run
+    # append to the same log (preProcessor/build/postProcessor/tag/login/push
+    # per component); docker.rc is rewritten after each docker call so the
+    # LAST exit code is what the diagnostic reports. Truncated at the start
+    # of the run so a re-run doesn't inherit stale text.
+    $dockerLogFile = Join-Path -Path $workFolder -ChildPath "docker.stderr.log"
+    $dockerRcFile  = Join-Path -Path $workFolder -ChildPath "docker.rc"
+    Remove-Item -LiteralPath $dockerLogFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $dockerRcFile  -Force -ErrorAction SilentlyContinue
+
+    function Invoke-ComponentCommand {
+        # Run a build-pipeline command, capture all streams into the per-
+        # environment docker.stderr.log with a "=== [$Phase] <cmd> (exit=N)
+        # ===" header, rewrite docker.rc with the latest exit code, and
+        # replay the captured output onto the parent stdout so the test
+        # runner's transcript still shows what docker did. Sets the global
+        # $LASTEXITCODE so the caller's `if (-Not (0 -eq $LASTEXITCODE))`
+        # checks behave exactly as before.
+        param([string]$Phase, [string]$Command)
+        $out = Invoke-DynamicExpression -Command $Command *>&1
+        $rc  = $LASTEXITCODE
+        Add-Content -LiteralPath $dockerLogFile -Value "=== [$Phase] $Command (exit=$rc) ==="
+        $out | ForEach-Object { Add-Content -LiteralPath $dockerLogFile -Value ([string]$_) }
+        Set-Content -LiteralPath $dockerRcFile -Value $rc -NoNewline
+        $out | ForEach-Object { Write-Output ([string]$_) }
+        $global:LASTEXITCODE = $rc
+    }
+
     foreach ($component in $componentsYaml.components) {
         $projectName = $component['project']
         if ([string]::IsNullOrEmpty($projectName)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return $false; }
@@ -169,7 +201,7 @@ function Publish-ComponentList {
         if (-Not ([string]::IsNullOrEmpty($preProcessor))) {
             $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($preProcessor)
             Write-Information "preProcessor: $executionCommand"
-            Invoke-DynamicExpression -Command $executionCommand
+            Invoke-ComponentCommand -Phase "preProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for preProcessor: $executionCommand"
                 return ($ErrorActionPreference -eq "Continue");
@@ -178,7 +210,7 @@ function Publish-ComponentList {
 
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($buildCommand)
         Write-Debug "Build: $executionCommand"
-        Invoke-DynamicExpression -Command $executionCommand
+        Invoke-ComponentCommand -Phase "build[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Build: $executionCommand"
             return ($ErrorActionPreference -eq "Continue");
@@ -189,7 +221,7 @@ function Publish-ComponentList {
         if (-Not ([string]::IsNullOrEmpty($postProcessor))) {
             $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($postProcessor)
             Write-Information "postProcessor: $executionCommand"
-            Invoke-DynamicExpression -Command $executionCommand
+            Invoke-ComponentCommand -Phase "postProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for postProcessor: $executionCommand"
                 return ($ErrorActionPreference -eq "Continue");
@@ -205,18 +237,18 @@ function Publish-ComponentList {
         if ([string]::IsNullOrEmpty($pushCommand)) { Write-Information "pushCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($tagCommand)
         Write-Debug "Tag: $executionCommand"
-        Invoke-DynamicExpression -Command $executionCommand
+        Invoke-ComponentCommand -Phase "tag[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Tag: $executionCommand"
             return ($ErrorActionPreference -eq "Continue");
         }
 
         # Registry login: Azure ACR only today. Generalising to other
-        # registries (ECR, GAR, Docker Hub, etc.) is tracked in docs/todo.md.
+        # registries (ECR, GAR, Docker Hub, etc.) is tracked in docs/opportunities.md.
         $registryLocation = $([Environment]::GetEnvironmentVariable("${env:registryName}.registryLocation"))
         if ($registryLocation -like '*azurecr.io*') {
             $executionCommand = $ExecutionContext.InvokeCommand.ExpandString("az acr login -n $registryLocation *>&1")
-            Invoke-DynamicExpression -Command $executionCommand *>&1 | Write-Verbose
+            Invoke-ComponentCommand -Phase "registryLogin[$projectName]" -Command $executionCommand | Write-Verbose
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for: $executionCommand"
                 return ($ErrorActionPreference -eq "Continue");
@@ -225,7 +257,7 @@ function Publish-ComponentList {
 
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($pushCommand)
         Write-Debug "Push: $executionCommand"
-        Invoke-DynamicExpression -Command $executionCommand
+        Invoke-ComponentCommand -Phase "push[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Push: $executionCommand"
             return ($ErrorActionPreference -eq "Continue");

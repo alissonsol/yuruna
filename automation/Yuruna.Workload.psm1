@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,7 @@ Import-Module -Name $validationModulePath
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 
 function Publish-WorkloadList {
+    [CmdletBinding()]
     param (
         $project_root,
         $config_subfolder
@@ -221,6 +222,19 @@ function Publish-WorkloadList {
                 Write-Debug "Helm execute from: $workFolder"
                 Push-Location $workFolder
 
+                # Per-chart helm stderr/stdout log + final-rc sidecar. Mirrors
+                # the tofu.stderr.log pattern from Set-Resource so Get-System
+                # Diagnostic.ps1's *.stderr.log glob picks it up on failure.
+                # Truncate at chart entry; per-helm-command output is appended
+                # with a "=== <cmd> (exit=N) ===" header. helm.rc is rewritten
+                # after each helm call so the LAST observed exit code is what
+                # the diagnostic reports -- matches operator intuition ("did
+                # helm succeed?") and is what the gap-detector heuristic checks.
+                $helmLogFile = Join-Path -Path $workFolder -ChildPath "helm.stderr.log"
+                $helmRcFile  = Join-Path -Path $workFolder -ChildPath "helm.rc"
+                Remove-Item -LiteralPath $helmLogFile -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $helmRcFile  -Force -ErrorAction SilentlyContinue
+
                 # Helm lint. Exit non-zero indicates the chart has a
                 # schema/required-field violation that WILL cascade to a
                 # failed install (e.g. an "image: /<repo>:<tag>" produced
@@ -231,7 +245,9 @@ function Publish-WorkloadList {
                 Write-Debug "Helm lint"
                 $lintOutput = helm lint *>&1
                 $lintExit = $LASTEXITCODE
-                $lintOutput | ForEach-Object { Write-Verbose "$_" }
+                Add-Content -LiteralPath $helmLogFile -Value "=== helm lint (exit=$lintExit) ==="
+                $lintOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
+                Set-Content -LiteralPath $helmRcFile -Value $lintExit -NoNewline
                 if ($lintExit -ne 0) {
                     Write-Information "helm lint FAILED (exit $lintExit) for chart '$installName' in $workFolder"
                     $lintOutput | ForEach-Object { Write-Information "$_" }
@@ -248,7 +264,9 @@ function Publish-WorkloadList {
                 # exists), which IS propagated below.
                 Write-Debug "Helm uninstall $installName"
                 $uninstallOutput = helm uninstall $installName *>&1
-                $uninstallOutput | ForEach-Object { Write-Verbose "$_" }
+                $uninstallExit = $LASTEXITCODE
+                Add-Content -LiteralPath $helmLogFile -Value "=== helm uninstall $installName (exit=$uninstallExit, expected non-zero on first deploy) ==="
+                $uninstallOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
 
                 # Helm install. Non-zero exit is authoritative -- the
                 # release did NOT land. We ALSO scan the captured output
@@ -261,7 +279,9 @@ function Publish-WorkloadList {
                 Write-Debug "Helm install $installName"
                 $installOutput = helm install $installName . --debug *>&1
                 $installExit = $LASTEXITCODE
-                $installOutput | ForEach-Object { Write-Verbose "$_" }
+                Add-Content -LiteralPath $helmLogFile -Value "=== helm install $installName --debug (exit=$installExit) ==="
+                $installOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
+                Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
                 $installErrorLines = @($installOutput | Where-Object { $_ -match '^\s*Error:' })
                 if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
                     Write-Information "helm install '$installName' FAILED (exit $installExit, $($installErrorLines.Count) Error: line(s)) in $workFolder"
@@ -279,9 +299,10 @@ function Publish-WorkloadList {
                 }
                 Set-Item -Path Env:contextName -Value ${contextName}
                 $expression = $null
-                if ($isKubectl) { $value = $deployment['kubectl']; $expression = "kubectl $value" }
-                if ($isHelm) { $value = $deployment['helm']; $expression = "helm $value"; }
-                if ($isShell) { $value = $deployment['shell']; $expression = "$value"}
+                $toolName = $null
+                if ($isKubectl) { $value = $deployment['kubectl']; $expression = "kubectl $value"; $toolName = 'kubectl' }
+                if ($isHelm) { $value = $deployment['helm']; $expression = "helm $value"; $toolName = 'helm' }
+                if ($isShell) { $value = $deployment['shell']; $expression = "$value"; $toolName = 'shell' }
 
                 $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
                 $workFolder = Resolve-Path -Path $workFolder
@@ -289,16 +310,29 @@ function Publish-WorkloadList {
                 Push-Location $workFolder
                 $expression = $ExecutionContext.InvokeCommand.ExpandString($expression)
                 Write-Debug "$expression"
+                # Per-tool stderr/stdout log + final-rc sidecar in the per-
+                # context workFolder. Mirrors Set-Resource's tofu.stderr.log
+                # so Get-SystemDiagnostic.ps1's *.stderr.log glob picks it up
+                # on failure. Multiple deployments of the same tool append to
+                # the same log -- order matches workloads.yml. <tool>.rc is
+                # rewritten after each call so the LAST exit code is what the
+                # diagnostic reports.
+                $toolLogFile = Join-Path -Path $workFolder -ChildPath "$toolName.stderr.log"
+                $toolRcFile  = Join-Path -Path $workFolder -ChildPath "$toolName.rc"
+                $output = Invoke-DynamicExpression -Command $expression *>&1
+                $toolExit = $LASTEXITCODE
+                Add-Content -LiteralPath $toolLogFile -Value "=== $expression (exit=$toolExit) ==="
+                $output | ForEach-Object { Add-Content -LiteralPath $toolLogFile -Value ([string]$_) }
+                Set-Content -LiteralPath $toolRcFile -Value $toolExit -NoNewline
                 # Shell can Write-Information back to the user, so stream visibly
                 if ($isShell) {
-                    $result = Invoke-DynamicExpression -Command $expression *>&1 | Write-Information
+                    $output | ForEach-Object { Write-Information ([string]$_) }
                 }
                 else {
-                    $result = Invoke-DynamicExpression -Command $expression *>&1 | Write-Verbose
+                    $output | ForEach-Object { Write-Verbose ([string]$_) }
                 }
-                if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
-                if (-Not (0 -eq $LASTEXITCODE)) {
-                    Write-Information "EXITCODE: $LASTEXITCODE for: $expression"
+                if (-Not (0 -eq $toolExit)) {
+                    Write-Information "EXITCODE: $toolExit for: $expression"
                     Pop-Location
                     return ($ErrorActionPreference -eq "Continue");
                 }

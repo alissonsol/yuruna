@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Cross-cycle persistence for the yuruna-caching-proxy VM state
     (yuruna user's password + the VM's IP address). Single YAML file
-    under the runtime track directory; survives cycle vault wipes.
+    under the runtime directory; survives cycle vault wipes.
 
 .DESCRIPTION
     Previous design split this between two host-local sidecar files:
@@ -29,13 +29,14 @@
       * cache-ip.txt under $HOME/yuruna/image/squid-cache/ (macOS only)
 
     Both have moved to a single YAML doc at:
-        <track-dir>/yuruna-caching-proxy.yml
-    where <track-dir> is $env:YURUNA_TRACK_DIR (default
-    <repoRoot>/test/status/track). One file, host-agnostic location,
-    git-ignored alongside the rest of /track. The per-cycle vault.yml
-    in the authentication extension still holds the password DURING a
-    cycle; this file holds it ACROSS cycles, and squid-cache New-VM.ps1
-    rehydrates the vault from here on cycle 1's first call.
+        <runtime-dir>/yuruna-caching-proxy.yml
+    where <runtime-dir> is $env:YURUNA_RUNTIME_DIR (default
+    <repoRoot>/test/status/runtime). One file, host-agnostic location,
+    git-ignored alongside the rest of status/. The authentication
+    extension's vault.yml now persists across cycles too, but this
+    file remains the source of truth for the cache VM's yuruna user --
+    squid-cache New-VM.ps1 re-aligns the vault entry from here on
+    every cycle so the two stay in sync if they ever diverge.
 
     Save uses merge semantics: only the fields you pass are touched.
     Atomic write via "write .tmp + Move-Item" so a concurrent reader
@@ -48,26 +49,26 @@
 .SYNOPSIS
     Returns the absolute path of the yuruna-caching-proxy state file.
 .DESCRIPTION
-    Resolves <track-dir>/yuruna-caching-proxy.yml. Track dir defaults to
-    <repoRoot>/test/status/track and can be overridden via
-    $env:YURUNA_TRACK_DIR. Creates the directory on demand so callers
+    Resolves <runtime-dir>/yuruna-caching-proxy.yml. Runtime dir defaults
+    to <repoRoot>/test/status/runtime and can be overridden via
+    $env:YURUNA_RUNTIME_DIR. Creates the directory on demand so callers
     don't have to Test-Path-and-mkdir.
 #>
 function Get-CachingProxyStatePath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    if ($env:YURUNA_TRACK_DIR) {
-        $trackDir = $env:YURUNA_TRACK_DIR
+    if ($env:YURUNA_RUNTIME_DIR) {
+        $runtimeDir = $env:YURUNA_RUNTIME_DIR
     } else {
         # This module lives at test/modules/; two levels up is test/.
         $testRoot = Split-Path -Parent $PSScriptRoot
-        $trackDir = Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'track'
+        $runtimeDir = Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'runtime'
     }
-    if (-not (Test-Path -LiteralPath $trackDir)) {
-        New-Item -ItemType Directory -Path $trackDir -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $runtimeDir)) {
+        New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
     }
-    return (Join-Path -Path $trackDir -ChildPath 'yuruna-caching-proxy.yml')
+    return (Join-Path -Path $runtimeDir -ChildPath 'yuruna-caching-proxy.yml')
 }
 
 # === Read ===================================================================
@@ -162,4 +163,146 @@ function Save-CachingProxyState {
     return $path
 }
 
-Export-ModuleMember -Function Get-CachingProxyStatePath, Read-CachingProxyState, Save-CachingProxyState
+# === Probe ==================================================================
+
+<#
+.SYNOPSIS
+    Smoke-tests the squid-cache at the given IP. Shared core between
+    Test-CachingProxy.ps1 and the cycle-start gate in Invoke-TestInnerRunner.ps1.
+.DESCRIPTION
+    Probes :3128 / :3129 / :80 / :3000 and fetches /yuruna-squid-ca.crt off
+    Apache. PASS / WARN / FAIL classification matches the standalone script:
+    :3128 / :3129 / :3000 are FAIL on unreachable (hard requirements);
+    :80 and the CA cert are WARN (HTTPS caching disabled on guests, HTTP
+    still works).
+
+    IP resolution, host system-proxy and outbound-proxy checks stay in the
+    standalone script -- those are host-state-dependent, not cache-state-
+    dependent. This function is the cache-side subset both callers need.
+
+    Requires Test.VM.common.psm1 (Get-CachingProxyPort, Format-IpUrlHost)
+    to be imported by the caller.
+.PARAMETER CacheIp
+    Resolved cache IP (IPv4 or IPv6). The caller is expected to have
+    validated the format with Test-IpAddress; this function does not
+    re-check.
+.PARAMETER CacheSource
+    Free-form label rendered into the "Target:" diagnostic header (e.g.
+    "$Env:YURUNA_CACHING_PROXY_IP" or "vmStart.cachingProxyIP"). Empty
+    omits the header line.
+.OUTPUTS
+    [hashtable] with keys:
+        Success              [bool] -- FailCount == 0 (full-suite pass)
+        HttpProxyReachable   [bool] -- :3128 (HTTP proxy) answered
+        PassCount / WarnCount / FailCount [int]
+        HttpPort / HttpsPort [int]
+        Lines                [string[]] -- diagnostic output
+
+    Callers wanting a strict "fully healthy" verdict check Success;
+    callers that only need "usable as an HTTP forward proxy" check
+    HttpProxyReachable. The latter is the criterion the cycle-start
+    gate in Invoke-TestInnerRunner.ps1 uses so a barebones squid
+    (without Grafana / ssl-bump) is still accepted as a working
+    proxy -- the runner only relies on :3128 for guest installs.
+#>
+function Invoke-CachingProxyProbe {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)] [string]$CacheIp,
+        [string]$CacheSource = ''
+    )
+
+    $passCount = 0
+    $warnCount = 0
+    $failCount = 0
+    $lines     = [System.Collections.Generic.List[string]]::new()
+    $httpProxyReachable = $false
+
+    if ($CacheSource) {
+        $lines.Add("  Target: $CacheIp  (source: $CacheSource)")
+        $lines.Add('')
+    }
+
+    $httpPort  = Get-CachingProxyPort -Scheme http
+    $httpsPort = Get-CachingProxyPort -Scheme https
+    $ports = @(
+        @{ Port = $httpPort;  Name = 'Squid HTTP proxy';      Level = 'FAIL' }
+        @{ Port = $httpsPort; Name = 'Squid ssl-bump (HTTPS)'; Level = 'FAIL' }
+        @{ Port = 80;         Name = 'Apache (CA cert)';       Level = 'WARN' }
+        @{ Port = 3000;       Name = 'Grafana dashboard';      Level = 'FAIL' }
+    )
+    foreach ($p in $ports) {
+        $label = "{0,-5} ({1})" -f $p.Port, $p.Name
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $ok  = $false
+        try {
+            $async = $tcp.BeginConnect($CacheIp, $p.Port, $null, $null)
+            $ok    = ($async.AsyncWaitHandle.WaitOne(1500) -and $tcp.Connected)
+        } catch {
+            Write-Verbose "TCP probe ${CacheIp}:$($p.Port) failed: $($_.Exception.Message)"
+        } finally {
+            $tcp.Close()
+        }
+        if ($ok) {
+            $lines.Add("  [PASS] TCP :$label")
+            $passCount++
+            if ($p.Port -eq $httpPort) { $httpProxyReachable = $true }
+        } elseif ($p.Level -eq 'WARN') {
+            $lines.Add("  [WARN] TCP :$label -- not reachable (HTTPS caching will be disabled on guests, HTTP unaffected)")
+            $warnCount++
+        } else {
+            $lines.Add("  [FAIL] TCP :$label -- not reachable")
+            $failCount++
+        }
+    }
+
+    # CA cert fetch. Only meaningful if :80 is up; failures are WARN
+    # because HTTP caching still works even without CA distribution.
+    # -NoProxy: this request goes to the cache's own Apache on :80; an
+    # existing host proxy (stale or fresh) would loop or fail the call.
+    $caUrl = "http://$(Format-IpUrlHost $CacheIp)/yuruna-squid-ca.crt"
+    try {
+        $resp = Invoke-WebRequest -Uri $caUrl -UseBasicParsing -NoProxy -TimeoutSec 5 -ErrorAction Stop
+        if ($resp.StatusCode -eq 200 -and $resp.RawContentLength -gt 0) {
+            $raw = if ($resp.Content -is [byte[]]) {
+                [System.Text.Encoding]::UTF8.GetString($resp.Content)
+            } else {
+                [string]$resp.Content
+            }
+            if ($raw -match '-----BEGIN CERTIFICATE-----' -and $raw -match '-----END CERTIFICATE-----') {
+                try {
+                    $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+                        [System.Text.Encoding]::UTF8.GetBytes($raw))
+                    $lines.Add("  [PASS] CA cert $caUrl -> $($cert.Subject) (expires $($cert.NotAfter.ToString('yyyy-MM-dd')))")
+                    $passCount++
+                } catch {
+                    $lines.Add("  [WARN] CA cert $caUrl returned PEM-looking bytes but X509 parse failed: $($_.Exception.Message)")
+                    $warnCount++
+                }
+            } else {
+                $lines.Add("  [WARN] CA cert $caUrl returned $($raw.Length) bytes but no BEGIN/END CERTIFICATE markers found.")
+                $warnCount++
+            }
+        } else {
+            $lines.Add("  [WARN] CA cert $caUrl returned HTTP $($resp.StatusCode) with $($resp.RawContentLength) bytes.")
+            $warnCount++
+        }
+    } catch {
+        $lines.Add("  [WARN] CA cert $caUrl fetch failed: $($_.Exception.Message)")
+        $warnCount++
+    }
+
+    return @{
+        Success            = ($failCount -eq 0)
+        HttpProxyReachable = $httpProxyReachable
+        PassCount          = $passCount
+        WarnCount          = $warnCount
+        FailCount          = $failCount
+        HttpPort           = $httpPort
+        HttpsPort          = $httpsPort
+        Lines              = $lines.ToArray()
+    }
+}
+
+Export-ModuleMember -Function Get-CachingProxyStatePath, Read-CachingProxyState, Save-CachingProxyState, Invoke-CachingProxyProbe

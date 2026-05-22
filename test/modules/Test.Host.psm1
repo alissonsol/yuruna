@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456701
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -194,7 +194,7 @@ function Initialize-YurunaHost {
     .DESCRIPTION
     Determines the current host via Get-HostType, builds the absolute
     path to its Yuruna.Host.psm1, and imports it with -Global so every
-    test/ caller (Invoke-TestRunner.ps1, Confirm-Sequence.ps1,
+    test/ caller (Invoke-TestRunner.ps1, Test-Sequence.ps1,
     sequence extensions, etc.) resolves the interface names directly.
 
     The driver's New-VM/Start-VM/Stop-VM/Get-VM/Remove-VM exports shadow
@@ -287,8 +287,8 @@ function Get-TestVMName {
     .DESCRIPTION
     Strip "guest.", replace remaining dots with hyphens, append "-01",
     add the prefix. Examples with prefix "test-":
-        guest.ubuntu.server  →  test-ubuntu-server-01
-        guest.amazon.linux   →  test-amazon-linux-01
+        guest.ubuntu.server.24  →  test-ubuntu-server-01
+        guest.amazon.linux.2023   →  test-amazon-linux-01
         guest.windows.11     →  test-windows-11-01
     Any guest key produces a deterministic VM name without code changes.
     Migration note: pre-2026-04 harness used "test-amazon-linux01",
@@ -1137,7 +1137,7 @@ $.AXIsProcessTrustedWithOptions(opts);
     # Separate TCC bucket from Accessibility. Needed so
     # CGWindowListCopyWindowInfo returns window titles (the harness matches
     # UTM's per-VM window by title) and so `screencapture -l <windowId>`
-    # works. Without it, waitForAndClickButton loops on "UTM window for
+    # works. Without it, tapOn loops on "UTM window for
     # <vm> not found". CGRequestScreenCaptureAccess prompts only on the
     # FIRST call per process; subsequent denied states need the user to
     # toggle System Settings manually and relaunch the terminal.
@@ -1616,7 +1616,7 @@ function Set-WindowsHostConditionSet {
         Write-Warning "    * HDMI dummy plug (lowest friction)"
         Write-Warning "    * Virtual display driver (e.g. usbmmidd_v2)"
         Write-Warning "    * Keep an RDP session connected to this host"
-        Write-Warning "  See host/windows.hyper-v/troubleshooting.md for the full story."
+        Write-Warning "  See docs/host-hyperv.md for the full story."
     }
 
     if ($changed) {
@@ -1737,7 +1737,7 @@ if (!list) { 'false' } else {
     Write-Warning " terminal. The harness needs it to enumerate UTM's windows —"
     Write-Warning " CGWindowList only returns titles to processes with this"
     Write-Warning " permission — and to capture a specific VM window via"
-    Write-Warning " screencapture -l <windowId>. Without it, waitForAndClickButton"
+    Write-Warning " screencapture -l <windowId>. Without it, tapOn"
     Write-Warning " loops on 'UTM window for <vm> not found'."
     Write-Warning ""
     Write-Warning " To fix:"
@@ -2022,6 +2022,258 @@ function Get-CurrentGitCommit {
     return $hash.Trim()
 }
 
+function Get-FileLockingProcess {
+    <#
+    .SYNOPSIS
+    Returns processes that currently hold an open handle to $Path (file or directory).
+    .DESCRIPTION
+    Two Windows mechanisms layered together, because no single API covers
+    every "in use by another process" cause:
+
+      1. Restart Manager (rstrtmgr.dll) -- the same API behind File
+         Explorer's "open in <App>" dialog. Catches *file-handle* lockers
+         (antivirus mid-scan, file watchers, .git/index, dll loaded from
+         the tree, etc). Registers the path plus every file underneath.
+      2. PEB-based cwd scan -- enumerates every accessible process and
+         reads its RTL_USER_PROCESS_PARAMETERS.CurrentDirectory via
+         NtQueryInformationProcess + ReadProcessMemory. Catches the
+         *directory-cwd* lockers Restart Manager misses (a stale pwsh /
+         cmd terminal sitting in <RepoRoot>/project, which is the typical
+         cause of "empty folder won't delete").
+
+    Diagnostic only: turns the generic "being used by another process"
+    Win32 error into PID + process name so the operator can decide
+    whether to close the holder or ignore it.
+
+    Non-Windows: returns an empty array (no equivalent stable API; lsof
+    is out-of-process and outside this helper's scope).
+    Failure modes: any API failure (Restart Manager rc, OpenProcess
+    access denied, 32-bit target with mismatched PEB layout) is swallowed
+    -- this is best-effort diagnostic, not a control-flow decision the
+    caller should branch on.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+    if (-not $IsWindows) { return @() }
+    if (-not ('Yuruna.RestartManager' -as [type])) {
+        # Add-Type once per process; the type stays loaded so re-invocations
+        # skip the C# compile. Keep the type name namespaced so it doesn't
+        # collide with anything else added later.
+        $source = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace Yuruna {
+    public static class RestartManager {
+        // ---- Restart Manager: file-handle lockers ----
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RM_UNIQUE_PROCESS {
+            public int dwProcessId;
+            public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+        }
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct RM_PROCESS_INFO {
+            public RM_UNIQUE_PROCESS Process;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string strAppName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]  public string strServiceShortName;
+            public uint ApplicationType;
+            public uint AppStatus;
+            public uint TSSessionId;
+            [MarshalAs(UnmanagedType.Bool)] public bool bRestartable;
+        }
+        [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+        private static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
+        [DllImport("rstrtmgr.dll")]
+        private static extern int RmEndSession(uint pSessionHandle);
+        [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+        private static extern int RmRegisterResources(uint pSessionHandle, uint nFiles, string[] rgsFilenames, uint nApplications, RM_UNIQUE_PROCESS[] rgApplications, uint nServices, string[] rgsServiceNames);
+        [DllImport("rstrtmgr.dll")]
+        private static extern int RmGetList(uint dwSessionHandle, out uint pnProcInfoNeeded, ref uint pnProcInfo, [In, Out] RM_PROCESS_INFO[] rgAffectedApps, ref uint lpdwRebootReasons);
+
+        public class Holder {
+            public int Pid;
+            public string Name;
+            public bool Restartable;
+            public string Reason; // "file-handle" or "cwd"
+        }
+
+        public static List<Holder> GetLockers(string[] paths) {
+            var result = new List<Holder>();
+            uint session;
+            string key = Guid.NewGuid().ToString();
+            int rc = RmStartSession(out session, 0, key);
+            if (rc != 0) return result;
+            try {
+                rc = RmRegisterResources(session, (uint)paths.Length, paths, 0, null, 0, null);
+                if (rc != 0) return result;
+                uint needed = 0;
+                uint count  = 0;
+                uint reason = 0;
+                rc = RmGetList(session, out needed, ref count, null, ref reason);
+                if (needed == 0) return result;
+                var arr = new RM_PROCESS_INFO[needed];
+                count = needed;
+                rc = RmGetList(session, out needed, ref count, arr, ref reason);
+                if (rc != 0) return result;
+                for (int i = 0; i < count; i++) {
+                    result.Add(new Holder {
+                        Pid         = arr[i].Process.dwProcessId,
+                        Name        = arr[i].strAppName,
+                        Restartable = arr[i].bRestartable,
+                        Reason      = "file-handle"
+                    });
+                }
+            }
+            finally {
+                RmEndSession(session);
+            }
+            return result;
+        }
+
+        // ---- PEB cwd scan: catches processes whose current directory IS
+        // the locked folder. Restart Manager doesn't see these because no
+        // file handle is open, only a directory handle from SetCurrentDirectory.
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESS_BASIC_INFORMATION {
+            public IntPtr Reserved1;
+            public IntPtr PebBaseAddress;
+            public IntPtr Reserved2_0;
+            public IntPtr Reserved2_1;
+            public IntPtr UniqueProcessId;
+            public IntPtr Reserved3;
+        }
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr h);
+        [DllImport("ntdll.dll")]
+        private static extern int NtQueryInformationProcess(IntPtr h, int infoClass, ref PROCESS_BASIC_INFORMATION pbi, int size, out int retLen);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, IntPtr size, out IntPtr nRead);
+
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+        private const uint PROCESS_VM_READ = 0x10;
+
+        // PEB offsets are stable across modern Windows but technically
+        // undocumented. x86 hosts aren't supported (this would require
+        // the 32-bit layout); helper returns empty if we ever run there.
+        private const int PEB_PROCESS_PARAMETERS_OFFSET_X64 = 0x20;
+        private const int RTL_USER_CURRENT_DIRECTORY_OFFSET_X64 = 0x38;
+
+        public static List<Holder> GetCwdHolders(string targetPath) {
+            var result = new List<Holder>();
+            if (IntPtr.Size != 8) return result;
+            string target = NormalisePath(targetPath);
+            foreach (var proc in System.Diagnostics.Process.GetProcesses()) {
+                try {
+                    IntPtr h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, proc.Id);
+                    if (h == IntPtr.Zero) continue;
+                    try {
+                        var pbi = new PROCESS_BASIC_INFORMATION();
+                        int len;
+                        if (NtQueryInformationProcess(h, 0, ref pbi, Marshal.SizeOf(pbi), out len) != 0) continue;
+                        if (pbi.PebBaseAddress == IntPtr.Zero) continue;
+
+                        byte[] ptrBuf = new byte[8];
+                        IntPtr nRead;
+                        if (!ReadProcessMemory(h, new IntPtr(pbi.PebBaseAddress.ToInt64() + PEB_PROCESS_PARAMETERS_OFFSET_X64), ptrBuf, new IntPtr(8), out nRead)) continue;
+                        long pp = BitConverter.ToInt64(ptrBuf, 0);
+                        if (pp == 0) continue;
+
+                        byte[] usBuf = new byte[16];
+                        if (!ReadProcessMemory(h, new IntPtr(pp + RTL_USER_CURRENT_DIRECTORY_OFFSET_X64), usBuf, new IntPtr(16), out nRead)) continue;
+                        ushort length = BitConverter.ToUInt16(usBuf, 0);
+                        long bufferAddr = BitConverter.ToInt64(usBuf, 8);
+                        if (length == 0 || bufferAddr == 0) continue;
+
+                        byte[] strBuf = new byte[length];
+                        if (!ReadProcessMemory(h, new IntPtr(bufferAddr), strBuf, new IntPtr(length), out nRead)) continue;
+                        string cwd = NormalisePath(Encoding.Unicode.GetString(strBuf, 0, (int)nRead));
+                        if (cwd == target) {
+                            string name = null;
+                            try { name = proc.ProcessName; } catch { }
+                            result.Add(new Holder {
+                                Pid         = proc.Id,
+                                Name        = name ?? "(unknown)",
+                                Restartable = false,
+                                Reason      = "cwd"
+                            });
+                        }
+                    } finally {
+                        CloseHandle(h);
+                    }
+                } catch {
+                    // skip protected/exited/foreign-arch processes
+                } finally {
+                    try { proc.Dispose(); } catch { }
+                }
+            }
+            return result;
+        }
+
+        private static string NormalisePath(string p) {
+            if (string.IsNullOrEmpty(p)) return string.Empty;
+            return p.TrimEnd('\0','\\','/').Replace('/','\\').ToLowerInvariant();
+        }
+    }
+}
+'@
+        Add-Type -TypeDefinition $source -Language CSharp -ErrorAction SilentlyContinue
+    }
+    if (-not ('Yuruna.RestartManager' -as [type])) { return @() }
+    # Restart Manager only accepts FILE paths -- registering a directory
+    # path fails with ACCESS_DENIED (rc=5) and a single bad resource aborts
+    # the whole call, so build the resource list from file paths only.
+    # For a directory target, enumerate files inside it (capped so a giant
+    # tree doesn't stall the error path); cwd-only directory locks are
+    # caught separately by the PEB scan below.
+    $resources = @()
+    if (Test-Path -LiteralPath $Path -PathType Container) {
+        try {
+            $resources = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue |
+                Select-Object -First 256 | ForEach-Object { $_.FullName })
+        } catch { $null = $_ }
+    } elseif (Test-Path -LiteralPath $Path -PathType Leaf) {
+        $resources = @($Path)
+    }
+    $rmHolders = @()
+    if ($resources.Count -gt 0) {
+        try { $rmHolders = [Yuruna.RestartManager]::GetLockers($resources) } catch { $null = $_ }
+    }
+    # Restart Manager misses processes that lock the directory only via
+    # cwd (SetCurrentDirectory). Fall through to the PEB scan in those
+    # cases -- it's the typical "empty folder won't delete" cause.
+    $cwdHolders = @()
+    try { $cwdHolders = [Yuruna.RestartManager]::GetCwdHolders($Path) } catch { $null = $_ }
+
+    $all = @($rmHolders) + @($cwdHolders)
+    if ($all.Count -eq 0) { return @() }
+    # De-dupe by PID: a process can show up via both mechanisms. Prefer
+    # Restart Manager's reason ("file-handle" is more specific than "cwd"
+    # if both apply). Group-Object would re-sort; preserve discovery order.
+    $seen = [System.Collections.Generic.HashSet[int]]::new()
+    $unique = foreach ($h in $all) {
+        if ($seen.Add($h.Pid)) { $h }
+    }
+    $enriched = foreach ($h in $unique) {
+        $proc = $null
+        try { $proc = Get-Process -Id $h.Pid -ErrorAction Stop } catch { $null = $_ }
+        [pscustomobject]@{
+            Pid         = $h.Pid
+            Name        = $h.Name
+            Image       = if ($proc) { $proc.ProcessName } else { $null }
+            Reason      = $h.Reason
+            Restartable = $h.Restartable
+        }
+    }
+    return @($enriched)
+}
+
 function Update-ProjectClone {
     <#
     .SYNOPSIS
@@ -2069,7 +2321,23 @@ function Update-ProjectClone {
                 # files arrive read-only on Windows after a clone).
                 Remove-Item -LiteralPath $projectDir -Recurse -Force -ErrorAction Stop
             } catch {
-                return @{ success = $false; skipped = $false; errorMessage = "Failed to remove previous project clone ($projectDir): $($_.Exception.Message)" }
+                # Windows "being used by another process" never names the
+                # holder -- it's almost always a stale pwsh/VSCode with
+                # the dir as cwd, or AV mid-scan. Resolve PIDs via Restart
+                # Manager so the operator knows what to close instead of
+                # retrying forever and trusting the next cycle to be luckier.
+                $msg = "Failed to remove previous project clone ($projectDir): $($_.Exception.Message)"
+                $holders = Get-FileLockingProcess -Path $projectDir
+                if ($holders.Count -gt 0) {
+                    $lines = $holders | ForEach-Object {
+                        $imgPart = if ($_.Image) { " ($($_.Image).exe)" } else { '' }
+                        "  PID $($_.Pid) [$($_.Reason)] - $($_.Name)$imgPart"
+                    }
+                    $msg = "$msg`nProcess(es) holding the folder:`n$($lines -join "`n")"
+                } else {
+                    $msg = "$msg`n(No holder identified by Restart Manager or PEB cwd scan -- on Windows this can mean an antivirus scan, a transient handle, an elevated/protected process, or a 32-bit holder we can't introspect.)"
+                }
+                return @{ success = $false; skipped = $false; errorMessage = $msg }
             }
         }
         Write-Information "Cloning $ProjectUrl -> $projectDir" -InformationAction Continue
@@ -2171,4 +2439,4 @@ function Install-PSScriptAnalyzerIfMissing {
     }
 }
 
-Export-ModuleMember -Function Get-HostType, Get-HostFolder, Invoke-LibvirtGroupReExecIfNeeded, Initialize-YurunaHost, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Test-HostRequirement, Assert-HostConditionSet, Initialize-SudoCache, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Set-MacHostConditionSet, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit, Update-ProjectClone
+Export-ModuleMember -Function Get-HostType, Get-HostFolder, Invoke-LibvirtGroupReExecIfNeeded, Initialize-YurunaHost, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Test-HostRequirement, Assert-HostConditionSet, Initialize-SudoCache, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Set-MacHostConditionSet, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone

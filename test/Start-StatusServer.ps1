@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
 .DESCRIPTION
     Launches a detached pwsh process that serves the test/status/ directory
     over HTTP. The server keeps running even if the caller exits.
-    A PID file ($env:YURUNA_TRACK_DIR/server.pid) is written so
+    A PID file ($env:YURUNA_RUNTIME_DIR/server.pid) is written so
     Stop-StatusServer.ps1 can shut it down later.
 
 .PARAMETER Port
@@ -46,19 +46,20 @@ $RepoRoot   = Split-Path -Parent $TestRoot
 $StatusDir  = Join-Path $TestRoot "status"
 $ModulesDir = Join-Path $TestRoot "modules"
 
-# $env:YURUNA_TRACK_DIR (runtime state) + $env:YURUNA_LOG_DIR (transcripts/
+# $env:YURUNA_RUNTIME_DIR (runtime state) + $env:YURUNA_LOG_DIR (transcripts/
 # debug artifacts). Default to status/ subdirs so the HTTP server serves
-# them at /track/* and /log/*.
-Import-Module (Join-Path $ModulesDir "Test.TrackDir.psm1")    -Force
+# them at /runtime/* and /log/*. Other status/ subdirs (perf/, extension/,
+# captures/, ssh/) are served straight from $StatusDir as relative paths.
+Import-Module (Join-Path $ModulesDir "Test.RuntimeDir.psm1")  -Force
 Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1")      -Force
 Import-Module (Join-Path $ModulesDir "Test.VM.common.psm1")   -Force -DisableNameChecking
 Import-Module (Join-Path $ModulesDir "Test.CachingProxy.psm1") -Force -DisableNameChecking
-$null = Initialize-YurunaTrackDir
+$null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
-$TrackDir = $env:YURUNA_TRACK_DIR
-$LogDir   = $env:YURUNA_LOG_DIR
+$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+$LogDir     = $env:YURUNA_LOG_DIR
 
-$PidFile = Join-Path $TrackDir "server.pid"
+$PidFile = Join-Path $RuntimeDir "server.pid"
 
 # --- Read port from config if not provided ---
 if ($Port -eq 0) {
@@ -120,10 +121,11 @@ if (Test-Path $PidFile) {
 # launch overwrote $PidFile with a stillborn PID. New launches then die:
 #   Failed to listen on prefix 'http://*:$Port/' because it conflicts
 #   with an existing registration on the machine.
-# The detached child logs that to $TrackDir/server.err and exits, so the
-# outer script appears to start cleanly — nothing is serving, and any
+# The detached child logs that to $RuntimeDir/server.err and exits, so the
+# outer script appears to start cleanly -- nothing is serving, and any
 # pre-refactor orphan keeps writing control files to the wrong place
-# ($StatusDir vs. $TrackDir), silently breaking Pause/Cycle buttons.
+# (legacy $StatusDir or $StatusDir/track vs. $RuntimeDir), silently
+# breaking Pause/Cycle buttons.
 #
 # Probe with a throwaway HttpListener. If it succeeds, the detached
 # launch will too. If not, resolve the real owner via OS tools and stop
@@ -220,15 +222,29 @@ function Resolve-PortOrphan {
     param([int]$Port, [string]$PidFile)
 
     # Cheapest test that the detached launch will succeed: attempt the
-    # same HttpListener it will use.
-    $probe = [System.Net.HttpListener]::new()
-    $probe.Prefixes.Add("http://*:$Port/")
-    try {
-        $probe.Start(); $probe.Stop(); $probe.Close()
-        return   # port is free
-    } catch {
-        try { $probe.Close() } catch { Write-Debug $_ }
+    # same HttpListener it will use. On Windows, HTTP.sys releases the URL
+    # reservation asynchronously after a Stop-Process'd pwsh exits -- the
+    # -Restart branch above already gave it 1s and netsh shows the URL
+    # registration gone, but HttpListener.Start still throws "conflicts
+    # with an existing registration" for a few hundred ms beyond that.
+    # Poll the probe until it succeeds or 5s elapses BEFORE falling
+    # through to the orphan-PID lookup: a transient HTTP.sys GC delay
+    # should not look like an unresolvable port conflict.
+    # 20 iter * 250ms = 5s budget; the happy path is usually 1-2 iters.
+    $portFree = $false
+    for ($i = 0; $i -lt 20; $i++) {
+        $probe = [System.Net.HttpListener]::new()
+        $probe.Prefixes.Add("http://*:$Port/")
+        try {
+            $probe.Start(); $probe.Stop(); $probe.Close()
+            $portFree = $true
+            break
+        } catch {
+            try { $probe.Close() } catch { Write-Debug $_ }
+        }
+        Start-Sleep -Milliseconds 250
     }
+    if ($portFree) { return }
 
     $diag = ''
     $holderPids = @(Get-PortListenerPid -Port $Port -Diagnostic ([ref]$diag))
@@ -274,7 +290,7 @@ function Resolve-PortOrphan {
 Resolve-PortOrphan -Port $Port -PidFile $PidFile
 
 # --- Ensure repoUrl is set in status.json ---
-$StatusFile = Join-Path $TrackDir "status.json"
+$StatusFile = Join-Path $RuntimeDir "status.json"
 if (Test-Path $StatusFile) {
     try {
         $statusDoc = Get-Content -Raw $StatusFile | ConvertFrom-Json
@@ -302,7 +318,7 @@ if (Test-Path $StatusFile) {
             } else {
                 $statusDoc | Add-Member -NotePropertyName 'repoUrl' -NotePropertyValue $repoUrl
             }
-            $statusDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $StatusFile -Encoding utf8
+            $statusDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $StatusFile -Encoding utf8BOM
             Write-Output "Set repoUrl in status.json: $repoUrl"
         }
     } catch {
@@ -313,19 +329,36 @@ if (Test-Path $StatusFile) {
 # --- Clean up leftovers from older layouts ---
 # server.heartbeat: server no longer reads this; tidy up so inspectors
 # don't think it's load-bearing.
-# Legacy paths directly under test/status/: pre-track-dir layout wrote
-# server.pid, runner.pid, status.json, server.err, current-action.json,
-# control.*-pause, .status-server.ps1 there. An upgrade leaves those as
-# untracked (no longer .gitignored), cluttering `git status`. Drop them
-# on every start so operator runs land on a clean status dir.
+# Legacy paths directly under test/status/ and under the old
+# test/status/track/ (renamed to test/status/runtime/): pre-track-dir
+# and track-era layouts wrote server.pid, runner.pid, status.json,
+# server.err, current-action.json, control.*-pause, .status-server.ps1
+# in those locations. An upgrade leaves those untracked (no longer
+# .gitignored), cluttering `git status`. Drop them on every start so
+# operator runs land on a clean status dir.
 Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $TrackDir  'server.heartbeat') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $RuntimeDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
+$LegacyTrackDir = Join-Path $StatusDir 'track'
 foreach ($legacyName in @('server.pid','runner.pid','status.json','server.err','current-action.json',
                           'control.pause','control.step-pause','control.cycle-pause','.status-server.ps1')) {
-    Remove-Item (Join-Path $StatusDir $legacyName) -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $StatusDir       $legacyName) -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $LegacyTrackDir  $legacyName) -Force -ErrorAction SilentlyContinue
 }
+# Drop the entire pre-rename test/status/track/ tree if it survives an
+# upgrade (perf data was relocated to status/perf/, runtime state to
+# status/runtime/, extension event logs to status/extension/...; the
+# old folder is no longer .gitignored).
+if (Test-Path -LiteralPath $LegacyTrackDir) {
+    Remove-Item -LiteralPath $LegacyTrackDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+# Stale break-active sidecar / continue flag from a previous run that crashed
+# mid-break: clear them so the UI doesn't render a Continue button against a
+# break that no longer exists, and the next break doesn't auto-resume on the
+# first poll tick.
+Remove-Item (Join-Path $RuntimeDir 'break-active.json')      -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $RuntimeDir 'control.break-continue') -Force -ErrorAction SilentlyContinue
 
-# --- Enumerate host IPs → $env:YURUNA_TRACK_DIR/ipaddresses.txt ---
+# --- Enumerate host IPs → $env:YURUNA_RUNTIME_DIR/ipaddresses.txt ---
 # UI footer reads this to show reachable addresses. Loopback
 # (127.0.0.1, ::1) excluded — useless for remote clients.
 #
@@ -338,7 +371,7 @@ foreach ($legacyName in @('server.pid','runner.pid','status.json','server.err','
 # Split IPv4/IPv6 so the UI renders two short rows instead of one long
 # run. File is overwritten on every Start-StatusServer invocation so
 # stale entries from a previous host/network are not preserved.
-$IpAddressesFile = Join-Path $TrackDir "ipaddresses.txt"
+$IpAddressesFile = Join-Path $RuntimeDir "ipaddresses.txt"
 try {
     $collectedAddresses = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
         Where-Object { $_.OperationalStatus -eq 'Up' } |
@@ -393,14 +426,14 @@ try {
     Write-Warning "Host-type detection failed (continuing with HTTP status server): $_"
 }
 
-# --- Probe proxy cache → $env:YURUNA_TRACK_DIR/caching-proxy.txt ---
+# --- Probe proxy cache → $env:YURUNA_RUNTIME_DIR/caching-proxy.txt ---
 # UI banner appends this string to the status text so viewers see at a
 # glance whether the harness is behind a local squid. File holds
 # ready-to-embed HTML (including <a href> to cachemgr URL) so the UI
 # injects it without knowing the URL format. Written once at
 # Start-StatusServer — restart to refresh after bringing squid up/down.
 # Needs $detectedHost, so runs AFTER the SSH block's host detection.
-$CachingProxyFile = Join-Path $TrackDir "caching-proxy.txt"
+$CachingProxyFile = Join-Path $RuntimeDir "caching-proxy.txt"
 try {
     if ($detectedHost) {
         Import-Module (Join-Path $ModulesDir 'Test.Host.psm1') -Force
@@ -568,13 +601,21 @@ $serverScript = @"
 `$listener = [System.Net.HttpListener]::new()
 `$listener.Prefixes.Add('http://*:$Port/')
 `$statusDir = '$($StatusDir -replace "'","''")'
-`$trackDir  = '$($TrackDir  -replace "'","''")'
+`$runtimeDir  = '$($RuntimeDir  -replace "'","''")'
 `$logDir    = '$($LogDir    -replace "'","''")'
 `$repoRoot  = '$($RepoRoot  -replace "'","''")'
-`$stepPauseFile  = Join-Path `$trackDir 'control.step-pause'
-`$cyclePauseFile = Join-Path `$trackDir 'control.cycle-pause'
-`$statusJsonFile = Join-Path `$trackDir 'status.json'
-`$serverLogFile  = Join-Path `$trackDir 'server.err'
+# Test-IpAddress and Get-CachingProxyPort are used to validate
+# vmStart.cachingProxyIP at save time in /control/test-config. Detached
+# server runspace is fresh -- import the module that exports them.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.VM.common.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# Invoke-CachingProxyProbe (used by /control/test-caching-proxy) lives in
+# Test.CachingProxy.psm1. The parent process imports it for the startup
+# probe at line 555, but the detached child has its own fresh runspace.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+`$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
+`$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
+`$statusJsonFile = Join-Path `$runtimeDir 'status.json'
+`$serverLogFile  = Join-Path `$runtimeDir 'server.err'
 # $serverHostType is the parent-detected host type baked into the
 # detached server's here-string. Used by /control/guest-folders to list
 # guests under host/<short>/. SSH-server toggle endpoints used to live
@@ -698,6 +739,52 @@ try {
                         `$res.OutputStream.Close()
                         continue
                     }
+                    # Validate vmStart.cachingProxyIP at save time: must be
+                    # a valid IPv4/IPv6 address AND TCP-reachable on the
+                    # squid HTTP port (3128). Empty/whitespace -> stored as
+                    # empty (cycle-start treats empty as absent). Either
+                    # failure returns 400 so the UI surfaces the problem
+                    # immediately instead of the operator discovering it at
+                    # cycle start.
+                    `$cacheIpErr = `$null
+                    if (`$parsedDoc -is [System.Collections.IDictionary] -and `$parsedDoc.Contains('vmStart')) {
+                        `$vsNode = `$parsedDoc['vmStart']
+                        if (`$vsNode -is [System.Collections.IDictionary] -and `$vsNode.Contains('cachingProxyIP')) {
+                            `$cacheIp = "`$(`$vsNode['cachingProxyIP'])".Trim()
+                            `$vsNode['cachingProxyIP'] = `$cacheIp
+                            if (`$cacheIp) {
+                                if (-not (Get-Command Test-IpAddress -ErrorAction SilentlyContinue)) {
+                                    `$cacheIpErr = "Test-IpAddress not available in this runspace -- cannot validate vmStart.cachingProxyIP"
+                                } elseif (-not (Test-IpAddress `$cacheIp)) {
+                                    `$cacheIpErr = "vmStart.cachingProxyIP='`$cacheIp' is not a valid IPv4 or IPv6 address"
+                                } else {
+                                    `$cachePort = Get-CachingProxyPort -Scheme http
+                                    `$probeTcp = New-Object System.Net.Sockets.TcpClient
+                                    `$probeOk  = `$false
+                                    try {
+                                        `$probeAsync = `$probeTcp.BeginConnect(`$cacheIp, `$cachePort, `$null, `$null)
+                                        `$probeOk    = (`$probeAsync.AsyncWaitHandle.WaitOne(1500) -and `$probeTcp.Connected)
+                                    } catch {
+                                        Write-ServerErr "save-time cachingProxyIP probe `${cacheIp}:`${cachePort} threw: `$(`$_.Exception.Message)"
+                                    } finally {
+                                        `$probeTcp.Close()
+                                    }
+                                    if (-not `$probeOk) {
+                                        `$cacheIpErr = "vmStart.cachingProxyIP='`$cacheIp' is not reachable on TCP :`$cachePort"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (`$cacheIpErr) {
+                        `$res.StatusCode = 400
+                        `$errMsg = (`$cacheIpErr -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
+                        `$res.ContentLength64 = `$body.Length
+                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                        `$res.OutputStream.Close()
+                        continue
+                    }
                     `$tmp = "`$testConfigFile.tmp"
                     `$writeOk = `$false
                     try {
@@ -732,6 +819,106 @@ try {
                 `$res.StatusCode = 405
                 `$res.Headers.Add('Allow', 'GET, POST, PUT')
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- /control/runtime-env: surface specific env vars to the UI ---
+            # Read-only GET endpoint. Currently emits one key,
+            # YURUNA_CACHING_PROXY_IP, so the test-config editor can show
+            # the env value side-by-side with the persisted
+            # vmStart.cachingProxyIP. Value reflects the server process's
+            # env (snapshotted at server start when this pwsh inherited
+            # its parent's env block) -- separate from the value that an
+            # Invoke-TestRunner.ps1 inner runspace might see if it was
+            # launched from a different shell. Caveat documented in the
+            # UI tooltip on the read-only field.
+            if (`$path -eq 'control/runtime-env') {
+                if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
+                    `$res.StatusCode = 405
+                    `$res.Headers.Add('Allow', 'GET')
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$envValue = if (`$env:YURUNA_CACHING_PROXY_IP) { `$env:YURUNA_CACHING_PROXY_IP } else { '' }
+                `$payload = @{ YURUNA_CACHING_PROXY_IP = `$envValue } | ConvertTo-Json -Compress
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                if (`$req.HttpMethod -ne 'HEAD') {
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                }
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- /control/test-caching-proxy?ip=<ip>: probe a caching proxy from the host ---
+            # Wraps Invoke-CachingProxyProbe (Test.CachingProxy.psm1, same
+            # function the startup probe uses) so the test-config UI can
+            # show a live connectivity verdict next to cachingProxyIP and
+            # the `$env:YURUNA_CACHING_PROXY_IP mirror. UI debounces input;
+            # the probe itself is sync (~few seconds: 4 TCP probes with
+            # 1.5s timeouts + a 5s CA-cert HTTP fetch). Empty/invalid IP
+            # returns valid=false WITHOUT running the probe so the UI can
+            # render a "disabled" mark instead of a false negative.
+            if (`$path -eq 'control/test-caching-proxy') {
+                if (`$req.HttpMethod -ne 'GET') {
+                    `$res.StatusCode = 405
+                    `$res.Headers.Add('Allow', 'GET')
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$ipQ = `$req.QueryString['ip']
+                if (`$null -eq `$ipQ) { `$ipQ = '' }
+                `$ipQ = "`$ipQ".Trim()
+                `$ipValid = `$false
+                if (`$ipQ) {
+                    try { `$ipValid = [bool](Test-IpAddress `$ipQ) } catch { `$ipValid = `$false }
+                }
+                if (-not `$ipValid) {
+                    `$payload = [pscustomobject]@{
+                        ok                 = `$true
+                        ip                 = `$ipQ
+                        valid              = `$false
+                        success            = `$false
+                        httpProxyReachable = `$false
+                        passCount          = 0
+                        warnCount          = 0
+                        failCount          = 0
+                        lines              = @()
+                    } | ConvertTo-Json -Compress -Depth 4
+                } else {
+                    try {
+                        `$probe = Invoke-CachingProxyProbe -CacheIp `$ipQ -CacheSource 'status-server /control/test-caching-proxy'
+                        `$payload = [pscustomobject]@{
+                            ok                 = `$true
+                            ip                 = `$ipQ
+                            valid              = `$true
+                            success            = [bool]`$probe.Success
+                            httpProxyReachable = [bool]`$probe.HttpProxyReachable
+                            passCount          = [int]`$probe.PassCount
+                            warnCount          = [int]`$probe.WarnCount
+                            failCount          = [int]`$probe.FailCount
+                            lines              = @(`$probe.Lines)
+                        } | ConvertTo-Json -Compress -Depth 4
+                    } catch {
+                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$payload = '{"ok":false,"ip":"' + (`$ipQ -replace '\\','\\' -replace '"','\"') + '","valid":true,"error":"' + `$errMsg + '"}'
+                        Write-ServerErr "test-caching-proxy probe failed for `${ipQ}: `$errMsg"
+                    }
+                }
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)
                 `$res.OutputStream.Close()
@@ -801,8 +988,8 @@ try {
             if (`$path -eq 'control/runner-status') {
                 `$running = `$false
                 `$pidVal  = `$null
-                `$runnerPidFile   = Join-Path `$trackDir 'runner.pid'
-                `$runnerStartFile = Join-Path `$trackDir 'runner.start'
+                `$runnerPidFile   = Join-Path `$runtimeDir 'runner.pid'
+                `$runnerStartFile = Join-Path `$runtimeDir 'runner.start'
                 if (Test-Path -LiteralPath `$runnerPidFile) {
                     try {
                         `$rawPid = (Get-Content -LiteralPath `$runnerPidFile -Raw -ErrorAction Stop).Trim()
@@ -861,6 +1048,31 @@ try {
                 continue
             }
 
+            # --- /control/host-diagnostic: run Get-SystemDiagnostic on the host ---
+            # --- See https://yuruna.link/definition#defining-the-status-page-hostinfo-dump
+            if (`$path -eq 'control/host-diagnostic') {
+                `$res.ContentType = 'text/plain; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$diagScript = Join-Path `$repoRoot 'automation/Get-SystemDiagnostic.ps1'
+                `$tmpFile    = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-hostinfo.txt'
+                `$content    = ''
+                try {
+                    if (-not (Test-Path -LiteralPath `$diagScript)) {
+                        throw "Get-SystemDiagnostic.ps1 not found at `$diagScript"
+                    }
+                    `$content = & pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory `$repoRoot -File `$diagScript 2>&1 | Out-String
+                    Set-Content -LiteralPath `$tmpFile -Value `$content -Encoding utf8 -ErrorAction SilentlyContinue
+                } catch {
+                    `$content = "Error running Get-SystemDiagnostic.ps1: `$($_.Exception.Message)"
+                    Write-ServerErr "host-diagnostic failed: `$($_.Exception.Message)"
+                }
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$content)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
             # --- Control endpoints: Pause/Continue back-channel from UI ---
             # Two pause switches, each backed by a flag file, mirrored
             # into status.json so the next UI poll flips the banner:
@@ -896,6 +1108,241 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 `$pausedJson = if (`$desiredPaused) { 'true' } else { 'false' }
                 `$payload = '{"ok":true,"' + `$fieldName + '":' + `$pausedJson + '}'
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- /control/break-continue: Continue-from-break button ---
+            # POST-only. Writes control.break-continue under runtimeDir;
+            # the break action in Invoke-Sequence.psm1 polls for this
+            # file inside its wait loop and on detection calls
+            # Restore-VMDiskSnapshot (if break.id was set) + Start-VM,
+            # removes the marker, and resumes the sequence.
+            # Refuses the call when no break is active (no break-active.json
+            # sidecar) so a stray click doesn't arm the flag for the
+            # NEXT break -- which would silently auto-resume it on the
+            # first poll tick.
+            if (`$path -eq 'control/break-continue') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
+                    `$res.StatusCode = 405
+                    `$res.Headers.Add('Allow', 'POST, PUT')
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"POST required"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$breakActiveFile   = Join-Path `$runtimeDir 'break-active.json'
+                `$breakContinueFile = Join-Path `$runtimeDir 'control.break-continue'
+                if (-not (Test-Path -LiteralPath `$breakActiveFile)) {
+                    `$res.StatusCode = 409
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"no break active"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                try {
+                    Set-Content -Path `$breakContinueFile -Value (Get-Date -Format o) -ErrorAction Stop
+                } catch {
+                    `$res.StatusCode = 500
+                    `$msg = '{"ok":false,"error":"could not write continue flag: ' + (`$_.Exception.Message -replace '"','\\"') + '"}'
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes(`$msg)
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- /control/start-cycle: save-and-restart trigger from UI ---
+            # POST-only. Atomically (under a process-wide lock file so
+            # concurrent UI clicks don't double-spawn):
+            #   1. clear control.cycle-pause and control.step-pause so a
+            #      paused runner unblocks immediately
+            #   2. touch control.cycle-restart so an in-delay-loop inner
+            #      wakes early and exits to outer (see Invoke-TestInnerRunner.ps1)
+            #   3. run Remove-TestVMFiles.ps1 -- this kills any in-progress
+            #      VMs out from under a running cycle; the inner then errors
+            #      out, outer respawns, and the saved test.config.yml mtime
+            #      change is what wakes outer out of its failure-pause
+            #   4. if no runner is currently running, spawn Invoke-TestRunner.ps1
+            #      detached (same idiom Start-StatusServer.ps1 uses to spawn
+            #      this server -- Start-Process Hidden on Windows, bash nohup
+            #      on Linux/macOS)
+            # Save the test.config.yml separately via /control/test-config
+            # before calling this (test.config.html does both back-to-back).
+            if (`$path -eq 'control/start-cycle') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
+                    `$res.StatusCode = 405
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"POST required"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                # File-existence lock. CreateNew is atomic at the OS layer;
+                # if another endpoint instance is mid-flight the open
+                # throws and we return 409. No mutex object so an
+                # abandoned-handle scenario can't deadlock the next click;
+                # worst case the holder crashes and leaves the lock file,
+                # which is cleaned up on next start-cycle attempt (see the
+                # stale-lock sweep below).
+                `$lockFile = Join-Path `$runtimeDir 'control.start-cycle.lock'
+                `$lockHandle = `$null
+                # Stale-lock sweep: if the lock file is older than 5 minutes
+                # the prior endpoint instance is gone (Remove-TestVMFiles +
+                # spawn shouldn't take anywhere near that). Clean up so the
+                # operator isn't permanently locked out.
+                if (Test-Path -LiteralPath `$lockFile) {
+                    try {
+                        `$lockAge = (Get-Date) - (Get-Item -LiteralPath `$lockFile).LastWriteTime
+                        if (`$lockAge.TotalSeconds -gt 300) {
+                            Remove-Item -LiteralPath `$lockFile -Force -ErrorAction SilentlyContinue
+                            Write-ServerErr "start-cycle: cleared stale lock (`$([int]`$lockAge.TotalSeconds)s old)"
+                        }
+                    } catch { Write-Debug `$_ }
+                }
+                try {
+                    `$lockHandle = [System.IO.File]::Open(`$lockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+                } catch {
+                    `$res.StatusCode = 409
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"another start-cycle request is in progress"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$action = 'restarted'
+                `$errMsg = `$null
+                try {
+                    # 1. clear pause flags (D4: start implies un-pause)
+                    Remove-Item `$cyclePauseFile -Force -ErrorAction SilentlyContinue
+                    Remove-Item `$stepPauseFile  -Force -ErrorAction SilentlyContinue
+                    try {
+                        `$doc = Get-Content -Raw `$statusJsonFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+                        `$doc['cyclePaused'] = `$false
+                        `$doc['stepPaused']  = `$false
+                        `$tmp = "`$statusJsonFile.tmp"
+                        `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
+                        Move-Item -Path `$tmp -Destination `$statusJsonFile -Force
+                    } catch { Write-Debug `$_ }
+
+                    # 2. signal "wake from inter-cycle delay" to a running inner
+                    `$restartFlag = Join-Path `$runtimeDir 'control.cycle-restart'
+                    Set-Content -Path `$restartFlag -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
+
+                    # 3. detect whether a runner is currently alive (same
+                    #    logic as /control/runner-status: PID file + start
+                    #    cross-check + cmdline regex fallback). Done BEFORE
+                    #    Remove-TestVMFiles so the spawn decision is based
+                    #    on pre-kill state.
+                    `$runnerAlive    = `$false
+                    `$runnerPidFile  = Join-Path `$runtimeDir 'runner.pid'
+                    `$runnerStartFile = Join-Path `$runtimeDir 'runner.start'
+                    if (Test-Path -LiteralPath `$runnerPidFile) {
+                        try {
+                            `$rawPid = (Get-Content -LiteralPath `$runnerPidFile -Raw -ErrorAction Stop).Trim()
+                            if (`$rawPid -as [int]) {
+                                `$pidVal = [int]`$rawPid
+                                `$proc = Get-Process -Id `$pidVal -ErrorAction SilentlyContinue
+                                if (`$proc) {
+                                    if (Test-Path -LiteralPath `$runnerStartFile) {
+                                        try {
+                                            `$recorded   = (Get-Content -LiteralPath `$runnerStartFile -Raw -ErrorAction Stop).Trim()
+                                            `$recordedDt = [DateTimeOffset]::Parse(`$recorded).UtcDateTime
+                                            `$liveDt     = `$proc.StartTime.ToUniversalTime()
+                                            if ([Math]::Abs((`$recordedDt - `$liveDt).TotalSeconds) -le 2) { `$runnerAlive = `$true }
+                                        } catch { Write-Debug `$_ }
+                                    }
+                                    if (-not `$runnerAlive) {
+                                        `$cmd = `$null
+                                        if (`$IsWindows) {
+                                            `$cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=`$pidVal" -ErrorAction SilentlyContinue).CommandLine
+                                        } elseif (`$IsMacOS -or `$IsLinux) {
+                                            `$cmd = & '/bin/ps' -ww -p `$pidVal -o args= 2>`$null
+                                        }
+                                        if (`$cmd -and `$cmd -match 'Invoke-Test(?:Inner)?Runner\.ps1') { `$runnerAlive = `$true }
+                                    }
+                                }
+                            }
+                        } catch { Write-Debug `$_ }
+                    }
+
+                    # 4. Remove-TestVMFiles synchronously. Captures both
+                    #    streams; non-zero exit is surfaced in the response
+                    #    so the operator can investigate, but does NOT
+                    #    abort the spawn (D1: hard-stop noise is accepted).
+                    `$removeScript = Join-Path `$repoRoot 'test/Remove-TestVMFiles.ps1'
+                    if (Test-Path -LiteralPath `$removeScript) {
+                        try {
+                            `$removeOut = & pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory `$repoRoot -File `$removeScript 2>&1 | Out-String
+                            Write-ServerErr "start-cycle: Remove-TestVMFiles output:`n`$removeOut"
+                        } catch {
+                            Write-ServerErr "start-cycle: Remove-TestVMFiles threw: `$(`$_.Exception.Message)"
+                        }
+                    } else {
+                        Write-ServerErr "start-cycle: Remove-TestVMFiles.ps1 not found at `$removeScript"
+                    }
+
+                    # 5. spawn outer runner if it wasn't already alive.
+                    #    Mirrors the Start-StatusServer.ps1 spawn idiom:
+                    #    Start-Process Hidden on Windows, bash nohup on
+                    #    Linux/macOS. Stdout/stderr redirected to runtime-dir
+                    #    log files so the operator can debug a failed spawn.
+                    if (-not `$runnerAlive) {
+                        `$action = 'spawned'
+                        `$runnerScript = Join-Path `$repoRoot 'test/Invoke-TestRunner.ps1'
+                        if (-not (Test-Path -LiteralPath `$runnerScript)) {
+                            throw "Invoke-TestRunner.ps1 not found at `$runnerScript"
+                        }
+                        `$spawnOut = Join-Path `$runtimeDir 'runner.spawned-from-web.out'
+                        `$spawnErr = Join-Path `$runtimeDir 'runner.spawned-from-web.err'
+                        if (`$IsWindows) {
+                            Start-Process -FilePath "pwsh" ``
+                                -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", `$runnerScript ``
+                                -WorkingDirectory `$repoRoot ``
+                                -RedirectStandardOutput `$spawnOut ``
+                                -RedirectStandardError  `$spawnErr ``
+                                -PassThru | Out-Null
+                        } else {
+                            # 'set -m' enables job control so the trailing & puts
+                            # the runner in its OWN process group -- without it the
+                            # runner inherits this status server's group and stays
+                            # wired to its terminal job. nohup plus stdio redirected
+                            # off the tty let it outlive the caller cleanly.
+                            & bash -c "set -m; cd '`$repoRoot' && nohup pwsh -NoProfile -File '`$runnerScript' </dev/null > '`$spawnOut' 2> '`$spawnErr' &" | Out-Null
+                        }
+                        Write-ServerErr "start-cycle: spawned new runner from web endpoint"
+                    }
+                } catch {
+                    `$errMsg = `$_.Exception.Message
+                    Write-ServerErr "start-cycle failed: `$errMsg"
+                } finally {
+                    if (`$lockHandle) {
+                        try { `$lockHandle.Close() } catch { Write-Debug `$_ }
+                        Remove-Item -LiteralPath `$lockFile -Force -ErrorAction SilentlyContinue
+                    }
+                }
+                if (`$errMsg) {
+                    `$res.StatusCode = 500
+                    `$escapedErr = (`$errMsg -replace '\\', '\\\\') -replace '"', '\"'
+                    `$payload = '{"ok":false,"error":"' + `$escapedErr + '"}'
+                } else {
+                    `$payload = '{"ok":true,"action":"' + `$action + '"}'
+                }
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)
@@ -1095,9 +1542,24 @@ try {
             # uncommitted noise. Sidesteps the deny-list (which forbids
             # .git/) since it does not expose the repo internals.
             if (`$path -eq 'yuruna-archive.tar.gz') {
-                `$tmp = [System.IO.Path]::GetTempFileName()
+                `$tmp       = [System.IO.Path]::GetTempFileName()
+                `$originDir = `$null
                 try {
-                    & git -C `$repoRoot archive --format=tar.gz -o `$tmp HEAD 2>`$null
+                    # Inject a .yuruna-origin sidecar at the tarball root so
+                    # guests (which have no .git/ after `git archive` extract)
+                    # can still report the framework repo's origin URL in
+                    # Get-SystemDiagnostic. --add-file places the file at
+                    # archive root using its basename.
+                    `$archiveArgs = @('-C', `$repoRoot, 'archive', '--format=tar.gz')
+                    `$originUrl = & git -C `$repoRoot config --get remote.origin.url 2>`$null
+                    if (`$LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(`$originUrl)) {
+                        `$originDir  = New-Item -ItemType Directory -Path ([IO.Path]::Combine([IO.Path]::GetTempPath(), [Guid]::NewGuid().ToString('N'))) -Force
+                        `$originFile = Join-Path `$originDir.FullName '.yuruna-origin'
+                        [IO.File]::WriteAllText(`$originFile, (([string]`$originUrl).Trim()))
+                        `$archiveArgs += ('--add-file=' + `$originFile)
+                    }
+                    `$archiveArgs += @('-o', `$tmp, 'HEAD')
+                    & git @archiveArgs 2>`$null
                     if (`$LASTEXITCODE -ne 0 -or -not (Test-Path `$tmp)) {
                         `$res.StatusCode = 500
                         `$body = [System.Text.Encoding]::UTF8.GetBytes('git archive failed')
@@ -1116,6 +1578,7 @@ try {
                     try { `$ctx.Response.Abort() } catch { Write-Debug `$_ }
                 } finally {
                     Remove-Item `$tmp -Force -ErrorAction SilentlyContinue
+                    if (`$originDir) { Remove-Item -LiteralPath `$originDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
                 }
                 continue
             }
@@ -1141,9 +1604,22 @@ try {
                     `$res.OutputStream.Close()
                     continue
                 }
-                `$tmp = [System.IO.Path]::GetTempFileName()
+                `$tmp       = [System.IO.Path]::GetTempFileName()
+                `$originDir = `$null
                 try {
-                    & git -C `$projectRoot archive --format=tar.gz -o `$tmp HEAD 2>`$null
+                    # Mirrors /yuruna-archive.tar.gz: inject a .yuruna-origin
+                    # sidecar so guests can recover the project repo's
+                    # origin URL even though `git archive` strips .git/.
+                    `$archiveArgs = @('-C', `$projectRoot, 'archive', '--format=tar.gz')
+                    `$originUrl = & git -C `$projectRoot config --get remote.origin.url 2>`$null
+                    if (`$LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(`$originUrl)) {
+                        `$originDir  = New-Item -ItemType Directory -Path ([IO.Path]::Combine([IO.Path]::GetTempPath(), [Guid]::NewGuid().ToString('N'))) -Force
+                        `$originFile = Join-Path `$originDir.FullName '.yuruna-origin'
+                        [IO.File]::WriteAllText(`$originFile, (([string]`$originUrl).Trim()))
+                        `$archiveArgs += ('--add-file=' + `$originFile)
+                    }
+                    `$archiveArgs += @('-o', `$tmp, 'HEAD')
+                    & git @archiveArgs 2>`$null
                     if (`$LASTEXITCODE -ne 0 -or -not (Test-Path `$tmp)) {
                         `$res.StatusCode = 500
                         `$body = [System.Text.Encoding]::UTF8.GetBytes('git archive failed')
@@ -1162,22 +1638,34 @@ try {
                     try { `$ctx.Response.Abort() } catch { Write-Debug `$_ }
                 } finally {
                     Remove-Item `$tmp -Force -ErrorAction SilentlyContinue
+                    if (`$originDir) { Remove-Item -LiteralPath `$originDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
                 }
                 continue
             }
 
             # Dispatch by URL prefix:
             #   yuruna-repo/<rel> -> `$repoRoot (working tree, with deny-list)
-            #   track/<name>      -> `$trackDir  (pids, status.json, control
-            #                                    flags, ipaddresses.txt,
-            #                                    caching-proxy.txt,
-            #                                    current-action.json, server.err)
+            #   runtime/<name>    -> `$runtimeDir (pids, status.json, control
+            #                                     flags, ipaddresses.txt,
+            #                                     caching-proxy.txt,
+            #                                     current-action.json, server.err,
+            #                                     yuruna-caching-proxy.yml,
+            #                                     host.uuid)
             #   log/<name>        -> `$logDir    (HTML transcripts, OCR /
-            #                                    screenshot debug, failure captures)
-            #   <anything>        -> `$statusDir (index.html, template, static assets)
+            #                                     screenshot debug, failure
+            #                                     captures)
+            #   <anything>        -> `$statusDir (index.html, template, static
+            #                                     assets, plus perf/, extension/,
+            #                                     captures/, ssh/ subdirs)
             # Each branch pins the resolved file under its mount root
-            # via a StartsWith check — traversal like
-            # track/../../../etc/passwd can't escape.
+            # via a StartsWith check -- traversal like
+            # runtime/../../../etc/passwd can't escape.
+            #
+            # A unified deny-list (`$denyLikeStatus) is then applied to
+            # every served path before the file is written so secrets
+            # under status/ (vault.yml, transports.yml, events.log, the
+            # SSH private key, the caching-proxy state file) are blocked
+            # regardless of which URL route reached them.
             if (`$path -like 'yuruna-repo/*') {
                 `$rel  = `$path.Substring(12)
                 `$root = `$repoRoot
@@ -1195,12 +1683,13 @@ try {
                     '*.pfx',
                     '.git/*',
                     '*/vault.yml',
-                    'test/extension/authentication/vault.yml',
                     '*/vault.lock',
-                    '*/notification.transports.yml',
-                    'test/extension/notification/notification.transports.yml',
+                    '*/transports.yml',
+                    'test/status/extension/*',
+                    'test/status/ssh/*',
+                    '*/yuruna-caching-proxy.yml',
+                    'test/status/runtime/yuruna-caching-proxy.yml',
                     '*.events.log',
-                    'test/status/track/extension/*',
                     '*-password.txt'
                 )
                 `$denied = (`$denyExact -contains `$relNorm)
@@ -1216,19 +1705,38 @@ try {
                     `$res.OutputStream.Close()
                     continue
                 }
-            } elseif (`$path -like 'track/*') {
-                `$rel  = `$path.Substring(6)
-                `$root = `$trackDir
-                # Pattern-based deny under /track/ for credential event
-                # logs and any future *-password.txt sidecars.
+            } elseif (`$path -like 'runtime/*') {
+                `$rel  = `$path.Substring(8)
+                `$root = `$runtimeDir
+            } elseif (`$path -like 'log/*') {
+                `$rel  = `$path.Substring(4)
+                `$root = `$logDir
+            } else {
+                `$rel  = `$path
+                `$root = `$statusDir
+            }
+            # Unified deny-list across non-yuruna-repo dispatches. The
+            # /runtime/ route serves runtime/yuruna-caching-proxy.yml
+            # (plaintext yuruna user password); the catch-all serves
+            # status/extension/ (vault.yml, vault.lock, transports.yml,
+            # events.log) and status/ssh/ (private SSH key). Block all
+            # of those uniformly so URL probing never returns secrets.
+            if (`$path -notlike 'yuruna-repo/*') {
                 `$relNorm = `$rel -replace '\\','/'
-                `$denyLikeTrack = @(
+                `$denyLikeStatus = @(
+                    '*/vault.yml',     'vault.yml',
+                    '*/vault.lock',    'vault.lock',
+                    '*/transports.yml','transports.yml',
+                    '*/events.log',    'events.log',
                     'extension/*',
-                    '*.events.log',
+                    'ssh/yuruna_ed25519',
+                    'ssh/*_ed25519',
+                    '*/yuruna-caching-proxy.yml',
+                    'yuruna-caching-proxy.yml',
                     '*-password.txt'
                 )
                 `$denied = `$false
-                foreach (`$pat in `$denyLikeTrack) {
+                foreach (`$pat in `$denyLikeStatus) {
                     if (`$relNorm -like `$pat) { `$denied = `$true; break }
                 }
                 if (`$denied) {
@@ -1238,12 +1746,6 @@ try {
                     `$res.OutputStream.Close()
                     continue
                 }
-            } elseif (`$path -like 'log/*') {
-                `$rel  = `$path.Substring(4)
-                `$root = `$logDir
-            } else {
-                `$rel  = `$path
-                `$root = `$statusDir
             }
             `$file = Join-Path `$root `$rel
             `$file = [System.IO.Path]::GetFullPath(`$file)
@@ -1399,7 +1901,7 @@ try {
 # "The filename or extension is too long" which is obscure and easy to
 # misread as a path problem. -File sidesteps the size limit entirely:
 # pwsh reads the script from disk instead of its command line.
-$serverScriptFile = Join-Path $TrackDir ".status-server.ps1"
+$serverScriptFile = Join-Path $RuntimeDir ".status-server.ps1"
 Set-Content -Path $serverScriptFile -Value $serverScript -Encoding UTF8BOM
 
 if ($IsWindows) {
@@ -1417,8 +1919,8 @@ if ($IsWindows) {
     # firing on outer.log even though the inner clearly emitted its
     # final cycleDelaySeconds-wait-complete line. Redirecting to files
     # gives the grandchild dedicated handles and breaks the chain.
-    $serverOut = Join-Path $TrackDir "server.out"
-    $serverErrFile = Join-Path $TrackDir "server.err"
+    $serverOut = Join-Path $RuntimeDir "server.out"
+    $serverErrFile = Join-Path $RuntimeDir "server.err"
     $proc = Start-Process -FilePath "pwsh" `
         -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $serverScriptFile `
         -RedirectStandardOutput $serverOut `
@@ -1426,11 +1928,18 @@ if ($IsWindows) {
         -PassThru
     Set-Content -Path $PidFile -Value $proc.Id
 } else {
-    # On macOS/Linux, launch via bash to fully detach from the parent session.
-    # The subshell (...) + & backgrounds the process in a new process group,
-    # and nohup prevents SIGHUP from killing it when the caller exits.
-    $stdErr = Join-Path $TrackDir "server.err"
-    & bash -c "nohup pwsh -NoProfile -File '$serverScriptFile' > /dev/null 2>'$stdErr' & echo `$!"  | Set-Variable -Name bgPid
+    # On macOS/Linux, detach the status server from the test-runner shell's
+    # terminal job. `bash -c` runs a NON-interactive shell, so job control is
+    # off and a bare `&` leaves the backgrounded process in the caller's
+    # process group: exiting that shell then lingers because its terminal job
+    # still has a live member. `set -m` turns job control on for this shell,
+    # so `&` places the server in its OWN process group (bash setpgid's it).
+    # `nohup` ignores SIGHUP and stdin/stdout/stderr are redirected off the
+    # tty, so the server cleanly outlives the caller. (macOS has no `setsid`,
+    # so a new session is not available here -- a new process group plus
+    # nohup is what decouples it from the caller's exit.)
+    $stdErr = Join-Path $RuntimeDir "server.err"
+    & bash -c "set -m; nohup pwsh -NoProfile -File '$serverScriptFile' </dev/null >/dev/null 2>'$stdErr' & echo `$!" | Set-Variable -Name bgPid
     Set-Content -Path $PidFile -Value $bgPid
 }
 
@@ -1446,7 +1955,7 @@ for ($i = 0; $i -lt 5; $i++) {
 }
 if (-not $serverReady) {
     Write-Warning "Status server process started but port $Port is not responding after 5 seconds."
-    Write-Warning "Check the server error log: $(Join-Path $TrackDir 'server.err')"
+    Write-Warning "Check the server error log: $(Join-Path $RuntimeDir 'server.err')"
 }
 
 # --- Display connection info ---

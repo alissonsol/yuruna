@@ -2,9 +2,9 @@
 
 Cross-host harness modules. Each is a `.psm1` imported by
 [`../Invoke-TestRunner.ps1`](../Invoke-TestRunner.ps1) (and ad-hoc by
-[`../Confirm-Sequence.ps1`](../Confirm-Sequence.ps1) for one-off
+[`../Test-Sequence.ps1`](../Test-Sequence.ps1) for one-off
 sequence runs). Module list and per-module purpose:
-[`../CODE.md`](../CODE.md#module-responsibilities).
+[Test harness — architecture](../../docs/test-harness.md#module-responsibilities).
 
 This folder also holds [`Invoke-TestInnerRunner.ps1`](Invoke-TestInnerRunner.ps1) —
 the single-cycle inner that the outer `Invoke-TestRunner.ps1` spawns
@@ -21,7 +21,9 @@ The cycle no longer needs per-guest `.ps1` extensions. The runner walks
 and runs every sequence inline through
 [`Invoke-Sequence.psm1`](Invoke-Sequence.psm1) — the engine that
 implements the YAML `actions` (keystrokes, OCR waits, SSH pushes,
-etc.).
+etc.). Action reference and per-host
+[Yuruna.Host](../../host) contract notes:
+[Sequence actions and host contracts](../../docs/test-sequences.md).
 
 ### Where the work lives
 
@@ -31,7 +33,7 @@ etc.).
   declares which guest OSes it supports and which prerequisite
   sequences must complete first, keyed by OS:
   ```json
-  "baseline": { "ubuntu.server": ["start.guest.ubuntu.server"] }
+  "baseline": { "ubuntu.server.24": ["start.guest.ubuntu.server.24"] }
   ```
   Walking these recursively produces the dependency-ordered chain.
 - **Sequence files** —
@@ -40,7 +42,7 @@ etc.).
     `start.guest.<os>.yml`, `workload.guest.<os>.yml`.
   - Project-specific sequences live with the project itself, under
     `project/<...>/test/{gui,ssh}/` (e.g.
-    `project/example/website/test/gui/workload.guest.ubuntu.server.k8s.website.yml`).
+    `project/example/website/test/gui/workload.guest.ubuntu.server.24.k8s.website.yml`).
   - `Resolve-SequencePath` searches the project tree first, then the
     framework, with `gui/` fallback for missing `ssh/` variants.
 
@@ -67,7 +69,7 @@ Sequences whose name starts with `start.` route to the runner's
 3. Reference the new sequence (or anything that depends on it) from
    `project/test/test.sequence.yml` `baseline`.
 
-Back to [Test harness](../README.md) · [Yuruna](../../README.md)
+Back to [Test runner](../README.md) · [Test harness](../../docs/test-harness.md) · [Yuruna](../../README.md)
 
 ---
 

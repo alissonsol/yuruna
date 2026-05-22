@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,7 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 # Skip-if-same-source guard. Inlined here -- the host.windows.hyper-v and
 # host.macos.utm Yuruna.Host.psm1 modules export a Test-DownloadAlreadyCurrent
 # helper, but the KVM Yuruna.Host.psm1 doesn't (same pattern as the KVM
-# ubuntu.server Get-Image.ps1, which also inlines its own check). 4-line
+# ubuntu.server.24 Get-Image.ps1, which also inlines its own check). 4-line
 # sentinel records filename + URL + size + Last-Modified; any mismatch
 # forces a re-download. The 4-line format closes the noble->resolute
 # style URL-bump regression that a 3-line sentinel would silently miss.

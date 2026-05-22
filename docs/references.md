@@ -45,8 +45,10 @@
 
 - PSScriptAnalyzer [code](https://github.com/PowerShell/PSScriptAnalyzer)
   - If not yet installed: `Install-Module -Name PSScriptAnalyzer`
-  - `Invoke-ScriptAnalyzer -Path . -Recurse`
+  - `Invoke-ScriptAnalyzer -Path . -Recurse` (auto-picks up the repo-root
+    `PSScriptAnalyzerSettings.psd1`)
   - `Invoke-ScriptAnalyzer -Path . -Recurse | Select-Object -Property Line, Column, ScriptPath, RuleName, Message`
+  - BOM-only spot check: `Invoke-ScriptAnalyzer -Path . -Recurse | Where-Object RuleName -eq 'PSUseBOMForUnicodeEncodedFile'`
 - [Quickstart: Configure Terraform using Azure PowerShell](https://learn.microsoft.com/en-us/azure/developer/terraform/get-started-powershell) (applicable to OpenTofu)
 
 ### Ubuntu

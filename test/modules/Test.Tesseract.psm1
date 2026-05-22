@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,11 +22,20 @@
 
 .DESCRIPTION
     Provides shared functions for Tesseract OCR used by Invoke-TestRunner,
-    Confirm-Sequence, and the OCR-engine dispatcher (Test.OcrEngine).
+    Test-Sequence, and the OCR-engine dispatcher (Test.OcrEngine).
     Works on Windows, macOS, and Linux.
 #>
 
 # --- Locate Tesseract ---
+
+# Module-scoped cache for Find-Tesseract. tesseract's install location is
+# stable across an entire cycle (and usually across the host's lifetime),
+# but Invoke-TesseractOcr / Get-TesseractWordBox call Find-Tesseract on
+# every OCR invocation. With ~1000+ OCR calls per cycle on a busy host the
+# `Get-Command tesseract` + Test-Path probes add up to several seconds of
+# pure path-lookup overhead. We cache the resolved path and defensively
+# re-probe when the cached file has disappeared (uninstall mid-run).
+$script:CachedTesseractPath = $null
 
 function Find-Tesseract {
     <#
@@ -39,9 +48,19 @@ function Find-Tesseract {
     [OutputType([System.String])]
     param()
 
+    # Cache hit: re-validate the cached path exists; if it does, return it
+    # without going through Get-Command / Test-Path again.
+    if ($script:CachedTesseractPath -and (Test-Path $script:CachedTesseractPath)) {
+        return $script:CachedTesseractPath
+    }
+    $script:CachedTesseractPath = $null
+
     # Check PATH first
     $cmd = Get-Command tesseract -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
+    if ($cmd) {
+        $script:CachedTesseractPath = $cmd.Source
+        return $cmd.Source
+    }
 
     # Windows: check common install locations (winget / Chocolatey / manual)
     if ($IsWindows) {
@@ -52,14 +71,20 @@ function Find-Tesseract {
         )
         foreach ($dir in $searchPaths) {
             $candidate = Join-Path $dir "tesseract.exe"
-            if (Test-Path $candidate) { return $candidate }
+            if (Test-Path $candidate) {
+                $script:CachedTesseractPath = $candidate
+                return $candidate
+            }
         }
     }
 
     # macOS: check Homebrew locations
     if ($IsMacOS) {
         foreach ($candidate in @("/usr/local/bin/tesseract", "/opt/homebrew/bin/tesseract")) {
-            if (Test-Path $candidate) { return $candidate }
+            if (Test-Path $candidate) {
+                $script:CachedTesseractPath = $candidate
+                return $candidate
+            }
         }
     }
 

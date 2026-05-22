@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456710
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,11 +81,12 @@ function Start-StatusServer {
 
     # Resolve the machine's hostname and IP for display
     $machineName = (hostname).Trim()
-    $ip = try {
-        ([System.Net.Dns]::GetHostAddresses($machineName) |
+    $ip = $null
+    try {
+        $ip = ([System.Net.Dns]::GetHostAddresses($machineName) |
             Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
             Select-Object -First 1).IPAddressToString
-    } catch { $null }
+    } catch { $null = $_ }
 
     Write-Information "" -InformationAction Continue
     Write-Information "Status page (local):  http://localhost:$Port/status/" -InformationAction Continue

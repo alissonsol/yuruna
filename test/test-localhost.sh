@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.15
+# Version: 2026.05.22
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Probe localhost HTTP and print the status line.
 # Retries because ingress-nginx serves 503 until both the controller

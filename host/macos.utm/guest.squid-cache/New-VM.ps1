@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,11 +146,13 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # Squid-cache 'yuruna' user password. Same model as the Windows
-# squid-cache New-VM.ps1: the per-cycle vault is wiped at cycle end, so
-# cross-cycle persistence lives in <track>/yuruna-caching-proxy.yml
-# managed by Test.CachingProxy (Read-/Save-CachingProxyState). On the
-# first call of cycle 1 the file's password rehydrates into the vault;
-# subsequent reads come from the live vault.
+# squid-cache New-VM.ps1: the vault now persists across cycles
+# (external-auth simulation), but the cache VM's yuruna password is
+# also tracked in <track>/yuruna-caching-proxy.yml (host-agnostic,
+# managed by Test.CachingProxy / Read-/Save-CachingProxyState). The
+# runtime state file is treated as the source of truth: Set-Password rewrites
+# the vault entry from it before Get-Password reads it back, so the
+# vault and the runtime state file stay aligned even if they ever diverge.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
@@ -328,7 +330,7 @@ If step 4 reports 'squid DOWN' after 15 minutes, access the VM:
   * UTM window:  login 'yuruna' / password '__PASSWORD__'
                  (password also at __PASSWORD_FILE__; does NOT expire)
   * SSH:         ssh yuruna@$ip   (uses the yuruna harness key
-                                   at test/.ssh/yuruna_ed25519; passwordless)
+                                   at test/status/ssh/yuruna_ed25519; passwordless)
 
 Then — REAL apt/cloud-init errors live in the output log, not in
 'cloud-init status'. Run this FIRST:

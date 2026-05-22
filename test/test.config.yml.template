@@ -1,6 +1,7 @@
 guestSequence:
-  - guest.amazon.linux
-  - guest.ubuntu.server
+  - guest.amazon.linux.2023
+  - guest.ubuntu.server.24
+  - guest.ubuntu.server.26
 hostSshServer:
   enabled: false
 logLevel: Information
@@ -17,6 +18,7 @@ testCycle:
   cycleDelaySeconds: 300
   recentDisplayCount: 30
   shouldStopOnFailure: false
+  stepTimeoutMinutes: 45
 vmCommunication:
   characterDelayMs: 20
   keystrokeMechanism: GUI
@@ -25,8 +27,9 @@ vmCommunication:
   vncPort: 5900
 vmImage:
   alwaysRedownload: false
-  refreshHours: 24
+  refreshHours: 168
 vmStart:
   bootDelaySeconds: 15
+  cachingProxyIP: ''
   startTimeoutSeconds: 120
   testVmNamePrefix: test-

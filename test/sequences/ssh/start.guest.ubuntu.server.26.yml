@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# SSH-driven equivalent of gui/start.guest.ubuntu.server.26.yml. Selected
+# automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.
+# Subiquity runs fully hands-off via interactive-sections:[], so there is
+# no Install-button dance — just one OCR step to dismiss GRUB, then
+# SSH-wait for cloud-init to finish bringing up sshd.
+# See possible actions in the actions.yml file.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 427b2ba5-58ee-4873-9737-869138b121fe
+sequenceRevision: 1
+
+description: "Ubuntu Server 26.04: OCR-dismiss GRUB, then drive everything else over SSH once cloud-init has finished bringing up sshd."
+baseline:
+  ubuntu.server.26: []
+variables:
+  username: yuuser26
+
+steps:
+  - action: waitForAndEnter
+    pattern: "Try or Install Ubuntu Server"
+    timeoutSeconds: 600
+    text: ""
+    description: "Try or Install Ubuntu Server"
+
+  - action: sshWaitReady
+    timeoutSeconds: 2400
+    description: "Wait for SSH after autoinstall"
+
+  - action: sshExec
+    command: "whoami && hostname"
+    description: "Smoke test: whoami/hostname"
+
+  - action: sshFetchAndExecute
+    command: "/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.update.sh"
+    timeoutSeconds: 1800
+    description: "ubuntu.server.26.update.sh"
+
+  - action: sshExec
+    command: "sudo reboot now"
+    allowFailure: true
+    description: "Reboot the VM"

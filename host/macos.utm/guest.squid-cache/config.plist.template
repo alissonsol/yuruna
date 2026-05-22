@@ -58,7 +58,7 @@
 		     -global pair (no OCR calibration concern on a headless
 		     service VM). -->
 		<!-- share=force-shared: keeps screenshot + keystroke RFB clients
-		     from kicking each other (see amazon.linux template for the
+		     from kicking each other (see amazon.linux.2023 template for the
 		     full rationale). Not strictly required for the headless
 		     cache (no harness keystroke step targets this VM today),
 		     but kept consistent with the install guests so the same

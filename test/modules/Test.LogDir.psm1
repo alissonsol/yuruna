@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456780
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@ function Initialize-YurunaLogDir {
         $env:YURUNA_LOG_DIR is the unified reference for Yuruna's log
         directory: bulky HTML transcripts, OCR debug images, failure
         screenshots, per-component debug subdirs (NewText, Screenshot).
-        Separate from $env:YURUNA_TRACK_DIR, which holds the small
+        Separate from $env:YURUNA_RUNTIME_DIR, which holds the small
         operationally-interesting state files (pids, status.json,
         control flags). Callers should reference $env:YURUNA_LOG_DIR
         directly after invoking this initializer at least once.
@@ -37,7 +37,7 @@ function Initialize-YurunaLogDir {
     [OutputType([string])]
     param()
     if (-not $env:YURUNA_LOG_DIR) {
-        # Default: <testRoot>/status/log/. Co-located with the track dir
+        # Default: <testRoot>/status/log/. Co-located with the runtime dir
         # and served by the status HTTP server at /log/<name>, so bulky
         # diagnostic artifacts (HTML transcripts, OCR debug images,
         # failure screenshots) can be linked directly from the status

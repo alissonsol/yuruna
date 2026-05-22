@@ -1,10 +1,10 @@
 # Squid Cache VM (Hyper-V)
 
 Canonical documentation (setup, configuration, monitoring, credentials,
-management): **[docs/caching.md](../../../docs/caching.md)**.
+management): **[Caching](../../../docs/caching.md)**.
 Test-harness wrappers (`Start-CachingProxy.ps1`,
 `Test-CachingProxy.ps1`, `YURUNA_CACHING_PROXY_IP`):
-**[test/CachingProxy.md](../../../test/CachingProxy.md)**.
+**[Caching proxy — test-harness operator reference](../../../docs/caching-proxy.md)**.
 
 Scripts and config in this folder:
 

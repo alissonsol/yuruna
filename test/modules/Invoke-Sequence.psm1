@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.15
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@ if ($env:YURUNA_LOG_LEVEL) {
 }
 
 # ── Wire the host driver ─────────────────────────────────────────────────────
-# Invoke-Sequence's body and Wait-ForText / Wait-ForAndClickButton call
+# Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
 # contract functions (Get-VMScreenshot, Restart-VMConsole) that live in
 # Yuruna.Host. When this module loads inside a child pwsh process spawned
 # by Test.Start-GuestOS / Test.Start-GuestWorkload, the child has no other path
@@ -121,30 +121,24 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 # Shared engine for executing interaction sequences from JSON files.
 #
 # Supported actions (defined in the "steps" array in each JSON):
-#   delay            — Wait N seconds.
-#   key              — Send a single keystroke.
-#   type             — Type a text string into the VM (charDelayMs configurable, default from test.config.yml, fallback 20ms).
-#   typeAndEnter     — Type a text string, wait, then press Enter (charDelayMs/delaySeconds configurable).
-#   tabsAndEnter     — Send N Tab keystrokes, then press Enter. Useful when focus must be advanced
-#                       to a default button (tabCount, delaySeconds configurable).
-#   screenshot       — Capture a screenshot for debugging.
+#   pressKey         — Send a single keystroke.
+#   inputText        — Type a text string into the VM (charDelayMs configurable, default from test.config.yml, fallback 20ms).
+#   inputTextAndEnter — Type a text string, wait, then press Enter (charDelayMs/delaySeconds configurable).
+#   takeScreenshot   — Capture a screenshot for debugging.
 #   waitForText      — Capture + OCR the VM screen until pattern appears (supports array of alternate patterns).
 #                       freshMatch: if true, captures a baseline, then waits for the screen
 #                       to change AND the pattern to appear in the last N lines.
 #                       freshMatchTailLines: number of trailing OCR lines to check (default 12).
 #   waitForAndEnter  — Wait for text pattern on screen via OCR, then type a string and press Enter.
-#                       Combines waitForText + typeAndEnter into a single step.
+#                       Combines waitForText + inputTextAndEnter into a single step.
 #   passwdPrompt     — Like waitForAndEnter, but `text` is always treated as
 #                       sensitive (masked in logs unless -ShowSensitive). Use
 #                       for PAM password prompts.
-#   waitForAndClickButton — Wait for a labelled button via OCR and click its centre.
+#   tapOn            — Wait for a labelled button via OCR and click its centre.
 #                       Uses Tesseract TSV to get per-word bounding boxes, then
 #                       synthesizes a mouse click at (centerX + offsetX, centerY + offsetY).
 #                       More reliable than Tab-count navigation for focus-sensitive UIs.
 #                       Hyper-V only for now; UTM support is stubbed.
-#   waitForPort      — Wait until a TCP port responds on the VM.
-#   waitForHeartbeat — Wait for Hyper-V heartbeat (Hyper-V only).
-#   waitForVMStop    — Wait until the VM reaches the Off/stopped state.
 #   sshWaitReady     — Wait until the guest accepts SSH using the yuruna harness key.
 #   sshExec          — Run a command on the guest over SSH; non-zero exit fails unless allowFailure=true.
 #   sshFetchAndExecute — Run a long-lived command over SSH (SSH equivalent of fetchAndExecute).
@@ -166,15 +160,21 @@ Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
 #                       explicit saveSystemDiagnostic step in the YAML at
 #                       any point a capture is wanted.
 #
-# Variables defined in the JSON "variables" block are substituted into
+# Variables defined in the YAML "variables" block are substituted into
 # action parameters using ${variableName} syntax. Built-in variables:
 # ${vmName}, ${hostType}, ${guestKey}.
 # ${ext:area.Method(arg1, arg2)} substitutions invoke the active
 # extension under test/extension/<area>/ for value-producing reads.
-# Inner ${var} placeholders in args are resolved first; results are
-# memoized per-run so two references to the same expression yield the
-# same value (e.g. "New password:" and "Retype:" both type the same
-# generated password).
+# Inner ${var} placeholders in args are resolved first. Each ${ext:...}
+# is invoked fresh on every reference -- there is no per-run memoization.
+# To get a stable value across multiple steps (e.g. "New password:"
+# typed and then re-typed at "Retype:"), assign the call to a variable
+# in the "variables" block; entries there are evaluated eagerly in YAML
+# order at sequence start, and the stored value is reused on every
+# ${myVar} reference.
+# Escape: $$ produces a literal $. In particular $${foo} yields the
+# four-character literal ${foo} (no substitution). To embed two literal
+# dollars, write $$$$.
 #
 # On step failure, diagnostics are written to $env:YURUNA_LOG_DIR:
 #   last_failure.json              — failed step details (read by the parent runner)
@@ -239,17 +239,10 @@ $script:MacCharKeyCodes[']']=@(30,$false);  $script:MacCharKeyCodes['\']=@(42,$f
 $script:MacCharKeyCodes[';']=@(41,$false);  $script:MacCharKeyCodes["'"]=@(39,$false)
 $script:MacCharKeyCodes[',']=@(43,$false);  $script:MacCharKeyCodes['.']=@(47,$false)
 $script:MacCharKeyCodes['/']=@(44,$false);  $script:MacCharKeyCodes['`']=@(50,$false)
-# Punctuation (shifted). On macOS UTM AVF guests, synthetic Shift is stripped
-# in macOS 26 (confirmed via probe May 2026: CGEventSourceCreate(1) HID-system
-# events, AppleScript `key down shift`, Caps Lock toggle, and Option flag all
-# leak modifier flags but AVF reads modifier state from a path none of them
-# update). The two shifted chars with a no-shift route via the numeric keypad
-# stay correct on AVF: '*' → kVK_ANSI_KeypadMultiply (67), '+' → kVK_ANSI_KeypadPlus (69).
-# Everything else still maps to its main-row keycode + needsShift=true; the
-# CGEvent loop will press Shift around them (still useful on QEMU-backed UTM
-# VMs through VNC). For AVF guests, callers that need uppercase or shifted
-# punctuation must opt in to Send-TextUTM -ShellEscape, which rewrites the
-# text as a bash one-liner whose chars are all individually unshifted.
+# Punctuation (shifted). '*' and '+' are remapped to the numeric-keypad
+# keycodes (kVK_ANSI_KeypadMultiply=67, kVK_ANSI_KeypadPlus=69) so they
+# need no Shift; everything else maps to its main-row keycode with
+# needsShift=true, and the CGEvent typing loop presses Shift around it.
 $script:MacCharKeyCodes['!']=@(18,$true);  $script:MacCharKeyCodes['@']=@(19,$true)
 $script:MacCharKeyCodes['#']=@(20,$true);  $script:MacCharKeyCodes['$']=@(21,$true)
 $script:MacCharKeyCodes['%']=@(23,$true);  $script:MacCharKeyCodes['^']=@(22,$true)
@@ -353,9 +346,8 @@ $script:CharScanCodes['~']=@(0x29,$true)
 # Sends keystrokes directly to the VM's virtual display via the VNC/RFB
 # protocol, bypassing the macOS GUI entirely — no window focus required.
 # Used for QEMU-backend UTM VMs with a built-in VNC server enabled
-# (via AdditionalArguments: -vnc localhost:0 in the plist).
-# Apple Virtualization Framework VMs (Linux guests) fall back to
-# AppleScript/CGEvent since they have no built-in VNC server.
+# (via AdditionalArguments: -vnc localhost:0 in the plist). VMs without
+# a VNC server fall back to the AppleScript/CGEvent path in Send-TextUTM.
 
 # X11 keysym map for special keys (RFB key events use X11 keysyms)
 $script:X11KeySyms = @{
@@ -994,9 +986,9 @@ function Send-TextHyperV {
     }
 }
 
-function Test-AvfHardCharsInText {
-    # Returns $true if Text has at least one char that still needsShift=true
-    # in MacCharKeyCodes after the keypad remap. Used by Send-TextUTM to
+function Test-HardCharsInText {
+    # Returns $true if Text has at least one char that needs Shift in
+    # MacCharKeyCodes after the keypad remap. Used by Send-TextUTM to
     # decide whether the ShellEscape encoding is needed.
     param([string]$Text)
     foreach ($ch in $Text.ToCharArray()) {
@@ -1006,17 +998,13 @@ function Test-AvfHardCharsInText {
     return $false
 }
 
-function ConvertTo-AvfShellEscapedText {
+function ConvertTo-ShellEscapedText {
     # Rewrite Text as a bash one-liner: eval `echo -e 'TEXT_HEX'` , where
     # every shifted char is replaced by its \xNN escape and three structural
     # chars are also hex-escaped to survive the surrounding quoting:
     #   '  → \x27   (would close the surrounding apostrophe quote)
     #   `  → \x60   (would close the eval-backtick subshell)
     # Backslash is doubled (\\) so echo -e emits a single backslash.
-    # All chars in the wrapper itself (eval, backtick, echo, -e, apostrophe,
-    # backslash, hex digits) are unshifted on US layout, so the typing loop
-    # can deliver them all via the no-shift CGEvent path that AVF accepts.
-    # See Send-TextUTM for context.
     param([string]$Text)
     $sb = [System.Text.StringBuilder]::new()
     foreach ($ch in $Text.ToCharArray()) {
@@ -1040,35 +1028,20 @@ function Send-TextUTM {
         [string]$VMName,
         [string]$Text,
         [int]$CharDelayMs = $script:DefaultCharDelayMs,
-        # Opt-in shell-side decoding for AVF guests on macOS 26. When set
-        # AND Text contains chars that still need Shift after the keypad
-        # remap (uppercase letters and shifted punctuation other than
-        # '*' / '+'), rewrites Text as `eval \`echo -e 'HEX'\`` so the
-        # bash prompt on the guest decodes the shifted chars. Default off:
-        # at login/password prompts there is no shell to decode the
-        # wrapper, so callers in those contexts (Send-Text via
-        # passwdPrompt) must NOT pass this switch.
+        # Opt-in shell-side decoding. When set AND Text contains chars
+        # that need Shift after the keypad remap (uppercase letters and
+        # shifted punctuation other than '*' / '+'), rewrites Text as
+        # `eval \`echo -e 'HEX'\`` so the bash prompt on the guest
+        # decodes the shifted chars from \xNN escapes. Default off: at
+        # login/password prompts there is no shell to decode the wrapper,
+        # so callers in those contexts (Send-Text via passwdPrompt) must
+        # NOT pass this switch.
         [switch]$ShellEscape
     )
     # JXA CGEvent typing path.
-    #
-    # On macOS 26 + UTM AVF, ALL synthetic modifier flags are stripped
-    # before reaching the Linux guest's HID modifier byte: CGEventFlags
-    # (with or without HID-system source), AppleScript `key down shift`,
-    # AppleScript keystroke "...", Caps Lock toggle, and Option flag all
-    # leak modifier-bearing events but the guest sees the modifier byte
-    # at 0 (probed against amazon-linux01, May 2026). The only shifted
-    # chars that reach the guest correctly are those reachable via a
-    # no-shift keycode: '*' → kVK_ANSI_KeypadMultiply (67), '+' →
-    # kVK_ANSI_KeypadPlus (69). Those two are remapped in MacCharKeyCodes
-    # with needsShift=false; everything else still attempts the Shift
-    # bracket below (works on QEMU-backed UTM VMs via VNC; demotes on
-    # AVF). For AVF callers that need uppercase or shifted punctuation,
-    # see the -ShellEscape branch above which rewrites the text into a
-    # bash decode wrapper containing only unshifted chars.
-    if ($ShellEscape -and (Test-AvfHardCharsInText -Text $Text)) {
+    if ($ShellEscape -and (Test-HardCharsInText -Text $Text)) {
         $orig = $Text
-        $Text = ConvertTo-AvfShellEscapedText -Text $Text
+        $Text = ConvertTo-ShellEscapedText -Text $Text
         Write-Debug "      UTM Send-Text -ShellEscape: '$orig' rewritten to '$Text' (Linux bash decodes \xNN at the prompt)."
     }
     $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
@@ -1121,7 +1094,7 @@ if (!found) {
         if (shift) {
             // Press physical Left Shift down first; flag is set on the
             // event AND the HID-system source updates the global state
-            // so AVF sees Shift as held.
+            // so the guest sees Shift as held.
             var shiftDn = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, true);
             $.CGEventSetFlags(shiftDn, kShiftFlag);
             $.CGEventPost(0, shiftDn);
@@ -1152,8 +1125,8 @@ if (!found) {
     }
 __KEYCALLS__
     // Final drain: give the macOS event queue time to deliver the last
-    // CGEvent(s) to AVF before osascript exits. Without this, the last
-    // character(s) can be lost on long commands.
+    // CGEvent(s) to the guest before osascript exits. Without this, the
+    // last character(s) can be lost on long commands.
     delay(0.3);
     'ok';
 }
@@ -1190,11 +1163,11 @@ function Send-Text {
         [string]$VMName,
         [string]$Text,
         [int]$CharDelayMs = $script:DefaultCharDelayMs,
-        # ShellEscape is only honored by Send-TextUTM (AVF guests on macOS 26
-        # can't receive synthetic Shift; rewrites Text as a bash decode
-        # wrapper). Hyper-V's PS/2 controller and KVM's `virsh send-key`
-        # paths deliver Shift correctly without needing the wrapper, so
-        # this switch is a no-op there.
+        # ShellEscape is only honored by Send-TextUTM (rewrites Text as
+        # a bash decode wrapper for hosts that can't deliver synthetic
+        # Shift reliably). Hyper-V's PS/2 controller and KVM's `virsh
+        # send-key` paths deliver Shift correctly without needing the
+        # wrapper, so this switch is a no-op there.
         [switch]$ShellEscape
     )
     if ($HostType -eq "host.windows.hyper-v") { return Send-TextHyperV -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs }
@@ -1543,11 +1516,11 @@ function Test-CombinedOcrMatch {
     }
 }
 
-# ── Action: waitForAndClickButton — OCR-located mouse click ─────────────────
+# ── Action: tapOn — OCR-located mouse click ─────────────────────────────────
 #
 # Button-focus navigation via Tab keystrokes is brittle: initial focus depends
 # on splash animation state, async-loaded widgets, and installer redesigns,
-# so the "correct" Tab count drifts. waitForAndClickButton sidesteps focus
+# so the "correct" Tab count drifts. tapOn sidesteps focus
 # entirely — it OCRs the VM screen, locates the button's bounding box, and
 # synthesizes a mouse click at that box's centre.
 #
@@ -1925,7 +1898,7 @@ function Save-ScreenshotWithClickMarker {
 .OUTPUTS
     $true on click dispatched, $false on timeout / unsupported host.
 #>
-function Wait-ForAndClickButton {
+function Invoke-TapOn {
     param(
         [string]$HostType,
         [string]$VMName,
@@ -1936,7 +1909,9 @@ function Wait-ForAndClickButton {
         [int]$OffsetY = 0
     )
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    # -Global: a nested -Force without -Global evicts Test.LogDir from
+    # the parent script's session state, breaking later top-level calls.
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
 
     $logDir = Initialize-YurunaLogDir
     $capturePath = Join-Path $logDir "clickbutton_${VMName}.png"
@@ -1945,19 +1920,26 @@ function Wait-ForAndClickButton {
     # parent side. Write-ProgressTick sanitizes defensively, but keep the
     # display clean at the source too.
     $labelDisplay = $Label -join "' / '"
-    $elapsed = 0
+    # Wall-clock deadline. See the matching commentary in Wait-ForText for
+    # why this is NOT an iteration counter -- on a slow Hyper-V host a
+    # configured timeoutSeconds: 60 used to expand to 3-5 minutes of
+    # wall-clock when each iteration paid full screenshot + OCR cost on
+    # top of the $PollSeconds sleep.
+    $startUtc    = [DateTime]::UtcNow
+    $deadlineUtc = $startUtc.AddSeconds($TimeoutSeconds)
+    $elapsed     = 0
 
     try {
-        while ($elapsed -lt $TimeoutSeconds) {
+        while ([DateTime]::UtcNow -lt $deadlineUtc) {
+            $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
-            Write-ProgressTick -Activity "waitForAndClickButton" -Status "'$labelDisplay' (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
+            Write-ProgressTick -Activity "tapOn" -Status "'$labelDisplay' (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
 
             Remove-Item $capturePath -Force -ErrorAction SilentlyContinue
             $capture = Get-VMScreenshot -VMName $VMName -Source window -OutFile $capturePath
             if (-not $capture) {
                 Write-Debug "      Window capture unavailable — retrying"
                 Start-Sleep -Seconds $PollSeconds
-                $elapsed += $PollSeconds
                 continue
             }
 
@@ -1973,7 +1955,7 @@ function Wait-ForAndClickButton {
                     # the click.
                     if ($env:YURUNA_LOG_LEVEL -eq 'Debug') {
                         $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
-                        $stampedPath = Join-Path $logDir "waitForAndClickButton.$stamp.png"
+                        $stampedPath = Join-Path $logDir "tapOn.$stamp.png"
                         Save-ScreenshotWithClickMarker -SourcePath $capture.ImagePath -DestPath $stampedPath -X $clickX -Y $clickY | Out-Null
                         Write-Debug "      logLevel=Debug: saved detection screenshot $stampedPath"
                         Write-Debug "      logLevel=Debug: button '$candidate' box=($($coord.x),$($coord.y)) size=$($coord.w)x$($coord.h) click=($clickX, $clickY) offset=($OffsetX, $OffsetY) image=$($capture.Width)x$($capture.Height)"
@@ -1988,7 +1970,6 @@ function Wait-ForAndClickButton {
             }
 
             Start-Sleep -Seconds $PollSeconds
-            $elapsed += $PollSeconds
         }
 
         # Timeout — preserve the final screenshot so the operator can see
@@ -2002,7 +1983,7 @@ function Wait-ForAndClickButton {
         return $false
     } finally {
         Remove-Item $capturePath -Force -ErrorAction SilentlyContinue
-        Write-ProgressTick -Activity "waitForAndClickButton" -Completed
+        Write-ProgressTick -Activity "tapOn" -Completed
     }
 }
 
@@ -2073,7 +2054,19 @@ function Wait-ForText {
 
     # Display label uses first pattern for log messages
     $patternLabel = $Pattern[0]
-    $elapsed = 0
+    # Wall-clock deadline -- NOT an iteration counter. Earlier revisions
+    # tracked $elapsed by adding $PollSeconds each loop pass, which assumed
+    # every iteration finished in $PollSeconds wall-clock. In practice each
+    # iteration does a screenshot + tesseract OCR + sidecar write before
+    # the Start-Sleep -Seconds $PollSeconds at the bottom -- on a busy
+    # Hyper-V host that adds 5-25 s on top of the sleep, so a configured
+    # timeoutSeconds: 1800 took 1-3 hours of wall-clock to expire (and
+    # multiplied by retry maxAttempts could exceed half a day before
+    # giving up). With a wall-clock deadline timeoutSeconds means exactly
+    # what the operator configured.
+    $startUtc    = [DateTime]::UtcNow
+    $deadlineUtc = $startUtc.AddSeconds($TimeoutSeconds)
+    $elapsed     = 0
 
     # Import required modules. Screenshot capture is via the Yuruna.Host
     # contract (Get-VMScreenshot) -- assumed already loaded by the caller's
@@ -2091,12 +2084,18 @@ function Wait-ForText {
     # Wait-ForText calls within a guest run so the failure path can surface
     # the run-up to the bug. Cleared at end-of-guest on success by the
     # runner; preserved on failure and copied alongside the failure log.
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    # -Global on the -Force re-imports: a nested -Force without -Global
+    # evicts the modules from the parent script's session state, so a
+    # later top-level call to Get-CycleScreenDir (Invoke-TestInnerRunner.ps1
+    # success branch, the cycle 62 crash on macOS in-process runners)
+    # fails with "term not recognized".
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.Log.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     $logDir     = Initialize-YurunaLogDir
-    $screensDir = Join-Path $logDir "screens_${VMName}"
-    if (-not (Test-Path $screensDir)) {
-        New-Item -ItemType Directory -Path $screensDir -Force | Out-Null
-    }
+    # Ring buffer lives INSIDE the cycle folder so a stuck/restarted
+    # runner can't overwrite it -- the next cycle gets its own folder.
+    # Falls back to $logDir/screens_<VM>/ when no cycle folder is set.
+    $screensDir = Get-CycleScreenDir -VMName $VMName -WhatIf:$false
     $historySize = [int]$script:DefaultScreenHistorySize
     if ($historySize -lt 1) { $historySize = 1 }
 
@@ -2106,7 +2105,8 @@ function Wait-ForText {
     $lastCapturePath = $null
 
     try {
-        while ($elapsed -lt $TimeoutSeconds) {
+        while ([DateTime]::UtcNow -lt $deadlineUtc) {
+            $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
             $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
             Write-ProgressTick -Activity "waitForText" -Status "'$patternLabel' (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
@@ -2120,7 +2120,6 @@ function Wait-ForText {
             $rawScreenPath = Join-Path $screensDir "raw_${stamp}.png"
             $captured = Get-VMScreenshot -VMName $VMName -OutFile $rawScreenPath
             if (-not $captured -or -not (Test-Path $rawScreenPath)) {
-                $elapsed += $PollSeconds
                 Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
                 Start-Sleep -Seconds $PollSeconds
                 continue
@@ -2237,7 +2236,6 @@ function Wait-ForText {
                 }
             }
 
-            $elapsed += $PollSeconds
             Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
             Start-Sleep -Seconds $PollSeconds
         }
@@ -2264,90 +2262,7 @@ function Wait-ForText {
     }
 }
 
-# ── Action: waitForPort ──────────────────────────────────────────────────────
-
-function Wait-ForPort {
-    param([string]$VMName, [int]$Port, [int]$TimeoutSeconds = 120)
-    $elapsed = 0
-    try {
-        while ($elapsed -lt $TimeoutSeconds) {
-            try {
-                $tcp = New-Object System.Net.Sockets.TcpClient
-                $async = $tcp.BeginConnect($VMName, $Port, $null, $null)
-                $wait = $async.AsyncWaitHandle.WaitOne(2000, $false)
-                if ($wait -and $tcp.Connected) { $tcp.Close(); Write-Debug "      Port $Port responding"; return $true }
-                $tcp.Close()
-            } catch { Write-Verbose "Port $Port connection attempt failed: $_" }
-            Start-Sleep -Seconds 5
-            $elapsed += 5
-            Write-Debug "      Waiting for port $Port... (${elapsed}s / ${TimeoutSeconds}s)"
-            # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
-            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
-            Write-ProgressTick -Activity "waitForPort" -Status "${VMName}:${Port} (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
-        }
-        Write-Warning "Port $Port did not respond within ${TimeoutSeconds}s"
-        return $false
-    } finally {
-        Write-ProgressTick -Activity "waitForPort" -Completed
-    }
-}
-
-# ── Action: waitForHeartbeat ─────────────────────────────────────────────────
-
-function Wait-ForHeartbeat {
-    param([string]$VMName, [int]$TimeoutSeconds = 300)
-    $elapsed = 0
-    try {
-        while ($elapsed -lt $TimeoutSeconds) {
-            try {
-                $hb = Get-VMIntegrationService -VMName $VMName -Name "Heartbeat" -ErrorAction SilentlyContinue
-                if ($hb -and $hb.PrimaryStatusDescription -eq "OK") {
-                    Write-Debug "      Heartbeat OK"; return $true
-                }
-            } catch { Write-Verbose "Heartbeat check failed: $_" }
-            Start-Sleep -Seconds 5
-            $elapsed += 5
-            Write-Debug "      Waiting for heartbeat... (${elapsed}s / ${TimeoutSeconds}s)"
-            # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
-            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
-            Write-ProgressTick -Activity "waitForHeartbeat" -Status "$VMName (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
-        }
-        Write-Warning "Heartbeat not OK within ${TimeoutSeconds}s"
-        return $false
-    } finally {
-        Write-ProgressTick -Activity "waitForHeartbeat" -Completed
-    }
-}
-
-# ── Action: waitForVMStop ────────────────────────────────────────────────────
-
-function Wait-ForVMStop {
-    param([string]$HostType, [string]$VMName, [int]$TimeoutSeconds = 300)
-    $elapsed = 0
-    try {
-        while ($elapsed -lt $TimeoutSeconds) {
-            if ($HostType -eq "host.windows.hyper-v") {
-                $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-                if ($vm -and $vm.State -eq 'Off') { Write-Debug "      VM is Off"; return $true }
-            } elseif ($HostType -eq "host.macos.utm") {
-                $status = & utmctl status "$VMName" 2>&1
-                if ($status -match "stopped|shutdown") { Write-Debug "      VM is stopped"; return $true }
-            }
-            Start-Sleep -Seconds 5
-            $elapsed += 5
-            Write-Debug "      Waiting for VM to stop... (${elapsed}s / ${TimeoutSeconds}s)"
-            # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
-            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
-            Write-ProgressTick -Activity "waitForVMStop" -Status "$VMName (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
-        }
-        Write-Warning "VM did not stop within ${TimeoutSeconds}s"
-        return $false
-    } finally {
-        Write-ProgressTick -Activity "waitForVMStop" -Completed
-    }
-}
-
-# ── Action: screenshot ───────────────────────────────────────────────────────
+# ── Action: takeScreenshot ───────────────────────────────────────────────────
 
 function Save-DebugScreenshot {
     param([string]$VMName, [string]$Label, [string]$OutputDir)
@@ -2362,32 +2277,21 @@ function Save-DebugScreenshot {
 
 # ── Variable substitution ────────────────────────────────────────────────────
 
-# Per-sequence-run memoization for ${ext:area.Method(args)} substitutions.
-# Keyed by the resolved expression text (after inner ${var} expansion), so
-# two passwdPrompt steps that both reference ${ext:authentication.NewRandomPassword()}
-# get the same value typed at "New password:" and "Retype:". Cleared at
-# the top of each Invoke-Sequence run.
-$script:ExtensionCallCache = $null
-
-# In-memory cache reset; no system state changes. SupportsShouldProcess
-# is added to satisfy PSUseShouldProcessForStateChangingFunctions; the
-# function is internal and always called unconditionally so ShouldProcess
-# is bypassed via -Confirm:$false implicitly when invoked.
-function Reset-ExtensionCallCache {
-    [CmdletBinding(SupportsShouldProcess)]
-    param()
-    if ($PSCmdlet.ShouldProcess('script:ExtensionCallCache', 'Clear in-memory cache')) {
-        $script:ExtensionCallCache = @{}
-    }
-}
+# Private-use Unicode codepoint used as the placeholder for `$` after the
+# $$ → sentinel pre-pass and before the sentinel → $ post-pass. The
+# Unicode private-use area (U+E000–U+F8FF) is reserved for application-
+# specific use and effectively never appears in legitimate input, so it
+# is safe to round-trip through the regex pass without colliding with
+# something a user actually typed.
+$script:DollarSentinel = [char]0xE000
 
 # ${ext:area.Method(arg1, arg2, ...)} -- inline expression form. ArgList
 # may include nested ${var} placeholders, which are expanded BEFORE the
-# extension is invoked. Result is cached per-run by the resolved
-# expression text. Side-effecting calls (e.g. Set-Password) belong in
-# the dedicated `callExtension` action -- substitutions must be safe to
-# evaluate twice. Used by sequence steps to fetch live values from the
-# active extensions (today: authentication only). Parameter is named
+# extension is invoked. Each call is dispatched fresh -- there is no
+# caching, so ${ext:authentication.NewRandomPassword()} returns a new
+# value every time it is evaluated. Side-effecting calls
+# (e.g. Set-Password) still belong in the dedicated `callExtension`
+# action; ${ext:...} is for value-producing reads. Parameter is named
 # ArgList (not Args) because $Args is a PowerShell automatic variable.
 function Invoke-ExtensionExpression {
     param(
@@ -2409,16 +2313,16 @@ function Invoke-ExtensionExpression {
 
 # Resolves `${ext:area.Method(arg1, arg2)}` occurrences in $Text. Nested
 # `${var}` inside args are expanded first, then the call is invoked
-# (memoized by resolved expression). Plain `${var}` substitution remains
-# the responsibility of the surrounding regex pass.
+# fresh on every match. Plain `${var}` substitution remains the
+# responsibility of the surrounding regex pass.
 function Expand-ExtensionExpression {
     param([string]$Text, [hashtable]$Variables)
     if (-not $Text -or -not $Text.Contains('${ext:')) { return $Text }
-    if ($null -eq $script:ExtensionCallCache) { Reset-ExtensionCallCache -Confirm:$false }
     # Pre-materialize the variable map keys for the MatchEvaluator closure
     # below -- the analyzer cannot see references through [regex]::Replace's
     # scriptblock, so binding $vars here keeps the parameter explicitly used.
     $vars = $Variables
+    $sentinel = $script:DollarSentinel
     $pattern = '\$\{ext:([A-Za-z0-9_]+)\.([A-Za-z][A-Za-z0-9_-]*)\(([^)]*)\)\}'
     return [regex]::Replace($Text, $pattern, {
         param($m)
@@ -2434,34 +2338,35 @@ function Expand-ExtensionExpression {
                 foreach ($key in $vars.Keys) {
                     $a = $a -replace [regex]::Escape("`${$key}"), $vars[$key]
                 }
-                $argList += $a
+                # Restore any $$ escapes the caller had in the arg text
+                # so the extension sees the user's intended literal `$`,
+                # not the internal sentinel.
+                $argList += $a.Replace($sentinel, '$')
             }
         }
-        $cacheKey = "$area.$method($([string]::Join(',', $argList)))"
-        if ($script:ExtensionCallCache.ContainsKey($cacheKey)) {
-            return $script:ExtensionCallCache[$cacheKey]
-        }
-        $val = [string](Invoke-ExtensionExpression -Area $area -Method $method -ArgList $argList)
-        $script:ExtensionCallCache[$cacheKey] = $val
-        return $val
+        return [string](Invoke-ExtensionExpression -Area $area -Method $method -ArgList $argList)
     })
 }
 
 function Expand-Variable {
     param([string]$Text, [hashtable]$Variables)
     if ($null -eq $Text) { return $Text }
-    # ${ext:...} expressions are resolved first (and memoized) so any
-    # ${var} placeholders inside their args see the current Variables
-    # table, and the substituted result is then re-scanned for plain
-    # ${var} references in case an extension returns a templated value.
-    $result = Expand-ExtensionExpression -Text $Text -Variables $Variables
-    # [string]::Replace is literal substitution — no regex compile, no
+    # Escape pass: $$ → sentinel hides escaped dollars from both the
+    # ${ext:...} regex and the ${var} text replacement below. The
+    # closing sentinel → $ pass at the end restores them. So $${foo}
+    # survives as literal "${foo}", and $$$${foo} survives as "$${foo}".
+    $result = $Text.Replace('$$', $script:DollarSentinel)
+    # ${ext:...} expressions are resolved first so any ${var} placeholders
+    # inside their args see the current Variables table.
+    $result = Expand-ExtensionExpression -Text $result -Variables $Variables
+    # [string]::Replace is literal substitution -- no regex compile, no
     # [regex]::Escape needed for $key, no $1-backreference surprise from
     # -replace if a Variables value contained dollar-digit text.
     foreach ($key in $Variables.Keys) {
         $result = $result.Replace("`${$key}", [string]$Variables[$key])
     }
-    return $result
+    # Restore $$ escapes.
+    return $result.Replace($script:DollarSentinel, '$')
 }
 
 # ── Main executor ────────────────────────────────────────────────────────────
@@ -2471,7 +2376,7 @@ function Expand-Variable {
     Parses a YAML sequence file into an OrderedDictionary.
 .DESCRIPTION
     Centralises the powershell-yaml dependency for every sequence reader
-    (Invoke-Sequence, Test.SequencePlanner, Confirm-Sequence). Uses
+    (Invoke-Sequence, Test.SequencePlanner, Test-Sequence). Uses
     -Ordered so the steps array and the variables map preserve their
     on-disk order. The returned object is an [OrderedDictionary]; callers
     must use .Keys / .Contains() rather than .PSObject.Properties, since
@@ -2485,7 +2390,32 @@ function Read-SequenceFile {
         }
         Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
     }
-    return (Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered)
+    try {
+        return (Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered)
+    } catch {
+        # YamlDotNet's SyntaxErrorException carries Start/End marks with
+        # Line/Column, but powershell-yaml wraps it in a generic
+        # MethodInvocationException whose message just says "Exception
+        # calling 'Load' with '1' argument(s): <inner>". Walk the
+        # InnerException chain to find the SyntaxErrorException, pull the
+        # marks, and re-throw with file path + line:col so the operator
+        # doesn't have to bisect the sequence tree by hand.
+        $err = $_.Exception
+        $synErr = $null
+        $probe = $err
+        while ($probe) {
+            if ($probe.GetType().FullName -eq 'YamlDotNet.Core.SyntaxErrorException') {
+                $synErr = $probe; break
+            }
+            $probe = $probe.InnerException
+        }
+        if ($synErr) {
+            $line = $synErr.Start.Line
+            $col  = $synErr.Start.Column
+            throw "YAML parse error in $Path at line ${line}:${col}: $($synErr.Message)"
+        }
+        throw "YAML parse error in $Path`: $($err.Message)"
+    }
 }
 
 <#
@@ -2555,6 +2485,44 @@ function Get-ProjectTestSearchDir {
 
 <#
 .SYNOPSIS
+    Returns the single project-tree match for $FileName under test/$Mode/ folders.
+.DESCRIPTION
+    Scans every project test/<Mode>/ folder returned by Get-ProjectTestSearchDir
+    for a file with the exact $FileName. Returns the full path when exactly one
+    hit is found; $null when none. When two or more hits are found, throws a
+    PlannerFatal exception so the cycle aborts before any guest runs --
+    duplicates indicate an ambiguous plan (two examples both shipping the same
+    sequence name) and the operator must decide which one wins.
+.PARAMETER RepoRoot
+    Framework repo root. The project clone lives at <RepoRoot>/project/.
+.PARAMETER Mode
+    Keystroke mechanism ('gui' or 'ssh') -- selects the test/<mode>/ subfolder.
+.PARAMETER FileName
+    Sequence basename WITH extension, e.g. "workload.guest.ubuntu.server.24.yml".
+    Host-specific variants get passed in with the suffix already applied.
+#>
+function Find-ProjectSequenceFile {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][ValidateSet('gui', 'ssh')][string]$Mode,
+        [Parameter(Mandatory)][string]$FileName
+    )
+    $hits = @(
+        foreach ($d in (Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode $Mode)) {
+            $candidate = Join-Path $d $FileName
+            if (Test-Path $candidate) { $candidate }
+        }
+    )
+    if ($hits.Count -gt 1) {
+        $list = ($hits | ForEach-Object { "    $_" }) -join "`n"
+        throw "PlannerFatal: $($hits.Count) project sequence files named '$FileName' found under test/$Mode/ folders:`n$list`nKeep only one so the planner can resolve a single sequence file."
+    }
+    if ($hits.Count -eq 1) { return $hits[0] }
+    return $null
+}
+
+<#
+.SYNOPSIS
     Resolves a sequence name to the path under the active mode subfolder, with gui fallback.
 .DESCRIPTION
     Search order:
@@ -2562,13 +2530,14 @@ function Get-ProjectTestSearchDir {
       2. Framework:      <SequencesDir>/<mode>/<Name>.[<host-short>.]yml
       3. Framework gui:  <SequencesDir>/gui/<Name>.[<host-short>.]yml (when mode != gui)
     Project-tree matches win so a project can override a framework
-    sequence with the same name. The returned path is not guaranteed to
-    exist (every tier may be missing); callers decide how to handle that.
+    sequence with the same name. Returns $null when no tier matches --
+    callers should pair this with Get-SequenceSearchPath to report the
+    actual locations tried instead of inventing a "resolved" path.
 .PARAMETER SequencesDir
     Path to the framework sequences root (e.g. test/sequences). The gui/
     and ssh/ subfolders live directly beneath this.
 .PARAMETER Name
-    Sequence basename without extension, e.g. "workload.guest.ubuntu.server".
+    Sequence basename without extension, e.g. "workload.guest.ubuntu.server.24".
 .PARAMETER HostType
     Optional. When supplied, host-specific variants
     (<Name>.<host-short>.yml) are tried before the unsuffixed file.
@@ -2586,7 +2555,7 @@ function Resolve-SequencePath {
     # When a HostType is provided, prefer a host-specific sequence file
     # (filename suffix == HostType minus the 'host.' prefix). This lets a
     # single GuestKey ship divergent sequences across hosts -- e.g. KVM's
-    # ubuntu.server uses a cloud-image (no autoinstall, boots straight to
+    # ubuntu.server.24 uses a cloud-image (no autoinstall, boots straight to
     # login) while Hyper-V's drives subiquity through autoinstall first.
     # When $HostType is null/empty the host-specific tiers are skipped.
     $mode = Get-SequenceMode
@@ -2600,25 +2569,22 @@ function Resolve-SequencePath {
         if ($maybeTest) { $RepoRoot = Split-Path -Parent $maybeTest }
     }
 
-    # Tier 1: project tree. Each project gets host-specific then plain.
+    # Tier 1: project tree. Scan EVERY test/<mode>/ folder under the project
+    # root via Find-ProjectSequenceFile -- examples are self-contained, so a
+    # sequence may live under any example's test tree. When two folders
+    # contain the same filename, Find-ProjectSequenceFile throws PlannerFatal
+    # so the operator resolves the duplicate before the cycle proceeds (see
+    # the catch around Resolve-CyclePlan in Invoke-TestInnerRunner.ps1).
     if ($RepoRoot) {
-        foreach ($projDir in (Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode $mode)) {
+        $modeOrder = @($mode)
+        if ($mode -ne 'gui') { $modeOrder += 'gui' }
+        foreach ($searchMode in $modeOrder) {
             if ($hostShort) {
-                $p = Join-Path $projDir "$Name.$hostShort.yml"
-                if (Test-Path $p) { return $p }
+                $hit = Find-ProjectSequenceFile -RepoRoot $RepoRoot -Mode $searchMode -FileName "$Name.$hostShort.yml"
+                if ($hit) { return $hit }
             }
-            $p = Join-Path $projDir "$Name.yml"
-            if (Test-Path $p) { return $p }
-        }
-        if ($mode -ne 'gui') {
-            foreach ($projDir in (Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode 'gui')) {
-                if ($hostShort) {
-                    $p = Join-Path $projDir "$Name.$hostShort.yml"
-                    if (Test-Path $p) { return $p }
-                }
-                $p = Join-Path $projDir "$Name.yml"
-                if (Test-Path $p) { return $p }
-            }
+            $hit = Find-ProjectSequenceFile -RepoRoot $RepoRoot -Mode $searchMode -FileName "$Name.yml"
+            if ($hit) { return $hit }
         }
     }
 
@@ -2637,7 +2603,58 @@ function Resolve-SequencePath {
         $guiPath = Join-Path (Join-Path $SequencesDir 'gui') "$Name.yml"
         if (Test-Path $guiPath) { return $guiPath }
     }
-    return $modePath
+    # Nothing matched. Returning the last-tried path here would lie about
+    # where the file "lives" -- callers Test-Path'd it and emitted warnings
+    # naming a path that was never an actual hit. Return $null so the miss
+    # is unambiguous; callers pair this with Get-SequenceSearchPath when
+    # they need to show the operator which locations were searched.
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Returns the ordered list of paths Resolve-SequencePath would attempt for $Name.
+.DESCRIPTION
+    Mirrors the search order of Resolve-SequencePath without touching the
+    filesystem -- every tier (project tree x mode x host-suffix, then
+    framework SequencesDir tiers) is materialised so callers can show the
+    operator exactly which locations were checked when nothing matched.
+    Use this in "sequence not found" diagnostics instead of printing the
+    last-attempted path as if it were the canonical location.
+#>
+function Get-SequenceSearchPath {
+    param(
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [Parameter(Mandatory)][string]$Name,
+        [string]$HostType,
+        [string]$RepoRoot
+    )
+    $mode = Get-SequenceMode
+    $hostShort = $null
+    if ($HostType) { $hostShort = $HostType -replace '^host\.','' }
+    if (-not $RepoRoot) {
+        $maybeTest = Split-Path -Parent $SequencesDir
+        if ($maybeTest) { $RepoRoot = Split-Path -Parent $maybeTest }
+    }
+
+    $paths = New-Object System.Collections.Generic.List[string]
+    if ($RepoRoot) {
+        $modeOrder = @($mode)
+        if ($mode -ne 'gui') { $modeOrder += 'gui' }
+        foreach ($searchMode in $modeOrder) {
+            foreach ($d in (Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode $searchMode)) {
+                if ($hostShort) { [void]$paths.Add((Join-Path $d "$Name.$hostShort.yml")) }
+                [void]$paths.Add((Join-Path $d "$Name.yml"))
+            }
+        }
+    }
+    if ($hostShort) { [void]$paths.Add((Join-Path (Join-Path $SequencesDir $mode) "$Name.$hostShort.yml")) }
+    [void]$paths.Add((Join-Path (Join-Path $SequencesDir $mode) "$Name.yml"))
+    if ($mode -ne 'gui') {
+        if ($hostShort) { [void]$paths.Add((Join-Path (Join-Path $SequencesDir 'gui') "$Name.$hostShort.yml")) }
+        [void]$paths.Add((Join-Path (Join-Path $SequencesDir 'gui') "$Name.yml"))
+    }
+    return $paths.ToArray()
 }
 
 <#
@@ -2659,14 +2676,33 @@ function Invoke-SequenceByName {
         [Parameter(Mandatory)][string]$SequencesDir,
         [Parameter(Mandatory)][string]$Name,
         [string]$RepoRoot,
+        # Planner-cascaded variable overrides. When present, each key in
+        # this map REPLACES the same-named entry under the sequence
+        # file's `variables:` block before step expansion (top-of-chain
+        # wins for the whole chain -- see Test.SequencePlanner). Empty
+        # map = standalone Test-Sequence.ps1 invocation, keeps the
+        # legacy "sequence-local variables win" path.
+        # Use IDictionary (not [hashtable]) so an [ordered]@{} from the
+        # planner keeps its insertion order through parameter binding.
+        # A [hashtable] cast would coerce OrderedDictionary -> Hashtable
+        # and lose the order, which then has the override loop below
+        # process e.g. `currentPassword: ${ext:...(${username})}` BEFORE
+        # `username: yauser1`. The `${username}` placeholder fails to
+        # resolve and the literal string ends up as a vault key.
+        [System.Collections.IDictionary]$EffectiveVariables,
         [switch]$ShowSensitive
     )
     $sequenceFile = Resolve-SequencePath -SequencesDir $SequencesDir -Name $Name -HostType $HostType -RepoRoot $RepoRoot
-    if (-not (Test-Path $sequenceFile)) {
+    if (-not $sequenceFile) {
         # Missing sequence file is a setup error, not an optional skip.
         # Previously returned $true here, which let a typo in a sequence
         # name silently mark the test as passing.
-        Write-Warning "[$GuestKey] Sequence file not found: $sequenceFile"
+        # Resolve-SequencePath returns $null on miss; show what was searched
+        # (Get-SequenceSearchPath enumerates the same tier order) instead of
+        # the old "last attempted path" sentinel that invented a location.
+        $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $Name -HostType $HostType -RepoRoot $RepoRoot
+        $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+        Write-Warning "[$GuestKey] Sequence file not found: $Name`nSearched (no match):`n$list"
         return $false
     }
     # Informational lines go through Write-Information, NOT Write-Output.
@@ -2679,7 +2715,7 @@ function Invoke-SequenceByName {
     # return is strictly [bool].
     Write-Information "[$GuestKey] Running sequence: $Name on $HostType (VM: $VMName)" -InformationAction Continue
     Write-Verbose "    Sequence file: $sequenceFile"
-    $result = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -ShowSensitive:$ShowSensitive
+    $result = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -EffectiveVariables $EffectiveVariables -ShowSensitive:$ShowSensitive
     # Normalize: only $true is success. Anything else — $null, objects,
     # arrays — fails. A sane Invoke-Sequence returns $true / $false and
     # this is a no-op; a broken one no longer slips past.
@@ -2700,8 +2736,23 @@ function Invoke-Sequence {
         [string]$GuestKey,
         [string]$VMName,
         [string]$SequencePath,
+        # Planner-cascaded variable overrides; see Invoke-SequenceByName.
+        # Null/empty = use the sequence file's own `variables:` block
+        # verbatim (standalone Test-Sequence.ps1 path).
+        # Use IDictionary (not [hashtable]) so an [ordered]@{} from the
+        # planner keeps its insertion order through parameter binding.
+        # A [hashtable] cast would coerce OrderedDictionary -> Hashtable
+        # and lose the order, which then has the override loop below
+        # process e.g. `currentPassword: ${ext:...(${username})}` BEFORE
+        # `username: yauser1`. The `${username}` placeholder fails to
+        # resolve and the literal string ends up as a vault key.
+        [System.Collections.IDictionary]$EffectiveVariables,
         [switch]$ShowSensitive
     )
+    # $ShowSensitive is consumed inside $invokeStepBlock via dynamic scoping
+    # (see comment block at the scriptblock definition). Touched here as
+    # $null = ... so PSReviewUnusedParameter sees a body-level reference.
+    $null = $ShowSensitive
 
     # ── SSH variant selection ──────────────────────────────────────────────
     # Sequences live in mode-specific subfolders: sequences/gui/ and
@@ -2735,10 +2786,13 @@ function Invoke-Sequence {
     # runs inside a child module scope when a test-start extension script
     # imports it, so the parent runner's global Import-Module doesn't
     # propagate here — each helper has to be re-imported on this path.
+    # -Global on the -Force re-imports: without it, the nested reload
+    # evicts these modules from the parent script's session state and
+    # breaks subsequent top-level calls (see Get-CycleScreenDir crash).
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1")   -Force -ErrorAction SilentlyContinue -Verbose:$false
-    Import-Module (Join-Path $modulesDir "Test.TrackDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-    Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")      -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1")   -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.RuntimeDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")      -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     $logDir = Initialize-YurunaLogDir
 
   try {
@@ -2747,23 +2801,112 @@ function Invoke-Sequence {
     # Clean up stale failure artifacts from any prior run
     Remove-Item (Join-Path $logDir "last_failure.json") -Force -ErrorAction SilentlyContinue
 
-    # Build variables table: built-ins + YAML-defined
+    # Build variables table: built-ins first, then YAML-defined entries
+    # evaluated EAGERLY in file order. Each entry can reference any
+    # variable declared above it, plus the built-ins. ${ext:...} inside
+    # a value is invoked once at definition time and the resolved value
+    # is stored, so two step references to the same variable always
+    # type the same value (even though ${ext:...} itself is no longer
+    # memoized -- pinning a generated value across multiple steps is now
+    # an explicit, file-visible operation rather than implicit caching).
+    #
+    # Planner-cascaded overrides (-EffectiveVariables) REPLACE same-named
+    # YAML entries: a workload.*.yml that defines `username: webuser`
+    # propagates that value into every sequence in its dependency chain,
+    # so the baseline `start.*.yml` still saying `username: yuuser26`
+    # silently runs with `webuser` whenever the workload is the cycle's
+    # top-level. Sequence YAML stays self-contained -- the local
+    # variables: block remains the standalone-invocation fallback for
+    # Test-Sequence.ps1 runs with no cascade context.
     $vars = @{ "vmName" = $VMName; "hostType" = $HostType; "guestKey" = $GuestKey }
     if ($sequence.variables) {
         foreach ($_varKey in $sequence.variables.Keys) {
-            $vars[$_varKey] = $sequence.variables[$_varKey]
+            # .Contains() (not .ContainsKey) so OrderedDictionary works
+            # alongside Hashtable -- OrderedDictionary only exposes Contains.
+            if ($EffectiveVariables -and $EffectiveVariables.Contains($_varKey)) {
+                # Cascade override wins -- skip the YAML value entirely
+                # (incl. any ${ext:...} side-effecting expansion). Picked
+                # up in the override-merge loop below.
+                continue
+            }
+            $_raw = $sequence.variables[$_varKey]
+            if ($_raw -is [string]) {
+                $vars[$_varKey] = Expand-Variable $_raw $vars
+            } else {
+                $vars[$_varKey] = $_raw
+            }
         }
     }
-
-    # Per-run memoization cache for ${ext:...} substitutions. Same
-    # expression text within this sequence run yields the same value --
-    # so two passwdPrompt steps that both reference
-    # ${ext:authentication.NewRandomPassword()} type the same generated password
-    # at "New password:" and "Retype:".
-    Reset-ExtensionCallCache -Confirm:$false
+    if ($EffectiveVariables) {
+        foreach ($_ovKey in $EffectiveVariables.Keys) {
+            $_ovRaw = $EffectiveVariables[$_ovKey]
+            if ($_ovRaw -is [string]) {
+                $vars[$_ovKey] = Expand-Variable $_ovRaw $vars
+            } else {
+                $vars[$_ovKey] = $_ovRaw
+            }
+        }
+    }
+    # Auto-derive ${loginUser} from the resolved ${username} via the
+    # authentication extension's users.yml mapping. The sequence file
+    # is free to declare its own `loginUser` under variables: (or pass
+    # one in via the cascade) -- only the unset case is auto-filled.
+    # Empty corporate fields in users.yml mean loginUser == username
+    # (today's local-only behaviour); a populated corporate mapping
+    # renders DOMAIN\sam or upn@domain.com.
+    if (-not $vars.ContainsKey('loginUser') -and $vars.ContainsKey('username')) {
+        try {
+            # Import the extension area lazily; the planner / runner has
+            # usually already loaded it, but standalone Test-Sequence
+            # invocations may reach this path cold.
+            $extLoader = Join-Path $PSScriptRoot 'Test.Extension.psm1'
+            if (Test-Path $extLoader) {
+                Import-Module $extLoader -Global -Force -Verbose:$false -ErrorAction SilentlyContinue
+            }
+            if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+                [void](Import-Extension -Area 'authentication' -RequireSingle)
+            }
+            if (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) {
+                $effU = Get-EffectiveUser -LogicalUser ([string]$vars['username'])
+                if ($effU -and $effU.loginUser) {
+                    $vars['loginUser'] = [string]$effU.loginUser
+                }
+            }
+        } catch {
+            Write-Verbose "loginUser auto-derivation skipped: $($_.Exception.Message)"
+        }
+        # Defensive: when the auth extension is unavailable (rare;
+        # standalone test eval) keep ${loginUser} == ${username} so
+        # sequences referencing the token don't render as the literal
+        # placeholder string.
+        if (-not $vars.ContainsKey('loginUser')) { $vars['loginUser'] = $vars['username'] }
+    }
 
     Write-Information "    Sequence: $($sequence.description)"
     $steps = @($sequence.steps)
+
+    # Per-step perf logging. Set-PerfSequenceContext / Set-PerfGuestContext
+    # are silent no-ops when Test.Perf is not loaded OR when Start-PerfCycle
+    # never ran (e.g. a direct Test-Sequence.ps1 invocation outside the
+    # runner), so this block is safe to call unconditionally. The raw YAML
+    # body is snapshotted so a row's sequenceContentHash can be mapped
+    # back to the exact sequence that ran -- gui/ and ssh/ variants of
+    # the same logical sequence share a sequenceGuid; the content hash
+    # discriminates them.
+    if (Get-Command -Name Set-PerfSequenceContext -ErrorAction SilentlyContinue) {
+        try {
+            $seqName     = [System.IO.Path]::GetFileNameWithoutExtension($SequencePath)
+            $seqGuid     = if ($sequence.Contains('sequenceGuid'))     { [string]$sequence.sequenceGuid }     else { $null }
+            $seqRevision = if ($sequence.Contains('sequenceRevision')) { [int]$sequence.sequenceRevision }   else { 0 }
+            $seqBody     = $null
+            try { $seqBody = [System.IO.File]::ReadAllText($SequencePath) } catch { Write-Verbose "Perf: read $SequencePath failed: $($_.Exception.Message)" }
+            Set-PerfSequenceContext -SequenceName $seqName -SequenceGuid $seqGuid -SequenceRevision $seqRevision -SequenceContent $seqBody
+            Set-PerfGuestContext    -GuestKey $GuestKey -VMName $VMName
+        } catch {
+            Write-Verbose "Perf-context setup failed (non-fatal): $($_.Exception.Message)"
+        }
+    }
+
     if ($steps.Count -eq 0) {
         Write-Verbose "    No steps defined."
         return $true
@@ -2771,7 +2914,7 @@ function Invoke-Sequence {
     Write-Verbose "    Steps: $($steps.Count)"
 
     # Step-pause back-channel: the status server's /control/step-pause
-    # endpoint creates $env:YURUNA_TRACK_DIR/control.step-pause. We gate
+    # endpoint creates $env:YURUNA_RUNTIME_DIR/control.step-pause. We gate
     # on that file in two places:
     #   1. Before sequence setup (here, below) — so Restart-VMConnect and any
     #      per-sequence work don't run while paused, and the very first
@@ -2787,17 +2930,27 @@ function Invoke-Sequence {
     # Cycle-pause (control.cycle-pause) is gated separately in
     # Invoke-TestRunner.ps1 at cycle boundaries — Invoke-Sequence is only
     # concerned with step-level pauses.
-    $trackDir = Initialize-YurunaTrackDir
-    $stepPauseFlagFile = Join-Path $trackDir 'control.step-pause'
+    $runtimeDir = Initialize-YurunaRuntimeDir
+    $stepPauseFlagFile = Join-Path $runtimeDir 'control.step-pause'
+    # Cycle-restart back-channel: the status server's /control/start-cycle
+    # endpoint sets this flag while it kills in-progress VMs. The inter-
+    # cycle delay loop in Invoke-TestInnerRunner already breaks on it, but
+    # if the request lands while a cycle is actively executing steps the
+    # delay loop never sees it — the cycle limps through screenshot
+    # failures of deleted VMs and the operator's "restart now" never
+    # arrives. Gating here too makes the abort fire from inside an active
+    # cycle: the throw escapes through retry / sequence / runner and is
+    # recognised by the inner's cycle-catch by the message prefix.
+    $cycleRestartFlagFile = Join-Path $runtimeDir 'control.cycle-restart'
 
     # Current-action sidecar: write the in-progress step to a small JSON file
-    # that the status server can serve at /track/current-action.json. The UI
+    # that the status server can serve at /runtime/current-action.json. The UI
     # polls it alongside status.json and renders the line under the matching
     # guest card. We write at the top of each iteration (so the UI sees the
     # step that's about to run, not the one that just finished) and once more
     # at the end of a successful sequence with the "[All N steps completed]"
     # summary.
-    $currentActionFile = Join-Path $trackDir 'current-action.json'
+    $currentActionFile = Join-Path $runtimeDir 'current-action.json'
     $writeCurrentAction = {
         param([string]$Line)
         try {
@@ -2832,28 +2985,143 @@ function Invoke-Sequence {
         }
     }
 
-    # Gate #1: sequence-level pause check, before any per-sequence work.
+    # Cycle-restart gate. Throws a message-prefixed exception so the inner
+    # runner's cycle-catch (see Invoke-TestInnerRunner.ps1) can short-
+    # circuit emergency-cleanup chatter and skip the ConsecutiveCrashes
+    # increment for this expected abort. The flag is intentionally NOT
+    # cleared here: the post-cycle inter-cycle delay loop will consume it
+    # on its next tick, which keeps the existing "wake delay early" path
+    # working unchanged. If the inner is already past the delay (i.e.
+    # actively running this sequence), the throw propagates up through
+    # any enclosing retry / step / sequence frames straight to the cycle
+    # try/catch.
+    $checkCycleRestart = {
+        param([string]$Label)
+        if (Test-Path $cycleRestartFlagFile) {
+            & $writeCurrentAction "$Label cycle-restart requested (aborting cycle)"
+            Write-Information "    $Label cycle-restart signal seen — aborting current cycle."
+            throw "YurunaCycleRestart: status-server /control/start-cycle requested mid-cycle abort at $Label"
+        }
+    }
+
+    # Gate #1: sequence-level pause + cycle-restart check, before any per-
+    # sequence work. Pause is checked first so an operator-initiated pause
+    # that overlaps a restart click still resolves predictably (pause
+    # wins until released, then the restart flag is observed).
     & $waitWhilePaused "[sequence start]"
+    & $checkCycleRestart "[sequence start]"
 
     # HACK: Force vmconnect to repaint by reconnecting.
     # After a host reboot the Hyper-V console window may render blank;
     # closing and reopening it forces a full framebuffer refresh.
     # Yuruna.Host's Restart-VMConsole replaces the legacy Test.Start-VM
     # Restart-VMConnect dispatcher. Initialize-YurunaHost is called by
-    # Confirm-Sequence.ps1 / Invoke-TestRunner.ps1 before sequences run.
+    # Test-Sequence.ps1 / Invoke-TestRunner.ps1 before sequences run.
     [void](Restart-VMConsole -VMName $VMName -Confirm:$false)
 
-    $stepNum = 0
-    $screenshotDir = Join-Path (Split-Path -Parent $SequencePath) "captures"
+    # takeScreenshot debug PNGs land under test/status/captures/sequences/
+    # (gitignored runtime data, lives with the rest of the harness state
+    # so cleaning a host is one rm -rf status/* away). Sequence name is
+    # prefixed onto each filename in Save-DebugScreenshot, so a single
+    # flat folder keeps captures organized without a per-sequence subdir.
+    $sequencesDir = Split-Path -Parent $SequencePath          # .../test/sequences
+    $testRoot     = Split-Path -Parent $sequencesDir          # .../test
+    $screenshotDir = Join-Path -Path $testRoot -ChildPath 'status' `
+                         -AdditionalChildPath 'captures', 'sequences'
     $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    foreach ($step in $steps) {
-        $stepNum++
-        # Gate #2: between-steps pause check. Catches a Pause clicked
-        # while the previous step was running.
-        & $waitWhilePaused "[$stepNum/$($steps.Count)]"
-        $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
-        & $writeCurrentAction "[$stepNum/$($steps.Count)] $($step.action): $desc"
+    # ── Recursive step executor ─────────────────────────────────────────────
+    # Wrapped as a script-block so the `retry` action case (below) can call
+    # it on its inner `steps:` array, reusing the full per-step
+    # infrastructure: pause checks, currentAction sidecar, progress ticks,
+    # variable expansion, the action switch, PASS/FAIL logging. The block
+    # resolves $vars, $writeCurrentAction, $waitWhilePaused, $HostType,
+    # $VMName, $GuestKey, $logDir, $screenshotDir, $ShowSensitive, and the
+    # $script:Default* defaults from the enclosing function scope via
+    # PowerShell's dynamic-scoping read semantics; the param $Steps shadows
+    # the outer $steps within the block. On step failure the block captures
+    # context into $script:LastFailure* and returns $false. The OUTER call
+    # site below is what writes last_failure.json + failure screenshot +
+    # post-failure pause, so a transient failure inside a retry attempt
+    # never pollutes last_failure.json -- only an exhausted-retry failure
+    # (or a non-retry failure) does, after the outer call finally returns.
+    $invokeStepBlock = {
+        param(
+            [Parameter(Mandatory)][object[]]$Steps,
+            # Set by the retry recursion: outer retry's ordinal + 'retry' so
+            # rows from inner steps can be joined back to the retry wrapper
+            # at query time without inventing a step GUID.
+            [int]$ParentOrdinal = 0,
+            [string]$ParentAction = ''
+        )
+        $stepNum = 0
+        foreach ($step in $Steps) {
+            $stepNum++
+            # Gate #2: between-steps pause + cycle-restart check. Catches
+            # a Pause or a "Save and start cycle" clicked while the previous
+            # step was running. The throw inside $checkCycleRestart escapes
+            # this $invokeStepBlock (including any wrapping `retry` block —
+            # retry only catches $false returns, not exceptions) and bubbles
+            # up to the cycle-level try/catch in Invoke-TestInnerRunner.
+            & $waitWhilePaused "[$stepNum/$($Steps.Count)]"
+            & $checkCycleRestart "[$stepNum/$($Steps.Count)]"
+            $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
+            & $writeCurrentAction "[$stepNum/$($Steps.Count)] $($step.action): $desc"
+            # Refresh runner.stepHeartbeat from the runspace so the outer
+            # watchdog can detect a single step that exceeds stepTimeout-
+            # Minutes. We do NOT update this inside the action's own poll
+            # loop -- the threadpool-driven runner.heartbeat already
+            # provides proof-of-life for the process. Refreshing only at
+            # step boundaries means the watchdog kicks in if any single
+            # step (waitForText with its own deadline, ssh exec, retry
+            # block) hangs longer than the configured budget.
+            try {
+                $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
+                [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
+            } catch {
+                Write-Verbose "runner.stepHeartbeat refresh failed: $($_.Exception.Message)"
+            }
+
+            # ── retry: re-run inner steps from the top on any failure ──────────
+            # `retry` is a control-flow verb, not a normal action -- it does not
+            # go through the per-step switch / progress / PASS-FAIL logging
+            # pipeline below. Each attempt invokes $invokeStepBlock recursively
+            # on the inner `steps:` array; the first attempt that runs every
+            # inner step cleanly wins. If all attempts fail, the deepest inner
+            # failure label is wrapped with a "retry exhausted (N attempts)"
+            # prefix so the operator sees both that retry gave up AND which
+            # inner step ran out of patience.
+            if ($step.action -eq 'retry') {
+                $maxAttempts = $step.maxAttempts ? [int]$step.maxAttempts : 3
+                $innerSteps  = @($step.steps)
+                if ($innerSteps.Count -eq 0) {
+                    Write-Warning "    [$stepNum/$($Steps.Count)] retry block has no inner steps; treating as failure."
+                    $script:LastFailureLabel       = 'retry: empty steps block'
+                    $script:LastFailureDescription = $desc
+                    $script:LastFailedAction       = 'retry'
+                    $script:LastFailedStepNumber   = $stepNum
+                    return $false
+                }
+                $attemptOk = $false
+                for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+                    Write-Information ("    [{0}/{1}] retry attempt {2}/{3}: {4}" -f $stepNum, $Steps.Count, $attempt, $maxAttempts, $desc)
+                    $attemptOk = & $invokeStepBlock -Steps $innerSteps -ParentOrdinal $stepNum -ParentAction 'retry'
+                    if ($attemptOk) {
+                        Write-Information ("    [{0}/{1}] retry succeeded on attempt {2}/{3}" -f $stepNum, $Steps.Count, $attempt, $maxAttempts)
+                        break
+                    }
+                    if ($attempt -lt $maxAttempts) {
+                        Write-Warning ("    [{0}/{1}] retry attempt {2}/{3} failed; restarting from step 1 of {4}" -f $stepNum, $Steps.Count, $attempt, $maxAttempts, $innerSteps.Count)
+                    }
+                }
+                if (-not $attemptOk) {
+                    $script:LastFailureLabel     = "retry exhausted ($maxAttempts attempts): $script:LastFailureLabel"
+                    $script:LastFailedStepNumber = $stepNum
+                    return $false
+                }
+                continue
+            }
+
         # Current-step visibility is intentionally driven by Write-Progress
         # (via Write-ProgressTick below), NOT by a Write-Information here.
         # A Write-Information at step-start would go through the Yuruna.Log
@@ -2869,6 +3137,12 @@ function Invoke-Sequence {
         Write-ProgressTick -Activity "Sequence" -Status "[$stepNum/$($steps.Count)] $($step.action): $desc" -PercentComplete ([math]::Round((($stepNum - 1) / [math]::Max($steps.Count,1)) * 100))
 
         $stepStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        # Wall-clock start captured alongside the stopwatch so the perf
+        # row carries an absolute UTC timestamp (needed for cross-host
+        # joins) without trying to subtract elapsed ms from the END
+        # time -- the two clocks would diverge by the GC/IO time of the
+        # write itself.
+        $stepStartUtc = [DateTime]::UtcNow
         $ok = $true
         switch ($step.action) {
             "waitForSeconds" {
@@ -2883,10 +3157,255 @@ function Invoke-Sequence {
                 }
                 Write-ProgressTick -Activity "waitForSeconds" -Completed
             }
-            "inputKey" {
+            "pressKey" {
                 $keyName = $step.name
                 Write-Debug "      Sending key '$keyName'..."
                 $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName $keyName
+            }
+            "break" {
+                # Cooperative breakpoint. Two ways out:
+                #  (a) Operator deletes the marker file -> just resume.
+                #  (b) Operator clicks "Continue" in the status UI ->
+                #      status server touches control.break-continue;
+                #      on detection we (optionally) Restore-VMDiskSnapshot
+                #      + Start-VM so the sequence picks up from a known
+                #      base, then resume.
+                # The intent is "stop here so I can take control"; it is
+                # NOT a failure -- the step succeeds either way.
+                #
+                # YURUNA_BREAK_DISABLED=1 turns the action into a no-op
+                # (logs a warning and continues), so CI / unattended
+                # runs do not deadlock on an interactive primitive.
+                #
+                # The marker filename includes the step number so two
+                # breakpoints in the same sequence do not collide. The
+                # path is printed at INFORMATION level so an operator
+                # tailing the run log can copy-paste the rm command.
+                #
+                # break.id (optional): when set, Continue calls
+                # Restore-VMDiskSnapshot -Id <id> followed by Start-VM,
+                # mirroring the convention that saveDiskSnapshot leaves
+                # a same-id snapshot+rename behind. Without break.id the
+                # Continue button still works but skips the snapshot
+                # restore (just resumes).
+                if ($env:YURUNA_BREAK_DISABLED -eq '1') {
+                    Write-Warning "      break: YURUNA_BREAK_DISABLED=1 -- skipping breakpoint."
+                    $ok = $true
+                } else {
+                    if (-not (Get-Command Get-CycleGuestDataFolder -ErrorAction SilentlyContinue)) {
+                        $logModule = Join-Path $PSScriptRoot 'Test.Log.psm1'
+                        if (Test-Path $logModule) { Import-Module $logModule -Global -Force -Verbose:$false }
+                    }
+                    $diagFolder = Get-CycleGuestDataFolder -VMName $VMName
+                    if (-not $diagFolder) {
+                        # No cycle folder established -- fall back to the
+                        # log dir root so the operator still has a path
+                        # to delete.
+                        $diagFolder = $logDir
+                    }
+                    $markerName = ".yuruna-break-{0:D3}.lock" -f [int]$stepNum
+                    $markerPath = Join-Path $diagFolder $markerName
+                    $reason = Expand-Variable $step.reason $vars
+                    $breakSnapshotId = Expand-Variable $step.id $vars
+                    $bodyLines = @(
+                        "Yuruna sequence breakpoint",
+                        "VM:       $VMName",
+                        "GuestKey: $GuestKey",
+                        "Step:     $stepNum/$($steps.Count)",
+                        "Reason:   $(if ($reason) { $reason } else { '(no reason supplied)' })",
+                        "Snapshot: $(if ($breakSnapshotId) { $breakSnapshotId } else { '(none -- Continue resumes without snapshot restore)' })",
+                        "",
+                        "To resume:",
+                        "  - Click 'Continue' in the status UI (http://localhost:8080/status/)",
+                        "    which restores the snapshot above (if set), starts the VM,",
+                        "    then deletes the marker; or",
+                        "  - Delete this file manually:",
+                        "      Remove-Item -LiteralPath '$markerPath'",
+                        "    or, on a POSIX shell:",
+                        "      rm `"$markerPath`""
+                    )
+                    Set-Content -LiteralPath $markerPath -Value ($bodyLines -join [Environment]::NewLine) -Encoding utf8 -Force
+
+                    # Break-active sidecar -- the status UI polls this
+                    # from /runtime/break-active.json to decide whether
+                    # the Continue button is live.
+                    $breakActivePath   = Join-Path $runtimeDir 'break-active.json'
+                    $breakContinueFlag = Join-Path $runtimeDir 'control.break-continue'
+                    # Discard any stale Continue flag from a previous
+                    # break that crashed before consuming it. Without
+                    # this, the new break would auto-resume on the
+                    # first poll tick.
+                    Remove-Item -LiteralPath $breakContinueFlag -Force -ErrorAction SilentlyContinue
+                    try {
+                        $breakDoc = [ordered]@{
+                            guestKey   = $GuestKey
+                            vmName     = $VMName
+                            hostType   = $HostType
+                            stepNum    = [int]$stepNum
+                            stepCount  = [int]$steps.Count
+                            snapshotId = $breakSnapshotId
+                            reason     = if ($reason) { [string]$reason } else { '' }
+                            markerPath = [string]$markerPath
+                            startedAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        }
+                        $tmp = "$breakActivePath.tmp"
+                        $breakDoc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
+                        Move-Item -Path $tmp -Destination $breakActivePath -Force
+                    } catch {
+                        Write-Verbose "break-active.json write failed: $($_.Exception.Message)"
+                    }
+
+                    Write-Information "    [break] Paused at step $stepNum. Click Continue in the status UI, or delete '$markerPath' to resume."
+                    & $writeCurrentAction "[$stepNum/$($steps.Count)] break (waiting for operator: $markerName)"
+
+                    $resumedVia = 'marker-delete'
+                    while ($true) {
+                        if (Test-Path -LiteralPath $breakContinueFlag) {
+                            $resumedVia = 'continue-button'
+                            Remove-Item -LiteralPath $breakContinueFlag -Force -ErrorAction SilentlyContinue
+                            break
+                        }
+                        if (-not (Test-Path -LiteralPath $markerPath)) {
+                            break
+                        }
+                        Start-Sleep -Seconds 1
+                    }
+
+                    if ($resumedVia -eq 'continue-button') {
+                        # Continue clicked: optionally restore the snapshot, then
+                        # start the VM (loadDiskSnapshot leaves it stopped on every
+                        # host). Failures are warned but don't fail the break --
+                        # the operator deliberately said "continue", so the
+                        # sequence should keep going and any post-restore step
+                        # that needs a live guest will fail with its own message.
+                        if ($breakSnapshotId) {
+                            if (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue) {
+                                Write-Information "    [break/continue] Restoring snapshot '$breakSnapshotId' on $VMName..."
+                                try {
+                                    $restored = [bool](Restore-VMDiskSnapshot -VMName $VMName -Id $breakSnapshotId -Confirm:$false)
+                                    if (-not $restored) {
+                                        Write-Warning "    [break/continue] Restore-VMDiskSnapshot returned `$false for '$VMName/$breakSnapshotId'; continuing anyway."
+                                    }
+                                } catch {
+                                    Write-Warning "    [break/continue] Restore-VMDiskSnapshot threw: $($_.Exception.Message). Continuing anyway."
+                                }
+                            } else {
+                                Write-Warning "    [break/continue] Restore-VMDiskSnapshot not loaded; cannot restore snapshot '$breakSnapshotId'."
+                            }
+                        }
+                        if (Get-Command Start-VM -ErrorAction SilentlyContinue) {
+                            Write-Information "    [break/continue] Starting $VMName..."
+                            try {
+                                $startRes = Start-VM -VMName $VMName -Confirm:$false
+                                if ($startRes -is [hashtable] -and -not $startRes.success) {
+                                    Write-Warning "    [break/continue] Start-VM returned failure: $($startRes.errorMessage). Continuing anyway."
+                                }
+                            } catch {
+                                Write-Warning "    [break/continue] Start-VM threw: $($_.Exception.Message). Continuing anyway."
+                            }
+                        } else {
+                            Write-Warning "    [break/continue] Start-VM not loaded; VM remains stopped."
+                        }
+                        # Marker may still be present (Continue is the back-
+                        # channel signal, not a marker delete). Remove it so the
+                        # next cycle doesn't see a stale marker.
+                        Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
+                    }
+
+                    # Tear down the UI sidecar so the Continue button vanishes.
+                    Remove-Item -LiteralPath $breakActivePath -Force -ErrorAction SilentlyContinue
+
+                    Write-Information "    [break] Resumed (via $resumedVia)."
+                    $ok = $true
+                }
+            }
+            "saveDiskSnapshot" {
+                # Disk-only snapshot via Yuruna.Host's Save-VMDiskSnapshot
+                # contract. Stops the VM first (graceful, force-fallback
+                # via the host driver) and leaves it stopped on return,
+                # so a sequence wanting to keep going must follow with
+                # an explicit start step (host-specific). Pre-existing
+                # snapshots with the same Id are overwritten.
+                #
+                # Save-VMDiskSnapshot also renames the VM to $snapId
+                # (Hyper-V / KVM full support; UTM best-effort) so the
+                # next cycle's Remove-TestVMFiles.ps1 leaves the
+                # persisted VM alone. On success we update $VMName so
+                # every subsequent step (break, fetchAndExecute, etc.)
+                # targets the new persisted name -- otherwise SSH /
+                # console calls would race against a name that no
+                # longer exists.
+                $snapId = Expand-Variable $step.id $vars
+                if (-not $snapId) {
+                    Write-Warning "      saveDiskSnapshot: missing required 'id' field on step; failing step."
+                    $ok = $false
+                    break
+                }
+                if (-not (Get-Command Save-VMDiskSnapshot -ErrorAction SilentlyContinue)) {
+                    Write-Warning "      saveDiskSnapshot: Save-VMDiskSnapshot not loaded (Yuruna.Host import missing)."
+                    $ok = $false
+                    break
+                }
+                Write-Debug "      Saving disk snapshot '$snapId' for $VMName"
+                try {
+                    $ok = [bool](Save-VMDiskSnapshot -VMName $VMName -Id $snapId -Confirm:$false)
+                } catch {
+                    Write-Warning "      saveDiskSnapshot: $($_.Exception.Message)"
+                    $ok = $false
+                }
+                if ($ok -and $VMName -ne $snapId) {
+                    Write-Information "      saveDiskSnapshot: VM renamed '$VMName' -> '$snapId'; subsequent steps will target '$snapId'." -InformationAction Continue
+                    $VMName = $snapId
+                }
+            }
+            "loadDiskSnapshot" {
+                # Restore a previously-saved disk-only snapshot via
+                # Yuruna.Host's Restore-VMDiskSnapshot contract, then
+                # start the VM so the next step can interact with a live
+                # guest. The host driver stops the VM first if running
+                # and leaves it stopped on return from the restore call;
+                # this handler then re-starts it (Hyper-V / KVM / UTM all
+                # expose Start-VM with a uniform -VMName signature).
+                # RAM-state is not restored -- the guest boots fresh
+                # from the snapshot disk, so callers must expect a
+                # re-DHCP / SSH re-handshake (gate downstream consumers
+                # on sshWaitReady).
+                $snapId = Expand-Variable $step.id $vars
+                if (-not $snapId) {
+                    Write-Warning "      loadDiskSnapshot: missing required 'id' field on step; failing step."
+                    $ok = $false
+                    break
+                }
+                if (-not (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue)) {
+                    Write-Warning "      loadDiskSnapshot: Restore-VMDiskSnapshot not loaded (Yuruna.Host import missing)."
+                    $ok = $false
+                    break
+                }
+                Write-Debug "      Restoring disk snapshot '$snapId' for $VMName"
+                try {
+                    $ok = [bool](Restore-VMDiskSnapshot -VMName $VMName -Id $snapId -Confirm:$false)
+                } catch {
+                    Write-Warning "      loadDiskSnapshot: $($_.Exception.Message)"
+                    $ok = $false
+                }
+                if ($ok) {
+                    if (-not (Get-Command Start-VM -ErrorAction SilentlyContinue)) {
+                        Write-Warning "      loadDiskSnapshot: Start-VM not loaded (Yuruna.Host import missing); cannot start '$VMName' after restore."
+                        $ok = $false
+                    } else {
+                        Write-Debug "      Starting $VMName after snapshot restore"
+                        try {
+                            $startRes = Start-VM -VMName $VMName -Confirm:$false
+                            if ($startRes -is [hashtable] -and -not $startRes.success) {
+                                Write-Warning "      loadDiskSnapshot: Start-VM returned failure: $($startRes.errorMessage)"
+                                $ok = $false
+                            }
+                        } catch {
+                            Write-Warning "      loadDiskSnapshot: Start-VM threw: $($_.Exception.Message)"
+                            $ok = $false
+                        }
+                    }
+                }
             }
             "saveSystemDiagnostic" {
                 # Mid-sequence checkpoint dump. SSHes into the guest,
@@ -2982,34 +3501,12 @@ function Invoke-Sequence {
                 Write-Debug "      Typing: '$masked' (charDelay=${charDelay}ms)"
                 # -ShellEscape: shell-targeted action, so it's safe to let
                 # Send-TextUTM wrap shifted chars in a bash decode wrapper
-                # for AVF guests on macOS 26 (no-op on Hyper-V/KVM and on
-                # text that has no AVF-hard chars).
+                # (no-op on Hyper-V/KVM and on text with no hard chars).
                 $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay -ShellEscape
-            }
-            "tabsAndEnter" {
-                $tabCount = $step.tabCount ? [int]$step.tabCount : 1
-                $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 1
-                Write-Debug "      Sending $tabCount Tab(s) + Enter (delay ${delaySeconds}s)"
-                $ok = $true
-                for ($t = 0; $t -lt $tabCount; $t++) {
-                    $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Tab"
-                    if ($ok -eq $false) { break }
-                    Start-Sleep -Milliseconds 300
-                }
-                if ($ok -ne $false) {
-                    $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-                    for ($r = $delaySecsInt; $r -gt 0; $r--) {
-                        $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-                        Write-ProgressTick -Activity "tabsAndEnter" -Status "drain ${r}s" -PercentComplete $pct
-                        Start-Sleep -Seconds 1
-                    }
-                    Write-ProgressTick -Activity "tabsAndEnter" -Completed
-                    $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
-                }
             }
             { $_ -in 'inputTextAndEnter','typeAndEnter' } {
                 # typeAndEnter is the pre-rename alias still used by project
-                # sequences (e.g. workload.guest.ubuntu.server.k8s.website.yml
+                # sequences (e.g. workload.guest.ubuntu.server.24.k8s.website.yml
                 # in yuruna-project). Documented at line 113 in this file's
                 # action catalog; kept as an alias so a stale project clone
                 # doesn't break a runner that updated the framework alone.
@@ -3190,7 +3687,7 @@ function Invoke-Sequence {
                     }
                 }
             }
-            "waitForAndClickButton" {
+            "tapOn" {
                 # Accept either a single string or array of candidate labels
                 # (useful when OCR might split "Install" as "lnstall" in some engines
                 # — list both forms and first hit wins).
@@ -3206,31 +3703,12 @@ function Invoke-Sequence {
                 $offY    = $step.offsetY        ? [int]$step.offsetY        : 0
                 $labelDisplay = $labels -join "' | '"
                 Write-Debug "      Waiting for button '$labelDisplay' (timeout: ${timeout}s)"
-                $ok = Wait-ForAndClickButton -HostType $HostType -VMName $VMName -Label $labels `
+                $ok = Invoke-TapOn -HostType $HostType -VMName $VMName -Label $labels `
                     -TimeoutSeconds $timeout -PollSeconds $poll -OffsetX $offX -OffsetY $offY
             }
-            "screenshot" {
+            "takeScreenshot" {
                 $label = $step.label ?? "step$stepNum"
                 Save-DebugScreenshot -VMName $VMName -Label $label -OutputDir $screenshotDir | Out-Null
-            }
-            "waitForPort" {
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                $ok = Wait-ForPort -VMName $VMName -Port ([int]$step.port) -TimeoutSeconds $timeout
-            }
-            "waitForHeartbeat" {
-                if ($HostType -ne "host.windows.hyper-v") {
-                    # Surface the skip at step level (not just Debug) so the
-                    # step-completion line shows PASS (skipped) rather than
-                    # implying the gate actually ran.
-                    Write-Information "      waitForHeartbeat is Hyper-V-only — skipping on $HostType."
-                } else {
-                    $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                    $ok = Wait-ForHeartbeat -VMName $VMName -TimeoutSeconds $timeout
-                }
-            }
-            "waitForVMStop" {
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                $ok = Wait-ForVMStop -HostType $HostType -VMName $VMName -TimeoutSeconds $timeout
             }
             "fetchAndExecute" {
                 $text = Expand-Variable $step.text $vars
@@ -3281,7 +3759,7 @@ function Invoke-Sequence {
             }
             "sshWaitReady" {
                 # Wait until the guest accepts SSH with the harness key.
-                # Mirrors waitForPort but handshakes all the way to an authenticated shell.
+                # Handshakes all the way to an authenticated shell (not just TCP/22).
                 $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
                 $poll    = $step.pollSeconds    ? [int]$step.pollSeconds    : $script:DefaultPollSeconds
                 Write-Debug "      sshWaitReady: $GuestKey@$VMName (timeout: ${timeout}s)"
@@ -3330,7 +3808,7 @@ function Invoke-Sequence {
                 # Unknown action = hard fail. Previously this was a warning-only
                 # no-op, which silently passed the step (since $ok stayed $true
                 # from the per-step default). A typo in a sequence JSON — e.g.
-                # "waitForClick" instead of "waitForAndClickButton" — would then
+                # "tapButton" instead of "tapOn" — would then
                 # march the sequence forward without running the intended gate.
                 Write-Warning "Unknown action '$($step.action)' — treating as failure."
                 $ok = $false
@@ -3356,13 +3834,40 @@ function Invoke-Sequence {
         $stepMarker   = if ($ok) { 'PASS' } else { 'FAIL' }
         Write-Information "$elapsedLabel s [$stepNum/$($steps.Count)] $stepMarker $($step.action): $desc"
 
+        # Emit one structured row per step execution. stepName is the
+        # RAW (pre-expansion) YAML `description:` -- variables like
+        # ${vmName} are intentionally NOT expanded here so cross-cycle
+        # joins on stepName remain stable even though vmName carries a
+        # per-cycle timestamp suffix. Falls back to step.action when no
+        # description is set. retry-wrappers don't emit (they exit via
+        # `continue` above the stopwatch); their wall-clock cost is the
+        # sum of the inner rows.
+        if (Get-Command -Name Write-PerfStepRow -ErrorAction SilentlyContinue) {
+            try {
+                $stepName = if ($step.Contains('description') -and $step.description) { [string]$step.description } else { [string]$step.action }
+                Write-PerfStepRow `
+                    -StepName          $stepName `
+                    -StepOrdinal       $stepNum `
+                    -StepKind          ([string]$step.action) `
+                    -StartedAtUtc      $stepStartUtc `
+                    -EndedAtUtc        ([DateTime]::UtcNow) `
+                    -DurationMs        ([int]$stepStopwatch.Elapsed.TotalMilliseconds) `
+                    -Outcome           ($ok ? 'pass' : 'fail') `
+                    -ParentStepOrdinal $ParentOrdinal `
+                    -ParentAction      $ParentAction
+            } catch {
+                Write-Verbose "Write-PerfStepRow failed (non-fatal): $($_.Exception.Message)"
+            }
+        }
+
         if (-not $ok) {
             Write-Warning "    Step [$stepNum] failed: $desc"
 
-            # Write failure details to YurunaLog for the parent runner to pick up
-            # ($modulesDir and $logDir already set at function start)
-
-            # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"')
+            # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"').
+            # The OUTER call site reads $script:LastFailure* below to write
+            # last_failure.json + the failure screenshot. Capturing here (and
+            # only returning $false) keeps transient retry-attempt failures
+            # from leaving a stale last_failure.json behind.
             $actionLabel = $step.action
             switch ($step.action) {
                 "waitForText" {
@@ -3374,13 +3879,9 @@ function Invoke-Sequence {
                     }
                     $actionLabel = "waitForText: `"$patternDisplay`""
                 }
-                "waitForPort"      { $actionLabel = "waitForPort: $($step.port)" }
-                "waitForHeartbeat" { $actionLabel = "waitForHeartbeat" }
-                "waitForVMStop"    { $actionLabel = "waitForVMStop" }
-                "inputKey"          { $actionLabel = "inputKey: $($step.name)" }
+                "pressKey"          { $actionLabel = "pressKey: $($step.name)" }
                 "inputText"         { $actionLabel = "inputText" }
                 { $_ -in 'inputTextAndEnter','typeAndEnter' } { $actionLabel = $step.action }
-                "tabsAndEnter"     { $actionLabel = "tabsAndEnter: $($step.tabCount ?? 1)" }
                 "waitForAndEnter" {
                     $rawPatterns = $step.pattern
                     if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
@@ -3403,6 +3904,8 @@ function Invoke-Sequence {
                 "sshWaitReady"     { $actionLabel = "sshWaitReady" }
                 "sshExec"          { $actionLabel = "sshExec: `"$(Expand-Variable $step.command $vars)`"" }
                 "sshFetchAndExecute" { $actionLabel = "sshFetchAndExecute: `"$(Expand-Variable $step.command $vars)`"" }
+                "saveDiskSnapshot" { $actionLabel = "saveDiskSnapshot: `"$(Expand-Variable $step.id $vars)`"" }
+                "loadDiskSnapshot" { $actionLabel = "loadDiskSnapshot: `"$(Expand-Variable $step.id $vars)`"" }
             }
 
             # If Wait-ForText short-circuited on a failurePattern, annotate
@@ -3416,41 +3919,60 @@ function Invoke-Sequence {
                 $actionLabel = $actionLabel + " -- matched failurePattern `"$($script:WaitForTextMatchedFailurePattern)`""
             }
 
-            $failureInfo = @{
-                stepNumber  = $stepNum
-                totalSteps  = $steps.Count
-                action      = $actionLabel
-                description = $desc
-                vmName      = $VMName
-                guestKey    = $GuestKey
-                timestamp   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
-            } | ConvertTo-Json
-            $failureFile = Join-Path $logDir "last_failure.json"
-            Set-Content -Path $failureFile -Value $failureInfo -Force -ErrorAction SilentlyContinue
-
-            # For non-waitForText failures, capture a screenshot now (waitForText already saves one)
-            if ($step.action -ne "waitForText" -and $step.action -ne "waitForAndEnter" -and $step.action -ne "passwdPrompt" -and $step.action -ne "fetchAndExecute") {
-                $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
-                $captured = Get-VMScreenshot -VMName $VMName -OutFile $failScreenPath
-                if ($captured) {
-                    Write-Information "      Failure screenshot saved: $failScreenPath"
-                }
-            }
-
-            # Gate #3: post-failure pause check. The between-steps gate at
-            # the top of the loop never runs after a failed step because
-            # we return $false here; without this gate, a Pause-after-step
-            # armed during the failing step is silently dropped and the
-            # caller cascades the failure to the next sequence/cycle. Run
-            # this AFTER writing last_failure.json + the screenshot so the
-            # status UI shows the failure context while the user decides
-            # whether to resume. Resuming does not change the outcome —
-            # the step is still a failure — it only gives the user time
-            # to investigate before the runner moves on.
-            & $waitWhilePaused "[$stepNum/$($steps.Count)] FAIL"
-
+            $script:LastFailureLabel       = $actionLabel
+            $script:LastFailureDescription = $desc
+            $script:LastFailedAction       = $step.action
+            $script:LastFailedStepNumber   = $stepNum
             return $false
         }
+        }  # end foreach inside $invokeStepBlock
+        return $true
+    }  # end $invokeStepBlock
+
+    $script:LastFailureLabel       = $null
+    $script:LastFailureDescription = $null
+    $script:LastFailedAction       = $null
+    $script:LastFailedStepNumber   = 0
+    $result = & $invokeStepBlock -Steps $steps
+    if (-not $result) {
+        # Build the failure-context JSON from the deepest captured context.
+        # For a retry-exhausted failure, $script:LastFailureLabel was already
+        # wrapped in "retry exhausted (N attempts): ..." by the retry handler,
+        # and $script:LastFailedStepNumber is the OUTER retry step's number
+        # (not the inner sub-step) so the operator sees the outer position.
+        $failureInfo = @{
+            stepNumber  = $script:LastFailedStepNumber
+            totalSteps  = $steps.Count
+            action      = $script:LastFailureLabel
+            description = $script:LastFailureDescription
+            vmName      = $VMName
+            guestKey    = $GuestKey
+            timestamp   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+        } | ConvertTo-Json
+        $failureFile = Join-Path $logDir "last_failure.json"
+        Set-Content -Path $failureFile -Value $failureInfo -Force -ErrorAction SilentlyContinue
+
+        # For non-OCR failures, capture a screenshot now (waitForText / waitForAndEnter
+        # / passwdPrompt / fetchAndExecute already save one in their own failure paths).
+        # Use the DEEPEST failed action's name -- after retry-exhausted, that's the inner
+        # action, not 'retry' itself.
+        if ($script:LastFailedAction -ne "waitForText" -and $script:LastFailedAction -ne "waitForAndEnter" -and $script:LastFailedAction -ne "passwdPrompt" -and $script:LastFailedAction -ne "fetchAndExecute") {
+            $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
+            $captured = Get-VMScreenshot -VMName $VMName -OutFile $failScreenPath
+            if ($captured) {
+                Write-Information "      Failure screenshot saved: $failScreenPath"
+            }
+        }
+
+        # Gate #3: post-failure pause check. Without this gate, a Pause-after-step
+        # armed during the failing step is silently dropped and the caller
+        # cascades the failure to the next sequence/cycle. Run AFTER writing
+        # last_failure.json + the screenshot so the status UI shows the failure
+        # context while the user decides whether to resume. Resuming does not
+        # change the outcome -- the step is still a failure -- it only gives
+        # the user time to investigate before the runner moves on.
+        & $waitWhilePaused "[$($script:LastFailedStepNumber)/$($steps.Count)] FAIL"
+        return $false
     }
 
     Write-ProgressTick -Activity "Sequence" -Completed
@@ -3463,6 +3985,14 @@ function Invoke-Sequence {
     return $true
 
   } catch {
+    # YurunaCycleRestart is a control-flow marker from the cycle-restart
+    # gate ($checkCycleRestart), not an actual sequence failure. The gate
+    # comment at Gate #2 promises it "bubbles up to the cycle-level try/
+    # catch in Invoke-TestInnerRunner" — re-throw before the generic
+    # handler turns it into a Write-Warning + return $false, which would
+    # leave control.cycle-restart unconsumed and the flag re-fires on every
+    # subsequent sequence's [sequence start] gate.
+    if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
     # Print the message AND the throwing-statement origin AND the
     # call stack. Without these the operator gets only the .Exception
     # text (e.g. 'Exception calling "Replace" with "3" argument(s)')
@@ -3497,5 +4027,5 @@ function Invoke-Sequence {
   }
 }
 
-Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Resolve-SequencePath, Get-SequenceMode, Get-SequenceModePath, Get-ProjectTestSearchDir, `
-    Read-SequenceFile, Send-Text, Send-Key, Send-Click
+Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Resolve-SequencePath, Get-SequenceSearchPath, Get-SequenceMode, Get-SequenceModePath, Get-ProjectTestSearchDir, `
+    Find-ProjectSequenceFile, Read-SequenceFile, Send-Text, Send-Key, Send-Click

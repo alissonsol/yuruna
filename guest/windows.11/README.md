@@ -1,6 +1,6 @@
 # Windows 11 Guest - Workloads
 
-See [../README.md](../README.md) for the guest workload pattern (one-liner
+See [Guests — ...](../README.md) for the guest workload pattern (one-liner
 convention, `YurunaCacheContent`).
 
 Create the guest VM first:
@@ -29,7 +29,11 @@ before running other workloads.
 |--------|----------|
 | `windows.11.update.ps1` | System update |
 | `windows.11.code.ps1` | [Code](../../docs/code.md): Java JDK, .NET SDK, Git, VS Code |
-| `windows.11.k8s.ps1` | [k8s](../../docs/k8s.md): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
+| `windows.11.k8s.ps1` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
+
+The `n8n`, `openclaw`, and `postgresql` workloads are intentionally out
+of scope for the Windows 11 guest; use one of the Linux guests for those
+workloads.
 
 **Docker note**: installing k8s requirements succeeds, but starting
 Docker needs coordinated virtualization settings on both host and guest.
@@ -37,7 +41,7 @@ Those instructions are too long and unreliable to automate yet. Until
 they stabilize, ask an AI assistant for the current recipe for
 (macOS UTM + ARM64 host) or (Windows Hyper-V host).
 
-[Troubleshooting](troubleshooting.md) · Back to [Guests](../README.md) · [Yuruna](../../README.md)
+[Troubleshooting](../../docs/guest-windows-11.md) · Back to [Guests](../README.md) · [Yuruna](../../README.md)
 
 ---
 

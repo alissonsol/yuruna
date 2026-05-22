@@ -6,8 +6,9 @@ pattern.
 
 | Guest | Command |
 |---|---|
-| **Amazon Linux** | `/automation/fetch-and-execute.sh guest/amazon.linux/amazon.linux.code.sh` |
-| **Ubuntu Server** | `/automation/fetch-and-execute.sh guest/ubuntu.server/ubuntu.server.code.sh` |
+| **Amazon Linux 2023** | `/automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.code.sh` |
+| **Ubuntu Server 24.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh` |
+| **Ubuntu Server 26.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh` |
 | **Windows 11** | `irm "…/guest/windows.11/windows.11.code.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
 
 ## After install
@@ -21,8 +22,9 @@ code --install-extension anthropic.claude-code
 
 Then open VS Code and sign in to each extension that needs it.
 
-Back to [Amazon Linux ...](../guest/amazon.linux/README.md) ·
-[Ubuntu Server ...](../guest/ubuntu.server/README.md) ·
+Back to [Amazon Linux 2023 ...](../guest/amazon.linux.2023/README.md) ·
+[Ubuntu Server 24.04 ...](../guest/ubuntu.server.24/README.md) ·
+[Ubuntu Server 26.04 ...](../guest/ubuntu.server.26/README.md) ·
 [Windows 11 ...](../guest/windows.11/README.md) ·
 [Yuruna](../README.md)
 

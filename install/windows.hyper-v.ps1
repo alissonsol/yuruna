@@ -1,5 +1,5 @@
-<#PSScriptInfo
-.VERSION 2026.05.15
+﻿<#PSScriptInfo
+.VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,9 +23,12 @@
     Git, the Windows ADK Deployment Tools (for oscdimg.exe), QEMU tools
     (for qemu-img used by guest.squid-cache/Get-Image.ps1), Tesseract OCR,
     and enables the Hyper-V Windows Feature. Clones the Yuruna repository
-    into $HOME\git\yuruna, seeds test\test.config.yml from the template,
-    and runs host\windows.hyper-v\Enable-TestAutomation.ps1 to disable
-    display timeout and screen lock so Hyper-V screen captures stay readable.
+    into $HOME\git\yuruna and seeds test\test.config.yml from the template.
+
+    The installer does NOT enable this machine as a test host automatically.
+    To do so (disables display timeout and screen lock so Hyper-V screen
+    captures stay readable), run host\windows.hyper-v\Enable-TestAutomation.ps1
+    after install.
 
     Idempotent -- safe to re-run to pick up updates. On re-run it stops any
     running Yuruna test processes, upgrades installed packages via winget,
@@ -81,6 +84,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# This installer ships in TWO repos that share the same install script:
+#   * public   https://github.com/alissonsol/yuruna       (clone works unauthenticated)
+#   * private  https://github.com/alissonsol/yurunadev    (clone needs GitHub auth)
+# The copy committed to each repo points $YurunaRepo at its OWN URL so the
+# `irm | iex` one-liner clones the repo the operator chose to download the
+# script from. Both constants stay defined regardless of which copy is
+# running so the existing-checkout logic further down can recognize the
+# remote a previous run cloned from -- and skip a pull that would just
+# stall waiting for GitHub credentials this run doesn't have.
+$script:YurunaRepoPublic  = 'https://github.com/alissonsol/yuruna.git'
+$script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
 
 function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
@@ -183,8 +198,6 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
   |  This installer needs Administrator privileges for:           |
   |    * winget package installs (PowerShell 7, Git, ADK, ...)    |
   |    * enabling the Hyper-V Windows Feature (via DISM.exe)      |
-  |    * powercfg / registry edits in                             |
-  |      host\windows.hyper-v\Enable-TestAutomation.ps1       |
   |  All of the above are run automatically -- you do NOT need    |
   |  to type any command yourself. You will see ONE UAC prompt    |
   |  if the script was not already launched from an elevated      |
@@ -341,7 +354,7 @@ function Stop-YurunaProcess {
     # helper, status server. The Invoke-TestRunner.ps1 pattern is a
     # substring of itself only -- it does NOT match Invoke-TestInner-
     # Runner.ps1, so the inner needs its own entry to be killed too.
-    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestInnerRunner.ps1','Confirm-Sequence.ps1','Start-StatusServer.ps1')
+    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestInnerRunner.ps1','Test-Sequence.ps1','Start-StatusServer.ps1')
     foreach ($pat in $patterns) {
         $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
             Where-Object { $_.CommandLine -and $_.CommandLine -like "*$pat*" -and $_.ProcessId -ne $PID }
@@ -445,6 +458,7 @@ Install-WingetPackage -Id 'Git.Git'                           -FriendlyName 'Git
 Install-WingetPackage -Id 'Microsoft.WindowsADK'              -FriendlyName 'Windows ADK (Deployment Tools / oscdimg)'
 Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img for guest.squid-cache/Get-Image.ps1)'
 Install-WingetPackage -Id 'UB-Mannheim.TesseractOCR'          -FriendlyName 'Tesseract OCR'
+Install-WingetPackage -Id 'GitHub.cli'                        -FriendlyName 'GitHub CLI (gh) -- run `gh auth login` after install to authenticate'
 
 # Refresh PATH in the current session so pwsh.exe / git.exe / oscdimg.exe
 # become reachable without opening a new terminal.
@@ -488,18 +502,14 @@ if ($infoExit -ne 0) {
         # but the Hyper-V *components* (vmms service, virtmgmt.msc) are
         # only deployed once the pending reboot runs. On a second pass
         # before that reboot, /Get-FeatureInfo still says "Enabled" even
-        # though nothing actually works -- which is why a second run of
-        # this installer used to plough past this block, call Enable-
-        # TestAutomation.ps1 (which complained "vmms not installed -- run
-        # Enable-WindowsOptionalFeature..."), and then fail to launch
-        # virtmgmt.msc with "file not found". Three contradictory signals
-        # for one underlying condition: reboot pending.
+        # though nothing actually works -- and the test harness still
+        # would fail to launch virtmgmt.msc with "file not found". The
+        # underlying condition for all of this is: reboot pending.
         #
         # So: cross-check DISM's "Enabled" against the presence of vmms
         # and virtmgmt.msc. If either is missing, treat it the same as
-        # just-enabled and set RestartNeeded -- the rest of the script
-        # (the skip of Enable-TestAutomation.ps1, the finally-block
-        # RESTART REQUIRED path) then gives the user one clear message.
+        # just-enabled and set RestartNeeded -- the finally-block
+        # "RESTART REQUIRED" path then gives the user one clear message.
         $vmmsExists     = [bool](Get-Service -Name vmms -ErrorAction SilentlyContinue)
         $virtmgmtExists = Test-Path -LiteralPath (Join-Path $env:WINDIR 'System32\virtmgmt.msc')
         if ($vmmsExists -and $virtmgmtExists) {
@@ -540,21 +550,28 @@ if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Forc
 # -- Preserve test/status runtime state across the clone/update -------------
 # Re-running the installer on a host that's been executing test cycles
 # must not lose the dashboard's history, per-cycle log transcripts, or
-# the track-dir state (status.json with history[], runner.gating.json,
+# the runtime-dir state (status.json with history[], runner.gating.json,
 # runner.pid, control flags). None of those are tracked by git -- per
-# .gitignore they live under test/status/{track,log}/ as runtime
-# artifacts. The clone/update/renormalize block below is designed to
-# leave untracked files alone (`git rm -r --cached . && git reset --hard
-# HEAD` only touches tracked files), but we backstop that contract with
-# an explicit snapshot-and-restore so a future regression in the
-# renormalize logic, or a manual Remove-Item -Recurse on YurunaDir
-# between attempts, can't silently wipe weeks of cycle history.
+# .gitignore every subdir under test/status/ is gitignored as runtime
+# state. The clone/update/renormalize block below is designed to leave
+# untracked files alone (`git rm -r --cached . && git reset --hard HEAD`
+# only touches tracked files), but we backstop that contract with an
+# explicit snapshot-and-restore so a future regression in the renormalize
+# logic, or a manual Remove-Item -Recurse on YurunaDir between attempts,
+# can't silently wipe weeks of cycle history.
+#
+# All harness runtime state lives under test/status/<sub>/ for the layout
+# introduced in the status reorg: runtime/, perf/, log/, extension/,
+# captures/, ssh/. Preserve every subdir so cycle history, perf JSONL,
+# vault state, training/sequence captures, and the generated SSH key
+# pair all survive a clone/update.
 $YurunaStatusBackup = $null
+$TestStatusSubdirs  = @('runtime', 'perf', 'log', 'extension', 'captures', 'ssh')
 function Backup-YurunaStatus {
     $src = Join-Path $YurunaDir 'test/status'
     if (-not (Test-Path $src)) { return }
     $hasRuntime = $false
-    foreach ($sub in @('track', 'log')) {
+    foreach ($sub in $TestStatusSubdirs) {
         $subPath = Join-Path $src $sub
         if (-not (Test-Path $subPath)) { continue }
         $extras = Get-ChildItem -LiteralPath $subPath -Force -ErrorAction SilentlyContinue |
@@ -564,10 +581,10 @@ function Backup-YurunaStatus {
     if (-not $hasRuntime) { return }
     $script:YurunaStatusBackup = Join-Path $env:TEMP "yuruna-status-backup-$(Get-Random)"
     New-Item -ItemType Directory -Path $script:YurunaStatusBackup -Force | Out-Null
-    Write-Step "Preserving test/status runtime state (cycle history, logs)"
+    Write-Step "Preserving test/status runtime state (cycle history, logs, perf, vault, captures, ssh keys)"
     Write-Step "  source : $src"
     Write-Step "  backup : $($script:YurunaStatusBackup)"
-    foreach ($sub in @('track', 'log')) {
+    foreach ($sub in $TestStatusSubdirs) {
         $subPath = Join-Path $src $sub
         if (Test-Path $subPath) {
             Copy-Item -LiteralPath $subPath -Destination $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue
@@ -578,7 +595,7 @@ function Restore-YurunaStatus {
     if (-not $script:YurunaStatusBackup -or -not (Test-Path $script:YurunaStatusBackup)) { return }
     $dst = Join-Path $YurunaDir 'test/status'
     Write-Step 'Restoring preserved test/status runtime state'
-    foreach ($sub in @('track', 'log')) {
+    foreach ($sub in $TestStatusSubdirs) {
         $bsub = Join-Path $script:YurunaStatusBackup $sub
         if (Test-Path $bsub) {
             $dsub = Join-Path $dst $sub
@@ -594,42 +611,103 @@ Backup-YurunaStatus
 
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step "Updating existing Yuruna checkout at $YurunaDir"
-    & $gitExe -C $YurunaDir fetch --tags origin
-    & $gitExe -C $YurunaDir checkout $YurunaBranch
-    & $gitExe -C $YurunaDir pull --ff-only origin $YurunaBranch 2>&1 | ForEach-Object {
-        if ($_ -match 'Already up to date|Fast-forward|Updating') { Write-Output "     $_" }
-        else { Write-Warn $_ }
+    # Pull from whatever remote the LOCAL repo was cloned from -- not from
+    # whichever $YurunaRepo default this copy of the installer ships. A
+    # previous run may have cloned the OTHER repo (the public 'yuruna'
+    # checkout works for everyone; the private 'yurunadev' checkout needs
+    # GitHub auth) and we must not silently migrate the operator's local
+    # tree to a different remote.
+    $actualRemote   = (& $gitExe -C $YurunaDir remote get-url origin 2>$null)
+    if ($actualRemote) { $actualRemote = ([string]$actualRemote).Trim() } else { $actualRemote = '' }
+    $remoteForBase  = $actualRemote.TrimEnd('/')
+    $remoteForBase  = $remoteForBase -replace '\.git$',''
+    $remoteBasename = ($remoteForBase -replace '.*[\\/:]',  '')
+    if ($actualRemote) {
+        Write-Step "  remote : $actualRemote"
+    } else {
+        Write-Step "  remote : (none -- 'git remote get-url origin' returned nothing)"
     }
-    # $LASTEXITCODE in PowerShell propagates through native-cmd pipelines:
-    # the value here is git's exit code, not ForEach-Object's.
-    $pullExit = $LASTEXITCODE
-    if ($pullExit -ne 0) {
-        # Fast-forward not possible: uncommitted changes, divergent
-        # commits, detached HEAD, or any other condition that prevents
-        # git from advancing the working tree. Rather than leaving the
-        # installer in a half-updated state, move the existing checkout
-        # aside as a timestamped backup and re-clone fresh. The
-        # test/status runtime state was already captured to TEMP by
-        # Backup-YurunaStatus above, so cycle history survives this
-        # path. The finally{} block surfaces $script:YurunaBackupCreated
-        # in the spawned pwsh window (and admin-console fallback) so
-        # the operator can salvage local edits before deleting it.
-        $stamp = Get-Date -Format 'yyyy-MM-dd.HH-mm'
-        $YurunaBackupDir = "$YurunaDir.backup.$stamp"
-        Write-Warn "git pull --ff-only failed (exit $pullExit) -- moving the existing checkout aside and re-cloning."
-        Write-Warn "  from: $YurunaDir"
-        Write-Warn "  to:   $YurunaBackupDir"
+
+    $skipPull = $false
+    if ($remoteBasename -eq 'yurunadev') {
+        # Private remote: require demonstrated access before we attempt
+        # `git fetch`. `ls-remote` fails fast on 401/403, sparing the
+        # operator a stalled credential prompt or an error transcript
+        # that looks like the test harness broke when really only auth
+        # was missing. The pull is skipped (not the rest of the install)
+        # so a contributor on a flaky/unauthenticated session can still
+        # keep iterating with the last-known-good code on disk.
+        # GIT_TERMINAL_PROMPT=0: fail fast on missing credentials instead
+        # of blocking the installer on an interactive `Username:` prompt.
+        $prevGitTermPrompt = $env:GIT_TERMINAL_PROMPT
+        $env:GIT_TERMINAL_PROMPT = '0'
         try {
-            Move-Item -LiteralPath $YurunaDir -Destination $YurunaBackupDir -ErrorAction Stop
-        } catch {
-            Write-Die "Could not move '$YurunaDir' to '$YurunaBackupDir': $($_.Exception.Message). Close any shells / editors / Explorer windows holding the path open, then re-run this installer."
+            & $gitExe ls-remote --exit-code $actualRemote HEAD *> $null
+        } finally {
+            if ($null -eq $prevGitTermPrompt) { Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue }
+            else { $env:GIT_TERMINAL_PROMPT = $prevGitTermPrompt }
         }
-        $script:YurunaBackupCreated = $YurunaBackupDir
-        Write-Step "Cloning fresh Yuruna into $YurunaDir"
-        & $gitExe clone --branch $YurunaBranch $YurunaRepo $YurunaDir
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn ''
+            Write-Warn '============================================================'
+            Write-Warn "  $actualRemote requires GitHub authentication to pull, and"
+            Write-Warn "  the current credentials don't grant access (or no credentials"
+            Write-Warn '  are configured).'
+            Write-Warn ''
+            Write-Warn '  Authenticate first, then re-run this installer:'
+            Write-Warn '    gh auth login     # interactive GitHub CLI sign-in'
+            Write-Warn '    # OR configure an SSH key with read access to the repo'
+            Write-Warn ''
+            Write-Warn "  Continuing this run WITHOUT updating $YurunaDir --"
+            Write-Warn '  existing on-disk content will be used as-is.'
+            Write-Warn '============================================================'
+            Write-Warn ''
+            $skipPull = $true
+        }
+    }
+
+    if (-not $skipPull) {
+        & $gitExe -C $YurunaDir fetch --tags origin
+        & $gitExe -C $YurunaDir checkout $YurunaBranch
+        & $gitExe -C $YurunaDir pull --ff-only origin $YurunaBranch 2>&1 | ForEach-Object {
+            if ($_ -match 'Already up to date|Fast-forward|Updating') { Write-Output "     $_" }
+            else { Write-Warn $_ }
+        }
+        # $LASTEXITCODE in PowerShell propagates through native-cmd pipelines:
+        # the value here is git's exit code, not ForEach-Object's.
+        $pullExit = $LASTEXITCODE
+        if ($pullExit -ne 0) {
+            # Fast-forward not possible: uncommitted changes, divergent
+            # commits, detached HEAD, or any other condition that prevents
+            # git from advancing the working tree. Rather than leaving the
+            # installer in a half-updated state, move the existing checkout
+            # aside as a timestamped backup and re-clone fresh. The
+            # test/status runtime state was already captured to TEMP by
+            # Backup-YurunaStatus above, so cycle history survives this
+            # path. The finally{} block surfaces $script:YurunaBackupCreated
+            # in the spawned pwsh window (and admin-console fallback) so
+            # the operator can salvage local edits before deleting it.
+            $stamp = Get-Date -Format 'yyyy-MM-dd.HH-mm'
+            $YurunaBackupDir = "$YurunaDir.backup.$stamp"
+            Write-Warn "git pull --ff-only failed (exit $pullExit) -- moving the existing checkout aside and re-cloning."
+            Write-Warn "  from: $YurunaDir"
+            Write-Warn "  to:   $YurunaBackupDir"
+            try {
+                Move-Item -LiteralPath $YurunaDir -Destination $YurunaBackupDir -ErrorAction Stop
+            } catch {
+                Write-Die "Could not move '$YurunaDir' to '$YurunaBackupDir': $($_.Exception.Message). Close any shells / editors / Explorer windows holding the path open, then re-run this installer."
+            }
+            $script:YurunaBackupCreated = $YurunaBackupDir
+            # Re-clone from whatever remote the local repo had, falling
+            # back to the per-copy $YurunaRepo default only if the original
+            # remote could not be read for some reason.
+            $recloneRemote = if ($actualRemote) { $actualRemote } else { $YurunaRepo }
+            Write-Step "Cloning fresh Yuruna into $YurunaDir from $recloneRemote"
+            & $gitExe clone --branch $YurunaBranch $recloneRemote $YurunaDir
+        }
     }
 } else {
-    Write-Step "Cloning Yuruna into $YurunaDir"
+    Write-Step "Cloning Yuruna into $YurunaDir from $YurunaRepo"
     & $gitExe clone --branch $YurunaBranch $YurunaRepo $YurunaDir
 }
 
@@ -717,32 +795,16 @@ if ($script:RestartNeeded) {
 }
 
 # -- Host configuration (display timeout, screen lock, etc.) ---------------
-# Skip this block when Hyper-V was just enabled in THIS run: the vmms
-# service only exists after the pending reboot, and Set-WindowsHostConditionSet
-# reacts to its absence by printing "Enable-WindowsOptionalFeature ... Then
-# reboot and re-run" -- a misleading message to greet the user with two
-# lines after we already said we just enabled Hyper-V. Enable-TestAutomation
-# will run cleanly after the reboot, either on the next installer run or on
-# first use of Invoke-TestRunner.ps1.
+# Enable-TestAutomation.ps1 is NOT run automatically. It is the explicit
+# opt-in step that turns this Windows machine into a Yuruna test host
+# (powercfg display/sleep tweaks, screen-lock registry edits, etc.) and
+# is therefore left for the operator to invoke manually after install.
 $setHost = Join-Path $YurunaDir 'host\windows.hyper-v\Enable-TestAutomation.ps1'
-if ($script:RestartNeeded) {
-    Write-Warn 'Skipping host\windows.hyper-v\Enable-TestAutomation.ps1 until after the pending Hyper-V restart.'
-} elseif (Test-Path $setHost) {
-    # Same PS 5.1-safe resolution pattern as $gitExe above. By this point
-    # we are guaranteed to be under pwsh (the PS 7 bootstrap re-exec'd if
-    # we weren't), so this will always find pwsh.exe; the fallback is
-    # defensive for anyone running with -Command against the raw script.
-    $pwshCmd2 = Get-Command pwsh -ErrorAction SilentlyContinue
-    $pwshExe  = if ($pwshCmd2) { $pwshCmd2.Source } else { $null }
-    if (-not $pwshExe) {
-        Write-Warn 'pwsh not on PATH yet -- skipping host\windows.hyper-v\Enable-TestAutomation.ps1. Open a new terminal and run it manually.'
-    } else {
-        Write-Step 'Running host\windows.hyper-v\Enable-TestAutomation.ps1'
-        & $pwshExe -NoLogo -NoProfile -File $setHost
-    }
-} else {
-    Write-Warn "host\windows.hyper-v\Enable-TestAutomation.ps1 not found under $YurunaDir -- skipping host config."
-}
+Write-Step ''
+Write-Step 'Host configuration (test-host setup) is NOT auto-applied.'
+Write-Step 'To enable this machine as a test host (disables display timeout'
+Write-Step 'and screen lock so Hyper-V screen captures stay readable), run:'
+Write-Step "    pwsh `"$setHost`""
 
 # -- Done -------------------------------------------------------------------
 $script:InstallSucceeded = $true
@@ -901,8 +963,13 @@ $script:InstallSucceeded = $true
             $null = $lines.Add("Write-Host '  * notepad is open on test.config.yml -- edit values for' -ForegroundColor Cyan")
             $null = $lines.Add("Write-Host '    your environment, then save and close notepad.' -ForegroundColor Cyan")
         }
+        $null = $lines.Add("Write-Host '  * (Optional) To enable this machine as a test host (display timeout' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '    and screen lock off so Hyper-V screen captures stay readable):' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '      pwsh ..\host\windows.hyper-v\Enable-TestAutomation.ps1' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host '  * Run the test harness from THIS window:' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host '      pwsh .\Invoke-TestRunner.ps1' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '  * Authenticate the GitHub CLI (one-time, optional):' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '      gh auth login' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host ''")
         if ($script:YurunaBackupCreated) {
             # Loud notice so the operator can salvage local edits before
@@ -966,9 +1033,14 @@ $script:InstallSucceeded = $true
                 Write-Output '   * notepad is open on test.config.yml -- edit values for'
                 Write-Output '     your environment, then save and close notepad.'
             }
+            Write-Output '   * (Optional) Enable this machine as a test host (display timeout'
+            Write-Output '     and screen lock off so Hyper-V screen captures stay readable):'
+            Write-Output ("       pwsh `"" + (Join-Path $YurunaDir 'host\windows.hyper-v\Enable-TestAutomation.ps1') + "`"")
             Write-Output '   * Open a new pwsh window, then run:'
             Write-Output ("       cd `"$testDirFinal`"")
             Write-Output  '       pwsh .\Invoke-TestRunner.ps1'
+            Write-Output '   * Authenticate the GitHub CLI (one-time, optional):'
+            Write-Output '       gh auth login'
             Write-Output '================================================================'
             if ($script:YurunaBackupCreated) {
                 Write-Output ''

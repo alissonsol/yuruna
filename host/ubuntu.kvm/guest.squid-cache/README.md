@@ -1,10 +1,10 @@
 # Squid Cache VM (Ubuntu KVM)
 
 Canonical documentation (setup, configuration, monitoring, credentials,
-management): **[docs/caching.md](../../../docs/caching.md)**.
+management): **[Caching](../../../docs/caching.md)**.
 Test-harness wrappers (`Start-CachingProxy.ps1`,
 `Test-CachingProxy.ps1`, `YURUNA_CACHING_PROXY_IP`):
-**[test/CachingProxy.md](../../../test/CachingProxy.md)**.
+**[Caching proxy — test-harness operator reference](../../../docs/caching-proxy.md)**.
 
 Scripts and config in this folder:
 
@@ -110,7 +110,7 @@ will set one up automatically for ports 80 / 3000 / 9302 / 3128 /
 
 The cache VM's `yuruna` password is persisted (so reboots and rebuilds
 keep the same credentials) at
-`test/status/track/yuruna-caching-proxy.yml` — the same file written
+`test/status/runtime/yuruna-caching-proxy.yml` — the same file written
 by the Hyper-V and macOS UTM squid-cache hosts. This is host-agnostic
 state managed by `test/modules/Test.CachingProxy.psm1`.
 

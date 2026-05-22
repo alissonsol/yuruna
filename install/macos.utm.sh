@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.15
+# Version: 2026.05.22
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # Yuruna macOS bootstrap installer.
@@ -12,7 +12,18 @@
 
 set -euo pipefail
 
-YURUNA_REPO="${YURUNA_REPO:-https://github.com/alissonsol/yuruna.git}"
+# This installer ships in TWO repos that share the same install script:
+#   * public   https://github.com/alissonsol/yuruna       (clone works unauthenticated)
+#   * private  https://github.com/alissonsol/yurunadev    (clone needs GitHub auth)
+# The copy committed to each repo points YURUNA_REPO at its OWN URL so the
+# curl|bash one-liner clones the repo the operator chose to download the
+# script from. Both constants stay defined regardless of which copy is
+# running so the existing-checkout logic further down can recognize the
+# remote a previous run cloned from -- and skip a pull that would just
+# stall waiting for GitHub credentials this run doesn't have.
+YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
+YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
+YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
 YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
@@ -87,27 +98,24 @@ preflight_system_requirements
 # ── sudo announcement (consistent with other Yuruna scripts) ───────────────
 # Every script in this repo that needs elevation says so up front rather than
 # surprising the user midway through. Match that convention here and prime
-# sudo a single time so the Homebrew installer, cask post-installs, and the
-# pmset call in host/macos.utm/Enable-TestAutomation.ps1 all reuse the same timestamp.
+# sudo a single time so the Homebrew installer and cask post-installs all
+# reuse the same timestamp.
 cat <<'SUDO_NOTICE'
 
   ┌───────────────────────────────────────────────────────────────┐
   │  This installer needs sudo for:                               │
   │    • Homebrew install + cask post-install scripts             │
-  │    • pmset / defaults in                                      │
-  │      host/macos.utm/Enable-TestAutomation.ps1                 │
   │  You will be prompted for your macOS password ONCE, below.    │
   └───────────────────────────────────────────────────────────────┘
 
 SUDO_NOTICE
 sudo -v
 export YURUNA_SUDO_PRIMED=1
-# Keep the sudo timestamp fresh for the whole run so later steps don't re-prompt.
-# `|| true` is load-bearing: under `set -e` (top of file), a transient
-# `sudo -n true` failure -- e.g. brief timestamp-lock contention while
-# brew/cask post-install runs its own sudo -- would otherwise kill this
-# subshell, the cache would expire after 5 min, and the pwsh
-# Enable-TestAutomation step would re-prompt for the password.
+# Keep the sudo timestamp fresh for the whole run so brew/cask post-install
+# scripts don't re-prompt. `|| true` is load-bearing: under `set -e` (top of
+# file), a transient `sudo -n true` failure -- e.g. brief timestamp-lock
+# contention while brew/cask post-install runs its own sudo -- would
+# otherwise kill this subshell.
 ( while true; do sudo -n true 2>/dev/null || true; sleep 30; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!
 
@@ -123,37 +131,10 @@ yuruna_install_cleanup() {
 }
 trap yuruna_install_cleanup EXIT
 
-# ── Sudo prelude ─────────────────────────────────────────────────────────────
-# Pre-apply every sudo-needing host setting NOW, while the cache is freshly
-# primed. Empirically, the keep-alive loop above is not enough on macOS:
-#   * Homebrew cask post-install scripts can run `sudo -k`, invalidating
-#     the timestamp mid-install.
-#   * On hosts with Touch ID enabled for sudo, pam_tid.so does not always
-#     populate sudo's timestamp cache, so each subsequent `sudo` re-prompts.
-# Either way, by the time pwsh reaches Set-MacHostConditionSet, an `[sudo]
-# password for ...` prompt would re-appear -- the "second sudo prompt"
-# operators have reported.
-#
-# Doing the work in ONE batched `sudo bash -c` runs every command in a
-# single root session, so ANY uncertainty about the cache afterwards is
-# moot for these settings. Set-MacHostConditionSet's idempotent `value
-# already set?` guards see the values in place and skip every `sudo` call.
-# The function still runs (it has non-sudo work too: hot corners, Spaces,
-# Accessibility prompt, Screen Recording prompt) but stays silent on sudo.
-log "Pre-applying sudo-needing host configuration (avoids re-prompt during pwsh)"
-sudo bash -c '
-  set +e
-  # Display + system + disk sleep -> Never (AC + battery)
-  pmset -c displaysleep 0
-  pmset -b displaysleep 0
-  pmset -a sleep 0 disksleep 0 disablesleep 1
-  # Power Nap, standby, autopoweroff, hibernation -> off; tty/tcp keep-awake -> on
-  pmset -a powernap 0 standby 0 standbydelay 0 autopoweroff 0 hibernatemode 0
-  pmset -a ttyskeepawake 1 tcpkeepalive 1 proximitywake 0
-  # Auto-logout after inactivity -> disabled (system-level GlobalPreferences)
-  defaults write /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay -int 0
-  exit 0
-' || warn "Sudo prelude reported a failure; pwsh Set-MacHostConditionSet will retry idempotently."
+# NOTE: pmset / GlobalPreferences (display sleep, auto-logout, etc.) are
+# the test-host configuration that lives in host/macos.utm/Enable-TestAutomation.ps1
+# and is intentionally NOT applied by this installer. Run that script
+# manually after install if you want this machine to act as a test host.
 
 # ── Xcode Command Line Tools (prereq for Homebrew + git) ────────────────────
 if ! xcode-select -p >/dev/null 2>&1; then
@@ -211,13 +192,13 @@ quit_mac_app() {
 
 stop_yuruna_processes() {
   # Kill any running Invoke-TestRunner (outer), Invoke-TestInnerRunner
-  # (per-cycle inner under modules/), Confirm-Sequence (dev helper), or
+  # (per-cycle inner under modules/), Test-Sequence (dev helper), or
   # Start-StatusServer under the current user. Leaves the pwsh running
   # *this* installer alone (bash cmdline doesn't include any of these).
   local patterns=(
     "Invoke-TestRunner.ps1"
     "Invoke-TestInnerRunner.ps1"
-    "Confirm-Sequence.ps1"
+    "Test-Sequence.ps1"
     "Start-StatusServer.ps1"
   )
   for pat in "${patterns[@]}"; do
@@ -276,7 +257,7 @@ is_squid_cache_running() {
   # --- Signal 1: TCP probe of the recorded cache IP ---
   # State file survives the clone/update (preserve_test_status) and at
   # this point still holds the PRIOR run's value -- exactly what we want.
-  local state_file="$YURUNA_DIR/test/status/track/yuruna-caching-proxy.yml"
+  local state_file="$YURUNA_DIR/test/status/runtime/yuruna-caching-proxy.yml"
   if [[ -f "$state_file" ]] && command -v nc >/dev/null 2>&1; then
     local cache_ip
     cache_ip=$(grep -E '^ipAddress:' "$state_file" 2>/dev/null | head -1 \
@@ -357,6 +338,7 @@ brew_ensure_formula tesseract   # needed by Test.Tesseract.psm1 for OCR steps
 brew_ensure_formula qemu        # provides qemu-img, needed by Get-Image.ps1 to resize guest disks
 brew_ensure_formula wget        # used by several guest Get-Image.ps1 download steps
 brew_ensure_formula openssl     # used by cloud-init seed preparation for some guests
+brew_ensure_formula gh          # GitHub CLI -- post-install: run `gh auth login` to authenticate
 
 log "Installing / upgrading required casks"
 if [[ ${PRESERVE_SQUID_CACHE:-0} -eq 1 ]]; then
@@ -385,21 +367,28 @@ command -v git  >/dev/null 2>&1 || die "git not found after install."
 # ── Preserve test/status runtime state across the clone/update ──────────────
 # Re-running the installer on a host that's been executing test cycles must
 # not lose the dashboard's history, per-cycle log transcripts, or the
-# track-dir state (status.json with history[], runner.gating.json,
+# runtime-dir state (status.json with history[], runner.gating.json,
 # runner.pid, control flags). None of those are tracked by git -- per
-# .gitignore they live under test/status/{track,log}/ as runtime
-# artifacts. The clone/update/renormalize block below is designed to
-# leave untracked files alone (`git rm -r --cached . && git reset --hard
-# HEAD` only touches tracked files), but we backstop that contract with
-# an explicit snapshot-and-restore so a future regression in the
-# renormalize logic, or a manual rm -rf YURUNA_DIR between attempts,
-# can't silently wipe weeks of cycle history.
+# .gitignore every subdir under test/status/ is gitignored as runtime
+# state. The clone/update/renormalize block below is designed to leave
+# untracked files alone (`git rm -r --cached . && git reset --hard HEAD`
+# only touches tracked files), but we backstop that contract with an
+# explicit snapshot-and-restore so a future regression in the renormalize
+# logic, or a manual rm -rf YURUNA_DIR between attempts, can't silently
+# wipe weeks of cycle history.
+#
+# All harness runtime state lives under test/status/<sub>/ for the layout
+# introduced in the status reorg: runtime/, perf/, log/, extension/,
+# captures/, ssh/. Preserve every subdir so cycle history, perf JSONL,
+# vault state, training/sequence captures, and the generated SSH key pair
+# all survive a clone/update.
+TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)
 preserve_test_status() {
   local src="$YURUNA_DIR/test/status"
   [[ -d "$src" ]] || return 0
   local has_runtime=""
   local sub
-  for sub in track log; do
+  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
     [[ -d "$src/$sub" ]] || continue
     if find "$src/$sub" -mindepth 1 -not -name '.gitkeep' -print -quit 2>/dev/null | grep -q .; then
       has_runtime=1; break
@@ -407,10 +396,10 @@ preserve_test_status() {
   done
   [[ -n "$has_runtime" ]] || return 0
   YURUNA_STATUS_BACKUP=$(mktemp -d) || { warn "  could not create temp dir; skipping test/status preservation"; return 0; }
-  log "Preserving test/status runtime state (cycle history, logs)"
+  log "Preserving test/status runtime state (cycle history, logs, perf, vault, captures, ssh keys)"
   log "  source : $src"
   log "  backup : $YURUNA_STATUS_BACKUP"
-  for sub in track log; do
+  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
     if [[ -d "$src/$sub" ]]; then
       mkdir -p "$YURUNA_STATUS_BACKUP/$sub"
       cp -a "$src/$sub/." "$YURUNA_STATUS_BACKUP/$sub/" 2>/dev/null || true
@@ -422,7 +411,7 @@ restore_test_status() {
   local dst="$YURUNA_DIR/test/status"
   log "Restoring preserved test/status runtime state"
   local sub
-  for sub in track log; do
+  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
     if [[ -d "$YURUNA_STATUS_BACKUP/$sub" ]]; then
       mkdir -p "$dst/$sub"
       cp -a "$YURUNA_STATUS_BACKUP/$sub/." "$dst/$sub/" 2>/dev/null || true
@@ -442,31 +431,78 @@ preserve_test_status
 mkdir -p "$(dirname "$YURUNA_DIR")"
 if [[ -d "$YURUNA_DIR/.git" ]]; then
   log "Updating existing Yuruna checkout at $YURUNA_DIR"
-  git -C "$YURUNA_DIR" fetch --tags origin
-  git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH"
-  if ! git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; then
-    # Fast-forward not possible: uncommitted changes, divergent commits,
-    # detached HEAD, file-mode quirks across mount points, or just a
-    # working tree that diverged identically-but-not-as-a-ff (e.g. a
-    # local revert that happens to match HEAD content-wise but adds
-    # commits the remote doesn't have). Rather than leaving the
-    # installer in a half-updated state, move the existing checkout
-    # aside as a timestamped backup and re-clone fresh. The
-    # test/status runtime state was already captured to TEMP by
-    # preserve_test_status above, so cycle history survives this path.
-    YURUNA_BACKUP_DIR="${YURUNA_DIR}.backup.$(date +%Y-%m-%d.%H-%M)"
-    warn "git pull --ff-only failed — moving the existing checkout aside and re-cloning."
-    warn "  from: $YURUNA_DIR"
-    warn "  to:   $YURUNA_BACKUP_DIR"
-    if ! mv "$YURUNA_DIR" "$YURUNA_BACKUP_DIR"; then
-      die "Could not move '$YURUNA_DIR' to '$YURUNA_BACKUP_DIR'. Close any shells / editors / Finder windows holding the path open and re-run this installer."
+  # Pull from whatever remote the LOCAL repo was cloned from -- not from
+  # whichever YURUNA_REPO default this copy of the installer ships. A
+  # previous run may have cloned the OTHER repo (the public 'yuruna'
+  # checkout works for everyone; the private 'yurunadev' checkout needs
+  # GitHub auth) and we must not silently migrate the operator's local
+  # tree to a different remote.
+  actual_remote="$(git -C "$YURUNA_DIR" remote get-url origin 2>/dev/null || true)"
+  remote_normalized="${actual_remote%/}"
+  remote_basename="$(basename "${remote_normalized%.git}" 2>/dev/null || true)"
+  log "  remote : ${actual_remote:-<none>}"
+
+  skip_pull=0
+  if [[ "$remote_basename" == "yurunadev" ]]; then
+    # Private remote: require demonstrated access before we attempt
+    # `git fetch`. `ls-remote` fails fast on 401/403, sparing the
+    # operator a stalled credential prompt or an error transcript
+    # that looks like the test harness broke when really only auth
+    # was missing. The pull is skipped (not the rest of the install)
+    # so a contributor on a flaky/unauthenticated session can still
+    # keep iterating with the last-known-good code on disk.
+    # GIT_TERMINAL_PROMPT=0: fail fast on missing credentials instead of
+    # blocking the installer on an interactive `Username:` prompt.
+    if ! GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$actual_remote" HEAD >/dev/null 2>&1; then
+      warn ""
+      warn "============================================================"
+      warn "  $actual_remote requires GitHub authentication to pull, and"
+      warn "  the current credentials don't grant access (or no credentials"
+      warn "  are configured)."
+      warn ""
+      warn "  Authenticate first, then re-run this installer:"
+      warn "    gh auth login     # interactive GitHub CLI sign-in"
+      warn "    # OR configure an SSH key with read access to the repo"
+      warn ""
+      warn "  Continuing this run WITHOUT updating $YURUNA_DIR --"
+      warn "  existing on-disk content will be used as-is."
+      warn "============================================================"
+      warn ""
+      skip_pull=1
     fi
-    YURUNA_BACKUP_CREATED="$YURUNA_BACKUP_DIR"
-    log "Cloning fresh Yuruna into $YURUNA_DIR"
-    git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"
+  fi
+
+  if [[ $skip_pull -eq 0 ]]; then
+    git -C "$YURUNA_DIR" fetch --tags origin
+    git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH"
+    if ! git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; then
+      # Fast-forward not possible: uncommitted changes, divergent commits,
+      # detached HEAD, file-mode quirks across mount points, or just a
+      # working tree that diverged identically-but-not-as-a-ff (e.g. a
+      # local revert that happens to match HEAD content-wise but adds
+      # commits the remote doesn't have). Rather than leaving the
+      # installer in a half-updated state, move the existing checkout
+      # aside as a timestamped backup and re-clone fresh. The
+      # test/status runtime state was already captured to TEMP by
+      # preserve_test_status above, so cycle history survives this path.
+      YURUNA_BACKUP_DIR="${YURUNA_DIR}.backup.$(date +%Y-%m-%d.%H-%M)"
+      warn "git pull --ff-only failed — moving the existing checkout aside and re-cloning."
+      warn "  from: $YURUNA_DIR"
+      warn "  to:   $YURUNA_BACKUP_DIR"
+      if ! mv "$YURUNA_DIR" "$YURUNA_BACKUP_DIR"; then
+        die "Could not move '$YURUNA_DIR' to '$YURUNA_BACKUP_DIR'. Close any shells / editors / Finder windows holding the path open and re-run this installer."
+      fi
+      YURUNA_BACKUP_CREATED="$YURUNA_BACKUP_DIR"
+      # Re-clone from whatever remote the local repo had, falling back
+      # to the per-copy YURUNA_REPO default only if the original remote
+      # could not be read for some reason.
+      reclone_remote="${actual_remote:-$YURUNA_REPO}"
+      log "Cloning fresh Yuruna into $YURUNA_DIR from $reclone_remote"
+      git clone --branch "$YURUNA_BRANCH" "$reclone_remote" "$YURUNA_DIR"
+    fi
   fi
 else
-  log "Cloning Yuruna into $YURUNA_DIR"
+  log "Cloning Yuruna into $YURUNA_DIR from $YURUNA_REPO"
   git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"
 fi
 
@@ -544,25 +580,16 @@ else
 fi
 
 # ── Host configuration (disable display sleep, screen saver, etc.) ──────────
-# The host-prep script lives under host/macos.utm/ (not test/) because
-# its logic is platform-specific; the test harness imports the underlying
-# module (test/modules/Test.Host.psm1) separately.
+# Enable-TestAutomation.ps1 is NOT run automatically. It is the explicit
+# opt-in step that turns this macOS machine into a Yuruna test host
+# (pmset display/sleep tweaks, auto-logout disable, hot corners off,
+# Accessibility / Screen Recording grants) and is therefore left for
+# the operator to invoke manually after install.
 HOST_SETUP="$YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1"
-if [[ -f "$HOST_SETUP" ]]; then
-  log "Running host/macos.utm/Enable-TestAutomation.ps1 (uses pmset via sudo)"
-  # NO `sudo -v` here. Honoring the "ONCE" promise printed at the top of
-  # this script means we DO NOT re-prompt before the pwsh call. The
-  # keep-alive loop above is responsible for keeping the sudo cache
-  # warm for the whole run; the pwsh script's Set-MacHostConditionSet
-  # also calls test/modules/Test.Host.psm1's Initialize-SudoCache which
-  # checks `sudo -n true` first and only prompts (with an explicit box
-  # notice naming the operations that need root) in the genuinely-cold
-  # edge case. Either way, the operator never sees an unannotated
-  # second sudo prompt at this hand-off point.
-  pwsh -NoLogo -NoProfile -File "$HOST_SETUP"
-else
-  warn "Enable-TestAutomation.ps1 not found at $HOST_SETUP — skipping host config."
-fi
+log ""
+log "Host configuration (test-host setup) is NOT auto-applied."
+log "To enable this machine as a test host, run:"
+log "    pwsh '$HOST_SETUP'"
 
 # ── Done ────────────────────────────────────────────────────────────────────
 # Figure out which brew shellenv line the user needs to load in their current
@@ -598,8 +625,18 @@ Next steps (in order):
        System Settings > Privacy & Security > Accessibility
        → add and enable Terminal.app (or iTerm2, Ghostty, …)
 
-  5. Run the test runner:
+  5. (Optional) Enable this machine as a test host -- disables display sleep,
+     auto-logout, and screen lock so VM screen captures stay readable. NOT
+     run automatically; opt in only if this Mac will run Invoke-TestRunner:
+       pwsh $YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1
+
+  6. Run the test runner:
        cd $TEST_DIR && pwsh ./Invoke-TestRunner.ps1
+
+  7. (Optional, one-time) Authenticate the GitHub CLI so 'gh' can act on
+     your behalf -- the installer installs the binary, but authentication
+     requires an interactive web-or-token flow you have to drive:
+       gh auth login
 
 Re-running this installer is safe; it will update Homebrew packages and
 fast-forward the Yuruna checkout when possible.

@@ -1,6 +1,6 @@
 # macOS UTM Host Setup - Nerd-Level Details
 
-The one-line installer in [README.md](README.md) automates the steps
+The one-line installer in [macOS UTM ...](README.md) automates the steps
 below. This walk-through reproduces them by hand for audit / learning.
 
 ## 1) Install Homebrew
@@ -79,8 +79,8 @@ template line; producer and consumer pick up the port automatically.
 ### Running across macOS Spaces (desktops)
 
 QEMU+VNC guests are Space-independent end-to-end: capture and
-keystrokes flow through TCP. AVF guests (`guest.ubuntu.server`,
-`guest.amazon.linux`) capture via `screencapture -l <windowID>`; the
+keystrokes flow through TCP. AVF guests (`guest.ubuntu.server.24`,
+`guest.amazon.linux.2023`) capture via `screencapture -l <windowID>`; the
 windowID lookup uses `kCGWindowListOptionAll` to find UTM windows on
 other Spaces, and `Enable-TestAutomation.ps1` flips
 `AppleSpacesSwitchOnActivation` so UTM activation doesn't yank the
@@ -117,8 +117,8 @@ open -a UTM      # surfaces any first-run dialogs
 
 ## 8) Optional: Squid cache VM
 
-See [../README.md](../README.md#optional-squid-cache-vm) and
-[../../docs/caching.md](../../docs/caching.md). After provision,
+See [Hosts — ...](../README.md#optional-squid-cache-vm) and
+[Caching](../../docs/caching.md). After provision,
 double-click
 `~/yuruna/guest.nosync/squid-cache.utm` to register
 the bundle with UTM and start the VM.
@@ -130,7 +130,7 @@ pwsh ~/git/yuruna/test/Invoke-TestRunner.ps1
 ```
 
 [Guest VMs](README.md#next-create-a-guest-vm) ·
-[Troubleshooting](troubleshooting.md) ·
+[Troubleshooting](../../docs/host-macos.md) ·
 Back to [UTM setup](README.md) · [Yuruna](../../README.md)
 
 ---

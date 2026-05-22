@@ -1,0 +1,100 @@
+#!/bin/bash
+# Version: 2026.05.22
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+set -euo pipefail
+
+# ===== Detect architecture =====
+ARCH=$(uname -m)
+echo "Detected architecture: $ARCH"
+case "$ARCH" in
+  x86_64)
+    echo "Environment: x86_64 (Hyper-V)"
+    ;;
+  aarch64)
+    echo "Environment: aarch64/arm64 (UTM on Apple Silicon)"
+    ;;
+  *)
+    echo "WARNING: Unsupported architecture: $ARCH"
+    echo "This script supports x86_64 (Hyper-V) and aarch64 (UTM on Apple Silicon)."
+    exit 1
+    ;;
+esac
+
+# --- See https://yuruna.link/network#defining-package-manager-retry
+dnf_retry() {
+  local max_attempts=5 attempt=1 delay=15 rc=0
+  while [ $attempt -le $max_attempts ]; do
+    if [ $attempt -gt 1 ]; then
+      echo ""
+      echo ">> dnf_retry: attempt $attempt/$max_attempts for: $*"
+    fi
+    rc=0; "$@" || rc=$?
+    if [ $rc -eq 0 ]; then return 0; fi
+    echo "!! dnf_retry: attempt $attempt/$max_attempts failed (rc=$rc): $*"
+    if [ $attempt -lt $max_attempts ]; then
+      echo "!! dnf_retry: sleeping ${delay}s before retry"
+      sleep $delay
+      delay=$((delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "!! dnf_retry: all $max_attempts attempts exhausted for: $*"
+  return $rc
+}
+
+# ===== Install the JDK =====
+echo ""
+echo -e "\e[1;36m>>> Installing JDK (Amazon Corretto)...\e[0m"
+# Amazon Corretto provides both x86_64 and aarch64 packages
+dnf_retry sudo dnf install -y java-21-amazon-corretto-devel
+java -version
+javac -version
+export JAVA_HOME=/etc/alternatives/java_sdk
+if ! grep -q 'export JAVA_HOME=/etc/alternatives/java_sdk' /etc/bashrc 2>/dev/null; then
+  echo 'export JAVA_HOME=/etc/alternatives/java_sdk' | sudo tee -a /etc/bashrc
+fi
+echo -e "\e[1;32m<<< JDK (Amazon Corretto) installation complete.\e[0m"
+
+# ===== Install .NET SDK =====
+echo ""
+echo -e "\e[1;36m>>> Installing .NET SDK...\e[0m"
+# Use Microsoft's official dotnet-install.sh script instead of RPM repos.
+# The CentOS 8/9 repo configs are incompatible with Amazon Linux 2023 (Fedora-based).
+# dotnet-install.sh auto-detects architecture (x86_64/aarch64) and works reliably.
+# Install libicu dependency required by .NET for globalization support.
+dnf_retry sudo dnf install -y libicu
+sudo mkdir -p /usr/local/dotnet
+curl -sSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
+chmod +x /tmp/dotnet-install.sh
+sudo bash /tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
+rm -f /tmp/dotnet-install.sh
+
+# Make dotnet available system-wide
+sudo ln -sf /usr/local/dotnet/dotnet /usr/local/bin/dotnet
+if ! grep -q 'export DOTNET_ROOT=/usr/local/dotnet' /etc/bashrc 2>/dev/null; then
+  echo 'export DOTNET_ROOT=/usr/local/dotnet' | sudo tee -a /etc/bashrc
+fi
+dotnet --version
+echo -e "\e[1;32m<<< .NET SDK installation complete.\e[0m"
+
+# ===== Install Visual Studio Code =====
+echo ""
+echo -e "\e[1;36m>>> Installing Visual Studio Code...\e[0m"
+# The VS Code yum repo provides both x86_64 and aarch64 packages
+sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null || true
+sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo'
+dnf_retry sudo dnf -y install code
+echo -e "\e[1;32m<<< Visual Studio Code installation complete.\e[0m"
+
+# ===== Show installed versions =====
+echo ""
+echo "=== Installation Summary ==="
+echo "DotNet: $(dotnet --version)"
+echo "Git: $(git --version)"
+echo "Java: $(javac -version)"
+if [ -z "${TMPDIR:-}" ]; then
+	TMPDIR=$(mktemp -d)
+    export TMPDIR
+	echo "TMPDIR not set. Created and set TMPDIR to $TMPDIR"
+fi
+echo "Visual Studio Code: $(code --version --no-sandbox --user-data-dir "$TMPDIR")"

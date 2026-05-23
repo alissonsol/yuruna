@@ -127,12 +127,14 @@ fi
 
 # -- Homebrew health repair (multi-user host) ------------------------------
 # A fresh macOS user account on a host where Homebrew was installed by a
-# different account inherits a /opt/homebrew owned by the original
-# installer. Every subsequent brew op then fails with "not writable",
-# "Can't create brew update lock", or "fatal: not in a git directory" --
-# three separate manual `sudo chown -R` rounds before the installer can
-# proceed. Repair on this run instead of asking the operator. sudo creds
-# are already cached from the earlier `sudo -v`, so this is silent on a
+# different account inherits a /opt/homebrew with mixed ownership AND
+# (often) no .git directory (tarball install). Every subsequent brew op
+# then either fails outright (`not writable`, `Can't create brew update
+# lock`) or spams the "fatal: not in a git directory" + "update-report
+# should not be called directly!" cascade triggered by Homebrew's
+# internal auto-update inside every `brew install` / `brew upgrade`.
+# Repair on this run instead of asking the operator. sudo creds are
+# already cached from the earlier `sudo -v`, so this is silent on a
 # correctly-installed host (the writability test short-circuits to no-op).
 BREW_PREFIX="$(brew --prefix 2>/dev/null || true)"
 if [[ -z "$BREW_PREFIX" ]]; then
@@ -140,24 +142,63 @@ if [[ -z "$BREW_PREFIX" ]]; then
   elif [[ -x /usr/local/bin/brew    ]]; then BREW_PREFIX=/usr/local
   fi
 fi
+
+# HOMEBREW_NO_AUTO_UPDATE=1 silences the "fatal: not in a git directory"
+# + "update-report should not be called directly!" cascade that fires
+# INSIDE every `brew install` / `brew upgrade` when the prefix isn't a
+# proper git checkout. Without this, each per-package op spams ~10
+# lines of noise BEFORE doing its actual work, and the operator can't
+# tell real errors from auto-update fallout. The explicit `brew update`
+# step below is still run when the prefix IS a git checkout; auto-update
+# inside individual ops is redundant with that one explicit call.
+export HOMEBREW_NO_AUTO_UPDATE=1
+# HOMEBREW_NO_ENV_HINTS=1 suppresses the "Homebrew is run entirely by
+# unpaid volunteers" donations banner + similar one-shot hints that
+# accumulate across the half-dozen brew ops in this script. Cosmetic;
+# the install works either way.
+export HOMEBREW_NO_ENV_HINTS=1
+
 BREW_SKIP_UPDATE=0
 if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then
-  # Writability check covers BOTH the prefix root (first failure mode in
-  # the wild: "Error: /opt/homebrew is not writable") and the deeper
-  # locks dir (second failure mode: "Can't create brew update lock in
-  # /opt/homebrew/var/homebrew/locks"). One chown -R fixes both.
-  if [[ ! -w "$BREW_PREFIX" ]] || \
-     { [[ -d "$BREW_PREFIX/var/homebrew/locks" ]] && [[ ! -w "$BREW_PREFIX/var/homebrew/locks" ]]; }; then
+  # Repair signal #1: the prefix root isn't writable.
+  # Repair signal #2: the prefix has no .git directory (tarball-installed
+  #   Homebrew). Independent of permissions, but on this multi-user host
+  #   strongly correlates with mixed-ownership subdirs from the partial
+  #   prior install -- so we treat it as a chown trigger too.
+  # Repair signal #3: ANY of the standard write-target subdirs is
+  #   non-writable. The previous wild log surfaced
+  #     /opt/homebrew/etc/bash_completion.d
+  #     /opt/homebrew/lib/pkgconfig
+  #     /opt/homebrew/share/{aclocal,doc,info,locale,man,man/*,zsh,zsh/site-functions}
+  #   none of which a single writability check on $BREW_PREFIX catches.
+  #   Sample the brew install/upgrade write targets directly.
+  NEEDS_REPAIR=0
+  if [[ ! -w "$BREW_PREFIX" ]]; then NEEDS_REPAIR=1; fi
+  if [[ ! -d "$BREW_PREFIX/.git" ]]; then NEEDS_REPAIR=1; fi
+  for sub in \
+    etc/bash_completion.d \
+    lib/pkgconfig \
+    share/aclocal share/doc share/info share/locale \
+    share/man share/man/man1 share/man/man3 share/man/man5 \
+    share/man/man7 share/man/man8 \
+    share/zsh share/zsh/site-functions \
+    var/homebrew/locks Cellar Caskroom; do
+    if [[ -d "$BREW_PREFIX/$sub" && ! -w "$BREW_PREFIX/$sub" ]]; then
+      NEEDS_REPAIR=1
+      break
+    fi
+  done
+  if [[ $NEEDS_REPAIR -eq 1 ]]; then
     BREW_OWNER="$(stat -f '%Su' "$BREW_PREFIX" 2>/dev/null || echo '?')"
-    log "Homebrew prefix $BREW_PREFIX is not writable by $USER (owner: $BREW_OWNER) -- transferring ownership (sudo cached, silent)."
-    sudo chown -R "$USER":admin "$BREW_PREFIX"
+    log "Homebrew prefix $BREW_PREFIX has ownership/state issues for $USER (top-level owner: $BREW_OWNER) -- transferring ownership recursively (sudo cached)."
+    # `|| true` so a stray protected file (rare but seen on some images)
+    # doesn't abort the install -- the chown is best-effort, the
+    # subsequent brew ops will surface anything still broken.
+    sudo chown -R "$USER":admin "$BREW_PREFIX" || warn "  chown -R reported errors; per-package brew ops below will surface anything still broken."
   fi
-  # Modern Homebrew can be installed via tarball (no .git in prefix);
-  # `brew update` then emits "fatal: not in a git directory" and exits
-  # non-zero. Same symptom shows up when the prefix IS git-managed but
-  # an internal tap repo is broken. In either case, per-package install
-  # / upgrade still works on the cached metadata, so skip the update
-  # step rather than abort the whole install.
+  # Skip the explicit `brew update` if the prefix isn't a git checkout
+  # -- it will only emit "fatal: not in a git directory" and exit non-
+  # zero. Per-package install/upgrade still works on cached metadata.
   if [[ ! -d "$BREW_PREFIX/.git" ]]; then
     warn "$BREW_PREFIX has no .git directory (tarball-installed Homebrew) -- skipping 'brew update'."
     BREW_SKIP_UPDATE=1

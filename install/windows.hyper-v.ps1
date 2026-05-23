@@ -96,6 +96,79 @@ if (-not $SkipPreflight) {
     Test-SystemRequirement
 }
 
+# -- Preflight: display scaling --------------------------------------------
+# --- See https://yuruna.link/install/explained#display-scaling-check
+function Test-DisplayScaling {
+    $asSignedDword = {
+        param($raw)
+        if ($null -eq $raw) { return 0 }
+        $u = [uint32]$raw
+        if ($u -gt [int32]::MaxValue) { return [int32]($u - 0x100000000) } else { return [int32]$u }
+    }
+
+    $issues = New-Object System.Collections.Generic.List[string]
+
+    $perMonRoot = 'HKCU:\Control Panel\Desktop\PerMonitorSettings'
+    if (Test-Path -LiteralPath $perMonRoot) {
+        $monKeys = Get-ChildItem -LiteralPath $perMonRoot -Recurse -ErrorAction SilentlyContinue |
+                   Where-Object { $_.PSIsContainer }
+        foreach ($mon in $monKeys) {
+            $props = Get-ItemProperty -LiteralPath $mon.PSPath -ErrorAction SilentlyContinue
+            if ($null -eq $props) { continue }
+            if (-not ($props.PSObject.Properties.Name -contains 'DpiValue')) { continue }
+            $current     = & $asSignedDword $props.DpiValue
+            $recommended = if ($props.PSObject.Properties.Name -contains 'RecommendedDpiValue') {
+                               & $asSignedDword $props.RecommendedDpiValue
+                           } else { 0 }
+            $target = -$recommended
+            if ($current -ne $target) {
+                $offsetSteps = $current - $target
+                $percent = 100 + ($offsetSteps * 25)
+                $null = $issues.Add("Monitor $($mon.PSChildName): $percent% display scale (DpiValue=$current, recommended offset=$recommended)")
+            }
+        }
+    }
+
+    $dp = Get-ItemProperty -LiteralPath 'HKCU:\Control Panel\Desktop' -ErrorAction SilentlyContinue
+    $logPixels = if ($dp -and ($dp.PSObject.Properties.Name -contains 'LogPixels')) {
+                     & $asSignedDword $dp.LogPixels
+                 } else { 96 }
+    if ($logPixels -ne 96) {
+        $percent = [math]::Round(($logPixels / 96.0) * 100)
+        $null = $issues.Add("System DPI (LogPixels): $logPixels ($percent%)")
+    }
+
+    $ap = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Accessibility' -ErrorAction SilentlyContinue
+    $tsf = if ($ap -and ($ap.PSObject.Properties.Name -contains 'TextScaleFactor')) {
+               [int]$ap.TextScaleFactor
+           } else { 100 }
+    if ($tsf -ne 100) {
+        $null = $issues.Add("Accessibility TextScaleFactor: $tsf% (Settings > Accessibility > Text size)")
+    }
+
+    if ($issues.Count -eq 0) {
+        Write-Step 'Display scaling: all sources at 100% (good for OCR).'
+        return
+    }
+
+    Write-Warning ''
+    Write-Warning '============================================================'
+    Write-Warning '  Display / text scaling is not 100%:'
+    foreach ($i in $issues) { Write-Warning "    - $i" }
+    Write-Warning ''
+    Write-Warning '  Yuruna OCR (Tesseract on VM screenshots) degrades when host'
+    Write-Warning '  DPI is above 100%. The install will proceed; AFTER install,'
+    Write-Warning '  run Enable-TestAutomation.ps1 to reset display scale to 100%'
+    Write-Warning '  (then sign out / back in for it to take effect):'
+    Write-Warning "    pwsh `"$YurunaDir\host\windows.hyper-v\Enable-TestAutomation.ps1`""
+    Write-Warning '============================================================'
+    Write-Warning ''
+}
+
+if (-not $SkipPreflight) {
+    Test-DisplayScaling
+}
+
 # -- Elevation announcement + self-relaunch --------------------------------
 $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent())

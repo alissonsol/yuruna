@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,12 @@
 param()
 
 $ErrorActionPreference = "Stop"
+# Surface the module's action-taken messages (Set-WindowsHostConditionSet
+# reports each setting via Write-Information). Without Continue, the
+# display-scale + screen-lock + display-timeout decisions print nothing
+# and the operator can't tell what changed -- contradicting the script's
+# own header which promises to "inform" of each action.
+$InformationPreference = 'Continue'
 # This script lives under host\windows.hyper-v\ ; the module it
 # delegates to is at test\modules\Test.Host.psm1 (two directory levels
 # up plus the test\ subtree). The cross-folder import is the same

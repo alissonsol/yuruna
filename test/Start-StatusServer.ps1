@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1311,8 +1311,12 @@ try {
                         `$spawnOut = Join-Path `$runtimeDir 'runner.spawned-from-web.out'
                         `$spawnErr = Join-Path `$runtimeDir 'runner.spawned-from-web.err'
                         if (`$IsWindows) {
+                            # Quote `$runnerScript so Start-Process emits a
+                            # correctly-quoted command line for paths that
+                            # contain spaces (e.g. C:\Users\Yuruna Test\...).
+                            `$runnerScriptQuoted = '"' + `$runnerScript + '"'
                             Start-Process -FilePath "pwsh" ``
-                                -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", `$runnerScript ``
+                                -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", `$runnerScriptQuoted ``
                                 -WorkingDirectory `$repoRoot ``
                                 -RedirectStandardOutput `$spawnOut ``
                                 -RedirectStandardError  `$spawnErr ``
@@ -1921,8 +1925,15 @@ if ($IsWindows) {
     # gives the grandchild dedicated handles and breaks the chain.
     $serverOut = Join-Path $RuntimeDir "server.out"
     $serverErrFile = Join-Path $RuntimeDir "server.err"
+    # Wrap $serverScriptFile in literal double quotes before handing it to
+    # -ArgumentList. Start-Process joins the array elements with spaces
+    # WITHOUT quoting, so a path like "C:\Users\Yuruna Test\..." gets
+    # re-split by CreateProcess and the child pwsh sees -File C:\Users\Yuruna
+    # and reports: The argument 'C:\Users\Yuruna' is not recognized as the
+    # name of a script file.
+    $serverScriptQuoted = '"' + $serverScriptFile + '"'
     $proc = Start-Process -FilePath "pwsh" `
-        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $serverScriptFile `
+        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $serverScriptQuoted `
         -RedirectStandardOutput $serverOut `
         -RedirectStandardError  $serverErrFile `
         -PassThru

@@ -360,6 +360,53 @@ something is below baseline. The function uses `Get-CimInstance` (more
 portable than WMI) and converts `TotalVisibleMemorySize` (KB) to GB via
 `/ 1MB`.
 
+### Display scaling check
+
+Tesseract OCR on VM screenshots degrades when the host display scales
+above 100%. vmconnect renders the guest framebuffer through the
+DPI-scaled compositor; the upscaled bitmap defeats Tesseract
+segmentation — `waitForText` silently times out on text a human reads
+fine. Fresh Windows 11 (HiDPI, 4K) ships at 125–150% by default, so
+this trap hits new hosts the first time they run a cycle.
+
+The installer's preflight in
+[install/windows.hyper-v.ps1](../install/windows.hyper-v.ps1)
+(`Test-DisplayScaling`) is **warn-only** — it never blocks the install.
+It reads three registry sources that can override the default 100%:
+
+- `HKCU\Control Panel\Desktop\PerMonitorSettings\<display-id>\DpiValue`
+  (per-monitor scale; Windows 10/11). The value is an offset from
+  `RecommendedDpiValue` — 100% maps to `-recommended` regardless of the
+  monitor's own recommended scale. Each step is +25%.
+- `HKCU\Control Panel\Desktop\LogPixels` (system-wide DPI fallback for
+  non-per-monitor-aware processes). Default is 96 (= 100%).
+- `HKCU\Software\Microsoft\Accessibility\TextScaleFactor` (Windows 11
+  "Text size" — independent of display scale; 100 to 225).
+
+REG_DWORD values can be signed (DpiValue is often negative). The
+installer uses the same UInt32→Int32 bit-reinterpret as the module's
+reset function — a bare `[int]` cast on values with the high bit set
+throws `OverflowException`.
+
+The corresponding reset action lives in
+[test/modules/Test.Host.psm1](../test/modules/Test.Host.psm1)
+`Set-WindowsHostConditionSet`, called by
+[host/windows.hyper-v/Enable-TestAutomation.ps1](../host/windows.hyper-v/Enable-TestAutomation.ps1).
+It writes 100% to all three sources and emits per-monitor status lines
+via `Write-Information`. The Enable-TestAutomation script sets
+`$InformationPreference = 'Continue'` so those messages actually
+surface to the operator (without the preference set, they're silent —
+and the script's own header would lie about "informing of each
+action"). Changes take effect after the operator signs out and back in
+(or reboots) — `Set-WindowsHostConditionSet` emits a
+`Write-Warning` reminder when any value was changed.
+
+The install-side reader and the module-side reset deliberately
+duplicate the three-source logic rather than share a module function:
+the install preflight runs **before** the repo is cloned, so it cannot
+`Import-Module Test.Host`. The shared knowledge is in this section,
+not in code.
+
 ---
 
 ## macOS UTM

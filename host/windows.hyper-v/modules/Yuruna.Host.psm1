@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1850,13 +1850,23 @@ function Start-WindowsCachingProxyForwarder {
         return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
     }
     Write-Information "  Launching userspace forwarder: ${action}"
+    # Pre-quote every path-valued argument. Start-Process joins -ArgumentList
+    # array elements with spaces WITHOUT quoting, so a path under
+    # "C:\Users\Yuruna Test\..." gets re-split by CreateProcess and the
+    # child sees mis-aligned flag/value pairs ("-File C:\Users\Yuruna").
+    # Wrapping each path in literal double quotes makes the joined command
+    # line parse correctly. Non-path scalars (IP, port numbers) need no
+    # quoting.
+    $forwarderScriptQuoted = '"' + $forwarderScript + '"'
+    $pidFileQuoted         = '"' + $pidFile + '"'
+    $logFileQuoted         = '"' + $logFile + '"'
     $procArgs = @(
-        '-NoProfile','-NoLogo','-File', $forwarderScript,
+        '-NoProfile','-NoLogo','-File', $forwarderScriptQuoted,
         '-CacheIp', $CacheIp,
         '-Port', $Port,
         '-VMPort', $VMPort,
-        '-PidFile', $pidFile,
-        '-LogFile', $logFile
+        '-PidFile', $pidFileQuoted,
+        '-LogFile', $logFileQuoted
     )
     if ($PrependProxyV1) { $procArgs += '-PrependProxyV1' }
     try {

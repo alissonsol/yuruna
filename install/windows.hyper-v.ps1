@@ -1,120 +1,31 @@
-<#PSScriptInfo
-.VERSION 2026.05.22
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456700
-.AUTHOR Alisson Sol et al.
-.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
-.LICENSEURI https://yuruna.com
-.PROJECTURI https://yuruna.com
-.ICONURI
-.EXTERNALMODULEDEPENDENCIES
-.REQUIREDSCRIPTS
-.EXTERNALSCRIPTDEPENDENCIES
-.RELEASENOTES
-.PRIVATEDATA
-#>
+# Yuruna Windows + Hyper-V bootstrap installer.
+# Version: 2026.05.29  Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- See https://yuruna.link/install/explained
+# This file MUST stay 7-bit ASCII, no BOM. PS 5.1 irm | iex parses byte-for-byte.
 
-<#
-.SYNOPSIS
-    Yuruna Windows + Hyper-V bootstrap installer.
-
-.DESCRIPTION
-    One-liner bootstrap for a fresh Windows machine. Installs PowerShell 7,
-    Git, the Windows ADK Deployment Tools (for oscdimg.exe), QEMU tools
-    (for qemu-img used by guest.squid-cache/Get-Image.ps1), Tesseract OCR,
-    and enables the Hyper-V Windows Feature. Clones the Yuruna repository
-    into $HOME\git\yuruna and seeds test\test.config.yml from the template.
-
-    The installer does NOT enable this machine as a test host automatically.
-    To do so (disables display timeout and screen lock so Hyper-V screen
-    captures stay readable), run host\windows.hyper-v\Enable-TestAutomation.ps1
-    after install.
-
-    Idempotent -- safe to re-run to pick up updates. On re-run it stops any
-    running Yuruna test processes, upgrades installed packages via winget,
-    and fast-forwards the repository checkout.
-
-    Startup shell -- works from either Windows PowerShell 5.1 (the only
-    shell a fresh Windows 11 ships with) or pwsh.exe (7+). The script is
-    written in PS 5.1-compatible syntax through the self-relaunch block,
-    then:
-      1. Elevates itself if started unelevated (UAC). The new elevated
-         shell is whichever one the user started from -- powershell.exe
-         on PS 5.1, pwsh.exe on PS 7+.
-      2. If still running in PS 5.1 after elevation, installs pwsh.exe
-         via winget, refreshes PATH, and re-executes this same script
-         under pwsh. The rest of Yuruna's harness also runs on pwsh so
-         unifying the shell version here means the user never has to
-         switch consoles mid-install.
-
-    Requires Administrator elevation. The script will relaunch itself
-    elevated if started from a non-admin shell. Requires winget ("App
-    Installer" from the Microsoft Store) which ships with Windows 11.
-
-.PARAMETER YurunaDir
-    Target directory for the repository checkout. Default: $HOME\git\yuruna
-
-.PARAMETER YurunaRepo
-    Git URL of the Yuruna repository.
-
-.PARAMETER YurunaBranch
-    Branch to check out. Default: main
-
-.EXAMPLE
-    # One-liner on a fresh Windows machine (run in Windows PowerShell or pwsh):
-    irm https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1 | iex
-
-.EXAMPLE
-    # Or from a local clone:
-    .\install\windows.hyper-v.ps1
-#>
-
-# --- See https://yuruna.link/memory#why-the-bootstrap-installer-must-stay-ascii-only
-# (this file MUST stay 7-bit ASCII; no BOM; no Unicode -- see link above)
 [CmdletBinding()]
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git\yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
     [string]$YurunaBranch = 'main',
-    # Internal: set by every self-relaunch site (UAC elevation + PS5->PS7
-    # bootstrap) so the operator only sees the requirements prompt once,
-    # in their original un-elevated shell. A user could pass this
-    # manually as an "I know what I am doing" override.
     [switch]$SkipPreflight
 )
 
 $ErrorActionPreference = 'Stop'
 
-# This installer ships in TWO repos that share the same install script:
-#   * public   https://github.com/alissonsol/yuruna       (clone works unauthenticated)
-#   * private  https://github.com/alissonsol/yurunadev    (clone needs GitHub auth)
-# The copy committed to each repo points $YurunaRepo at its OWN URL so the
-# `irm | iex` one-liner clones the repo the operator chose to download the
-# script from. Both constants stay defined regardless of which copy is
-# running so the existing-checkout logic further down can recognize the
-# remote a previous run cloned from -- and skip a pull that would just
-# stall waiting for GitHub credentials this run doesn't have.
 $script:YurunaRepoPublic  = 'https://github.com/alissonsol/yuruna.git'
 $script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
 
 function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
-function Write-Die  { param([string]$m) Write-Error $m }  # Write-Error under $ErrorActionPreference='Stop' already throws; no `exit 1` so an uncaught Die-path error doesn't close the user's hosting shell.
+function Write-Die  { param([string]$m) Write-Error $m }
 
-# -- Preflight: Windows only -------------------------------------------------
+# -- Preflight: Windows only -----------------------------------------------
 if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
     Write-Die 'This installer only supports Windows.'
 }
 
-# -- System requirements: warn + confirm if below the tested baseline -------
-# Tested baseline (Windows host):
-#   32 GB RAM, 512 GB free on the system drive, Windows 11 Pro / Enterprise /
-#   Education or Windows Server with Hyper-V on AMD64, 16+ physical cores.
-# Anything below is permitted but UNTESTED -- prompt the operator before
-# proceeding so an under-spec'd host does not burn an hour of installs only
-# to fail in the first test cycle. The function is silent when every
-# requirement is met. Gated by -SkipPreflight so self-relaunches (UAC
-# elevation, PS5->PS7 bootstrap) do not re-prompt.
+# -- Preflight: system requirements ----------------------------------------
 function Test-SystemRequirement {
     $issues = New-Object System.Collections.Generic.List[string]
     $os = $null
@@ -142,7 +53,7 @@ function Test-SystemRequirement {
         $null = $issues.Add("$cores physical cores detected (need 16+)")
     }
     $memGB = 0
-    if ($os) { $memGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 0) }  # TotalVisibleMemorySize is KB; KB / 1MB = GB
+    if ($os) { $memGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 0) }
     if ($memGB -lt 32) {
         $null = $issues.Add("${memGB}GB RAM detected (need 32GB+)")
     }
@@ -185,9 +96,7 @@ if (-not $SkipPreflight) {
     Test-SystemRequirement
 }
 
-# -- Elevation announcement + self-relaunch ----------------------------------
-# Every Yuruna script that needs elevation says so up front rather than
-# surprising the user midway through. Match that convention here.
+# -- Elevation announcement + self-relaunch --------------------------------
 $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent())
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -208,31 +117,16 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
 
 if (-not $isAdmin) {
     Write-Step 'Relaunching elevated (UAC prompt)'
-    # Preserve the shell the user started from -- powershell.exe on PS 5.1,
-    # pwsh.exe on PS 7+ -- so a pwsh session doesn't get silently
-    # downgraded to Windows PowerShell across the UAC boundary. If the
-    # current process path can't be read (unusual but possible on locked-
-    # down hosts), fall back to powershell.exe which is always present.
     $currentShellExe = $null
     try { $currentShellExe = (Get-Process -Id $PID).Path } catch { $currentShellExe = $null }
     if (-not $currentShellExe) { $currentShellExe = 'powershell.exe' }
-    # Build an argument list that preserves the caller's parameters. When
-    # invoked via `irm | iex` the script has no $PSCommandPath, so in that
-    # case re-download and run from a temp file inside the elevated shell.
     if ($PSCommandPath) {
-        # -SkipPreflight: preflight already ran in this (un-elevated) shell
-        # and the operator already answered Y. The elevated child runs in a
-        # new console; we do not want to re-prompt them there.
         $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"", '-SkipPreflight')
         if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
         if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
         if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
         Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList $argList
     } else {
-        # iex path: the downloaded script has no $PSCommandPath, and `iex`
-        # itself does not forward args to the invoked code. Parse the
-        # download as a scriptblock and invoke it with -SkipPreflight so
-        # the elevated child does not re-prompt the requirements check.
         $bootstrap = @"
 `$ErrorActionPreference='Stop'
 `$u='https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1'
@@ -243,12 +137,6 @@ if (-not $isAdmin) {
         Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList @(
             '-NoProfile','-ExecutionPolicy','Bypass','-Command', $bootstrap)
     }
-    # `return` instead of `exit` -- `exit` at the script's top level
-    # terminates the hosting PowerShell process, which would close the
-    # user's own shell when the script is invoked via `irm | iex` in
-    # their non-admin console. `return` exits only the script scope,
-    # leaving the user's window intact while the self-spawned admin
-    # window does the real work.
     return
 }
 
@@ -257,19 +145,7 @@ Write-Step "  repo   : $YurunaRepo ($YurunaBranch)"
 Write-Step "  target : $YurunaDir"
 Write-Step "  shell  : $((Get-Process -Id $PID).ProcessName) (PowerShell $($PSVersionTable.PSVersion))"
 
-# -- PowerShell 7 bootstrap ------------------------------------------------
-# Fresh Windows 11 ships Windows PowerShell 5.1 only. The rest of Yuruna --
-# every pwsh-shebanged script under test/, host/, and guest/ -- expects pwsh 7+. If we
-# are still in PS 5.x after elevation, install pwsh via winget, refresh
-# PATH so pwsh.exe resolves in this same session, and re-execute this
-# script under pwsh. The child inherits the elevated token, so no second
-# UAC prompt. The parent exits with the child's exit code so a caller
-# chaining this install with `&&` or checking $LASTEXITCODE sees the
-# right outcome.
-#
-# This block must stay PS 5.1-compatible (no ?./??/ternary/chain ops) --
-# the whole file is parsed up-front, and even one PS 7-only token would
-# fail the file to load on 5.1 before this check can run.
+# -- PowerShell 7 bootstrap (PS 5.1 -> PS 7) -------------------------------
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Step 'Bootstrapping PowerShell 7 (Windows PowerShell 5.x detected)'
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
@@ -278,16 +154,6 @@ winget is not available on this system. Install "App Installer" from the
 Microsoft Store (or update Windows) and re-run this script.
 '@
     }
-    # Pin --source winget on every call. Without the pin, winget searches
-    # every registered source (including msstore) and fails hard when one
-    # of them has a stale/untrusted server cert, even if the package was
-    # found in the trusted `winget` source. Seen in the wild as:
-    #   Failed when searching source: msstore
-    #   0x8a15005e : The server certificate did not match any of the
-    #                expected values.
-    # When that happens winget refuses to pick a source automatically and
-    # aborts the install with "Please specify one of them using the
-    # --source option to proceed." -- so pinning sidesteps the disambiguation.
     $pwshPkg = winget list --id 'Microsoft.PowerShell' --exact --source winget --accept-source-agreements 2>$null |
         Select-String -SimpleMatch 'Microsoft.PowerShell'
     if (-not $pwshPkg) {
@@ -301,9 +167,6 @@ Microsoft Store (or update Windows) and re-run this script.
     } else {
         Write-Step '  PowerShell 7 already installed (winget reports present)'
     }
-    # Refresh PATH in the current PS 5.1 session so pwsh.exe resolves. The
-    # winget install adds C:\Program Files\PowerShell\7 to the Machine PATH
-    # but the running shell keeps a stale copy until we merge it in.
     $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
                 [Environment]::GetEnvironmentVariable('Path','User')
     $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
@@ -315,18 +178,7 @@ re-run this installer.
 '@
     }
     Write-Step "  Re-executing under $($pwshCmd.Source)"
-    # Same param-forwarding dance as the elevation block. When invoked via
-    # `irm | iex` there is no $PSCommandPath, so we re-download the script
-    # to a temp file and hand THAT to pwsh. Synchronous `&` call so the
-    # user sees all further output in this single console. Using `return`
-    # instead of `exit` so that if this block runs in the user's own
-    # admin PS 5.x shell (not a self-spawned one), the script ends but
-    # their session stays open; $LASTEXITCODE is already set by the
-    # `&` invocation above and remains visible to the caller.
     if ($PSCommandPath) {
-        # Same -SkipPreflight rationale as the elevation block: preflight
-        # already ran in this elevated PS5 shell; the re-exec under pwsh
-        # must not re-prompt the operator.
         $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"", '-SkipPreflight')
         if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
         if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
@@ -346,14 +198,10 @@ re-run this installer.
     }
 }
 
-# -- Stop anything that would block an upgrade ------------------------------
+# -- Stop running Yuruna processes -----------------------------------------
 function Stop-YurunaProcess {
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    # Outer runner, per-cycle inner (now under modules/), dev sequence
-    # helper, status server. The Invoke-TestRunner.ps1 pattern is a
-    # substring of itself only -- it does NOT match Invoke-TestInner-
-    # Runner.ps1, so the inner needs its own entry to be killed too.
     $patterns = @('Invoke-TestRunner.ps1','Invoke-TestInnerRunner.ps1','Test-Sequence.ps1','Start-StatusServer.ps1')
     foreach ($pat in $patterns) {
         $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
@@ -363,7 +211,6 @@ function Stop-YurunaProcess {
             Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
         }
     }
-    # Free port 8080 if the status server is still holding it.
     try {
         $conns = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
         foreach ($c in $conns) {
@@ -375,17 +222,7 @@ function Stop-YurunaProcess {
     } catch { Write-Verbose "port 8080 check skipped: $($_.Exception.Message)" }
 }
 
-# -- yuruna-caching-proxy preservation ----------------------------------------
-# A running cache VM (yuruna-caching-proxy, formerly squid-cache) holds
-# tens of GB of pre-fetched .deb / .iso content built up across prior
-# test cycles. The installer never stops Hyper-V VMs (vmms keeps
-# running, no Stop-VM / Remove-VM in this script), so the cache
-# survives re-runs by default. This helper surfaces that fact in the
-# install log -- if a future change ever adds a Stop-VM / Stop-Service
-# vmms in this script, the operator sees the "preserving cached
-# content" line right before it and can flag the regression instead of
-# having to rebuild squid's spool from scratch (10-20 minutes of LAN
-# apt traffic on first re-prime).
+# -- yuruna-caching-proxy detection ----------------------------------------
 function Test-SquidCacheRunning {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -395,20 +232,8 @@ function Test-SquidCacheRunning {
     return ($vm -and $vm.State -eq 'Running')
 }
 
-# Everything from here to the matching finally runs the actual install.
-# Wrapped in try/catch/finally so that ANY failure (Write-Die, a winget
-# non-zero exit, a DISM failure, a throw from a called module, ...) still
-# lands in the finally block where we print a clear SUCCESS / FAILED
-# summary and pause with Read-Host. Without this wrap, the admin window
-# spawned by Start-Process -Verb RunAs closes the instant the script
-# exits, and the user never gets to read the final status.
-$script:InstallSucceeded   = $false
-$script:InstallError       = $null
-# Set when 'git pull --ff-only' could not advance the local repo and the
-# clone/update block had to move the existing checkout aside as a
-# timestamped backup. Read by the finally{} success/fallback paths so the
-# operator sees the backup location loudly in the spawned pwsh window
-# (and in the admin-console fallback when the spawn fails).
+$script:InstallSucceeded    = $false
+$script:InstallError        = $null
 $script:YurunaBackupCreated = $null
 try {
 
@@ -419,7 +244,7 @@ if (Test-SquidCacheRunning) {
 Write-Step 'Stopping anything that would block an upgrade'
 Stop-YurunaProcess
 
-# -- winget availability ----------------------------------------------------
+# -- winget availability ---------------------------------------------------
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     Write-Die @'
 winget is not available on this system. Install "App Installer" from the
@@ -432,9 +257,6 @@ function Install-WingetPackage {
         [Parameter(Mandatory)][string]$Id,
         [string]$FriendlyName = $Id
     )
-    # --source winget on every call -- see the PS 7 bootstrap block above
-    # for the msstore-cert rationale; same hazard applies to every other
-    # package we install.
     $installed = winget list --id $Id --exact --source winget --accept-source-agreements 2>$null |
         Select-String -SimpleMatch $Id
     if ($installed) {
@@ -452,6 +274,7 @@ function Install-WingetPackage {
     }
 }
 
+# -- Install platform packages ---------------------------------------------
 Write-Step 'Installing / upgrading required packages via winget'
 Install-WingetPackage -Id 'Microsoft.PowerShell'              -FriendlyName 'PowerShell 7'
 Install-WingetPackage -Id 'Git.Git'                           -FriendlyName 'Git (brings openssl.exe used by Ubuntu guest New-VM.ps1 password hashing)'
@@ -460,8 +283,6 @@ Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEM
 Install-WingetPackage -Id 'UB-Mannheim.TesseractOCR'          -FriendlyName 'Tesseract OCR'
 Install-WingetPackage -Id 'GitHub.cli'                        -FriendlyName 'GitHub CLI (gh) -- run `gh auth login` after install to authenticate'
 
-# Refresh PATH in the current session so pwsh.exe / git.exe / oscdimg.exe
-# become reachable without opening a new terminal.
 Write-Step 'Refreshing PATH in current session'
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
             [Environment]::GetEnvironmentVariable('Path','User')
@@ -472,16 +293,22 @@ foreach ($cmd in 'git','pwsh') {
     }
 }
 
-# -- Hyper-V feature --------------------------------------------------------
-# Call DISM.exe directly rather than Get-/Enable-WindowsOptionalFeature.
-# Those cmdlets dispatch to the DISM provider via COM, and on some pwsh 7
-# sessions the COM class fails to resolve with "Class not registered"
-# (HRESULT 0x80040154). That terminates the script on re-runs; and when
-# -ErrorAction SilentlyContinue silences it on the first run, $feature
-# becomes $null and the enable step is skipped without the user noticing
-# -- which is why the first run of this installer can leave Hyper-V off.
-# DISM.exe is a plain Win32 tool with no COM dependency and is what the
-# cmdlets wrap internally.
+# -- PowerShell modules ----------------------------------------------------
+Write-Step 'Installing required PowerShell modules'
+if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
+    Write-Step '  powershell-yaml already installed'
+} else {
+    Write-Step '  installing powershell-yaml (CurrentUser scope)'
+    try {
+        Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+    } catch {
+        Write-Warn "  Install-Module powershell-yaml failed: $($_.Exception.Message)"
+        Write-Warn "  Test-Project.ps1 will refuse to run until this is fixed."
+        Write-Warn "  Try manually: Install-Module powershell-yaml -Scope CurrentUser"
+    }
+}
+
+# -- Hyper-V feature -------------------------------------------------------
 Write-Step 'Enabling Hyper-V Windows Feature (if not already enabled)'
 $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
 $infoOut  = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All 2>&1
@@ -498,18 +325,6 @@ if ($infoExit -ne 0) {
         if ($line -match '^State\s*:\s*(\S+)') { $state = $Matches[1]; break }
     }
     if ($state -eq 'Enabled') {
-        # DISM flips State to "Enabled" immediately after /Enable-Feature,
-        # but the Hyper-V *components* (vmms service, virtmgmt.msc) are
-        # only deployed once the pending reboot runs. On a second pass
-        # before that reboot, /Get-FeatureInfo still says "Enabled" even
-        # though nothing actually works -- and the test harness still
-        # would fail to launch virtmgmt.msc with "file not found". The
-        # underlying condition for all of this is: reboot pending.
-        #
-        # So: cross-check DISM's "Enabled" against the presence of vmms
-        # and virtmgmt.msc. If either is missing, treat it the same as
-        # just-enabled and set RestartNeeded -- the finally-block
-        # "RESTART REQUIRED" path then gives the user one clear message.
         $vmmsExists     = [bool](Get-Service -Name vmms -ErrorAction SilentlyContinue)
         $virtmgmtExists = Test-Path -LiteralPath (Join-Path $env:WINDIR 'System32\virtmgmt.msc')
         if ($vmmsExists -and $virtmgmtExists) {
@@ -526,7 +341,6 @@ if ($infoExit -ne 0) {
         Write-Step "  current state: $state -- enabling"
         $enableOut  = & $dismExe /English /Online /Enable-Feature /FeatureName:Microsoft-Hyper-V-All /All /NoRestart /Quiet 2>&1
         $enableExit = $LASTEXITCODE
-        # DISM: 0 = success, 3010 = success + reboot required.
         if ($enableExit -eq 0 -or $enableExit -eq 3010) {
             Write-Warn 'Hyper-V was just enabled -- a RESTART is required before Invoke-TestRunner will work.'
             $script:RestartNeeded = $true
@@ -536,10 +350,7 @@ if ($infoExit -ne 0) {
     }
 }
 
-# -- Clone / update the repo ------------------------------------------------
-# Pre-PS7 fallback -- null-conditional ?.Source doesn't parse on PS 5.1,
-# and this whole file still has to load cleanly in 5.1 for the bootstrap
-# block above to fire. Resolve via an intermediate variable.
+# -- Preserve test/status runtime state ------------------------------------
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
 $gitExe = if ($gitCmd) { $gitCmd.Source } else { $null }
 if (-not $gitExe) { Write-Die 'git not found after install -- open a new terminal and re-run.' }
@@ -547,24 +358,6 @@ if (-not $gitExe) { Write-Die 'git not found after install -- open a new termina
 $parent = Split-Path -Parent $YurunaDir
 if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
 
-# -- Preserve test/status runtime state across the clone/update -------------
-# Re-running the installer on a host that's been executing test cycles
-# must not lose the dashboard's history, per-cycle log transcripts, or
-# the runtime-dir state (status.json with history[], runner.gating.json,
-# runner.pid, control flags). None of those are tracked by git -- per
-# .gitignore every subdir under test/status/ is gitignored as runtime
-# state. The clone/update/renormalize block below is designed to leave
-# untracked files alone (`git rm -r --cached . && git reset --hard HEAD`
-# only touches tracked files), but we backstop that contract with an
-# explicit snapshot-and-restore so a future regression in the renormalize
-# logic, or a manual Remove-Item -Recurse on YurunaDir between attempts,
-# can't silently wipe weeks of cycle history.
-#
-# All harness runtime state lives under test/status/<sub>/ for the layout
-# introduced in the status reorg: runtime/, perf/, log/, extension/,
-# captures/, ssh/. Preserve every subdir so cycle history, perf JSONL,
-# vault state, training/sequence captures, and the generated SSH key
-# pair all survive a clone/update.
 $YurunaStatusBackup = $null
 $TestStatusSubdirs  = @('runtime', 'perf', 'log', 'extension', 'captures', 'ssh')
 function Backup-YurunaStatus {
@@ -609,14 +402,9 @@ function Restore-YurunaStatus {
 
 Backup-YurunaStatus
 
+# -- Clone / update the repo -----------------------------------------------
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step "Updating existing Yuruna checkout at $YurunaDir"
-    # Pull from whatever remote the LOCAL repo was cloned from -- not from
-    # whichever $YurunaRepo default this copy of the installer ships. A
-    # previous run may have cloned the OTHER repo (the public 'yuruna'
-    # checkout works for everyone; the private 'yurunadev' checkout needs
-    # GitHub auth) and we must not silently migrate the operator's local
-    # tree to a different remote.
     $actualRemote   = (& $gitExe -C $YurunaDir remote get-url origin 2>$null)
     if ($actualRemote) { $actualRemote = ([string]$actualRemote).Trim() } else { $actualRemote = '' }
     $remoteForBase  = $actualRemote.TrimEnd('/')
@@ -630,15 +418,6 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
 
     $skipPull = $false
     if ($remoteBasename -eq 'yurunadev') {
-        # Private remote: require demonstrated access before we attempt
-        # `git fetch`. `ls-remote` fails fast on 401/403, sparing the
-        # operator a stalled credential prompt or an error transcript
-        # that looks like the test harness broke when really only auth
-        # was missing. The pull is skipped (not the rest of the install)
-        # so a contributor on a flaky/unauthenticated session can still
-        # keep iterating with the last-known-good code on disk.
-        # GIT_TERMINAL_PROMPT=0: fail fast on missing credentials instead
-        # of blocking the installer on an interactive `Username:` prompt.
         $prevGitTermPrompt = $env:GIT_TERMINAL_PROMPT
         $env:GIT_TERMINAL_PROMPT = '0'
         try {
@@ -673,20 +452,8 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
             if ($_ -match 'Already up to date|Fast-forward|Updating') { Write-Output "     $_" }
             else { Write-Warn $_ }
         }
-        # $LASTEXITCODE in PowerShell propagates through native-cmd pipelines:
-        # the value here is git's exit code, not ForEach-Object's.
         $pullExit = $LASTEXITCODE
         if ($pullExit -ne 0) {
-            # Fast-forward not possible: uncommitted changes, divergent
-            # commits, detached HEAD, or any other condition that prevents
-            # git from advancing the working tree. Rather than leaving the
-            # installer in a half-updated state, move the existing checkout
-            # aside as a timestamped backup and re-clone fresh. The
-            # test/status runtime state was already captured to TEMP by
-            # Backup-YurunaStatus above, so cycle history survives this
-            # path. The finally{} block surfaces $script:YurunaBackupCreated
-            # in the spawned pwsh window (and admin-console fallback) so
-            # the operator can salvage local edits before deleting it.
             $stamp = Get-Date -Format 'yyyy-MM-dd.HH-mm'
             $YurunaBackupDir = "$YurunaDir.backup.$stamp"
             Write-Warn "git pull --ff-only failed (exit $pullExit) -- moving the existing checkout aside and re-cloning."
@@ -698,9 +465,6 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
                 Write-Die "Could not move '$YurunaDir' to '$YurunaBackupDir': $($_.Exception.Message). Close any shells / editors / Explorer windows holding the path open, then re-run this installer."
             }
             $script:YurunaBackupCreated = $YurunaBackupDir
-            # Re-clone from whatever remote the local repo had, falling
-            # back to the per-copy $YurunaRepo default only if the original
-            # remote could not be read for some reason.
             $recloneRemote = if ($actualRemote) { $actualRemote } else { $YurunaRepo }
             Write-Step "Cloning fresh Yuruna into $YurunaDir from $recloneRemote"
             & $gitExe clone --branch $YurunaBranch $recloneRemote $YurunaDir
@@ -712,51 +476,25 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
 }
 
 # -- Renormalize line endings under .gitattributes -------------------------
-# .gitattributes (committed at repo root) locks LF for every text type a
-# Linux guest reads -- *.sh, *.yml, user-data, meta-data, etc. But adding
-# .gitattributes does NOT rewrite files already in the working tree:
-# without this step, a developer who originally cloned with
-# core.autocrlf=true still has fetch-and-execute.sh sitting on disk as
-# CRLF, the host status server serves those CRLF bytes byte-faithfully
-# to the guest, and the guest's bash chokes with `$'\r': command not
-# found` on line 2 of the script. We force a one-shot rebuild of the
-# working tree from the index so every file picks up the eol= rules.
-#
-# Pin core.autocrlf=input on the LOCAL repo too, so any future file
-# added without a matching .gitattributes rule still avoids CRLF on
-# commit. (Local config beats global; doesn't touch the user's other
-# repos.)
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step 'Renormalizing repo line endings (per .gitattributes)'
     & $gitExe -C $YurunaDir config core.autocrlf input | Out-Null
 
-    # Pull in .gitconfig.yuruna (tracked in the repo root) for
-    # pull.rebase + rebase.autoStash defaults so `git pull` here rebases
-    # instead of creating merge commits. include.path can hold multiple
-    # values, so add idempotently rather than overwriting whatever else
-    # the operator may have included.
     $existingIncludes = @(& $gitExe -C $YurunaDir config --get-all include.path 2>$null)
     if ($existingIncludes -notcontains '../.gitconfig.yuruna') {
         & $gitExe -C $YurunaDir config --local --add include.path '../.gitconfig.yuruna' | Out-Null
         Write-Step '  Enabled pull.rebase via .gitconfig.yuruna include'
     }
 
-    # `git diff-index --quiet HEAD` exits 0 when the working tree matches
-    # HEAD (clean), 1 otherwise. Suppress its output and read $LASTEXITCODE.
     & $gitExe -C $YurunaDir update-index --refresh 2>&1 | Out-Null
     & $gitExe -C $YurunaDir diff-index --quiet HEAD -- 2>&1 | Out-Null
     $repoDirty = ($LASTEXITCODE -ne 0)
 
     if ($repoDirty) {
-        # Uncommitted local changes -- don't clobber them. Only renormalize
-        # the index (stages CRLF->LF for tracked-and-modified files) and
-        # tell the user how to finish the job.
         Write-Warn '  Working tree has uncommitted changes -- only renormalizing the index.'
         & $gitExe -C $YurunaDir add --renormalize . | Out-Null
         Write-Warn '  After resolving local changes, run: git checkout HEAD -- .'
     } else {
-        # Clean tree -- empty the index and reset --hard to force every
-        # file to be re-checked-out under the current .gitattributes.
         & $gitExe -C $YurunaDir rm -r --cached --quiet . | Out-Null
         & $gitExe -C $YurunaDir reset --hard HEAD 2>&1 | Out-Null
         Write-Step '  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)'
@@ -773,8 +511,7 @@ if (-not (Test-Path $cfg) -and (Test-Path $tpl)) {
     Copy-Item $tpl $cfg
 }
 
-# -- Baseline reset: remove every `test-*` VM left over from prior cycles --
-# --- See https://yuruna.link/memory#why-the-installers-baseline-reset-removes-legacy-test-vms
+# -- Baseline reset: remove test-* VMs -------------------------------------
 $removeTestVMs = Join-Path $YurunaDir 'test\Remove-TestVMFiles.ps1'
 if ($script:RestartNeeded) {
     Write-Warn 'Skipping test\Remove-TestVMFiles.ps1 until after the pending Hyper-V restart.'
@@ -794,11 +531,7 @@ if ($script:RestartNeeded) {
     Write-Warn "test\Remove-TestVMFiles.ps1 not found under $YurunaDir -- skipping test-VM cleanup."
 }
 
-# -- Host configuration (display timeout, screen lock, etc.) ---------------
-# Enable-TestAutomation.ps1 is NOT run automatically. It is the explicit
-# opt-in step that turns this Windows machine into a Yuruna test host
-# (powercfg display/sleep tweaks, screen-lock registry edits, etc.) and
-# is therefore left for the operator to invoke manually after install.
+# -- Enable-TestAutomation.ps1 hint ----------------------------------------
 $setHost = Join-Path $YurunaDir 'host\windows.hyper-v\Enable-TestAutomation.ps1'
 Write-Step ''
 Write-Step 'Host configuration (test-host setup) is NOT auto-applied.'
@@ -806,13 +539,9 @@ Write-Step 'To enable this machine as a test host (disables display timeout'
 Write-Step 'and screen lock so Hyper-V screen captures stay readable), run:'
 Write-Step "    pwsh `"$setHost`""
 
-# -- Done -------------------------------------------------------------------
 $script:InstallSucceeded = $true
 
 } catch {
-    # Any terminating error from the main install body lands here. Keep the
-    # exception around so the finally block can decide what to print; do NOT
-    # rethrow, or the process would die before the finally-block pause runs.
     $script:InstallError = $_
 } finally {
     Write-Output ''
@@ -826,7 +555,6 @@ $script:InstallSucceeded = $true
     Write-Output ''
 
     if (-not $script:InstallSucceeded) {
-        # ---- Failure path ----------------------------------------------
         if ($script:InstallError) {
             Write-Warning ("Installer error: " + $script:InstallError.Exception.Message)
             if ($script:InstallError.InvocationInfo -and $script:InstallError.InvocationInfo.PositionMessage) {
@@ -852,20 +580,8 @@ $script:InstallSucceeded = $true
             Write-Output ("  Remove-Item -Recurse -Force '" + $script:YurunaBackupCreated + "'")
             Write-Output '================================================================'
         }
-        # No `exit 1` here -- that would terminate the hosting PowerShell
-        # process, closing the user's own window when they invoked this
-        # script directly (e.g. `.\install\windows.hyper-v.ps1`). The
-        # if/elseif/else already skips the other branches, so falling
-        # through leaves the finally block cleanly and returns the user
-        # to their shell prompt.
     }
     elseif ($script:RestartNeeded) {
-        # ---- Reboot-blocked path ---------------------------------------
-        # Don't automate Hyper-V Manager (vmms isn't running yet), don't
-        # open a notepad for test.config.yml (the user cannot run tests
-        # before the reboot anyway), don't spawn a fresh pwsh window
-        # (same reason). Keep guidance to the single thing that matters:
-        # reboot, then re-run.
         Write-Warning 'RESTART REQUIRED'
         Write-Warning '  Hyper-V needs a Windows restart to finish activation.'
         Write-Warning '  (Either it was just enabled in this run, or a previous'
@@ -890,21 +606,8 @@ $script:InstallSucceeded = $true
         }
     }
     else {
-        # ---- Full success path -- automate the handoff ----------------
-        # The admin console this script is running in was spawned by the
-        # self-elevation block via Start-Process -Verb RunAs and closes
-        # the moment we return. Anything we Write-Output AFTER that exit
-        # is unreadable -- which is why the previous revision's NEXT
-        # STEPS block vanished before the user could read it. So:
-        # all NEXT STEPS guidance lives INSIDE the spawned pwsh window's
-        # welcome banner. This window can close right after the spawn;
-        # nothing critical is lost.
-
         Write-Step 'Finishing up -- opening handoff windows'
 
-        # 1. Hyper-V Manager. First-run dialog registration still has to
-        #    happen interactively (per-user MMC snap-in setup), so we
-        #    launch the console and let the user dismiss it.
         $hypervOpened = $false
         try {
             Write-Step '  launching Hyper-V Manager (virtmgmt.msc)'
@@ -914,12 +617,6 @@ $script:InstallSucceeded = $true
             Write-Warn ('  could not launch virtmgmt.msc: ' + $_.Exception.Message)
         }
 
-        # 2. test.config.yml review. The earlier seed step copied the
-        #    template over if the file was absent, but the user still
-        #    has to fill in environment-specific values. Only open
-        #    notepad when the file is still byte-identical to the
-        #    template -- if they already customized it, leave it alone
-        #    so we do not nag on every re-run.
         $notepadOpened = $false
         $testDirFinal = Join-Path $YurunaDir 'test'
         $cfgFinal     = Join-Path $testDirFinal 'test.config.yml'
@@ -940,12 +637,6 @@ $script:InstallSucceeded = $true
             }
         }
 
-        # 3. Build the welcome banner for the spawned pwsh window. All
-        #    NEXT STEPS guidance goes HERE, not in the admin console,
-        #    because the admin console closes right after we spawn.
-        #    Build the banner as a list of Write-Host statements, one
-        #    per line, each using single-quoted strings to avoid any
-        #    $-expansion surprises inside the spawned shell.
         $testDirForScript = $testDirFinal -replace "'", "''"
         $lines = New-Object System.Collections.Generic.List[string]
         $null = $lines.Add("Set-Location -LiteralPath '$testDirForScript'")
@@ -972,9 +663,6 @@ $script:InstallSucceeded = $true
         $null = $lines.Add("Write-Host '      gh auth login' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host ''")
         if ($script:YurunaBackupCreated) {
-            # Loud notice so the operator can salvage local edits before
-            # deleting the backup. Double-up apostrophes for the embedded
-            # path so it survives a single-quoted Write-Host literal.
             $backupForScript = $script:YurunaBackupCreated -replace "'", "''"
             $null = $lines.Add("Write-Host '============================================================' -ForegroundColor Yellow")
             $null = $lines.Add("Write-Host 'IMPORTANT: a backup of your previous Yuruna checkout was created' -ForegroundColor Yellow")
@@ -993,9 +681,6 @@ $script:InstallSucceeded = $true
         $null = $lines.Add("Write-Host ''")
         $welcomeScript = $lines -join "`r`n"
 
-        # -EncodedCommand sidesteps every shell-quoting pitfall for the
-        # spawned process -- pwsh.exe expects the base64 payload as
-        # UTF-16LE (Unicode) bytes.
         $encoded = [Convert]::ToBase64String(
             [System.Text.Encoding]::Unicode.GetBytes($welcomeScript))
 
@@ -1016,11 +701,6 @@ $script:InstallSucceeded = $true
         }
 
         if (-not $shellOpened) {
-            # Rare: the handoff pwsh window didn't open, so the NEXT
-            # STEPS banner that lives inside it never ran. Print the
-            # same guidance here in the admin console and hold the
-            # window open long enough to read it -- timed auto-close
-            # (no Read-Host, so an accidental Enter cannot end things).
             Write-Output ''
             Write-Output '================================================================'
             Write-Output '   HANDOFF WINDOW DID NOT OPEN -- DO THIS MANUALLY:'

@@ -1,4 +1,4 @@
-﻿<#PSScriptInfo
+<#PSScriptInfo
 .VERSION 2026.05.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456700
 .AUTHOR Alisson Sol et al.

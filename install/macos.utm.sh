@@ -125,8 +125,55 @@ else
   die "Homebrew installation failed -- 'brew' not found on PATH."
 fi
 
-log "Updating Homebrew"
-brew update
+# -- Homebrew health repair (multi-user host) ------------------------------
+# A fresh macOS user account on a host where Homebrew was installed by a
+# different account inherits a /opt/homebrew owned by the original
+# installer. Every subsequent brew op then fails with "not writable",
+# "Can't create brew update lock", or "fatal: not in a git directory" --
+# three separate manual `sudo chown -R` rounds before the installer can
+# proceed. Repair on this run instead of asking the operator. sudo creds
+# are already cached from the earlier `sudo -v`, so this is silent on a
+# correctly-installed host (the writability test short-circuits to no-op).
+BREW_PREFIX="$(brew --prefix 2>/dev/null || true)"
+if [[ -z "$BREW_PREFIX" ]]; then
+  if   [[ -x /opt/homebrew/bin/brew ]]; then BREW_PREFIX=/opt/homebrew
+  elif [[ -x /usr/local/bin/brew    ]]; then BREW_PREFIX=/usr/local
+  fi
+fi
+BREW_SKIP_UPDATE=0
+if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then
+  # Writability check covers BOTH the prefix root (first failure mode in
+  # the wild: "Error: /opt/homebrew is not writable") and the deeper
+  # locks dir (second failure mode: "Can't create brew update lock in
+  # /opt/homebrew/var/homebrew/locks"). One chown -R fixes both.
+  if [[ ! -w "$BREW_PREFIX" ]] || \
+     { [[ -d "$BREW_PREFIX/var/homebrew/locks" ]] && [[ ! -w "$BREW_PREFIX/var/homebrew/locks" ]]; }; then
+    BREW_OWNER="$(stat -f '%Su' "$BREW_PREFIX" 2>/dev/null || echo '?')"
+    log "Homebrew prefix $BREW_PREFIX is not writable by $USER (owner: $BREW_OWNER) -- transferring ownership (sudo cached, silent)."
+    sudo chown -R "$USER":admin "$BREW_PREFIX"
+  fi
+  # Modern Homebrew can be installed via tarball (no .git in prefix);
+  # `brew update` then emits "fatal: not in a git directory" and exits
+  # non-zero. Same symptom shows up when the prefix IS git-managed but
+  # an internal tap repo is broken. In either case, per-package install
+  # / upgrade still works on the cached metadata, so skip the update
+  # step rather than abort the whole install.
+  if [[ ! -d "$BREW_PREFIX/.git" ]]; then
+    warn "$BREW_PREFIX has no .git directory (tarball-installed Homebrew) -- skipping 'brew update'."
+    BREW_SKIP_UPDATE=1
+  fi
+fi
+
+if [[ $BREW_SKIP_UPDATE -eq 0 ]]; then
+  log "Updating Homebrew"
+  # Trap non-zero `brew update` (broken tap, missing tap .git, network
+  # blip) and downgrade to a warning. The installer's job is to get
+  # Yuruna's package set on disk; stale Homebrew metadata is acceptable
+  # as long as `brew install` and `brew upgrade` find the formulae.
+  if ! brew update; then
+    warn "brew update exited non-zero -- continuing with cached package metadata."
+  fi
+fi
 
 # -- Stop running Yuruna processes -----------------------------------------
 quit_mac_app() {

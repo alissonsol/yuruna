@@ -17,24 +17,31 @@ machine to act as a test host.
 
 ## Remote one-liners
 
+Each one-liner appends `?nocache=<timestamp>` unconditionally. The
+install is a one-shot per fresh host and a stale cached installer is
+the worst kind of stale (the operator can't tell, and re-running from
+the README is the documented recovery path). For the system-wide
+`YurunaCacheContent` cache-buster honored by every OTHER Yuruna
+one-liner (fetch-and-execute, guest workload installs), see
+[docs/caching.md](../docs/caching.md).
+
 **macOS UTM** (paste into Terminal):
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
+/bin/bash -c "$(curl -fsSL "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh?nocache=$(date +%Y%m%d%H%M%S)")"
 ```
 
 **Windows Hyper-V** (paste into PowerShell or Windows PowerShell, will
 self-elevate):
 
 ```powershell
-$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
-irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1$nc" | iex
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1?nocache=$(Get-Date -Format yyyyMMddHHmmss)" | iex
 ```
 
 **Ubuntu KVM/libvirt** (paste into Terminal):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
+bash <(curl -fsSL "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh?nocache=$(date +%Y%m%d%H%M%S)")
 ```
 
 The Ubuntu line uses process substitution (`bash <(curl ...)`) rather

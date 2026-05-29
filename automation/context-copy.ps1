@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42aa1b2c-3d4e-4f56-a789-0b1c2d3e4f56
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -47,6 +47,7 @@ kubectl config unset contexts.$destinationContext *>&1 | Write-Verbose
 # Capture originalContext now; use-context confirms sourceContext exists before we mutate the config.
 $originalContext = kubectl config current-context
 kubectl config use-context $sourceContext *>&1 | Write-Verbose
+if ($LASTEXITCODE -ne 0) { Write-Information "kubectl config use-context failed (exit $LASTEXITCODE) for: $sourceContext"; return $false; }
 $currentContext = kubectl config current-context
 if ($currentContext -ne $sourceContext) { Write-Information "K8S source context not found: $sourceContext`n"; return $false; }
 
@@ -54,7 +55,7 @@ if ($currentContext -ne $sourceContext) { Write-Information "K8S source context 
 # so index 0 is always the source entry being renamed below.
 Write-Debug "`n==== ********* Copying context '$sourceContext' to '$destinationContext' ************** =======";
 $yamlContent = $(kubectl config view --minify --raw=true -o yaml)
-# Write-Verbose $(ConvertTo-Yaml $yamlContent)
+if ($LASTEXITCODE -ne 0) { Write-Information "kubectl config view failed (exit $LASTEXITCODE) for: $sourceContext"; return $false; }
 $yaml = ConvertFrom-Content $yamlContent
 $yaml.users[0].name = $destinationContext
 $yaml.clusters[0].name = $destinationContext
@@ -72,8 +73,11 @@ $originalKubeConfig = (Test-Path Env:KUBECONFIG) ? $env:KUBECONFIG : $null
 Set-Item -Path Env:KUBECONFIG -Value $kubeConfig
 $combinedConfig = "${HOME}/.kube/config.yuruna"
 Remove-Item -Path $combinedConfig -Force -ErrorAction SilentlyContinue
-$result = $(kubectl config view --flatten >> $combinedConfig)
-if (![string]::IsNullOrEmpty($result)) { Write-Debug "$result"; }
+kubectl config view --flatten >> $combinedConfig
+# Partial output before a kubectl failure would still pass the
+# downstream file-exists/non-empty checks and clobber ~/.kube/config
+# on Move-Item, so a non-zero exit here MUST short-circuit.
+if ($LASTEXITCODE -ne 0) { Write-Information "kubectl config view --flatten failed (exit $LASTEXITCODE)"; return $false; }
 
 Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
 if (-Not (Test-Path -Path $combinedConfig)) { Write-Information "K8S configuration problems. Try deleting invalid contexts: $currentConfig"; return $false; }

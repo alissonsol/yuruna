@@ -1,5 +1,8 @@
 # Amazon Linux 2023 guest on Windows Hyper-V host
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Minimal commands. Walk-through: [Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md). Cross-host
 concepts: [Hosts — ...](../../README.md).
 
@@ -8,13 +11,13 @@ concepts: [Hosts — ...](../../README.md).
 From `yuruna\host\windows.hyper-v\guest.amazon.linux.2023` in an
 elevated PowerShell:
 
-```powershell
+```
 .\Get-Image.ps1
 ```
 
 ## For each VM
 
-```powershell
+```
 .\New-VM.ps1                       # default hostname
 .\New-VM.ps1 -VMName myhost
 ```
@@ -26,13 +29,14 @@ amazon.linux.2023; the name is set in
 [test/sequences/gui/start.guest.amazon.linux.2023.yml](../../../test/sequences/gui/start.guest.amazon.linux.2023.yml)
 and mirrored as the `-Username` default of `New-VM.ps1`). cloud-init
 creates it on top of the cloud-image default `ec2-user`. The password
-is managed by the authentication extension (per-cycle vault.yml at `test/status/extension/authentication/vault.yml`, code under
-[test/extension/authentication/](../../../test/extension/authentication/);
+is managed by the authentication extension (per-cycle vault.yml at
+`test/status/extension/authentication/vault.yml`, code under
+[test/extension/authentication/](../../../test/extension/authentication/)).
 cloud-init's chpasswd default `expire: true` triggers the
 Current/New/Retype rotation on first console login.
 
-```bash
-sudo /automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh
+```
+sudo /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh
 sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```

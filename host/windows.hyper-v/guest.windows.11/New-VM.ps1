@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -27,18 +27,9 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 
 $ProgressPreference = 'SilentlyContinue'
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
-# Each level shows itself + all higher-priority streams; Error is highest.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-    }
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
@@ -101,7 +92,22 @@ $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
     Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    Hyper-V\Remove-VM -Name $VMName -Force
+    try {
+        Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
+    } catch {
+        # A half-removed VM (locked vhdx, permission, etc.) would trip
+        # the next New-VM call with "already exists" and the outer loop
+        # has no signal to recover. Dump live Hyper-V state so the
+        # operator can clean orphan disks before retrying.
+        $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
+            Format-List Name, State, Status, Generation, Path | Out-String
+        throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
+    }
+    # Hyper-V can return Remove-VM success while leaving a ghost entry;
+    # a second Get-VM is the only reliable post-condition.
+    if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
+        throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
+    }
     Write-Output "VM '$VMName' deleted."
 }
 
@@ -119,9 +125,12 @@ if (Test-Path -Path $vhdxFile) {
 Write-Verbose "Creating 512GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 512GB -Dynamic | Out-Null
 
-# Autounattend seed ISO
-$SeedDir = Join-Path $env:TEMP "seed_$VMName"
-if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
+# Autounattend seed ISO. 4-digit entropy is weak by design (10k cases)
+# but enough to defeat the deterministic-path symlink trap: an attacker
+# dropping a symlink at %TEMP%\seed_<VMName>\ before New-VM runs can't
+# predict the trailing 4 digits per run.
+$SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 10000))
+if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
@@ -141,14 +150,13 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
 
 # Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
 # VM gets a real LAN IP via DHCP. Default Switch fallback for hosts
-# that can't create an External vSwitch. Same pattern as guest.squid-cache.
+# that can't create an External vSwitch. Same pattern as guest.caching-proxy.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
     Write-Output "WARNING: External vSwitch unavailable -- falling back to 'Default Switch'."
     $switchName = 'Default Switch'
 }
 
-# Create and configure Hyper-V VM
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 16384MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -MemoryMaximumBytes 16384MB -AutomaticCheckpointsEnabled $false | Out-Null
@@ -192,7 +200,7 @@ Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 
 Set-VMHost -EnableEnhancedSessionMode $false
 
 # === Cleanup temporary folders ===
-Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Guidance ===
 Write-Verbose "VM '$VMName' created and configured."

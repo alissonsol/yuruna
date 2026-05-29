@@ -28,8 +28,8 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `vmCommunication.vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`host/macos.utm/modules/Yuruna.Host.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
 | `repositories.frameworkUrl` | `alissonsol/yuruna` | URL of the framework repo. Used by status page for commit links AND polled by the outer runner during a failure-pause to break out early when a new commit lands upstream. |
 | `repositories.projectUrl` | `alissonsol/yuruna-project` | URL of the project-under-test repo. Polled alongside `repositories.frameworkUrl` during a failure-pause, so a fix pushed to the project also breaks out of the 1-hour wait. Empty value disables the project clone (in-tree `project/` is used instead). |
-| `statusServer.isEnabled` | `true` | Start built-in HTTP status server |
-| `statusServer.port` | `8080` | Port for status server |
+| `statusService.isEnabled` | `true` | Start built-in HTTP status server |
+| `statusService.port` | `8080` | Port for status server |
 
 ### Format enforcement and auto-reset
 
@@ -84,7 +84,7 @@ VM passwords come from the active extension under
 default extension keeps a YAML vault (`vault.yml`, gitignored) that
 SIMULATES an external authentication provider: users are never
 deleted and passwords never change without an explicit Set-Password
-call. The vault is persisted across cycles -- the "fake" behaviour
+call. The vault is persisted across cycles -- the "fake" behavior
 is the lazy-create branch in Get-Password (first reference for a
 username generates+stores a password; every later call returns the
 same stored value).
@@ -99,11 +99,11 @@ same stored value).
 - A named system mutex serialises read-modify-write so multiple guests
   provisioning in parallel cannot race.
 
-The squid-cache `yuruna` user persists across cycles via
+The caching-proxy `yuruna` user persists across cycles via
 [`test/status/runtime/yuruna-caching-proxy.yml`](status/runtime/)
 (host-agnostic, gitignored, managed by
 [`test/modules/Test.CachingProxy.psm1`](modules/Test.CachingProxy.psm1)),
-which the squid-cache `New-VM.ps1` writes back to the vault on each
+which the caching-proxy `New-VM.ps1` writes back to the vault on each
 cycle start. The same file also carries the cache VM's IP, replacing
 the older per-platform `cache-ip.txt` breadcrumb near the VHD/raw
 image.
@@ -128,7 +128,7 @@ value across multiple steps (e.g. `New password:` and the matching
 `Retype:`), assign the call to a variable in the sequence's `variables:`
 block:
 
-```yaml
+```
 variables:
   username: yuuser24
   currentPassword: ${ext:authentication.GetPassword(${username})}
@@ -169,11 +169,11 @@ Entra / SSSD-against-LDAP / ...) via
 template at `test/extension/authentication/users.yml.template` ships
 pre-seeded with the four bundled logical users (`yuuser24`,
 `yuuser26`, `yauser1`, `ywuser1`) plus the cache-VM `yuruna` user,
-all with empty corporate fields → out of the box, behaviour is
+all with empty corporate fields → out of the box, behavior is
 identical to today's local-only flow (`${loginUser}` = `${username}`,
 vault auto-generates passwords).
 
-```yaml
+```
 # Example users.yml entry that maps the logical user 'webuser' to a
 # corporate AD identity (DOMAIN\sam form). Sequence-login steps render
 # ${loginUser} as "CORP\alisson.sol"; ${ext:authentication.GetPassword(${username})}
@@ -219,7 +219,7 @@ Side-effecting commits (e.g. `authentication.SetPassword`) use the
 [`Test-Sequence.ps1`](Test-Sequence.ps1) runs a single
 sequence without downloading images or recreating a VM:
 
-```powershell
+```
 pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24"
 pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 5
 pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
@@ -307,34 +307,13 @@ the runner. The level maps to PowerShell's preference variables:
 shows pass/fail, per-guest step status (New-VM, Start-VM,
 New-VM.Resource, Start-GuestOS, Screenshots, Start-GuestWorkload),
 history, and clickable Cycle IDs. Stop
-the detached server with `pwsh test/Stop-StatusServer.ps1`.
-
-### SSH server on the host (optional)
-
-Guests or peer hosts reach the test machine over SSH/SCP once sshd is
-running. Not installed automatically. Install once
-(`pwsh test/Start-SshServer.ps1`, elevated on Windows); uninstall with
-`Stop-SshServer.ps1`. On Windows this adds the `OpenSSH.Server`
-capability (minutes on first install), starts `sshd`, and enables
-auto-start on boot. macOS is currently a placeholder.
-
-Runtime enable/disable is config-driven: set `hostSshServer.enabled`
-in [test.config.yml](test.config.yml) and the cycle runner applies it
-each cycle via the
-[`host-ssh-server` extension](extension/host-ssh-server/). The default
-provider delegates to the active `Yuruna.Host` driver's SSH contract
-(`Test-SshServerSupported`, `Test-SshServerInstalled`, `Start-SshServer`,
-`Stop-SshServer`, `Get-SshServerStatus`); install remains a one-time
-manual step (`pwsh test/Start-SshServer.ps1`). A future provider could
-swap host-local sshd for a VM-based SSH endpoint without touching
-callers — they only see the extension's `Enable-SshServer` /
-`Disable-SshServer` / `Get-SshServerInfo` verbs.
+the detached server with `pwsh test/Stop-StatusService.ps1`.
 
 ## Screenshot-based testing
 
 Train references once per guest:
 
-```powershell
+```
 pwsh test/Train-Screenshots.ps1 -GuestKey guest.amazon.linux.2023
 ```
 
@@ -349,7 +328,7 @@ The tool creates a VM and waits for capture commands:
 Training produces `test/screenshots/<guestKey>/schedule.json` and
 `reference/*.png`. `schedule.json` is editable:
 
-```json
+```
 {
   "checkpoints": [
     { "name": "boot-complete", "delaySeconds": 60, "threshold": 0.85 },

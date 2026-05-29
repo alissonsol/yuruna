@@ -1,5 +1,8 @@
 # Ubuntu Server 24.04 guest on macOS UTM
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Boots the Ubuntu **Server** 24.04 live ISO for autoinstall. The Server
 ISO ships `linux-generic` on the cdrom plus a network-configured
 `/etc/apt/sources.list.d/ubuntu.sources`, so curtin's `install_kernel`
@@ -13,19 +16,19 @@ concepts: [Hosts — ...](../../README.md).
 
 From `yuruna/host/macos.utm/guest.ubuntu.server.24` (do not `sudo`):
 
-```bash
+```
 pwsh ./Get-Image.ps1
 ```
 
 ## For each VM
 
-```bash
+```
 pwsh ./New-VM.ps1                   # default ubuntu-server01
 pwsh ./New-VM.ps1 -VMName myhost
 ```
 
 Double-click `HOSTNAME.utm` in `~/yuruna/guest.nosync/` to import and
-start. Autoinstall is fully unattended. Keep the `guest.squid-cache`
+start. Autoinstall is fully unattended. Keep the `guest.caching-proxy`
 VM running for dramatically faster rebuilds.
 
 Default user is `yuuser24` (override with `-Username`; the same name is

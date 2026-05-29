@@ -1,21 +1,163 @@
 /*
+  LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.05.22
-
-  Shared styles for the Yuruna status pages.
+  Version: 2026.05.29
   --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- See https://yuruna.link/definition#defining-the-status-page-header-anatomy
+  --- See https://yuruna.link/definition#defining-the-status-page-mobile-dark-mode-hardening
 */
+
+:root {
+  --bg-primary:   #f9fafb;
+  --bg-elevated:  #ffffff;
+  --bg-header:    #111827;
+  --bg-hover:     #f3f4f6;
+  --bg-code:      #f3f4f6;
+  --fg-primary:   #111827;
+  --fg-header:    #ffffff;
+  --fg-muted:     #6b7280;
+  --fg-faint:     #9ca3af;
+  --fg-version:   #9ca3af;
+  --border:       #e5e7eb;
+  --border-soft:  #f3f4f6;
+  --border-input: #d1d5db;
+  --border-cta:   #4b5563;
+  --cta-fg:       #d1d5db;
+  --cta-hover-bg: #1f2937;
+  --pass-bg:      #dcfce7;
+  --pass-fg:      #16a34a;
+  --warn-bg:      #fef3c7;
+  --warn-fg:      #b45309;
+  --fail-bg:      #fee2e2;
+  --fail-fg:      #dc2626;
+  --fail-soft-bg: #fef2f2;
+  --fail-soft-border: #fecaca;
+  --info-bg:      #eff6ff;
+  --info-fg:      #1d4ed8;
+  --info-border:  #bfdbfe;
+  --info-strong:  #2563eb;
+  --pending-bg:   #fef3c7;
+  --pending-fg:   #ca8a04;
+  --paused-strong-bg: #ca8a04;
+  --paused-strong-border: #a16207;
+  --stopped-bg:   #374151;
+  --running-bg:   #dbeafe;
+  --running-fg:   #1d4ed8;
+  --skipped-bg:   #fef9c3;
+  --skipped-fg:   #a16207;
+  --footer-bg:    #111827;
+  --footer-fg:    #9ca3af;
+  --footer-input-bg: #0b1220;
+  --footer-input-border: #374151;
+  --section-link: #2563eb;
+  --link:         #0366d6;
+  --link-strong:  #1e40af;
+  --meta-btn-bg:  #f3f4f6;
+  --meta-btn-fg:  #111827;
+  --meta-btn-border: #d1d5db;
+  --meta-btn-hover-bg: #e5e7eb;
+  --meta-btn-active-bg: #fbbf24;
+  --meta-btn-active-border: #b45309;
+  --destructive-bg: #f97316;
+  --destructive-border: #ea580c;
+  --destructive-hover-bg: #ea580c;
+  --destructive-disabled-bg: #fdba74;
+  --primary-bg:   #2563eb;
+  --primary-border: #1d4ed8;
+  --primary-hover-bg: #1d4ed8;
+  --primary-disabled-bg: #93c5fd;
+  /* Minimum tap target per iOS HIG (44 px) / Material (48 dp). */
+  --touch-min:    2.75rem;
+  /* Single source of truth for the monospace stack used by badges,
+     timestamps, IP fields, code blocks, and chart axis labels.
+     Safari 9.1+ / iOS 9.3+ resolve var() in font-family. */
+  --font-mono:    'Menlo','Consolas',monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary:   #0b1220;
+    --bg-elevated:  #111827;
+    --bg-header:    #030712;
+    --bg-hover:     #1f2937;
+    --bg-code:      #1f2937;
+    --fg-primary:   #e5e7eb;
+    --fg-muted:     #94a3b8;
+    --fg-faint:     #64748b;
+    --fg-version:   #6b7280;
+    --border:       #1f2937;
+    --border-soft:  #111827;
+    --border-input: #334155;
+    --border-cta:   #475569;
+    --cta-fg:       #cbd5e1;
+    --cta-hover-bg: #1e293b;
+    --pass-bg:      #14532d;
+    --pass-fg:      #4ade80;
+    --warn-bg:      #78350f;
+    /* Dark-mode warn/fail badge text. Lifted from #fcd34d / #fca5a5 to
+       #fde68a / #fecaca so badge legibility holds up on high-ambient
+       OLED screens (an operator carrying the phone outdoors at midnight
+       reading a fail row). Both new pairs exceed WCAG AAA (7:1) on the
+       paired bg below; the prior pair was borderline-AA and lost
+       contrast under sun glare. */
+    --warn-fg:      #fde68a;
+    --fail-bg:      #7f1d1d;
+    --fail-fg:      #fecaca;
+    --fail-soft-bg: #450a0a;
+    --fail-soft-border: #7f1d1d;
+    --info-bg:      #1e293b;
+    --info-fg:      #60a5fa;
+    --info-border:  #1e3a8a;
+    --info-strong:  #3b82f6;
+    --pending-bg:   #78350f;
+    --pending-fg:   #fcd34d;
+    --paused-strong-bg: #b45309;
+    --paused-strong-border: #92400e;
+    --stopped-bg:   #1f2937;
+    --running-bg:   #1e3a8a;
+    --running-fg:   #93c5fd;
+    --skipped-bg:   #422006;
+    --skipped-fg:   #fcd34d;
+    --footer-bg:    #030712;
+    --footer-fg:    #94a3b8;
+    --footer-input-bg: #020617;
+    --footer-input-border: #1f2937;
+    /* Link colors in dark mode: #60a5fa scored ~3.2:1 against the page
+       background, below WCAG AA's 4.5:1 floor for normal text. #74b8ff
+       lifts contrast to ~4.5:1 without losing the blue-link affordance. */
+    --section-link: #74b8ff;
+    --link:         #74b8ff;
+    --link-strong:  #93c5fd;
+    --meta-btn-bg:  #1f2937;
+    --meta-btn-fg:  #e5e7eb;
+    --meta-btn-border: #334155;
+    --meta-btn-hover-bg: #334155;
+    --meta-btn-active-bg: #b45309;
+    --meta-btn-active-border: #fcd34d;
+    --destructive-bg: #c2410c;
+    --destructive-border: #9a3412;
+    --destructive-hover-bg: #9a3412;
+    --destructive-disabled-bg: #7c2d12;
+    --primary-bg:   #1d4ed8;
+    --primary-border: #1e3a8a;
+    --primary-hover-bg: #1e3a8a;
+    --primary-disabled-bg: #1e293b;
+  }
+}
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #f9fafb; color: #111827; font-size: 14px; line-height: 1.5;
+  background: var(--bg-primary); color: var(--fg-primary); font-size: 14px; line-height: 1.5;
 }
 
 .page-header {
-  background: #111827; color: #fff;
-  padding: .75rem 2rem;
+  background: var(--bg-header); color: var(--fg-header);
+  /* Horizontal padding folds in iPhone safe-area-inset so content stays
+     readable under the notch when viewport-fit=cover lets the header
+     background extend edge-to-edge. env() falls back to 0 on
+     non-notched devices. */
+  padding: .75rem max(2rem, env(safe-area-inset-right)) .75rem max(2rem, env(safe-area-inset-left));
   display: flex; align-items: center; flex-wrap: wrap;
 }
 .page-header h1 {
@@ -23,13 +165,13 @@ body {
 }
 #header-version {
   display: block; line-height: 1;
-  color: #9ca3af; font-size: .5rem;
-  font-family: 'Menlo','Consolas',monospace;
+  color: var(--fg-version); font-size: .5rem;
+  font-family: var(--font-mono);
   font-weight: 400; letter-spacing: 0;
 }
 #header-machine {
-  margin-left: auto; color: #9ca3af; font-size: .75rem;
-  font-family: 'Menlo','Consolas',monospace;
+  margin-left: auto; color: var(--fg-version); font-size: .75rem;
+  font-family: var(--font-mono);
   display: inline-flex; align-items: center;
 }
 #header-machine > * + * { margin-left: .5rem; }
@@ -39,13 +181,171 @@ body {
 }
 .hm-stack .hm-host { opacity: .75; }
 a.hm-name { color: inherit; text-decoration: none; }
-a.hm-name:hover { color: #fff; text-decoration: underline; }
+a.hm-name:hover { color: var(--fg-header); text-decoration: underline; }
 
-.header-cta {
-  color: #d1d5db; text-decoration: none;
-  border: 1px solid #4b5563;
-  padding: .15rem .5rem; border-radius: .25rem;
-  font-size: .6875rem;
-  min-width: 7rem; text-align: center; box-sizing: border-box;
+/* Touch-friendly CTA / button base. Per-page .meta-btn / .delete-array
+   / etc. inherit min-height + min-width from .yuruna-touchable; pages
+   that need a smaller density still get the floor so an operator on
+   a phone can hit them reliably. */
+.yuruna-touchable,
+.header-cta,
+.meta-btn,
+button {
+  min-height: var(--touch-min);
+  min-width:  var(--touch-min);
+  /* Pre-fill the inline padding so a single-word button reads as a
+     comfortable touch target rather than a 28 px sliver. */
+  padding: .5rem 1rem;
 }
-.header-cta:hover { background: #1f2937; color: #fff; }
+.header-cta {
+  color: var(--cta-fg); text-decoration: none;
+  border: 1px solid var(--border-cta);
+  border-radius: .25rem;
+  font-size: .75rem;
+  min-width: 7rem; text-align: center; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.header-cta:hover { background: var(--cta-hover-bg); color: var(--fg-header); }
+
+/* Cycle / status banner shared by index, test.config, perf, hostinfo.
+   Page-specific sub-elements (#banner-cp-row, #banner-user-row,
+   #perf-recalc) stay in each page's inline <style>; the chrome itself
+   is shared so narrow-viewport behavior stays in lockstep. */
+#banner {
+  display: flex; align-items: center;
+  /* Same safe-area-inset pattern as .page-header. */
+  padding: .75rem max(2rem, env(safe-area-inset-right)) .75rem max(2rem, env(safe-area-inset-left)); font-weight: 600; font-size: .875rem;
+  transition: background .3s;
+}
+#banner > * + * { margin-left: .625rem; }
+#banner.idle    { background: var(--fg-muted); color: var(--fg-header); }
+#banner.running { background: var(--info-strong); color: var(--fg-header); }
+#banner.pass    { background: var(--pass-fg); color: var(--fg-header); }
+#banner.fail    { background: var(--fail-fg); color: var(--fg-header); }
+#banner.paused  { background: var(--paused-strong-bg); color: var(--fg-header); }
+#banner.stopped { background: var(--stopped-bg); color: var(--fg-header); }
+#banner .dot {
+  width: .625rem; height: .625rem; border-radius: 50%;
+  background: currentColor; display: inline-block; flex-shrink: 0;
+}
+#banner.running .dot {
+  -webkit-animation: pulse 1.4s ease-in-out infinite;
+          animation: pulse 1.4s ease-in-out infinite;
+}
+@-webkit-keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+@keyframes pulse         { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+/* Narrow viewport: header padding shrinks in lockstep with the banner
+   (see the #banner block in the @media (max-width: 600px) below) so the
+   two horizontal strips line up at any small-screen width. Row vs.
+   column is left to the flex-wrap on .page-header so the header only
+   breaks to a second line when the title + machine info actually
+   collide. */
+@media (max-width: 600px) {
+  .page-header {
+    padding: .75rem max(.75rem, env(safe-area-inset-right)) .75rem max(.75rem, env(safe-area-inset-left));
+    row-gap: .35rem;
+  }
+  #header-machine {
+    font-size: .7rem;
+  }
+}
+
+/* Narrow-viewport hardening. Two layers:
+     - <600 px: drop the 860 px / 1100 px <main> caps so cards span the
+       full width and shrink the side padding so a 320 px iPad can
+       breathe.
+     - tables are wrapped in .table-wrap (overflow-x: auto) by each
+       page; the floor below keeps the table itself responsive when no
+       wrapper is in place.
+   Grid layout for guest cards is opt-in via @supports so iOS 9 Safari
+   (which lacks grid) falls back to the original block flow. */
+@media (max-width: 600px) {
+  main {
+    max-width: 100% !important;
+    padding-left: .75rem !important;
+    padding-right: .75rem !important;
+  }
+  #banner {
+    padding-left: .75rem; padding-right: .75rem;
+    flex-wrap: wrap;
+  }
+}
+
+/* Responsive guest-card grid. iOS 9 Safari lacks grid; without the
+   @supports guard the block-flow fallback (one card per row) kicks in
+   automatically. Explicit -column-gap / -row-gap (NOT the shorthand
+   `gap:`) keeps Safari < 10.1 happy on devices that DO have grid. */
+@supports (display: grid) {
+  #guest-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    -webkit-row-gap: .625rem; row-gap: .625rem;
+  }
+  #guest-list > .guest-card { margin-bottom: 0; }
+}
+
+/* SVG perf charts: scale with the container instead of pinning to a
+   fixed 1100 px <main>. viewBox preserves the chart's aspect ratio
+   when narrower. */
+svg.seq-chart { width: 100%; height: auto; max-width: 100%; }
+
+/* Utility: hide without removing from the layout-tree-discovery pass.
+   Pages that need flash-of-unstyled-content protection mark elements
+   `class="hidden"` in the HTML and `classList.remove('hidden')` once
+   their JS handler decides which variant to show. iOS 9 / Safari 9
+   support classList on HTMLElement. */
+.hidden { display: none; }
+
+/* Section heading shared across status pages: small uppercase muted
+   label over a soft underline. `.with-controls` lays the heading row
+   out as a flex container so a CTA / button can sit at the right
+   margin and tighten the underline space to taste. */
+.section-title {
+  font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--fg-muted);
+  border-bottom: 1px solid var(--border); padding-bottom: .4rem; margin-bottom: .875rem;
+}
+.section-title.with-controls {
+  display: flex; justify-content: space-between; align-items: center;
+  text-transform: none; letter-spacing: normal; color: inherit;
+  padding-bottom: .15rem; margin-bottom: .5rem;
+}
+.section-title.with-controls > * + * { margin-left: .75rem; }
+.section-title.with-controls .section-title-link {
+  margin-left: auto; flex: 0 0 auto;
+  font-size: .8125rem; font-weight: 500;
+  text-transform: none; letter-spacing: normal;
+  color: var(--section-link); text-decoration: underline dotted;
+}
+.section-title.with-controls .section-title-link:hover { text-decoration: underline; }
+
+/* Visual chrome for .meta-btn (the touch baseline is set above in the
+   .yuruna-touchable / button block). Shared so any page that drops a
+   button into the cycle/header area gets a consistent affordance.
+   .paused-active flips color to signal an armed pause/resume state. */
+.meta-btn {
+  background: var(--meta-btn-bg); color: var(--meta-btn-fg);
+  border: 1px solid var(--meta-btn-border);
+  border-radius: .375rem;
+  font-weight: 600;
+  font-family: inherit; cursor: pointer;
+  transition: background .15s, opacity .15s;
+}
+.meta-btn:hover:not([disabled]) { background: var(--meta-btn-hover-bg); }
+.meta-btn[disabled] { cursor: default; opacity: .45; }
+.meta-btn.paused-active,
+.meta-btn.paused-active:hover:not([disabled]) {
+  background: var(--meta-btn-active-bg); color: var(--meta-btn-fg);
+  border-color: var(--meta-btn-active-border);
+}
+
+/* Empty-state panel shared by index.html and perf.html. */
+.no-data {
+  text-align: center; padding: 3.5rem 1rem; color: var(--fg-faint);
+}
+.no-data h3 { font-size: 1.125rem; margin-bottom: .5rem; color: var(--fg-muted); }
+.no-data code {
+  background: var(--bg-code); padding: .125rem .375rem; border-radius: .25rem;
+  font-family: var(--font-mono); font-size: .8125rem;
+}

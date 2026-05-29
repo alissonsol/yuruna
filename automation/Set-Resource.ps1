@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42b2c3d4-e5f6-4a78-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -88,12 +88,17 @@ $null = Start-Transcript $transcriptFileName
 $result = Publish-ResourceList $project_root $config_subfolder
 
 $null = Stop-Transcript
-if (-Not $result) {
-    Write-Output $result
+# Publish-ResourceList returns a result manifest (hashtable), not a bare
+# [bool]. A non-empty hashtable coerces to $true, so a bare
+# `if (-Not $result)` would silently take the success branch on a failure
+# manifest. Test-YurunaResultManifestOk inspects $result.success explicitly
+# and handles null/non-hashtable.
+if (-Not (Test-YurunaResultManifestOk $result)) {
+    Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
     Write-Output $(Get-Content -Path $transcriptFileName)
     # Propagate the failure as a non-zero process exit so bash wrappers
     # using `set -e` (e.g. ubuntu.server.24.workload.k8s.website.sh) see it.
-    # Without this, Publish-ResourceList returning $false would print the
+    # Without this, Publish-ResourceList reporting failure would print the
     # transcript but exit 0, and the wrapper would march into a later
     # `kubectl wait` that times out -- losing the deploy-time error.
     exit 1

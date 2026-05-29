@@ -1,5 +1,6 @@
 #!/bin/bash
-# Version: 2026.05.22
+# Version: 2026.05.29
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
@@ -40,7 +41,6 @@ nvm install 22
 
 echo ""
 echo -e "\e[1;36m>>> Installing n8n...\e[0m"
-# Install n8n
 npm install -g n8n
 echo -e "\e[1;32m<<< n8n installation complete.\e[0m"
 EOF

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
+# LICENSEURI https://yuruna.link/license
 # Version: 2026.05.29  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
@@ -240,7 +241,7 @@ stop_yuruna_processes() {
     "Invoke-TestRunner.ps1"
     "Invoke-TestInnerRunner.ps1"
     "Test-Sequence.ps1"
-    "Start-StatusServer.ps1"
+    "Start-StatusService.ps1"
   )
   for pat in "${patterns[@]}"; do
     local pids
@@ -352,7 +353,7 @@ brew_ensure_formula gh
 
 log "Installing / upgrading required casks"
 if [[ ${PRESERVE_SQUID_CACHE:-0} -eq 1 ]]; then
-  log "  skipping UTM cask upgrade -- squid-cache running, UTM cannot be quit"
+  log "  skipping UTM cask upgrade -- caching-proxy running, UTM cannot be quit"
 else
   brew_ensure_cask utm "/Applications/UTM.app"
 fi

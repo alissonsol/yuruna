@@ -9,7 +9,7 @@ Amazon Linux 2023 —
 
 From an elevated PowerShell 7.5+:
 
-```powershell
+```
 .\Get-Image.ps1
 ```
 
@@ -19,7 +19,7 @@ One-time per host: install the ADK Deployment Tools (for
 
 ## 2) Create the VM(s)
 
-```powershell
+```
 .\New-VM.ps1 amazon-linux01
 ```
 
@@ -31,7 +31,7 @@ and places seed + VHDX there.
   `amazonlinux` (override in
   [vmconfig/user-data](./vmconfig/user-data)). Upgrade if prompted by
   `dnf check-release-update`.
-- `/automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh`
+- `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh`
   installs the GUI and tools (cloud-init seeded `fetch-and-execute.sh`
   into `/automation/`; workloads pull from GitHub on demand).
 - `sudo reboot now` — boots into the GUI.
@@ -39,7 +39,7 @@ and places seed + VHDX there.
 **CHECKPOINT**: good moment for a Hyper-V checkpoint
 named `VM Configured`. Optional: `sudo dnf install powershell -y`.
 
-## TODO — GUI resolution
+## Open issue — GUI resolution
 
 Contribution opportunity. The
 [AL2023 TigerVNC tutorial](https://docs.aws.amazon.com/linux/al2023/ug/vnc-configuration-al2023.html)

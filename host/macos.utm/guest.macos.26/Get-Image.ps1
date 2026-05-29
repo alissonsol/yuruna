@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42e1f2a3-b4c5-4d67-e890-1f2a3b4c5d68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -39,19 +39,9 @@
     guard avoids re-downloading the same build on a repeat run.
 #>
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
-# Each level shows itself + all higher-priority streams; Error is highest.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        if ($_eff -ge $_rank.Verbose) { $ProgressPreference = 'SilentlyContinue' }
-    }
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 if (-not $IsMacOS) {
     Write-Error "Get-Image.ps1 for guest.macos.26 only runs on macOS (Apple Virtualization required)."
@@ -76,8 +66,8 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 # Output contract (one line, tab-separated): URL<TAB>BUILD<TAB>VERSION
 # Any failure prints a line starting with "ERROR_KIND=<kind>" to stderr
 # (xcode-missing / version-below-floor / vz-catalog-fetch / vz-other),
-# so PowerShell can emit a targeted hint instead of the legacy
-# blanket "install Xcode CLT" advice.
+# so PowerShell can emit a targeted hint instead of a blanket
+# "install Xcode CLT" advice.
 
 # Up-front swift sanity check. Reaches this point with a clear, actionable
 # message before we burn time on a here-string + temp-file dance for what

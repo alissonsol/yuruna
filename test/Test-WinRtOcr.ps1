@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42e5f6a7-b8c9-4d01-e2f3-4a5b6c7d8e9f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Test-WinRtOcr
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -154,7 +154,7 @@ Write-Output "Windows.Media.Ocr is installed on every Windows machine, but:"
 Write-Output "  - PowerShell 7+ (.NET 6+) CANNOT access it (WinRT bridge removed)"
 Write-Output "  - PowerShell 5.1 (.NET Framework) CAN access it (WinRT bridge built-in)"
 Write-Output ""
-Write-Output "The yuruna test harness works around this by spawning powershell.exe"
+Write-Output "The Yuruna test harness works around this by spawning powershell.exe"
 Write-Output "from pwsh to run OCR. There is no pure-pwsh path and no NuGet package"
 Write-Output "that can be simply added at runtime to restore access."
 Write-Output ""

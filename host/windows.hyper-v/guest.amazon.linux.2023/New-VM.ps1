@@ -1,10 +1,10 @@
 <#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -33,22 +33,9 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 
 $global:ProgressPreference = "SilentlyContinue"
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
-# Each level shows itself + all higher-priority streams; Error is highest.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $global:WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $global:InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $global:VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $global:DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-    }
-} else {
-    $global:InformationPreference = "Continue"
-    $global:DebugPreference       = "SilentlyContinue"
-    $global:VerbosePreference     = "SilentlyContinue"
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 $commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
@@ -70,12 +57,26 @@ if (-not (Assert-HyperVEnabled)) {
 	exit 1
 }
 
-# Check if VM exists and force delete it
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
 	Write-Output "VM '$VMName' exists. Deleting..."
 	Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-	Hyper-V\Remove-VM -Name $VMName -Force
+	try {
+		Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
+	} catch {
+		# A half-removed VM (locked vhdx, permission, etc.) would trip
+		# the next New-VM call with "already exists" and the outer loop
+		# has no signal to recover. Dump live Hyper-V state so the
+		# operator can clean orphan disks before retrying.
+		$diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
+			Format-List Name, State, Status, Generation, Path | Out-String
+		throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
+	}
+	# Hyper-V can return Remove-VM success while leaving a ghost entry;
+	# a second Get-VM is the only reliable post-condition.
+	if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
+		throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
+	}
 	Write-Output "VM '$VMName' deleted."
 }
 
@@ -136,9 +137,12 @@ $vmConfigDir = Join-Path $PSScriptRoot "vmconfig"
 $MetaDataTemplate = Join-Path $vmConfigDir "meta-data"
 $UserDataTemplate = Join-Path $vmConfigDir "user-data"
 
-# Generate cloud-init seed ISO
-$SeedDir = Join-Path $env:TEMP "seed_$VMName"
-if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
+# Generate cloud-init seed ISO. 4-digit entropy is weak by design (10k
+# cases) but enough to defeat the deterministic-path symlink trap: an
+# attacker dropping a symlink at %TEMP%\seed_<VMName>\ before New-VM
+# runs can't predict the trailing 4 digits per run.
+$SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 10000))
+if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
@@ -189,18 +193,25 @@ $YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Pat
 if (Test-Path $YurunaTestConfig) {
     try {
         $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusServer.port) { $YurunaHostPort = "$($tc.statusServer.port)" }
+        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('USERNAME_PLACEHOLDER', $Username).Replace('PLAINTEXT_PASSWORD_PLACEHOLDER', $Password).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort)
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# write_files entries. Eliminates the legacy network-dependent wget+wget
+# bootstrap and ensures both files are on disk before any guest script runs.
+$YurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
+$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna_retry.sh')))
+$YurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'fetch-and-execute.sh')))
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('USERNAME_PLACEHOLDER', $Username).Replace('PLAINTEXT_PASSWORD_PLACEHOLDER', $Password).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"
 $VolumeId = "cidata"
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId $VolumeId
 
-# Create and configure Hyper-V VM
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 16384MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -MemoryMaximumBytes 16384MB -AutomaticCheckpointsEnabled $false | Out-Null
@@ -223,7 +234,7 @@ Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
 # === Cleanup temporary folders ===
-Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Guidance ===
 Write-Verbose "VM '$VMName' created and configured."

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<!-- --- See https://yuruna.link/definition#defining-the-status-page-perf-chart -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
+  <title>Perf — Yuruna</title>
+  <link rel="stylesheet" href="yuruna.common.css">
+  <style>
+    body { min-height: 100vh; display: flex; flex-direction: column; }
+
+    #perf-recalc {
+      margin-left: auto;
+      flex: 0 0 auto;
+      border-radius: .375rem;
+      font-weight: 600;
+      font-family: inherit; cursor: pointer;
+      background: rgba(255,255,255,.18); color: var(--fg-header);
+      border: 1px solid rgba(255,255,255,.32);
+    }
+    #perf-recalc:hover:not([disabled]) { background: rgba(255,255,255,.3); }
+    #perf-recalc[disabled] { cursor: default; opacity: .55; }
+
+    main {
+      flex: 1; max-width: 1100px; width: 100%; margin: 0 auto;
+      padding: 1.25rem 1.5rem;
+    }
+
+    /* Narrow viewport: drop the 1100 px cap to full-width and trim
+       side padding. Shared common.css handles the SVG aspect-ratio
+       scaling (width:100%; height:auto via the viewBox) and the banner
+       narrow-viewport padding. */
+    @media (max-width: 600px) {
+      main { padding: 1rem .75rem; }
+      .seq-card { padding: .75rem .85rem; }
+    }
+
+    .perf-message {
+      font-size: .75rem; color: var(--fg-muted); margin-bottom: 1.25rem;
+      font-family: var(--font-mono);
+    }
+    .perf-message.error { color: var(--fail-fg); }
+
+    .seq-card {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
+      padding: .875rem 1.125rem; margin-bottom: 1rem;
+    }
+    .seq-name {
+      font-weight: 600; font-size: .875rem;
+      font-family: var(--font-mono);
+      color: var(--fg-primary); margin-bottom: .15rem;
+    }
+    .seq-meta {
+      font-size: .6875rem; color: var(--fg-muted); margin-bottom: .65rem;
+    }
+    /* viewBox-driven aspect-ratio scaling: shared common.css adds
+       width:100% / height:auto. The 260 px stays as a max so wide
+       viewports don't stretch the chart vertically out of proportion. */
+    .seq-chart { width: 100%; max-height: 260px; display: block; }
+    .seq-chart .axis      { stroke: var(--fg-faint); stroke-width: 1; }
+    .seq-chart .grid      { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 2; }
+    .seq-chart .axis-text { fill: var(--fg-muted); font-size: 10px; font-family: var(--font-mono); }
+    .seq-chart .seg            { stroke: rgba(0,0,0,.18); stroke-width: 0.5; }
+    .seq-chart .seg.fail       { stroke: var(--fail-fg); stroke-width: 1.5; }
+    .seq-chart .seg.fallback   { fill: var(--border-input); stroke: var(--fg-muted); stroke-width: 0.5; }
+    .seq-chart .bar-outline    { fill: none; stroke: var(--border-input); stroke-width: 0.5; }
+
+    .stale-banner {
+      background: var(--warn-bg); color: var(--warn-fg);
+      border: 1px solid var(--pending-bg); border-radius: .375rem;
+      padding: .65rem .85rem;
+      font-size: .75rem; line-height: 1.5;
+      margin-bottom: 1rem;
+    }
+    .stale-banner code {
+      background: rgba(0,0,0,.06); padding: .05rem .3rem;
+      border-radius: .2rem; font-family: var(--font-mono);
+    }
+    /* .no-data lives in yuruna.common.css (shared with index.html). */
+  </style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1><span id="header-title">Yuruna</span><span id="header-version"></span></h1>
+  <span id="header-machine"></span>
+</header>
+
+<div id="banner" class="idle">
+  <span class="dot"></span>
+  <span id="banner-text">Loading…</span>
+  <button id="perf-recalc" type="button" title="Re-scan test/status/perf/cycles/*.jsonl and refresh every chart.">Recalculate</button>
+</div>
+
+<main>
+  <div id="perf-message" class="perf-message">Loading perf aggregates…</div>
+  <div id="perf-body"></div>
+</main>
+
+<script src="yuruna.common.js"></script>
+
+</body>
+</html>

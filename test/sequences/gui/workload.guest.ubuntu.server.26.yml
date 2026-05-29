@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM workload testing.
 # See possible actions in the actions.yml file.
 # ${vmName}, ${hostType}, ${guestKey} are built-in. ${ext:area.Method(args)}
@@ -38,11 +39,11 @@ steps:
     description: "${username}@${vmName}"
 
   - action: waitForSeconds
-    seconds: 9
+    seconds: 10
     description: "Pause before installing toolset"
 
   - action: fetchAndExecute
-    text: "/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh"
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh"
     description: "ubuntu.server.26.code.sh"
     waitPattern: "FETCHED AND EXECUTED:"
     timeoutSeconds: 600

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -41,10 +41,17 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
+# Canonical path bundle + CachingProxy module kind (Test.VMUtility,
+# Test.CachingProxy, Test.Host) -- one helper call loads the inline
+# Test.Host import this script needs.
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
+$paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
+$ModulesDir = $paths.ModulesDir
+Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
+
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
 # group set is stale -- Stop-CachingProxy on Linux calls virsh destroy /
 # undefine on the cache VM. No-op elsewhere.
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.Host.psm1') -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # === Step 0: plan + sudo preflight ==========================================
@@ -96,14 +103,14 @@ if ($IsMacOS) {
 
     # Tear down any leftover host-side forwarders from the retired
     # shared-NAT path (forwarder.<port>.pid pwsh subprocesses under
-    # $HOME/yuruna/image/squid-cache). With the cache VM bridged
+    # $HOME/yuruna/image/caching-proxy). With the cache VM bridged
     # directly to the host's LAN NIC there is no host:port forwarder
     # layer in the data path -- but an upgrade from the previous shape
     # can leave one running, and on macOS killing the root-owned :80
     # forwarder requires sudo. No-op on a fresh install.
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.Host.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
-    $stateDir = Join-Path $HOME "yuruna/image/squid-cache"
+    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy"
     $hasRootForwarder = $false
     $meIsRoot = $false
     try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
@@ -147,13 +154,13 @@ if ($IsMacOS) {
 
     if (Test-Path $UtmDir) {
         Write-Output "  Removing bundle $UtmDir"
-        Remove-Item -Recurse -Force $UtmDir
+        Remove-Item -LiteralPath $UtmDir -Recurse -Force
     } else {
         Write-Output "  No bundle found at $UtmDir."
     }
 
     Write-Output ""
-    Write-Output "Base image kept at: $HOME/yuruna/image/squid-cache/"
+    Write-Output "Base image kept at: $HOME/yuruna/image/caching-proxy/"
     Write-Output "  (delete manually if you want the next Start-CachingProxy.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsWindows) {
@@ -185,13 +192,13 @@ if ($IsMacOS) {
 
     if (Test-Path $vmDir) {
         Write-Output "  Removing VM disk directory $vmDir"
-        Remove-Item -Recurse -Force $vmDir
+        Remove-Item -LiteralPath $vmDir -Recurse -Force
     } else {
         Write-Output "  No VM disk directory found at $vmDir."
     }
 
     Write-Output ""
-    Write-Output "Base image kept at: $downloadDir\host.windows.hyper-v.guest.squid-cache.vhdx"
+    Write-Output "Base image kept at: $downloadDir\host.windows.hyper-v.guest.caching-proxy.vhdx"
     Write-Output "  (delete manually if you want the next Start-CachingProxy.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsLinux) {
@@ -199,7 +206,7 @@ if ($IsMacOS) {
     Write-Output "=== Stop + delete '$VMName' (Linux/KVM/libvirt) ==="
 
     $RepoRoot    = Split-Path -Parent $PSScriptRoot
-    $downloadDir = Join-Path $HOME 'yuruna/image/squid-cache'
+    $downloadDir = Join-Path $HOME 'yuruna/image/caching-proxy'
     $vmDir       = Join-Path $HOME "yuruna/vms/$VMName"
 
     # Tear down any pwsh-based host port forwarders Start-CachingProxy.ps1
@@ -234,13 +241,13 @@ if ($IsMacOS) {
 
     if (Test-Path $vmDir) {
         Write-Output "  Removing VM disk directory $vmDir"
-        Remove-Item -Recurse -Force $vmDir
+        Remove-Item -LiteralPath $vmDir -Recurse -Force
     } else {
         Write-Output "  No VM disk directory found at $vmDir."
     }
 
     Write-Output ""
-    Write-Output "Base image kept at: $downloadDir/host.ubuntu.kvm.guest.squid-cache.qcow2"
+    Write-Output "Base image kept at: $downloadDir/host.ubuntu.kvm.guest.caching-proxy.qcow2"
     Write-Output "  (delete manually if you want the next Start-CachingProxy.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } else {

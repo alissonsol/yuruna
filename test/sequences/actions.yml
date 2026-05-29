@@ -1,8 +1,9 @@
 # yaml-language-server: $schema=../schemas/actions.schema.yml
 
-# Consolidated catalogue of actions available in sequence files
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Consolidated catalog of actions available in sequence files
 # (start.guest.*.yml, workload.guest.*.yml under sequences/gui/ and
-# sequences/ssh/). Individual sequence files reference this catalogue
+# sequences/ssh/). Individual sequence files reference this catalog
 # instead of redeclaring each action's description. Action names here
 # match the 'action' field in each step. Every step also accepts a
 # step-level 'description' (string, free-form label shown in the cycle
@@ -12,7 +13,7 @@
 # or removing a case.
 #
 # Rendered, prose-style companion (with per-host Yuruna.Host contract
-# notes — including the saveDiskSnapshot rename behaviour and its
+# notes — including the saveDiskSnapshot rename behavior and its
 # divergence across Hyper-V / KVM / UTM): see actions.md.
 
 # Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}

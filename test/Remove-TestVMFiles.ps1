@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -17,7 +17,17 @@
 #requires -version 7
 
 param(
-    [string]$Prefix
+    [string]$Prefix,
+    # Quiet mode: suppress per-step "Stopping ... Removed ..." chatter and
+    # the host-recommendation block so an automated caller (the cycle-start
+    # sweep in Invoke-TestInnerRunner) gets a single visible line:
+    #   "Running orphaned VM file cleanup: <path>"
+    # Routine status lines flip to Write-Verbose; Write-Warning and
+    # Write-Error remain visible because they always represent an actual
+    # problem the operator needs to see. The Force flag below is the only
+    # destructive-confirmation suppression; -Quiet alone DOES NOT bypass
+    # any confirmation. Direct invocation (no -Quiet) prints the full log.
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,12 +36,21 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $TestRoot
 $ModulesDir = Join-Path $TestRoot "modules"
 
+function Write-Status {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline)][string]$Message)
+    process {
+        if ($Quiet) { Write-Verbose $Message } else { Write-Output $Message }
+    }
+}
+
 # Resolve $Prefix: explicit -Prefix wins, then test.config.yml's
-# vmStart.testVmNamePrefix, then the legacy "test-" default. Reading the
+# vmStart.testVmNamePrefix, then the "test-" fallback. Reading the
 # config matters when the operator runs this script directly after a stopped
 # runner -- the runner passes -Prefix from $Config.vmStart.testVmNamePrefix,
-# but a manual invocation used to silently fall back to "test-" and would
-# miss VMs if the operator had customized the prefix in test.config.yml.
+# so a manual invocation that fell back to "test-" without reading the
+# config would miss VMs whenever the operator had customized the prefix
+# in test.config.yml.
 if (-not $ExplicitPrefix) {
     $configPath = Join-Path $TestRoot 'test.config.yml'
     if (Test-Path $configPath) {
@@ -62,15 +81,15 @@ if (-not $HostType) { exit 1 }
 # Helper is a no-op on macOS/Windows and on already-fresh shells.
 Invoke-LibvirtGroupReExecIfNeeded -HostType $HostType -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-Write-Output "Host type: $HostType"
-Write-Output ""
+Write-Status "Host type: $HostType"
+Write-Status ""
 
 # Fast pre-flight: refuse to call host VM cmdlets without the absolute
 # minimum (Administrator on Hyper-V, virsh/utmctl reachable on
 # KVM/UTM). Without this gate, Hyper-V\Get-VM dies inside the switch
 # below with a raw "You do not have the required permission..." that
 # names the computer but not the fix.
-if (-not (Test-HostRequirement -HostType $HostType)) { exit 1 }
+if (-not (Test-HostRequirement -HostType $HostType -Quiet:$Quiet)) { exit 1 }
 
 # Wire the host driver so the contract (Stop-VMForce, Remove-VM, ...) is
 # available on every host. The HostType switch below stays because the
@@ -82,8 +101,8 @@ if (-not (Test-HostRequirement -HostType $HostType)) { exit 1 }
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
 # === Stop all test-* VMs ===
-Write-Output "Stopping VMs with prefix '$Prefix'..."
-Write-Output ""
+Write-Status "Stopping VMs with prefix '$Prefix'..."
+Write-Status ""
 
 # Track every VM we attempted, with a final disposition. Per-VM ops MUST
 # NOT abort the whole loop: on a long-running host, a single stuck VM
@@ -102,11 +121,11 @@ switch ($HostType) {
         # Get-VM (which doesn't exist anyway -- we expose Get-VMState instead).
         $testVMs = @(Hyper-V\Get-VM | Where-Object { $_.Name -like "${Prefix}*" })
         if ($testVMs.Count -eq 0) {
-            Write-Output "  No Hyper-V VMs found matching '${Prefix}*'."
+            Write-Status "  No Hyper-V VMs found matching '${Prefix}*'."
         }
         foreach ($vm in $testVMs) {
             $vmName = $vm.Name
-            Write-Output "  Stopping $vmName [$($vm.State)]..."
+            Write-Status "  Stopping $vmName [$($vm.State)]..."
             try {
                 if ((Get-VMState -VMName $vmName) -ne 'stopped') {
                     # Stop-VMForce (Yuruna.Host) escalates to killing vmwp.exe
@@ -116,12 +135,12 @@ switch ($HostType) {
                     # must not prompt.
                     $stopped = Stop-VMForce -VMName $vmName -StopTimeoutSeconds 20 -Confirm:$false
                     if ($stopped) {
-                        Write-Output "    Stopped."
+                        Write-Status "    Stopped."
                     } else {
                         Write-Warning "    Stop-VMForce returned `$false for $vmName; Remove-VM may fail."
                     }
                 } else {
-                    Write-Output "    Already stopped."
+                    Write-Status "    Already stopped."
                 }
                 # Remove-VM (Yuruna.Host) wraps the host's destroy-and-cleanup
                 # path; on Hyper-V it removes the VHDX directory after the
@@ -132,7 +151,7 @@ switch ($HostType) {
                     Write-Warning "    Remove-VM did not fully remove '$vmName' (state: $finalState)."
                     $survivors.Add("$vmName [$finalState]")
                 } else {
-                    Write-Output "    Removed from Hyper-V."
+                    Write-Status "    Removed from Hyper-V."
                     $removedCount++
                 }
             } catch {
@@ -157,23 +176,23 @@ switch ($HostType) {
                 Where-Object { $_ -and ($_ -like "${Prefix}*") }
         )
         if ($testVMs.Count -eq 0) {
-            Write-Output "  No libvirt VMs found matching '${Prefix}*'."
+            Write-Status "  No libvirt VMs found matching '${Prefix}*'."
         }
         foreach ($vmName in $testVMs) {
             $state = Get-VMState -VMName $vmName
-            Write-Output "  Stopping $vmName [$state]..."
+            Write-Status "  Stopping $vmName [$state]..."
             try {
                 if ($state -notin @('stopped','absent')) {
                     # Stop-VMForce (Yuruna.Host) issues `virsh destroy` and
                     # falls back to SIGKILL on the qemu pid if destroy hangs.
                     $stopped = Stop-VMForce -VMName $vmName -StopTimeoutSeconds 20 -Confirm:$false
                     if ($stopped) {
-                        Write-Output "    Stopped."
+                        Write-Status "    Stopped."
                     } else {
                         Write-Warning "    Stop-VMForce returned `$false for $vmName; Remove-VM may fail."
                     }
                 } else {
-                    Write-Output "    Already stopped."
+                    Write-Status "    Already stopped."
                 }
                 # Remove-VM on KVM does undefine --nvram --remove-all-storage
                 # and removes ~/yuruna/vms/<vmname>/.
@@ -183,7 +202,7 @@ switch ($HostType) {
                     Write-Warning "    Remove-VM did not fully remove '$vmName' (state: $finalState)."
                     $survivors.Add("$vmName [$finalState]")
                 } else {
-                    Write-Output "    Removed from libvirt."
+                    Write-Status "    Removed from libvirt."
                     $removedCount++
                 }
             } catch {
@@ -231,7 +250,7 @@ switch ($HostType) {
                 $vmName = $matches[3].Trim()
                 if ($vmName -like "${Prefix}*") {
                     $found = $true
-                    Write-Output "  Stopping $vmName..."
+                    Write-Status "  Stopping $vmName..."
                     try {
                         & utmctl stop "$vmName" 2>&1 | Out-Null
                         # Wait for the VM to fully stop before deleting
@@ -261,7 +280,7 @@ switch ($HostType) {
                             }
                         }
                         if ($deleted) {
-                            Write-Output "    Removed from UTM."
+                            Write-Status "    Removed from UTM."
                             $removedCount++
                         } else {
                             Write-Warning "    Could not remove '$vmName' from UTM registry. Files will not be cleaned to avoid stale entries."
@@ -275,7 +294,7 @@ switch ($HostType) {
             }
         }
         if (-not $found) {
-            Write-Output "  No UTM VMs found matching '${Prefix}*'."
+            Write-Status "  No UTM VMs found matching '${Prefix}*'."
         }
     }
     default {
@@ -284,7 +303,7 @@ switch ($HostType) {
     }
 }
 
-Write-Output ""
+Write-Status ""
 
 # Re-scan to catch survivors that the per-VM block missed (e.g. a VM
 # that flipped to OffCritical while the loop was iterating). Belt-and-
@@ -347,12 +366,12 @@ switch ($HostType) {
     }
 }
 
-Write-Output ""
-Write-Output "Removed $removedCount VM(s); $($survivors.Count) survivor(s)."
+Write-Status ""
+Write-Status "Removed $removedCount VM(s); $($survivors.Count) survivor(s)."
 if ($survivors.Count -gt 0) {
     foreach ($s in $survivors) { Write-Warning "  Survivor: $s" }
 }
-Write-Output ""
+Write-Status ""
 
 $cleanupScript = Join-Path -Path $RepoRoot -ChildPath (Get-HostFolder $HostType) -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
 
@@ -365,7 +384,13 @@ if (-not (Test-Path $cleanupScript)) {
 # registry-removal step. Their on-disk files are still claimed by the
 # surviving registration so the orphan script will skip them, but
 # files left over from earlier failures (the actual symptom on
-# long-running hosts) get reclaimed.
+# long-running hosts) get reclaimed. The "Running orphaned VM file
+# cleanup: <path>" line stays Write-Output (unconditional) so an
+# automated caller running with -Quiet still sees a single line that
+# proves the orphan sweep was attempted; -Quiet propagates down so
+# Remove-OrphanedVMFiles itself emits no chatter.
 Write-Output "Running orphaned VM file cleanup: $cleanupScript"
-Write-Output ""
-& $cleanupScript -Force
+Write-Status ""
+$orphanArgs = @{ Force = $true }
+if ($Quiet) { $orphanArgs['Quiet'] = $true }
+& $cleanupScript @orphanArgs

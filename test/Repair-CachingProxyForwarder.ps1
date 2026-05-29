@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Verify the squid-cache VM is reachable on the LAN and refresh the
+    Verify the caching-proxy VM is reachable on the LAN and refresh the
     yuruna-caching-proxy state file. macOS/UTM only.
 
 .DESCRIPTION
@@ -72,19 +72,23 @@ if (-not $IsMacOS) {
     exit 1
 }
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
+$paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
+$RepoRoot   = $paths.RepoRoot
+$ModulesDir = $paths.ModulesDir
+# CachingProxy kind loads Test.VMUtility + Test.CachingProxy + Test.Host
+# with -Global -Force, so the trio is in scope for the rest of the
+# script.
+Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
 
-Import-Module (Join-Path $RepoRoot 'test/modules/Test.VM.common.psm1')    -Force -DisableNameChecking
-# -Global on Test.CachingProxy so Save-/Read-CachingProxyState survive
-# the nested-import eviction triggered by Initialize-YurunaHost (which
-# pulls Yuruna.Host.psm1 -> non-global Test.CachingProxy import at line
-# 36, taking over the "active version" slot for the module). Same shape
-# as Start-CachingProxy.ps1 / Stop-CachingProxy.ps1 use to keep the
-# state-file helpers visible.
-Import-Module (Join-Path $RepoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
-Import-Module (Join-Path $RepoRoot 'test/modules/Test.Host.psm1')         -Force
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
-Import-Module (Join-Path $RepoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
+# Re-import Test.CachingProxy -Global -Force AFTER Initialize-YurunaHost so
+# Save-/Read-CachingProxyState survive the nested-import eviction triggered
+# by Yuruna.Host.psm1's non-global Test.CachingProxy import at line 36 (which
+# takes over the "active version" slot for the module). Same shape as
+# Start-CachingProxy.ps1 / Stop-CachingProxy.ps1 use to keep the state-file
+# helpers visible.
+Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 
 $StateFile = Get-CachingProxyStatePath
 $httpPort  = Get-CachingProxyPort -Scheme http
@@ -146,7 +150,7 @@ if ($CacheIp) {
 # === Step 3: summarize =====================================================
 Write-Output ""
 Write-Output "================================================================="
-Write-Output "=== squid-cache REACHABLE (LAN-direct) ==="
+Write-Output "=== caching-proxy REACHABLE (LAN-direct) ==="
 Write-Output "================================================================="
 Write-Output "  VM IP:       $CacheIp"
 Write-Output "  Proxy URL:   $foundUrl"

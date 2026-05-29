@@ -1,6 +1,7 @@
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/actions.schema.yml
-title: Yuruna action catalogue
+title: Yuruna action catalog
 description: >
   Documentation file (test/sequences/actions.yml) describing the parameters
   for every action handled by Invoke-Sequence.psm1. Pure prose — the runner

@@ -11,8 +11,8 @@ Create the guest VM first:
 
 In a guest terminal:
 
-```bash
-/automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.<workload>.sh
+```
+/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.<workload>.sh
 ```
 
 Run `ubuntu.server.24.update.sh` first.

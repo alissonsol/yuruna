@@ -9,7 +9,7 @@ back the ones with non-trivial cross-host divergence.
   [`test/modules/Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1).
 - Schema for the YAML shape is
   [`test/schemas/actions.schema.yml`](../test/schemas/actions.schema.yml).
-- Short one-paragraph catalogue (consumed by tooling) is
+- Short one-paragraph catalog (consumed by tooling) is
   [`actions.yml`](../test/sequences/actions.yml). This file is the rendered, prose-style
   complement.
 
@@ -30,6 +30,35 @@ failure (with retry-wrapping as documented under `retry`).
 | `${vmName}` | Current VM name. Updated mid-sequence by `saveDiskSnapshot` after a successful rename — see [saveDiskSnapshot](#savedisksnapshot). |
 | `${hostType}` | `host.windows.hyper-v` / `host.macos.utm` / `host.ubuntu.kvm`. |
 | `${guestKey}` | `guest.<os>` key the sequence is bound to. |
+
+### Variable substitution rules
+
+- **Sequence-level `variables`** are evaluated **eagerly in YAML order**
+  at sequence start. Each entry can reference any variable declared
+  above it plus the built-ins; the resolved value is stored and reused
+  on every later `${name}` reference. This is the "stable value across
+  multiple steps" path — for example, when a "New password:" must be
+  typed and then re-typed at "Retype:", assign the `${ext:...}` call
+  to a sequence variable so both prompts see the same string.
+- **Inline `${ext:area.Method(args)}` references in a step's args** are
+  **invoked fresh on every reference** (no per-step memoization).
+  Inner `${var}` placeholders inside the args are resolved first.
+- **Escape `$`** by doubling: `$$` produces a literal `$`. In
+  particular `$${foo}` yields the four-character literal `${foo}`
+  (no substitution). To embed two literal dollars, write `$$$$`.
+
+## Failure artifacts
+
+When a step fails, the engine writes the following under the cycle's
+log directory (`$env:YURUNA_LOG_DIR`):
+
+| File | What it carries |
+|---|---|
+| `last_failure.json` | Schema-v2 record of the failed step (`stepNumber`, `action`, `description`, `vmName`, `guestKey`, `failureClass`, `severity`, `suggestedRecoveries`, `actionVerb`, `context`). The parent runner reads it; `Send-Notification`'s `-EventData` payload is built from it. See [`test/modules/Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1) for the writer and [`test/modules/Test.Notify.psm1`](../test/modules/Test.Notify.psm1) for the consumer. |
+| `failure_screenshot_<VM>.png` | Last VM screenshot captured at time of failure. Present for every failing step that has a host-IO backend. |
+| `failure_ocr_<VM>.txt` | Last OCR text. Written only by `waitForText` family failures. |
+
+The per-cycle `manifest.json` ([`Stop-LogFile`](../test/modules/Test.Log.psm1)) enumerates every artifact in the cycle folder with `kind`, `sizeBytes`, `sha256`, and `modifiedUtc` — a single well-known entry point for autonomous remediators.
 
 ---
 
@@ -82,11 +111,21 @@ variable, delete the persisted VM + snapshot to force a cold rebuild.
 
 ### break
 
-Cooperative breakpoint. Writes `.yuruna-break-<NNN>.lock` under the
-per-guest `cycleGuestDataFolder` and busy-waits for one of two resume
-signals:
+Cooperative breakpoint, and the framework's canonical
+**resume-from-step-N** primitive. Authors place a `break` at the
+boundary they want to be able to resume from; the runner pauses there
+and waits for an operator decision. The same code path covers
+"investigate a guest while it's still alive" and "skip the long
+bring-up cycle next time and re-run only the last few steps".
 
-- **Manual** — operator deletes the marker file. Sequence just resumes.
+Writes `.yuruna-break-<NNN>.lock` under the per-guest
+`cycleGuestDataFolder` and busy-waits for one of two resume signals:
+
+- **Manual** — operator deletes the marker file. Sequence just resumes
+  in place: no snapshot restore, no VM restart. The VM stays exactly
+  as it was when the break fired, so the operator's mid-pause edits
+  carry forward. Use this when you want to inspect or fix something
+  on the live guest before continuing.
 - **UI Continue** — operator clicks the **Continue** button rendered on
   the status page (`http://localhost:8080/status/`) for the running
   guest's card. The button POSTs to `/control/break-continue`; the
@@ -94,12 +133,43 @@ signals:
   [`Restore-VMDiskSnapshot`](#restore-vmdisksnapshot) with `break.id`
   (skipped silently when `id` is not set), then
   [`Start-VM`](#yurunahost-contract) (snapshot restore always leaves
-  the VM stopped), then resumes.
+  the VM stopped), then resumes. Use this when you want every Continue
+  to start from the same known-good disk state — i.e. the
+  resume-from-step-N use case where you're iterating on the steps
+  after the break.
 
 The Continue button is driven by `/runtime/break-active.json`, a sidecar
 the action writes on entry and removes on exit. Not a failure — the
 step succeeds either way. `YURUNA_BREAK_DISABLED=1` turns the action
 into a no-op for unattended runs.
+
+#### Programmatic Continue (matches the UI button)
+
+The UI button has a one-to-one programmatic equivalent — useful for CI
+hooks, scripted iteration loops, or remote-debug sessions that don't
+have a browser handy. All three paths produce the same on-disk state
+(`<runtimeDir>/control.break-continue` exists), which the running
+sequence's `break` handler polls for:
+
+```
+# HTTP (mirrors the UI button exactly; refuses with 409 when no break
+# is active, so a stray POST cannot arm the NEXT break).
+curl -fsS -X POST http://localhost:8080/control/break-continue
+
+# Direct flag-file write (no status server required; useful on a
+# headless host or when the dashboard isn't running).
+#   pwsh: Set-Content -Path "$env:YURUNA_RUNTIME_DIR/control.break-continue" -Value (Get-Date -Format o)
+#   bash: date -u +%FT%TZ > "$YURUNA_RUNTIME_DIR/control.break-continue"
+
+# Marker-delete (resumes WITHOUT snapshot restore -- different
+# semantics; see "Manual" above).
+rm "$(cat <cycleGuestDataFolder>/.yuruna-break-NNN.lock | grep marker | ...)"
+```
+
+Both the HTTP and direct-write paths trigger the snapshot-restore +
+`Start-VM` flow the UI button does — they're indistinguishable to the
+sequence. The marker-delete path is intentionally different (no
+restore) and matches the "Manual" branch above.
 
 Login after a snapshot-restore is **the sequence author's
 responsibility** — the guest boots fresh from the snapshot disk and
@@ -111,6 +181,18 @@ similar steps after the break.
 |---|---|---|
 | `reason` | string | Optional. Written into the marker file so the operator knows why we stopped. |
 | `id` | string | Optional. Snapshot id to restore on Continue. Typically the id of a `saveDiskSnapshot` step earlier in the same sequence. Omit for a "just pause" break with no snapshot restore on Continue. |
+
+> **On "resume from step N" generally.** Yuruna does not expose a
+> `--resume-from N` flag on the runner. The reason is that mid-sequence
+> resumption is only safe when the author has guaranteed the
+> precondition state for step N — Yuruna can't infer that automatically
+> from the YAML. A `break` (optionally paired with a
+> [`saveDiskSnapshot`](#savedisksnapshot)) is the author's explicit
+> assertion that "resumption here is well-defined", which is also what
+> snapshot-restore + Start-VM materialises at runtime. For ad-hoc dev
+> iteration on a specific step, [`Test-Sequence.ps1`](../test/Test-Sequence.ps1)
+> takes `-StartStep` / `-StopStep` and indexes into the concatenated
+> baseline chain.
 
 ### callExtension
 
@@ -182,6 +264,27 @@ non-newline-terminated lines get overwritten on the framebuffer by late
 console messages (see [memory note on passwd prompt
 overwrite](memory.md)). Parameters are the same as
 `waitForAndEnter`, minus the explicit `sensitive` flag.
+
+### recoverFromSnapshot
+
+Declarative auto-recovery primitive. Place AFTER a step whose failure
+should trigger a restore-from-snapshot. The Handler is a no-op when
+the prior step succeeded; on prior-step failure, it validates the
+snapshot exists (and matches the
+[snapshot manifest](#restore-vmdisksnapshot), if one was written), runs
+[`Restore-VMDiskSnapshot`](#restore-vmdisksnapshot), then `Start-VM`,
+and clears the engine's `LastFailed*` markers so the sequence
+continues with a clean guest.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `id` | string | Required. Snapshot name previously written by `saveDiskSnapshot`. |
+
+Missing snapshot is a hard refuse (emits `snapshot_missing` event).
+Manifest mismatch is a hard refuse (`snapshot_manifest_mismatch`);
+missing manifest is warn-only (`snapshot_manifest_missing`, legacy
+snapshots). On any restore failure the step returns failure and
+downstream steps see the prior-failure markers untouched.
 
 ### pressKey
 
@@ -341,7 +444,7 @@ exports a fixed surface; the engine resolves the active driver via
 `Initialize-YurunaHost` (in [`Test.Host`](../test/modules/Test.Host.psm1)).
 See [Test harness — architecture](test-harness.md#yurunahost-contract) for the full list.
 
-Below are the contract functions whose **per-host behaviour diverges in
+Below are the contract functions whose **per-host behavior diverges in
 operationally significant ways** — i.e. where a sequence author needs
 to know what actually happens on each host.
 
@@ -391,11 +494,12 @@ fails.
   over-replace if a guest's name happened to be a substring of an
   unrelated XML token.
 
-#### UTM (macOS) — best-effort
+#### UTM (macOS) — full support via plist surgery
 
-UTM has no first-class rename API. `utmctl` exposes no `rename` verb,
-and the AppleScript dictionary marks `name` of `virtual machine` as
-`access="r"` in many UTM builds.
+UTM has no first-class rename API, and macOS 26 builds mark the
+AppleScript `name` property of `virtual machine` as read-only.
+To bypass this limitation, Rename-VM performs direct on-disk surgery while
+UTM is offline:
 
 - **Snapshot:** stop VM (`utmctl stop`), 2-second settle pause (QEMU
   helper can keep the qcow2 open briefly), then for each `*.qcow2`
@@ -404,19 +508,20 @@ and the AppleScript dictionary marks `name` of `virtual machine` as
   `qemu-img snapshot -c <id>`. Multi-disk VMs get the same id on every
   disk so [`Restore-VMDiskSnapshot`](#restore-vmdisksnapshot) reverts
   them as a group.
-- **Rename:** `osascript -e 'tell application "UTM" to set name of
-  virtual machine "<old>" to "<new>"'`. On UTM versions where `name` is
-  read-only the script exits non-zero; the contract function returns
-  `$false` with a clear warning explaining the cause. The qcow2
-  snapshot is still preserved inside the bundle, so an operator can
-  restore it manually even if the VM gets re-created with a different
-  display name on the next cycle.
-
-  The heavier alternative (config.plist edit + `utmctl delete` +
-  bundle dir rename + re-`open`) was considered and rejected:
-  `utmctl delete` may or may not nuke the bundle depending on UTM
-  version, and re-import semantics for bundles outside `~/Documents`
-  aren't stable enough to ship without a test bed.
+- **Rename:** with UTM quit, `killall cfprefsd` to drop the
+  preference daemon's cache; renames `~/yuruna/guest.nosync/<old>.utm`
+  -> `<new>.utm` (qcow2 disks + snapshots ride the directory); then
+  PlistBuddy sets `:Information:Name` in the new bundle's
+  `config.plist`, and both `:Registry:<UUID>:Name` and
+  `:Registry:<UUID>:Package:Path` in
+  `~/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist`;
+  one more `killall cfprefsd` so UTM re-reads our edits on next launch;
+  `open -a UTM`; poll `utmctl` until the new name surfaces.
+  `:Registry:<UUID>:Package:Bookmark` is left untouched because macOS
+  file bookmarks resolve via catalog inode + volume UUID, so a
+  same-volume directory rename continues to resolve to the new path.
+  Source VM must be stopped (UTM holds an exclusive lock on the bundle
+  while running); `Save-VMDiskSnapshot` stops it before calling.
 
 ### `Restore-VMDiskSnapshot`
 
@@ -466,7 +571,7 @@ driver routes.
 For VM lifecycle (`New-VM`, `Start-VM`, `Stop-VM`, `Remove-VM`,
 `Get-VMState`), image fetch (`Get-Image`, `Get-ImagePath`),
 discovery (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`), networking,
-caching-proxy port maps, host-side proxy, and SSH server lifecycle:
+caching-proxy port maps, and host-side proxy:
 see [Test harness — Yuruna.Host contract](test-harness.md#yurunahost-contract) for the per-function
 summary, and each driver's source under
 [`host/<short-host>/modules/Yuruna.Host.psm1`](../host) for the
@@ -488,7 +593,9 @@ are NOT in `Yuruna.Host`'s exports and remain safe unqualified.
 ---
 
 Back to [Test harness](test-harness.md) · [Test Modules](../test/modules/README.md) ·
-[Yuruna Test ...](../test/README.md) · [Yuruna](../README.md)
+[Yuruna Test](../test/README.md)
+
+Back to [Yuruna](../README.md)
 
 ---
 

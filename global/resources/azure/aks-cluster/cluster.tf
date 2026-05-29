@@ -1,3 +1,4 @@
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 resource "azurerm_kubernetes_cluster" "default" {
   name                = var.clusterName
@@ -32,10 +33,13 @@ resource "azurerm_kubernetes_cluster" "default" {
     }
   }  
 
-  # Imports the cluster context to local .kube/config
+  # Imports the cluster context to local .kube/config. Bash + az/kubectl
+  # instead of pwsh; matches the localhost-registry-check.sh pattern that
+  # avoids the FileLoadException trap class
+  # (feedback_pwsh_provisioner_assemblyname_flake.md).
   provisioner "local-exec" {
-    command = "./cluster-import.ps1"
-    interpreter = ["pwsh", "-NoProfile", "-NonInteractive", "-File"]
+    command = "./cluster-import.sh"
+    interpreter = ["bash"]
 
     environment = {
       RESOURCE_GROUP = var.resourceGroup
@@ -43,5 +47,5 @@ resource "azurerm_kubernetes_cluster" "default" {
       DESTINATION_CONTEXT = var.destinationContext
     }
   }
-  
+
 }

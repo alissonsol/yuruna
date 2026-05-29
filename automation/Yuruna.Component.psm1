@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Yuruna.Component
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -20,26 +20,44 @@ $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath ".."
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
 Import-Module -Name $validationModulePath
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 
 function Publish-ComponentList {
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param (
         $project_root,
         $config_subfolder
     )
 
-    if (!(Confirm-ComponentList $project_root $config_subfolder)) { return $false; }
+    # Stream-routing wrapper: Invoke-ComponentCommand replays each phase's
+    # captured streams via Write-Output so the transcript stays informative,
+    # but those strings would otherwise array-wrap the manifest in this
+    # function's pipeline output and trip callers' hashtable-shape check
+    # (`$result = Publish-ComponentList ...` becomes String[]+Hashtable).
+    # We split the inner scriptblock's pipeline here: hashtables go to
+    # $state.manifest, everything else routes to the host via Out-Default
+    # (Start-Transcript in the caller still captures it).
+    # See feedback_powershell_writeoutput_pipeline_pollution.md for the trap.
+    # State held in a hashtable so the ForEach-Object child scope can
+    # mutate it; a plain `$manifest = $_` would only write the child scope.
+    $state = @{ manifest = $null }
+    & {
+    param($project_root, $config_subfolder)
+
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    if (!(Confirm-ComponentList $project_root $config_subfolder)) { return (New-YurunaResultManifest -Success $false -ErrorMessage "Confirm-ComponentList failed for $project_root / $config_subfolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     Write-Debug "---- Publishing Components"
     # For each component: merge variables (resources global + resources.output
     # + component-level globals + component locals), run buildCommand from the
     # folder, then tag and push to the registry. Commands come from components.yml.
 
     $componentsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/components.yml"
-    if (-Not (Test-Path -Path $componentsFile)) { Write-Information "File not found: $componentsFile"; return $false; }
+    if (-Not (Test-Path -Path $componentsFile)) { Write-Information "File not found: $componentsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $componentsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     $componentsYaml = ConvertFrom-File $componentsFile
-    if ($null -eq $componentsYaml) { Write-Information "Components null or empty in file: $componentsFile"; return $true; }
-    if ($null -eq $componentsYaml.components) { Write-Information "Components null or empty in file: $componentsFile"; return $true; }
+    if ($null -eq $componentsYaml) { Write-Information "Components null or empty in file: $componentsFile"; return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
+    if ($null -eq $componentsYaml.components) { Write-Information "Components null or empty in file: $componentsFile"; return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
 
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/components"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
@@ -108,7 +126,12 @@ function Publish-ComponentList {
         # checks behave exactly as before.
         param([string]$Phase, [string]$Command)
         $out = Invoke-DynamicExpression -Command $Command *>&1
-        $rc  = $LASTEXITCODE
+        # Pure-PowerShell command sequences (no native exe in the chain)
+        # leave $LASTEXITCODE at its prior value -- $null in a freshly-
+        # started pwsh process. The caller's `if (-Not (0 -eq $LASTEXITCODE))`
+        # then evaluates `0 -eq $null` to $false and treats the phase as a
+        # tool failure. Coerce so "no native command ran" reads as success.
+        $rc  = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
         Add-Content -LiteralPath $dockerLogFile -Value "=== [$Phase] $Command (exit=$rc) ==="
         $out | ForEach-Object { Add-Content -LiteralPath $dockerLogFile -Value ([string]$_) }
         Set-Content -LiteralPath $dockerRcFile -Value $rc -NoNewline
@@ -118,7 +141,7 @@ function Publish-ComponentList {
 
     foreach ($component in $componentsYaml.components) {
         $projectName = $component['project']
-        if ([string]::IsNullOrEmpty($projectName)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($projectName)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "component.project cannot be null or empty in file: $componentsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         $projectNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($projectName)
         Write-Verbose "$projectName = $projectNameExpanded"
         $projectName = $projectNameExpanded
@@ -130,7 +153,7 @@ function Publish-ComponentList {
         $buildPath = $ExecutionContext.InvokeCommand.ExpandString($buildPath)
 
         $buildFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "components/$buildPath")
-        if (-Not (Test-Path -Path $buildFolder)) { Write-Information "Components folder not found: $buildFolder`nUsed in file: $componentsFile"; return $false; }
+        if (-Not (Test-Path -Path $buildFolder)) { Write-Information "Components folder not found: $buildFolder`nUsed in file: $componentsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "Components folder not found: $buildFolder (used in $componentsFile)" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         Write-Information "-- Component: $projectName from $buildFolder"
 
         # No string expansion for the components script here; values are
@@ -178,12 +201,12 @@ function Publish-ComponentList {
         # buildCommand comes from components.yml
         $buildCommand = $component['buildCommand']
         if ([string]::IsNullOrEmpty($buildCommand)) { $buildCommand = $componentsYaml.globalVariables['buildCommand'] }
-        if ([string]::IsNullOrEmpty($buildCommand)) { Write-Information "buildCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($buildCommand)) { Write-Information "buildCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "buildCommand cannot be null or empty in $componentsFile (both globalVariables and component level)" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
 
         $dockerfile = Join-Path -Path $buildFolder -ChildPath "Dockerfile"
         if (-Not (Test-Path -Path $dockerfile)) { $dockerfile = Join-Path -Path $buildFolder -ChildPath "dockerfile"; }
         if (-Not (Test-Path -Path $dockerfile)) { $dockerfile = Join-Path -Path $buildFolder -ChildPath "$projectName-dockerfile"; }
-        if (-Not (Test-Path -Path $dockerfile)) { Write-Information "Missing dockerfile in folder: $buildFolder"; return $false; }
+        if (-Not (Test-Path -Path $dockerfile)) { Write-Information "Missing dockerfile in folder: $buildFolder"; return (New-YurunaResultManifest -Success $false -ErrorMessage "Missing dockerfile in folder: $buildFolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
 
         $componentVars['project'] = $projectName
         $componentVars['buildPath'] = $buildPath
@@ -204,7 +227,12 @@ function Publish-ComponentList {
             Invoke-ComponentCommand -Phase "preProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for preProcessor: $executionCommand"
-                return ($ErrorActionPreference -eq "Continue");
+                # Preserve prior behavior: under EAP=Continue the function
+                # "swallows" the docker failure and reports success so the
+                # cycle moves on; under any other EAP it reports failure.
+                # The manifest now carries the actual tool exit code so
+                # callers and diagnostics can see what really happened.
+                return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "preProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
 
@@ -213,7 +241,7 @@ function Publish-ComponentList {
         Invoke-ComponentCommand -Phase "build[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Build: $executionCommand"
-            return ($ErrorActionPreference -eq "Continue");
+            return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "build[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
         $postProcessor = $componentVars['postProcessor']
@@ -224,23 +252,23 @@ function Publish-ComponentList {
             Invoke-ComponentCommand -Phase "postProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for postProcessor: $executionCommand"
-                return ($ErrorActionPreference -eq "Continue");
+                return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "postProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
         Pop-Location
 
         $tagCommand = $component['tagCommand']
         if ([string]::IsNullOrEmpty($tagCommand)) { $tagCommand = $componentsYaml.globalVariables['tagCommand']; }
-        if ([string]::IsNullOrEmpty($tagCommand)) { Write-Information "tagCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($tagCommand)) { Write-Information "tagCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "tagCommand cannot be null or empty in $componentsFile (both globalVariables and component level)" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         $pushCommand = $component['pushCommand']
         if ([string]::IsNullOrEmpty($pushCommand)) { $pushCommand = $componentsYaml.globalVariables['pushCommand']; }
-        if ([string]::IsNullOrEmpty($pushCommand)) { Write-Information "pushCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($pushCommand)) { Write-Information "pushCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "pushCommand cannot be null or empty in $componentsFile (both globalVariables and component level)" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($tagCommand)
         Write-Debug "Tag: $executionCommand"
         Invoke-ComponentCommand -Phase "tag[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Tag: $executionCommand"
-            return ($ErrorActionPreference -eq "Continue");
+            return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "tag[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
         # Registry login: Azure ACR only today. Generalising to other
@@ -251,7 +279,7 @@ function Publish-ComponentList {
             Invoke-ComponentCommand -Phase "registryLogin[$projectName]" -Command $executionCommand | Write-Verbose
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for: $executionCommand"
-                return ($ErrorActionPreference -eq "Continue");
+                return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "registryLogin[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
 
@@ -260,11 +288,25 @@ function Publish-ComponentList {
         Invoke-ComponentCommand -Phase "push[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Push: $executionCommand"
-            return ($ErrorActionPreference -eq "Continue");
+            return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "push[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
     }
 
-    return $true;
+    return (New-YurunaResultManifest -Success $true -DurationMs $sw.ElapsedMilliseconds);
+
+    } $project_root $config_subfolder | ForEach-Object {
+        if ($_ -is [System.Collections.IDictionary]) {
+            $state.manifest = $_
+        }
+        else {
+            $_ | Out-Default
+        }
+    }
+
+    if ($null -eq $state.manifest) {
+        return (New-YurunaResultManifest -Success $false -ErrorMessage 'Publish-ComponentList produced no manifest' -FailureClass 'unknown')
+    }
+    return $state.manifest
 }
 
 Export-ModuleMember -Function * -Alias *

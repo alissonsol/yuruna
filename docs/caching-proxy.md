@@ -24,7 +24,7 @@ ports onto the host's interfaces: `:3128` (HTTP + HTTPS CONNECT), `:3129`
 
 **Windows Hyper-V** (elevated PowerShell):
 
-```powershell
+```
 cd $HOME\git\yuruna\test
 pwsh .\Start-CachingProxy.ps1
 ```
@@ -37,13 +37,13 @@ on the Default Switch.
 
 **macOS UTM** (sudo required to bind `:80`):
 
-```bash
+```
 cd ~/git/yuruna/test
 sudo -E pwsh ./Start-CachingProxy.ps1
 ```
 
 `sudo -E` preserves `$HOME` so state files land in
-`~/yuruna/image/squid-cache/`, not `/var/root/...`. Without sudo the script
+`~/yuruna/image/caching-proxy/`, not `/var/root/...`. Without sudo the script
 still runs — `:3128`, `:3129`, `:3000` forwarders launch unprivileged,
 but `:80` is skipped with a warning and the remote CA-cert download is
 unavailable.
@@ -59,18 +59,18 @@ let the packets through. Not an open internet proxy.
 
 A client machine uses a remote cache by exporting one env var:
 
-```powershell
+```
 # Windows
 $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
 ```
 
-```bash
+```
 # macOS
 export YURUNA_CACHING_PROXY_IP=10.0.0.5
 ```
 
 When set, [Invoke-TestRunner.ps1](../test/Invoke-TestRunner.ps1) and
-[Start-StatusServer.ps1](../test/Start-StatusServer.ps1) skip local discovery and
+[Start-StatusService.ps1](../test/Start-StatusService.ps1) skip local discovery and
 route everything through the remote IP. Guest `New-VM.ps1` inherits the
 URL, fetches the CA from `http://<remote>/yuruna-squid-ca.crt`, and
 configures apt with:
@@ -80,13 +80,62 @@ configures apt with:
 
 Un-set (or empty) to fall back to local discovery.
 
+## Port-map dispatch by host topology
+
+`Invoke-TestInnerRunner.ps1` picks one of three branches when wiring
+clients up to the cache:
+
+1. **External cache** (`$Env:YURUNA_CACHING_PROXY_IP` set). The remote
+   serves all four ports. Install VMs default to `Yuruna-External` and
+   sit on the LAN, so they reach the remote IP directly via outbound
+   NAT — no host-side forwarder needed. Any leftover portproxy from a
+   prior local-cache cycle is torn down so the old VM IP cannot answer
+   stale proxy requests. The dashboard URL points at the remote IP.
+
+2. **Local cache on `Yuruna-External` vSwitch** (fast path). When the
+   cache VM is bridged to LAN, install VMs (which also prefer
+   `Yuruna-External`) sit on the same segment and reach squid at its
+   DHCP-assigned LAN IP. squid sees real client IPs at TCP level — no
+   forwarder, no PROXY-protocol header, no portproxy. Any leftover
+   `netsh portproxy` from a prior Default-Switch cycle is removed so
+   it cannot silently NAT-rewrite a parallel path. The dashboard URL
+   points at the cache VM's LAN IP (not the host IP — the host is no
+   longer the proxy entry point).
+
+3. **Local cache on Hyper-V Default Switch** (fallback). squid lives
+   on the same NAT as the install VMs but does not accept LAN clients
+   directly, so the runner forwards host:port → cache:port. Default
+   Switch's NAT does **not** route to LAN destinations without
+   `IPEnableRouter=1` (which the runner does not toggle), which is
+   why both the install scripts and the cache prefer
+   `Yuruna-External` and only fall back here when External cannot be
+   created (no LAN, Wi-Fi-only).
+
+Per-port platform divergence in branch 3:
+
+| Concern | Windows | macOS |
+|---------|---------|-------|
+| Port-map atomicity | `netsh portproxy` clears all ports at once (`Clear-AllCachingProxyPortMapping`), so every port the host should expose must appear in every caller's list. | Per-port pidfile; callers manage subsets independently. |
+| Port 80 (Apache + CA cert) | Included in the runner's list. | **Excluded** — `:80` (<1024) needs root, and `Start-CachingProxy.ps1` is the only caller that pre-caches sudo. |
+| HTTP / HTTPS forwarder shape | `host:HTTP → VM:HTTP` / `host:HTTPS → VM:HTTPS` via plain `netsh portproxy`. | `host:HTTP → VM:3138` / `host:HTTPS → VM:3139` via userspace pwsh forwarder + PROXY v1 header — squid logs real client IPs. |
+
+`Yuruna.Host`'s `Test-CacheVMOnExternalNetwork` is the discriminator:
+on Windows it checks for any External-type vSwitch; on macOS it
+always returns `$true` (VMnet shared). So branches 2 and 3 are
+Windows-only in practice — macOS always takes branch 2.
+
+The "detected" word printed at startup is an ANSI OSC 8 hyperlink to
+the Grafana dashboard so modern terminals (Windows Terminal, VS Code)
+can ctrl-click into the caching-proxy view. Terminals without OSC 8
+drop the escapes silently.
+
 ## Validating before a run
 
 [Test-CachingProxy.ps1](../test/Test-CachingProxy.ps1) probes every port the
 runner relies on and reports PASS/FAIL/WARN — runnable from any machine,
 even without Hyper-V / UTM installed:
 
-```powershell
+```
 $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
 pwsh test/Test-CachingProxy.ps1
 # === Summary: 5 PASS, 0 WARN, 0 FAIL ===
@@ -109,12 +158,41 @@ restored by `Stop-CachingProxy.ps1`.
 Yuruna also writes a "managed" marker (HKCU registry value on
 Windows, `~/.yuruna/host-proxy.managed` on macOS) so a re-promotion
 across a missing backup file recognizes the existing state as
-yuruna's own and snapshots it as clean — without the marker, a lost
+Yuruna's own and snapshots it as clean — without the marker, a lost
 backup turned every subsequent `Stop-CachingProxy` +
 `Test-CachingProxy.ps1 -SetHostProxy` cycle into a self-loop because
 the contaminated snapshot kept getting restored. `Start-CachingProxy.ps1`
-also clears any leftover yuruna proxy state at startup, so a fresh
+also clears any leftover Yuruna proxy state at startup, so a fresh
 provision never inherits a stale `ProxyServer` from a prior cycle.
+
+## In-process proxy env var hygiene at provision time
+
+`Start-CachingProxy.ps1`'s whole job is to *bring up* the cache, so
+every network call it makes (Get-Image's `Invoke-WebRequest`,
+`Save-CachedHttpUri`'s no-cache fall-through, `virt-install` fetching
+osinfo, `qemu-img`/`genisoimage` reaching the public internet) must
+go DIRECTLY to the public Internet. .NET's `HttpClient` honors
+`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` from the process
+environment. If the caller's shell exports any of those pointing at a
+previous cycle's cache IP that no longer hosts squid (stale after a
+host reboot, wrong LAN, or a cache VM that just got destroyed by
+`Stop-CachingProxy.ps1`), every download fails with "Network is
+unreachable" — well before the cache we're about to build exists.
+`YURUNA_CACHING_PROXY_IP` belongs in the same bucket: downstream
+discovery (`Invoke-TestRunner.ps1`'s remote-cache branch,
+`Test-CachingProxy.ps1`) translates it into a proxy URL.
+
+The script therefore drops `HTTP_PROXY`, `http_proxy`, `HTTPS_PROXY`,
+`https_proxy`, `NO_PROXY`, `no_proxy`, `ALL_PROXY`, `all_proxy`, and
+`YURUNA_CACHING_PROXY_IP` from THIS process and its children. The
+user's shell is untouched — anything they exported for OTHER scripts
+(later runs of `Invoke-TestRunner.ps1`, `Test-CachingProxy.ps1` with
+the remote-cache override) is still set in the next shell. Step 1's
+`Remove-HostProxy` handles the persistent OS-level state (WinINet
+registry, `/etc/environment`, `networksetup`); this in-process gap is
+what `Remove-HostProxy` cannot reach. The behavior is uniform across
+ubuntu.kvm / windows.hyper-v / macos.utm — all three run the same
+.NET `HttpClient`.
 
 Back to [Yuruna Test ...](../test/README.md) · [Yuruna](../README.md)
 

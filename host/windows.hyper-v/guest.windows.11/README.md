@@ -1,5 +1,8 @@
 # Windows 11 guest on Windows Hyper-V host
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Minimal commands. Walk-through: [Windows 11 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md). Cross-host
 concepts: [Hosts — ...](../../README.md).
 
@@ -8,7 +11,7 @@ concepts: [Hosts — ...](../../README.md).
 From `yuruna\host\windows.hyper-v\guest.windows.11` in an
 elevated PowerShell:
 
-```powershell
+```
 .\Get-Image.ps1
 ```
 
@@ -18,7 +21,7 @@ prints manual instructions if blocked.
 
 ## For each VM
 
-```powershell
+```
 .\New-VM.ps1                       # default hostname
 .\New-VM.ps1 -VMName myhost
 ```
@@ -31,7 +34,7 @@ Start from Hyper-V Manager. Installer runs unattended via
 Auto-logon to `User` / `password` on first boot (change forced next
 login). Elevated PowerShell:
 
-```powershell
+```
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/windows.11.update.ps1$nc" | iex
 Restart-Computer

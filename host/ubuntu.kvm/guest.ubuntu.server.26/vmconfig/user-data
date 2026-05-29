@@ -149,16 +149,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
       cat > /target/etc/default/grub.d/99-yuruna-console-quiet.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no"
       GRUBCFG
-    # Belt-and-braces against the bochs-DRM framebuffer trap that stalled
-    # the resolute live-server installer on host.ubuntu.kvm (see
-    # log/000088, kernel 7.0.0-15 oops in ovl_iterate_merged plus
-    # drm_fb_helper_damage_work CPU thrash). The install-phase kernel
-    # cannot be reached from outside (virt-install --extra-args needs
-    # --location, not --cdrom), but pinning nomodeset + a serial console
-    # on the *installed* kernel makes sure the same trap can't bite on
-    # subsequent boots that the harness drives. nomodeset disables KMS
-    # so no DRM driver loads at all; the serial console gives us a
-    # diagnostic channel that doesn't depend on the framebuffer.
+    # --- See https://yuruna.link/vmconfig#console-fb-safe
     - |
       cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"
@@ -187,12 +178,14 @@ APT_PROXY_BLOCK_PLACEHOLDER
       cat >> /target/etc/wgetrc << 'EOF'
       no_proxy = YURUNA_HOST_IP_PLACEHOLDER
       EOF
-    # --- See https://yuruna.link/vmconfig#download-fetch-and-execute-utility
-    - mkdir -p /target/automation
+    # --- See https://yuruna.link/vmconfig#install-yuruna-lib
+    - mkdir -p /target/usr/local/lib/yuruna
     - |
-      wget --no-cache --timeout=5 -O /target/automation/fetch-and-execute.sh "http://YURUNA_HOST_IP_PLACEHOLDER:YURUNA_HOST_PORT_PLACEHOLDER/yuruna-repo/automation/fetch-and-execute.sh" || \
-      wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
-    - curtin in-target --target=/target -- chmod +x /automation/fetch-and-execute.sh
+      printf '%s' "YURUNA_RETRY_LIB_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna_retry.sh
+      chmod 0644 /target/usr/local/lib/yuruna/yuruna_retry.sh
+    - |
+      printf '%s' "YURUNA_FAE_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/fetch-and-execute.sh
+      chmod 0755 /target/usr/local/lib/yuruna/fetch-and-execute.sh
     # --- See https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
     - curtin in-target --target=/target -- timedatectl set-ntp true
     - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "https://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'

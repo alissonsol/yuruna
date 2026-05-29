@@ -27,20 +27,20 @@ one-liner (fetch-and-execute, guest workload installs), see
 
 **macOS UTM** (paste into Terminal):
 
-```bash
+```
 /bin/bash -c "$(curl -fsSL "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh?nocache=$(date +%Y%m%d%H%M%S)")"
 ```
 
 **Windows Hyper-V** (paste into PowerShell or Windows PowerShell, will
 self-elevate):
 
-```powershell
+```
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1?nocache=$(Get-Date -Format yyyyMMddHHmmss)" | iex
 ```
 
 **Ubuntu KVM/libvirt** (paste into Terminal):
 
-```bash
+```
 bash <(curl -fsSL "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh?nocache=$(date +%Y%m%d%H%M%S)")
 ```
 
@@ -61,7 +61,7 @@ as one of its package steps (`GitHub.cli` via winget on Windows,
 `brew install gh` on macOS, the `cli.github.com` apt repo on Ubuntu).
 The binary lands on PATH but is unauthenticated -- run
 
-```bash
+```
 gh auth login
 ```
 

@@ -14,7 +14,7 @@ Prerequisites: `brew install --cask utm`, `brew install powershell`,
 [`Get-Image.ps1`](./Get-Image.ps1) fetches the Amazon Linux 2023 KVM
 ARM64 qcow2 image into `~/yuruna/image/amazon.linux.2023/`.
 
-```bash
+```
 pwsh ./Get-Image.ps1
 ```
 
@@ -28,7 +28,7 @@ variable store, generates a cloud-init `seed.iso`, and writes
 [`config.plist.template`](./config.plist.template) — Apple
 Virtualization ARM64, 4 vCPU, 16 GB RAM, UEFI, shared NAT, clipboard.
 
-```bash
+```
 pwsh ./New-VM.ps1                   # default hostname amazon-linux01
 pwsh ./New-VM.ps1 -VMName myhost
 ```

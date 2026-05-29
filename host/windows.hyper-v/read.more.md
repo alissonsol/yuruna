@@ -11,7 +11,7 @@ Yuruna scripts target PowerShell 7 (`pwsh`), not the legacy
 [installation guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
 or install via `winget`:
 
-```powershell
+```
 winget install --id Microsoft.PowerShell --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
@@ -20,7 +20,7 @@ Verify: `Get-Host | Select-Object Version`.
 
 ## 2) Install Git
 
-```powershell
+```
 winget install --id Git.Git --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
@@ -32,7 +32,7 @@ Tools** feature) to build unattended-install seed ISOs.
 
 Option A — `winget`:
 
-```powershell
+```
 winget install --id Microsoft.WindowsADK --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
@@ -43,10 +43,10 @@ and select only **Deployment Tools**.
 
 ## 4) Install QEMU tools
 
-`guest.squid-cache/Get-Image.ps1` uses `qemu-img.exe` to convert the
+`guest.caching-proxy/Get-Image.ps1` uses `qemu-img.exe` to convert the
 Ubuntu Server cloud image (qcow2) to VHDX:
 
-```powershell
+```
 winget install --id SoftwareFreedomConservancy.QEMU --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
@@ -55,14 +55,14 @@ winget install --id SoftwareFreedomConservancy.QEMU --exact --silent `
 
 OCR for [Test.Tesseract.psm1](../../test/modules/Test.Tesseract.psm1):
 
-```powershell
+```
 winget install --id UB-Mannheim.TesseractOCR --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
 
 ## 6) Enable Hyper-V
 
-```powershell
+```
 Enable-WindowsOptionalFeature -Online `
     -FeatureName Microsoft-Hyper-V-All -NoRestart
 ```
@@ -74,7 +74,7 @@ requires Pro, Enterprise, or Education.
 
 ## 7) Clone the Yuruna Repository
 
-```powershell
+```
 New-Item -ItemType Directory -Path $HOME\git -Force | Out-Null
 git clone https://github.com/alissonsol/yuruna.git $HOME\git\yuruna
 ```
@@ -84,14 +84,14 @@ git clone https://github.com/alissonsol/yuruna.git $HOME\git\yuruna
 `winget` updates machine `PATH`, but the current session keeps the old
 copy. Open a new PowerShell window, or patch the current one:
 
-```powershell
+```
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
             [Environment]::GetEnvironmentVariable('Path','User')
 ```
 
 Confirm:
 
-```powershell
+```
 pwsh -Version
 git --version
 oscdimg -h 2>&1 | Select-Object -First 1
@@ -99,7 +99,7 @@ oscdimg -h 2>&1 | Select-Object -First 1
 
 ## 9) Seed the Test Config
 
-```powershell
+```
 cd $HOME\git\yuruna\test
 Copy-Item .\test.config.yml.template .\test.config.yml
 notepad .\test.config.yml
@@ -111,7 +111,7 @@ When the display blanks, Hyper-V captures return black and OCR fails.
 The helper disables display timeout (AC and DC), inactivity lock, and
 lock-screen-on-resume via `powercfg` and registry edits:
 
-```powershell
+```
 cd $HOME\git\yuruna\host\windows.hyper-v
 pwsh .\Enable-TestAutomation.ps1
 ```
@@ -120,7 +120,7 @@ pwsh .\Enable-TestAutomation.ps1
 
 ## 11) First Launch of Hyper-V Manager
 
-```powershell
+```
 Start-Process virtmgmt.msc      # registers with the user profile
 ```
 
@@ -131,7 +131,7 @@ See [Hosts — ...](../README.md#optional-squid-cache-vm) and
 
 ## 13) Run the Test Harness
 
-```powershell
+```
 pwsh $HOME\git\yuruna\test\Invoke-TestRunner.ps1
 ```
 

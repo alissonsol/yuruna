@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -102,8 +102,9 @@ function Add-CyclePrereqChainEntry {
     if (-not $path) {
         # PlannerFatal so the runner's Resolve-CyclePlan catch hits the
         # banner branch instead of degrading to legacy guestSequence on a
-        # silent typo. List the actual searched locations -- the previous
-        # "resolved path: <X>" naming the last-attempted file was a fake.
+        # silent typo. List the actual searched locations so the operator
+        # sees every probed path -- a single "resolved path: <X>" naming
+        # the last-attempted file would be misleading.
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
         $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
         throw "PlannerFatal: prereq sequence not found: $SequenceName (referenced by an entry in project/test/test.sequence.yml)`nSearched (no match):`n$list"
@@ -362,7 +363,7 @@ function Resolve-NamedSequenceChain {
 
     # Resolve the OS key once. Sequences without a baseline are run
     # standalone (no prereq chain); the operator sees just the named
-    # sequence in the printed plan, matching the pre-cascade behaviour.
+    # sequence in the printed plan, matching the pre-cascade behavior.
     if (-not $OsKey) {
         if ($topSeq.baseline -and $topSeq.baseline.Keys.Count -gt 0) {
             $OsKey = @($topSeq.baseline.Keys)[0]

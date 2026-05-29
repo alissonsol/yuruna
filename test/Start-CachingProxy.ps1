@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -40,34 +40,10 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
-# === Pre-flight: drop inherited proxy env vars from THIS process ===========
-# This script's whole job is to BRING UP the cache, so by definition every
-# network call it makes -- Get-Image.ps1 pulling the cloud image (which
-# uses Invoke-WebRequest and on Windows Save-CachedHttpUri), virt-install
-# fetching osinfo, qemu-img/genisoimage going out for nothing -- must
-# reach the public Internet DIRECTLY. If the caller's shell exports
-# HTTPS_PROXY / HTTP_PROXY / ALL_PROXY pointing at a previous cycle's
-# cache IP that no longer hosts squid (stale after a host reboot, wrong
-# LAN, or a cache VM that just got destroyed by Stop-CachingProxy.ps1),
-# .NET's HttpClient honors that env var and every download fails with
-# "Network is unreachable" -- well before the cache we're about to build
-# exists. YURUNA_CACHING_PROXY_IP belongs in the same bucket: the harness
-# (Invoke-TestRunner.ps1's remote-cache branch, Test-CachingProxy*'s
-# discovery) translates it into a proxy URL downstream, and it would
-# similarly route guest provisioner traffic at a dead IP.
-#
-# Cross-host: applies uniformly to ubuntu.kvm (Get-Image.ps1 Invoke-
-# WebRequest), windows.hyper-v (Save-CachedHttpUri's no-cache fall-
-# through Invoke-WebRequest), and macos.utm (same shape) -- the runtime
-# is the same .NET HttpClient on all three.
-#
-# Scope: this process and its children only. The user's shell is
-# untouched, so any var they exported for OTHER scripts (later runs of
-# Invoke-TestRunner.ps1, Test-CachingProxy.ps1 with the remote-cache
-# override) is still set in the next shell. Step 1's Remove-HostProxy
-# call handles the persistent/OS-level state (WinINet registry,
-# /etc/environment, networksetup); this block handles the in-process
-# gap that Remove-HostProxy cannot reach.
+# Pre-flight: drop inherited proxy env vars from THIS process and its
+# children so .NET HttpClient downloads go DIRECT (a stale upstream IP
+# would fail every Get-Image / virt-install / qemu-img call before the
+# cache exists). Rationale and scope: https://yuruna.link/caching-proxy
 $proxyEnvVars = @(
     'HTTP_PROXY',  'http_proxy',
     'HTTPS_PROXY', 'https_proxy',
@@ -75,11 +51,22 @@ $proxyEnvVars = @(
     'ALL_PROXY',   'all_proxy',
     'YURUNA_CACHING_PROXY_IP'
 )
+# Capture the cleared values to a sidecar BEFORE removing them, so
+# a downstream operator (or an automated re-invocation after a Ctrl+C
+# mid-bring-up) can restore the proxy state without re-typing it from
+# memory. The sidecar lives next to runner.pid so it's wiped by
+# Remove-TestVMFiles along with the rest of per-host state. Best-effort:
+# write failures are logged Verbose and the cleanup continues.
+$envSidecarDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $PSScriptRoot 'status/runtime' }
+$envSidecarPath = Join-Path $envSidecarDir '.caching-proxy.env.json'
 $clearedProxy = @()
+$sidecarPayload = [ordered]@{}
 foreach ($pv in $proxyEnvVars) {
     $envProvPath = "Env:$pv"
     if (Test-Path -LiteralPath $envProvPath) {
-        $clearedProxy += "$pv=$((Get-Item -LiteralPath $envProvPath).Value)"
+        $val = (Get-Item -LiteralPath $envProvPath).Value
+        $clearedProxy += "$pv=$val"
+        $sidecarPayload[$pv] = [string]$val
         Remove-Item -LiteralPath $envProvPath -ErrorAction SilentlyContinue
     }
 }
@@ -88,36 +75,57 @@ if ($clearedProxy.Count -gt 0) {
     foreach ($entry in $clearedProxy) {
         Write-Output "  $entry"
     }
+    try {
+        if (-not (Test-Path -LiteralPath $envSidecarDir)) {
+            New-Item -Path $envSidecarDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        }
+        # Atomic write via the shared state-file helper so a crash
+        # mid-write can't leave a truncated JSON sidecar for a later
+        # cache-proxy bring-up to mis-parse.
+        $ok = Write-YurunaStateFileJson -Path $envSidecarPath -InputObject $sidecarPayload -Confirm:$false
+        if ($ok) {
+            Write-Output "  (persisted to $envSidecarPath for restore on re-invocation)"
+        } else {
+            Write-Verbose "Could not persist .caching-proxy.env.json (see Verbose stream)."
+        }
+    } catch {
+        Write-Verbose "Could not persist .caching-proxy.env.json: $($_.Exception.Message)"
+    }
 }
 
-# Repo root sits one level above test/.
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+# Canonical path bundle + CachingProxy module kind (Test.VMUtility,
+# Test.CachingProxy, Test.Host -- the union every caching-proxy
+# entry-point script needs).
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
+$paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
+$RepoRoot   = $paths.RepoRoot
+$ModulesDir = $paths.ModulesDir
+Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
 
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
 # group set is stale -- Start-CachingProxy on Linux provisions the cache
 # VM via virt-install and queries its IP via virsh, both of which need
 # libvirt-socket access. No-op on macOS / Windows / fresh shells.
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.Host.psm1') -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 if ($IsMacOS) {
-    $HostDir      = Join-Path $RepoRoot 'host/macos.utm/guest.squid-cache'
-    $downloadDir  = Join-Path $HOME 'yuruna/image/squid-cache'
-    $ImageFile    = Join-Path $downloadDir 'host.macos.utm.guest.squid-cache.raw'
+    $HostDir      = Join-Path $RepoRoot 'host/macos.utm/guest.caching-proxy'
+    $downloadDir  = Join-Path $HOME 'yuruna/image/caching-proxy'
+    $ImageFile    = Join-Path $downloadDir 'host.macos.utm.guest.caching-proxy.raw'
     $UtmDir       = "$HOME/yuruna/guest.nosync/$VMName.utm"
 } elseif ($IsWindows) {
-    $HostDir      = Join-Path $RepoRoot 'host/windows.hyper-v/guest.squid-cache'
+    $HostDir      = Join-Path $RepoRoot 'host/windows.hyper-v/guest.caching-proxy'
     # (Get-VMHost) loads the Hyper-V module on first use; fails cleanly if
     # Hyper-V isn't installed — the underlying New-VM.ps1 has the same
     # dependency, so surfacing it here keeps the error close to the user.
     $downloadDir  = (Get-VMHost).VirtualHardDiskPath
-    $ImageFile    = Join-Path $downloadDir 'host.windows.hyper-v.guest.squid-cache.vhdx'
+    $ImageFile    = Join-Path $downloadDir 'host.windows.hyper-v.guest.caching-proxy.vhdx'
 } elseif ($IsLinux) {
-    $HostDir      = Join-Path $RepoRoot 'host/ubuntu.kvm/guest.squid-cache'
+    $HostDir      = Join-Path $RepoRoot 'host/ubuntu.kvm/guest.caching-proxy'
     # libvirt-qemu boots qcow2 natively; matches the Get-Image.ps1 +
     # New-VM.ps1 output path for the KVM cache.
-    $downloadDir  = Join-Path $HOME 'yuruna/image/squid-cache'
-    $ImageFile    = Join-Path $downloadDir 'host.ubuntu.kvm.guest.squid-cache.qcow2'
+    $downloadDir  = Join-Path $HOME 'yuruna/image/caching-proxy'
+    $ImageFile    = Join-Path $downloadDir 'host.ubuntu.kvm.guest.caching-proxy.qcow2'
     $KvmVmDir     = Join-Path $HOME "yuruna/vms/$VMName"
 } else {
     Write-Error "Unsupported host. Start-CachingProxy.ps1 runs on macOS (UTM), Windows (Hyper-V), or Linux (KVM/libvirt)."
@@ -126,9 +134,9 @@ if ($IsMacOS) {
 
 # Single cross-cycle persistence file (yuruna password + cache VM IP)
 # under the framework's runtime directory. Replaces the per-platform
-# squid-cache-password.txt and cache-ip.txt sidecars that used to live
-# next to each host's VHD/raw image. See test/modules/Test.CachingProxy.psm1.
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
+# caching-proxy-password.txt and cache-ip.txt sidecars that used to live
+# next to each host's VHD/raw image. Get-CachingProxyStatePath comes
+# from Test.CachingProxy, loaded by the CachingProxy kind at file top.
 $PasswordFile = Get-CachingProxyStatePath
 
 $GetImageScript = Join-Path $HostDir 'Get-Image.ps1'
@@ -228,7 +236,7 @@ try {
 if ($IsMacOS) {
     # Tear down any leftover host-side TCP forwarders from the retired
     # shared-NAT path (forwarder.<port>.pid pwsh subprocesses under
-    # $HOME/yuruna/image/squid-cache). With the bridged cache VM these
+    # $HOME/yuruna/image/caching-proxy). With the bridged cache VM these
     # forwarders are no longer needed -- and if left running on
     # 0.0.0.0:3128 they would conflict with anyone who later sets
     # YURUNA_CACHING_PROXY_IP=<host-lan-ip> pointing back at this Mac.
@@ -254,7 +262,7 @@ if ($IsMacOS) {
     }
     if (Test-Path $UtmDir) {
         Write-Output "  Removing stale bundle $UtmDir"
-        Remove-Item -Recurse -Force $UtmDir
+        Remove-Item -LiteralPath $UtmDir -Recurse -Force
     }
 } elseif ($IsWindows) {
     $existing = Get-VM -Name $VMName -ErrorAction SilentlyContinue
@@ -268,7 +276,7 @@ if ($IsMacOS) {
     $vmDir = Join-Path $downloadDir $VMName
     if (Test-Path $vmDir) {
         Write-Output "  Removing stale VM disk directory $vmDir"
-        Remove-Item -Recurse -Force $vmDir
+        Remove-Item -LiteralPath $vmDir -Recurse -Force
     }
 } elseif ($IsLinux) {
     # `virsh dominfo <name>` exits non-zero with "Domain not found" when
@@ -291,7 +299,7 @@ if ($IsMacOS) {
     }
     if (Test-Path $KvmVmDir) {
         Write-Output "  Removing stale VM disk directory $KvmVmDir"
-        Remove-Item -Recurse -Force $KvmVmDir
+        Remove-Item -LiteralPath $KvmVmDir -Recurse -Force
     }
 
     # === Step 1.5: ensure the 'yuruna-external' libvirt bridge network ────
@@ -342,7 +350,7 @@ if ($IsMacOS) {
             $env:YURUNA_EXTERNAL_NETWORK = $extNet
         } else {
             Write-Warning "  Could not provision 'yuruna-external'. Cache VM will fall back to NAT 'default' (host-only)."
-            Write-Warning "  To use the cache from other LAN hosts you'll need to: define yuruna-external manually (see host/ubuntu.kvm/guest.squid-cache/README.md), or set YURUNA_EXTERNAL_BRIDGE_SKIP=1 to suppress this attempt next time."
+            Write-Warning "  To use the cache from other LAN hosts you'll need to: define yuruna-external manually (see host/ubuntu.kvm/guest.caching-proxy/README.md), or set YURUNA_EXTERNAL_BRIDGE_SKIP=1 to suppress this attempt next time."
         }
     }
 }
@@ -457,7 +465,7 @@ if ($IsMacOS) {
     # VZBridgedNetworkDeviceAttachment), so its DHCP lease lands on the
     # same /24 the host sits on. We identify OUR VM by the MAC the
     # bundle was built with (random per-bundle, written into
-    # config.plist by guest.squid-cache/New-VM.ps1) and look its IP up
+    # config.plist by guest.caching-proxy/New-VM.ps1) and look its IP up
     # via the host's ARP table -- never by "first :3128 we find on the
     # LAN", which would happily lock onto a peer host's yuruna-caching-
     # proxy that DHCP'd before ours did. Matches the narrow
@@ -587,9 +595,9 @@ if ($IsMacOS) {
         [void](Save-CachingProxyState -IpAddress $cacheIp -Confirm:$false)
     }
 } elseif ($IsLinux) {
-    # KVM/libvirt: guest.squid-cache/New-VM.ps1 already calls virt-install
+    # KVM/libvirt: guest.caching-proxy/New-VM.ps1 already calls virt-install
     # with --import and blocks until the VM has an IP AND squid is
-    # listening on :3128 (see host/ubuntu.kvm/guest.squid-cache/New-VM.ps1
+    # listening on :3128 (see host/ubuntu.kvm/guest.caching-proxy/New-VM.ps1
     # for the wait loop). No separate "register + start" phase like UTM,
     # and no host-side discovery loop like Hyper-V -- by the time we
     # reach here the cache is up and reachable, we just need to re-query
@@ -718,7 +726,7 @@ if ($IsMacOS) {
 
 Write-Output ""
 Write-Output "================================================================="
-Write-Output "=== squid-cache is READY ==="
+Write-Output "=== caching-proxy is READY ==="
 Write-Output "================================================================="
 Write-Output "  VM name:     $VMName"
 if ($cacheIp) {

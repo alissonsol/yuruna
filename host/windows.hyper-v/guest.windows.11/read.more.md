@@ -11,7 +11,7 @@ The Windows 11 ISO has no direct download URL.
 the Hyper-V default VHDX folder; any `Win11*.iso` there is renamed
 automatically.
 
-```powershell
+```
 .\Get-Image.ps1
 ```
 
@@ -24,7 +24,7 @@ available -- falls back to Default Switch, virtual TPM), mounts the
 Windows ISO and autounattend seed ISO as DVDs, sets DVD as first boot,
 and enables Guest Service Interface.
 
-```powershell
+```
 .\New-VM.ps1                   # default hostname windows11-01
 .\New-VM.ps1 -VMName myhost
 ```

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e96
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -28,17 +28,9 @@
     the file under ~/yuruna/image/amazon.linux.2023/.
 #>
 
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        if ($_eff -ge $_rank.Verbose) { $ProgressPreference = 'SilentlyContinue' }
-    }
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.amazon.linux.2023/Get-Image.ps1 only runs on Linux."
@@ -89,29 +81,25 @@ if (Test-AlreadyCurrent -Url $downloadUrl -File $baseImageFile -Sentinel $baseIm
 
 $downloadFile = Join-Path $downloadDir 'downloaded.qcow2'
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-Write-Output "Downloading $downloadUrl"
-Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -ErrorAction Stop
-$downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
-
-# SHA256 sidecar (e.g. al2023-kvm-2023.x.y.qcow2.sha256).
+# Save-ImageWithChecksum (Yuruna.Image.psm1) applies the warn-only
+# checksum policy. The KVM platform doesn't ship Save-CachedHttpUri
+# (yet) so this falls through to a direct Invoke-WebRequest -- still
+# centralized so a future cache addition lands in one place.
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
 $checksumLink = ($html.Links | Where-Object { $_.href -match '\.qcow2\.sha256$' } | Select-Object -First 1)
-if ($checksumLink) {
-    try {
-        $checksumUrl  = $sourceUrl + $checksumLink.href
-        $expectedHash = (Invoke-WebRequest -Uri $checksumUrl -ErrorAction Stop).Content.Trim().Split()[0]
-        $actualHash   = (Get-FileHash -Path $downloadFile -Algorithm SHA256).Hash
-        if ($expectedHash -ine $actualHash) {
-            Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-            Write-Error "Checksum mismatch. Expected $expectedHash, got $actualHash"
-            exit 1
-        }
-        Write-Output "Checksum verified."
-    } catch {
-        Write-Warning "Could not verify checksum: $($_.Exception.Message)"
-    }
-} else {
-    Write-Warning "No .qcow2.sha256 sidecar at $sourceUrl; skipping integrity check."
+$checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink.href } else { $null }
+$downloaded = Save-ImageWithChecksum `
+    -SourceUrl  $downloadUrl `
+    -DestPath   $downloadFile `
+    -ChecksumUrl $checksumUrl `
+    -ChecksumTargetFileName $qcow2Link `
+    -OnMismatch 'WarnAndContinue' `
+    -Confirm:$false
+if (-not $downloaded) {
+    Write-Error "Download failed for $downloadUrl"
+    exit 1
 }
+$downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42f2a3b4-c5d6-4e78-f901-2a3b4c5d6e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -67,18 +67,9 @@ param(
     [int]$DiskSizeGb = 128
 )
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        if ($_eff -ge $_rank.Verbose) { $ProgressPreference = 'SilentlyContinue' }
-    }
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 if (-not $IsMacOS) {
     Write-Error "New-VM.ps1 for guest.macos.26 only runs on macOS (Apple Virtualization required)."
@@ -195,7 +186,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # === Build the UTM bundle skeleton ==========================================
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
-Import-Module (Join-Path $RepoRoot "test/modules/Test.VM.common.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot "test/modules/Test.VMUtility.psm1") -Force -DisableNameChecking
 
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
     Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."

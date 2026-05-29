@@ -14,28 +14,11 @@ APT_PROXY_BLOCK_PLACEHOLDER
     hostname: HOSTNAME_PLACEHOLDER
     username: USERNAME_PLACEHOLDER
     password: "HASH_PLACEHOLDER"
-  # Pin IPv4-only DHCP and refuse IPv6 router advertisements.
-  # On the QEMU + `-netdev vmnet-shared` backend, the host's VMnet stub
-  # sends IPv6 RAs that systemd-networkd interprets as interface CHANGE
-  # events. Subiquity's NetworkController treats each CHANGE as a model
-  # update, fires _send_update, and never proceeds past the network
-  # detection step -- the install wedges with the framebuffer scrolling
-  #   start: subiquity/Network/_send_update: CHANGE enp0s1
-  #   finish: subiquity/Network/_send_update: CHANGE enp0s1
-  # forever. The Apple Virtualization backend didn't emit these so the
-  # autoinstall config could omit `network:` and let subiquity
-  # auto-detect; on QEMU the explicit netplan is required.
-  #
-  # Interface selected by glob `en*` instead of the literal `enp0s1`
-  # so the netplan still applies after the 26.04 guest's NIC model
-  # switch from virtio-net-pci (enp0s1) to e1000 (ens1) -- see the
-  # comment on the Network array in this guest's config.plist.template.
+  # --- See https://yuruna.link/vmconfig#pin-ipv4-dhcp-refuse-ipv6-ra
   network:
     version: 2
     ethernets:
-      primary:
-        match:
-          name: "en*"
+      enp0s1:
         dhcp4: true
         dhcp6: false
         accept-ra: false
@@ -190,12 +173,14 @@ APT_PROXY_BLOCK_PLACEHOLDER
       cat >> /target/etc/wgetrc << 'EOF'
       no_proxy = YURUNA_HOST_IP_PLACEHOLDER
       EOF
-    # --- See https://yuruna.link/vmconfig#download-fetch-and-execute-utility
-    - mkdir -p /target/automation
+    # --- See https://yuruna.link/vmconfig#install-yuruna-lib
+    - mkdir -p /target/usr/local/lib/yuruna
     - |
-      wget --no-cache --timeout=5 -O /target/automation/fetch-and-execute.sh "http://YURUNA_HOST_IP_PLACEHOLDER:YURUNA_HOST_PORT_PLACEHOLDER/yuruna-repo/automation/fetch-and-execute.sh" || \
-      wget --no-cache -O /target/automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
-    - curtin in-target --target=/target -- chmod +x /automation/fetch-and-execute.sh
+      printf '%s' "YURUNA_RETRY_LIB_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna_retry.sh
+      chmod 0644 /target/usr/local/lib/yuruna/yuruna_retry.sh
+    - |
+      printf '%s' "YURUNA_FAE_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/fetch-and-execute.sh
+      chmod 0755 /target/usr/local/lib/yuruna/fetch-and-execute.sh
     # --- See https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
     - curtin in-target --target=/target -- timedatectl set-ntp true
     - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "https://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'

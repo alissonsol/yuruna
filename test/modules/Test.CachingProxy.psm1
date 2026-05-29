@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -24,9 +24,9 @@
 
 .DESCRIPTION
     Previous design split this between two host-local sidecar files:
-      * squid-cache-password.txt next to the VHD (Windows) or under
-        $HOME/yuruna/image/squid-cache/ (macOS)
-      * cache-ip.txt under $HOME/yuruna/image/squid-cache/ (macOS only)
+      * caching-proxy-password.txt next to the VHD (Windows) or under
+        $HOME/yuruna/image/caching-proxy/ (macOS)
+      * cache-ip.txt under $HOME/yuruna/image/caching-proxy/ (macOS only)
 
     Both have moved to a single YAML doc at:
         <runtime-dir>/yuruna-caching-proxy.yml
@@ -35,7 +35,7 @@
     git-ignored alongside the rest of status/. The authentication
     extension's vault.yml now persists across cycles too, but this
     file remains the source of truth for the cache VM's yuruna user --
-    squid-cache New-VM.ps1 re-aligns the vault entry from here on
+    caching-proxy New-VM.ps1 re-aligns the vault entry from here on
     every cycle so the two stay in sync if they ever diverge.
 
     Save uses merge semantics: only the fields you pass are touched.
@@ -88,20 +88,65 @@ function Read-CachingProxyState {
     $path = Get-CachingProxyStatePath
     $empty = @{ password = ''; ipAddress = '' }
     if (-not (Test-Path -LiteralPath $path)) { return $empty }
-    try {
-        if (-not (Get-Module powershell-yaml)) {
+    if (-not (Get-Module powershell-yaml)) {
+        try {
             Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
+        } catch {
+            Write-Warning "Read-CachingProxyState: powershell-yaml not importable ($($_.Exception.Message)); returning empty."
+            return $empty
         }
-        $raw = Get-Content -Raw -LiteralPath $path
-        if (-not $raw -or -not $raw.Trim()) { return $empty }
+    }
+    $parsed = Read-CachingProxyStateFile -Path $path
+    if ($null -ne $parsed) { return $parsed }
+    # Primary file unparseable. Try a `.backup` rotated by Save-CachingProxyState
+    # so the cache VM's IP / vault password isn't silently lost on a torn
+    # write or disk corruption. The backup is one rotation behind by design
+    # -- if BOTH files corrupt simultaneously the operator gets an empty
+    # dict (caller re-discovers IP and rebuilds vault from yuruna-vault.yml),
+    # but the warning + corrupt-file rotation below leaves a forensics trail.
+    $backupPath = "$path.backup"
+    if (Test-Path -LiteralPath $backupPath) {
+        $fallback = Read-CachingProxyStateFile -Path $backupPath
+        if ($null -ne $fallback) {
+            Write-Warning "Read-CachingProxyState: main file at $path was unparseable; recovered prior state from $backupPath."
+            return $fallback
+        }
+    }
+    # Both main and backup unparseable (or backup absent). Rotate the
+    # broken main aside with a timestamp suffix so it can be diff'd
+    # against the next good write; the cycle continues with $empty.
+    try {
+        $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ')
+        $corruptPath = "$path.corrupt.$stamp"
+        Move-Item -LiteralPath $path -Destination $corruptPath -Force -ErrorAction Stop
+        Write-Warning "Read-CachingProxyState: $path was unparseable and no usable backup; preserved corrupt copy at $corruptPath. State reset to empty."
+    } catch {
+        Write-Warning "Read-CachingProxyState: $path was unparseable AND the corrupt-rotation move failed ($($_.Exception.Message)). State reset to empty; next save will overwrite the broken file in place."
+    }
+    return $empty
+}
+
+function Read-CachingProxyStateFile {
+    <#
+    .SYNOPSIS
+        Parse a single caching-proxy state YAML file. Returns the hashtable
+        on success, $null on any parse / shape failure. Caller decides
+        whether to escalate (warning, fallback, rotate-corrupt).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        $raw = Get-Content -Raw -LiteralPath $Path
+        if (-not $raw -or -not $raw.Trim()) { return $null }
         $parsed = $raw | ConvertFrom-Yaml
-        if ($parsed -isnot [System.Collections.IDictionary]) { return $empty }
+        if ($parsed -isnot [System.Collections.IDictionary]) { return $null }
         $h = @{ password = ''; ipAddress = '' }
         foreach ($k in $parsed.Keys) { $h[[string]$k] = [string]$parsed[$k] }
         return $h
     } catch {
-        Write-Verbose "Read-CachingProxyState: parse failed ($($_.Exception.Message)); returning empty."
-        return $empty
+        Write-Verbose "Read-CachingProxyStateFile: $Path parse failed: $($_.Exception.Message)"
+        return $null
     }
 }
 
@@ -159,6 +204,19 @@ function Save-CachingProxyState {
     # the pattern used elsewhere in the repo for shell-consumed files.
     $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
     [System.IO.File]::WriteAllText($tmp, $yaml, $utf8NoBom)
+    # Rotate the prior main file aside as `.backup` before swapping the new
+    # version in. Read-CachingProxyState falls back to this backup when the
+    # main file is corrupt, so the cache VM IP and vault password survive
+    # a single torn write. Best-effort: copy failures degrade silently
+    # because the new write is the primary safety guarantee.
+    $backupPath = "$path.backup"
+    if (Test-Path -LiteralPath $path) {
+        try {
+            Copy-Item -LiteralPath $path -Destination $backupPath -Force -ErrorAction Stop
+        } catch {
+            Write-Verbose "Save-CachingProxyState: could not rotate prior main to $backupPath (non-fatal): $($_.Exception.Message)"
+        }
+    }
     Move-Item -LiteralPath $tmp -Destination $path -Force
     return $path
 }
@@ -167,7 +225,7 @@ function Save-CachingProxyState {
 
 <#
 .SYNOPSIS
-    Smoke-tests the squid-cache at the given IP. Shared core between
+    Smoke-tests the caching-proxy at the given IP. Shared core between
     Test-CachingProxy.ps1 and the cycle-start gate in Invoke-TestInnerRunner.ps1.
 .DESCRIPTION
     Probes :3128 / :3129 / :80 / :3000 and fetches /yuruna-squid-ca.crt off
@@ -180,7 +238,7 @@ function Save-CachingProxyState {
     standalone script -- those are host-state-dependent, not cache-state-
     dependent. This function is the cache-side subset both callers need.
 
-    Requires Test.VM.common.psm1 (Get-CachingProxyPort, Format-IpUrlHost)
+    Requires Test.VMUtility.psm1 (Get-CachingProxyPort, Format-IpUrlHost)
     to be imported by the caller.
 .PARAMETER CacheIp
     Resolved cache IP (IPv4 or IPv6). The caller is expected to have

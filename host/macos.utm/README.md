@@ -8,7 +8,7 @@ VM, guest workload pattern) live in [Hosts — ...](../README.md).
 
 From a fresh **Terminal**:
 
-```bash
+```
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 ```
 

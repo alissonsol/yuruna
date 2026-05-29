@@ -1,8 +1,8 @@
 # caching-proxy-parser
 
 A ~200-line Go tail-server that replaces loki + promtail for the single
-"Recent 100 requests" panel on the squid-cache Grafana dashboard.
-Optimised for that one scenario — no tenancy, no persistence, no
+"Recent 100 requests" panel on the caching-proxy Grafana dashboard.
+Optimized for that one scenario — no tenancy, no persistence, no
 LogQL, no plugin dependencies.
 
 ## Why it exists
@@ -28,11 +28,11 @@ served as JSON + a self-contained HTML page.
 | `caching-proxy-parser.config.yml` | Extension config (single provider). |
 | `default.psm1` | Harness-side metadata helper. |
 
-## How it gets onto the squid-cache VM
+## How it gets onto the caching-proxy VM
 
-The squid-cache VM's cloud-init `runcmd` (in both
-[host/windows.hyper-v/guest.squid-cache/vmconfig/user-data](../../../host/windows.hyper-v/guest.squid-cache/vmconfig/user-data)
-and [host/macos.utm/guest.squid-cache/vmconfig/user-data](../../../host/macos.utm/guest.squid-cache/vmconfig/user-data)):
+The caching-proxy VM's cloud-init `runcmd` (in both
+[host/windows.hyper-v/guest.caching-proxy/vmconfig/user-data](../../../host/windows.hyper-v/guest.caching-proxy/vmconfig/user-data)
+and [host/macos.utm/guest.caching-proxy/vmconfig/user-data](../../../host/macos.utm/guest.caching-proxy/vmconfig/user-data)):
 
 1. wgets `main.go`, `go.mod`, `caching-proxy-parser.service` from the
    harness's yuruna-repo HTTP server (with the GitHub raw fallback
@@ -51,7 +51,7 @@ and [host/macos.utm/guest.squid-cache/vmconfig/user-data](../../../host/macos.ut
 ## Endpoints
 
 The service binds `:9302` on every interface (matching apache + grafana
-on the squid-cache VM):
+on the caching-proxy VM):
 
 - `GET /recent-requests` — JSON array of the last 100 parsed entries,
   newest first. Fields: `ts`, `ts_iso`, `client_ip`, `status`, `bytes`,
@@ -75,7 +75,7 @@ on the squid-cache VM):
 
 ## Verifying after install
 
-```bash
+```
 ssh yuruna@<cache-ip>
 systemctl status caching-proxy-parser
 curl -s http://localhost:9302/healthz             # → "ok"

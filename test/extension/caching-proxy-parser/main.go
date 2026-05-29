@@ -1,6 +1,7 @@
+// LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// caching-proxy-parser: a tail-and-serve daemon for the squid-cache VM.
+// caching-proxy-parser: a tail-and-serve daemon for the caching-proxy VM.
 //
 // Replaces loki + promtail for the Grafana dashboard's "Recent 100
 // requests" panel. Tails /var/log/squid/yuruna_access.log (the
@@ -8,10 +9,10 @@
 // each line, keeps the last 100 entries in an in-memory ring, and
 // serves them as JSON + a self-contained HTML page.
 //
-// Optimised for one specific scenario (single host, one squid access
+// Optimized for one specific scenario (single host, one squid access
 // log, one panel) — no tenancy, no persistence, no auth, no LogQL.
 //
-// Built and installed from the squid-cache cloud-init user-data; see
+// Built and installed from the caching-proxy cloud-init user-data; see
 // test/extension/caching-proxy-parser/README.md.
 //
 // Linux-only: inodeOf() uses syscall.Stat_t to detect logrotate. The

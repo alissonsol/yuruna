@@ -1,0 +1,10 @@
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Yuruna extension contract for area: caching-proxy-parser
+# Every extension implementation (<name>.psm1) in this directory MUST
+# export the verbs listed in `requiredFunction`. Test.Extension's
+# Import-Extension validates this at load and warns when a verb is
+# missing -- a stale or partial extension is caught before the first
+# cycle step references it.
+area: caching-proxy-parser
+requiredFunction:
+  - Get-CachingProxyParserManifest

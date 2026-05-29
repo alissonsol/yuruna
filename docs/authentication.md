@@ -44,6 +44,44 @@
   - Active project: `gcloud projects list`; then `gcloud config set project [project]`.
   - Authorize the SDK: `gcloud auth application-default login`.
 
+## Test-harness vault — threat model
+
+The test harness keeps a separate, lightweight credential store at
+`test/status/extension/authentication/vault.yml`. **This file is
+plaintext YAML by design.** It is NOT a production secrets vault.
+
+What lands in it: per-cycle passwords for the throwaway guest OS
+accounts the harness creates (`yauser1`, `yuuser24`, `yt2sqluser`, etc.)
+on test VMs that are wiped and rebuilt every cycle. The accounts
+exist only inside the test VM; the harness rotates the password on
+first contact via `Set-Password`, stores both `password` and
+`previousPassword` so a half-applied rotation can recover, and never
+exports the value off the local machine.
+
+What never lands in it: cloud-provider credentials (`aws configure` /
+`az login` / `gcloud auth …` keep their own files, see sections
+above), API keys, registry tokens, SSH host keys (those live under
+`test/status/ssh/`), or any operator personal credential.
+
+Trust boundary:
+
+| Layer | Mechanism | Why plaintext is acceptable |
+|-------|-----------|----------------------------|
+| Filesystem | The file is git-ignored (`.gitignore` rule `test/status/*/`); never committed, never sync'd. | An attacker with filesystem read access already has equivalent or greater capability — they're already on the operator's machine. |
+| Process | Read+write serialized by a SHA-1-of-path named mutex; atomic temp+rename. | Concurrent cycles cannot corrupt the file; not a confidentiality control. |
+| Audit | Every read / write / rotate is appended to `events.log` as one JSON line. Passwords never appear in the log. | Tampering detection, not encryption. |
+
+If you ever extend the harness to drive a production system, do NOT
+add production credentials to this vault. Wire a separate
+authentication extension (see [Extensions API](extensions-api.md))
+backed by DPAPI / system keyring / a real secret manager. Today's
+`default` extension is intentionally minimal.
+
+Implementation:
+[`test/extension/authentication/default.psm1`](../test/extension/authentication/default.psm1)
+(search for "Threat model" near the top of the module for the same
+text in code).
+
 Back to [Yuruna](../README.md)
 
 ---

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42e8bceb-f7aa-4ae8-a633-1fc36173d278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Import.Yaml
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -23,9 +23,8 @@ function ConvertFrom-Content {
 
     if (-Not (Get-Module -ListAvailable -Name powershell-yaml)) { Write-Information "Need to install powershell-yaml using:`nInstall-Module -Name powershell-yaml" -InformationAction Stop; Exit -1 }
 
-    $lines = ''
-    foreach ($line in $Content) { $lines = $lines + "`n" + $line }
-    return ConvertFrom-YAML -Ordered $lines
+    if ($Content -is [string[]]) { $Content = $Content -join "`n" }
+    return ConvertFrom-YAML -Ordered $Content
 }
 
 function ConvertFrom-File {
@@ -33,8 +32,7 @@ function ConvertFrom-File {
         $FileName
     )
 
-    [string[]]$fileContent = Get-Content $FileName
-    return ConvertFrom-Content $fileContent
+    return ConvertFrom-Content (Get-Content -Raw $FileName)
 }
 
 function Find-KeyValue {

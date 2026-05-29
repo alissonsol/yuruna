@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 4236e7f8-a9b0-4c23-d678-9e0f1a2b3c48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -52,18 +52,9 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 
 $ProgressPreference = 'SilentlyContinue'
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
-# Each level shows itself + all higher-priority streams; Error is highest.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-    }
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
@@ -131,8 +122,8 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # ConvertTo-Sha512CryptHash centralises the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
 # (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
-# option. See Test.VM.common\ConvertTo-Sha512CryptHash for rationale.
-Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.VM.common.psm1') -Force -DisableNameChecking
+# option. See Test.VMUtility\ConvertTo-Sha512CryptHash for rationale.
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
 } catch {
@@ -150,7 +141,22 @@ $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
     Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    Hyper-V\Remove-VM -Name $VMName -Force
+    try {
+        Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
+    } catch {
+        # A half-removed VM (locked vhdx, permission, etc.) would trip
+        # the next New-VM call with "already exists" and the outer loop
+        # has no signal to recover. Dump live Hyper-V state so the
+        # operator can clean orphan disks before retrying.
+        $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
+            Format-List Name, State, Status, Generation, Path | Out-String
+        throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
+    }
+    # Hyper-V can return Remove-VM success while leaving a ghost entry;
+    # a second Get-VM is the only reliable post-condition.
+    if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
+        throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
+    }
     Write-Output "VM '$VMName' deleted."
 }
 
@@ -172,9 +178,12 @@ if (Test-Path -Path $vhdxFile) {
 Write-Verbose "Creating 64GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 64GB -Dynamic | Out-Null
 
-# Autoinstall seed ISO
-$SeedDir = Join-Path $env:TEMP "seed_$VMName"
-if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
+# Autoinstall seed ISO. 4-digit entropy is weak by design (10k cases)
+# but enough to defeat the deterministic-path symlink trap: an attacker
+# dropping a symlink at %TEMP%\seed_<VMName>\ before New-VM runs can't
+# predict the trailing 4 digits per run.
+$SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 10000))
+if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
@@ -191,7 +200,7 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Detect the squid-cache VM and inject its proxy URL if available.
+# Detect the caching-proxy VM and inject its proxy URL if available.
 # Severity policy:
 #   * No cache VM         → WARNING, proceed (direct CDN)
 #   * Cache VM stopped    → WARNING, proceed (direct CDN)
@@ -212,16 +221,16 @@ $CachingProxyUrl = ""
 $cacheVM = Get-VM -Name "yuruna-caching-proxy" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
     Write-Warning "  No yuruna-caching-proxy VM exists on this host. Guest will download packages directly from Ubuntu mirrors — expect occasional 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: host\windows.hyper-v\guest.squid-cache\New-VM.ps1"
+    Write-Warning "  To enable caching, run: host\windows.hyper-v\guest.caching-proxy\New-VM.ps1"
 } elseif ($cacheVM.State -ne 'Running') {
     Write-Warning "  yuruna-caching-proxy VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
     Write-Warning "  To enable caching: Start-VM yuruna-caching-proxy ; then wait for cloud-init to finish."
 } else {
     # KVP+ARP discovery + :3128 probe live in Yuruna.Host.psm1
     # (Get-WorkingCachingProxyUrl). One module means this consumer, the
-    # producer, and Start-CachingProxy.ps1's summary see the same
-    # answer — earlier drift had Start-SquidCache's KVP-only summary
-    # reporting "discovery failed" while ARP path found the cache.
+    # producer, and Start-CachingProxy.ps1's summary all see the same
+    # answer (avoids the regression class where a KVP-only summary
+    # reports "discovery failed" while the ARP path already found it).
     $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName "yuruna-caching-proxy"
     if ($CachingProxyUrl) {
         Write-Output "  yuruna-caching-proxy VM detected at $CachingProxyUrl — guest will use local proxy."
@@ -248,7 +257,7 @@ Accessing the yuruna-caching-proxy VM for debugging:
   * SSH:      ssh yuruna@<ip>
 
 Rebuild the cache VM:
-  host\windows.hyper-v\guest.squid-cache\New-VM.ps1
+  host\windows.hyper-v\guest.caching-proxy\New-VM.ps1
 
 To intentionally skip the cache:
   Stop-VM yuruna-caching-proxy   (guest will then WARN and download direct).
@@ -261,34 +270,29 @@ To intentionally skip the cache:
 }
 
 # Build the autoinstall apt block. We ALWAYS emit it — even when no
-# squid-cache is reachable — because subiquity's default apt behavior
+# caching-proxy is reachable — because subiquity's default apt behavior
 # is `geoip: true`, which fires an HTTPS lookup to geoip.ubuntu.com
 # to elect a regional mirror. That lookup is slow and prone to
-# retry-storming during configure_apt/cmd-in-target on this host;
-# previously it added minutes to every install. `geoip: false` plus
-# an explicit `primary:` pin keeps mirror election deterministic.
+# retry-storming during configure_apt/cmd-in-target on this host
+# (adds minutes to every install). `geoip: false` plus an explicit
+# `primary:` pin keeps mirror election deterministic.
 #
 # `primary:` (not `sources_list:`): the Server 24.04 amd64 squashfs ships
 # /etc/apt/sources.list.d/ubuntu.sources (deb822) ALREADY pointing at
 # archive.ubuntu.com. Curtin's apt-config does "modifymirrors" — it
 # rewrites the existing URI in ubuntu.sources to whatever `primary:`
 # says, in place. So one block of pinning is enough; apt sees a single
-# fully-rewritten ubuntu.sources and fetches indexes once.
+# fully-rewritten ubuntu.sources and fetches indexes once. Using
+# `sources_list:` instead writes a SECOND apt config file alongside the
+# existing ubuntu.sources and doubles every per-suite index fetch; see
+# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
 #
-# A previous revision used curtin's `sources_list:` template here
-# (with `$PRIMARY` / `$SECURITY` tokens). That writes a SECOND apt
-# config file alongside the existing ubuntu.sources, so apt fetched
-# every per-suite index twice — doubling configure_apt/cmd-in-target's
-# fetch volume through the squid-cache proxy and pushing install past
-# the harness's login-prompt timeout. Switching to `primary:` matches
-# the macOS sister script and aligns with subiquity's own examples.
 # `$AptProxyLine` is appended to the end of the `uri:` line below: when a
 # proxy is configured we want a leading newline + 4-space indent so the
 # YAML lands at the same level as `geoip:` / `primary:`; when there's no
-# proxy the whole expansion is empty. Keeping the closing `"@` on its
-# own line at column 0 — required by PowerShell's here-string parser; an
-# earlier draft accidentally inlined `$(...)"@` and produced
-# "The string is missing the terminator: `"@."
+# proxy the whole expansion is empty. The closing `"@` MUST stay on its
+# own line at column 0 — required by PowerShell's here-string parser
+# (inlining `$(...)"@` raises "The string is missing the terminator").
 $AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
 $AptProxyBlock = @"
   apt:
@@ -323,11 +327,11 @@ $YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Pat
 if (Test-Path $YurunaTestConfig) {
     try {
         $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusServer.port) { $YurunaHostPort = "$($tc.statusServer.port)" }
+        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# -- Fetch squid-cache CA cert (base64-embedded in seed) -------------------
+# -- Fetch caching-proxy CA cert (base64-embedded in seed) -------------------
 # Mirrors host/macos.utm/guest.ubuntu.server.26/New-VM.ps1. The installer's
 # late-commands write the cert from CA_CERT_BASE64_PLACEHOLDER before
 # any HTTPS apt fetch, so SSL-bump caching works from the first install
@@ -344,15 +348,23 @@ if ($CachingProxyUrl) {
         if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
             $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
             $CaCertBase64 = [Convert]::ToBase64String($caBytes)
-            Write-Verbose "  Fetched squid-cache CA from $cacheCaUrl ($($caBytes.Length) bytes) -- embedded in seed."
+            Write-Verbose "  Fetched caching-proxy CA from $cacheCaUrl ($($caBytes.Length) bytes) -- embedded in seed."
         }
     } catch {
-        Write-Warning "  Could not fetch CA cert from squid-cache : $($_.Exception.Message)"
+        Write-Warning "  Could not fetch CA cert from caching-proxy : $($_.Exception.Message)"
         Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
     }
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('USERNAME_PLACEHOLDER', $Username).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort)
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# write_files entries. Eliminates the legacy network-dependent wget+wget
+# bootstrap and ensures both files are on disk before any guest script runs.
+$YurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
+$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna_retry.sh')))
+$YurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'fetch-and-execute.sh')))
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('USERNAME_PLACEHOLDER', $Username).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
@@ -404,7 +416,7 @@ Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions 
 Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
 # === Cleanup temporary folders ===
-Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Guidance ===
 Write-Verbose "VM '$VMName' created and configured."

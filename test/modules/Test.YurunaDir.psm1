@@ -1,0 +1,98 @@
+<#PSScriptInfo
+.VERSION 2026.05.29
+.GUID 42a3d6f5-c0b1-4478-de26-5f7a0c4d3e62
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# Idempotent setup helpers for Yuruna directory env vars: default a path
+# under <testRoot>/status/<sub>, create the directory if missing, return
+# the resolved path. Two semantically-split exports: bulky logs
+# (Initialize-YurunaLogDir) and small runtime state
+# (Initialize-YurunaRuntimeDir).
+
+function Initialize-YurunaLogDir {
+    <#
+    .SYNOPSIS
+        Ensure $env:YURUNA_LOG_DIR points to a writable log directory,
+        creating the directory if needed. Idempotent.
+    .DESCRIPTION
+        $env:YURUNA_LOG_DIR is the unified reference for Yuruna's log
+        directory: bulky HTML transcripts, OCR debug images, failure
+        screenshots, per-component debug subdirs (NewText, Screenshot).
+        Separate from $env:YURUNA_RUNTIME_DIR, which holds the small
+        operationally-interesting state files (pids, status.json,
+        control flags). Callers should reference $env:YURUNA_LOG_DIR
+        directly after invoking this initializer at least once.
+    .OUTPUTS
+        System.String. The resolved $env:YURUNA_LOG_DIR path, for the
+        common case where a caller wants it inline.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (-not $env:YURUNA_LOG_DIR) {
+        # Default: <testRoot>/status/log/. Co-located with the runtime dir
+        # and served by the status HTTP server at /log/<name>, so bulky
+        # diagnostic artifacts (HTML transcripts, OCR debug images,
+        # failure screenshots) can be linked directly from the status
+        # page without copying them out of %TEMP%. Override by setting
+        # $env:YURUNA_LOG_DIR before import; the server maps /log/* onto
+        # the overridden path.
+        $testRoot = Split-Path -Parent $PSScriptRoot
+        $env:YURUNA_LOG_DIR = Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'log'
+    }
+    if (-not (Test-Path $env:YURUNA_LOG_DIR)) {
+        New-Item -ItemType Directory -Path $env:YURUNA_LOG_DIR -Force | Out-Null
+    }
+    return $env:YURUNA_LOG_DIR
+}
+
+function Initialize-YurunaRuntimeDir {
+    <#
+    .SYNOPSIS
+        Ensure $env:YURUNA_RUNTIME_DIR points to a writable runtime directory,
+        creating the directory if needed. Idempotent.
+    .DESCRIPTION
+        $env:YURUNA_RUNTIME_DIR holds the small operationally-interesting
+        state files: status.json, *.pid files, control.*-pause flags,
+        ipaddresses.txt, caching-proxy.txt, server.err, host.uuid, and
+        the detached status-service script. Keeping these separate from
+        $env:YURUNA_LOG_DIR (which contains bulky HTML transcripts and OCR
+        debug artifacts) makes investigations faster -- you don't sift
+        through hundreds of log files to find the current runner.pid.
+
+        Default location is <testRoot>/status/runtime/ so the status HTTP
+        server can serve the files at /runtime/<name>. Callers can override
+        by setting $env:YURUNA_RUNTIME_DIR before import; the status server
+        then maps /runtime/* onto the overridden path.
+    .OUTPUTS
+        System.String. The resolved $env:YURUNA_RUNTIME_DIR path.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (-not $env:YURUNA_RUNTIME_DIR) {
+        # <testRoot>/status/runtime/ -- this module lives at test/modules/
+        # so two levels up is test/.
+        $testRoot = Split-Path -Parent $PSScriptRoot
+        $env:YURUNA_RUNTIME_DIR = Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'runtime'
+    }
+    if (-not (Test-Path $env:YURUNA_RUNTIME_DIR)) {
+        New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR -Force | Out-Null
+    }
+    return $env:YURUNA_RUNTIME_DIR
+}
+
+Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir

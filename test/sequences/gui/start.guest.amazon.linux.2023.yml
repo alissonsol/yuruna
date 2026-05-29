@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM installation.
 # See possible actions in the actions.yml file.
 # ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step
@@ -69,11 +70,11 @@ steps:
         description: "Commit the rotated password to the vault."
 
   - action: waitForSeconds
-    seconds: 15
+    seconds: 10
     description: "Pause before updating"
 
   - action: fetchAndExecute
-    text: "sudo bash /automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"
+    text: "sudo bash /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"
     description: "amazon.linux.2023.update.sh"
     waitPattern: "FETCHED AND EXECUTED:"
     timeoutSeconds: 900

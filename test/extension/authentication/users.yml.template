@@ -2,7 +2,7 @@
 
 # Yuruna authentication: logical-username -> corporate-identity mapping.
 #
-# Default behaviour (all corporate.* / vaultKey / localOsPasswordRef
+# Default behavior (all corporate.* / vaultKey / localOsPasswordRef
 # fields empty) keeps the harness operating exactly as before: each
 # logical user is its own local OS account with a vault-auto-generated
 # password.
@@ -33,7 +33,7 @@ users:
 
   # Default Yuruna test users -- one per bundled guest OS. Out of the
   # box, no corporate mapping; cloud-init creates these as local OS
-  # accounts with vault-auto-generated passwords (today's behaviour).
+  # accounts with vault-auto-generated passwords (today's behavior).
 
   yuuser24:
     localOsUser: yuuser24

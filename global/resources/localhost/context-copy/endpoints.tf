@@ -1,3 +1,4 @@
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Reference: https://registry.terraform.io/providers/hashicorp/external/latest/docs/data-sources/data_source
 data "external" "originalIp" {

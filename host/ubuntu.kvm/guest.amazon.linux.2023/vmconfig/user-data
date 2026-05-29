@@ -1,13 +1,10 @@
 #cloud-config
 #vim:syntax=yaml
-# NoCloud user-data for Amazon Linux 2023 cloud image on KVM/libvirt.
-# Aligned with the hyper-v and macos.utm guest.amazon.linux.2023 variants so
-# the first-boot end state is comparable across hosts. See
-# docs/vmconfig.md for the topic-by-topic rationale.
-# Two users: ec2-user (cloud-image default) plus USERNAME_PLACEHOLDER,
-# the harness's greppable test user. cloud-init's chpasswd default
-# expire=true is what triggers the Current/New/Retype prompt on first
-# console login (LOAD-BEARING for the test sequence's rotation flow).
+# NoCloud user-data for Amazon Linux 2023 (parity with hyper-v / utm / kvm
+# siblings). Two users: ec2-user (cloud-image default) + USERNAME_PLACEHOLDER
+# (harness test user; passwordless sudo + SSH key). cloud-init chpasswd
+# default expire=true is LOAD-BEARING — it triggers the Current/New/Retype
+# prompt the GUI sequence drives. See docs/vmconfig.md for per-topic rationale.
 users:
   - default
   - name: USERNAME_PLACEHOLDER
@@ -31,6 +28,15 @@ write_files:
     content: |
       blacklist hv_balloon
     permissions: '0644'
+  # --- See https://yuruna.link/vmconfig#install-yuruna-lib
+  - path: /usr/local/lib/yuruna/yuruna_retry.sh
+    encoding: base64
+    content: YURUNA_RETRY_LIB_BASE64_PLACEHOLDER
+    permissions: '0644'
+  - path: /usr/local/lib/yuruna/fetch-and-execute.sh
+    encoding: base64
+    content: YURUNA_FAE_BASE64_PLACEHOLDER
+    permissions: '0755'
 
 runcmd:
   - rmmod hv_balloon 2>/dev/null || true
@@ -69,12 +75,6 @@ runcmd:
     cat >> /etc/wgetrc << 'EOF'
     no_proxy = YURUNA_HOST_IP_PLACEHOLDER
     EOF
-  # --- See https://yuruna.link/vmconfig#download-fetch-and-execute-utility
-  - mkdir -p /automation
-  - |
-    wget --no-cache --timeout=5 -O /automation/fetch-and-execute.sh "http://YURUNA_HOST_IP_PLACEHOLDER:YURUNA_HOST_PORT_PLACEHOLDER/yuruna-repo/automation/fetch-and-execute.sh" || \
-    wget --no-cache -O /automation/fetch-and-execute.sh "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
-  - chmod +x /automation/fetch-and-execute.sh
   # --- See https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
   - timedatectl set-ntp true
   - bash -c 'command -v curl >/dev/null 2>&1 && TZ=$(curl -s --max-time 5 https://ip-api.com/line?fields=timezone) && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check curl, network, or API)" >&2'

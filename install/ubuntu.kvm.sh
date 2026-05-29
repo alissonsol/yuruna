@@ -1,5 +1,6 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
+# LICENSEURI https://yuruna.link/license
 # Version: 2026.05.29  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
@@ -148,7 +149,7 @@ stop_yuruna_processes() {
     "Invoke-TestRunner.ps1"
     "Invoke-TestInnerRunner.ps1"
     "Test-Sequence.ps1"
-    "Start-StatusServer.ps1"
+    "Start-StatusService.ps1"
   )
   for pat in "${patterns[@]}"; do
     local pids

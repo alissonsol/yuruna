@@ -1,11 +1,14 @@
 # Amazon Linux 2023 on Ubuntu KVM/libvirt
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Boots the AL2023 KVM cloud image (`kvm` on x86_64, `kvm-arm64` on
 aarch64) with a cloud-init NoCloud seed.
 
 ## Manual run
 
-```bash
+```
 pwsh ./Get-Image.ps1                        # download / refresh base image
 pwsh ./New-VM.ps1                           # default name: amazon-linux01
 pwsh ./New-VM.ps1 -VMName myhost            # custom name
@@ -34,7 +37,7 @@ Current/New/Retype rotation on first console login.
 
 ## Reaching the guest
 
-```bash
+```
 virsh -c qemu:///system domifaddr <vmname>
 ssh -i ../../../test/status/ssh/yuruna_ed25519 yauser1@<ip>
 ```

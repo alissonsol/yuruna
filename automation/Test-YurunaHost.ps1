@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42d4e5f6-a7b8-4c90-1d23-4e5f6a7b8c91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -32,7 +32,7 @@
     This script runs IN THE GUEST. It reads /etc/yuruna/host.env, hits
     /livecheck on the host, and reports whether the in-guest
     yuruna-host name resolves and whether the JSON the server returns
-    is what we expect ("yuruna-status-server"). If anything is wrong,
+    is what we expect ("yuruna-status-service"). If anything is wrong,
     the script exits non-zero and prints the documented remediation
     (rebuild the guest VM via host-side New-VM.ps1).
 
@@ -76,7 +76,7 @@ function Show-Remediation {
     Write-Output '    pwsh host\windows.hyper-v\<guest>\New-VM.ps1'
     Write-Output ''
     Write-Output 'Make sure the status server is running on the host first:'
-    Write-Output '    pwsh test/Start-StatusServer.ps1'
+    Write-Output '    pwsh test/Start-StatusService.ps1'
     Write-Output ''
     Write-Output 'Until the rebuild lands, fetch-and-execute.sh will silently fall'
     Write-Output 'back to https://raw.githubusercontent.com/alissonsol/yuruna/... -- i.e.'
@@ -157,8 +157,8 @@ try {
     exit 1
 }
 
-if ($payload.service -ne 'yuruna-status-server') {
-    Write-Result 'FAIL' "/livecheck JSON does not identify as yuruna-status-server (service='$($payload.service)')"
+if ($payload.service -ne 'yuruna-status-service') {
+    Write-Result 'FAIL' "/livecheck JSON does not identify as yuruna-status-service (service='$($payload.service)')"
     Show-Remediation
     exit 1
 }

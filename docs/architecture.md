@@ -18,7 +18,7 @@ rather than repeat.
 
 ## Three-phase deployment model
 
-```text
+```
 ┌───────────┐    ┌────────────┐    ┌───────────┐
 │ Resources │ => │ Components │ => │ Workloads │
 │(OpenTofu) │    │  (Docker)  │    │  (Helm)   │
@@ -39,7 +39,7 @@ next:
 Run any of these from a project folder under `project/` (after
 `./Add-AutomationToPath.ps1`):
 
-```powershell
+```
 Set-Resource.ps1  <project> <cloud>
 Set-Component.ps1 <project> <cloud>
 Set-Workload.ps1  <project> <cloud>
@@ -53,7 +53,7 @@ a one-time auth step (`az login`, `aws configure`, `gcloud auth …`) — see
 
 ## Project layout
 
-```text
+```
 yuruna/
 ├── automation/         # Set-*, Test-*, Invoke-*, Get-* scripts and Yuruna.*.psm1 modules
 ├── global/resources/   # OpenTofu templates per cloud
@@ -84,6 +84,29 @@ you stop using.
 
 Before cloning on Windows:
 `git config --global core.autocrlf input`
+
+### Per-phase `*.stderr.log` catalog
+
+Each automation phase writes a full stdout+stderr capture of its tool
+calls into `.yuruna/<env>/...` with a `=== <cmd> (exit=N) ===` header,
+plus a `*.rc` sidecar holding the LAST observed exit code:
+
+| File | Producer | Captures |
+|------|----------|----------|
+| `tofu.stderr.log`    | Yuruna.Resource.psm1 (`Set-Resource`)           | `tofu init / plan / apply` |
+| `helm.stderr.log`    | Yuruna.Workload.psm1                            | Chart install + ad-hoc `helm:` deployments |
+| `kubectl.stderr.log` | Yuruna.Workload.psm1                            | `kubectl:` deployments |
+| `shell.stderr.log`   | Yuruna.Workload.psm1                            | `shell:` deployments |
+| `docker.stderr.log`  | Yuruna.Component.psm1                           | Build / tag / push pipeline |
+
+`Get-SystemDiagnostic.ps1` cross-checks `*.rc` against in-cluster
+state to flag a silent success-without-effect (e.g. `helm.rc=0` but
+no helm releases). The scan uses `-Force` so recursion descends into
+the dot-prefixed `.yuruna/` working folders; without `-Force`,
+helm/kubectl stderr files are hidden on Linux and a real failure
+shows as "no `*.stderr.log` — no phase has produced output" even when
+a 60-char-truncated excerpt of the error sits in the earlier "Errors,
+failures and warnings" section.
 
 ## License
 

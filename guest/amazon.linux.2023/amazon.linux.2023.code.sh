@@ -1,5 +1,6 @@
 #!/bin/bash
-# Version: 2026.05.22
+# Version: 2026.05.29
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
@@ -20,27 +21,8 @@ case "$ARCH" in
     ;;
 esac
 
-# --- See https://yuruna.link/network#defining-package-manager-retry
-dnf_retry() {
-  local max_attempts=5 attempt=1 delay=15 rc=0
-  while [ $attempt -le $max_attempts ]; do
-    if [ $attempt -gt 1 ]; then
-      echo ""
-      echo ">> dnf_retry: attempt $attempt/$max_attempts for: $*"
-    fi
-    rc=0; "$@" || rc=$?
-    if [ $rc -eq 0 ]; then return 0; fi
-    echo "!! dnf_retry: attempt $attempt/$max_attempts failed (rc=$rc): $*"
-    if [ $attempt -lt $max_attempts ]; then
-      echo "!! dnf_retry: sleeping ${delay}s before retry"
-      sleep $delay
-      delay=$((delay * 2))
-    fi
-    attempt=$((attempt + 1))
-  done
-  echo "!! dnf_retry: all $max_attempts attempts exhausted for: $*"
-  return $rc
-}
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+. /usr/local/lib/yuruna/yuruna_retry.sh
 
 # ===== Install the JDK =====
 echo ""
@@ -64,7 +46,7 @@ echo -e "\e[1;36m>>> Installing .NET SDK...\e[0m"
 # Install libicu dependency required by .NET for globalization support.
 dnf_retry sudo dnf install -y libicu
 sudo mkdir -p /usr/local/dotnet
-curl -sSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
+curl_retry -sSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
 sudo bash /tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
 rm -f /tmp/dotnet-install.sh

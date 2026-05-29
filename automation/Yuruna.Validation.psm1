@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42d2f4a5-b6c7-4890-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Yuruna.Validation
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -54,6 +54,34 @@ function Confirm-GlobalVariableList {
     return $true;
 }
 
+function Invoke-SecretFolderValidation {
+    # Walks every *.txt under $SecretsFolder and marks each git-assume-
+    # unchanged so an operator editing a vault file locally never trips
+    # `git status` noise. Empty content is informational for resources
+    # (-RequireNonEmpty omitted) and blocking for workloads (the chart's
+    # values will substitute the empty string for a password placeholder
+    # and silently produce a malformed Secret in the cluster).
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$SecretsFolder,
+        [switch]$RequireNonEmpty
+    )
+    if (-not (Test-Path -Path $SecretsFolder)) { return $true }
+    Write-Debug "---- Validating Secrets folder: $SecretsFolder"
+    $files = Get-ChildItem -Path $SecretsFolder -Filter *.txt
+    foreach ($file in $files) {
+        Write-Verbose "Checking secret file: $file"
+        $content = Get-Content $file
+        if ([string]::IsNullOrEmpty($content)) {
+            Write-Information "Empty secret file: $file"
+            if ($RequireNonEmpty) { return $false }
+        }
+        git update-index --assume-unchanged $file
+    }
+    return $true
+}
+
 function Confirm-ResourceList {
     param (
         $project_root,
@@ -95,15 +123,7 @@ function Confirm-ResourceList {
 
     # Non-empty secrets are informational for resources — creation proceeds.
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
-    if (Test-Path -Path $secrets_folder) {
-        $files = Get-ChildItem -Path $secrets_folder -Filter *.txt
-        foreach ($file in $files){
-            Write-Verbose "Checking secret file: $file"
-            $content = Get-Content $file
-            if ([string]::IsNullOrEmpty($content)) { Write-Information "Empty secret file: $file"; }
-            git update-index --assume-unchanged $file
-        }
-    }
+    $null = Invoke-SecretFolderValidation -SecretsFolder $secrets_folder
 
     return $true;
 }
@@ -232,28 +252,12 @@ function Confirm-WorkloadList {
 
     # Non-empty secrets are required — missing content blocks workload execution.
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
-    if (Test-Path -Path $secrets_folder) {
-        Write-Debug "---- Validating Secrets folder: $secrets_folder"
-        $files = Get-ChildItem -Path $secrets_folder -Filter *.txt
-        foreach ($file in $files){
-            Write-Verbose "Checking secret file: $file"
-            $content = Get-Content $file
-            if ([string]::IsNullOrEmpty($content)) { Write-Information "Empty secret file: $file"; return $false; }
-            git update-index --assume-unchanged $file
-        }
-    }
-    # Also check peer folder (workloads may reference a shared secrets dir)
+    if (-not (Invoke-SecretFolderValidation -SecretsFolder $secrets_folder -RequireNonEmpty)) { return $false }
+    # Peer folder accommodates workloads that share a parent-level vault
+    # across multiple config subfolders (a single set of credentials feeds
+    # several deployment configs without duplicating the .txt files).
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/../secrets"
-    if (Test-Path -Path $secrets_folder) {
-        Write-Debug "---- Validating Secrets folder: $secrets_folder"
-        $files = Get-ChildItem -Path $secrets_folder -Filter *.txt
-        foreach ($file in $files){
-            Write-Verbose "Checking secret file: $file"
-            $content = Get-Content $file
-            if ([string]::IsNullOrEmpty($content)) { Write-Information "Empty secret file: $file"; return $false; }
-            git update-index --assume-unchanged $file
-        }
-    }
+    if (-not (Invoke-SecretFolderValidation -SecretsFolder $secrets_folder -RequireNonEmpty)) { return $false }
 
     return $true;
 }

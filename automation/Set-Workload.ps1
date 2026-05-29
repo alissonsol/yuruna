@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42d4e5f6-a7b8-4c90-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -95,12 +95,15 @@ $null = Start-Transcript $transcriptFileName
 $result = Publish-WorkloadList $project_root $config_subfolder
 
 $null = Stop-Transcript
-if (-Not $result) {
-    Write-Output $result
+# Publish-WorkloadList returns a result-manifest hashtable; a non-empty
+# hashtable coerces to $true, so a bare `if (-Not $result)` would silently
+# take the success branch on a failure manifest. Test the .success key.
+if (-Not (Test-YurunaResultManifestOk $result)) {
+    Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
     Write-Output $(Get-Content -Path $transcriptFileName)
     # Propagate the failure as a non-zero process exit so bash wrappers
     # using `set -e` (e.g. ubuntu.server.24.workload.k8s.website.sh) see it.
-    # Without this, Publish-WorkloadList returning $false (e.g. helm lint
+    # Without this, Publish-WorkloadList reporting failure (e.g. helm lint
     # or helm install failure -- empty componentsRegistry.registryLocation
     # cascading to an InvalidImageName render) would print the transcript
     # but exit 0, masking the real error as a later `kubectl wait` timeout.

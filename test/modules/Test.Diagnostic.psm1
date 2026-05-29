@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test diagnostics failure cross-platform
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -58,15 +58,19 @@
     read-only dump and we never elevate.
 #>
 
-# -Global so callers that have already imported Test.VM.common / Test.Ssh
+# -Global so callers that have already imported Test.VMUtility / Test.Ssh
 # keep their existing bindings — same pattern Test.Ssh uses for its own
 # transitive imports.
-Import-Module (Join-Path $PSScriptRoot 'Test.VM.common.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1')        -Force -DisableNameChecking -Global
 # Test.Extension loads the active authentication extension; Get-Password
 # is exported by that extension and is the source of truth for the
 # stored per-user password.
 Import-Module (Join-Path $PSScriptRoot 'Test.Extension.psm1')  -Force -Global
+# Test.Config provides the mtime-keyed Read-TestConfig cache so
+# Resolve-StatusServiceEndpoint doesn't reparse test.config.yml on
+# every diagnostic call.
+Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1')     -Force -DisableNameChecking -Global
 
 # Remote script path. We deliberately use $HOME (shell-expanded on the
 # guest) rather than a hardcoded /home/<user>/ -- works for ec2-user,
@@ -165,9 +169,7 @@ function Get-DiagnosticsFileName {
 function Resolve-StoredPassword {
 <#
 .SYNOPSIS
-    Returns the currently stored password for a guest's SSH user, or
-    $null if no entry exists / the authentication extension has not been
-    initialized.
+    Look up the currently stored password for a guest's SSH user.
 .DESCRIPTION
     Wraps Get-Password (active authentication extension) with the soft-
     fail behavior this module needs: a missing/uninitialized vault must
@@ -175,25 +177,45 @@ function Resolve-StoredPassword {
     key-based fallback path. The vault is a per-cycle artifact; pre-
     sequence failures (New-VM crashing before any sequence ran) can
     legitimately reach this code with no entry to look up.
+
+    Returns @{ password; reason } so callers can discriminate the three
+    distinct failure modes (auth extension not loaded, Get-Password
+    not exported, Get-Password threw) -- previously all three collapsed
+    to $null and the operator had to guess which one fired. The reason
+    string is short (one phrase) so a caller can log it directly into
+    the diagnostic file header / failure NDJSON.
+
+      password  [string] the stored password, or $null on any failure
+      reason    [string] 'ok' when password is set, otherwise one of
+                  'auth-extension-load-failed',
+                  'get-password-not-exported',
+                  'get-password-threw',
+                  'no-entry'   (Get-Password returned $null)
 #>
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$Username)
     if (-not (Get-Command Get-Password -ErrorAction SilentlyContinue)) {
         try {
             [void](Import-Extension -Area 'authentication' -RequireSingle)
         } catch {
             Write-Verbose "Save-GuestDiagnostic: auth extension load failed: $($_.Exception.Message)"
-            return $null
+            return @{ password = $null; reason = 'auth-extension-load-failed' }
         }
     }
-    if (-not (Get-Command Get-Password -ErrorAction SilentlyContinue)) { return $null }
+    if (-not (Get-Command Get-Password -ErrorAction SilentlyContinue)) {
+        return @{ password = $null; reason = 'get-password-not-exported' }
+    }
     try {
-        return (Get-Password -Username $Username)
+        $pw = Get-Password -Username $Username
     } catch {
         Write-Verbose "Save-GuestDiagnostic: Get-Password threw for '$Username': $($_.Exception.Message)"
-        return $null
+        return @{ password = $null; reason = 'get-password-threw' }
     }
+    if ([string]::IsNullOrEmpty($pw)) {
+        return @{ password = $null; reason = 'no-entry' }
+    }
+    return @{ password = $pw; reason = 'ok' }
 }
 
 function Invoke-RemoteDiagnosticsPasswordSsh {
@@ -322,7 +344,7 @@ function Invoke-RemoteDiagnosticsKeySsh {
     }
 }
 
-function Resolve-StatusServerEndpoint {
+function Resolve-StatusServiceEndpoint {
 <#
 .SYNOPSIS
     Returns the URL the guest should use to reach the host's status
@@ -331,7 +353,7 @@ function Resolve-StatusServerEndpoint {
 .DESCRIPTION
     IP comes from the active host driver's Get-GuestReachableHostIp
     (same call site that New-VM.ps1 uses to seed cloud-init); port
-    comes from test.config.yml's statusServer.port with the 8080
+    comes from test.config.yml's statusService.port with the 8080
     default the server uses when the field is missing.
 
     When VMName is supplied and Hyper-V's Get-VMNetworkAdapter is
@@ -371,7 +393,7 @@ function Resolve-StatusServerEndpoint {
                     $adapter = Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop | Select-Object -First 1
                     if ($adapter) { $switchName = [string]$adapter.SwitchName }
                 } catch {
-                    Write-Verbose "Resolve-StatusServerEndpoint: Get-VMNetworkAdapter '$VMName' failed: $($_.Exception.Message)"
+                    Write-Verbose "Resolve-StatusServiceEndpoint: Get-VMNetworkAdapter '$VMName' failed: $($_.Exception.Message)"
                 }
             }
             if ($switchName) {
@@ -391,12 +413,10 @@ function Resolve-StatusServerEndpoint {
     }
     $port = 8080
     $configPath = Join-Path $RepoRoot 'test/test.config.yml'
-    if (Test-Path -LiteralPath $configPath) {
-        try {
-            $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
-            if ($cfg.statusServer.port) { $port = [int]$cfg.statusServer.port }
-        } catch { Write-Verbose "Resolve-StatusServerEndpoint: ignoring unreadable config: $($_.Exception.Message)" }
-    }
+    # Read-TestConfig is mtime+hash cached; repeated diagnostic calls in
+    # one cycle do not re-parse the YAML.
+    $cfg = Read-TestConfig -Path $configPath
+    if ($cfg -and $cfg.statusService.port) { $port = [int]$cfg.statusService.port }
     return @{ ip = [string]$ip; port = [int]$port; url = "http://${ip}:${port}" }
 }
 
@@ -519,9 +539,9 @@ function Invoke-RemoteDiagnosticsConsole {
         return $failResult
     }
 
-    $endpoint = Resolve-StatusServerEndpoint -VMName $VMName
+    $endpoint = Resolve-StatusServiceEndpoint -VMName $VMName
     if (-not $endpoint) {
-        Write-Warning "Invoke-RemoteDiagnosticsConsole: could not resolve host status-server URL; skipping console path."
+        Write-Warning "Invoke-RemoteDiagnosticsConsole: could not resolve host status-service URL; skipping console path."
         return $failResult
     }
 
@@ -610,18 +630,31 @@ function Save-GuestDiagnostic {
     cap is hit so the operator sees the budget was exceeded instead
     of attributing the missing artifact to a connectivity issue.
 .OUTPUTS
-    [bool] -- $true on success (file written), $false on any failure.
-    Diagnostic file path is also emitted via Write-Information so the
-    cycle log captures it.
+    [hashtable] manifest with:
+        success     [bool]   $true if a diagnostic file was written
+        outPath     [string] absolute path of the written file (or $null)
+        mechanism   [string] 'key-ssh' | 'password-ssh' | 'console' | 'none'
+        attempted   [string[]] rungs tried in order (e.g. 'key-ssh','console')
+        exitCode    [int]    exit code from the winning (or last) rung
+        bytes       [long]   size of the diagnostic file (0 if not written)
+        skipped     [bool]   $true if a precondition aborted before any rung ran
+        reason      [string] short reason on skip / failure (or $null)
+    Boolean-coercible: callers that did `if ($result)` continue to work
+    because PowerShell coerces a non-empty hashtable to $true. Use
+    $result.success for explicit pass/fail.
 #>
     [CmdletBinding()]
-    [OutputType([bool])]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$OutputFolder,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Id
     )
+    # Attempted-rung accumulator hoisted to the top so every early-return
+    # site can include it in the manifest. Each rung pushes its label
+    # before invoking the SSH/console handler.
+    $attempted = @()
 
     # Wall-clock budget for the whole capture. Each downstream call
     # below clamps its own timeout to `min(perCommandCap, remaining)`
@@ -660,7 +693,7 @@ function Save-GuestDiagnostic {
             New-Item -ItemType Directory -Path $OutputFolder -Force | Out-Null
         } catch {
             Write-Warning "Save-GuestDiagnostic: could not create output folder '$OutputFolder': $($_.Exception.Message)"
-            return $false
+            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="could not create output folder '$OutputFolder': $($_.Exception.Message)" }
         }
     }
     # Local alias retained so the rest of the function (and the shared
@@ -694,7 +727,7 @@ function Save-GuestDiagnostic {
         # key is unknown (Windows guests today). Diagnostics over SSH
         # has no sensible path there yet.
         Write-Warning "Save-GuestDiagnostic: no SSH user mapping for guest '$GuestKey'; skipping."
-        return $false
+        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="no SSH user mapping for guest '$GuestKey'" }
     }
 
     # Pre-flight (Hyper-V External vSwitch only): actively probe the LAN
@@ -720,39 +753,18 @@ function Save-GuestDiagnostic {
         }
     }
 
-    # Pre-flight: wait for the guest to ACTUALLY accept an authenticated
-    # SSH session (not just TCP/22). Many test sequences end with
-    # "Reboot the VM" and a final saveSystemDiagnostic step may be placed
-    # immediately after the workload step completes, so the VM can be
-    # mid-reboot at this point. Without this gate the previous code
-    # would either:
-    #   (a) bail at Get-GuestAddress when the IP wasn't yet in
-    #       KVP/dhcpd_leases (-> empty per-guest folder), or
-    #   (b) attempt SSH and write a near-useless file whose body is
-    #       just the connection error: "ssh: connect to host x.x.x.x
-    #       port 22: Operation timed out" / "kex_exchange_identification:
-    #       Connection reset by peer" (port-22 was open but sshd was
-    #       still binding -- "half-up sshd" race).
-    # Wait-SshReady polls a real `echo yuruna-ssh-ready` handshake so a
-    # half-up sshd is correctly classified as not-ready, and it
-    # re-resolves Get-GuestAddress each iteration so a late-binding
-    # KVP entry (Hyper-V External vSwitch case) is picked up
-    # automatically. On timeout we skip without leaving a useless
-    # error file -- the cycleGuestDataFolder is left empty, signalling
-    # to the operator that the guest was unreachable in time.
-    # 180s budget covers: ARP probe (~5 s) + a typical Linux
-    # post-reboot bring-up (60-120 s on this hardware) + slack.
-    # Cap Wait-SshReady's polling budget by what remains of the 5-min
-    # total cap. 180s is the previous fixed budget; we use min(180,
-    # remaining) so a near-deadline call doesn't push us past the cap.
+    # Pre-flight: real-handshake Wait-SshReady gate (mid-reboot races,
+    # half-up sshd, late-binding KVP). Budget capped to the cycle's
+    # remaining diag budget. Full rationale and trap class:
+    # https://yuruna.link/test/harness
     $waitBudget = [math]::Min(180, (Get-DiagBudgetRemaining))
     if ($waitBudget -le 0) {
         Write-Warning ("Save-GuestDiagnostic: total {0}s budget already exhausted before Wait-SshReady; skipping." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
-        return $false
+        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="total $($script:SaveGuestDiagnosticTotalTimeoutSeconds)s budget exhausted before Wait-SshReady" }
     }
     if (-not (Test.Ssh\Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $waitBudget -PollSeconds 5)) {
         Write-Warning ("Save-GuestDiagnostic: SSH did not become ready within {0}s for VM '{1}' (mid-reboot, late-binding KVP, or sshd not yet up); skipping diagnostics capture." -f $waitBudget, $VMName)
-        return $false
+        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="SSH not ready within ${waitBudget}s for VM '$VMName' (mid-reboot or sshd not yet up)" }
     }
 
     # Wait-SshReady proved we can reach $user@$target via key auth, so
@@ -763,13 +775,20 @@ function Save-GuestDiagnostic {
     $address = Test.Ssh\Get-GuestAddress -VMName $VMName
     if (-not $address -or $address -eq $VMName) {
         Write-Warning "Save-GuestDiagnostic: Wait-SshReady passed but Get-GuestAddress no longer returns an IP for '$VMName' (guest may have rebooted again); skipping."
-        return $false
+        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="Get-GuestAddress no longer returns an IP for '$VMName'" }
     }
 
     $sshpassPath = (Get-Command sshpass -ErrorAction SilentlyContinue)?.Source
-    $password    = Resolve-StoredPassword -Username $user
+    # @{ password; reason } -- preserve $reason so the password-SSH-skip
+    # branch below can name the specific failure mode ("no-entry" is the
+    # common pre-sequence case; "auth-extension-load-failed" / "get-
+    # password-threw" mean something is actually wrong with the vault
+    # plumbing and deserves a louder line).
+    $pwLookup    = Resolve-StoredPassword -Username $user
+    $password    = $pwLookup.password
+    $pwReason    = $pwLookup.reason
 
-    # Resolve the host status-server URL once and feed it to BOTH SSH
+    # Resolve the host status-service URL once and feed it to BOTH SSH
     # rungs as their curl-bootstrap fallback. The previous chain treated
     # the curl bootstrap as a console-rung-only concern; that left a gap
     # when SSH was healthy but the guest had not yet extracted the yuruna
@@ -781,33 +800,22 @@ function Save-GuestDiagnostic {
     # is still the final fallback.
     $bootstrapUrl = $null
     try {
-        $endpoint = Resolve-StatusServerEndpoint -VMName $VMName
+        $endpoint = Resolve-StatusServiceEndpoint -VMName $VMName
         if ($endpoint) { $bootstrapUrl = [string]$endpoint.url }
     } catch {
-        Write-Verbose "Save-GuestDiagnostic: Resolve-StatusServerEndpoint threw: $($_.Exception.Message)"
+        Write-Verbose "Save-GuestDiagnostic: Resolve-StatusServiceEndpoint threw: $($_.Exception.Message)"
     }
 
-    # Strategy chain: key SSH -> password SSH -> console. SSH is the
-    # default because it works the same on every host (Linux/macOS/
-    # Windows) without depending on a per-host keyboard injector, the
-    # status server URL being reachable from the guest, or the guest
-    # having an interactive shell sitting on tty1. The console rung
-    # is the emergency fallback for the cases where SSH is genuinely
-    # the bug (sshd down, host-key mismatch, auth failure) -- when SSH
-    # is healthy we ship the diagnostic immediately without paying the
-    # console-typing latency or risking keystroke corruption (e.g.
-    # character-table misses, host-specific Shift handling quirks).
-    #
-    # Earlier rungs' outputs are not discarded if they produced text --
-    # $lastResult keeps the most informative one so a partial-and-failed
-    # earlier capture still gets written when every rung after it ends
-    # up empty.
+    # Strategy chain (keyed SSH -> password SSH -> console) and the
+    # $lastResult most-informative-wins fallback policy:
+    # https://yuruna.link/test/harness
     $fileName = Get-DiagnosticsFileName -Id $Id
     $outPath  = Join-Path $FailureFolderPath $fileName
 
     $result      = $null
     $lastResult  = $null
-    $attempted   = @()
+    # $attempted was hoisted to the top of the function so the early-
+    # return manifests below can include rungs that were tried.
 
     # Primary: key SSH (most reliable rung on a healthy guest).
     $keyBudget = Get-PerCmdBudget
@@ -855,7 +863,17 @@ function Save-GuestDiagnostic {
                 Write-Verbose "  Diagnostics: password SSH failed (exit=$($passwordResult.exitCode))."
             }
         } else {
-            $reason = if (-not $sshpassPath) { 'sshpass not on PATH' } else { "no stored password for '$user'" }
+            # Discriminate the three vault-side failure modes so an
+            # operator (or remediator) can fix the right thing. The
+            # pre-sequence "no-entry" case is benign; the other two
+            # mean the vault plumbing itself is broken and the cycle's
+            # operator needs to inspect the authentication extension.
+            $reason =
+                if (-not $sshpassPath) { 'sshpass not on PATH' }
+                elseif ($pwReason -eq 'auth-extension-load-failed') { "authentication extension failed to load (no stored password for '$user')" }
+                elseif ($pwReason -eq 'get-password-not-exported')  { "authentication extension does not export Get-Password (no stored password for '$user')" }
+                elseif ($pwReason -eq 'get-password-threw')         { "Get-Password threw for '$user' (vault may be corrupted)" }
+                else                                                 { "no stored password for '$user'" }
             Write-Verbose "  Diagnostics: $reason -- skipping password SSH."
         }
     }
@@ -878,7 +896,9 @@ function Save-GuestDiagnostic {
             Test-DiagSshTimeoutHit -Result $consoleResult -Rung 'console'
             if ($consoleResult.success) {
                 Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=console, attempts=$($attempted -join ','))"
-                return $true
+                $consoleBytes = 0L
+                try { if (Test-Path -LiteralPath $outPath) { $consoleBytes = [long](Get-Item -LiteralPath $outPath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }
+                return @{ success=$true; outPath=$outPath; mechanism='console'; attempted=$attempted; exitCode=[int]$consoleResult.exitCode; bytes=$consoleBytes; skipped=$false; reason=$null }
             }
             if ($consoleResult.output -and -not $lastResult.output) {
                 $lastResult = $consoleResult
@@ -918,7 +938,7 @@ function Save-GuestDiagnostic {
         Set-Content -LiteralPath $outPath -Value $body.ToString() -Encoding utf8 -NoNewline
     } catch {
         Write-Warning "Save-GuestDiagnostic: could not write '$outPath': $($_.Exception.Message)"
-        return $false
+        return @{ success=$false; outPath=$outPath; mechanism=[string]$result.mechanism; attempted=$attempted; exitCode=[int]$result.exitCode; bytes=0L; skipped=$false; reason="Set-Content failed: $($_.Exception.Message)" }
     }
 
     $elapsedSec = [int]((Get-Date) - $diagStart).TotalSeconds
@@ -926,11 +946,22 @@ function Save-GuestDiagnostic {
         Write-Warning ("Save-GuestDiagnostic: total elapsed {0}s exceeded the {1}s cap (`$script:SaveGuestDiagnosticTotalTimeoutSeconds in Test.Diagnostic.psm1) -- rung sequence ran long for VM '{2}'. Inspect SSH responsiveness or raise the cap." -f $elapsedSec, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName)
     }
     Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=$($result.mechanism), exit=$($result.exitCode), elapsed=${elapsedSec}s)"
-    return [bool]$result.success
+    $writtenBytes = 0L
+    try { if (Test-Path -LiteralPath $outPath) { $writtenBytes = [long](Get-Item -LiteralPath $outPath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }
+    return @{
+        success   = [bool]$result.success
+        outPath   = $outPath
+        mechanism = [string]$result.mechanism
+        attempted = $attempted
+        exitCode  = [int]$result.exitCode
+        bytes     = $writtenBytes
+        skipped   = $false
+        reason    = if ($result.success) { $null } else { '(all diagnostics rungs failed)' }
+    }
 }
 
 Export-ModuleMember -Function `
     Save-GuestDiagnostic, `
     Get-DiagnosticsFileName, `
-    Resolve-StatusServerEndpoint, `
+    Resolve-StatusServiceEndpoint, `
     New-DiagnosticsConsoleCommand

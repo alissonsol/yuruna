@@ -5,7 +5,7 @@ lets the Squid VM serve cached copies of install scripts.
 
 1. **[`YurunaCacheContent`](#the-yurunacachecontent-cache-buster)** —
    env var controlling cache-busting of `irm`/`wget`/`curl` one-liners.
-2. **[Squid cache VM](#squid-cache-vm)** — optional VM that caches
+2. **[Squid cache VM](#caching-proxy-vm)** — optional VM that caches
    HTTP/HTTPS for test VMs. First install populates; subsequent installs
    pull from LAN.
 
@@ -15,7 +15,15 @@ Every Yuruna one-liner appends `?nocache=<value>` when `YurunaCacheContent`
 is set. Unset → cacheable URL (intermediate proxies can serve stored
 copies). Set to any unique string (typically a datetime) → fresh fetch.
 
-```powershell
+Exception: the bootstrap installers in
+[install/README.md](../install/README.md) cache-bust unconditionally via
+`?nocache=$(Get-Date -Format yyyyMMddHHmmss)` (PowerShell) or
+`?nocache=$(date +%Y%m%d%H%M%S)` (bash). The bootstrap is a one-shot per
+fresh host, and a stale cached installer is the worst kind of stale —
+the operator can't tell and re-running from the README is the
+documented recovery path. `YurunaCacheContent` is ignored there.
+
+```
 # Windows PowerShell — current session:
 $env:YurunaCacheContent = (Get-Date -Format yyyyMMddHHmmss)
 # Persist for the user (open a new shell):
@@ -25,7 +33,7 @@ Remove-Item Env:YurunaCacheContent        # current session
 setx YurunaCacheContent ""                # persisted
 ```
 
-```bash
+```
 # macOS / Linux — current session:
 export YurunaCacheContent="$(date +%Y%m%d%H%M%S)"
 # Persist: add the line to ~/.zshrc or ~/.bash_profile.
@@ -34,9 +42,8 @@ unset YurunaCacheContent                  # clear
 
 Read by: guest README `irm … | iex` one-liners,
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
-[`automation/Invoke-FetchAndExecute.ps1`](../automation/Invoke-FetchAndExecute.ps1),
-and `wget`/`curl` calls in each `guest/<name>/` install script. The
-fetch-and-execute wrappers also honor an explicit `EXEC_QUERY_PARAMS`
+and `wget`/`curl` calls in each `guest/<name>/` install script.
+`fetch-and-execute.sh` also honors an explicit `EXEC_QUERY_PARAMS`
 override (used verbatim, takes precedence).
 
 The variable is read by whichever shell expands the URL — it is **not**
@@ -80,33 +87,33 @@ egresses every UTM VM through the host's single public IP.
 
 From an elevated PowerShell (one-time):
 
-```powershell
-cd $HOME\git\yuruna\host\windows.hyper-v\guest.squid-cache
+```
+cd $HOME\git\yuruna\host\windows.hyper-v\guest.caching-proxy
 pwsh .\Get-Image.ps1
 pwsh .\New-VM.ps1
 ```
 
-- [Get-Image.ps1](../host/windows.hyper-v/guest.squid-cache/Get-Image.ps1)
+- [Get-Image.ps1](../host/windows.hyper-v/guest.caching-proxy/Get-Image.ps1)
   downloads Ubuntu Server Resolute (amd64), converts qcow2→VHDX via
   `qemu-img`, resizes to 512 GB.
-- [New-VM.ps1](../host/windows.hyper-v/guest.squid-cache/New-VM.ps1)
-  creates Gen 2 VM `squid-cache` on the Default Switch, attaches a
+- [New-VM.ps1](../host/windows.hyper-v/guest.caching-proxy/New-VM.ps1)
+  creates Gen 2 VM `caching-proxy` on the Default Switch, attaches a
   cloud-init seed ISO that installs and configures squid, and waits until
   port 3128 responds. Prints the proxy URL on ready.
 
 ### macOS UTM
 
-```bash
-cd ~/git/yuruna/host/macos.utm/guest.squid-cache
+```
+cd ~/git/yuruna/host/macos.utm/guest.caching-proxy
 pwsh ./Get-Image.ps1
 pwsh ./New-VM.ps1
 ```
 
-- [Get-Image.ps1](../host/macos.utm/guest.squid-cache/Get-Image.ps1)
+- [Get-Image.ps1](../host/macos.utm/guest.caching-proxy/Get-Image.ps1)
   downloads arm64 qcow2, converts to raw (required by Apple
   Virtualization), resizes to 144 GB.
-- [New-VM.ps1](../host/macos.utm/guest.squid-cache/New-VM.ps1)
-  assembles `~/yuruna/guest.nosync/squid-cache.utm/`
+- [New-VM.ps1](../host/macos.utm/guest.caching-proxy/New-VM.ps1)
+  assembles `~/yuruna/guest.nosync/caching-proxy.utm/`
   with `config.plist` (Apple Virtualization backend),
   `Data/efi_vars.fd`, `Data/disk.img` (APFS-clone of the raw image),
   `Data/seed.iso` (cloud-init via `hdiutil`). Double-click the `.utm` to
@@ -114,17 +121,17 @@ pwsh ./New-VM.ps1
 
 ### Ubuntu KVM/libvirt
 
-```bash
-cd ~/git/yuruna/host/ubuntu.kvm/guest.squid-cache
+```
+cd ~/git/yuruna/host/ubuntu.kvm/guest.caching-proxy
 pwsh ./Get-Image.ps1
 pwsh ./New-VM.ps1
 ```
 
-- [Get-Image.ps1](../host/ubuntu.kvm/guest.squid-cache/Get-Image.ps1)
+- [Get-Image.ps1](../host/ubuntu.kvm/guest.caching-proxy/Get-Image.ps1)
   downloads the Ubuntu Server Resolute cloud image native to the host's
   architecture (amd64 or arm64), keeps qcow2 (libvirt-qemu boots it
   natively — no conversion), resizes to 512 GB sparse.
-- [New-VM.ps1](../host/ubuntu.kvm/guest.squid-cache/New-VM.ps1)
+- [New-VM.ps1](../host/ubuntu.kvm/guest.caching-proxy/New-VM.ps1)
   copies the base image into `$HOME/yuruna/vms/yuruna-caching-proxy/`,
   generates a NoCloud seed ISO with `genisoimage`, then runs
   `virt-install --import` against either the bridged `yuruna-external`
@@ -134,7 +141,7 @@ pwsh ./New-VM.ps1
 
 The bridged `yuruna-external` network is auto-provisioned by
 `test/Start-CachingProxy.ps1` on first run; see
-[Squid Cache ...](../host/ubuntu.kvm/guest.squid-cache/README.md)
+[Squid Cache ...](../host/ubuntu.kvm/guest.caching-proxy/README.md)
 for manual bridge setup and rollback.
 
 ### Finding the cache VM's IP
@@ -142,7 +149,7 @@ for manual bridge setup and rollback.
 | Host | Method |
 |------|--------|
 | **Hyper-V** | `Get-VM yuruna-caching-proxy \| Get-VMNetworkAdapter`, or reuse the IP `New-VM.ps1` printed. |
-| **UTM** | (a) read `eth0: <ip>` at the console login; (b) `awk -F'[ =]' '/name=squid-cache/{f=1} f && /ip_address/{print $NF; exit}' /var/db/dhcpd_leases`; (c) port-scan 192.168.64.2-30 for `:3128`. `utmctl ip-address` does **not** work for Apple Virtualization-backed VMs. |
+| **UTM** | (a) read `eth0: <ip>` at the console login; (b) `awk -F'[ =]' '/name=caching-proxy/{f=1} f && /ip_address/{print $NF; exit}' /var/db/dhcpd_leases`; (c) port-scan 192.168.64.2-30 for `:3128`. `utmctl ip-address` does **not** work for Apple Virtualization-backed VMs. |
 | **KVM/libvirt** | `virsh -c qemu:///system domifaddr --source agent yuruna-caching-proxy` (preferred, requires qemu-guest-agent which the cloud-init user-data installs); falls back to `--source lease` for the NAT `default` network and `--source arp` for bridged networks. `Get-VMIp` in `host/ubuntu.kvm/modules/Yuruna.Host.psm1` runs the same source-of-sources lookup with loopback/link-local filtering. |
 
 ### Pre-warm on first boot
@@ -190,7 +197,7 @@ stays; the cache keeps serving when origin is unreachable. Fully
 populated = guest installs with zero internet.
 
 Config lives in
-`host/{windows.hyper-v,macos.utm,ubuntu.kvm}/guest.squid-cache/vmconfig/user-data`
+`host/{windows.hyper-v,macos.utm,ubuntu.kvm}/guest.caching-proxy/vmconfig/user-data`
 (identical settings in all three; per-host templating swaps only the
 arch-specific package list).
 
@@ -251,7 +258,7 @@ cached responses without the install scripts having to know about
 the proxy.
 
 Source: the `refresh_pattern` block in
-[`host/{ubuntu.kvm,windows.hyper-v,macos.utm}/guest.squid-cache/vmconfig/user-data`](../host/ubuntu.kvm/guest.squid-cache/vmconfig/user-data).
+[`host/{ubuntu.kvm,windows.hyper-v,macos.utm}/guest.caching-proxy/vmconfig/user-data`](../host/ubuntu.kvm/guest.caching-proxy/vmconfig/user-data).
 
 ### offline_mode
 
@@ -266,8 +273,8 @@ every request.
 
 Temporary — serve from origin for one burst, then offline again:
 
-```bash
-ssh yuruna@<squid-cache-ip>
+```
+ssh yuruna@<caching-proxy-ip>
 sudo rm /etc/squid/conf.d/yuruna-offline.conf && sudo squid -k reconfigure
 # ... apt-get update etc. ...
 echo "offline_mode on" | sudo tee /etc/squid/conf.d/yuruna-offline.conf
@@ -276,14 +283,14 @@ sudo squid -k reconfigure
 
 Full rebuild:
 
-```powershell
+```
 # Windows Hyper-V:
 Stop-VM yuruna-caching-proxy -Force; Remove-VM yuruna-caching-proxy -Force
 Remove-Item -Recurse "<HyperVVHDPath>\yuruna-caching-proxy"
 pwsh .\New-VM.ps1
 ```
 
-```bash
+```
 # macOS UTM:
 utmctl stop yuruna-caching-proxy
 rm -rf ~/yuruna/guest.nosync/yuruna-caching-proxy.utm
@@ -306,7 +313,7 @@ The VM runs these services alongside squid:
 | Squid HTTP      | 3128 | 0.0.0.0, RFC1918         | Plain HTTP + HTTPS CONNECT. |
 | Squid HTTPS     | 3129 | 0.0.0.0, RFC1918         | SSL-bump — caches HTTPS bodies. |
 
-**Grafana (primary UI)** — `http://<squid-cache-vm-ip>:3000`. Anonymous
+**Grafana (primary UI)** — `http://<caching-proxy-vm-ip>:3000`. Anonymous
 Viewer. Pre-provisioned "Yuruna Caching Proxy" dashboard:
 
 - Client HTTP(S) data served (kB/s): total vs cached — Total:
@@ -360,7 +367,7 @@ Apache; squid's `manager` ACL allows only `localhost`.
 
 **CLI** inside the VM:
 
-```bash
+```
 sudo squidclient mgr:info | mgr:utilization | mgr:5min
 sudo tail -f /var/log/squid/access.log   # 3rd-to-last field: TCP_HIT/MISS/OFFLINE_HIT
 ```
@@ -369,7 +376,7 @@ sudo tail -f /var/log/squid/access.log   # 3rd-to-last field: TCP_HIT/MISS/OFFLI
 
 The `yuruna.conf` dropin enables the `PURGE` method for RFC1918:
 
-```bash
+```
 # Inside the cache VM:
 sudo squidclient -m PURGE http://<origin>:<port>/<path>
 
@@ -393,7 +400,7 @@ suppresses ubuntu creation):
   `test/status/extension/authentication/vault.yml`). Cross-cycle
   persistence lives in `test/status/runtime/yuruna-caching-proxy.yml`
   (host-agnostic; replaces the previous per-platform
-  `squid-cache-password.txt` sidecars near the VHD / raw image),
+  `caching-proxy-password.txt` sidecars near the VHD / raw image),
   managed via
   [`test/modules/Test.CachingProxy.psm1`](../test/modules/Test.CachingProxy.psm1).
   `New-VM.ps1` aligns the vault entry with that file's password on
@@ -416,7 +423,7 @@ suppresses ubuntu creation):
 `Start-CachingProxy.ps1` adds an `8022 -> 22` host port forward
 alongside the squid/Grafana ones:
 
-```bash
+```
 ssh -p 8022 yuruna@<host-lan-ip>     # -> cache VM :22
 ```
 
@@ -469,7 +476,7 @@ exposes `Get-OrCreateYurunaExternalSwitch`, which idempotently creates
 `Yuruna-External` bound to the host's primary physical NIC (default
 IPv4 route, `-AllowManagementOS:$true` so the host keeps its own
 network);
-[`guest.squid-cache/New-VM.ps1`](../host/windows.hyper-v/guest.squid-cache/New-VM.ps1)
+[`guest.caching-proxy/New-VM.ps1`](../host/windows.hyper-v/guest.caching-proxy/New-VM.ps1)
 calls it on every provision and falls back to `Default Switch` if no
 LAN-routed NIC is available. The cache VM then gets a real LAN IP via
 DHCP; remote clients hit `<cache-lan-ip>:3128` directly — squid sees
@@ -550,11 +557,11 @@ Implementation:
   `Test-CacheVMOnExternalNetwork` contract functions in
   [`Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1)),
   consumed by
-  [`guest.squid-cache/New-VM.ps1`](../host/windows.hyper-v/guest.squid-cache/New-VM.ps1)
+  [`guest.caching-proxy/New-VM.ps1`](../host/windows.hyper-v/guest.caching-proxy/New-VM.ps1)
   and by the Windows branches of
   [`Start-CachingProxy.ps1`](../test/Start-CachingProxy.ps1),
   [`Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1), and
-  [`Start-StatusServer.ps1`](../test/Start-StatusServer.ps1).
+  [`Start-StatusService.ps1`](../test/Start-StatusService.ps1).
 
 The console password isn't a secret: squid's `http_access` ACL restricts
 proxy use to RFC1918. The VM is most often debugged before cloud-init
@@ -583,7 +590,7 @@ destroyed by [Invoke-TestRunner.ps1](../test/Invoke-TestRunner.ps1).
 
 - Clear cache (wipe objects, keep VM):
 
-```bash
+```
 ssh yuruna@<cache-ip>
 sudo systemctl stop squid && sudo rm -rf /var/spool/squid/* && sudo squid -z -N
 sudo systemctl start squid

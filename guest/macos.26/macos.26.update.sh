@@ -1,5 +1,6 @@
 #!/bin/bash
-# Version: 2026.05.22
+# Version: 2026.05.29
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
@@ -88,7 +89,7 @@ echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e
 echo ""
 echo -e "\e[1;36m>>> Pre-fetching yuruna framework tarball (for diagnostic availability)...\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(eval echo "~$REAL_USER")
+REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory | awk '/^NFSHomeDirectory:/ {print $2}')
 if [ -r /etc/yuruna/host.env ]; then
   # shellcheck disable=SC1091
   . /etc/yuruna/host.env

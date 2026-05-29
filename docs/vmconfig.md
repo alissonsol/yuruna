@@ -5,7 +5,7 @@ per-guest `vmconfig/` artifacts (`user-data`, `meta-data`,
 `autounattend.xml`). The user-data files themselves stay short — each
 formerly large comment block now collapses to a single line of the form:
 
-```yaml
+```
 # --- See https://yuruna.link/vmconfig#<topic-slug>
 ```
 
@@ -30,16 +30,16 @@ datasource (Hyper-V):
 
 | Placeholder | Source | Notes |
 |---|---|---|
-| `HOSTNAME_PLACEHOLDER` | `-VMName` parameter | Becomes `identity.hostname` (autoinstall) or the hostname for AL2023 / squid-cache. |
+| `HOSTNAME_PLACEHOLDER` | `-VMName` parameter | Becomes `identity.hostname` (autoinstall) or the hostname for AL2023 / caching-proxy. |
 | `USERNAME_PLACEHOLDER` | `-Username` parameter (per-guest default; see `Test.Ssh\Get-GuestSshUser`) | Account created by autoinstall (Ubuntu Server 24.04) or by the cloud-init `users:` block (AL2023). Same name appears in `passwd --expire`, `sudoers.d/90-yuruna-<user>`, and the GUI sequences. |
-| `HASH_PLACEHOLDER` | `Test.VM.common\ConvertTo-Sha512CryptHash` (wraps `openssl passwd -6 -- <vault-password>`) | SHA-512 (`$6$`) form. Plaintext password comes from `Get-Password -Username <user>` against the per-cycle authentication vault (`test/extension/authentication/`). KVM honours `$YURUNA_GUEST_PASSWORD` as a vault-bypass for ad-hoc dev runs. The `--` separator is LOAD-BEARING -- see "Password hashing: argv leading-dash trap" below. |
+| `HASH_PLACEHOLDER` | `Test.VMUtility\ConvertTo-Sha512CryptHash` (wraps `openssl passwd -6 -- <vault-password>`) | SHA-512 (`$6$`) form. Plaintext password comes from `Get-Password -Username <user>` against the per-cycle authentication vault (`test/extension/authentication/`). KVM honours `$YURUNA_GUEST_PASSWORD` as a vault-bypass for ad-hoc dev runs. The `--` separator is LOAD-BEARING -- see "Password hashing: argv leading-dash trap" below. |
 | `PLAINTEXT_PASSWORD_PLACEHOLDER` | Same as above (AL2023 path) | Used inside `chpasswd:` for AL2023, where the cloud-init module accepts the plaintext form and force-expires it on first login (chpasswd default `expire: true`). |
 | `SSH_AUTHORIZED_KEY_PLACEHOLDER` | `test/status/ssh/yuruna_ed25519.pub` (auto-generated if missing) via `Test.Ssh\Get-YurunaSshPublicKey` | Single ed25519 line; placed under autoinstall.ssh.authorized-keys (Ubuntu) and the cloud-init `users:` block for the test user (AL2023). Same key the post-failure diagnostics path (`Test.Diagnostic\Invoke-RemoteDiagnosticsKeySsh`) authenticates with -- per-host key files would silently break that flow. |
 | `APT_PROXY_BLOCK_PLACEHOLDER` | Built per-host by New-VM.ps1 | Multi-line `apt:` block. Substring-replaced (not token-aware), so the literal string MUST NOT appear anywhere else in the file. |
-| `CACHING_PROXY_URL_PLACEHOLDER` | `-CachingProxyUrl` parameter | Empty string when no squid-cache is reachable; the `if [ -n … ]` blocks in user-data are no-ops in that case. |
+| `CACHING_PROXY_URL_PLACEHOLDER` | `-CachingProxyUrl` parameter | Empty string when no caching-proxy is reachable; the `if [ -n … ]` blocks in user-data are no-ops in that case. |
 | `CA_CERT_BASE64_PLACEHOLDER` | macos.utm only — host-fetched CA, base64-embedded | Empty when CA fetch failed; HTTPS apt then bypasses the cache. |
 | `YURUNA_HOST_IP_PLACEHOLDER` | Best-effort host IP discovery | Becomes `/etc/yuruna/host.env` and the `yuruna-host` `/etc/hosts` entry. |
-| `YURUNA_HOST_PORT_PLACEHOLDER` | `test/test.config.yml:statusServer.port` (default 8080) | Same. |
+| `YURUNA_HOST_PORT_PLACEHOLDER` | `test/test.config.yml:statusService.port` (default 8080) | Same. |
 
 ---
 
@@ -73,7 +73,7 @@ Recommended order (a guest may legitimately omit topics that don't apply):
 14. Console: hold getty until cloud-init signals done *(ubuntu.server.24)*
 15. Yuruna host coordinates
 16. wget no_proxy
-17. Download fetch-and-execute utility
+17. Install yuruna lib
 18. Timezone via IP geolocation and NTP
 19. Quiet post-install reboot teardown *(ubuntu.server.24)*
 20. Headless host reboot on framebuffer collapse *(Hyper-V amazon.linux.2023)*
@@ -85,15 +85,15 @@ Recommended order (a guest may legitimately omit topics that don't apply):
 ### apt proxy block
 
 `apt.proxy` (scoped — not top-level `proxy:`) routes only `apt`/`apt-get`
-through the local squid-cache. Scope matters: top-level `proxy:` also
+through the local caching-proxy. Scope matters: top-level `proxy:` also
 exports `http_proxy`/`https_proxy` into late-commands' env, which
 previously broke `wget https://...` against proxies that refused
-CONNECT, and would route the host status-server probe through the
+CONNECT, and would route the host status-service probe through the
 cache.
 
 `New-VM.ps1` injects the block at `APT_PROXY_BLOCK_PLACEHOLDER` with
 `geoip: false` plus a pinned `primary` mirror; the `proxy:` line is
-omitted when no squid-cache is reachable. Pinning primary + disabling
+omitted when no caching-proxy is reachable. Pinning primary + disabling
 geoip skips the `geoip.ubuntu.com` HTTPS lookup that otherwise adds
 seconds to mirror election.
 
@@ -116,7 +116,7 @@ image selection happens in `Get-Image.ps1` per host.
 
 *(amazon.linux.2023)*
 
-```yaml
+```
 chpasswd:
   list: |
     ec2-user:amazonlinux
@@ -146,7 +146,7 @@ matches the distro-default user (`ec2-user`).
 
 *(autoinstall, ubuntu.server.24)*
 
-```yaml
+```
 user-data:
   no_ssh_fingerprints: true
   ssh:
@@ -169,7 +169,7 @@ intact.
 
 ### LVM sizing policy
 
-```yaml
+```
 storage:
   layout:
     name: lvm
@@ -195,7 +195,7 @@ it as a match point.
 
 *(KVM ubuntu.server.24, autoinstall early-commands)*
 
-```yaml
+```
 early-commands:
   - setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true
 ```
@@ -216,14 +216,14 @@ could plausibly elapse. KVM-only concern; harmless on Hyper-V's
 ### Apt cache: persist proxy
 
 Belt-and-suspenders write of `/target/etc/apt/apt.conf.d/99yuruna-apt-cache`,
-so post-install apt-get calls flow through the same squid-cache subiquity
+so post-install apt-get calls flow through the same caching-proxy subiquity
 used for the install. `[ -n "$CACHING_PROXY_URL_PLACEHOLDER" ]` short-circuits when
 no cache is configured, so the block is harmless on hosts without one.
 
 The `if`-block also opts into HTTPS caching by trusting the squid CA
 and pointing `Acquire::https::Proxy` at the `:3129` ssl-bump listener:
 
-- **hyper-v / kvm:** the installer fetches the CA in-band via
+- **Hyper-V / KVM:** the installer fetches the CA in-band via
   `wget http://${CACHE_HOST}/yuruna-squid-ca.crt` — guests reach the
   cache VM directly on the (Default Switch / libvirt 'default') NAT.
   Failure leaves the plain-HTTP proxy in place; HTTPS apt goes direct.
@@ -244,9 +244,55 @@ and LAN services are not impacted. Conditional on a non-empty
 `CACHING_PROXY_URL_PLACEHOLDER` — without a cache the rules are
 skipped and traffic flows direct.
 
+The three env-var sinks each serve a different reader: `/etc/environment`
+is read by PAM (interactive, cron, ssh sessions); `/etc/profile.d` is
+read by login shells (bash + zsh); systemd `DefaultEnvironment` carries
+the proxy to daemons started before any user login (cron, snapd, docker,
+custom services). Uppercase and lowercase variants are emitted because
+some tools only read one form.
+
+`iptables-persistent` loads `/etc/iptables/rules.v4` on boot via
+`netfilter-persistent.service` (Before=network-pre.target). The deb's
+postinst would prompt "save current rules?"; `debconf-set-selections`
+suppresses it. Public 80/443 are blocked with `REJECT
+--reject-with icmp-port-unreachable` (not DROP) so the failing app
+surfaces a clear error in `dmesg`/`strace`/`journalctl` instead of
+hanging on a connect timeout. IPv6 is out of scope: `rules.v6` mirrors
+loopback+conntrack so netfilter-persistent has a valid file to load
+(otherwise it warns at boot); default IPv6 OUTPUT stays ACCEPT.
+
+### Pin IPv4-only DHCP, refuse IPv6 router advertisements
+
+Anchor: `pin-ipv4-dhcp-refuse-ipv6-ra`
+
+The autoinstall `network:` block in
+`host/macos.utm/guest.ubuntu.server.{24,26}/vmconfig/user-data` pins
+the primary NIC (`match: name: "en*"`) to `dhcp4: true; dhcp6: false;
+accept-ra: false`. The glob (rather than a literal `enp0s1`) survives
+the 26.04 guest's NIC model switch from `virtio-net-pci` (`enp0s1`)
+to `e1000` (`ens1`) — see the comment on the `Network` array in the
+guest's `config.plist.template`.
+
+Why this is needed only on the macOS QEMU backend: on
+QEMU + `-netdev vmnet-shared`, the host's VMnet stub sends IPv6
+router advertisements that `systemd-networkd` interprets as interface
+CHANGE events. Subiquity's `NetworkController` treats each CHANGE as
+a model update, fires `_send_update`, and never proceeds past network
+detection — the install wedges with the framebuffer scrolling:
+
+```
+start:  subiquity/Network/_send_update: CHANGE enp0s1
+finish: subiquity/Network/_send_update: CHANGE enp0s1
+```
+
+forever. The Apple Virtualization backend did not emit these RAs, so
+the autoinstall config could omit `network:` and let subiquity auto-
+detect; on QEMU the explicit netplan is required. Hyper-V and KVM
+guests don't see the same RA stream, so they keep auto-detection.
+
 ### Cap systemd-networkd-wait-online
 
-```ini
+```
 [Service]
 ExecStart=
 ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
@@ -271,11 +317,11 @@ cloud-init failure or minutes of delay before login.
 
 *(every host's `New-VM.ps1` that builds `HASH_PLACEHOLDER`)*
 
-`Test.VM.common\ConvertTo-Sha512CryptHash` is the only sanctioned call
+`Test.VMUtility\ConvertTo-Sha512CryptHash` is the only sanctioned call
 site for hashing the autoinstall / cloud-init password. The helper
 invokes:
 
-```powershell
+```
 & openssl passwd -6 -- $Plaintext
 ```
 
@@ -316,7 +362,7 @@ rather than computing a hash -- is therefore safe by construction.
 
 *(ubuntu.server.24)*
 
-```yaml
+```
 - curtin in-target --target=/target -- passwd --expire USERNAME_PLACEHOLDER
 ```
 
@@ -333,7 +379,7 @@ supported hosts.
 
 ### login session budget
 
-```sh
+```
 sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /etc/login.defs && echo "LOGIN_TIMEOUT 180" >> /etc/login.defs
 ```
 
@@ -351,7 +397,7 @@ inside `bash -c` keeps it as one shell argument.
 
 ### Passwordless sudo for harness user
 
-```sh
+```
 echo "USERNAME_PLACEHOLDER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER
 chmod 440 /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER
 chown root:root /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER
@@ -367,13 +413,13 @@ instead of the cloud-image defaults `ubuntu` / `ec2-user` for
 greppability and to support the multi-user future declared in a
 manifest.
 
-SSH-driven workload calls `/automation/fetch-and-execute.sh` without a
+SSH-driven workload calls `/usr/local/lib/yuruna/fetch-and-execute.sh` without a
 TTY, so any sudo prompt would block. The drop-in is the standard
 `sudoers.d` form (mode 440, owner root:root) so `visudo -c` accepts it.
 
 ### Disable swap
 
-```sh
+```
 sed -i '/ swap / s/^/#/' /target/etc/fstab
 curtin in-target --target=/target -- systemctl mask swap.target
 ```
@@ -385,7 +431,7 @@ late `swapon -a` re-enables it.
 
 ### Mask snapd seeded
 
-```sh
+```
 curtin in-target --target=/target -- systemctl mask snapd.seeded.service
 ```
 
@@ -413,7 +459,7 @@ scripts via socket activation, while removing the boot-time gate.
 
 ### Disable MOTD
 
-```sh
+```
 chmod -x /target/etc/update-motd.d/*
 mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
 ```
@@ -429,7 +475,7 @@ disabling `motd-news` zeroes both.
 
 *(Hyper-V)*
 
-```ini
+```
 # /etc/modprobe.d/denylist-hv-balloon.conf
 blacklist hv_balloon
 ```
@@ -444,7 +490,7 @@ runcmd / write_files shape.
 
 *(Hyper-V)*
 
-```sh
+```
 # Ubuntu Server 24.04: /etc/default/grub.d/99-yuruna-hyperv-fb.cfg
 GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} video=hyperv_fb:1024x768"
 
@@ -473,7 +519,7 @@ in-guest driver use it regardless of host display state.
 
 *(amazon.linux.2023)*
 
-```sh
+```
 systemctl enable --now sshd || true
 ```
 
@@ -486,7 +532,7 @@ before the test sequence's SSH-side handoff.
 
 *(amazon.linux.2023)*
 
-```sh
+```
 systemctl enable --now getty@tty1.service || true
 chvt 1 2>/dev/null || true
 bash -c 'setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true'
@@ -521,7 +567,7 @@ serial console directly (no framebuffer dependency).
 
 *(KVM ubuntu.server.24)*
 
-```sh
+```
 # /etc/default/grub.d/99-yuruna-consoleblank.cfg
 GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} consoleblank=0"
 ```
@@ -535,13 +581,13 @@ source for both. Pinning `consoleblank=0` at the kernel cmdline so
 EVERY boot (and every VT) inherits no-blank, regardless of whatever
 userspace `setterm` calls do or don't survive.
 
-KVM-specific because the hyper-v variant uses `hyperv_fb:1024x768`
+KVM-specific because the Hyper-V variant uses `hyperv_fb:1024x768`
 instead and macos.utm's virtio-ramfb doesn't have the same blanking
 behavior.
 
 ### Console quiet
 
-```sh
+```
 # Ubuntu Server 24.04: /etc/default/grub.d/99-yuruna-console-quiet.cfg
 GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no"
 
@@ -564,16 +610,39 @@ status line and never matches `Current password:`.
 - `quiet` is typically already in the default cmdline — both
   `update-grub` and `grubby` deduplicate, so the repeat is a no-op.
 
+### Console: bochs-DRM framebuffer safety (KVM)
+
+Anchor: `console-fb-safe`
+
+```
+# host/ubuntu.kvm/guest.ubuntu.server.{24,26}/vmconfig/user-data
+- |
+  cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
+  GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"
+  GRUBCFG
+```
+
+The KVM bochs-DRM trap class (see
+[`feedback_kvm_bochs_drm_resolute_install_trap.md`](memory.md)) lands a
+kernel oops in `ovl_iterate_merged` plus `drm_fb_helper_damage_work` CPU
+thrash on the resolute live-server installer when the q35+UEFI default
+video drives subiquity. The install-phase kernel cannot be reached from
+outside (virt-install `--extra-args` needs `--location`, not `--cdrom`),
+but pinning `nomodeset` on the *installed* kernel ensures the same trap
+can't bite on subsequent boots that the harness drives. `nomodeset`
+disables KMS so no DRM driver loads at all; the serial console gives a
+diagnostic channel that doesn't depend on the framebuffer.
+
 ### update-grub
 
-```sh
+```
 - curtin in-target --target=/target -- update-grub
 ```
 
 Regenerates `/boot/grub/grub.cfg` so the GRUB drop-ins above
 (`99-yuruna-hyperv-fb.cfg`, `99-yuruna-consoleblank.cfg`,
-`99-yuruna-console-quiet.cfg`, `nomodeset`) take effect on the
-post-install reboot.
+`99-yuruna-console-quiet.cfg`, `99-yuruna-fb-safe.cfg`) take effect on
+the post-install reboot.
 
 Must come AFTER all of those drop-ins. AL2023 doesn't ship an
 `update-grub` wrapper; `grubby` does the same job inline and is called
@@ -583,7 +652,7 @@ per-arg above.
 
 *(ubuntu.server.24)*
 
-```ini
+```
 # /etc/systemd/system/getty@.service.d/override.conf
 [Service]
 ExecStartPre=-/usr/bin/cloud-init status --wait
@@ -614,7 +683,7 @@ with no login prompt forever (cloud-init issue #2158, lp #1804957).
 
 ### Yuruna host coordinates
 
-```sh
+```
 mkdir -p /etc/yuruna
 cat > /etc/yuruna/host.env <<EOF
 YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
@@ -638,41 +707,62 @@ Two artifacts written for the dev iteration loop:
 
 ### wget no_proxy
 
-```sh
+```
 cat >> /etc/wgetrc <<EOF
 no_proxy = YURUNA_HOST_IP_PLACEHOLDER
 EOF
 ```
 
-Belt-and-braces for the host status-server probe. subiquity's
+Belt-and-braces for the host status-service probe. subiquity's
 `apt:proxy` (or AL2023's environment) can leak as `http_proxy` into the
 installed system. Without `no_proxy`, an in-guest
 `fetch-and-execute.sh` that lacks `--no-proxy` would route the
-`/livecheck` probe through the squid-cache, which cannot reach the
+`/livecheck` probe through the caching-proxy, which cannot reach the
 host's NAT address (Hyper-V Default Switch / libvirt default / Apple VZ
 shared NAT), and silently fall through to GitHub.
 
 MUST come BEFORE the fetch-and-execute download and the timezone wget
 (both rely on the same `/etc/wgetrc`).
 
-### Download fetch-and-execute utility
+### Install yuruna lib
 
-```sh
-mkdir -p /automation
-wget --no-cache --timeout=5 -O /automation/fetch-and-execute.sh \
-  "http://YURUNA_HOST_IP_PLACEHOLDER:YURUNA_HOST_PORT_PLACEHOLDER/yuruna-repo/automation/fetch-and-execute.sh" || \
-wget --no-cache -O /automation/fetch-and-execute.sh \
-  "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/automation/fetch-and-execute.sh"
-chmod +x /automation/fetch-and-execute.sh
+```
+write_files:
+  - path: /usr/local/lib/yuruna/yuruna_retry.sh
+    encoding: base64
+    content: YURUNA_RETRY_LIB_BASE64_PLACEHOLDER
+    permissions: '0644'
+  - path: /usr/local/lib/yuruna/fetch-and-execute.sh
+    encoding: base64
+    content: YURUNA_FAE_BASE64_PLACEHOLDER
+    permissions: '0755'
 ```
 
-Try the host status server first (fast, local, devloop-friendly) and
-fall back to `raw.githubusercontent.com` if it is not reachable —
-same fall-through `fetch-and-execute.sh` itself uses at call time.
+(or, in Ubuntu autoinstall `late-commands:`, the same body written via
+`printf '%s' "PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/...`.)
+
+The two files live in the canonical `/usr/local/lib/yuruna/`
+directory on every supported guest:
+
+- `yuruna_retry.sh` — sourced by every guest provisioning script for
+  `apt_retry` / `dnf_retry` / `curl_retry`. See
+  [Defining yuruna retry lib](https://yuruna.link/network#defining-yuruna-retry-lib).
+- `fetch-and-execute.sh` — the harness's invocation point; the
+  test-sequence YAMLs call it as
+  `/usr/local/lib/yuruna/fetch-and-execute.sh <relative/path/script.sh>`.
+
+Both files are read at seed-build time by the host-side
+`New-VM.ps1`, base64-encoded, and embedded as cloud-init
+`write_files:` content. The previous wget+wget bootstrap from the
+host status server (with a `raw.githubusercontent.com` fallback) is
+gone — these two files are now baked into the seed itself, so they
+are on disk before any provisioning script runs, with zero network
+dependency. Single source of truth: `automation/` in the framework
+repo.
 
 ### Timezone via IP geolocation and NTP
 
-```sh
+```
 timedatectl set-ntp true
 TZ=$(wget -qO - --timeout=5 "https://ip-api.com/line?fields=timezone")
 [ -n "$TZ" ] && timedatectl set-timezone "$TZ"
@@ -690,7 +780,7 @@ UTC.
 
 *(ubuntu.server.24)*
 
-```sh
+```
 - umount -lf /cdrom || true
 - losetup -D || true
 ```
@@ -709,14 +799,14 @@ MUST be the final two late-commands.
 
 ### Squid-cache hostname vs template name
 
-```yaml
+```
 hostname: yuruna-caching-proxy
 ```
 
 OS-side hostname is kept in lock-step with the hypervisor's VM /
 libvirt domain name (`yuruna-caching-proxy`). Renaming happens HERE
-only — the source-tree directory `guest.squid-cache/` and the image
-filename keep the historical `squid-cache` token because they identify
+only — the source-tree directory `guest.caching-proxy/` and the image
+filename keep the historical `caching-proxy` token because they identify
 the guest type/template, not the running VM. This split prevents a
 rename cascade across the repo every time the runtime VM gets renamed.
 
@@ -724,7 +814,7 @@ rename cascade across the repo every time the runtime VM gets renamed.
 
 *(Hyper-V amazon.linux.2023)*
 
-```yaml
+```
 power_state:
   delay: now
   mode: reboot
@@ -765,6 +855,8 @@ first successful run.
   authoritative convention; deviating in a specific guest is fine when
   there's a real dependency, but please document why in a one-line
   comment beside the out-of-order step.
+
+Back to [Yuruna](../README.md)
 
 ---
 

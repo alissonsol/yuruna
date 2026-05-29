@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456716
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -22,10 +22,19 @@
 # generic dispatcher that runs a caller-supplied list of sequence names
 # via Invoke-SequenceByName. The cycle planner derives the list from
 # project/test/test.sequence.yml and the per-sequence baseline fields.
-# Module file name and exported function match the dashboard tile
-# (Start-GuestOS) so the operator can find the source from the UI.
+#
+# Naming convention (by design):
+#     Module filename = "Test.<exported-cmdlet>.psm1"
+# This file exports exactly one cmdlet, `Start-GuestOS`, so the filename
+# is `Test.Start-GuestOS.psm1`. The hyphen makes the basename look like
+# a cmdlet -- that is the FEATURE: `grep -l Test.Start-GuestOS` finds
+# the single source file that defines the dashboard tile of the same
+# name, and the operator clicking through from the status UI lands on
+# the right file. If you're adding a sibling dispatcher (e.g.
+# Start-GuestRepair), follow the same shape: one exported cmdlet,
+# filename = "Test.<cmdlet>".
 
-Import-Module (Join-Path $PSScriptRoot "Test.LogDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+Import-Module (Join-Path $PSScriptRoot "Test.YurunaDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 $script:EngineModule = Join-Path $PSScriptRoot "Invoke-Sequence.psm1"
 if (Test-Path $script:EngineModule) {
     Import-Module $script:EngineModule -Force -Verbose:$false -ErrorAction SilentlyContinue
@@ -43,7 +52,7 @@ if (Test-Path $script:EngineModule) {
     On a sequence failure we read test/status/log/last_failure.json (the
     sidecar Invoke-Sequence drops on failure) and surface the step
     location in the error message so the runner's notification mail and
-    the status-server UI both have actionable context.
+    the status-service UI both have actionable context.
 
     Returns @{ success; skipped; errorMessage }.
 #>

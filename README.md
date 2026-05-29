@@ -17,7 +17,7 @@ See the **Administrator Risk Warning** in the [Yuruna License](LICENSE.md).
 
 2. **In `pwsh`, from the `yuruna` folder, configure and run:**
 
-   ```powershell
+   ```
    Copy-Item test/test.config.yml.template test/test.config.yml
    pwsh test/Start-CachingProxy.ps1      # wait until "cache ready"
    pwsh test/Invoke-TestRunner.ps1
@@ -55,11 +55,11 @@ Tests may break if a screensaver activates, the machine sleeps, or similar condi
   [Ubuntu Server 26.04](host/ubuntu.kvm/guest.ubuntu.server.26/README.md) ·
   [Windows 11](host/ubuntu.kvm/guest.windows.11/README.md)
 
-After the guest OS is up, install workloads:
-[Amazon Linux 2023](guest/amazon.linux.2023/README.md) ·
-[Ubuntu Server 24.04](guest/ubuntu.server.24/README.md) ·
-[Ubuntu Server 26.04](guest/ubuntu.server.26/README.md) ·
-[Windows 11](guest/windows.11/README.md)
+After the guest OS is up, test workloads:
+  - [Amazon Linux 2023](guest/amazon.linux.2023/README.md)
+  - [Ubuntu Server 24.04](guest/ubuntu.server.24/README.md)
+  - [Ubuntu Server 26.04](guest/ubuntu.server.26/README.md)
+  - [Windows 11](guest/windows.11/README.md)
 
 ## Read More
 

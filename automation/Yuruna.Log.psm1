@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456791
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -32,6 +32,13 @@ param()
     log file path. Each proxy calls the real cmdlet (qualified with
     Microsoft.PowerShell.Utility\) and appends a tagged line to the log.
     Remove-Module Yuruna.Log restores the original cmdlets.
+
+    One of THREE Yuruna logger modules with disjoint responsibilities --
+    see test/modules/README.md "Three loggers, three jobs" before adding
+    helpers here. Sibling modules: Test.Log (cycle-filesystem owner) and
+    Test.Output (per-script PASS/FAIL tally). This module owns ONLY the
+    tee mechanism; don't add Start-* / Write-Pass / cycle-folder helpers
+    here -- they belong in the other two.
 #>
 
 function Write-Output {

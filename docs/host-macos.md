@@ -82,7 +82,7 @@ not granted" — the probe is misreporting.
 
 Ground-truth JXA call:
 
-```bash
+```
 osascript -l JavaScript -e '
 ObjC.import("CoreGraphics");
 ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool", []]);
@@ -91,7 +91,7 @@ $.CGPreflightScreenCaptureAccess();'
 
 If that prints `true`, the grant is in place. Workaround:
 
-```bash
+```
 export YURUNA_SKIP_SCREEN_RECORDING_CHECK=1
 pwsh test/Invoke-TestRunner.ps1
 ```
@@ -106,6 +106,85 @@ Open an issue with:
   ObjC.import("CoreGraphics"); ObjC.import("Foundation");
   $.CFArrayGetCount($.CGWindowListCopyWindowInfo(1, 0));'
   ```
+
+## Unrelated UTM VMs split test guests onto a second vmnet-shared bridge
+
+**Limitation:** before starting an `Invoke-TestRunner.ps1` cycle, stop
+(or pause) every other UTM VM in the library. Leaving an unrelated VM
+running is a known-bad state — cloud-init in the test guests will fail
+to reach the host caching proxy and the cycle will fail at the first
+`fetch-and-execute` step.
+
+Symptom in the cycle log:
+
+```
+cachingProxyIP: 192.168.7.46
+guest.<os> Start-VM: PASS ==> IP: 192.168.64.4
+Failure pattern matched: 'FETCH AND EXECUTE FAILED:' -- aborting wait early
+```
+
+OCR of the failing console shows the guest cloud-init retrying:
+
+```
+cloud-init[…]: --… (try: N) http://192.168.64.1:8080/yuruna-repo/usr/local/lib/yuruna/fetch-and-execute.sh
+cloud-init[…]: Connecting to 192.168.64.1:8080... failed: Connection timed out.
+```
+
+Root cause: macOS `vmnet-shared` allocates **one bridge interface per
+vmnet "session"**. The first running VM owns `bridge100` (host side
+`192.168.64.1/24`); the second is pushed onto `bridge101` (host side
+`192.168.65.1/24`). The two bridges do not route between each other,
+and yuruna only observes the first bridge at cycle start — so the host
+proxy IP it bakes into the test guests' cloud-init seed.iso is the
+bridge100 host IP. When the test guests end up on bridge101 (because
+an unrelated UTM VM already claimed bridge100), `192.168.64.1:8080`
+is unreachable from inside the guest.
+
+Confirm:
+
+```
+ifconfig | grep -E '^bridge|inet 192\.168\.6[45]'
+# Two bridges present => second one is the trap. Stop the
+# unrelated VM and rerun:
+utmctl list
+utmctl stop <unrelated-vm-name>
+```
+
+A persisted snapshot-renamed VM (e.g. `k8s.text-to-sql`) is safe AS
+LONG AS IT IS STOPPED. Only **running** UTM VMs occupy a vmnet-shared
+session and trigger the split.
+
+## `pmset` guards keep UTM visible across multi-hour runs
+
+Even with `sleep=0`, macOS can blank the display or suspend UTM via
+Power Nap (dark wake for Mail/Backup), `standby` (deep sleep),
+`autopoweroff` (power-off after N hours of sleep), or
+`hibernatemode` (RAM-to-disk). Any of these during a multi-hour cycle
+hide the UTM window from CoreGraphics enumeration; the symptom is
+`"UTM window for '<vm>' not found. CG: not_found, bounds: not_found"`.
+
+`Set-MacHostConditionSet` therefore asserts an extended set of `pmset`
+keys (Test.HostCondition.Mac.psm1, `$pmsetGuards`):
+
+| Key | Want | Why |
+|-----|------|-----|
+| `disablesleep` | 1 | Belt-and-suspenders against another subsystem re-enabling idle-sleep on battery. `-a` covers AC + battery + UPS. |
+| `powernap` | 0 | Stops dark-wake Mail/Backup cycles. |
+| `standby`, `standbydelay*`, `autopoweroff`, `hibernatemode` | 0 | Stops deep sleep / RAM-to-disk transitions that hide UTM. |
+| `ttyskeepawake` | 1 | Active tty (SSH, screen capture) keeps the system awake. |
+| `tcpkeepalive` | 1 | Sockets stay responsive across idle. |
+| `proximitywake` | 0 | Apple-Watch proximity wake can flip lock state. |
+
+Every guard is treated as `OptionalKey` because macOS evolves these
+names across major versions (Sonoma split `standbydelay` into
+`standbydelaylow`/`standbydelayhigh`; later releases rename or remove
+more). `install/macos.utm.sh`'s bash prelude applies them all using
+the legacy names, which `pmset` accepts as compatibility aliases. The
+in-cycle precheck reads `pmset -g custom` (no sudo) and only invokes
+`sudo pmset` if a key is present AND has the wrong value — a missing
+key is treated as "macOS no longer surfaces it under that name", not
+as a verification failure. The precheck also prevents a second sudo
+prompt when the bash prelude already applied the values.
 
 Back to [macOS UTM Host Setup](../host/macos.utm/README.md) · [Yuruna](../README.md)
 

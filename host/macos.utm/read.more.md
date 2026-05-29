@@ -7,7 +7,7 @@ below. This walk-through reproduces them by hand for audit / learning.
 
 Latest instructions at [brew.sh](https://brew.sh/):
 
-```bash
+```
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
@@ -15,13 +15,13 @@ Open a new terminal so `brew shellenv` lands on `PATH`. Apple Silicon →
 `/opt/homebrew`; Intel → `/usr/local`. Homebrew depends on the Xcode CLI
 tools — macOS prompts when missing, or trigger explicitly:
 
-```bash
+```
 xcode-select --install
 ```
 
 ## 2) Install Required Tools
 
-```bash
+```
 brew install --cask utm
 brew install git powershell tesseract openssl qemu wget
 ```
@@ -35,7 +35,7 @@ brew install git powershell tesseract openssl qemu wget
 
 ## 3) Clone the Yuruna Repository
 
-```bash
+```
 mkdir -p ~/git
 git clone https://github.com/alissonsol/yuruna.git ~/git/yuruna
 ```
@@ -94,7 +94,7 @@ When the display blanks, UTM captures return black and OCR fails. The
 helper disables display sleep, screen-saver idle, and the screen-lock
 password requirement via `pmset` and `defaults`:
 
-```bash
+```
 cd ~/git/yuruna/host/macos.utm
 pwsh ./Enable-TestAutomation.ps1
 ```
@@ -103,7 +103,7 @@ pwsh ./Enable-TestAutomation.ps1
 
 ## 6) Seed the Test Config
 
-```bash
+```
 cd ~/git/yuruna/test
 cp test.config.yml.template test.config.yml
 $EDITOR test.config.yml
@@ -111,7 +111,7 @@ $EDITOR test.config.yml
 
 ## 7) First Launch of UTM
 
-```bash
+```
 open -a UTM      # surfaces any first-run dialogs
 ```
 
@@ -120,12 +120,12 @@ open -a UTM      # surfaces any first-run dialogs
 See [Hosts — ...](../README.md#optional-squid-cache-vm) and
 [Caching](../../docs/caching.md). After provision,
 double-click
-`~/yuruna/guest.nosync/squid-cache.utm` to register
+`~/yuruna/guest.nosync/caching-proxy.utm` to register
 the bundle with UTM and start the VM.
 
 ## 9) Run the Test Harness
 
-```bash
+```
 pwsh ~/git/yuruna/test/Invoke-TestRunner.ps1
 ```
 

@@ -1,3 +1,4 @@
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/vault.schema.yml
 title: Yuruna authentication vault

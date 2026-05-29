@@ -6,13 +6,38 @@ See [Yuruna Architecture](docs/architecture.md) for project architecture and
 Looking for something to work on? Pick from
 [Contributor opportunities](docs/opportunities.md).
 
-The [public](https://yuruna.com) repository should be used for test labs and learning. Contact the contributor
-[email](mailto:contrib@yuruna.dev) for access to the [development](https://yuruna.dev)
-repository.
+The [public](https://yuruna.com) repository should be used for test labs and learning. For access to the [development](https://yuruna.dev)
+repository, contact [contrib@yuruna.dev](mailto:contrib@yuruna.dev).
 
-## Workflow
+## Private repository bootstrap
 
-1. **Get the "dev" repositories mapped locally**
+Once your account has access to the private `yurunadev` repository,
+use the instructions below, instead of the one-liner installers in
+the [install/README.md](install/README.md).
+
+### a. Install the GitHub CLI
+
+| Platform | One-liner |
+|---|---|
+| macOS (Homebrew present) | `brew install gh` |
+| Ubuntu / Debian (snap path) | `sudo snap install gh` |
+| Amazon Linux 2023 / Fedora / RHEL | `sudo dnf install gh` |
+| Windows | `winget install --id GitHub.cli --source winget --silent` |
+
+The non-snap apt-repo route on Ubuntu is documented at
+[cli.github.com](https://github.com/cli/cli/blob/trunk/docs/install_linux.md).
+
+### b. Authenticate
+
+  ```
+  gh auth login
+  ```
+
+Pick `GitHub.com` → `HTTPS` → browser (recommended) or a Personal Access
+Token with at minimum the `repo` scope. The token `gh` stores is the same
+one accepted by `raw.githubusercontent.com` for private repo reads.
+
+### c. Get the "dev" repositories mapped locally
 
   - Assuming "`git`" is your base folder.
      ```
@@ -20,7 +45,16 @@ repository.
        git% git clone https://github.com/alissonsol/yurunadev-project yuruna-project
      ```
 
-   - Confirm you are working on the "dev" repositories:
+## Workflow
+
+### 1. **Confirm you are working on the "dev" repositories**
+
+  - Use the command below under your local repository folder.
+     ```
+       git config --get remote.origin.url
+     ```
+
+   - Double-check your results point to the "dev" repositories:
      ```
        git/yuruna% git config --get remote.origin.url
                https://github.com/alissonsol/yurunadev
@@ -28,10 +62,14 @@ repository.
                        https://github.com/alissonsol/yurunadev-project
      ```
 
-2. **Configure for local development**
+**Please do not proceed until you are working on the "dev" repositories.**
 
-  - Copy `test/test.config.yml.template` to
-   `test/test.config.yml` (gitignored).
+No assistance will be provided to help migrate changes you made in the public repositories to "dev" repositories.
+
+### 2. **Configure for local development**
+
+  - Copy `yuruna/test/test.config.yml.template` to
+   `yuruna/test/test.config.yml` (gitignored).
   - For the local project changes to be used in tests, change the projectUrl in the `test.config.yml` file.
 
     - Example for Windows
@@ -49,19 +87,22 @@ repository.
       ```
 
   - If you modify files that guest VMs fetch
-   via the "fetch and execute" pattern, commit your changes before testing
+   via the [fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract),
+   commit your changes before testing
    so the VM can download them via the status server "interceptor" (see
    [Testing changes from a branch](#testing-changes-from-a-branch)).
   - When you look at the diagnostics for any running test sequence, check the `Yuruna version` and `Project version` fields at the beginning of the `YURUNA PROJECT` section.
 
-3. **Extensions configuration**
+### 3. **Extensions configuration**
 
   - Notification credentials and
-   subscriber lists live in
-   `test/status/extension/notification/transports.yml` (also gitignored).
-    - Copy
-   `test/extension/notification/transports.yml.template` to the runtime
-   location above and fill in
+   subscriber lists are split between a checked-in template and a
+   gitignored runtime file:
+    - **Template (checked in):**
+   `test/extension/notification/transports.yml.template`.
+    - **Runtime (gitignored):**
+   `test/status/extension/notification/transports.yml`.
+    - Copy the template to the runtime location and fill in
    `transports.resend.apiKey`, `transports.resend.fromEmail`, plus the
    `subscribers["cycle.failure"]` list.
     - See
@@ -71,9 +112,12 @@ repository.
    `test/status/extension/authentication/vault.yml`, gitignored;
    persists across cycles to simulate an external auth provider).
 
-4. **Project work**
+### 4. **Project work**
 
-  - As long as your local `frameworkUrl` configuration points to the "`yurunadev`" branch, it is business as usual with git, with the bonus of all committed changes being served to your guests via the "status server interceptor".
+  - As long as your local `frameworkUrl` configuration points to the "`yurunadev`" branch, it is business as usual with git, with the bonus of **all committed changes** being served to your guests via the "status server interceptor".
+
+#### **Ensuring local changes are used in tests**
+
   - Working on a project, including the framework sample project, requires a deeper understanding of "git details". If the projectUrl points to an external site (like `GitHub.com`), then the "status server interceptor" doesn't serve its local commits. Why? Because you can clone that remote repository into multiple local folders. Which one would contain the code you want "intercepted"?
     - Solutions are:
       - Serve the folder you want as a git repository using the git daemon.
@@ -89,20 +133,20 @@ repository.
         ```
         projectUrl: file:///c:/git/yuruna-project
         ```
-        Remember to ... commit changes!
+        Remember to commit changes!
 
-5. **Testing your project**
+### 5. **Testing your project**
 
   Test steps assume a PowerShell terminal (with Administrator permissions in Windows)
 
-  - Start the Yuruna caching project
+  - Start the Yuruna caching proxy
     - Locally: `test/Start-CachingProxy.ps1`
     - For a remote cache: `$env:YURUNA_CACHING_PROXY_IP = 'x.y.z.p'`
-    - Test: `test/Test-CachingProxy.ps1` 
+    - Test: `test/Test-CachingProxy.ps1`
   - Single test loop: `test/Test-Project.ps1`
-  - Test runner: `test/Invoke-TestRunner.ps1`.
+  - For running unattended tests, see the [Test Runner](docs/test-runner.md) documentation.
 
-6. **Debug a specific step**
+### 6. **Debug a specific step**
   - `Test-Sequence.ps1` re-runs a
    single sequence from (or stopping at) a chosen step without VM
    re-creation:
@@ -115,7 +159,7 @@ repository.
    The script lists all steps with markers showing which will execute
    and leaves the VM running when `-StopStep` is set.
 
-## Overview
+## Configuration
 
 The link between YAML config and actions per command is explained in
 [Yuruna Syntax](docs/syntax.md) and [Yuruna Architecture](docs/architecture.md). Operator tips and
@@ -148,7 +192,7 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
     ```
     EXEC_BASE_URL="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/your-branch-name/" \
-    /automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh
+    /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh
     ```
 
 **Cloud-init user-data**: URLs are baked into the seed ISO at

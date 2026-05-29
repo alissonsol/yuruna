@@ -1,10 +1,10 @@
-<#PSScriptInfo
-.VERSION 2026.05.22
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456710
+﻿<#PSScriptInfo
+.VERSION 2026.05.29
+.GUID 4292b214-b454-46f0-976c-81a548f8de5d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -63,23 +63,41 @@
 
 param(
     [string]$ConfigPath = $null,
+    # Skip the pre-cycle Test-Config.ps1 gate. Use only for ad-hoc /
+    # in-progress edit runs where the operator knowingly accepts that a
+    # misconfigured test.config.yml / vault.yml / users.yml will surface
+    # in the cycle itself instead of at startup. Mirrors -NoConfigGate
+    # on Invoke-TestRunner / Test-Sequence.
+    [switch]$NoConfigGate,
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel
 )
 
-$TestRoot    = $PSScriptRoot
-$RepoRoot    = Split-Path -Parent $TestRoot
-$ModulesDir  = Join-Path $TestRoot 'modules'
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
+$paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath
+$TestRoot    = $paths.TestRoot
+$RepoRoot    = $paths.RepoRoot
+$ModulesDir  = $paths.ModulesDir
+$ConfigPath  = $paths.ConfigPath
+# Publish the resolved config path so every cross-module reload site
+# (Sync-RuntimeConfig in the inner runner, Update-TransportDefault in
+# Test.Transport) reads the SAME file when -ConfigPath <elsewhere> is
+# in play. The inner runner that this script spawns inherits the var.
+$env:YURUNA_CONFIG_PATH = $ConfigPath
 $InnerScript = Join-Path $ModulesDir 'Invoke-TestInnerRunner.ps1'
+# Canonical module set for the Project entry-point: Test.Config,
+# Test.YurunaDir, Test.ConfigPreflight, Test.Host, Test.InnerSpawn.
+Initialize-YurunaEntryPointModuleSet -For Project -ModulesDir $ModulesDir
 
-# Distinct exit codes per failure mode so a CI log can tell "config
-# missing" apart from "clone failed" apart from "the cycle itself failed"
-# without parsing the message.
-$ExitOk           = 0
-$ExitPreFlight    = 2  # repo layout / config / module missing
-$ExitCloneFailed  = 3  # Update-ProjectClone returned success=false
-$ExitInnerSpawn   = 4  # could not start the inner pwsh at all
-# Cycle-level failure surfaces as the inner's own exit code (typically 1).
+# Exit-code contract: 0 = success, 1 = anything else. Distinct codes
+# for "preflight" / "clone failed" / "inner spawn failed" used to live
+# here, but a CI consumer that wants to discriminate reads the
+# Stop-WithReason banner ("STOP at <Step>") rather than the numeric
+# code -- and a consumer that only wants pass/fail wants a binary
+# answer. Standardised on 0/1 across all entry points; the $Step +
+# $Reason in the banner carry the "why".
+$ExitOk      = Get-EntryPointExitCode -Outcome Ok
+$ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
 function Stop-WithReason {
     [CmdletBinding()]
@@ -101,13 +119,12 @@ function Stop-WithReason {
 
 # --- Pre-flight: repo layout ------------------------------------------------
 if (-not (Test-Path -LiteralPath $InnerScript)) {
-    Stop-WithReason -Code $ExitPreFlight -Step 'Pre-flight' `
+    Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason "Inner test runner not found at $InnerScript. The yuruna repo layout appears wrong; verify your clone is intact."
 }
 
-if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot 'test.config.yml' }
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
-    Stop-WithReason -Code $ExitPreFlight -Step 'Pre-flight' `
+    Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason @"
 test.config.yml not found at $ConfigPath. Bootstrap it with:
   Copy-Item $TestRoot/test.config.yml.template $ConfigPath
@@ -117,26 +134,24 @@ and set repositories.projectUrl before re-running.
 
 # --- Pre-flight: powershell-yaml + projectUrl --------------------------------
 if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
-    Stop-WithReason -Code $ExitPreFlight -Step 'Pre-flight' `
+    Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason "powershell-yaml is not installed. Install with: Install-Module powershell-yaml -Scope CurrentUser"
 }
 Import-Module powershell-yaml -ErrorAction Stop
+# Test.Config / Test.YurunaDir / Test.ConfigPreflight / Test.Host /
+# Test.InnerSpawn already imported by Initialize-YurunaEntryPointModuleSet above.
 
 try {
-    $cfg = Get-Content -Raw -LiteralPath $ConfigPath -ErrorAction Stop | ConvertFrom-Yaml -Ordered -ErrorAction Stop
+    $cfg = Read-TestConfig -Path $ConfigPath -ThrowOnError
 } catch {
-    Stop-WithReason -Code $ExitPreFlight -Step 'Pre-flight' `
+    Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason "Could not parse $ConfigPath as YAML: $($_.Exception.Message)"
 }
 
-$projectUrl = $null
-if ($cfg -is [System.Collections.IDictionary] -and
-    $cfg.repositories -is [System.Collections.IDictionary] -and
-    $cfg.repositories.Contains('projectUrl')) {
-    $projectUrl = "$($cfg.repositories.projectUrl)".Trim()
-}
+$projectUrl = Get-TestConfigValue -Config $cfg -Path 'repositories.projectUrl'
+if ($projectUrl) { $projectUrl = "$projectUrl".Trim() }
 if ([string]::IsNullOrWhiteSpace($projectUrl)) {
-    Stop-WithReason -Code $ExitPreFlight -Step 'Pre-flight' `
+    Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason @"
 repositories.projectUrl is empty in $ConfigPath. Test-Project requires a
 remote project to wipe and re-clone -- the in-tree fallback path
@@ -149,11 +164,30 @@ Set repositories.projectUrl to a clonable URL and retry.
 # Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir publish
 # YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR; the inner inherits them so its
 # pidfile, heartbeats, status.json, and per-cycle log all land in the
-# same place an Invoke-TestRunner cycle would write to.
-Import-Module (Join-Path $ModulesDir 'Test.RuntimeDir.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'Test.LogDir.psm1')   -Force
+# same place an Invoke-TestRunner cycle would write to. Test.YurunaDir
+# was imported by Initialize-YurunaEntryPointModuleSet above.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
+
+# Archive any break-active.json left behind by a prior cycle / Test-
+# Sequence that crashed while paused at a breakpoint. Test-Project
+# spawns Invoke-TestInnerRunner directly (bypassing the outer
+# Invoke-TestRunner that normally hosts Invoke-YurunaBootRecovery), so
+# without this sweep here the inner inherits the parked break state and
+# the status UI keeps the previous run's Continue button live. Resolve-
+# StaleBreakActive renames to break-active.<UTC>.json.aborted, matching
+# the outer-startup behavior.
+if (Get-Command Resolve-StaleBreakActive -ErrorAction SilentlyContinue) {
+    $null = Resolve-StaleBreakActive -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+}
+
+# Clear any leftover pause flags (control.step-pause / .cycle-pause)
+# from a prior runner that the operator paused but never resumed --
+# the operator typed THIS command line, so we honour the intent to
+# run, not the stale flag. Same helper Invoke-YurunaBootRecovery uses.
+if (Get-Command Clear-StalePauseFlag -ErrorAction SilentlyContinue) {
+    $null = Clear-StalePauseFlag -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+}
 
 Write-Output ''
 Write-Output '============================================='
@@ -165,6 +199,17 @@ Write-Output "  Inner:      $InnerScript"
 Write-Output "  Stop:       Ctrl+C (or completes when the inner exits)"
 Write-Output '============================================='
 
+# --- Pre-cycle config gate (mirrors Invoke-TestRunner + Test-Sequence) -------
+# Test-Project re-clones the project then runs one cycle. Without this gate
+# a misconfigured framework config (vault, users, transports) would only
+# surface mid-cycle as a confusing step failure. Bypass with -NoConfigGate
+# for in-progress edits.
+$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'Test-Project'
+if (-not $gate.passed) {
+    Stop-WithReason -Code $ExitFailure -Step 'Pre-cycle config gate' `
+        -Reason "Test-Config.ps1 exited $($gate.exitCode). Fix the FAIL items above (test.config.yml, vault.yml, users.yml, transports.yml, ...) then re-run. To bypass for an in-progress edit, pass -NoConfigGate."
+}
+
 # --- Step 1+2: wipe + re-clone project --------------------------------------
 # Update-ProjectClone is the same helper Invoke-TestInnerRunner uses every
 # cycle -- by calling it here, a regression in clone removal, git clone
@@ -172,13 +217,13 @@ Write-Output '============================================='
 # in Test-Project before it ever bites Invoke-TestRunner. The function
 # combines the wipe + clone in a single safe sequence; splitting them in
 # Test-Project would duplicate the safety check without adding value.
-Import-Module (Join-Path $ModulesDir 'Test.Host.psm1') -Force
+# Test.Host was imported by Initialize-YurunaEntryPointModuleSet above.
 
 Write-Output ''
 Write-Output "[Test-Project] Step 1+2: wipe and re-clone <RepoRoot>/project from $projectUrl"
 $cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projectUrl -Confirm:$false
 if (-not $cloneRes.success) {
-    Stop-WithReason -Code $ExitCloneFailed -Step 'Step 1+2 (wipe + clone)' `
+    Stop-WithReason -Code $ExitFailure -Step 'Step 1+2 (wipe + clone)' `
         -Reason $cloneRes.errorMessage
 }
 Write-Output '[Test-Project] Step 1+2: complete.'
@@ -200,20 +245,21 @@ Write-Output '[Test-Project] Step 1+2: complete.'
 Write-Output ''
 Write-Output '[Test-Project] Step 3: spawning Invoke-TestInnerRunner for one test cycle.'
 
-$pwshExe       = (Get-Process -Id $PID).Path
-$escapedScript = $InnerScript -replace "'", "''"
-$escapedConfig = $ConfigPath  -replace "'", "''"
-$cmdParts = @(
-    "& '$escapedScript'"
-    "-ConfigPath '$escapedConfig'"
-    '-NoGitPull'
-    '-NoProjectClone'
-)
-if ($PSBoundParameters.ContainsKey('logLevel')) {
-    $escapedLevel = $logLevel -replace "'", "''"
-    $cmdParts += "-logLevel '$escapedLevel'"
+# Test.InnerSpawn was imported by Initialize-YurunaEntryPointModuleSet above.
+$pwshExe = Get-PwshExePath
+# Build the parameter set Test-Project must pass to the inner. -NoGitPull
+# and -NoProjectClone are *always* forced here — Test-Project does a fresh
+# clone itself and tests the local tree as-is; a mid-test framework update
+# would conflate signals. logLevel is forwarded only if the operator passed
+# it on this script's command line (PSBoundParameters), so the inner falls
+# back to its config-file default otherwise.
+$innerParams = [ordered]@{
+    ConfigPath     = $ConfigPath
+    NoGitPull      = [switch]::new($true)
+    NoProjectClone = [switch]::new($true)
 }
-$argList = @('-NoLogo', '-NoProfile', '-Command', ($cmdParts -join ' '))
+if ($PSBoundParameters.ContainsKey('logLevel')) { $innerParams['logLevel'] = $logLevel }
+$argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $innerParams
 
 $env:YURUNA_RUNNER_RELAUNCH = '1'
 
@@ -222,7 +268,7 @@ try {
     & $pwshExe @argList
     $innerExit = $LASTEXITCODE
 } catch {
-    Stop-WithReason -Code $ExitInnerSpawn -Step 'Step 3 (spawn inner)' `
+    Stop-WithReason -Code $ExitFailure -Step 'Step 3 (spawn inner)' `
         -Reason "Could not invoke inner pwsh ($pwshExe): $($_.Exception.Message)"
 }
 

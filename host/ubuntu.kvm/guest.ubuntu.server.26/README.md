@@ -1,15 +1,18 @@
 # Ubuntu Server 26.04 on Ubuntu KVM/libvirt
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Boots the Ubuntu Server 26.04 live-server ISO and runs subiquity
 autoinstall against a CIDATA seed CD. Same boot sequence as the
-hyper-v and macos.utm variants:
+Hyper-V and macOS UTM variants:
 GRUB -> "Continue with autoinstall?" -> unattended install -> reboot
 -> text-mode login at `yuuser26` / `<vault-managed>` (password expired on
 first login). Architecture (amd64 / arm64) is picked from the host.
 
 ## Manual run
 
-```bash
+```
 pwsh ./Get-Image.ps1                        # download / refresh live-server ISO
 pwsh ./New-VM.ps1                           # default name: ubuntu-server01
 pwsh ./New-VM.ps1 -VMName myhost            # custom name
@@ -52,7 +55,7 @@ to bypass the vault and use a known plaintext value.
 
 ## Reaching the guest
 
-```bash
+```
 virsh -c qemu:///system list                         # confirm running
 virsh -c qemu:///system domifaddr <vmname>           # discover the IP
 ssh -i ../../../test/status/ssh/yuruna_ed25519 yuuser26@<ip>

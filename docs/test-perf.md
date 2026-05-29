@@ -77,7 +77,7 @@ cares.
 
 Mint a fresh one with PowerShell:
 
-```powershell
+```
 $r = [Guid]::NewGuid().ToString('N')
 '42' + $r.Substring(2,6) + '-' + $r.Substring(8,4) + '-' + $r.Substring(12,4) + '-' + $r.Substring(16,4) + '-' + $r.Substring(20,12)
 ```
@@ -87,7 +87,7 @@ $r = [Guid]::NewGuid().ToString('N')
 Every sequence YAML carries two top-level keys (declared in
 [`test/schemas/sequence.schema.yml`](../test/schemas/sequence.schema.yml)):
 
-```yaml
+```
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
 sequenceRevision: 1
@@ -142,7 +142,7 @@ duration is the sum of inner durations). Inner rows carry
 Schema version: `1` (carried in every row's `schema:` field; readers
 branch on it).
 
-```json
+```
 {
   "schema": 1,
   "cycleId": "2026-05-21T18:42:11Z",
@@ -250,7 +250,7 @@ stable" without bloating per-step rows.
 
 JSONL files are queryable straight from DuckDB — no ETL needed:
 
-```sql
+```
 -- Is step [seqX][passwdPrompt] faster on macos.utm than ubuntu.kvm?
 SELECT hostPlatform, guestKey, COUNT(*) n,
        AVG(durationMs) avg_ms, MEDIAN(durationMs) p50, QUANTILE(durationMs,0.95) p95
@@ -262,7 +262,7 @@ WHERE outcome='pass'
 GROUP BY 1,2 ORDER BY p50;
 ```
 
-```sql
+```
 -- Which harness commit slowed step X?
 SELECT harnessCommit, AVG(durationMs) avg_ms, COUNT(*) n
 FROM read_json_auto('perf/cycles/*.jsonl')
@@ -271,7 +271,7 @@ GROUP BY harnessCommit
 ORDER BY MIN(cycleStartedAtUtc);
 ```
 
-```sql
+```
 -- Should I invest more in ubuntu.kvm hosts?
 SELECT hostPlatform,
        SUM(durationMs)/3600000.0 host_hours,
@@ -283,7 +283,7 @@ GROUP BY 1;
 
 Yellow-tile classification (read-time, never stored):
 
-```sql
+```
 WITH baseline AS (
   SELECT sequenceName, stepName, hostPlatform, guestKey, sequenceRevision,
          AVG(durationMs) mu, STDDEV(durationMs) sigma
@@ -352,7 +352,7 @@ crashes a cycle.**
   have no signal to use.
 - **Phase 2.** A status-page `perf-summary.html` running DuckDB-WASM
   queries against `/perf/cycles/*.jsonl` served by
-  `Start-StatusServer.ps1`. Read-only summary tables.
+  `Start-StatusService.ps1`. Read-only summary tables.
 - **Phase 3.** Wire the yellow-tile classifier into `status/index.html`
   cycle tiles.
 - **Phase 4.** Central collector rsyncs each host's `perf/` into a
@@ -369,4 +369,8 @@ crashes a cycle.**
 
 ---
 
-Back to [Yuruna](https://github.com/alissonsol/yuruna).
+Back to [Yuruna](https://yuruna.com).
+
+---
+
+Copyright (c) 2019-2026 by Alisson Sol et al.

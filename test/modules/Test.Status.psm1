@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -31,7 +31,7 @@ function Get-UtcTimestamp {
 .SYNOPSIS
     Writes a minimal "running" status.json at the very start of a cycle so the
     dashboard stops showing the previous cycle's pass/fail + per-guest pills
-    while git pull, project clone, status-server restart, module re-imports and
+    while git pull, project clone, status-service restart, module re-imports and
     cycle-plan resolution run before Initialize-StatusDocument.
 .DESCRIPTION
     Preserves only the fields that genuinely span cycles -- history,
@@ -63,7 +63,34 @@ function Reset-StatusDocumentForCycleStart {
             if ($prev.cycle)          { $cycle          = [int]$prev.cycle }
             if ($prev.host)           { $hostType       = $prev.host }
             if ($prev.hostname)       { $hostnameValue  = $prev.hostname }
-        } catch { Write-Warning "Could not read previous status: $_" }
+        } catch {
+            # Prior status.json is unparseable -- preserve the corrupt
+            # copy under a timestamped name so an operator (or remediator)
+            # can diff it against the fresh doc instead of finding only
+            # a silent counter reset. Stamp is millisecond-precision to
+            # tolerate same-second rotations (write-write race against
+            # the status server). Emit an NDJSON event into the current
+            # cycle's ndjson so dashboards / autonomous remediators see
+            # the gap explicitly instead of inferring it from a missing
+            # history entry.
+            $reasonMsg = $_.Exception.Message
+            Write-Warning "Could not read previous status: $reasonMsg"
+            try {
+                $tsStamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ')
+                $dst = $StatusFilePath -replace '\.json$', ".corrupt.$tsStamp.json"
+                Move-Item -LiteralPath $StatusFilePath -Destination $dst -Force -ErrorAction Stop
+                Write-Warning "  preserved corrupt copy at: $dst"
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event         = 'status_doc_corrupt'
+                    original      = [string]$StatusFilePath
+                    preservedAt   = [string]$dst
+                    parseError    = [string]$reasonMsg
+                }
+            } catch {
+                Write-Verbose "Test.Status: could not rename corrupt status doc: $($_.Exception.Message)"
+            }
+        }
     }
 
     $now = Get-UtcTimestamp
@@ -119,7 +146,7 @@ function Reset-StatusDocumentForCycleStart {
     DEPRECATED scalar form of GitCommits. Combined with GitCommit when
     GitCommits is empty. Also persisted into the document's top-level
     `repoUrl` field for legacy-dashboard compat and as the source for
-    Start-StatusServer.ps1's bootstrap path.
+    Start-StatusService.ps1's bootstrap path.
 #>
 function Initialize-StatusDocument {
     param(
@@ -207,7 +234,7 @@ function Initialize-StatusDocument {
         cyclePaused    = $false
         # `gitCommits` is the source of truth. `repoUrl` (top-level) is
         # kept as the framework URL for legacy-dashboard compat and as the
-        # source Start-StatusServer.ps1 reads when seeding a fresh
+        # source Start-StatusService.ps1 reads when seeding a fresh
         # status.json. We do NOT keep the old top-level `gitCommit` -- the
         # dashboard reads gitCommits[0].sha instead.
         gitCommits     = @($GitCommits)
@@ -322,35 +349,10 @@ function Complete-Run {
         } catch { return 0 }
     }
 
-    # [ordered]@{} preserves insertion order so the JSON-serialized
-    # history entry's `guestSummary` keeps the keys in guestSequence order.
-    # A plain @{} is a [hashtable] whose enumeration is bucketed and
-    # arbitrary, which scrambled the pill order in the dashboard's
-    # "Recent Cycles" table even though the cycle itself ran in order.
-    #
-    # Per-guest value shape (backward-compatible):
-    #   * "pass" / "fail"                - bare string in legacy history
-    #                                      rows written before
-    #                                      stepDurationsSec/failureArtifacts
-    #                                      existed. Older dashboards still
-    #                                      render these.
-    #   * { status,
-    #       stepDurationsSec,
-    #       [failureArtifacts] }         - current form. stepDurationsSec
-    #                                      is the per-step wall-clock
-    #                                      seconds map (one entry per step
-    #                                      in the guest's step list, e.g.
-    #                                      New-VM, Start-VM, Start-GuestOS,
-    #                                      New-VM.Resource, optionally
-    #                                      Screenshots / Start-GuestWorkload).
-    #                                      Unlocks p50/p95 trend analysis
-    #                                      across history without log-grep.
-    #                                      failureArtifacts is present only
-    #                                      when a debug folder exists, so
-    #                                      pass-only cycles keep the payload
-    #                                      tight.
-    # The dashboard reads .status off object form and falls back to the
-    # whole value as a string, so both shapes still render correctly.
+    # [ordered]@{} preserves insertion order so guestSummary keys keep
+    # guestSequence order in the JSON. Per-guest value shape (current
+    # object form vs legacy bare-string form), stepDurationsSec contract,
+    # and dashboard fallback: https://yuruna.link/test/harness
     $guestSummary = [ordered]@{}
     foreach ($g in $script:Doc.guests) {
         $artifacts = if ($g.Contains('failureArtifacts')) { [string]$g.failureArtifacts } else { '' }
@@ -373,12 +375,22 @@ function Complete-Run {
     # comma-separated linked SHAs (framework first, project second).
     # cycleFolderUrl is snapshotted too so the history-row cycle-id
     # link survives even after the live $Doc rolls to the next cycle.
+    # The live URL still carries the `.incomplete/` suffix at this
+    # point (Complete-Run runs before Stop-LogFile renames the folder
+    # to its bare base), so strip the lifecycle suffix to record the
+    # post-rename location -- the only location history rows are
+    # expected to resolve to.
     # totalDurationSec is the cycle's wall-clock seconds; the dashboard
     # already derives this from startedAt/finishedAt on the fly, so the
     # field is additive — its purpose is to let programmatic trend
     # analysis (jq / Python) read a number directly without re-parsing
     # ISO timestamps.
     $totalDurationSec = (Get-StepDurationSec $script:Doc.startedAt $script:Doc.finishedAt)
+    $historyCycleFolderUrl = if ($script:Doc.cycleFolderUrl) {
+        $script:Doc.cycleFolderUrl `
+            -replace '\.incomplete(/?)$', '$1' `
+            -replace '\.aborted\.[^/]+(/?)$', '$1'
+    } else { '' }
     $entry = [ordered]@{
         cycleId          = $script:Doc.cycleId
         startedAt        = $script:Doc.startedAt
@@ -388,7 +400,7 @@ function Complete-Run {
         gitCommits       = @($script:Doc.gitCommits)
         host             = $script:Doc.host
         hostname         = $script:Doc.hostname
-        cycleFolderUrl   = $script:Doc.cycleFolderUrl
+        cycleFolderUrl   = $historyCycleFolderUrl
         guestSummary     = $guestSummary
     }
     $script:Doc.history = @($entry) + @($script:Doc.history) | Select-Object -First $MaxHistoryRuns
@@ -421,7 +433,13 @@ function Write-StatusJson {
     $cyclePauseFlag = Join-Path $runtimeDir 'control.cycle-pause'
     $script:Doc.stepPaused  = (Test-Path $stepPauseFlag)
     $script:Doc.cyclePaused = (Test-Path $cyclePauseFlag)
-    $tmp = "$($script:File).tmp"
+    # Per-writer unique temp name: the runner and the status-server
+    # process both flush status.json, so a shared fixed "$File.tmp"
+    # lets one process's Move-Item rename the other's half-written temp.
+    # A PID+GUID suffix keeps each writer's temp private; the rename to
+    # the final path stays atomic. Suffix ends in .tmp so existing
+    # *.tmp cleanup/ignore rules still match.
+    $tmp = "$($script:File).$PID-$([guid]::NewGuid().ToString('N')).tmp"
     $script:Doc | ConvertTo-Json -Depth 10 | Set-Content -Path $tmp -Encoding utf8
     Move-Item -Path $tmp -Destination $script:File -Force
 }

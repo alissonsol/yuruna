@@ -1,7 +1,30 @@
-# Yuruna Windows + Hyper-V bootstrap installer.
-# Version: 2026.05.29  Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- See https://yuruna.link/install/explained
-# This file MUST stay 7-bit ASCII, no BOM. PS 5.1 irm | iex parses byte-for-byte.
+<#PSScriptInfo
+.VERSION 2026.05.29
+.GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+<#
+.SYNOPSIS
+    Yuruna Windows + Hyper-V bootstrap installer.
+.DESCRIPTION
+    See https://yuruna.link/install/explained for the operator-facing
+    rationale. This file MUST stay 7-bit ASCII, no BOM -- PowerShell
+    5.1's `irm | iex` parses byte-for-byte and any non-ASCII char or
+    UTF-8 BOM aborts at line 1 before the param block is reached.
+    See repo memory feedback_bootstrap_installer_no_bom.md for the
+    trap class.
+#>
 
 [CmdletBinding()]
 param(
@@ -275,7 +298,7 @@ re-run this installer.
 function Stop-YurunaProcess {
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestInnerRunner.ps1','Test-Sequence.ps1','Start-StatusServer.ps1')
+    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestInnerRunner.ps1','Test-Sequence.ps1','Start-StatusService.ps1')
     foreach ($pat in $patterns) {
         $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
             Where-Object { $_.CommandLine -and $_.CommandLine -like "*$pat*" -and $_.ProcessId -ne $PID }
@@ -296,7 +319,7 @@ function Stop-YurunaProcess {
 }
 
 # -- yuruna-caching-proxy detection ----------------------------------------
-function Test-SquidCacheRunning {
+function Test-CachingProxyRunning {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$VMName = 'yuruna-caching-proxy')
@@ -310,7 +333,7 @@ $script:InstallError        = $null
 $script:YurunaBackupCreated = $null
 try {
 
-if (Test-SquidCacheRunning) {
+if (Test-CachingProxyRunning) {
     Write-Step 'yuruna-caching-proxy VM is running -- preserving cached content (no Stop-VM / Remove-VM in this installer)'
 }
 
@@ -352,7 +375,7 @@ Write-Step 'Installing / upgrading required packages via winget'
 Install-WingetPackage -Id 'Microsoft.PowerShell'              -FriendlyName 'PowerShell 7'
 Install-WingetPackage -Id 'Git.Git'                           -FriendlyName 'Git (brings openssl.exe used by Ubuntu guest New-VM.ps1 password hashing)'
 Install-WingetPackage -Id 'Microsoft.WindowsADK'              -FriendlyName 'Windows ADK (Deployment Tools / oscdimg)'
-Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img for guest.squid-cache/Get-Image.ps1)'
+Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img for guest.caching-proxy/Get-Image.ps1)'
 Install-WingetPackage -Id 'UB-Mannheim.TesseractOCR'          -FriendlyName 'Tesseract OCR'
 Install-WingetPackage -Id 'GitHub.cli'                        -FriendlyName 'GitHub CLI (gh) -- run `gh auth login` after install to authenticate'
 
@@ -445,7 +468,11 @@ function Backup-YurunaStatus {
         if ($extras) { $hasRuntime = $true; break }
     }
     if (-not $hasRuntime) { return }
-    $script:YurunaStatusBackup = Join-Path $env:TEMP "yuruna-status-backup-$(Get-Random)"
+    # 4-digit entropy (10k possibilities) is weak by design: enough to
+    # defeat the deterministic-path symlink trap an attacker could lay
+    # at a predictable backup folder ahead of a known-time install, but
+    # still readable for the operator inspecting %TEMP%.
+    $script:YurunaStatusBackup = Join-Path $env:TEMP ("yuruna-status-backup-{0:D4}" -f (Get-Random -Maximum 10000))
     New-Item -ItemType Directory -Path $script:YurunaStatusBackup -Force | Out-Null
     Write-Step "Preserving test/status runtime state (cycle history, logs, perf, vault, captures, ssh keys)"
     Write-Step "  source : $src"
@@ -527,7 +554,11 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
         }
         $pullExit = $LASTEXITCODE
         if ($pullExit -ne 0) {
-            $stamp = Get-Date -Format 'yyyy-MM-dd.HH-mm'
+            # Seconds-precision stamp so re-running the installer within
+            # the same minute (transient git failure -> immediate retry)
+            # doesn't collide on the destination directory and abort the
+            # Move-Item below.
+            $stamp = Get-Date -Format 'yyyy-MM-dd.HH-mm-ss'
             $YurunaBackupDir = "$YurunaDir.backup.$stamp"
             Write-Warn "git pull --ff-only failed (exit $pullExit) -- moving the existing checkout aside and re-cloning."
             Write-Warn "  from: $YurunaDir"
@@ -538,6 +569,28 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
                 Write-Die "Could not move '$YurunaDir' to '$YurunaBackupDir': $($_.Exception.Message). Close any shells / editors / Explorer windows holding the path open, then re-run this installer."
             }
             $script:YurunaBackupCreated = $YurunaBackupDir
+
+            # Cap the backup-dir history at N=3 newest. Without this prune,
+            # every failed-pull re-clone leaves another <YurunaDir>.backup.*
+            # behind; on a long-lived host that's tens of multi-GB copies
+            # silently chewing disk. Sort by name (timestamp-prefixed so
+            # lexicographic == chronological), keep newest 3, delete rest.
+            try {
+                $parentDir   = Split-Path -Parent $YurunaDir
+                $baseName    = Split-Path -Leaf   $YurunaDir
+                $allBackups  = @(Get-ChildItem -LiteralPath $parentDir -Directory -Filter "$baseName.backup.*" -ErrorAction SilentlyContinue |
+                    Sort-Object Name -Descending)
+                if ($allBackups.Count -gt 3) {
+                    $toDelete = $allBackups[3..($allBackups.Count - 1)]
+                    foreach ($d in $toDelete) {
+                        Write-Warn "  pruning old backup: $($d.FullName)"
+                        Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop
+                    }
+                }
+            } catch {
+                Write-Warn "  backup-dir prune skipped (non-fatal): $($_.Exception.Message)"
+            }
+
             $recloneRemote = if ($actualRemote) { $actualRemote } else { $YurunaRepo }
             Write-Step "Cloning fresh Yuruna into $YurunaDir from $recloneRemote"
             & $gitExe clone --branch $YurunaBranch $recloneRemote $YurunaDir

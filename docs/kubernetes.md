@@ -15,7 +15,7 @@ Prerequisites are in [Yuruna Requirements](requirements.md).
 Deploy the sample `.NET` website to Docker Desktop Kubernetes. No cloud
 account required.
 
-```powershell
+```
 git clone https://github.com/alissonsol/yuruna.git
 cd yuruna
 ./Add-AutomationToPath.ps1
@@ -24,7 +24,7 @@ cd yuruna
 Create the HTTPS dev certificate (the `ubuntu.server.24.k8s.sh` workload
 does this automatically on that guest):
 
-```powershell
+```
 $pfxDir = Join-Path $HOME ".aspnet/https"
 if (!(Test-Path $pfxDir)) { New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null }
 openssl req -x509 -newkey rsa:4096 -keyout "$pfxDir/aspnetapp.key" -out "$pfxDir/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>$null
@@ -34,7 +34,7 @@ Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
 
 Deploy:
 
-```powershell
+```
 cd project/example
 Set-Resource.ps1  website localhost -logLevel Debug
 Test-Runtime.ps1
@@ -48,7 +48,7 @@ The output of `Set-Workload.ps1` prints the URL.
 
 Authenticate once, then swap `localhost` for your cloud:
 
-```powershell
+```
 # Azure
 az login --use-device-code
 az account set --subscription <your-subscription-id>
@@ -74,8 +74,8 @@ workload pattern: [Yuruna Architecture](architecture.md).
 
 | Guest | Command |
 |---|---|
-| **Ubuntu Server 24.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
-| **Ubuntu Server 26.04** | `/automation/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
+| **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
+| **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
 | **Windows 11** | `irm "…/guest/windows.11/windows.11.k8s.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
 
 **Ubuntu — optional after:** change hostname with
@@ -84,7 +84,7 @@ needed for new group permissions.
 
 ### Verify
 
-```bash
+```
 docker images
 docker ps -a
 kubectl get nodes

@@ -1,3 +1,4 @@
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # The workload bash (e.g. ubuntu.server.24.workload.k8s.website.sh)

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Test.OcrEngine
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -36,8 +36,17 @@
 #>
 
 # ── Provider registry ───────────────────────────────────────────────────────
+#
+# Backed by Test.Registry's New-YurunaRegistry primitive so the shape
+# matches Test.SequenceAction and Test.HostIO. An autonomous remediator
+# can introspect all three registries through the same closure-bundle
+# API (Register / Get / Has / GetMatrix / Clear) instead of three
+# different ad-hoc layouts. The $global:YurunaOcrProviders anchor name
+# is preserved so any cross-module reader keeps working.
 
-$script:OcrProviders = [ordered]@{}
+Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
+
+$script:OcrProviderRegistry = New-YurunaRegistry -Name 'OcrProvider' -AnchorVar 'YurunaOcrProviders' -Comparer 'OrdinalIgnoreCase'
 
 function Register-OcrProvider {
     <#
@@ -56,11 +65,12 @@ function Register-OcrProvider {
         [Parameter(Mandatory)] [scriptblock]$Invoke,
         [Parameter(Mandatory)] [scriptblock]$IsAvailable
     )
-    $script:OcrProviders[$Name] = @{
+    $entry = @{
         Name        = $Name
         Invoke      = $Invoke
         IsAvailable = $IsAvailable
     }
+    & $script:OcrProviderRegistry.Register $Name $entry
 }
 
 function Get-OcrProviderName {
@@ -68,7 +78,7 @@ function Get-OcrProviderName {
     .SYNOPSIS
         Returns the names of all registered OCR providers.
     #>
-    return @($script:OcrProviders.Keys)
+    return @($script:OcrProviderRegistry.Store[0].Keys)
 }
 
 function Test-OcrProviderAvailable {
@@ -77,7 +87,7 @@ function Test-OcrProviderAvailable {
         Tests whether a named OCR provider is available on the current platform.
     #>
     param([Parameter(Mandatory)] [string]$Name)
-    $provider = $script:OcrProviders[$Name]
+    $provider = & $script:OcrProviderRegistry.Get $Name
     if (-not $provider) { return $false }
     return [bool](& $provider.IsAvailable)
 }
@@ -91,7 +101,7 @@ function Invoke-OcrProvider {
         [Parameter(Mandatory)] [string]$Name,
         [Parameter(Mandatory)] [string]$ImagePath
     )
-    $provider = $script:OcrProviders[$Name]
+    $provider = & $script:OcrProviderRegistry.Get $Name
     if (-not $provider) { throw "OCR provider '$Name' is not registered." }
     return (& $provider.Invoke $ImagePath)
 }
@@ -151,6 +161,17 @@ function Get-EnabledOcrProvider {
             $available += $name
         } else {
             Write-Verbose "OCR provider '$name' not available on this platform — skipping."
+            # Structured drop signal so a remediator notices the OCR
+            # surface is degraded (e.g. tesseract uninstalled by an OS
+            # update) without having to diff -Verbose logs.
+            Send-CycleEventSafely -EventRecord @{
+                timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                event        = 'ocr_provider_unavailable'
+                provider     = [string]$name
+                requested    = @($requested)
+                failureClass = 'instrumentation_failure'
+                severity     = 'soft'
+            }
         }
     }
     return $available
@@ -176,8 +197,21 @@ function Invoke-AllEnabledOcr {
         try {
             $results[$name] = Invoke-OcrProvider -Name $name -ImagePath $ImagePath
         } catch {
-            Write-Warning "OCR provider '$name' failed: $_"
+            $ocrErr = $_
+            Write-Warning "OCR provider '$name' failed: $ocrErr"
             $results[$name] = ''
+            # Structured failure signal so a remediator routes on
+            # `event=ocr_provider_failed` (vs the silent empty-string
+            # results entry that downstream waitForText consumers see).
+            Send-CycleEventSafely -EventRecord @{
+                timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                event        = 'ocr_provider_failed'
+                provider     = [string]$name
+                imagePath    = [string]$ImagePath
+                error        = $ocrErr.Exception.Message
+                failureClass = 'instrumentation_failure'
+                severity     = 'soft'
+            }
         }
     }
     return $results
@@ -270,30 +304,8 @@ function Get-WinRtOcrScriptPath {
     return $scriptFile
 }
 
-# ── Persistent WinRT worker (default on; disable with YURUNA_OCR_WORKER=0) ─
-# powershell.exe cold-starts at ~150-300 ms per spawn; with ~1000 OCR
-# calls per cycle on a Windows host that's 3-5 minutes/cycle of pure
-# process-start overhead. The worker amortises that by keeping a single
-# powershell.exe alive for the lifetime of the inner-runner process and
-# feeding image paths over stdin / reading text back over stdout.
-# Empirically the steady-state per-call latency drops from ~337 ms
-# (one-shot spawn) to ~8 ms (pipe + OCR only), a ~40x speedup.
-#
-# Wire protocol (line-oriented, UTF-8):
-#   parent -> worker:  <imagePath>\n           (request; one per OCR call)
-#   worker -> parent:  __YURUNA_READY__\n      (printed once after init)
-#   worker -> parent:  <ocrLine>\n             (zero or more per request)
-#   worker -> parent:  __YURUNA_EOR_OK__\n     (terminator on success)
-#   worker -> parent:  __YURUNA_EOR_ERR__ <msg>\n  (terminator on failure)
-#
-# Lifecycle / safety:
-#   * Lazy spawn on first call.
-#   * Any I/O failure or unexpected EOF tears down the worker and
-#     re-throws; Invoke-WinRtOcr catches the throw and falls back to
-#     the original one-shot powershell.exe path for that call, then
-#     the next call will respawn.
-#   * Module OnRemove handler closes stdin and waits up to 2 s before
-#     Kill() so a re-import doesn't leak the worker.
+# Persistent WinRT worker (default on; YURUNA_OCR_WORKER=0 disables it).
+# Timing rationale, wire protocol, and lifecycle: https://yuruna.link/ocr
 $script:WinRtOcrWorkerScript = @'
 [Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -537,42 +549,9 @@ Register-OcrProvider -Name 'winrt' `
         $IsWindows -and [bool](Get-Command powershell.exe -ErrorAction SilentlyContinue)
     }
 
-# ── Built-in provider: macOS Vision framework ──────────────────────────────
-# Uses Apple's Vision framework via Swift (VNRecognizeTextRequest).
-# Available on macOS 10.15+ (Catalina and later).
-#
-# Two non-obvious things this Swift script does that a naive Vision call
-# does NOT, both of which were silently breaking OCR on UTM screen
-# captures of guest.ubuntu.server.24 logins:
-#
-#  1. Find the densest text-content row cluster and crop to it.
-#     UTM/screencapture screenshots are 2898x1698 with the actual login
-#     text in only the top ~150 rows. Vision's text-region detector
-#     fails entirely on images where the content fills <10% of the
-#     vertical extent — it returns 0 observations on the full image
-#     while finding all three lines on a tight crop. We compute lit-
-#     pixel-per-row, skip a leading ALL-WHITE bar (UTM titlebar/chrome
-#     when present), then pick the highest-total cluster of rows where
-#     lit_count > 8, allowing gaps up to ~80 dark rows between cluster
-#     members so a blank line between content lines doesn't split the
-#     login prompt off from the Ubuntu banner above it.
-#
-#  2. Re-encode through PNG before handing to Vision.
-#     macOS screencapture writes images tagged with kCGColorSpaceDisplayP3
-#     and 144 DPI. Vision's text detector returns 0 observations on
-#     full-frame DisplayP3 images that it reads cleanly when the same
-#     pixels arrive tagged sRGB at 72 DPI. CGImageDestination/PNG round-
-#     trip strips both tags. (The previous "2x upscale via CGContext"
-#     branch silently never ran — the original CGImage's bitmapInfo
-#     combined with bytesPerRow=0 makes CGContext init return nil, so
-#     the script fell through to the original CGImage every time.)
-#
-# Vision parameters: usesLanguageCorrection=false because the strings
-# we care about (cloud-init banners, hostnames with dashes, "ttyl" vs
-# "tty1") are not natural English; correction was actively rewriting
-# them into garbage like "ttyl." -> "tty1.".
-
-# The Swift source is stored once and reused across invocations.
+# macOS Vision provider (VNRecognizeTextRequest via Swift; macOS 10.15+).
+# Densest-row crop, PNG round-trip, and usesLanguageCorrection=false are
+# all load-bearing — rationale at https://yuruna.link/ocr
 $script:VisionOcrSwift = @'
 import Vision
 import AppKit
@@ -842,7 +821,7 @@ function Invoke-MacVisionOcr {
     }
 
     # Fallback: swiftc unavailable or compile failed -- invoke the script
-    # directly via `swift`. Same code path as before this optimisation.
+    # directly via `swift`.
     $swiftFile = [System.IO.Path]::GetTempFileName() + '.swift'
     try {
         $script:VisionOcrSwift | Set-Content -Path $swiftFile -Encoding UTF8

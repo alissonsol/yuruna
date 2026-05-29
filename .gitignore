@@ -11,7 +11,9 @@ Thumbs.db
 
 # Claude
 .claude/
-CLAUDE.md
+# CLAUDE.md is intentionally tracked in yurunadev (private). When copying
+# yurunadev into the public yuruna repository, remove it from the public
+# commits -- see the reminder at the top of CLAUDE.md.
 
 # Yuruna test harness SSH keys are generated per-host on first run and now
 # live under test/status/ssh/ (covered by the umbrella status-subdirs
@@ -372,11 +374,11 @@ project/
 #   test/status/runtime/    pids, status.json, control flags,
 #                           ipaddresses.txt, caching-proxy.txt, server.err,
 #                           yuruna-caching-proxy.yml, host.uuid,
-#                           .status-server.ps1, etc. See Test.RuntimeDir.psm1
+#                           .status-service.ps1, etc. See Test.YurunaDir.psm1
 #                           -- $env:YURUNA_RUNTIME_DIR defaults here so the
 #                           status server can serve /runtime/<name>.
 #   test/status/log/        HTML transcripts, OCR debug artifacts, failure
-#                           screenshots. See Test.LogDir.psm1 --
+#                           screenshots. See Test.YurunaDir.psm1 --
 #                           $env:YURUNA_LOG_DIR defaults here so the status
 #                           server can serve /log/<name>.
 #   test/status/perf/       JSONL perf rows + content-addressed host/guest

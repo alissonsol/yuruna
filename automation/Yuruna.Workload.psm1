@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Yuruna.Workload
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -20,15 +20,83 @@ $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath ".."
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
 Import-Module -Name $validationModulePath
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
+
+function Set-ExpandedVariableHashtable {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Mutates only env vars and a caller-supplied sink; ShouldProcess would be noise per key.')]
+    param(
+        [Parameter()]$Variables,
+        [Parameter()][System.Collections.IDictionary]$Sink,
+        [string]$DebugLabel,
+        [switch]$CacheExpanded,
+        [switch]$WarnOnEmpty
+    )
+    if ($null -eq $Variables -or $null -eq $Variables.Keys) { return }
+    $keys = @($Variables.Keys)
+    foreach ($key in $keys) {
+        $value = $ExecutionContext.InvokeCommand.ExpandString($Variables[$key])
+        if ($WarnOnEmpty -and [string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
+        if ($DebugLabel) { Write-Debug "$DebugLabel[$key] = $value" }
+        Set-Item -Path Env:$key -Value $value
+        if ($Sink) { $Sink[$key] = $value }
+        if ($CacheExpanded) { $Variables[$key] = $value }
+    }
+}
+
+function Set-ExpandedResourcesOutput {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Mutates only env vars and a caller-supplied sink; ShouldProcess would be noise per key.')]
+    param(
+        [Parameter()]$ResourcesOutputYaml,
+        [Parameter()][System.Collections.IDictionary]$Sink,
+        [switch]$EmitDebug
+    )
+    if ($null -eq $ResourcesOutputYaml -or $null -eq $ResourcesOutputYaml.Keys) { return }
+    foreach ($resource in $ResourcesOutputYaml.Keys) {
+        $isGlobal = ($resource -eq 'globalVariables')
+        foreach ($key in $ResourcesOutputYaml.$resource.Keys) {
+            if ($isGlobal) {
+                $resourceKey = "$key"
+                $raw = $ResourcesOutputYaml.$resource[$key]
+            } else {
+                $resourceKey = "$resource.$key"
+                $raw = $ResourcesOutputYaml.$resource[$key].value
+            }
+            $value = $ExecutionContext.InvokeCommand.ExpandString($raw)
+            if ($EmitDebug) {
+                $label = if ($isGlobal) { 'globalVariables' } else { 'resourcesOutput' }
+                Write-Debug "$label[$resourceKey] = $value"
+            }
+            Set-Item -Path Env:$resourceKey -Value $value
+            if ($Sink) { $Sink[$resourceKey] = $value }
+        }
+    }
+}
 
 function Publish-WorkloadList {
+    <#
+    .SYNOPSIS
+        Publish every workload declared in config/<subfolder>/workloads.yml.
+    .DESCRIPTION
+        Iterates each workload, switches to its kube context, and runs
+        each deployment (chart | kubectl | helm | shell). Chart
+        deployments are copied to the .yuruna work folder with merged
+        variable values written to values.yaml before helm install.
+    .OUTPUTS
+        [hashtable] result manifest produced by New-YurunaResultManifest.
+    #>
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param (
         $project_root,
         $config_subfolder
     )
 
-    if (!(Confirm-WorkloadList $project_root $config_subfolder)) { return $false; }
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    if (!(Confirm-WorkloadList $project_root $config_subfolder)) { return (New-YurunaResultManifest -Success $false -ErrorMessage "Confirm-WorkloadList failed for $project_root / $config_subfolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     Write-Debug "---- Publish Workloads"
     # For each workload: switch to its kube context, run each deployment
     # (chart | kubectl | helm | shell). For `chart`, copy to the .yuruna work
@@ -37,10 +105,10 @@ function Publish-WorkloadList {
     # helm install. Non-chart deployments read the same merged variables via
     # ${env:vars}.
     $workloadsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/workloads.yml"
-    if (-Not (Test-Path -Path $workloadsFile)) { Write-Information "File not found: $workloadsFile"; return $false; }
+    if (-Not (Test-Path -Path $workloadsFile)) { Write-Information "File not found: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     $workloadsYaml = ConvertFrom-File $workloadsFile
-    if ($null -eq $workloadsYaml) { Write-Information "Workloads null or empty in file: $workloadsFile"; return $true; }
-    if ($null -eq $workloadsYaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; return $true; }
+    if ($null -eq $workloadsYaml) { Write-Information "Workloads null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
+    if ($null -eq $workloadsYaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
 
     # Backup workloadsFile to the .yuruna work folder
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads"
@@ -64,43 +132,16 @@ function Publish-WorkloadList {
         }
     }
 
-    # Resources output is expanded for env lookup but not persisted back
-    if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
-        foreach ($resource in $resourcesOutputYaml.Keys) {
-            if ($resource -eq "globalVariables") {
-                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                    $resourceKey = "$key"
-                    $value = $ExecutionContext.InvokeCommand.ExpandString($resourcesOutputYaml.$resource[$key])
-                    Write-Debug "globalVariables[$resourceKey] = $value"
-                    Set-Item -Path Env:$resourceKey -Value ${value}
-                }
-            }
-            else {
-                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                    $resourceKey = "$resource.$key"
-                    $value = $ExecutionContext.InvokeCommand.ExpandString($resourcesOutputYaml.$resource[$key].value)
-                    Write-Debug "resourcesOutput[$resourceKey] = $value"
-                    Set-Item -Path Env:$resourceKey -Value ${value}
-                }
-            }
-        }
-    }
-
-    # Global variables saved expanded for reuse after first pass
-    if ((-Not ($null -eq $workloadsYaml.globalVariables)) -and (-Not ($null -eq $workloadsYaml.globalVariables.Keys))) {
-        $keys = @($workloadsYaml.globalVariables.Keys)
-        foreach ($key in $keys) {
-            $value = $ExecutionContext.InvokeCommand.ExpandString($workloadsYaml.globalVariables[$key])
-            Write-Debug "globalVariables[$key] = $value"
-            Set-Item -Path Env:$key -Value ${value}
-            $workloadsYaml.globalVariables[$key] = $value
-        }
-    }
+    # Resources output is expanded for env lookup but not persisted back.
+    Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -EmitDebug
+    # Global variables expanded into env and CACHED back so the second
+    # pass (per-deployment) doesn't pay re-expansion cost.
+    Set-ExpandedVariableHashtable -Variables $workloadsYaml.globalVariables -DebugLabel 'globalVariables' -CacheExpanded
 
     foreach ($workload in $workloadsYaml.workloads) {
         $contextName = $ExecutionContext.InvokeCommand.ExpandString($workload['context'])
         Write-Information "-- Workloads for context: $contextName"
-        if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "workloads.context cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
         if (-Not ([string]::IsNullOrEmpty($workFolder))) {
             $resolvedFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
@@ -108,17 +149,11 @@ function Publish-WorkloadList {
                 Remove-Item -Path $resolvedFolder -Force -Recurse -ErrorAction SilentlyContinue
             }
         }
-        if ([string]::IsNullOrEmpty($workFolder)) { Write-Information "workFolder cannot be null or empty in file: $workloadsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($workFolder)) { Write-Information "workFolder cannot be null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "workFolder cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         Set-Item -Path Env:contextName -Value ${contextName}
         Set-Item -Path Env:workFolder -Value ${workFolder}
 
-        if ((-Not ($null -eq $workload.variables)) -and (-Not ($null -eq $workload.variables.Keys))) {
-            foreach ($key in $workload.variables.Keys) {
-                $value = $ExecutionContext.InvokeCommand.ExpandString($workload.variables[$key])
-                Write-Debug "workloadVariables[$key] = $value"
-                Set-Item -Path Env:$key -Value ${value}
-            }
-        }
+        Set-ExpandedVariableHashtable -Variables $workload.variables -DebugLabel 'workloadVariables'
 
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
         $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
@@ -127,7 +162,7 @@ function Publish-WorkloadList {
         kubectl config use-context $contextName *>&1 | Write-Verbose
         $currentContext = kubectl config current-context
         kubectl config use-context $originalContext *>&1 | Write-Verbose
-        if ($currentContext -ne $contextName) { Write-Information "K8S context not found: $contextName`nFile: $workloadsFile"; return $false; }
+        if ($currentContext -ne $contextName) { Write-Information "K8S context not found: $contextName`nFile: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context not found: $contextName (workloads.yml: $workloadsFile)" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
         kubectl config use-context $contextName *>&1 | Write-Verbose
 
         foreach ($deployment in $workload.deployments) {
@@ -136,66 +171,26 @@ function Publish-WorkloadList {
             $isKubectl = !([string]::IsNullOrEmpty($deployment['kubectl']))
             $isHelm = !([string]::IsNullOrEmpty($deployment['helm']))
             $isShell = !([string]::IsNullOrEmpty($deployment['shell']))
-            if (!($isChart -or $isKubectl -or $isHelm -or $isShell)) { Write-Information "context.deployment should be 'chart', 'kubectl', 'helm' or 'shell' in file: $workloadsFile"; return $false; }
+            if (!($isChart -or $isKubectl -or $isHelm -or $isShell)) { Write-Information "context.deployment should be 'chart', 'kubectl', 'helm' or 'shell' in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "context.deployment must be 'chart', 'kubectl', 'helm' or 'shell' in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
 
-            # Build merged variable set (the earlier loops only printed debug info)
+            # Build the merged variable set: resources.output + workloads
+            # globals + workload locals + deployment locals (latter wins).
+            # Each layer is also pushed to env so ${env:...} references in
+            # later layers resolve against the merged state.
             $deploymentVars = [ordered]@{}
-            if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
-                foreach ($resource in $resourcesOutputYaml.Keys) {
-                    if ($resource -eq "globalVariables") {
-                        foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                            $resourceKey = "$key"
-                            $value = $ExecutionContext.InvokeCommand.ExpandString($resourcesOutputYaml.$resource[$key])
-                            $deploymentVars[$resourceKey] = $value
-                            Set-Item -Path Env:$resourceKey -Value ${value}
-                        }
-                    }
-                    else {
-                        foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                            $resourceKey = "$resource.$key"
-                            $value = $ExecutionContext.InvokeCommand.ExpandString($resourcesOutputYaml.$resource[$key].value)
-                            $deploymentVars[$resourceKey] = $value
-                            Set-Item -Path Env:$resourceKey -Value ${value}
-                        }
-                    }
-                }
-            }
-
-            if ((-Not ($null -eq $workloadsYaml.globalVariables)) -and (-Not ($null -eq $workloadsYaml.globalVariables.Keys))) {
-                foreach ($key in $workloadsYaml.globalVariables.Keys) {
-                    $value = $ExecutionContext.InvokeCommand.ExpandString($workloadsYaml.globalVariables[$key])
-                    $deploymentVars[$key] = $value
-                    Set-Item -Path Env:$key -Value ${value}
-                }
-            }
-
-            if ((-Not ($null -eq $workload.variables)) -and (-Not ($null -eq $workload.variables.Keys))) {
-                foreach ($key in $workload.variables.Keys) {
-                    $value = $ExecutionContext.InvokeCommand.ExpandString($workload.variables[$key])
-                    $deploymentVars[$key] = $value
-                    Set-Item -Path Env:$key -Value ${value}
-                }
-            }
-
-            if ((-Not ($null -eq $deployment.variables)) -and (-Not ($null -eq $deployment.variables.Keys))) {
-                foreach ($key in $deployment.variables.Keys) {
-                    $rawValue = $deployment.variables[$key]
-                    $value = $ExecutionContext.InvokeCommand.ExpandString($rawValue)
-                    if ([string]::IsNullOrEmpty($value)) { Write-Debug "WARNING: empty value for $key" }
-                    $deploymentVars[$key] = $value
-                    Set-Item -Path Env:$key -Value ${value}
-                    Write-Debug "deploymentVariables[$key] = $value"
-                }
-            }
+            Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -Sink $deploymentVars
+            Set-ExpandedVariableHashtable -Variables $workloadsYaml.globalVariables -Sink $deploymentVars
+            Set-ExpandedVariableHashtable -Variables $workload.variables -Sink $deploymentVars
+            Set-ExpandedVariableHashtable -Variables $deployment.variables -Sink $deploymentVars -DebugLabel 'deploymentVariables' -WarnOnEmpty
 
             if ($isChart) {
                 $chartName = $deployment['chart']
-                if ([string]::IsNullOrEmpty($chartName)) { Write-Information "context.chart cannot be null or empty in file: $workloadsFile"; return $false; }
+                if ([string]::IsNullOrEmpty($chartName)) { Write-Information "context.chart cannot be null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "context.chart cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
                 $chartFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "workloads/$chartName")
-                if (-Not (Test-Path -Path $chartFolder)) { Write-Information "workload[$contextName]chart[$chartName] folder not found: $chartFolder"; return $false; }
+                if (-Not (Test-Path -Path $chartFolder)) { Write-Information "workload[$contextName]chart[$chartName] folder not found: $chartFolder"; return (New-YurunaResultManifest -Success $false -ErrorMessage "workload[$contextName] chart[$chartName] folder not found: $chartFolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
                 $installName = $ExecutionContext.InvokeCommand.ExpandString($deployment.variables['installName'])
                 if ([string]::IsNullOrEmpty($installName)) {
-                    Write-Information "Chart[$chartName] missing variables['installName'] in file: $workloadsFile"; return $false;
+                    Write-Information "Chart[$chartName] missing variables['installName'] in file: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "Chart[$chartName] missing variables['installName'] in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds);
                 }
                 $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName/$installName"
                 $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
@@ -252,42 +247,77 @@ function Publish-WorkloadList {
                     Write-Information "helm lint FAILED (exit $lintExit) for chart '$installName' in $workFolder"
                     $lintOutput | ForEach-Object { Write-Information "$_" }
                     Pop-Location
-                    return $false
+                    return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint failed for chart '$installName' in $workFolder" -FailureClass 'chart_invalid' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
                 }
 
-                # Helm uninstall is best-effort: on the first deploy the
-                # release doesn't exist and helm exits non-zero with
-                # "Error: uninstall: Release not loaded". That's expected,
-                # so we DO NOT propagate the exit code here; just log to
-                # Verbose. A genuine uninstall failure on a redeploy will
-                # surface in the subsequent install (release-already-
-                # exists), which IS propagated below.
-                Write-Debug "Helm uninstall $installName"
-                $uninstallOutput = helm uninstall $installName *>&1
-                $uninstallExit = $LASTEXITCODE
-                Add-Content -LiteralPath $helmLogFile -Value "=== helm uninstall $installName (exit=$uninstallExit, expected non-zero on first deploy) ==="
-                $uninstallOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
+                # Pre-flight: a watchdog SIGKILL of helm mid-upgrade
+                # (or a host crash) leaves the release in pending-*
+                # state. Helm's atomic-rollback guarantees fire only on
+                # a helm-detected failure -- a process kill bypasses
+                # them. Next cycle's `helm upgrade --install` then
+                # exits with "another operation in progress" and no
+                # auto-recovery is wired downstream. Detect pending-*
+                # status and clear it via rollback (preserves history)
+                # so the upgrade below proceeds cleanly.
+                Write-Debug "Helm status probe for $installName"
+                $statusOutput = helm status $installName 2>&1
+                $statusExit   = $LASTEXITCODE
+                if ($statusExit -eq 0) {
+                    $statusLine = ($statusOutput | Where-Object { $_ -match '^STATUS:\s*(\S+)' }) | Select-Object -First 1
+                    if ($statusLine -and $statusLine -match '^STATUS:\s*(pending-\S+)') {
+                        $pendingState = $Matches[1]
+                        Write-Warning "Helm release '$installName' is in $pendingState state (likely prior-cycle SIGKILL). Rolling back to recover."
+                        Add-Content -LiteralPath $helmLogFile -Value "=== pre-flight helm status (state=$pendingState; recovering) ==="
+                        $statusOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_) }
+                        $rollbackOutput = helm rollback $installName 0 2>&1
+                        $rollbackExit = $LASTEXITCODE
+                        Add-Content -LiteralPath $helmLogFile -Value "=== helm rollback $installName 0 (exit=$rollbackExit) ==="
+                        $rollbackOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_) }
+                        if ($rollbackExit -ne 0) {
+                            # Rollback to revision 0 fails when there is no
+                            # prior good revision (the very first upgrade
+                            # was the one that was killed). Fall through
+                            # to `helm uninstall --no-hooks` so the next
+                            # upgrade --install can land a fresh release.
+                            Write-Warning "  helm rollback failed (exit $rollbackExit); falling back to uninstall --no-hooks."
+                            $uninstallOutput = helm uninstall $installName --no-hooks 2>&1
+                            $uninstallExit = $LASTEXITCODE
+                            Add-Content -LiteralPath $helmLogFile -Value "=== helm uninstall $installName --no-hooks (exit=$uninstallExit) ==="
+                            $uninstallOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_) }
+                        }
+                    }
+                }
 
-                # Helm install. Non-zero exit is authoritative -- the
-                # release did NOT land. We ALSO scan the captured output
-                # for lines starting with "Error:" because helm has
-                # historically returned 0 on certain post-render
-                # rejections (server-side admission failures that
-                # surface only in the trailing log). Either signal aborts
-                # the test sequence so an empty-namespace tombstone is
-                # never mistaken for success.
-                Write-Debug "Helm install $installName"
-                $installOutput = helm install $installName . --debug *>&1
+                # Helm upgrade --install --atomic: idempotent in the
+                # "release-already-exists" case (no uninstall/install
+                # race window where the release disappears mid-cycle)
+                # AND atomic in the failure case (automatic rollback to
+                # the prior revision on any helm-detected failure, so
+                # an interrupted deployment never leaves a half-rendered
+                # release in the namespace). Replaces the prior uninstall
+                # +install pair, which on a watchdog kill between the two
+                # calls left the operator with no release AND a dirty
+                # namespace and no recovery path beyond a full rerun.
+                #
+                # Non-zero exit is still authoritative -- the release
+                # did NOT land (or it landed and was auto-rolled-back).
+                # We ALSO scan the captured output for lines starting
+                # with "Error:" because helm has historically returned 0
+                # on certain post-render rejections (server-side
+                # admission failures that surface only in the trailing
+                # log). Either signal aborts the test sequence.
+                Write-Debug "Helm upgrade --install --atomic $installName"
+                $installOutput = helm upgrade --install --atomic $installName . --debug *>&1
                 $installExit = $LASTEXITCODE
-                Add-Content -LiteralPath $helmLogFile -Value "=== helm install $installName --debug (exit=$installExit) ==="
+                Add-Content -LiteralPath $helmLogFile -Value "=== helm upgrade --install --atomic $installName --debug (exit=$installExit) ==="
                 $installOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
                 Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
                 $installErrorLines = @($installOutput | Where-Object { $_ -match '^\s*Error:' })
                 if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
-                    Write-Information "helm install '$installName' FAILED (exit $installExit, $($installErrorLines.Count) Error: line(s)) in $workFolder"
+                    Write-Information "helm upgrade --install --atomic '$installName' FAILED (exit $installExit, $($installErrorLines.Count) Error: line(s)) in $workFolder"
                     $installOutput | ForEach-Object { Write-Information "$_" }
                     Pop-Location
-                    return $false
+                    return (New-YurunaResultManifest -Success $false -ErrorMessage "helm upgrade --install --atomic '$installName' failed in $workFolder (exit $installExit, $($installErrorLines.Count) Error: line(s))" -FailureClass 'tool_failed' -ExitCode $installExit -DurationMs $sw.ElapsedMilliseconds)
                 }
                 Pop-Location
             }
@@ -319,8 +349,32 @@ function Publish-WorkloadList {
                 # diagnostic reports.
                 $toolLogFile = Join-Path -Path $workFolder -ChildPath "$toolName.stderr.log"
                 $toolRcFile  = Join-Path -Path $workFolder -ChildPath "$toolName.rc"
-                $output = Invoke-DynamicExpression -Command $expression *>&1
-                $toolExit = $LASTEXITCODE
+                # helm fetches (repo update, install <repo>/<chart>) cross the network
+                # and stutter on shared-egress rate limits or proxy blips. Symptom:
+                # `Error: INSTALLATION FAILED: failed to fetch https://github.com/...`
+                # Multiple hosts sharing one squid egress IP can fail inside a
+                # sub-second window -- a shared upstream event, not per-host config.
+                # Retry helm up to 3 times with exponential backoff (10s, 20s) ONLY
+                # when the output matches a transient-fetch pattern; real config errors
+                # (chart not found, schema violation, auth) fail fast.
+                $maxAttempts = if ($isHelm) { 3 } else { 1 }
+                $attemptDelay = 10
+                $transientPattern = '(?i)(failed to fetch|i/o timeout|no such host|connection refused|connection reset|client\.timeout|EOF|TLS handshake|temporary failure|503 |502 |504 |429 |too many requests)'
+                $output = $null
+                $toolExit = 0
+                for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+                    $output = Invoke-DynamicExpression -Command $expression *>&1
+                    $toolExit = $LASTEXITCODE
+                    if ($toolExit -eq 0) { break }
+                    if ($attempt -ge $maxAttempts) { break }
+                    $outputText = ($output | ForEach-Object { [string]$_ }) -join "`n"
+                    if ($outputText -notmatch $transientPattern) { break }
+                    Write-Information "TRANSIENT helm failure (exit $toolExit, attempt $attempt/$maxAttempts) -- retrying in ${attemptDelay}s: $expression"
+                    Add-Content -LiteralPath $toolLogFile -Value "=== $expression (exit=$toolExit, attempt $attempt/$maxAttempts, transient -- will retry in ${attemptDelay}s) ==="
+                    $output | ForEach-Object { Add-Content -LiteralPath $toolLogFile -Value ([string]$_) }
+                    Start-Sleep -Seconds $attemptDelay
+                    $attemptDelay = $attemptDelay * 2
+                }
                 Add-Content -LiteralPath $toolLogFile -Value "=== $expression (exit=$toolExit) ==="
                 $output | ForEach-Object { Add-Content -LiteralPath $toolLogFile -Value ([string]$_) }
                 Set-Content -LiteralPath $toolRcFile -Value $toolExit -NoNewline
@@ -332,9 +386,17 @@ function Publish-WorkloadList {
                     $output | ForEach-Object { Write-Verbose ([string]$_) }
                 }
                 if (-Not (0 -eq $toolExit)) {
+                    # Always abort the cycle on a non-zero tool exit.
+                    # The prior `return ($ErrorActionPreference -eq "Continue")` returned
+                    # $true under the default EAP=Continue, swallowing helm/kubectl
+                    # failures so the bash wrapper's `set -e` had nothing to catch and
+                    # the next sequence step (e.g. test-localhost.sh) ran into a missing
+                    # ingress controller and timed out 3 minutes later -- masking the
+                    # real fault. Match the chart branch above: any non-zero exit aborts.
                     Write-Information "EXITCODE: $toolExit for: $expression"
+                    $output | ForEach-Object { Write-Information "$_" }
                     Pop-Location
-                    return ($ErrorActionPreference -eq "Continue");
+                    return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: $expression" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
                 }
                 Pop-Location
             }
@@ -342,7 +404,7 @@ function Publish-WorkloadList {
         kubectl config use-context $originalContext *>&1 | Write-Verbose
     }
 
-    return $true;
+    return (New-YurunaResultManifest -Success $true -DurationMs $sw.ElapsedMilliseconds);
 }
 
-Export-ModuleMember -Function * -Alias *
+Export-ModuleMember -Function Publish-WorkloadList -Alias *

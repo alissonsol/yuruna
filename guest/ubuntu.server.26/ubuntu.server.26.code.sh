@@ -1,5 +1,6 @@
 #!/bin/bash
-# Version: 2026.05.22
+# Version: 2026.05.29
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
@@ -9,7 +10,7 @@ export NONINTERACTIVE=1
 
 # Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(eval echo "~$REAL_USER")
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
 # ===== Detect architecture =====
 ARCH=$(uname -m)
@@ -28,27 +29,8 @@ case "$ARCH" in
     ;;
 esac
 
-# --- See https://yuruna.link/network#defining-package-manager-retry
-apt_retry() {
-    local max_attempts=5 attempt=1 delay=15 rc=0
-    while [ $attempt -le $max_attempts ]; do
-        if [ $attempt -gt 1 ]; then
-            echo ""
-            echo ">> apt_retry: attempt $attempt/$max_attempts for: $*"
-        fi
-        rc=0; "$@" || rc=$?
-        if [ $rc -eq 0 ]; then return 0; fi
-        echo "!! apt_retry: attempt $attempt/$max_attempts failed (rc=$rc): $*"
-        if [ $attempt -lt $max_attempts ]; then
-            echo "!! apt_retry: sleeping ${delay}s before retry"
-            sleep $delay
-            delay=$((delay * 2))
-        fi
-        attempt=$((attempt + 1))
-    done
-    echo "!! apt_retry: all $max_attempts attempts exhausted for: $*"
-    return $rc
-}
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+. /usr/local/lib/yuruna/yuruna_retry.sh
 
 # ===== Install .NET SDK =====
 echo ""

@@ -1,5 +1,8 @@
 # Ubuntu Server 24.04 guest on Windows Hyper-V
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Boots the Ubuntu **Server** 24.04 live ISO for autoinstall. The Server
 ISO ships `linux-generic` on the cdrom plus a network-configured
 `/etc/apt/sources.list.d/ubuntu.sources`, so curtin's `install_kernel`
@@ -12,19 +15,19 @@ Cross-host concepts: [Hosts — ...](../../README.md).
 From `yuruna\host\windows.hyper-v\guest.ubuntu.server.24` in
 elevated PowerShell:
 
-```powershell
+```
 .\Get-Image.ps1
 ```
 
 ## For each VM
 
-```powershell
+```
 .\New-VM.ps1                       # default ubuntu-server01
 .\New-VM.ps1 -VMName myhost
 ```
 
 Start from Hyper-V Manager. Autoinstall is fully unattended
-(`interactive-sections: []`). Keep the `guest.squid-cache` VM running
+(`interactive-sections: []`). Keep the `guest.caching-proxy` VM running
 for dramatically faster rebuilds.
 
 Default user is `yuuser24` (override with `-Username`; the same name is
@@ -37,7 +40,7 @@ OS prompt. See [Test Runner — Nerd-Level Details](../../../test/read.more.md) 
 vault model. Remove the DVD drives so the VM boots from disk on next
 start:
 
-```powershell
+```
 Get-VMDvdDrive -VMName 'ubuntu-server01' | Remove-VMDvdDrive
 ```
 

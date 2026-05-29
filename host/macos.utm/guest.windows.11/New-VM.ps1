@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -25,19 +25,9 @@ param(
     [string]$BridgeInterface = ""
 )
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
-# Each level shows itself + all higher-priority streams; Error is highest.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        if ($_eff -ge $_rank.Verbose) { $ProgressPreference = 'SilentlyContinue' }
-    }
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -157,8 +147,7 @@ if (-not (Test-Path $spiceImageFile)) {
 
 # === Create copies and files for VM ===
 
-# Create UTM bundle structure
-if (Test-Path $UtmDir) { Remove-Item -Recurse -Force $UtmDir }
+if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # Copy base image ISO into the bundle (named after VM name)
@@ -177,7 +166,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # Generate autounattend seed ISO (Windows Setup scans all drives for autounattend.xml)
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
-if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
+if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
@@ -242,7 +231,6 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
-# Validate the generated plist is well-formed
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Generated config.plist failed plist validation: $lintOutput"
@@ -263,7 +251,7 @@ if ($NetworkMode -eq "Bridged") {
 }
 
 # === Cleanup temporary folders ===
-Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Guidance ===
 Write-Verbose ""

@@ -1,10 +1,10 @@
 <#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -106,7 +106,7 @@ $cfg = Join-Path $repoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $cfg) {
     try {
         $j = Get-Content -Raw -LiteralPath $cfg | ConvertFrom-Yaml -Ordered
-        if ($j.statusServer.port) { $hostPort = "$($j.statusServer.port)" }
+        if ($j.statusService.port) { $hostPort = "$($j.statusService.port)" }
     } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
 }
 
@@ -126,6 +126,14 @@ if (-not $plaintextPassword) { Write-Error "Get-LocalOsPassword returned empty f
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# write_files entries. Eliminates the legacy network-dependent wget+wget
+# bootstrap and ensures both files are on disk before any guest script runs.
+$yurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
+$yurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'yuruna_retry.sh')))
+$yurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'fetch-and-execute.sh')))
+
 $userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName).
     Replace('USERNAME_PLACEHOLDER', $Username).
@@ -133,7 +141,9 @@ $userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
     Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $sshPub).
     Replace('CACHING_PROXY_URL_PLACEHOLDER', ($CachingProxyUrl ?? '')).
     Replace('YURUNA_HOST_IP_PLACEHOLDER', $hostIp).
-    Replace('YURUNA_HOST_PORT_PLACEHOLDER', $hostPort)
+    Replace('YURUNA_HOST_PORT_PLACEHOLDER', $hostPort).
+    Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $yurunaRetryLibB64).
+    Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $yurunaFaeB64)
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName)
 
@@ -168,8 +178,25 @@ if ($baseVirtualBytes -gt $overlayBytes) { $overlayBytes = $baseVirtualBytes }
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
 
 $virshUri = 'qemu:///system'
-& virsh --connect $virshUri destroy $VMName 2>$null | Out-Null
-& virsh --connect $virshUri undefine --nvram $VMName 2>$null | Out-Null
+# Capture stdout+stderr + exit code for each call so an operator
+# running with -Verbose sees the per-call outcome. The post-condition
+# below catches the actual failure mode; this just preserves forensics
+# when something unusual surfaces between the two idempotent ops.
+$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
+Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
+$undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
+Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
+# Post-condition: virsh destroy/undefine on a non-existing domain is
+# idempotent (returns non-zero, swallowed by `2>$null`). But if either
+# op failed while the domain remains defined, the next virt-install
+# fails with "domain already defined" and the outer loop has no signal
+# to recover. Fail-loud now with dominfo so the operator can act.
+$stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
+    Where-Object { $_.Trim() -eq $VMName }
+if ($stillDefined) {
+    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
+    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+}
 
 # AL2023 image OS variant; libvirt's osinfo-db ships 'amazonlinux2023'
 # on newer libosinfo releases but Ubuntu 24.04's virtinst doesn't pull

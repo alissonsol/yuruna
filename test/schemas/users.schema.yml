@@ -1,10 +1,11 @@
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/users.schema.yml
 title: Yuruna authentication users mapping
 description: >
   Maps logical (sequence-level) usernames onto the actual identity used
   at login time. Empty corporate.* fields keep today's local-only
-  behaviour; populated fields select an AD/Entra/etc. identity. The
+  behavior; populated fields select an AD/Entra/etc. identity. The
   template lists the four bundled logical users (yuuser24, yuuser26,
   yauser1, ywuser1) with empty corporate fields so existing sequences
   work unchanged.
@@ -63,7 +64,7 @@ properties:
           description: >
             Vault entry consulted by Get-Password for this logical
             user (and by Get-LoginCredential). Defaults to the logical
-            key when empty (today's behaviour: vault auto-generates a
+            key when empty (today's behavior: vault auto-generates a
             random password). Populate with a non-empty value when the
             password must be operator-supplied (e.g. real AD account);
             the vault NEVER auto-generates for a populated vaultKey,
@@ -80,4 +81,4 @@ properties:
             should normally have. Set explicitly to vaultKey when you
             want the local OS account to share its password with the
             corporate identity (operator-convenience console fallback,
-            see docs/caching.md for the squid-cache pattern).
+            see docs/caching.md for the caching-proxy pattern).

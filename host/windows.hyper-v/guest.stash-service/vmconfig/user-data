@@ -1,0 +1,21 @@
+#cloud-config
+# --- See https://yuruna.link/vmconfig and https://yuruna.link/stash-service
+# Minimal cloud-init for the stash-service VM: get ssh + console login
+# working; the daemon, schema, and SCP wire-protocol handler are installed
+# by a later step. `users:` WITHOUT `- default` suppresses ubuntu creation.
+hostname: yuruna-stash-service
+users:
+  - name: yuruna
+    gecos: yuruna stash-service user
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+chpasswd:
+  expire: false
+  users:
+    - name: yuruna
+      password: PASSWORD_PLACEHOLDER
+      type: text
+ssh_pwauth: true

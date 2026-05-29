@@ -6,19 +6,19 @@
 
 Execute the following command to clear the resources for a given configuration.
 
-```shell
+```
 Invoke-Clear.ps1 [project_root] [config_subfolder]
 ```
 
 Clearing the resources for the project `website` in the `Azure` cloud (assuming [Yuruna Authentication ...](authentication.md) steps were followed).
 
-```shell
+```
 Invoke-Clear.ps1 website azure
 ```
 
 If needed, you can delete resources directly from the folder with the initial deployment files (`.yuruna/resources/$resourceTemplate`):
 
-```shell
+```
 tofu destroy -auto-approve -refresh=false
 ```
 

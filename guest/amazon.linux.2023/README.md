@@ -11,8 +11,8 @@ Create the guest VM first:
 
 In a guest terminal:
 
-```bash
-/automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.<workload>.sh
+```
+/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.<workload>.sh
 ```
 
 Run `amazon.linux.2023.update.sh` first.

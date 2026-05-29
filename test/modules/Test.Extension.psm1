@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -24,6 +24,13 @@
 # Repo root = three levels above this file (test/modules/Test.Extension.psm1).
 $script:RepoRoot     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script:ExtensionDir = Join-Path $script:RepoRoot 'test/extension'
+
+# Mtime-keyed cache for parsed <Area>.config.yml. Hit on every ${ext:...}
+# expansion and per callExtension step; without the cache the YAML is re-
+# parsed each time. Mirrors Test.Config.psm1's pattern but skips the
+# content-hash check -- these files are small (<1 KB) and not subject to
+# the same-size + same-mtime race the test-config cache defends against.
+$script:ExtensionConfigCache = @{}
 
 <#
 .SYNOPSIS
@@ -53,10 +60,17 @@ function Read-ExtensionConfig {
     $dir  = Resolve-ExtensionAreaDir -Area $Area
     $file = Join-Path $dir "$Area.config.yml"
     if (-not (Test-Path $file)) { throw "$Area.config.yml missing for area '$Area' at $file." }
-    $cfg = Get-Content -Raw $file | ConvertFrom-Yaml -Ordered
+    $resolved = (Resolve-Path -LiteralPath $file).Path
+    $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+    if ($script:ExtensionConfigCache.ContainsKey($resolved)) {
+        $entry = $script:ExtensionConfigCache[$resolved]
+        if ($entry.Mtime -eq $mtime) { return $entry.Config }
+    }
+    $cfg = Get-Content -Raw $resolved | ConvertFrom-Yaml -Ordered
     if (-not $cfg.Contains('active') -or -not $cfg.active -or @($cfg.active).Count -eq 0) {
         throw "$Area.config.yml for area '$Area' has no 'active' entries."
     }
+    $script:ExtensionConfigCache[$resolved] = @{ Mtime = $mtime; Config = $cfg }
     return $cfg
 }
 
@@ -73,6 +87,69 @@ function Read-ExtensionConfig {
 function Get-ActiveExtensionName {
     param([Parameter(Mandatory)][string]$Area)
     return (Read-ExtensionConfig -Area $Area).active
+}
+
+<#
+.SYNOPSIS
+    Asserts that the supplied function list covers the contract verbs
+    declared in <Area>/<Area>.contract.yml. Mirrors the shape of
+    host/Yuruna.Host.Contract.psm1's Assert-YurunaHostContractCoverage:
+    one warning naming every gap, returns boolean.
+.DESCRIPTION
+    Called by Import-Extension once per loaded module. If the area has
+    no .contract.yml the function returns $true (no contract declared
+    -> nothing to enforce). When a contract is present, missing verbs
+    are reported in a single Write-Warning so the operator sees the
+    full delta in one line. Returns $true when coverage is complete,
+    $false otherwise -- callers decide whether to fail loudly or
+    continue based on policy. The current Import-Extension policy is
+    "warn and continue" so a stale/partial extension surfaces before
+    the first cycle step references it without blocking unrelated
+    cycles.
+.PARAMETER Area
+    Extension area name (the directory basename).
+.PARAMETER ExtensionName
+    Module basename without .psm1 (typically 'default'). Used in the
+    warning to name which extension implementation is incomplete.
+.PARAMETER ExportedFunction
+    The list of function names actually exported by the loaded module
+    (Get-Module | Select-Object -Expand ExportedCommands keys).
+#>
+function Assert-ExtensionContractCoverage {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [Parameter(Mandatory)][string]$ExtensionName,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ExportedFunction
+    )
+    $dir          = Resolve-ExtensionAreaDir -Area $Area
+    $contractFile = Join-Path $dir "$Area.contract.yml"
+    if (-not (Test-Path -LiteralPath $contractFile)) {
+        Write-Verbose "No contract file for area '$Area' at $contractFile; skipping coverage check."
+        return $true
+    }
+    $contract = Get-Content -Raw $contractFile | ConvertFrom-Yaml -Ordered
+    $required = @()
+    if ($contract.Contains('requiredFunction') -and $contract.requiredFunction) {
+        $required = @($contract.requiredFunction)
+    }
+    if ($required.Count -eq 0) {
+        Write-Verbose "Contract for area '$Area' declares no requiredFunction entries; skipping coverage check."
+        return $true
+    }
+    $exported = [System.Collections.Generic.HashSet[string]]::new(
+        [string[]]$ExportedFunction, [System.StringComparer]::OrdinalIgnoreCase)
+    $missing = New-Object System.Collections.Generic.List[string]
+    foreach ($name in $required) {
+        if (-not $exported.Contains($name)) { [void]$missing.Add($name) }
+    }
+    if ($missing.Count -gt 0) {
+        Write-Warning "Extension '$ExtensionName' for area '$Area' is missing $($missing.Count) contract verb(s): $($missing -join ', '). See $contractFile."
+        return $false
+    }
+    Write-Verbose "Extension '$ExtensionName' for area '$Area' covers all $($required.Count) contract verbs."
+    return $true
 }
 
 <#
@@ -108,6 +185,17 @@ function Import-Extension {
         } | Select-Object -First 1
         if (-not $existing) {
             Import-Module -Name $path -Global -Force
+        }
+        # Post-load contract check: warn (don't throw) when the loaded
+        # module is missing a verb declared in <Area>.contract.yml. A
+        # stale or partial extension surfaces here, before the first
+        # cycle step references it.
+        $loaded = Get-Module | Where-Object {
+            $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $absPath)
+        } | Select-Object -First 1
+        if ($loaded) {
+            $exportedNames = @($loaded.ExportedCommands.Keys)
+            [void](Assert-ExtensionContractCoverage -Area $Area -ExtensionName $n -ExportedFunction $exportedNames)
         }
     }
     return $names
@@ -166,4 +254,75 @@ function Resolve-ExtensionMethod {
     throw "Extension '$ExtensionName' (loaded from $modPath) does not export '$Method' (also tried '$hyphenated')."
 }
 
-Export-ModuleMember -Function Resolve-ExtensionAreaDir, Read-ExtensionConfig, Get-ActiveExtensionName, Import-Extension, Resolve-ExtensionMethod
+<#
+.SYNOPSIS
+    Returns the names of every extension area present under test/extension/.
+.DESCRIPTION
+    Discovery primitive: an entry point that wants to load "every
+    declared extension" (instead of hard-coding a list of areas in
+    its own bootstrap) calls Get-ExtensionAreaName + Import-Extension
+    in a loop. An area is recognised by having a `<area>.config.yml`
+    file at test/extension/<area>/<area>.config.yml -- bare
+    directories without that file are ignored so a half-staged
+    contribution can sit on disk without affecting the runtime.
+
+    Pair with Import-ConfiguredExtension when the caller just wants
+    "load all of them" semantics.
+.OUTPUTS
+    [string[]] area names sorted alphabetically.
+#>
+function Get-ExtensionAreaName {
+    [CmdletBinding()]
+    [OutputType([string[]], [object[]])]
+    param()
+    if (-not (Test-Path -LiteralPath $script:ExtensionDir)) { return @() }
+    $names = @()
+    foreach ($dir in (Get-ChildItem -LiteralPath $script:ExtensionDir -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $cfg = Join-Path $dir.FullName "$($dir.Name).config.yml"
+        if (Test-Path -LiteralPath $cfg) { $names += $dir.Name }
+    }
+    return $names
+}
+
+<#
+.SYNOPSIS
+    Imports every extension area that exposes a <area>.config.yml.
+.DESCRIPTION
+    Single-call bootstrap for entry points that want all configured
+    extensions loaded with -Global semantics. Each area's failure is
+    caught locally and surfaced as a Write-Warning so a single broken
+    area can't take the entire cycle down.
+
+    The function returns a list of (area, names) tuples for the
+    cycle-start manifest / capability-matrix dump; an autonomous tool
+    can introspect what loaded and what didn't through the warnings
+    plus the returned summary.
+.OUTPUTS
+    Array of [PSCustomObject]@{ Area; Loaded; Error }.
+#>
+function Import-ConfiguredExtension {
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'Module-import side effects only; caller is the bootstrap path.')]
+    param()
+    $rows = @()
+    foreach ($area in (Get-ExtensionAreaName)) {
+        $loaded = @()
+        $err = $null
+        try {
+            $loaded = @(Import-Extension -Area $area)
+        } catch {
+            $err = $_.Exception.Message
+            Write-Warning "Import-ConfiguredExtension: area '$area' failed to load: $err"
+        }
+        $rows += [PSCustomObject]@{
+            Area   = $area
+            Loaded = $loaded
+            Error  = $err
+        }
+    }
+    return $rows
+}
+
+Export-ModuleMember -Function Resolve-ExtensionAreaDir, Read-ExtensionConfig, Get-ActiveExtensionName, Import-Extension, Resolve-ExtensionMethod, Assert-ExtensionContractCoverage, Get-ExtensionAreaName, Import-ConfiguredExtension

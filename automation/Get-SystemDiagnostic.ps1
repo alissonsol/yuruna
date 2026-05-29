@@ -1,10 +1,10 @@
 <#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna diagnostics system health docker kubernetes
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -65,6 +65,16 @@
                     wedges (subiquity _send_update CHANGE eth0 loop,
                     apt mirror retry storms, IPv6 RA-driven netplan
                     re-apply) that runtime sections cannot see.
+     11c. GUEST PROVISIONING (Linux only) -- every file under
+                    /var/log/yuruna/ (one per pwsh_retry-wrapped action;
+                    today: pwsh-yaml-install.log) carrying per-attempt
+                    pre-flight probes and Verbose streams, plus a slice
+                    of systemd-resolved's journal and a current snapshot
+                    of PSRepository / PackageProvider / module state.
+                    Diagnoses transient PSGallery / NuGet / DNS flakes
+                    that one-shot Install-Module would render as the
+                    same low-information "No match was found" string
+                    regardless of which leg actually failed.
      12. YURUNA PROJECT -- ../project tree scan for resources.output.yml
                     files (path + content + empty-block analysis) and a
                     grep across every .yuruna/ working folder for any
@@ -164,13 +174,76 @@ function Invoke-DiagnosticSection {
     }
 }
 
+# Wall-clock-bounded scriptblock invocation. A wedged daemon (dockerd
+# stuck in a syscall, kubectl blocked on an unreachable apiserver) can
+# consume the entire outer SSH/console budget if invoked in-process;
+# running the probe in a background job with Wait-Job -Timeout caps
+# the cost at $TimeoutSeconds regardless of what the child is doing.
+# Captured variables flow through -ArgumentList rather than the
+# scriptblock closure: Start-Job runs the block in a fresh runspace,
+# so $using: / lexical scope are not honored.
+function Invoke-WithDeadline {
+    param(
+        [Parameter(Mandatory)][scriptblock]$ScriptBlock,
+        [int]$TimeoutSeconds = 5,
+        [object[]]$ArgumentList = @()
+    )
+    $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+    $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
+    if ($null -eq $completed) {
+        try { Stop-Job -Job $job -ErrorAction SilentlyContinue } catch { $null = $_ }
+        try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
+        return @{ TimedOut = $true; Output = $null; ExitCode = -1 }
+    }
+    $out = $null
+    try {
+        $out = Receive-Job -Job $job -ErrorAction SilentlyContinue
+    } catch {
+        $null = $_
+    } finally {
+        try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
+    }
+    # Child-process exit code only flows back if the scriptblock emits it
+    # explicitly (parent-scope $LASTEXITCODE is unrelated to the job's
+    # runspace); callers that care must include $LASTEXITCODE in their
+    # block's final pipeline and recover it from $Output.
+    return @{ TimedOut = $false; Output = $out; ExitCode = $null }
+}
+
 function Invoke-Tool {
     param(
         [Parameter(Mandatory)][string]$Tool,
         [string[]]$ToolArgs = @(),
-        [string]$ProblemTag = $null
+        [string]$ProblemTag = $null,
+        [int]$TimeoutSeconds = 0
     )
     try {
+        if ($TimeoutSeconds -gt 0) {
+            $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList @($Tool, $ToolArgs) -ScriptBlock {
+                param($t, $a)
+                & $t @a 2>&1 | ForEach-Object { $_.ToString() }
+                $LASTEXITCODE
+            }
+            if ($result.TimedOut) {
+                Write-Output ("  ({0} probe timed out after {1}s -- daemon likely wedged)" -f $Tool, $TimeoutSeconds)
+                if ($ProblemTag) { Add-Problem "$($ProblemTag): probe timeout after ${TimeoutSeconds}s from '$Tool $($ToolArgs -join ' ')'." }
+                return
+            }
+            $lines = @($result.Output)
+            $exit = 0
+            if ($lines.Count -gt 0) {
+                $last = $lines[$lines.Count - 1]
+                if ($last -is [int]) {
+                    $exit = [int]$last
+                    $lines = $lines[0..($lines.Count - 2)]
+                }
+            }
+            $lines | ForEach-Object { Write-Output ([string]$_) }
+            if ($exit -ne 0 -and $ProblemTag) {
+                Add-Problem "$($ProblemTag): exit code $exit from '$Tool $($ToolArgs -join ' ')'."
+            }
+            return
+        }
         & $Tool @ToolArgs 2>&1 | ForEach-Object { Write-Output ($_.ToString()) }
         if ($LASTEXITCODE -ne 0 -and $ProblemTag) {
             Add-Problem "$($ProblemTag): exit code $LASTEXITCODE from '$Tool $($ToolArgs -join ' ')'."
@@ -211,6 +284,7 @@ try {
     # ===== 1. HOST =====================================================
     Invoke-DiagnosticSection "HOST" {
     Write-Output ("Hostname     : {0}" -f [System.Net.Dns]::GetHostName())
+    Write-Output ("Username     : {0}" -f [Environment]::UserName)
     Write-Output ("Time (UTC)   : {0}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
     Write-Output ("Time (local) : {0}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))
 
@@ -287,7 +361,10 @@ try {
     }
     Get-VersionLine 'Kubernetes' {
         if (Get-Command kubectl -ErrorAction SilentlyContinue) {
-            $j = & kubectl version --client -o json 2>$null
+            # --client suppresses the apiserver roundtrip but kubectl
+            # still resolves kubeconfig; --request-timeout caps the
+            # fallback for unreachable clusters with broken contexts.
+            $j = & kubectl version --client -o json --request-timeout=5s 2>$null
             if ($LASTEXITCODE -eq 0 -and $j) {
                 (($j -join "`n") | ConvertFrom-Json).clientVersion.gitVersion
             }
@@ -918,31 +995,21 @@ try {
         }
     }
 
-    Write-Sub "Full *.stderr.log files under project/.yuruna/ (verbatim, for tofu/helm/kubectl/docker post-mortems)"
-    # Per-phase stderr logs the yuruna automation writes to .yuruna/<env>/...
-    # (each captures the full stdout+stderr of the phase's tool calls with a
-    # "=== <cmd> (exit=N) ===" header so the operator can reconstruct what
-    # failed):
-    #   tofu.stderr.log    -- Yuruna.Resource.psm1   (Set-Resource)
-    #   helm.stderr.log    -- Yuruna.Workload.psm1   (chart install + ad-hoc helm: deployments)
-    #   kubectl.stderr.log -- Yuruna.Workload.psm1   (kubectl: deployments)
-    #   shell.stderr.log   -- Yuruna.Workload.psm1   (shell: deployments)
-    #   docker.stderr.log  -- Yuruna.Component.psm1  (build/tag/push pipeline)
-    # The matching *.rc sidecar holds the LAST observed exit code; the gap
-    # heuristics below cross-check rc against in-cluster state to flag a
-    # silent success-without-effect (e.g. helm.rc=0 but no helm releases).
-    $projectCandidate = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
-    $tofuProjectRoot = $null
-    if (Test-Path -LiteralPath $projectCandidate) {
-        $tofuProjectRoot = (Resolve-Path -LiteralPath $projectCandidate).Path
+    Write-Sub "Full *.stderr.log files under yuruna repo root (verbatim, for tofu/helm/kubectl/docker post-mortems)"
+    # Per-phase stderr.log + *.rc catalog and the -Force-required dot-dir
+    # scan trap: https://yuruna.link/architecture
+    $yurunaRootCandidate = Join-Path -Path $PSScriptRoot -ChildPath '..'
+    $diagScanRoot = $null
+    if (Test-Path -LiteralPath $yurunaRootCandidate) {
+        $diagScanRoot = (Resolve-Path -LiteralPath $yurunaRootCandidate).Path
     }
-    if (-not $tofuProjectRoot) {
-        Write-Output "(no project directory at $projectCandidate -- skipping)"
+    if (-not $diagScanRoot) {
+        Write-Output "(no yuruna repo root at $yurunaRootCandidate -- skipping)"
     } else {
-        $phaseLogs = @(Get-ChildItem -Path $tofuProjectRoot -Recurse -File -ErrorAction SilentlyContinue |
+        $phaseLogs = @(Get-ChildItem -Path $diagScanRoot -Recurse -File -Force -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like '*.stderr.log' })
         if ($phaseLogs.Count -eq 0) {
-            Write-Output "(no *.stderr.log under $tofuProjectRoot -- no phase has produced output here)"
+            Write-Output "(no *.stderr.log under $diagScanRoot -- no phase has produced output here)"
         } else {
             foreach ($tl in ($phaseLogs | Sort-Object FullName)) {
                 $sizeNote = ''
@@ -994,15 +1061,34 @@ try {
         Write-Output "docker command not found in PATH."
         Add-Problem "DOCKER: docker not installed (or not in PATH)."
     } else {
-        $null = & docker info --format '{{.ServerVersion}}' 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        # A wedged dockerd will hang `docker info` for the full client
+        # timeout (default 30s+); cap with Invoke-WithDeadline so the
+        # rest of the diagnostic dump still runs inside the outer
+        # SSH/console budget.
+        $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
+            $null = & docker info --format '{{.ServerVersion}}' 2>&1
+            $LASTEXITCODE
+        }
+        if ($probe.TimedOut) {
+            Write-Output "(docker info probe timed out after 5s -- daemon likely wedged)"
+            Add-Problem "DOCKER: probe timeout (docker info did not return within 5s; daemon likely wedged)."
+        } elseif ((@($probe.Output) | Select-Object -Last 1) -ne 0) {
             Write-Output "Docker CLI present but daemon unreachable."
             Add-Problem "DOCKER: daemon unreachable (`docker info` failed)."
         } else {
             Write-Sub "docker version (client+server)"
-            Invoke-Tool -Tool 'docker' -ToolArgs @('version','--format','Client: {{.Client.Version}} ({{.Client.Os}}/{{.Client.Arch}})`nServer: {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})')
+            Invoke-Tool -Tool 'docker' -ToolArgs @('version','--format','Client: {{.Client.Version}} ({{.Client.Os}}/{{.Client.Arch}})`nServer: {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})') -TimeoutSeconds 5
             Write-Sub "docker info (selected fields)"
-            $info = & docker info --format '{{json .}}' 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $infoProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
+                & docker info --format '{{json .}}' 2>$null
+            }
+            $info = $null
+            if ($infoProbe.TimedOut) {
+                Write-Output "(docker info probe timed out after 5s -- daemon likely wedged)"
+                Add-Problem "DOCKER: probe timeout (docker info --format json did not return within 5s)."
+            } else {
+                $info = ($infoProbe.Output -join "`n") | ConvertFrom-Json -ErrorAction SilentlyContinue
+            }
             if ($info) {
                 Write-Output ("Containers     : total={0}, running={1}, paused={2}, stopped={3}" -f $info.Containers, $info.ContainersRunning, $info.ContainersPaused, $info.ContainersStopped)
                 Write-Output ("Images         : {0}" -f $info.Images)
@@ -1017,8 +1103,17 @@ try {
                 }
             }
             Write-Sub "docker ps -a (all containers)"
-            Invoke-Tool -Tool 'docker' -ToolArgs @('ps','-a','--format','table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}')
-            $rows = & docker ps -a --format '{{.Names}}|{{.Status}}' 2>$null
+            Invoke-Tool -Tool 'docker' -ToolArgs @('ps','-a','--format','table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}') -TimeoutSeconds 5
+            $psProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
+                & docker ps -a --format '{{.Names}}|{{.Status}}' 2>$null
+            }
+            $rows = @()
+            if ($psProbe.TimedOut) {
+                Write-Output "(docker ps probe timed out after 5s -- daemon likely wedged)"
+                Add-Problem "DOCKER: probe timeout (docker ps -a did not return within 5s)."
+            } else {
+                $rows = @($psProbe.Output)
+            }
             foreach ($r in $rows) {
                 $parts = $r -split '\|', 2
                 if ($parts.Count -ne 2) { continue }
@@ -1028,9 +1123,32 @@ try {
                 }
             }
             Write-Sub "docker images (top 100 by size)"
-            $imgsRaw = & docker images --format '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedSince}}' 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Write-Output ("(docker images returned exit {0})" -f $LASTEXITCODE)
+            $imgsProbe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
+                & docker images --format '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedSince}}' 2>&1
+                $LASTEXITCODE
+            }
+            $imgsRaw = @()
+            $imgsExit = 0
+            if ($imgsProbe.TimedOut) {
+                Write-Output "(docker images probe timed out after 5s -- daemon likely wedged)"
+                Add-Problem "DOCKER: probe timeout (docker images did not return within 5s)."
+                $imgsExit = -1
+            } else {
+                $imgsOutput = @($imgsProbe.Output)
+                if ($imgsOutput.Count -gt 0) {
+                    $last = $imgsOutput[$imgsOutput.Count - 1]
+                    if ($last -is [int]) {
+                        $imgsExit = [int]$last
+                        $imgsRaw = $imgsOutput[0..($imgsOutput.Count - 2)]
+                    } else {
+                        $imgsRaw = $imgsOutput
+                    }
+                }
+            }
+            if ($imgsExit -ne 0) {
+                if (-not $imgsProbe.TimedOut) {
+                    Write-Output ("(docker images returned exit {0})" -f $imgsExit)
+                }
             } else {
                 $rows = @($imgsRaw | Where-Object { $_ -match '\|' } | ForEach-Object {
                     $parts = $_ -split '\|', 5
@@ -1060,9 +1178,9 @@ try {
                 }
             }
             Write-Sub "docker stats --no-stream (running containers)"
-            Invoke-Tool -Tool 'docker' -ToolArgs @('stats','--no-stream','--format','table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}')
+            Invoke-Tool -Tool 'docker' -ToolArgs @('stats','--no-stream','--format','table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}') -TimeoutSeconds 5
             Write-Sub "docker system df"
-            Invoke-Tool -Tool 'docker' -ToolArgs @('system','df')
+            Invoke-Tool -Tool 'docker' -ToolArgs @('system','df') -TimeoutSeconds 5
 
             Write-Sub "Local registry catalog (probe http://localhost:5000/v2/_catalog)"
             try {
@@ -1096,7 +1214,11 @@ try {
         Add-Problem "KUBE: kubectl not installed (or not in PATH)."
     } else {
         Write-Sub "kubectl version"
-        $kv = & kubectl version --output=json 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
+        # --request-timeout caps the per-call wait on an unreachable
+        # apiserver; without it a stale kubeconfig pointing at a torn-
+        # down VIP blocks for the full client default (~30s) per probe
+        # and starves later sections of the section's wall budget.
+        $kv = & kubectl version --output=json --request-timeout=5s 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
         if ($kv) {
             if ($kv.clientVersion) { Write-Output ("Client : {0}" -f $kv.clientVersion.gitVersion) }
             if ($kv.serverVersion) { Write-Output ("Server : {0}" -f $kv.serverVersion.gitVersion) }
@@ -1106,8 +1228,8 @@ try {
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('config','current-context')
 
         Write-Sub "kubectl get nodes -o wide"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','nodes','-o','wide')
-        $nodes = & kubectl get nodes --no-headers 2>$null
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','nodes','-o','wide','--request-timeout=5s') -TimeoutSeconds 5
+        $nodes = & kubectl get nodes --no-headers --request-timeout=5s 2>$null
         foreach ($n in $nodes) {
             $cols = $n -split '\s+'
             if ($cols.Count -ge 2 -and $cols[1] -notmatch '^Ready') {
@@ -1116,11 +1238,11 @@ try {
         }
 
         Write-Sub "Namespaces"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ns')
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ns','--request-timeout=5s') -TimeoutSeconds 5
 
         Write-Sub "Pods (all namespaces, -o wide)"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','pods','-A','-o','wide')
-        $pods = & kubectl get pods -A --no-headers 2>$null
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','pods','-A','-o','wide','--request-timeout=5s') -TimeoutSeconds 5
+        $pods = & kubectl get pods -A --no-headers --request-timeout=5s 2>$null
         foreach ($p in $pods) {
             $cols = $p -split '\s+'
             if ($cols.Count -lt 6) { continue }
@@ -1139,34 +1261,34 @@ try {
         }
 
         Write-Sub "Services (all namespaces)"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','svc','-A')
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','svc','-A','--request-timeout=5s')
 
         Write-Sub "Deployments (all namespaces)"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','deploy','-A')
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','deploy','-A','--request-timeout=5s')
 
         Write-Sub "DaemonSets (all namespaces)"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ds','-A')
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ds','-A','--request-timeout=5s')
 
         Write-Sub "StatefulSets (all namespaces)"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','sts','-A')
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','sts','-A','--request-timeout=5s')
 
         Write-Sub "Jobs / CronJobs (all namespaces)"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','jobs,cronjobs','-A')
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','jobs,cronjobs','-A','--request-timeout=5s')
 
         Write-Sub "Ingresses (all namespaces)"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ingress','-A')
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','ingress','-A','--request-timeout=5s')
 
         Write-Sub "PersistentVolumes / PVCs"
-        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','pv,pvc','-A')
+        Invoke-Tool -Tool 'kubectl' -ToolArgs @('get','pv,pvc','-A','--request-timeout=5s')
 
         Write-Sub "ConfigMaps + Secrets (counts only)"
-        $cmCount = (& kubectl get cm  -A --no-headers 2>$null | Measure-Object).Count
-        $scCount = (& kubectl get secret -A --no-headers 2>$null | Measure-Object).Count
+        $cmCount = (& kubectl get cm  -A --no-headers --request-timeout=5s 2>$null | Measure-Object).Count
+        $scCount = (& kubectl get secret -A --no-headers --request-timeout=5s 2>$null | Measure-Object).Count
         Write-Output ("ConfigMaps : {0}" -f $cmCount)
         Write-Output ("Secrets    : {0}" -f $scCount)
 
         Write-Sub "Recent Warning events (last 100 across all namespaces)"
-        $evts = @(& kubectl get events -A --field-selector type=Warning --sort-by .lastTimestamp 2>&1)
+        $evts = @(& kubectl get events -A --field-selector type=Warning --sort-by .lastTimestamp --request-timeout=5s 2>&1)
         if ($evts.Count -gt 1) {
             Write-Output $evts[0]
             $rows = $evts | Select-Object -Skip 1
@@ -1175,7 +1297,7 @@ try {
         } else {
             $evts | ForEach-Object { Write-Output $_ }
         }
-        $warnings = & kubectl get events -A --field-selector type=Warning --no-headers 2>$null
+        $warnings = & kubectl get events -A --field-selector type=Warning --no-headers --request-timeout=5s 2>$null
         if ($warnings -and $warnings.Count -gt 0) {
             Add-Problem "KUBE: $($warnings.Count) Warning events present (see kubectl get events -A)."
         }
@@ -1198,9 +1320,9 @@ try {
 
         Write-Sub "Namespaces that exist but have no Pods/Deployments"
         $nsBuiltin = @('default','kube-system','kube-public','kube-node-lease','kube-flannel')
-        $nsAll = @(& kubectl get ns --no-headers 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ })
-        $nsWithPods = @(& kubectl get pods -A --no-headers 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
-        $nsWithDeploys = @(& kubectl get deploy -A --no-headers 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
+        $nsAll = @(& kubectl get ns --no-headers --request-timeout=5s 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ })
+        $nsWithPods = @(& kubectl get pods -A --no-headers --request-timeout=5s 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
+        $nsWithDeploys = @(& kubectl get deploy -A --no-headers --request-timeout=5s 2>$null | ForEach-Object { ($_ -split '\s+')[0] } | Sort-Object -Unique)
         $emptyNs = @($nsAll | Where-Object { $_ -and ($nsBuiltin -notcontains $_) -and ($nsWithPods -notcontains $_) -and ($nsWithDeploys -notcontains $_) })
         if ($emptyNs.Count -gt 0) {
             foreach ($n in $emptyNs) {
@@ -1837,6 +1959,84 @@ try {
         }
     }
 
+    # ===== 11c. GUEST PROVISIONING (Linux) =============================
+    # --- See https://yuruna.link/definition#defining-get-systemdiagnostic (section 11c)
+    if ($IsLinux) {
+        Invoke-DiagnosticSection "GUEST PROVISIONING (Linux)" {
+            Write-Sub "/var/log/yuruna/ (dir listing)"
+            if (Test-Path '/var/log/yuruna') {
+                $items = @(Get-ChildItem -Path '/var/log/yuruna' -Force -ErrorAction SilentlyContinue | Sort-Object Name)
+                if ($items.Count -eq 0) {
+                    Write-Output "(directory exists but empty -- no pwsh_retry actions have run yet)"
+                } else {
+                    foreach ($it in $items) {
+                        $size = if ($it.PSIsContainer) { '<DIR>' } else { ("{0,10}" -f $it.Length) }
+                        Write-Output ("  {0}  {1}" -f $size, $it.Name)
+                    }
+                }
+            } else {
+                Write-Output "(no /var/log/yuruna -- guest update.sh has not run, or its pwsh_retry wrapper was bypassed)"
+            }
+
+            Write-Sub "/var/log/yuruna/*.log (full contents)"
+            if (Test-Path '/var/log/yuruna') {
+                $logs = @(Get-ChildItem -Path '/var/log/yuruna' -Filter '*.log' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+                if ($logs.Count -eq 0) {
+                    Write-Output "(no *.log files)"
+                } else {
+                    foreach ($log in $logs) {
+                        Write-Output ""
+                        Write-Output ("===== {0} ({1} bytes) =====" -f $log.Name, $log.Length)
+                        Get-Content -LiteralPath $log.FullName -ErrorAction SilentlyContinue |
+                            ForEach-Object { Write-Output $_ }
+                        $body = Get-Content -LiteralPath $log.FullName -Raw -ErrorAction SilentlyContinue
+                        if ($body -and ($body -match 'all \d+ attempts exhausted')) {
+                            Add-Problem ("PROVISIONING: {0} records exhausted pwsh_retry attempts -- the wrapped pwsh action failed every retry, cycle aborted." -f $log.Name)
+                        }
+                    }
+                }
+            }
+
+            Write-Sub "journalctl -u systemd-resolved --since '15 min ago' (DNS slice)"
+            if (Test-CommandAvailable 'journalctl') {
+                $r = & journalctl -u systemd-resolved --since '15 min ago' --no-pager 2>$null
+                if ($r) {
+                    $r | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
+                } else {
+                    Write-Output "(no systemd-resolved entries in the last 15 min)"
+                }
+            } else {
+                Write-Output "(journalctl not available)"
+            }
+
+            Write-Sub "PSRepository / PackageProvider / module state (current snapshot)"
+            try {
+                Get-PSRepository -ErrorAction Stop |
+                    Format-List Name,SourceLocation,InstallationPolicy,Trusted | Out-String |
+                    ForEach-Object { Write-Output $_ }
+            } catch {
+                Write-Output ("Get-PSRepository ERROR: {0}" -f $_.Exception.Message)
+                Add-Problem "PROVISIONING: Get-PSRepository threw -- PSGallery registration is unhealthy; Install-Module will fail with 'No match was found'."
+            }
+            Write-Output "--- PackageProvider -ListAvailable ---"
+            try {
+                Get-PackageProvider -ListAvailable -ErrorAction Stop |
+                    Select-Object Name,Version | Format-Table -AutoSize | Out-String |
+                    ForEach-Object { Write-Output $_ }
+            } catch {
+                Write-Output ("Get-PackageProvider ERROR: {0}" -f $_.Exception.Message)
+            }
+            Write-Output "--- Modules (PowerShellGet, PSResourceGet, powershell-yaml) ---"
+            try {
+                Get-Module PowerShellGet, Microsoft.PowerShell.PSResourceGet, powershell-yaml -ListAvailable |
+                    Select-Object Name,Version | Format-Table -AutoSize | Out-String |
+                    ForEach-Object { Write-Output $_ }
+            } catch {
+                Write-Output ("Get-Module ERROR: {0}" -f $_.Exception.Message)
+            }
+        }
+    }
+
     # ===== 12. YURUNA PROJECT ==========================================
     Invoke-DiagnosticSection "YURUNA PROJECT" {
         $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
@@ -1865,7 +2065,7 @@ try {
                 }
             }
             # Tarball-extracted trees have no .git/, so fall back to the
-            # sidecar Start-StatusServer.ps1 injects via `git archive --add-file`.
+            # sidecar Start-StatusService.ps1 injects via `git archive --add-file`.
             $marker = Join-Path -Path $RepoPath -ChildPath '.yuruna-origin'
             if (Test-Path -LiteralPath $marker) {
                 $line = Get-Content -LiteralPath $marker -TotalCount 1 -ErrorAction SilentlyContinue
@@ -2163,7 +2363,7 @@ try {
             if ($declaredNs.Count -eq 0) {
                 Write-Output "(no globalVariables.namespace declarations found in any resources.output.yml)"
             } else {
-                $clusterNs = @(& kubectl get ns -o name 2>$null | ForEach-Object { ($_ -replace '^namespace/','').Trim() } | Where-Object { $_ })
+                $clusterNs = @(& kubectl get ns -o name --request-timeout=5s 2>$null | ForEach-Object { ($_ -replace '^namespace/','').Trim() } | Where-Object { $_ })
                 foreach ($d in $declaredNs) {
                     if ($clusterNs -contains $d.Name) {
                         Write-Output ("  namespace '{0}' declared in {1} -- present in cluster" -f $d.Name, $d.File)
@@ -2186,13 +2386,13 @@ try {
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
         } else {
-            $readyNodes = @(& kubectl get nodes --no-headers 2>$null |
+            $readyNodes = @(& kubectl get nodes --no-headers --request-timeout=5s 2>$null |
                 Where-Object { ($_ -split '\s+')[1] -match '^Ready' })
             if ($readyNodes.Count -eq 0) {
                 Write-Output "(no Ready nodes -- cluster is not up; not a deploy gap, see KUBE section)"
             } else {
                 $systemNs = @('default','kube-system','kube-public','kube-node-lease','kube-flannel','kube-proxy')
-                $userPods = @(& kubectl get pods -A --no-headers 2>$null |
+                $userPods = @(& kubectl get pods -A --no-headers --request-timeout=5s 2>$null |
                     ForEach-Object {
                         $cols = $_ -split '\s+'
                         if ($cols.Count -ge 2 -and $systemNs -notcontains $cols[0]) { $_ }
@@ -2230,7 +2430,7 @@ try {
                 Write-Output "(no local registry at :5000 or its catalog is empty; nothing to cross-check)"
             } else {
                 # Containers + initContainers + ephemeralContainers, all namespaces
-                $allImages = @(& kubectl get pods -A `
+                $allImages = @(& kubectl get pods -A --request-timeout=5s `
                     -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"`n"}{end}{range .spec.initContainers[*]}{.image}{"`n"}{end}{range .spec.ephemeralContainers[*]}{.image}{"`n"}{end}{end}' 2>$null `
                     -split "`n" | Where-Object { $_ })
                 $orphans = @()

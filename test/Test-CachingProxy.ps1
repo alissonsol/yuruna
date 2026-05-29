@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Smoke-tests a squid-cache (local or remote) before Invoke-TestRunner.
+    Smoke-tests a caching-proxy (local or remote) before Invoke-TestRunner.
     Probes :3128, :3129, :80, :3000 and GETs /yuruna-squid-ca.crt, PASS/
     FAIL/WARN per check. See docs/caching-proxy.md for the full story.
     Falls back to local discovery when $Env:YURUNA_CACHING_PROXY_IP and
@@ -43,24 +43,25 @@ param(
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# Get-CachingProxyPort is used unconditionally below to resolve the HTTP /
-# HTTPS port. The Initialize-YurunaHost path (local discovery) imports
-# Test.VM.common transitively, but the YURUNA_CACHING_PROXY_IP / -CacheIp
-# branches don't -- so import here directly. Without this, the port-probe
-# block at "$httpPort = Get-CachingProxyPort -Scheme http" fails with
-# "Get-CachingProxyPort is not recognized" whenever the cache IP is given.
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.VM.common.psm1') -DisableNameChecking
-# Invoke-CachingProxyProbe lives in Test.CachingProxy.psm1 and is the
-# shared cache-side probe also used by the cycle-start gate in
-# Invoke-TestInnerRunner.ps1.
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -DisableNameChecking
+# Canonical path bundle + CachingProxy module kind. Loads the same trio
+# (Test.VMUtility, Test.CachingProxy, Test.Host) that the four caching-
+# proxy scripts used to import inline:
+#   * Test.VMUtility -- Get-CachingProxyPort / Test-IpAddress, used by the
+#     port-probe block below and the env-var / -CacheIp branches that
+#     bypass Test-CachingProxyAvailable's transitive imports.
+#   * Test.CachingProxy -- Invoke-CachingProxyProbe (shared with the cycle-
+#     start gate in Invoke-TestInnerRunner.ps1).
+#   * Test.Host -- Invoke-LibvirtGroupReExecIfNeeded + Initialize-YurunaHost.
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
+$paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
+$ModulesDir = $paths.ModulesDir
+Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
 
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
 # group set is stale -- the local-discovery branch (no -CacheIp / env
 # override) calls into Yuruna.Host which uses virsh to find the cache
 # VM's IP. No-op on other hosts / fresh shells / when -CacheIp short-
 # circuits the libvirt path.
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.Host.psm1') -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 $script:PassCount = 0
@@ -78,7 +79,7 @@ function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:
 # nothing else the script does is meaningful without an IP to target.
 
 Write-Output ""
-Write-Output "=== yuruna caching proxy probe ==="
+Write-Output "=== Yuruna caching proxy probe ==="
 
 $resolvedIp   = $null
 $resolvedFrom = $null
@@ -135,7 +136,9 @@ Write-Output ""
 #   :80, CA cert          -- WARN (HTTPS caching disabled on guests but
 #                            HTTP still works)
 # Lines and counters are folded back into this script's $script:* state
-# so the Summary line and exit code keep their pre-refactor semantics.
+# so the Summary line and exit code match the cycle-start gate's
+# PASS/WARN/FAIL classification (single source of truth in
+# Invoke-CachingProxyProbe).
 
 $probe = Invoke-CachingProxyProbe -CacheIp $resolvedIp
 foreach ($line in $probe.Lines) { Write-Output $line }
@@ -242,8 +245,8 @@ if (-not $effHost) {
     Write-Output ""
     if ($SetHostProxy) {
         # The promotion below wipes process env (Remove-HostProxy) and
-        # writes the new yuruna proxy. Single-step recovery: the WARN
-        # above will be gone after this run completes.
+        # writes the new yuruna proxy. Single-step recovery: once this
+        # run completes the WARN above is cleared.
         Write-Output "==== FIX ===="
         Write-Output ""
         Write-Output "  This run will wipe the stale env vars and promote ${resolvedIp}:${httpPort} below."

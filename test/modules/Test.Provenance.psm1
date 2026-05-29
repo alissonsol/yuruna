@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456782
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -87,7 +87,13 @@ function Write-BaseImageProvenance {
         Write-Warning "base image provenance not present"
         return
     }
-    Write-Verbose "Provenance: $($p.Url)"
+    # Write-Information (not Write-Verbose) so the base-image URL lands in
+    # the cycle's transcript at the default logLevel. The "we cycled
+    # against version X of the base image" audit trail is what an
+    # autonomous remediator (and the human reviewing a notification)
+    # need to correlate a failure with an upstream image rev -- gating
+    # that behind -Verbose hides the only durable link.
+    Write-Information "Provenance: $($p.Url)" -InformationAction Continue
 }
 
 Export-ModuleMember -Function Get-BaseImageProvenance, Write-BaseImageProvenance

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Cross-platform userspace TCP forwarder for the squid-cache VM.
+    Cross-platform userspace TCP forwarder for the caching-proxy VM.
 
 .DESCRIPTION
     Originally written for macOS UTM (Apple Virtualization shared-NAT
@@ -44,7 +44,7 @@
     find it without pgrep.
 
 .PARAMETER CacheIp
-    IP of the squid-cache VM on the VZ shared-NAT subnet (typically
+    IP of the caching-proxy VM on the VZ shared-NAT subnet (typically
     192.168.64.X for some X).
 
 .PARAMETER Port
@@ -96,15 +96,15 @@
     Start-Process pwsh -ArgumentList @(
         '-NoProfile','-File', $forwarderScript,
         '-CacheIp', '192.168.64.3',
-        '-PidFile', "$HOME/yuruna/image/squid-cache/forwarder.pid",
-        '-LogFile', "$HOME/yuruna/image/squid-cache/forwarder.log"
+        '-PidFile', "$HOME/yuruna/image/caching-proxy/forwarder.pid",
+        '-LogFile', "$HOME/yuruna/image/caching-proxy/forwarder.log"
     )
 #>
 
 param(
     # Default port honors $env:YURUNA_CACHING_PROXY_HTTP_PORT (3128 fallback).
     # This script runs in a fresh pwsh subprocess (Start-Process pwsh -File),
-    # so the Test.VM.common helper is not yet imported -- read the env var
+    # so the Test.VMUtility helper is not yet imported -- read the env var
     # directly to keep the same defaulting behavior callers expect.
     [Parameter(Mandatory)][string]$CacheIp,
     [int]$Port = $(if ($env:YURUNA_CACHING_PROXY_HTTP_PORT -as [int]) { [int]$env:YURUNA_CACHING_PROXY_HTTP_PORT } else { 3128 }),

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -17,22 +17,39 @@
 #requires -version 7
 
 param(
-    [switch]$Force
+        [switch]$Force,
+    # Quiet mode: suppress every Write-Status (host paths, per-VM file
+    # listings, base-image keep-list, "Deleted: <file>" trail) so the
+    # automated cycle-start sweep (Remove-TestVMFiles.ps1 -Quiet) emits
+    # nothing from this script. Write-Warning / Write-Error remain
+    # visible because they always represent an actual problem. Direct
+    # invocation (no -Quiet) prints the full log.
+    [switch]$Quiet
 )
 
+$script:QuietOutput = $Quiet.IsPresent
+
+function Write-Status {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline)][string]$Message)
+    process {
+        if ($script:QuietOutput) { Write-Verbose $Message } else { Write-Output $Message }
+    }
+}
+
 # === Warning ===
-Write-Output ""
-Write-Output "================================================================"
-Write-Output "  WARNING: DESTRUCTIVE OPERATION"
-Write-Output "================================================================"
-Write-Output ""
-Write-Output "  This script deletes UTM VM bundles (.utm) from ~/Desktop"
-Write-Output "  that are NOT registered in UTM."
-Write-Output ""
-Write-Output "  THIS CANNOT BE UNDONE."
-Write-Output ""
-Write-Output "================================================================"
-Write-Output ""
+Write-Status ""
+Write-Status "================================================================"
+Write-Status "  WARNING: DESTRUCTIVE OPERATION"
+Write-Status "================================================================"
+Write-Status ""
+Write-Status "  This script deletes UTM VM bundles (.utm) from ~/Desktop"
+Write-Status "  that are NOT registered in UTM."
+Write-Status ""
+Write-Status "  THIS CANNOT BE UNDONE."
+Write-Status ""
+Write-Status "================================================================"
+Write-Status ""
 
 # === Discover base image names from guest.* subfolders ===
 # Base image filenames follow the legacy convention "host.<short>.guest.<name>"
@@ -56,7 +73,7 @@ if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
 # === Scan for VM bundles ===
 $scanPath = "$HOME/yuruna/guest.nosync"
 if (-not (Test-Path $scanPath)) {
-    Write-Output "No yuruna/guest.nosync folder found at '$scanPath'. Nothing to scan."
+    Write-Status "No yuruna/guest.nosync folder found at '$scanPath'. Nothing to scan."
     exit 0
 }
 
@@ -105,7 +122,7 @@ foreach ($line in $utmOutput) {
 
 # Read VM UUID from a bundle's config.plist. utmctl list may only return
 # running VMs; UUID-based `utmctl status` works for stopped VMs too —
-# without this, a stopped service VM (e.g. squid-cache) is misclassified
+# without this, a stopped service VM (e.g. caching-proxy) is misclassified
 # as orphaned and deleted by the -Force cleanup path.
 #
 # `plutil -extract Information.UUID raw` (not `-convert json`):
@@ -125,8 +142,8 @@ function Get-UTMBundleUUID {
     return $null
 }
 
-Write-Output "UTM registered VMs: $($registeredVMs.Count)"
-Write-Output ""
+Write-Status "UTM registered VMs: $($registeredVMs.Count)"
+Write-Status ""
 
 $utmBundles = Get-ChildItem -Path $scanPath -Directory -Filter "*.utm" -ErrorAction SilentlyContinue
 $bundleMap = @{}
@@ -137,25 +154,25 @@ foreach ($bundle in $utmBundles) {
 
 # === List registered VMs and their associated files ===
 if ($registeredVMs.Count -gt 0) {
-    Write-Output "Currently registered VMs and their associated Desktop files:"
-    Write-Output ""
+    Write-Status "Currently registered VMs and their associated Desktop files:"
+    Write-Status ""
 }
 
 foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
     $vmStatus = $registeredVMs[$vmName]
-    Write-Output "  $vmName [$vmStatus]"
+    Write-Status "  $vmName [$vmStatus]"
 
     if ($bundleMap.ContainsKey($vmName)) {
         $bundlePath = $bundleMap[$vmName]
         $bundleFiles = Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue
         foreach ($f in ($bundleFiles | Sort-Object FullName)) {
             $sizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
-            Write-Output "    $($f.FullName)  ($sizeStr)"
+            Write-Status "    $($f.FullName)  ($sizeStr)"
         }
     } else {
-        Write-Output "    (no bundle found on Desktop)"
+        Write-Status "    (no bundle found on Desktop)"
     }
-    Write-Output ""
+    Write-Status ""
 }
 
 # === Identify orphaned bundles (excluding base images) ===
@@ -197,46 +214,46 @@ foreach ($vmName in $bundleMap.Keys) {
 
 # === List protected base images ===
 if ($protectedItems.Count -gt 0) {
-    Write-Output "The following base images are KEPT (not associated with a registered VM, but needed as base images):"
-    Write-Output ""
+    Write-Status "The following base images are KEPT (not associated with a registered VM, but needed as base images):"
+    Write-Status ""
     foreach ($item in $protectedItems) {
         $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
-        Write-Output "  $($item.Path)  ($sizeStr)"
+        Write-Status "  $($item.Path)  ($sizeStr)"
         $guestName = ($item.Name -replace "^$([regex]::Escape($hostFolder))\.", '')
-        Write-Output "    Reason: base image for $($guestName). Update by rerunning Get-Image.ps1 in $($guestName)/"
+        Write-Status "    Reason: base image for $($guestName). Update by rerunning Get-Image.ps1 in $($guestName)/"
     }
-    Write-Output ""
+    Write-Status ""
 }
 
 # === Delete orphaned bundles ===
 if ($orphanedItems.Count -eq 0) {
-    Write-Output "No orphaned VM bundles found. Nothing to clean up."
+    Write-Status "No orphaned VM bundles found. Nothing to clean up."
     exit 0
 }
 
-Write-Output "The following .utm bundles are NOT associated with any registered UTM VM:"
-Write-Output ""
+Write-Status "The following .utm bundles are NOT associated with any registered UTM VM:"
+Write-Status ""
 $totalSize = 0
 foreach ($item in $orphanedItems) {
     $totalSize += $item.Size
     $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
-    Write-Output "  $($item.Path)  ($sizeStr)"
+    Write-Status "  $($item.Path)  ($sizeStr)"
     $bundleFiles = Get-ChildItem -Path $item.Path -Recurse -File -ErrorAction SilentlyContinue
     foreach ($f in ($bundleFiles | Sort-Object FullName)) {
         $fSizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
-        Write-Output "    $($f.FullName)  ($fSizeStr)"
+        Write-Status "    $($f.FullName)  ($fSizeStr)"
     }
 }
-Write-Output ""
-Write-Output ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
-Write-Output ""
+Write-Status ""
+Write-Status ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
+Write-Status ""
 
 if ($Force) {
-    Write-Output "Force mode enabled — skipping confirmation."
+    Write-Status "Force mode enabled — skipping confirmation."
 } else {
     $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
     if ($confirmation -ne "YES") {
-        Write-Output "Operation cancelled. No files were deleted."
+        Write-Status "Operation cancelled. No files were deleted."
         exit 0
     }
 }
@@ -267,7 +284,7 @@ foreach ($item in $orphanedItems) {
             continue
         }
         Remove-Item -Path $item.Path -Recurse -Force
-        Write-Output "  Deleted: $($item.Path)"
+        Write-Status "  Deleted: $($item.Path)"
     } catch {
         Write-Warning "  Failed to delete: $($item.Path) - $_"
         $errors++
@@ -275,9 +292,9 @@ foreach ($item in $orphanedItems) {
 }
 
 # === Cleanup result ===
-Write-Output ""
+Write-Status ""
 if ($errors -eq 0) {
-    Write-Output "Cleanup complete. All orphaned bundles deleted."
+    Write-Status "Cleanup complete. All orphaned bundles deleted."
 } else {
-    Write-Output "Cleanup complete with $errors error(s). Some items could not be deleted."
+    Write-Status "Cleanup complete with $errors error(s). Some items could not be deleted."
 }

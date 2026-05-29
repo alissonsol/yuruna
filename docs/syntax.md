@@ -8,7 +8,7 @@ workarounds are in [Yuruna Workarounds](workarounds.md).
 
 After `./Add-AutomationToPath.ps1`, run from a project folder:
 
-```shell
+```
 Set-Resource.ps1  [project_root] [config_subfolder] [options]
 Set-Component.ps1 [project_root] [config_subfolder] [options]
 Set-Workload.ps1  [project_root] [config_subfolder] [options]

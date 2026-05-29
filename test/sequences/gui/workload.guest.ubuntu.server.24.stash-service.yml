@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=../../schemas/sequence.schema.yml
+
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Interaction sequence for driving VM workload testing.
+# See possible actions in the actions.yml file.
+# ${vmName}, ${hostType}, ${guestKey} are built-in. ${ext:area.Method(args)}
+# invokes the active extension under test/extension/<area>/.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 27e26897-db3b-4d98-b923-5f39ad3349bb
+sequenceRevision: 1
+
+description: "Ubuntu Server 24.04: log in as ystash and bring up the Yuruna Stash Service daemon."
+baseline:
+  ubuntu.server.24:
+    - start.guest.ubuntu.server.24
+variables:
+  username: ystash
+
+steps:
+  - action: retry
+    maxAttempts: 2
+    description: "Login (restart on timeout)"
+    steps:
+      - action: passwdPrompt
+        pattern: "login:"
+        timeoutSeconds: 600
+        text: "${username}"
+        description: "${vmName} login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${ext:authentication.GetPassword(${username})}"
+        description: "Password:"
+
+  - action: waitForText
+    pattern: "${username}@${vmName}"
+    timeoutSeconds: 90
+    description: "${username}@${vmName}"
+
+  - action: waitForSeconds
+    seconds: 10
+    description: "Pause before installing the daemon"
+
+  - action: fetchAndExecute
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.stash-service.sh"
+    description: "ubuntu.server.24.stash-service.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 900
+
+  - action: inputTextAndEnter
+    text: "clear; exit;"
+    description: "Exit back to login"

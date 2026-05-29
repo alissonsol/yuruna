@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -87,21 +87,43 @@ $script:WatchdogPollSeconds       = 30        # how often the watchdog re-checks
 # --- See https://yuruna.link/memory#why-yuruna-env-vars-are-snapshotted-and-re-asserted-across-inner-spawns
 $script:ForwardEnvNames = @(
     'YURUNA_CACHING_PROXY_IP',  # Test-CachingProxy / external-cache branch
-    'YURUNA_RUNTIME_DIR',         # Test.RuntimeDir override
-    'YURUNA_LOG_DIR',           # Test.LogDir override
+    'YURUNA_RUNTIME_DIR',         # Test.YurunaDir override
+    'YURUNA_LOG_DIR',           # Test.YurunaDir override
     'YURUNA_LOG_LEVEL',         # cascade visibility
-    'YURUNA_OCR_COMBINE'        # OCR combine mode (And|Or)
+    'YURUNA_OCR_COMBINE',       # OCR combine mode (And|Or)
+    'YURUNA_CONFIG_PATH',       # operator-supplied -ConfigPath (Sync-RuntimeConfig + Test.Transport agree)
+    'YURUNA_STATUS_PUBLIC_URL'  # off-host dashboard URL for failure-notification deep links
 )
 
 # === Resolve paths ==========================================================
-$TestRoot    = $PSScriptRoot
-$RepoRoot    = Split-Path -Parent $TestRoot
-$ModulesDir  = Join-Path $TestRoot 'modules'
+# Canonical path bundle from Test.Prelude. Same call shape used by
+# Test-Project, Test-Sequence, and Invoke-TestInnerRunner — adding a
+# new entry point uses the same one-liner.
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
+$paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath
+$TestRoot    = $paths.TestRoot
+$RepoRoot    = $paths.RepoRoot
+$ModulesDir  = $paths.ModulesDir
+$ConfigPath  = $paths.ConfigPath
+# Publish the resolved config path so every cross-module reload site
+# (Sync-RuntimeConfig in the inner runner, Update-TransportDefault in
+# Test.Transport, future similar callers) reads the SAME file when the
+# operator passes -ConfigPath <elsewhere>. Without this, Test.Transport
+# falls back to the in-tree template and the operator's dashboard edits
+# to vmCommunication.* never take effect.
+$env:YURUNA_CONFIG_PATH = $ConfigPath
 $InnerScript = Join-Path $ModulesDir 'Invoke-TestInnerRunner.ps1'
 if (-not (Test-Path -LiteralPath $InnerScript)) {
     Write-Error "Invoke-TestInnerRunner.ps1 not found at $InnerScript"
-    exit 2
+    exit (Get-EntryPointExitCode -Outcome Failure)
 }
+
+# Outer entry-point's canonical module set: shared bootstrap helper in
+# Test.Prelude collapses the prior 8 inline Import-Module calls (Test.
+# Host, RuntimeDir, LogDir, Config, InnerSpawn, ConfigGate, Capability,
+# SingleInstance) into a single call. See Initialize-YurunaEntryPoint
+# ModuleSet for the per-kind module lists.
+Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
 
 # Auto-relaunch under `sg libvirt -c "..."` on host.ubuntu.kvm when this
 # shell's running supplementary group set lacks libvirt. Done BEFORE we
@@ -111,22 +133,41 @@ if (-not (Test-Path -LiteralPath $InnerScript)) {
 # on macOS/Windows and on shells that already have libvirt in the
 # effective set. See Invoke-LibvirtGroupReExecIfNeeded for the full
 # rationale (sg + initgroups, why $env: would leak, etc.).
-Import-Module (Join-Path $ModulesDir 'Test.Host.psm1') -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
-# Resolve ConfigPath in the outer too (the inner has its own default), so
-# the failure-pause break-out triggers can read repositories.projectUrl
-# and watch the file's mtime without each call site re-deriving the path.
-if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot 'test.config.yml' }
+# ConfigPath was resolved by Initialize-YurunaEntryPoint above; the
+# failure-pause break-out triggers read repositories.projectUrl and
+# watch the file's mtime without each call site re-deriving the path.
 
 # === Bootstrap runtime dir + log dir ========================================
 # Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir publish the canonical
 # locations as $env:YURUNA_RUNTIME_DIR / $env:YURUNA_LOG_DIR. The inner pwsh
 # inherits these via Start-Process WITHOUT -UseNewEnvironment so the inner
 # and the status server agree on the on-disk track + log paths every cycle.
-Import-Module (Join-Path $ModulesDir 'Test.RuntimeDir.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'Test.LogDir.psm1')   -Force
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
+
+# Boot-time recovery sweep. Resolves the stale-state classes a prior
+# crash left behind: orphan `.incomplete` cycle-folder markers,
+# stale inner.pid whose process is gone, and a stale break-active.json
+# that no live runner is honouring. Runs ONCE per outer startup and
+# is a no-op on a clean boot. Sits BEFORE the runner.pid dance so the
+# existing single-instance flow sees a clean field; Clear-StalePidFile
+# inside the sweep only removes pidfiles whose process is provably
+# dead, so a legitimate concurrent OtherRunner is left for the
+# pidfile dance below to detect + stop.
+if (Get-Command Invoke-YurunaBootRecovery -ErrorAction SilentlyContinue) {
+    $null = Invoke-YurunaBootRecovery -Confirm:$false
+}
+
+# Runner state machine init. Reads runner.state.json; if the prior
+# state is not 'idle' AND the prior runId differs from ours, the
+# previous outer crashed mid-lifecycle -- Initialize-RunnerState
+# synthesises a <stale-state> -> fault -> idle pair on the NDJSON
+# stream so a downstream consumer sees the crash explicitly. Then
+# writes a fresh 'idle' state under our runId.
+if (Get-Command Initialize-RunnerState -ErrorAction SilentlyContinue) {
+    $null = Initialize-RunnerState -Confirm:$false
+}
 
 # Snapshot AFTER Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir so the
 # resolved (or operator-supplied) defaults for YURUNA_RUNTIME_DIR / YURUNA_-
@@ -174,92 +215,40 @@ function Write-OuterLog {
 # === Single-instance guard ==================================================
 # Outer owns the runner.pid file across the whole resilient lifetime. Inner
 # detects YURUNA_RUNNER_RELAUNCH=1 and skips its own guard / pidfile write.
-# Same takedown logic the prior monolithic runner used: kill the previous
-# Invoke-TestRunner.ps1 (verified by command-line) and wipe stranded test
-# VMs before we start. Two outers racing on the same host produces the
-# stuck-Starting/Stopping VM symptom the original guard was written to
-# avoid.
+# Shared implementation in Test.SingleInstance.psm1 (imported above by
+# Initialize-YurunaEntryPointModuleSet -For Outer) so a per-platform fix
+# (BSD ps truncation, StartTime tolerance, etc.) lands in one place.
 $RunnerPidFile   = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.pid'
-# StartTime sidecar: the script name is not always in the outer's argv
-# (interactive `pwsh` REPL → `./Invoke-TestRunner.ps1`, the documented
-# macOS/Linux launch, leaves argv as bare `pwsh`), so the cmdline regex
-# below false-negatives and Start-StatusServer's /control/runner-status
-# reports the live runner as stopped. Recording the process StartTime at
-# launch lets every consumer cross-check the recorded value against
-# Get-Process -Id <pid>'s live StartTime: a PID reuse has a different
-# StartTime, so the check is forgery-resistant without depending on
-# argv visibility.
 $RunnerStartFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.start'
-if (Test-Path -LiteralPath $RunnerPidFile) {
-    $existingPid = 0
-    try { $existingPid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { $existingPid = 0 }
-    if ($existingPid -gt 0 -and $existingPid -ne $PID -and (Get-Process -Id $existingPid -ErrorAction SilentlyContinue)) {
-        # Identity precedence: StartTime sidecar first (works regardless
-        # of how the outer was launched), cmdline regex fallback (older
-        # runners without the sidecar still get matched on Windows + on
-        # Linux/macOS launches that go through `pwsh -File`).
-        $identityMatch = $false
-        if (Test-Path -LiteralPath $RunnerStartFile) {
-            try {
-                $recorded   = (Get-Content -LiteralPath $RunnerStartFile -Raw -ErrorAction Stop).Trim()
-                $recordedDt = [DateTimeOffset]::Parse($recorded).UtcDateTime
-                $liveDt     = (Get-Process -Id $existingPid -ErrorAction Stop).StartTime.ToUniversalTime()
-                # 2s tolerance: ToString('o') is sub-microsecond on .NET
-                # but DateTimeOffset.Parse + StartTime can lose precision
-                # across the round-trip on some kernels. 2s is wide enough
-                # to absorb that without admitting a different process.
-                if ([Math]::Abs(($recordedDt - $liveDt).TotalSeconds) -le 2) { $identityMatch = $true }
-            } catch { Write-Verbose "runner.start cross-check failed: $($_.Exception.Message)" }
-        }
-        $cmd = $null
-        if (-not $identityMatch) {
-            if ($IsWindows) {
-                $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$existingPid" -ErrorAction SilentlyContinue).CommandLine
-            } elseif ($IsMacOS -or $IsLinux) {
-                # `-ww` forces unlimited column width. Without it, BSD/macOS
-                # ps truncates `args` to the controlling terminal's columns
-                # (or 80 if there's no TTY), hiding the trailing
-                # `Invoke-TestRunner.ps1` token and breaking the regex match
-                # below.
-                $cmd = & '/bin/ps' -ww -p $existingPid -o args= 2>$null
-            }
-        }
-        if ($identityMatch -or ($cmd -and $cmd -match 'Invoke-Test(?:Inner)?Runner\.ps1')) {
-            Write-Output ""
-            Write-Output "============================================="
-            Write-Output "  Another Invoke-TestRunner is running"
-            Write-Output "  PID:    $existingPid"
-            Write-Output "  Action: stopping it + Remove-TestVMFiles.ps1"
-            Write-Output "============================================="
-            Stop-Process -Id $existingPid -Force -ErrorAction SilentlyContinue
-            for ($i = 0; $i -lt 20; $i++) {
-                if (-not (Get-Process -Id $existingPid -ErrorAction SilentlyContinue)) { break }
-                Start-Sleep -Milliseconds 500
-            }
-            try {
-                $cleanup = Join-Path $TestRoot 'Remove-TestVMFiles.ps1'
-                if (Test-Path -LiteralPath $cleanup) {
-                    & pwsh -NoProfile -File $cleanup -Prefix 'test-'
-                }
-            } catch {
-                Write-Warning "Remove-TestVMFiles.ps1 failed during single-instance takeover: $_"
-            }
-        } else {
-            Write-Warning "Stale runner.pid: PID $existingPid is not an Invoke-TestRunner process. Ignoring."
+$priorRunner = Get-RunnerInstanceState -RunnerPidFile $RunnerPidFile -RunnerStartFile $RunnerStartFile
+switch ($priorRunner.status) {
+    'OtherRunner' {
+        Write-Output ""
+        Write-Output "============================================="
+        Write-Output "  Another Invoke-TestRunner is running"
+        Write-Output "  PID:    $($priorRunner.pid)"
+        Write-Output "  Action: stopping it + Remove-TestVMFiles.ps1"
+        Write-Output "============================================="
+        Stop-StaleRunner -ProcessId $priorRunner.pid -TestRoot $TestRoot -Confirm:$false
+    }
+    'Stale' {
+        if ($priorRunner.pid -gt 0) {
+            Write-Warning "Stale runner.pid: PID $($priorRunner.pid) is not an Invoke-TestRunner process. Ignoring."
         }
     }
-    Remove-Item -LiteralPath $RunnerPidFile -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $RunnerStartFile -Force -ErrorAction SilentlyContinue
+    default { } # 'None' / 'Self' -- nothing to do
 }
-$PID | Set-Content -Path $RunnerPidFile -Encoding ascii
-# Sidecar consumed by Start-StatusServer's /control/runner-status endpoint
-# (and by the single-instance guard above on the next launch). Written
-# AFTER runner.pid so a reader that races us sees both or neither.
-try {
-    $startIso = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
-    $startIso | Set-Content -Path $RunnerStartFile -Encoding ascii
-} catch {
-    Write-Verbose "Could not record runner.start (non-fatal): $($_.Exception.Message)"
+Remove-Item -LiteralPath $RunnerPidFile   -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $RunnerStartFile -Force -ErrorAction SilentlyContinue
+# Atomic CreateNew + FileShare.None lock. If a second runner started
+# between the Remove-Item above and this open, the loser sees $false
+# and aborts -- the winner now holds the pidfile lock for the rest of
+# its lifetime. Without the atomic check the two would race on the
+# plain Set-Content and one PID would silently get overwritten.
+$pidWritten = Write-RunnerPidFile -RunnerPidFile $RunnerPidFile -RunnerStartFile $RunnerStartFile -Confirm:$false
+if (-not $pidWritten) {
+    Write-Error "Lost the pidfile race against a concurrent Invoke-TestRunner. Inspect $RunnerPidFile and retry."
+    exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
 # === Ctrl+C handler =========================================================
@@ -283,39 +272,16 @@ try {
 }
 
 # === Build inner argument list ==============================================
-# -Command (not -File): pwsh's -File parameter binder coerces every argv
-# token to [string], which breaks [bool]/[int] inner parameters. -Command
-# parses the line as PowerShell so $true/$false/0/1 keep their types.
-$pwshExe = (Get-Process -Id $PID).Path
-$escapedScript = $InnerScript -replace "'", "''"
-$cmdParts = @("& '$escapedScript'")
+# Canonical builder: Test.InnerSpawn\New-InnerRunnerArgList. Why -Command,
+# -NoProfile, and single-quote escaping live in the helper, not here:
+# see test/modules/Test.InnerSpawn.psm1.
+$pwshExe = Get-PwshExePath
 # Outer-only switches that the inner does not accept. Filter so the
 # inner pwsh doesn't error with "A parameter cannot be found that
 # matches parameter name 'NoConfigGate'" when the operator passes it
 # to the outer.
 $script:OuterOnlyParams = @('NoConfigGate')
-foreach ($k in $PSBoundParameters.Keys) {
-    if ($script:OuterOnlyParams -contains $k) { continue }
-    $v = $PSBoundParameters[$k]
-    if ($v -is [System.Management.Automation.SwitchParameter]) {
-        if ($v.IsPresent) { $cmdParts += "-$k" }
-    } elseif ($v -is [bool]) {
-        $cmdParts += "-$k"
-        $cmdParts += $(if ($v) { '$true' } else { '$false' })
-    } elseif ($v -is [int] -or $v -is [long] -or $v -is [double]) {
-        $cmdParts += "-$k"
-        $cmdParts += "$v"
-    } else {
-        $escaped = ("$v") -replace "'", "''"
-        $cmdParts += "-$k"
-        $cmdParts += "'$escaped'"
-    }
-}
-# -NoProfile blocks operator $PROFILE from re-setting YURUNA_* env vars
-# (notably YURUNA_CACHING_PROXY_IP) in the child AFTER the outer's
-# snapshot+Sync-ForwardEnv injected the right values. See the comment
-# block at the top of this file for the failure mode.
-$argList = @('-NoLogo', '-NoProfile', '-Command', ($cmdParts -join ' '))
+$argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters -ExcludeParameter $script:OuterOnlyParams
 
 # === Helpers ================================================================
 function Get-OuterCommitSha {
@@ -406,16 +372,15 @@ function Get-OuterStepTimeoutMinute {
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)][string]$ConfigPath)
-    if (-not (Test-Path -LiteralPath $ConfigPath)) { return $script:StepTimeoutMinutesDefault }
-    try {
-        $cfg = Get-Content -Raw -LiteralPath $ConfigPath -ErrorAction Stop |
-            ConvertFrom-Yaml -Ordered -ErrorAction Stop
-        if ($cfg -and $cfg.testCycle -and $cfg.testCycle.Contains('stepTimeoutMinutes')) {
-            $v = [int]$cfg.testCycle.stepTimeoutMinutes
-            if ($v -gt 0) { return $v }
-        }
-    } catch {
-        Write-Verbose "Get-OuterStepTimeoutMinute: $($_.Exception.Message); falling back to default."
+    # -NoCache so a mid-cycle operator edit (the "lower stepTimeout for the
+    # next cycle" workflow documented in test/README.md) takes effect at the
+    # spawn boundary even if Read-TestConfig's mtime-keyed cache hasn't
+    # noticed yet on a low-resolution filesystem.
+    $cfg = Read-TestConfig -Path $ConfigPath -NoCache
+    $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.stepTimeoutMinutes'
+    if ($null -ne $v) {
+        $i = [int]$v
+        if ($i -gt 0) { return $i }
     }
     return $script:StepTimeoutMinutesDefault
 }
@@ -521,14 +486,9 @@ function Get-OuterProjectUrl {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$ConfigPath)
-    if (-not (Test-Path -LiteralPath $ConfigPath)) { return $null }
-    try {
-        $cfg = Get-Content -Raw -LiteralPath $ConfigPath -ErrorAction Stop |
-            ConvertFrom-Yaml -Ordered -ErrorAction Stop
-        if ($cfg -and $cfg.repositories -and $cfg.repositories.projectUrl) { return [string]$cfg.repositories.projectUrl }
-    } catch {
-        Write-Verbose "Get-OuterProjectUrl: $($_.Exception.Message)"
-    }
+    $cfg = Read-TestConfig -Path $ConfigPath
+    $v = Get-TestConfigValue -Config $cfg -Path 'repositories.projectUrl'
+    if ($v) { return [string]$v }
     return $null
 }
 
@@ -589,40 +549,25 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
 # Bypass with -NoConfigGate for "I know what I am doing" ad-hoc runs (and
 # for the existing dev-iteration flow where the operator wants to spawn
 # the runner against an in-progress edit).
-$ConfigGateScript = Join-Path $TestRoot 'Test-Config.ps1'
-if (-not (Test-Path -LiteralPath $ConfigGateScript)) {
-    Write-Warning "Pre-cycle config gate skipped: $ConfigGateScript not found."
-} elseif ($NoConfigGate) {
-    Write-Output "[outer startup] Pre-cycle config gate SKIPPED (-NoConfigGate)."
-} else {
-    Write-Output "[outer startup] Running Test-Config.ps1 as pre-cycle gate."
-    # Spawn in a fresh pwsh so an Out-Of-Order ::Stop early-exit inside
-    # Test-Config can't unwind the outer's eternal loop. -File (not
-    # -Command) because Test-Config takes no positional args here and
-    # the exit code is what we care about.
-    & $pwshExe -NoProfile -ExecutionPolicy Bypass -File $ConfigGateScript -SkipSend -ConfigPath $ConfigPath
-    $gateExit = $LASTEXITCODE
-    if ($gateExit -ne 0) {
-        Write-OuterLog "[outer startup] Test-Config.ps1 exited $gateExit -- refusing to start the cycle loop."
-        Write-Warning  ""
-        Write-Warning  "============================================================"
-        Write-Warning  "  Pre-cycle config gate FAILED (Test-Config.ps1 exit $gateExit)."
-        Write-Warning  "  Fix the FAIL items above (test.config.yml, vault.yml,"
-        Write-Warning  "  users.yml, transports.yml, ...) then re-run:"
-        Write-Warning  "      pwsh test/Invoke-TestRunner.ps1"
-        Write-Warning  ""
-        Write-Warning  "  To bypass for an ad-hoc / in-progress edit run:"
-        Write-Warning  "      pwsh test/Invoke-TestRunner.ps1 -NoConfigGate"
-        Write-Warning  "============================================================"
-        exit $gateExit
-    }
-    Write-Output "[outer startup] Pre-cycle config gate PASSED."
+$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
+if (-not $gate.passed) {
+    Write-OuterLog "[outer startup] Test-Config.ps1 exited $($gate.exitCode) -- refusing to start the cycle loop."
+    exit $gate.exitCode
 }
 
 # === Eternal loop ===========================================================
 $cycle = 0
 while (-not $script:ShutdownState['Requested']) {
     $cycle++
+
+    # State machine: idle -> cycle-start. The transition lands before
+    # any per-cycle work so a watchdog reading runner.state.json sees
+    # "cycle-start" while the git pull / pre-spawn cleanup is in flight;
+    # a crash during that window leaves "cycle-start" stale, which the
+    # next outer's Initialize-RunnerState detects + synthesises a fault.
+    if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+        $null = Set-RunnerState -To 'cycle-start' -Reason "cycle $cycle starting" -Confirm:$false
+    }
 
     # 1. Outer git pull (framework repo). Skip on -NoGitPull, mirroring
     #    the prior runner's flag. A failure here is treated as transient:
@@ -659,8 +604,52 @@ while (-not $script:ShutdownState['Requested']) {
     # cycle. A stale runner.stepHeartbeat has the symmetric trap: the
     # watchdog would see a 7h-old mtime and kill the new inner before it
     # even started its first step.
-    Remove-Item -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'inner.pid')             -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat')  -Force -ErrorAction SilentlyContinue
+    #
+    # last_failure.json is wiped here too. Invoke-Sequence removes it at
+    # the start of each sequence within a cycle (Invoke-Sequence.psm1:1678),
+    # but between the previous cycle's failure and the new cycle's first
+    # sequence there is a multi-second window where a dashboard / status-
+    # server reader sees stale cycle-N failure context attached to
+    # cycle N+1. Pre-spawn deletion closes that window.
+    $innerPidFile    = Join-Path $env:YURUNA_RUNTIME_DIR 'inner.pid'
+    $stepHbFile      = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
+    $lastFailureFile = Join-Path $env:YURUNA_LOG_DIR     'last_failure.json'
+    Remove-Item -LiteralPath $innerPidFile    -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $stepHbFile      -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $lastFailureFile -Force -ErrorAction SilentlyContinue
+    # Post-wipe: if Remove-Item failed (locked file, transient permission
+    # error, AV mid-scan, anything), the watchdog about to arm at line 599
+    # would read the stale mtime and kill the new inner inside one poll.
+    # Force a fresh stepHeartbeat mtime so the watchdog window is full
+    # regardless of whether Remove-Item succeeded. WriteAllText creates
+    # the file when missing and overwrites when present, so this also
+    # subsumes the inner's seed-write at the top of its bootstrap (the
+    # inner re-writes it again immediately, just makes the watchdog
+    # robust against an out-of-order spawn).
+    try {
+        [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
+    } catch {
+        Write-Warning "[outer cycle $cycle] could not force-fresh runner.stepHeartbeat ($($_.Exception.Message)) -- watchdog may false-positive within the first poll."
+        Write-OuterLog "[outer cycle $cycle] runner.stepHeartbeat force-touch failed: $($_.Exception.Message)"
+    }
+    # inner.pid is the watchdog's other input; the new inner overwrites
+    # it at startup. If a stale pidfile survived Remove-Item, log loudly
+    # so the operator can investigate; the watchdog's wait-for-pidfile
+    # loop sees the stale content and either targets a dead PID (no-op)
+    # or, worst case, kills a live unrelated process. Surface so it's
+    # diagnosable instead of silently weird.
+    if (Test-Path -LiteralPath $innerPidFile) {
+        Write-Warning "[outer cycle $cycle] inner.pid wipe failed and the file is still present; watchdog may target the stale PID."
+        Write-OuterLog "[outer cycle $cycle] inner.pid wipe failed -- stale content survived Remove-Item"
+    }
+    # break-active.json: written by the `break` sequence action when a
+    # cooperative breakpoint parks the cycle, removed on resume. If the
+    # operator restarts only Invoke-TestRunner.ps1 while a break is parked,
+    # the file survives and the first new-cycle step's Gate #1 thinks a
+    # break is still active -- hanging the cycle on a non-existent marker.
+    # Status-server startup also sweeps this file but the runner can start
+    # without the status server; clean here so both startup paths agree.
+    Remove-Item -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'break-active.json')     -Force -ErrorAction SilentlyContinue
     # Arm the watchdog BEFORE the spawn so it's already polling by the
     # time the inner writes inner.pid + the first heartbeat. Re-read
     # stepTimeoutMinutes each cycle so an operator can tighten / loosen
@@ -668,6 +657,13 @@ while (-not $script:ShutdownState['Requested']) {
     $stepTimeoutMin = Get-OuterStepTimeoutMinute -ConfigPath $ConfigPath
     Write-OuterLog "[outer cycle $cycle] watchdog: stepTimeoutMinutes=$stepTimeoutMin"
     $watchdogJob = Start-Watchdog -StepTimeoutMinutes $stepTimeoutMin -RuntimeDir $env:YURUNA_RUNTIME_DIR -PollSeconds $script:WatchdogPollSeconds
+    # State machine: cycle-start -> in-cycle. Lands AFTER the watchdog
+    # is armed and BEFORE the call-op blocks. A crash while inner is
+    # running leaves "in-cycle" stale; boot recovery + Initialize-
+    # RunnerState narrate the recovery on the next startup.
+    if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+        $null = Set-RunnerState -To 'in-cycle' -Reason "inner spawning" -Confirm:$false
+    }
     # --- See https://yuruna.link/memory#why-the-inner-spawn-uses-the-call-operator-instead-of-start-process
     $exitCode = 0
     try {
@@ -712,7 +708,23 @@ while (-not $script:ShutdownState['Requested']) {
 
     if ($exitCode -eq 0) {
         # 3a. Success -- next iteration pulls and respawns immediately.
+        # State machine: in-cycle -> cycle-end -> idle. Both transitions
+        # are emitted so a streaming consumer sees the clean closure
+        # explicitly rather than inferring it from the absence of a
+        # fault event.
+        if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+            $null = Set-RunnerState -To 'cycle-end' -Reason "inner exited 0" -Confirm:$false
+            $null = Set-RunnerState -To 'idle'      -Reason "cycle complete"  -Confirm:$false
+        }
         continue
+    }
+
+    # State machine: in-cycle -> fault. The transition lands BEFORE the
+    # failure-pause loop so a dashboard sees "fault" the moment the
+    # inner exits non-zero; the subsequent fault -> paused transition
+    # at the start of the pause loop makes the long wait explicit.
+    if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+        $null = Set-RunnerState -To 'fault' -Reason "inner exited $exitCode" -Confirm:$false
     }
 
     # 3b. Failure -- pause until either a new upstream commit lands on
@@ -743,6 +755,12 @@ while (-not $script:ShutdownState['Requested']) {
     # it cleanly when the loop exits via any path (success, cap, Ctrl+C,
     # exception).
     $progressId = 1
+    # State machine: fault -> paused. The pause loop below polls the
+    # framework + project + config-mtime triggers; this transition
+    # makes the waiting state explicit on the NDJSON stream.
+    if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+        $null = Set-RunnerState -To 'paused' -Reason "failure-pause begin" -Confirm:$false
+    }
     try {
     while ((Get-Date) -lt $deadline -and -not $script:ShutdownState['Requested']) {
         $remainingPoll = $script:FailureCommitPollSeconds
@@ -790,11 +808,33 @@ while (-not $script:ShutdownState['Requested']) {
             Write-OuterLog "[outer cycle $cycle] local test.config.yml changed (${ConfigPath}: $baselineConfigMtime -> $currentConfigMtime) -- ending pause."
             break
         }
+        # Trigger 4: status-service /control/start-cycle from the UI. The
+        # endpoint sees this outer's runner.pid as alive and skips spawning
+        # a replacement; without this poll, that path would leave the UI's
+        # "Start cycle" button silent until the backoff cap. Consume the
+        # flag here so the next inner spawn doesn't re-fire on it (Test-
+        # Sequence / inner's boot sweep also consume, but the closer the
+        # consume to the wake the smaller the window for stale-flag re-
+        # entry).
+        $outerRestartFlag = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-restart'
+        if (Test-Path -LiteralPath $outerRestartFlag) {
+            Write-Output "[outer cycle $cycle] /control/start-cycle requested via status UI -- ending pause."
+            Write-OuterLog "[outer cycle $cycle] /control/start-cycle requested via status UI -- ending pause."
+            Remove-Item -LiteralPath $outerRestartFlag -Force -ErrorAction SilentlyContinue
+            break
+        }
         $remainingMin = [math]::Max(0, [math]::Round((($deadline - (Get-Date)).TotalMinutes), 1))
         Write-Output "[outer cycle $cycle] no new commits, no config edit; ${remainingMin} min remain in pause."
     }
     } finally {
         Write-Progress -Id $progressId -Activity 'failure-pause' -Completed
+        # State machine: paused -> idle. The pause-loop exits via any
+        # of: new framework commit, new project commit, config edit,
+        # cap elapsed, or Ctrl+C. All are "ready to try again" from
+        # the state machine's perspective.
+        if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+            $null = Set-RunnerState -To 'idle' -Reason "failure-pause ended" -Confirm:$false
+        }
     }
 }
 
@@ -814,4 +854,4 @@ try {
 } catch {
     Write-Verbose "Pidfile cleanup swallowed error: $($_.Exception.Message)"
 }
-exit 0
+exit (Get-EntryPointExitCode -Outcome Ok)

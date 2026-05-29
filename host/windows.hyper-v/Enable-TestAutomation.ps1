@@ -4,7 +4,7 @@
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -29,7 +29,7 @@
       * machine inactivity lock → disabled
       * lock screen on resume → disabled
       * inbound ICMPv4 echo allowed (guest VMs + LAN can ping the host)
-      * inbound TCP on the status-server port allowed (LAN can see status)
+      * inbound TCP on the status-service port allowed (LAN can see status)
       * display scale / text scale → 100% (prevents Tesseract OCR failures
         on VM screenshots caused by HiDPI up-scaling on fresh Win11 laptops)
     Requires Administrator elevation. Idempotent — safe to re-run.

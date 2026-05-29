@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -57,115 +57,16 @@ $NotificationCfgPath  = Join-Path $ExtensionStateRoot "notification/transports.y
 $NotificationTmplPath = Join-Path $ExtensionRoot      "notification/transports.yml.template"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
-
-$script:PassCount     = 0
-$script:FailCount     = 0
-$script:WarnCount     = 0
-$script:CurrentSection = ''                       # last Write-Section header, threaded into Failure rows
-$script:Failures      = New-Object System.Collections.Generic.List[pscustomobject]
-
-function Write-Pass  { param([string]$msg) Write-Output "  [PASS] $msg"; $script:PassCount++ }
-function Write-Fail  {
-    # FullPath is optional, surfaced in the end-of-run FAILURES block so
-    # the operator can copy-paste the absolute location of the failing
-    # file without having to re-derive it from the message. Use it for
-    # every file-specific failure (schema-invalid, parse error, etc.).
-    param([string]$msg, [string]$FullPath)
-    Write-Output "  [FAIL] $msg"
-    $script:FailCount++
-    $script:Failures.Add([pscustomobject]@{
-        Section  = $script:CurrentSection
-        Message  = $msg
-        FullPath = $FullPath
-    })
-}
-function Write-Warn  { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
-function Write-Info  { param([string]$msg) Write-Output "        $msg" }
-function Write-Section { param([string]$msg) $script:CurrentSection = $msg; Write-Output "`n=== $msg ===" }
-
-# Centralized exit so every termination path -- including the early
-# exits sprinkled through the script (missing config file, YAML parse
-# error, abort-before-network-checks) -- prints the PASS/WARN/FAIL
-# tally AND the repeated FAILURES block. Operators previously had to
-# scroll back through the transcript to find the one FAIL line; the
-# block now lives at the bottom of every run, always.
-function Write-Summary {
-    Write-Output ""
-    Write-Output "─────────────────────────────────────────"
-    Write-Output ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:PassCount, $script:WarnCount, $script:FailCount)
-    Write-Output "─────────────────────────────────────────"
-    if ($script:FailCount -gt 0) {
-        Write-Output ""
-        Write-Output "============================================================"
-        Write-Output "  FAILURES ($($script:FailCount)) -- the cycle gate refuses to start until these are resolved:"
-        Write-Output "============================================================"
-        $i = 0
-        foreach ($f in $script:Failures) {
-            $i++
-            Write-Output ""
-            Write-Output ("  [{0}/{1}] in section: {2}" -f $i, $script:FailCount, $f.Section)
-            Write-Output ("        {0}" -f $f.Message)
-            if ($f.FullPath) {
-                Write-Output ("        File: {0}" -f $f.FullPath)
-            }
-        }
-        Write-Output ""
-        Write-Output "============================================================"
-        Write-Output "  END OF FAILURES ($($script:FailCount))"
-        Write-Output "============================================================"
-    }
-}
-function Exit-WithSummary {
-    param([int]$Code)
-    Write-Summary
-    exit $Code
-}
-
-# Returns $true when a value is a non-empty string, $false otherwise.
-function Test-IsSet { param($v) return ($null -ne $v -and "$v".Trim() -ne "") }
-
-# Best-effort schema validation. Test-Json (PS 7.4+) understands JSON
-# Schema; we feed it the YAML config and schema converted back to JSON
-# so the same validator works for both. When Test-Json is unavailable
-# we fall back to a parse-only check so the validator still surfaces
-# malformed YAML. We never block the cycle on missing schema tooling --
-# only on actual content errors.
-function Test-AgainstSchema {
-    param(
-        [Parameter(Mandatory)][string]$Label,
-        [Parameter(Mandatory)][string]$YamlPath,
-        [Parameter(Mandatory)][string]$SchemaPath
-    )
-    # Resolve to an absolute path so every FAIL row carries an operator-
-    # actionable location (the message used to say just "vault.yml" --
-    # forcing the operator to guess which of the several vault.yml
-    # locations was meant).
-    $YamlFull = try { [System.IO.Path]::GetFullPath($YamlPath) } catch { $YamlPath }
-    if (-not (Test-Path $YamlPath))   { Write-Fail "${Label}: file not found ($YamlFull)" -FullPath $YamlFull; return }
-    if (-not (Test-Path $SchemaPath)) { Write-Warn "${Label}: schema not found ($SchemaPath)"; return }
-    try {
-        $doc = Get-Content -Raw $YamlPath | ConvertFrom-Yaml -Ordered
-    } catch {
-        Write-Fail "${Label}: YAML parse error in ${YamlFull} -- $($_.Exception.Message)" -FullPath $YamlFull
-        return
-    }
-    $hasTestJson = Get-Command Test-Json -ErrorAction SilentlyContinue
-    if ($hasTestJson) {
-        try {
-            $schemaJson = Get-Content -Raw $SchemaPath | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 20
-            $docJson    = $doc | ConvertTo-Json -Depth 20
-            if (Test-Json -Json $docJson -Schema $schemaJson -ErrorAction Stop) {
-                Write-Pass "${Label}: schema-valid ($YamlFull)"
-            } else {
-                Write-Fail "${Label}: schema-invalid -- ${YamlFull}" -FullPath $YamlFull
-            }
-        } catch {
-            Write-Fail "${Label}: schema validation failed in ${YamlFull} -- $($_.Exception.Message)" -FullPath $YamlFull
-        }
-    } else {
-        Write-Pass "${Label}: parse-only check passed (Test-Json unavailable; schema not enforced)"
-    }
-}
+# Write-Pass / Write-Fail / Write-Warn / Write-Info / Write-Section /
+# Write-Summary / Exit-WithSummary are exported by Test.Output.psm1.
+# Test-IsSet / Test-AgainstSchema / Test-RepoFreshness are exported by
+# Test.ConfigValidator.psm1. Both modules share a $global: counters
+# anchor so every Write-Fail / Write-Pass from either module lands in
+# the same end-of-run summary.
+$script:ModulesDir = Join-Path $TestRoot "modules"
+Import-Module (Join-Path $script:ModulesDir 'Test.Output.psm1')          -Global -Force
+Import-Module (Join-Path $script:ModulesDir 'Test.ConfigValidator.psm1') -Global -Force
+Initialize-OutputState
 
 # ── Section 1: Config file ────────────────────────────────────────────────────
 
@@ -231,10 +132,19 @@ if (-not (Test-Path $hostModPath)) {
         # access. No-op on other hosts / fresh shells.
         Invoke-LibvirtGroupReExecIfNeeded -HostType $HostType -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
         Write-Pass "Host type detected: $HostType"
-        if (Test-HostRequirement -HostType $HostType -InformationAction SilentlyContinue) {
+        # Capture Test-HostRequirement's Write-Warning lines via -WarningVariable
+        # and re-emit them through Write-Warn so they land under the current
+        # section in Test.Output's state. Without this, those warnings reach
+        # the host's Warning stream directly and never make it into the
+        # FAILURES-summary block, leaving the operator with a bare "see
+        # warnings above" pointer at content that has scrolled off.
+        $reqWarns = $null
+        $reqOk = Test-HostRequirement -HostType $HostType -InformationAction SilentlyContinue -WarningAction SilentlyContinue -WarningVariable reqWarns
+        foreach ($w in $reqWarns) { Write-Warn "$w" }
+        if ($reqOk) {
             Write-Pass "Host requirements quick check passed."
         } else {
-            Write-Fail "Host requirements quick check failed (see warnings above)."
+            Write-Fail "Host requirements quick check failed -- see the [WARN] line(s) in this section."
         }
     }
 }
@@ -363,45 +273,6 @@ switch ($HostType) {
 Write-Section "Framework / project staleness"
 
 $RepoRoot = Split-Path -Parent $TestRoot
-
-function Test-RepoFreshness {
-    param(
-        [Parameter(Mandatory)][string]$Label,
-        [Parameter(Mandatory)][string]$Path
-    )
-    if (-not (Test-Path (Join-Path $Path '.git'))) {
-        Write-Warn "${Label}: not a git working tree ($Path) -- skipping freshness check."
-        return
-    }
-    try {
-        $null = & git -C $Path fetch --quiet 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "${Label}: git fetch failed (offline?); cannot determine staleness."
-            return
-        }
-        $local  = (& git -C $Path rev-parse HEAD 2>$null).Trim()
-        $remote = (& git -C $Path rev-parse '@{u}' 2>$null).Trim()
-        if (-not $remote) {
-            Write-Info "${Label}: no upstream tracking branch -- skipping ahead/behind."
-            return
-        }
-        if ($local -eq $remote) {
-            Write-Pass "${Label}: up to date with $remote."
-            return
-        }
-        $behind = (& git -C $Path rev-list --count "$local..$remote" 2>$null).Trim()
-        $ahead  = (& git -C $Path rev-list --count "$remote..$local" 2>$null).Trim()
-        if ([int]$behind -gt 0 -and [int]$ahead -eq 0) {
-            Write-Warn "${Label}: $behind commit(s) behind upstream -- 'git pull --ff-only' before next cycle."
-        } elseif ([int]$ahead -gt 0 -and [int]$behind -eq 0) {
-            Write-Pass "${Label}: $ahead commit(s) ahead of upstream (unpushed local work)."
-        } else {
-            Write-Warn "${Label}: diverged ($ahead ahead, $behind behind). Rebase or merge manually."
-        }
-    } catch {
-        Write-Warn "${Label}: freshness check threw -- $($_.Exception.Message)"
-    }
-}
 
 Test-RepoFreshness -Label "framework ($RepoRoot)" -Path $RepoRoot
 
@@ -556,22 +427,11 @@ if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycl
     Write-Warn "'testCycle.recentDisplayCount' not set — defaults to 30."
 }
 
-if ($Config.Contains("statusServer")) {
-    $ss = $Config.statusServer
-    Write-Pass "'statusServer' block present (isEnabled=$($ss.isEnabled), port=$($ss.port))."
+if ($Config.Contains("statusService")) {
+    $ss = $Config.statusService
+    Write-Pass "'statusService' block present (isEnabled=$($ss.isEnabled), port=$($ss.port))."
 } else {
-    Write-Warn "'statusServer' not set — status HTTP server will be disabled."
-}
-
-if ($Config.Contains("hostSshServer")) {
-    $hss = $Config.hostSshServer
-    if ($hss -is [System.Collections.IDictionary] -and $hss.Contains('enabled')) {
-        Write-Pass "'hostSshServer.enabled' = $($hss.enabled) (applied each cycle via the host-ssh-server extension)."
-    } else {
-        Write-Warn "'hostSshServer' block is present but missing 'enabled' boolean — runner will leave SSH state alone."
-    }
-} else {
-    Write-Warn "'hostSshServer' not set — runner will not touch host SSH state. Add 'hostSshServer:\n  enabled: false' to opt in to config-driven control."
+    Write-Warn "'statusService' not set — status HTTP server will be disabled."
 }
 
 if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.Contains("frameworkUrl")) {
@@ -653,7 +513,7 @@ if (Test-Path $VaultPath) {
 # corresponding passwords. Bootstrap-from-template runs on first cycle,
 # so a fresh checkout has a runtime file pre-seeded with the four
 # bundled logical users + the cache-VM 'yuruna' user, all with empty
-# corporate fields (today's local-only behaviour).
+# corporate fields (today's local-only behavior).
 #
 # Strict-mode (default) blocks the cycle when an active sequence
 # references a logical username that's missing from users.yml, when
@@ -852,9 +712,9 @@ if (-not $resend) {
 # Exit-WithSummary so the FAILURES block is printed at the bottom of
 # the transcript -- this is the most common exit path, hit when a
 # config-file or schema check failed early.
-if ($script:FailCount -gt 0) {
+if ((Get-OutputState).FailCount -gt 0) {
     Write-Output "`nFix the errors above before testing network connectivity."
-    Exit-WithSummary 1
+    Exit-WithSummary -Code 1
 }
 
 # ── Section 11: Resend API connectivity ──────────────────────────────────────
@@ -892,7 +752,7 @@ Write-Section "Live smoke notification (config.smoke)"
 
 if ($SkipSend) {
     Write-Warn "Skipping live send (-SkipSend was specified)."
-} elseif ($script:FailCount -gt 0) {
+} elseif ((Get-OutputState).FailCount -gt 0) {
     Write-Warn "Skipping live send because earlier checks failed."
 } else {
     $notifyMod  = Join-Path $ModulesDir "Test.Notify.psm1"
@@ -935,4 +795,4 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
 # network-checks) lands on the same final layout -- the operator never
 # has to scroll up to find what failed.
 
-Exit-WithSummary ($script:FailCount -gt 0 ? 1 : 0)
+Exit-WithSummary -Code ((Get-OutputState).FailCount -gt 0 ? 1 : 0)

@@ -42,7 +42,7 @@ Edit `autounattend.xml`:
 
 Elevated PowerShell:
 
-```powershell
+```
 slmgr /upk                                       # uninstall generic key
 slmgr /ipk XXXXX-XXXXX-XXXXX-XXXXX-XXXXX         # install purchased key
 slmgr /ato                                       # activate online
@@ -52,7 +52,7 @@ slmgr /ato                                       # activate online
 
 Before wiping a VM that used a retail key:
 
-```powershell
+```
 slmgr /upk                                       # uninstall product key
 slmgr /cpky                                      # clear registry
 ```

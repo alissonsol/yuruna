@@ -1,5 +1,8 @@
 # Windows 11 guest on macOS UTM host
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Minimal commands. Walk-through: [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md). Cross-host
 concepts: [Hosts — ...](../../README.md).
 
@@ -10,7 +13,7 @@ by `New-VM.ps1`.
 
 From `yuruna/host/macos.utm/guest.windows.11` (do not `sudo`):
 
-```bash
+```
 pwsh ./Get-Image.ps1
 ```
 
@@ -20,7 +23,7 @@ can't be fetched automatically — see [Windows 11 guest on macOS UTM host — N
 
 ## For each VM
 
-```bash
+```
 pwsh ./New-VM.ps1                   # default hostname
 pwsh ./New-VM.ps1 -VMName myhost
 ```
@@ -46,7 +49,7 @@ After install:
 Auto-logon to `User` / `password` on first boot (change forced next
 login). Elevated PowerShell:
 
-```powershell
+```
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/windows.11.update.ps1$nc" | iex
 Restart-Computer

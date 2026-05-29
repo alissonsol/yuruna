@@ -4,7 +4,7 @@
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host windows hyperv
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .RELEASENOTES
     Yuruna host driver for Windows + Hyper-V. Implements the contract
@@ -21,7 +21,7 @@
     Self-contained host driver: contract surface plus the Hyper-V /
     Windows helpers (formerly host/windows.hyper-v/modules/Yuruna.Host.psm1)
     it consumes. Cross-host helpers still live in
-    test/modules/Test.VM.common.psm1 and Test.Ssh.psm1, imported below.
+    test/modules/Test.VMUtility.psm1 and Test.Ssh.psm1, imported below.
 
     Module-qualified calls (e.g. `Test.HostProxy\Set-HostProxy`) appear
     where an external helper shares its name with the contract function
@@ -36,15 +36,15 @@ $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Pat
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test\modules'
 $script:HostFolder     = Join-Path $script:RepoRoot 'host\windows.hyper-v'
 
-# Import the legacy test/modules + host/<x>/modules/Yuruna.Host.psm1 into
-# THIS module's scope (no -Global). Their functions become callable from
-# our function bodies; Export-ModuleMember below decides which of OUR
-# functions become visible to test/ orchestration. Yuruna.Host.psm1's
-# exports shadow any same-name exports the legacy modules also produce.
-Import-Module (Join-Path $script:TestModulesDir 'Test.VM.common.psm1')    -Force -DisableNameChecking
+# Import the supporting test/modules into THIS module's scope (no -Global).
+# Their functions become callable from our function bodies;
+# Export-ModuleMember below decides which of OUR functions become visible
+# to test/ orchestration. Yuruna.Host.psm1's exports shadow any same-name
+# exports the supporting modules also produce.
+Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking
-# === Helpers lifted from former Yuruna.Host.psm1 (host/windows.hyper-v) ======
+# === Hyper-V host helpers ====================================================
 
 # --- Define Oscdimg Path (adjust '10' for your ADK version if necessary) ---
 $OscdimgPath = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\Oscdimg.exe"
@@ -107,13 +107,13 @@ function CreateIso {
     Write-Verbose "ISO created successfully at: $OutputFile"
 }
 
-# --- squid-cache IP discovery (shared by producer + consumers) --------------
-# Prior state copy-pasted the KVP+ARP dual strategy across squid-cache
-# and ubuntu.server.24 New-VM.ps1s plus a KVP-only variant in
-# test/Start-CachingProxy.ps1. The variants drifted — Start-SquidCache's
-# KVP-only summary printed "(discovery failed)" even while the inner
-# ARP path had already succeeded and the cache was serving. These three
-# functions are the single source of truth.
+# --- caching-proxy IP discovery (shared by producer + consumers) --------------
+# Single source of truth for KVP+ARP discovery shared by guest.caching-proxy/
+# New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/Start-CachingProxy.ps1.
+# Guards against the regression class where a KVP-only summary reports
+# "(discovery failed)" even though the ARP fallback has already found the
+# cache and it is serving — by routing all three callers through the same
+# function.
 
 function Get-CacheVmCandidateIp {
     <#
@@ -130,7 +130,7 @@ function Get-CacheVmCandidateIp {
              populated. Filtered by the VM's MAC across ALL host
              interfaces (Default Switch's vEthernet for guests on the
              internal NAT, plus the External-vSwitch vEthernet for the
-             squid-cache VM after the External-vSwitch migration). The
+             caching-proxy VM after the External-vSwitch migration). The
              MAC filter is sufficient — it can only match neighbors of
              this specific VM. Stale 'Permanent' entries across VM
              rebuilds can map one MAC to multiple IPs; all returned so
@@ -179,7 +179,7 @@ function Get-CacheVmCandidateIp {
     Idempotently create (or return) the Yuruna External vSwitch bridged
     to the host's primary physical NIC.
 .DESCRIPTION
-    The squid-cache VM rides on this switch (instead of the built-in
+    The caching-proxy VM rides on this switch (instead of the built-in
     Default Switch) so it gets a real LAN IP via DHCP and is reachable
     by remote LAN clients without any host-side port forwarding. squid
     sees the actual LAN client IP at TCP level — no PROXY-protocol
@@ -391,7 +391,7 @@ function Invoke-YurunaExternalArpProbe {
 function Test-CacheVmOnYurunaExternalSwitch {
     <#
     .SYNOPSIS
-        $true if the squid-cache VM is attached to ANY External-type
+        $true if the caching-proxy VM is attached to ANY External-type
         vSwitch (LAN-bridged, has a real LAN IP, no host forwarders needed).
     .DESCRIPTION
         Used by the cross-platform test/ scripts to decide whether
@@ -427,14 +427,14 @@ function Test-CacheVmOnYurunaExternalSwitch {
 function Get-WorkingCachingProxyUrl {
     <#
     .SYNOPSIS
-        "http://<ip>:3128" of a squid-cache VM that answers on :3128,
+        "http://<ip>:3128" of a caching-proxy VM that answers on :3128,
         or $null if none of the candidate IPs respond.
     .DESCRIPTION
         One-shot helper for consumers (ubuntu guests) and
         Start-CachingProxy.ps1's summary. Does NOT wait for the cache VM
         to boot or for squid to come up — callers expect the VM already
         running and squid listening. The producer
-        (guest.squid-cache/New-VM.ps1) uses Get-CacheVmCandidateIp
+        (guest.caching-proxy/New-VM.ps1) uses Get-CacheVmCandidateIp
         directly because it provisions the cache and must poll while
         cloud-init runs.
     .OUTPUTS
@@ -681,7 +681,7 @@ function Test-DownloadAlreadyCurrent {
 
 <#
 .SYNOPSIS
-    Returns the IP of a reachable squid-cache VM (probed on :3128),
+    Returns the IP of a reachable caching-proxy VM (probed on :3128),
     or $null when no cache is currently usable.
 
 .DESCRIPTION
@@ -731,7 +731,7 @@ function Resolve-CacheHostIp {
             Caller goes direct (still safer than forcing a dead proxy).
 
     The CA is regenerated on every cache VM rebuild
-    (`openssl req -x509 ... CN=yuruna-squid-cache <hostname> <utc>` in
+    (`openssl req -x509 ... CN=yuruna-caching-proxy <hostname> <utc>` in
     user-data runcmd), so we always re-fetch — no stable thumbprint to
     pin out-of-band. Trust is bootstrapped over plain HTTP from the
     cache itself, which is the same trust assumption the rest of the
@@ -837,7 +837,7 @@ function Save-CachedHttpUri {
         Invoke-WebRequest -Uri $Uri -OutFile $OutFile -Proxy $cfg.Proxy -ErrorAction Stop
         return
     }
-    Write-Information "Routing HTTPS download through squid SSL-bump: $($cfg.Proxy) (per-process trust of yuruna CA at $($cfg.CaPemPath))"
+    Write-Information "Routing HTTPS download through squid SSL-bump: $($cfg.Proxy) (per-process trust of Yuruna CA at $($cfg.CaPemPath))"
     Invoke-HttpsViaSquidBump -Uri $Uri -OutFile $OutFile -ProxyUrl $cfg.Proxy -CaPemPath $cfg.CaPemPath
 }
 
@@ -965,7 +965,7 @@ function Assert-HyperVEnabled {
         Enable-WindowsOptionalFeature completes, can fail with "Class
         not registered" (HRESULT 0x80040154) even when Hyper-V is
         enabled and healthy. Seen on the first post-install run of
-        Start-SquidCache → guest.squid-cache/New-VM.ps1. dism.exe is
+        Start-CachingProxy → guest.caching-proxy/New-VM.ps1. dism.exe is
         the plain Win32 tool the cmdlet wraps; calling it directly
         sidesteps the COM failure (same workaround as
         install/windows.hyper-v.ps1).
@@ -1021,13 +1021,11 @@ function Assert-HyperVEnabled {
     return $true
 }
 
-# === VM lifecycle helpers (migrated from test/modules/Test.New-VM.psm1
-#     and test/modules/Test.Start-VM.psm1 during the Yuruna.Host refactor)
-#
-# These functions remain Hyper-V-internal helpers consumed by
-# host/windows.hyper-v/modules/Yuruna.Host.psm1. They are NOT part of
-# the test-facing host driver contract; new test code calls the
-# contract (Yuruna.Host) which delegates here.
+# === VM lifecycle helpers ====================================================
+# Hyper-V-internal helpers consumed by Yuruna.Host's contract entry
+# points above. Not part of the test-facing host driver contract; test
+# code calls the contract verbs (New-VM / Start-VM / ...) which
+# delegate here.
 
 <#
 .SYNOPSIS
@@ -1173,7 +1171,7 @@ function Remove-HyperVTestVM {
         $vmDir = Join-Path $vhdPath $VMName
         if (Test-Path $vmDir) {
             try {
-                Remove-Item -Recurse -Force $vmDir -ErrorAction Stop 6>$null
+                Remove-Item -LiteralPath $vmDir -Recurse -Force -ErrorAction Stop 6>$null
                 Write-Verbose "Removed VM disk directory: $vmDir"
             } catch {
                 Write-Warning "Remove-Item '$vmDir' failed: $_"
@@ -1264,15 +1262,20 @@ function Confirm-HyperVVMStarted {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName, [int]$TimeoutSeconds = 120)
-    $elapsed = 0
-    while ($elapsed -lt $TimeoutSeconds) {
+    # Wall-clock deadline rather than an iter counter: memory file
+    # feedback_iter_counter_wallclock_trap.md flags `$elapsed += $Poll`
+    # as silently expanding the budget by 3-6x when each iteration does
+    # real work (Get-VM is CIM-backed and can hang briefly under VMMS
+    # contention). [DateTime]::UtcNow is monotonic-enough for a 120s
+    # budget and tracks actual wall time regardless of poll cost.
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadlineUtc) {
         $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
         if ($vm -and $vm.State -eq 'Running') {
             Write-Information "Verified: Hyper-V VM '$VMName' is running (State: $($vm.State))"
             return $true
         }
-        Start-Sleep -Seconds 5
-        $elapsed += 5
+        Start-Sleep -Seconds 1
     }
     Write-Error "Hyper-V VM '$VMName' did not reach Running state within ${TimeoutSeconds}s"
     return $false
@@ -1702,7 +1705,7 @@ $script:FirewallProgramRulePrefix = 'Yuruna-CachingProxy-Pwsh-'
 
 <#
 .SYNOPSIS
-Return the path to the shared squid-cache TCP forwarder script.
+Return the path to the shared caching-proxy TCP forwarder script.
 
 .DESCRIPTION
 Resolves host/macos.utm/Start-CachingProxyForwarder.ps1 against the
@@ -1752,7 +1755,7 @@ function Get-PwshExePath {
 Return the pidfile path for the per-port caching-proxy forwarder.
 
 .DESCRIPTION
-Composes ~/virtual/squid-cache/forwarder.<Port>.pid. The pidfile is
+Composes ~/virtual/caching-proxy/forwarder.<Port>.pid. The pidfile is
 the canonical handle Stop-WindowsCachingProxyForwarder uses to find
 and kill the detached pwsh worker that owns a given listen port.
 #>
@@ -1760,7 +1763,7 @@ function Get-WindowsForwarderPidPath {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][int]$Port)
-    $stateDir = Join-Path $HOME 'virtual\squid-cache'
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy'
     return (Join-Path $stateDir "forwarder.$Port.pid")
 }
 
@@ -1769,7 +1772,7 @@ function Get-WindowsForwarderPidPath {
 Stop a detached pwsh caching-proxy forwarder by listen port.
 
 .DESCRIPTION
-Reads ~/virtual/squid-cache/forwarder.<Port>.pid, validates the pid
+Reads ~/virtual/caching-proxy/forwarder.<Port>.pid, validates the pid
 belongs to a pwsh/powershell process, and calls Stop-Process -Force.
 Removes the pidfile in all cases (including missing pid, non-pwsh
 owner, or successful kill) so a stale file doesn't trip later starts.
@@ -1810,7 +1813,7 @@ Launch a detached pwsh TCP forwarder for the squid caching proxy.
 .DESCRIPTION
 Stops any prior forwarder for the same $Port, then spawns
 Start-CachingProxyForwarder.ps1 hidden, wired to redirect stdout /
-stderr to per-port logs under ~/virtual/squid-cache/. Polls
+stderr to per-port logs under ~/virtual/caching-proxy/. Polls
 127.0.0.1:$Port for up to 3 s; on success returns a PSCustomObject
 @{ Success=$true; Pid; PwshPath } where PwshPath is the post-spawn
 loaded binary (used by callers to rewrite the Defender per-program
@@ -1837,7 +1840,7 @@ function Start-WindowsCachingProxyForwarder {
         Write-Warning "Forwarder script not found: $forwarderScript"
         return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
     }
-    $stateDir = Join-Path $HOME 'virtual\squid-cache'
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy'
     if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
     $pidFile = Get-WindowsForwarderPidPath -Port $Port
     $logFile = Join-Path $stateDir "forwarder.$Port.log"
@@ -1870,8 +1873,22 @@ function Start-WindowsCachingProxyForwarder {
     )
     if ($PrependProxyV1) { $procArgs += '-PrependProxyV1' }
     try {
+        # -RedirectStandardInput against an empty file: without an explicit
+        # stdin redirect the detached forwarder inherits the parent
+        # console's stdin handle, and Windows conhost cannot tear down
+        # when the parent shell exits -- pinning the operator's
+        # PowerShell window in a close-pending state until the forwarder
+        # is killed. Passing 'NUL' / '\\.\NUL' is rejected by
+        # Start-Process's path resolver (it prepends the cwd and the
+        # underlying FileStream open fails), so we use a persistent empty
+        # sentinel file in the forwarder's state dir.
+        $stdinSink = Join-Path $stateDir 'stdin.empty'
+        if (-not (Test-Path -LiteralPath $stdinSink)) {
+            [System.IO.File]::WriteAllBytes($stdinSink, [byte[]]@())
+        }
         $proc = Start-Process -FilePath 'pwsh' `
             -ArgumentList $procArgs `
+            -RedirectStandardInput  $stdinSink `
             -RedirectStandardOutput $stdoutLog `
             -RedirectStandardError  $stderrLog `
             -WindowStyle Hidden `
@@ -1959,7 +1976,7 @@ function Add-CachingProxyFirewallRule {
 List ports that currently have a forwarder pidfile on disk.
 
 .DESCRIPTION
-Walks ~/virtual/squid-cache/ for forwarder.<port>.pid files and
+Walks ~/virtual/caching-proxy/ for forwarder.<port>.pid files and
 returns the parsed integer port numbers as an array (always wrapped
 with the unary comma so a single-element result still flows as an
 array). Empty array on non-Windows hosts or when the state directory
@@ -1970,7 +1987,7 @@ function Get-WindowsForwarderPidPort {
     [OutputType([int[]], [System.Object[]])]
     param()
     if (-not $IsWindows) { return @() }
-    $stateDir = Join-Path $HOME 'virtual\squid-cache'
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy'
     if (-not (Test-Path $stateDir)) { return @() }
     $ports = @()
     Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue |
@@ -2078,235 +2095,6 @@ function Clear-AllCachingProxyPortMapping {
         Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
     }
     return ,$unique
-}
-
-# === SSH server helpers (migrated from test/modules/Test.SshServer.psm1) =====
-# A single Yuruna-managed firewall rule (LocalSubnet + all profiles) opens
-# TCP/22 for peers on the receiving adapter's local subnet. Distinct from
-# the default 'OpenSSH-Server-In-TCP' rule (Private only) so they coexist.
-
-$script:YurunaSshRuleName = 'Yuruna-OpenSSH-LocalSubnet'
-
-<#
-.SYNOPSIS
-Install the Yuruna LocalSubnet inbound rule for OpenSSH on TCP/22.
-
-.DESCRIPTION
-Idempotently creates Yuruna-OpenSSH-LocalSubnet, an inbound TCP/22
-Allow rule scoped to LocalSubnet across all profiles. This sits next
-to the default 'OpenSSH-Server-In-TCP' rule (Private profile only) so
-LAN-side test peers can reach sshd without widening the built-in
-rule. Returns $true when the rule exists at the end (whether
-pre-existing or newly added) and $false on failure.
-#>
-function Add-YurunaSshFirewallRule {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    try {
-        if (Get-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction SilentlyContinue) {
-            Write-Information "Firewall rule '$script:YurunaSshRuleName' already present." -InformationAction Continue
-            return $true
-        }
-        New-NetFirewallRule `
-            -Name          $script:YurunaSshRuleName `
-            -DisplayName   'Yuruna OpenSSH Server (LocalSubnet, all profiles)' `
-            -Description   'Inbound TCP/22 from peers on the receiving adapter''s local subnet. Managed by Yuruna.Host Start-SshServer / Stop-SshServer.' `
-            -Direction     Inbound `
-            -Protocol      TCP `
-            -LocalPort     22 `
-            -RemoteAddress LocalSubnet `
-            -Profile       Any `
-            -Action        Allow `
-            -ErrorAction   Stop | Out-Null
-        Write-Information "Firewall rule '$script:YurunaSshRuleName' created (LocalSubnet, all profiles)." -InformationAction Continue
-        return $true
-    } catch {
-        Write-Warning "Add-YurunaSshFirewallRule failed: $_"
-        return $false
-    }
-}
-
-<#
-.SYNOPSIS
-Remove the Yuruna LocalSubnet OpenSSH firewall rule.
-
-.DESCRIPTION
-Deletes Yuruna-OpenSSH-LocalSubnet via Remove-NetFirewallRule when it
-exists. Returns $true on success or when the rule was already absent;
-$false only when Remove-NetFirewallRule itself errored.
-#>
-function Remove-YurunaSshFirewallRule {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param()
-    try {
-        if (Get-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction SilentlyContinue) {
-            if ($PSCmdlet.ShouldProcess($script:YurunaSshRuleName, 'Remove-NetFirewallRule')) {
-                Remove-NetFirewallRule -Name $script:YurunaSshRuleName -ErrorAction Stop
-                Write-Information "Firewall rule '$script:YurunaSshRuleName' removed." -InformationAction Continue
-            }
-        } else {
-            Write-Information "Firewall rule '$script:YurunaSshRuleName' not present." -InformationAction Continue
-        }
-        return $true
-    } catch {
-        Write-Warning "Remove-YurunaSshFirewallRule failed: $_"
-        return $false
-    }
-}
-
-<#
-.SYNOPSIS
-Start the sshd service and ensure it auto-starts on boot.
-
-.DESCRIPTION
-Requires administrator privileges. Starts the sshd service if it's
-not already running, sets its startup type to Automatic, and ensures
-the Yuruna LocalSubnet firewall rule is present. Returns $false when
-the service isn't installed (caller should run Install-SshServer
-first), when not elevated, or on a service-control failure.
-#>
-function Enable-WindowsSshServer {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    if (-not (Test-IsAdministrator)) {
-        Write-Warning "Enable-WindowsSshServer: not running as Administrator -- skipping."
-        return $false
-    }
-    $svc = Get-Service -Name sshd -ErrorAction SilentlyContinue
-    if (-not $svc) {
-        Write-Warning "sshd service not installed. Run Install-SshServer first."
-        return $false
-    }
-    try {
-        if ($svc.Status -ne 'Running') {
-            Start-Service -Name sshd -ErrorAction Stop
-            Write-Information "sshd service started." -InformationAction Continue
-        } else {
-            Write-Information "sshd service is already running." -InformationAction Continue
-        }
-        if ($svc.StartType -ne 'Automatic') {
-            Set-Service -Name sshd -StartupType 'Automatic' -ErrorAction Stop
-            Write-Information "sshd startup type set to Automatic." -InformationAction Continue
-        }
-        $null = Add-YurunaSshFirewallRule
-        return $true
-    } catch {
-        Write-Warning "Failed to start/configure sshd service: $_"
-        return $false
-    }
-}
-
-<#
-.SYNOPSIS
-Stop the sshd service, demote it to Manual start, and remove the rule.
-
-.DESCRIPTION
-Requires administrator privileges. Stops sshd if it is running, sets
-its startup type to Manual when currently Automatic, and removes the
-Yuruna LocalSubnet firewall rule. Treats a missing service as success
-(still removes the firewall rule). Returns $false when not elevated
-or on a service-control failure.
-#>
-function Disable-WindowsSshServer {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    if (-not (Test-IsAdministrator)) {
-        Write-Warning "Disable-WindowsSshServer: not running as Administrator -- skipping."
-        return $false
-    }
-    try {
-        $svc = Get-Service -Name sshd -ErrorAction SilentlyContinue
-        if (-not $svc) {
-            Write-Information "sshd service is not installed -- nothing to disable." -InformationAction Continue
-            $null = Remove-YurunaSshFirewallRule
-            return $true
-        }
-        if ($svc.Status -eq 'Running') {
-            Stop-Service -Name sshd -ErrorAction Stop
-            Write-Information "sshd service stopped." -InformationAction Continue
-        } else {
-            Write-Information "sshd service is already stopped." -InformationAction Continue
-        }
-        if ($svc.StartType -ne 'Manual' -and $svc.StartType -ne 'Disabled') {
-            Set-Service -Name sshd -StartupType 'Manual' -ErrorAction Stop
-            Write-Information "sshd startup type set to Manual." -InformationAction Continue
-        }
-        $null = Remove-YurunaSshFirewallRule
-        return $true
-    } catch {
-        Write-Warning "Failed to stop/configure sshd service: $_"
-        return $false
-    }
-}
-
-<#
-.SYNOPSIS
-Install the OpenSSH Server capability and bring it fully online.
-
-.DESCRIPTION
-Requires administrator privileges. Fast-paths to a no-op when the
-sshd service is already registered (which proves the capability is
-installed) -- otherwise queries Get-WindowsCapability -Online (a
-30+ s call) and runs Add-WindowsCapability if needed. Then calls
-Enable-WindowsSshServer to start the service and add the firewall
-rule, and finally checks that at least one OpenSSH-Server* firewall
-rule is enabled. Returns $false on any failure.
-#>
-function Install-WindowsSshServer {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    if (-not (Test-IsAdministrator)) {
-        Write-Warning "Install-WindowsSshServer: not running as Administrator -- skipping."
-        return $false
-    }
-    # Fast-path: skip Get-WindowsCapability -Online (30+ s) when the sshd
-    # service is already registered, which proves the capability is installed.
-    $sshService = Get-Service -Name sshd -ErrorAction SilentlyContinue
-    if ($sshService) {
-        Write-Information "OpenSSH Server already installed (sshd service present)." -InformationAction Continue
-    } else {
-        try {
-            Write-Information "OpenSSH Server not detected. Querying Windows capability store (this can take 30+ seconds)..." -InformationAction Continue
-            $cap = Get-WindowsCapability -Online -Name "OpenSSH.Server*" -ErrorAction Stop |
-                Select-Object -First 1
-            if (-not $cap) {
-                Write-Warning "Could not enumerate OpenSSH.Server capability."
-                return $false
-            }
-            if ($cap.State -ne 'Installed') {
-                Write-Information "Installing OpenSSH Server capability ($($cap.Name)). This may take SEVERAL MINUTES -- please wait..." -InformationAction Continue
-                $null = Add-WindowsCapability -Online -Name $cap.Name -ErrorAction Stop
-                Write-Information "OpenSSH Server capability install complete." -InformationAction Continue
-            } else {
-                Write-Information "OpenSSH Server capability is marked Installed but sshd service is not yet registered." -InformationAction Continue
-            }
-        } catch {
-            Write-Warning "Failed to install OpenSSH Server capability: $_"
-            return $false
-        }
-    }
-    if (-not (Enable-WindowsSshServer)) { return $false }
-    try {
-        $rules = Get-NetFirewallRule -Name "*OpenSSH-Server*" -ErrorAction SilentlyContinue
-        if (-not $rules) {
-            Write-Warning "No OpenSSH-Server firewall rule found. SSH on port 22 may be blocked."
-        } else {
-            $enabledRules = $rules | Where-Object { $_.Enabled -eq 'True' }
-            if (-not $enabledRules) {
-                Write-Warning "OpenSSH-Server firewall rule(s) exist but none are enabled."
-            } else {
-                Write-Information "OpenSSH-Server firewall rule is enabled." -InformationAction Continue
-            }
-        }
-    } catch {
-        Write-Warning "Firewall rule check failed: $_"
-    }
-    return $true
 }
 
 # === Screenshot helpers (migrated from test/modules/Test.Screenshot.psm1) ====
@@ -2569,7 +2357,7 @@ public class HyperVCapture {
         Write-Warning "Failed to load HyperVCapture type: $_"
     }
 
-    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.LogDir.psm1') -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.YurunaDir.psm1') -Force -ErrorAction SilentlyContinue -Verbose:$false
     $debugDir = Join-Path (Initialize-YurunaLogDir) "Screenshot"
     if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
 
@@ -2723,7 +2511,7 @@ function New-VM {
         # from variables.username on the chain's top sequence). Forwarded
         # to the per-guest New-VM.ps1 only when (a) the caller bound it
         # AND (b) the target script declares a -Username parameter -- some
-        # guests (windows.11, squid-cache, macos.26) don't take one and
+        # guests (windows.11, caching-proxy, macos.26) don't take one and
         # would error on the unexpected arg.
         [string]$Username
     )
@@ -2976,6 +2764,17 @@ function Test-VMDiskSnapshot {
 }
 
 function Restore-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Restore $VMName to Hyper-V checkpoint $Id.
+    .DESCRIPTION
+        Verifies the checkpoint exists first so a typo'd Id does not
+        bounce a healthy guest, stops the VM if it is running, then
+        calls Hyper-V\Restore-VMCheckpoint. Returns the apply status as
+        a bool so callers can branch on success.
+    .OUTPUTS
+        [bool] $true on success; $false on missing checkpoint or restore failure.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -3031,7 +2830,7 @@ function Test-VMConsoleOpen {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
     # vmconnect's window title contains the VM name. A best-effort check;
-    # the legacy code uses similar logic in Invoke-Sequence.psm1's Send-ClickHyperV.
+    # Invoke-Sequence.psm1's Send-ClickHyperV uses similar logic.
     $proc = Get-Process -Name 'vmconnect' -ErrorAction SilentlyContinue |
         Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
         Select-Object -First 1
@@ -3304,7 +3103,7 @@ function Get-VMIp {
     # cache entries for its own MAC. Active probing (the slow part)
     # lives in Invoke-YurunaExternalArpProbe; that is called by
     # consumers that need fresh data (Save-GuestDiagnostic) and by
-    # the squid-cache discovery path. This Get-VMIp is the cheap
+    # the caching-proxy discovery path. This Get-VMIp is the cheap
     # lookup -- safe to call from polling loops.
     try {
         $vmAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop
@@ -3390,7 +3189,7 @@ function New-ExternalNetwork {
 
 <#
 .SYNOPSIS
-    Returns true if the squid-cache VM is on an External-type network.
+    Returns true if the caching-proxy VM is on an External-type network.
 #>
 function Test-CacheVMOnExternalNetwork {
     [CmdletBinding()]
@@ -3557,7 +3356,7 @@ function Get-BestHostIp {
 
 <#
 .SYNOPSIS
-    Probe and return the squid-cache URL, or null if none is reachable.
+    Probe and return the caching-proxy URL, or null if none is reachable.
 .DESCRIPTION
     Discovery is intentionally narrow -- only caches this host owns,
     or a remote cache the operator explicitly named, are returned:
@@ -3567,7 +3366,7 @@ function Get-BestHostIp {
 
     No Hyper-V VM enumeration, no KVP/ARP discovery. Get-CacheVmCandidate-
     Ip / Get-WorkingCachingProxyUrl still exist for use by the producer
-    (guest.squid-cache/New-VM.ps1) and Start-CachingProxy.ps1 itself
+    (guest.caching-proxy/New-VM.ps1) and Start-CachingProxy.ps1 itself
     while the cache VM is being brought up -- they are not part of the
     steady-state discovery path. LAN-wide cache discovery is a separate
     future feature.
@@ -3739,10 +3538,10 @@ function Get-HostProxyBackupPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # Test.VM.common.psm1's Get-HostProxyBackupPath is the authoritative
+    # Test.VMUtility.psm1's Get-HostProxyBackupPath is the authoritative
     # implementation -- same path on every host. Module-qualified call
     # avoids re-entering OUR function.
-    return Test.VM.common\Get-HostProxyBackupPath
+    return Test.VMUtility\Get-HostProxyBackupPath
 }
 
 <#
@@ -3754,84 +3553,6 @@ function Assert-Virtualization {
     [OutputType([bool])]
     param()
     return [bool](Assert-HyperVEnabled)
-}
-
-# === SSH server (host-side) =================================================
-
-<#
-.SYNOPSIS
-    Returns true if the host has a code path for SSH-server lifecycle.
-#>
-function Test-SshServerSupported {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    return $true
-}
-
-<#
-.SYNOPSIS
-    Returns true if the host SSH server is installed.
-#>
-function Test-SshServerInstalled {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    # sshd service registered == OpenSSH.Server capability installed.
-    # Avoids the 30+ s Get-WindowsCapability -Online query.
-    return ($null -ne (Get-Service -Name sshd -ErrorAction SilentlyContinue))
-}
-
-<#
-.SYNOPSIS
-    Install the host SSH server (idempotent).
-#>
-function Install-SshServer {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param()
-    if (-not $PSCmdlet.ShouldProcess('OpenSSH Server', 'Install + autostart')) { return $false }
-    return [bool](Install-WindowsSshServer)
-}
-
-<#
-.SYNOPSIS
-    Start the host SSH server and set it to autostart.
-#>
-function Start-SshServer {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param()
-    if (-not $PSCmdlet.ShouldProcess('OpenSSH Server', 'Start')) { return $false }
-    return [bool](Enable-WindowsSshServer)
-}
-
-<#
-.SYNOPSIS
-    Stop the host SSH server.
-#>
-function Stop-SshServer {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param()
-    if (-not $PSCmdlet.ShouldProcess('OpenSSH Server', 'Stop')) { return $false }
-    return [bool](Disable-WindowsSshServer)
-}
-
-<#
-.SYNOPSIS
-    Return 'running', 'stopped', 'not-installed', or 'unsupported'.
-#>
-function Get-SshServerStatus {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    if (-not (Test-SshServerInstalled)) { return 'not-installed' }
-    try {
-        $svc = Get-Service -Name sshd -ErrorAction Stop
-        if ($svc.Status -eq 'Running') { return 'running' }
-        return 'stopped'
-    } catch { return 'unknown' }
 }
 
 # === Exports ================================================================
@@ -3847,8 +3568,6 @@ Export-ModuleMember -Function `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
     Test-CachingProxyAvailable, Get-CachingProxyVMIp, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
-    Test-SshServerSupported, Test-SshServerInstalled, Install-SshServer, `
-    Start-SshServer, Stop-SshServer, Get-SshServerStatus, `
     `
     CreateIso, Get-CacheVmCandidateIp, `
     Get-OrCreateYurunaExternalSwitch, Test-CachingProxyPort, Invoke-YurunaExternalArpProbe, `
@@ -3864,6 +3583,21 @@ Export-ModuleMember -Function `
     Stop-WindowsCachingProxyForwarder, Start-WindowsCachingProxyForwarder, Add-CachingProxyFirewallRule, `
     Get-WindowsForwarderPidPort, Get-YurunaMappedPortFromFirewall, `
     Remove-SinglePortMap, Clear-AllCachingProxyPortMapping, `
-    Add-YurunaSshFirewallRule, Remove-YurunaSshFirewallRule, `
-    Enable-WindowsSshServer, Disable-WindowsSshServer, Install-WindowsSshServer, `
     Get-HyperVScreenshot, Get-HyperVWindowScreenshot
+
+# Contract-coverage assertion: warns at load time if the export block
+# above drifts away from the canonical Yuruna.Host contract. See
+# host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
+Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
+$null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' -ExportedFunction @(
+    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState',
+    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
+    'Test-VMConsoleOpen','Restart-VMConsole',
+    'Get-Image','Get-ImagePath',
+    'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',
+    'Wait-VMIp','Get-VMIp','Get-VMMac',
+    'Get-ExternalNetwork','New-ExternalNetwork','Test-CacheVMOnExternalNetwork',
+    'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
+    'Test-CachingProxyAvailable','Get-CachingProxyVMIp',
+    'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
+)

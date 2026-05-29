@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Version: 2026.05.22
+# Version: 2026.05.29
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # tofu data "external" hook -- copy a kube context bundle (cluster + user +

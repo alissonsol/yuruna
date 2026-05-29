@@ -1,5 +1,8 @@
 # Amazon Linux 2023 guest on macOS UTM host
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Minimal commands. Walk-through: [Amazon Linux 2023 guest on macOS UTM host — Nerd-Level Details](read.more.md). Cross-host
 concepts: [Hosts — ...](../../README.md).
 
@@ -7,13 +10,13 @@ concepts: [Hosts — ...](../../README.md).
 
 From `yuruna/host/macos.utm/guest.amazon.linux.2023` (do not `sudo`):
 
-```bash
+```
 pwsh ./Get-Image.ps1
 ```
 
 ## For each VM
 
-```bash
+```
 pwsh ./New-VM.ps1                   # default hostname
 pwsh ./New-VM.ps1 -VMName myhost
 ```
@@ -35,8 +38,8 @@ is vault-managed under
 cloud-init's chpasswd default `expire: true` triggers the
 Current/New/Retype rotation on first console login.
 
-```bash
-sudo /automation/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh
+```
+sudo /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh
 sudo dnf groupinstall -y "Desktop"
 sudo shutdown now
 ```

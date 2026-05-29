@@ -17,17 +17,24 @@ workloads installed inside a running VM:
 host/
 ├── macos.utm/         Host setup for macOS + UTM
 │   ├── guest.<name>/  Per-guest Get-Image.ps1 + New-VM.ps1
-│   └── guest.squid-cache/  Optional caching proxy VM
+│   └── guest.caching-proxy/  Optional caching proxy VM
 ├── windows.hyper-v/   Host setup for Windows + Hyper-V
 │   ├── guest.<name>/
-│   └── guest.squid-cache/
+│   └── guest.caching-proxy/
 └── ubuntu.kvm/        Host setup for Ubuntu + KVM/libvirt
     ├── guest.<name>/  Per-guest Get-Image.ps1 + New-VM.ps1
-    └── guest.squid-cache/  Optional caching proxy VM
+    └── guest.caching-proxy/  Optional caching proxy VM
 ```
 
 The cross-host workload scripts that run **inside** a guest live under
 [../guest/](../guest/), separate from these per-host provisioners.
+
+## Guest × host coverage
+
+Most guests are supported on all three hosts. The exception is
+**macOS 26**, which can only run as a guest on a macOS host (Apple's
+licensing forbids macOS-on-non-Apple virtualization), so it is
+available only under `host/macos.utm/guest.macos.26/`.
 
 ## Install one-liner convention
 
@@ -62,7 +69,7 @@ KVM's host-side guidance lives directly in
 
 ## Optional Squid cache VM
 
-Each host has a `guest.squid-cache/` folder that creates a small
+Each host has a `guest.caching-proxy/` folder that creates a small
 Ubuntu Server VM running Squid. Run `Get-Image.ps1` then `New-VM.ps1`
 once;
 later guest installs pull cacheable content (kernels, firmware, `.deb`)

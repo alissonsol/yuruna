@@ -19,7 +19,7 @@ Cross-host concepts: [Hosts — ...](../../README.md).
 
 From `yuruna/host/macos.utm/guest.macos.26` (do not `sudo`):
 
-```bash
+```
 pwsh ./Get-Image.ps1
 ```
 
@@ -32,7 +32,7 @@ repeat run.
 
 ## For each VM
 
-```bash
+```
 pwsh ./New-VM.ps1                       # default macos-26-01
 pwsh ./New-VM.ps1 -VMName myhost
 pwsh ./New-VM.ps1 -CpuCount 6 -MemoryMb 12288 -DiskSizeGb 256

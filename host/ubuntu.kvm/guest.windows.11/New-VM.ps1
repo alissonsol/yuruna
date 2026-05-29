@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -141,8 +141,25 @@ if (-not (Test-Path -LiteralPath $nvram)) {
 
 # -- Define + start the VM ----------------------------------------------
 $virshUri = 'qemu:///system'
-& virsh --connect $virshUri destroy $VMName 2>$null | Out-Null
-& virsh --connect $virshUri undefine --nvram $VMName 2>$null | Out-Null
+# Capture stdout+stderr + exit code for each call so an operator
+# running with -Verbose sees the per-call outcome. The post-condition
+# below catches the actual failure mode; this just preserves forensics
+# when something unusual surfaces between the two idempotent ops.
+$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
+Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
+$undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
+Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
+# Post-condition: virsh destroy/undefine on a non-existing domain is
+# idempotent (returns non-zero, swallowed by `2>$null`). But if either
+# op failed while the domain remains defined, the next virt-install
+# fails with "domain already defined" and the outer loop has no signal
+# to recover. Fail-loud now with dominfo so the operator can act.
+$stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
+    Where-Object { $_.Trim() -eq $VMName }
+if ($stillDefined) {
+    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
+    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+}
 
 # --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)

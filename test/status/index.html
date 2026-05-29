@@ -1,105 +1,64 @@
 <!DOCTYPE html>
+<!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<!-- --- See https://yuruna.link/definition#defining-the-status-page-dashboard -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- --- See https://yuruna.link/definition#defining-the-status-page-cache-policy -->
+  <!-- viewport-fit=cover lets the header background extend under the iPhone
+       notch / home-indicator; safe-area-inset padding in yuruna.common.css
+       keeps content readable on notched devices. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
   <title>Yuruna Status</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
-    /* Shared rules live in yuruna.common.css. Page-specific below. */
-
-    /* Reserve space for the fixed #footer-bar. */
     body { padding-bottom: 3rem; }
 
-    /* ── Status banner ── */
-    #banner {
-      display: flex; align-items: center;
-      padding: .75rem 2rem; font-weight: 600; font-size: .9375rem;
-      transition: background .3s;
+    #banner-cp-row {
+      margin-left: auto; flex: 0 0 auto;
+      font-size: .75rem;
+      background: transparent;
     }
-    #banner > * + * { margin-left: .625rem; }
-    #banner.idle    { background: #6b7280; color: #fff; }
-    #banner.running { background: #2563eb; color: #fff; }
-    #banner.pass    { background: #16a34a; color: #fff; }
-    #banner.fail    { background: #dc2626; color: #fff; }
-    #banner.paused  { background: #ca8a04; color: #fff; }
-    /* "Stopped" (runner process gone) is distinct from "idle" (no data
-       yet) so the operator can tell a snapshot from live state. */
-    #banner.stopped { background: #374151; color: #fff; }
-    #banner .dot {
-      width: .625rem; height: .625rem; border-radius: 50%;
-      background: currentColor; display: inline-block; flex-shrink: 0;
+    #banner-cp,
+    #banner-cp-noproxy {
+      color: rgba(255,255,255,.92);
     }
-    #banner.running .dot {
-      -webkit-animation: pulse 1.4s ease-in-out infinite;
-              animation: pulse 1.4s ease-in-out infinite;
-    }
-    @-webkit-keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
-    @keyframes pulse         { 0%,100%{opacity:1} 50%{opacity:.25} }
+    #banner-cp { text-decoration: underline dotted; }
+    #banner-cp:hover { text-decoration: underline; }
 
-    .meta-btn {
-      background: #f3f4f6; color: #111827;
-      border: 1px solid #d1d5db;
-      padding: .15rem .75rem; border-radius: .375rem;
-      font-weight: 600; font-size: .6875rem;
-      font-family: inherit; cursor: pointer;
-      transition: background .15s, opacity .15s;
-    }
-    .meta-btn:hover:not([disabled]) { background: #e5e7eb; }
-    .meta-btn[disabled] { cursor: default; opacity: .45; }
-    .meta-btn.paused-active,
-    .meta-btn.paused-active:hover:not([disabled]) {
-      background: #fbbf24; color: #111827; border-color: #b45309;
-    }
-
-    .section-title.with-controls {
-      display: flex; justify-content: space-between; align-items: center;
-      text-transform: none; letter-spacing: normal; color: inherit;
-      padding-bottom: .15rem; margin-bottom: .5rem;
-    }
-    .section-title.with-controls > * + * { margin-left: .75rem; }
-    .section-title.with-controls #sec-meta-title,
-    .section-title.with-controls #sec-guests-title {
+    /* .section-title / .meta-btn / .no-data chrome lives in
+       yuruna.common.css (shared with perf.html). The per-id rules
+       below pin flex behavior that's unique to index.html's
+       three-section layout. */
+    .section-title.with-controls #sec-cycle-title,
+    .section-title.with-controls #sec-guests-title,
+    .section-title.with-controls #sec-history-title {
       font-size: .6875rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .07em; color: #6b7280;
+      letter-spacing: .07em; color: var(--fg-muted);
       flex: 1 1 auto; min-width: 0;
     }
 
-    main { max-width: 860px; margin: 1.75rem auto; padding: 0 1.5rem; }
-
-    .section-title {
-      font-size: .6875rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .07em; color: #6b7280;
-      border-bottom: 1px solid #e5e7eb; padding-bottom: .4rem; margin-bottom: .875rem;
-    }
+    main { max-width: 860px; width: 100%; margin: 1.75rem auto; padding: 0 1.5rem; }
     section { margin-bottom: 2rem; }
 
-    /* Meta row: 2-column flex grid (CSS Grid + gap aren't on iOS 9). */
     .meta-grid {
       display: flex; flex-wrap: wrap;
     }
-    /* ── Guest card ── */
     .guest-card {
-      background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: .875rem 1.125rem; margin-bottom: .625rem;
     }
-    /* Row 1 of the card: guest-name + guest-meta on the left, status pill
-       on the right. Row 2 (topLevel, steps, actions, error) flows as
-       block-level siblings of this header inside the card, taking the
-       full width. */
     .guest-card-header {
       display: flex; align-items: flex-start; justify-content: space-between;
     }
     .guest-card-header > * + * { margin-left: 1rem; }
     .guest-card-header .left { flex: 1; min-width: 0; }
     .guest-name { font-weight: 600; font-size: .9375rem; margin-bottom: .2rem; }
-    .guest-meta { font-size: .75rem; color: #6b7280; margin-bottom: .45rem; }
+    .guest-meta { font-size: .75rem; color: var(--fg-muted); margin-bottom: .45rem; }
     .guest-toplevel {
-      font-size: .75rem; color: #1e40af; margin-bottom: .45rem;
-      font-family: 'Menlo','Consolas',monospace; word-break: break-all;
+      font-size: .75rem; color: var(--link-strong); margin-bottom: .45rem;
+      font-family: var(--font-mono); word-break: break-all;
     }
     .steps      { display: flex; flex-wrap: wrap; }
     .steps > .step-pill { margin-right: .375rem; margin-bottom: .375rem; }
@@ -108,105 +67,110 @@
       white-space: nowrap;
     }
     .guest-error {
-      margin-top: .5rem; font-size: .75rem; color: #dc2626;
-      background: #fef2f2; border: 1px solid #fecaca;
+      margin-top: .5rem; font-size: .75rem; color: var(--fail-fg);
+      background: var(--fail-soft-bg); border: 1px solid var(--fail-soft-border);
       border-radius: .375rem; padding: .45rem .625rem;
-      font-family: 'Menlo','Consolas',monospace; word-break: break-all;
+      font-family: var(--font-mono); word-break: break-all;
     }
     .guest-action {
-      margin-top: .5rem; font-size: .75rem; color: #1d4ed8;
-      background: #eff6ff; border: 1px solid #bfdbfe;
+      margin-top: .5rem; font-size: .75rem; color: var(--info-fg);
+      background: var(--info-bg); border: 1px solid var(--info-border);
       border-radius: .375rem; padding: .45rem .625rem;
-      font-family: 'Menlo','Consolas',monospace; word-break: break-all;
+      font-family: var(--font-mono); word-break: break-all;
     }
-    /* Paused step: amber to match the banner. */
     .guest-action.paused {
-      background: #ca8a04; color: #fff; border-color: #a16207;
+      background: var(--paused-strong-bg); color: var(--fg-header); border-color: var(--paused-strong-border);
     }
 
-    /* Meta cards: 2-column flex grid. */
+    /* Flexbox fallback for iOS 9 Safari (pre-grid). Each card claims
+       half the row minus the inter-card gutter; the flex-wrap lets a
+       narrow viewport stack them. */
     .meta-grid > .meta-card { width: -webkit-calc(50% - .1875rem); width: calc(50% - .1875rem); margin-bottom: .375rem; }
     .meta-grid > .meta-card:nth-child(odd) { margin-right: .375rem; }
 
+    @supports (display: grid) {
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        -webkit-column-gap: .375rem; column-gap: .375rem;
+        -webkit-row-gap: .375rem;    row-gap: .375rem;
+      }
+      .meta-grid > .meta-card,
+      .meta-grid > .meta-card:nth-child(odd) {
+        width: auto; margin-right: 0; margin-bottom: 0;
+      }
+    }
+
     .meta-card {
-      background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem;
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: .15rem 1rem;
     }
-    .meta-card .label { font-size: .625rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .1rem; }
-    .meta-card .value { font-size: .6875rem; font-weight: 500; font-family: 'Menlo','Consolas',monospace; color: #111827; word-break: break-all; }
+    .meta-card .label { font-size: .625rem; color: var(--fg-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .1rem; }
+    .meta-card .value { font-size: .6875rem; font-weight: 500; font-family: var(--font-mono); color: var(--fg-primary); word-break: break-all; }
 
-    /* ── Badges ── */
     .badge {
       display: inline-flex; align-items: center;
       font-size: .75rem; font-weight: 700; padding: .25rem .7rem;
       border-radius: 9999px; white-space: nowrap;
     }
-    /* Recent Cycles pills (cycle ID + guests): smaller, mono, normal weight. */
     #history-body .badge {
       font-size: .625rem; padding: .15rem .4rem;
-      font-weight: 400; font-family: 'Menlo','Consolas',monospace;
+      font-weight: 400; font-family: var(--font-mono);
     }
-    /* Latest Cycle "Cycle ID (UTC)" pill: same weight as Recent Cycles. */
-    #m-cycleid .badge { font-weight: 400; }
+    #cycle-timestamp .badge { font-weight: 400; }
 
-    /* Colours for badges & pills */
-    .idle, .idle-bg     { background: #f3f4f6; color: #6b7280; }
-    .pending, .pending-bg { background: #f3f4f6; color: #6b7280; }
-    .running, .running-bg { background: #dbeafe; color: #1d4ed8; }
-    .pass, .pass-bg     { background: #dcfce7; color: #16a34a; }
-    .fail, .fail-bg     { background: #fee2e2; color: #dc2626; }
-    .skipped, .skipped-bg { background: #fef9c3; color: #a16207; }
-    .paused, .paused-bg { background: #fef3c7; color: #ca8a04; }
+    .idle, .idle-bg     { background: var(--bg-hover); color: var(--fg-muted); }
+    .pending, .pending-bg { background: var(--bg-hover); color: var(--fg-muted); }
+    .running, .running-bg { background: var(--running-bg); color: var(--running-fg); }
+    .pass, .pass-bg     { background: var(--pass-bg); color: var(--pass-fg); }
+    .fail, .fail-bg     { background: var(--fail-bg); color: var(--fail-fg); }
+    .skipped, .skipped-bg { background: var(--skipped-bg); color: var(--skipped-fg); }
+    .paused, .paused-bg { background: var(--pending-bg); color: var(--pending-fg); }
 
-    /* ── History table ── */
     .table-wrap { overflow-x: auto; }
     table {
       width: 100%; border-collapse: collapse;
-      background: #fff; border: 1px solid #e5e7eb;
+      background: var(--bg-elevated); border: 1px solid var(--border);
       border-radius: .5rem; overflow: hidden; font-size: .8125rem;
     }
     th {
-      background: #f9fafb; padding: .625rem 1rem; text-align: left;
-      font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb;
+      background: var(--bg-primary); padding: .625rem 1rem; text-align: left;
+      font-weight: 600; color: var(--fg-primary); border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-    td { padding: .625rem 1rem; border-bottom: 1px solid #f3f4f6; color: #374151; }
+    td { padding: .625rem 1rem; border-bottom: 1px solid var(--border-soft); color: var(--fg-primary); }
     tr:last-child td { border-bottom: none; }
-    tbody tr:hover td { background: #f9fafb; }
-    .mono { font-family: 'Menlo','Consolas',monospace; font-size: .75rem; }
+    tbody tr:hover td { background: var(--bg-hover); }
+    .mono { font-family: var(--font-mono); font-size: .75rem; }
 
-    /* ── No data ── */
-    .no-data {
-      text-align: center; padding: 3.5rem 1rem; color: #9ca3af;
-    }
-    .no-data h3 { font-size: 1.125rem; margin-bottom: .5rem; color: #6b7280; }
-    .no-data code {
-      background: #f3f4f6; padding: .125rem .375rem; border-radius: .25rem;
-      font-family: 'Menlo','Consolas',monospace; font-size: .8125rem;
-    }
-
-    /* ── Footer bar ── */
     #footer-bar {
       position: fixed; bottom: 0; left: 0; right: 0;
-      background: #111827; color: #9ca3af; font-size: .6875rem;
+      background: var(--footer-bg); color: var(--footer-fg); font-size: .6875rem;
       padding: .35rem 1rem; display: flex; justify-content: space-between;
       align-items: center;
     }
-    /* IP list: readonly textarea (1-2 lines, IPv4 / IPv6), 1/3 page max.
-       rows set dynamically by JS so the box has no blank padding. */
+    #footer-bar a { color: var(--footer-fg); }
     #footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
     #footer-ips > * + * { margin-left: .5rem; }
     #footer-ips .label { flex-shrink: 0; }
     textarea#footer-ip-list {
       flex: 1 1 auto; min-width: 0;
-      font-family: 'Menlo','Consolas',monospace; font-size: .6875rem;
-      color: #9ca3af; background: #0b1220; border: 1px solid #374151;
+      font-family: var(--font-mono); font-size: .6875rem;
+      color: var(--footer-fg); background: var(--footer-input-bg); border: 1px solid var(--footer-input-border);
       border-radius: 3px; padding: .15rem .35rem;
       resize: none; overflow: auto; white-space: pre;
       line-height: 1.25; vertical-align: middle;
       scrollbar-width: none;
     }
     textarea#footer-ip-list::-webkit-scrollbar { display: none; }
+
+    /* Phone-class viewport: footer-bar gutters tighten further than the
+       shared .css max-width: 600px block does; #footer-ips claims its
+       own row so the IP textarea is legible at 320 px. */
+    @media (max-width: 600px) {
+      #footer-bar { padding-left: .5rem; padding-right: .5rem; flex-wrap: wrap; }
+      #footer-ips { flex-basis: 100%; max-width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -219,20 +183,23 @@
 <div id="banner" class="idle">
   <span class="dot"></span>
   <span id="banner-text">Loading…</span>
+  <span id="banner-cp-row">
+    <a id="banner-cp" class="hidden" href="#" target="_blank" rel="noopener">Caching Proxy</a><span id="banner-cp-noproxy" class="hidden">No Caching Proxy</span>
+  </span>
 </div>
 
 <main>
 
-  <section id="sec-meta" style="display:none">
+  <section id="sec-cycle" style="display:none">
     <div class="section-title with-controls">
-      <span id="sec-meta-title">Latest Cycle</span>
+      <span id="sec-cycle-title">Latest Cycle</span>
       <button id="cycle-pause-btn" class="meta-btn" type="button" disabled>Pause after cycle</button>
     </div>
     <div class="meta-grid">
-      <div class="meta-card"><div class="label">Cycle ID (UTC)</div><div class="value" id="m-cycleid">—</div></div>
-      <div class="meta-card"><div class="label">Started</div><div class="value" id="m-started">—</div></div>
-      <div class="meta-card"><div class="label">Commit</div><div class="value" id="m-commit">—</div></div>
-      <div class="meta-card"><div class="label">Images refresh</div><div class="value" id="m-getimage">—</div></div>
+      <div class="meta-card"><div class="label">Cycle ID (UTC)</div><div class="value" id="cycle-timestamp">—</div></div>
+      <div class="meta-card"><div class="label">Started</div><div class="value" id="cycle-started">—</div></div>
+      <div class="meta-card"><div class="label">Commit</div><div class="value" id="cycle-commit">—</div></div>
+      <div class="meta-card"><div class="label">Images refresh</div><div class="value" id="cycle-images-refresh">—</div></div>
     </div>
   </section>
 
@@ -245,13 +212,16 @@
   </section>
 
   <section id="sec-history" style="display:none">
-    <div class="section-title">Recent Cycles</div>
+    <div class="section-title with-controls">
+      <span id="sec-history-title">Recent Cycles</span>
+      <a class="section-title-link" href="perf.html">Performance</a>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Cycle ID (UTC)</th><th>Duration</th>
-            <th>Guests</th><th>Commit</th>
+            <th scope="col">Cycle ID (UTC)</th><th scope="col">Duration</th>
+            <th scope="col">Guests</th><th scope="col">Commit</th>
           </tr>
         </thead>
         <tbody id="history-body"></tbody>
@@ -269,559 +239,10 @@
 <div id="footer-bar">
   <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" aria-label="Host IP addresses">—</textarea></span>
   <span>Loaded: <span id="last-loaded">—</span></span>
-  <span><a href="#" onclick="location.reload();return false" style="color:#6b7280">Refresh</a>: <span id="countdown">30</span>s</span>
+  <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
 </div>
 
 <script src="yuruna.common.js"></script>
-<script>
-/*
-  Page-specific dashboard logic. Shared helpers live in yuruna.common.js.
-  --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
-*/
-(function(){
-  'use strict';
-
-  var safeWarn    = Yuruna.safeWarn;
-  var escHtml     = Yuruna.escHtml;
-  var cls         = Yuruna.cls;
-  var badge       = Yuruna.badge;
-  var fmtDate     = Yuruna.fmtDate;
-  var fmtDuration = Yuruna.fmtDuration;
-
-  var PAGE_CTA = {
-    href:  'test.config.html',
-    label: 'Edit config',
-    title: 'Edit test/test.config.yml'
-  };
-
-  var BANNER = {
-    idle:    'No test data available',
-    running: 'Test in progress',
-    pass:    'All guests operational',
-    fail:    'Incident detected — see details below',
-    stopped: 'Test runner stopped'
-  };
-
-  // Server-generated HTML appended to the "Latest Cycle" section title.
-  // Re-fetched per poll so a page left open picks up new-cycle state.
-  // --- See https://yuruna.link/definition#defining-the-status-page-caching-proxy-banner
-  var cachingProxyHtml = '';
-
-  function renderIpAddresses(value) {
-    var el = document.getElementById('footer-ip-list');
-    if (!el) return;
-    el.value = value || '—';
-    // textarea height tracks line count so the field reads as centered
-    // on the footer row whether the file has 1 line or 2.
-    el.rows = Math.min(2, Math.max(1, el.value.split('\n').length));
-  }
-
-  function setBannerText(statusText) {
-    var el = document.getElementById('banner-text');
-    if (!el) return;
-    el.textContent = statusText || '';
-  }
-
-  // cachingProxyHtml is server-generated trusted HTML (may include an
-  // <a href> to the cachemgr URL); left side is a literal constant.
-  function refreshCycleTitle() {
-    var el = document.getElementById('sec-meta-title');
-    if (!el) return;
-    el.innerHTML = cachingProxyHtml
-      ? ('Latest Cycle - ' + cachingProxyHtml)
-      : 'Latest Cycle';
-  }
-
-  function loadCachingProxyText() {
-    fetch('runtime/caching-proxy.txt?_=' + Date.now(), { cache: 'no-store' })
-      .then(function(res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.text();
-      })
-      .then(function(text) {
-        cachingProxyHtml = (text || '').replace(/^\s+|\s+$/g, '');
-      })
-      ['catch'](function(e) {
-        cachingProxyHtml = '';
-        safeWarn('Could not load runtime/caching-proxy.txt:', e);
-      })
-      .then(function() {
-        refreshCycleTitle();
-      });
-  }
-
-  // kind = 'step' | 'cycle'. armed echoes the server pause flag;
-  // cycleActive enables the button while a cycle is in flight.
-  // Armed -> "Continue" + amber.
-  function updatePauseButton(kind, armed, cycleActive) {
-    var btn = document.getElementById(kind + '-pause-btn');
-    if (!btn) return;
-    var pauseLabel = (kind === 'step') ? 'Pause after step' : 'Pause after cycle';
-    if (armed) {
-      btn.textContent = 'Continue';
-      btn.classList.add('paused-active');
-      btn.disabled = false;
-      btn.onclick = function() { controlAction(kind, 'resume'); };
-    } else if (cycleActive) {
-      btn.textContent = pauseLabel;
-      btn.classList.remove('paused-active');
-      btn.disabled = false;
-      btn.onclick = function() { controlAction(kind, 'pause'); };
-    } else {
-      btn.textContent = pauseLabel;
-      btn.classList.remove('paused-active');
-      btn.disabled = true;
-      btn.onclick = null;
-    }
-  }
-
-  // POST /control/<kind>-<action> then force a refresh so the banner
-  // flips without waiting for the next 30s poll.
-  function controlAction(kind, action) {
-    var btn = document.getElementById(kind + '-pause-btn');
-    if (btn) btn.disabled = true;
-    var endpoint = 'control/' + kind + '-' + action;
-    fetch(endpoint, { method: 'POST', cache: 'no-store' })
-      ['catch'](function(e) {
-        safeWarn(endpoint + ' failed:', e);
-      })
-      .then(function() {
-        loadStatus();
-      });
-  }
-
-  // Display-only relabelling of runner step names. step.name is kept
-  // intact in status.json / log files / collapse logic.
-  var PILL_LABELS = {
-    'New-VM.Resource':     'New VM',
-    'Start-GuestOS':       'Start OS',
-    'Start-GuestWorkload': 'Workload'
-  };
-  function pill(step) {
-    var c = cls(step.status);
-    var skip = step.skipped ? ' (skip)' : '';
-    var err  = step.errorMessage ? ' title="' + step.errorMessage.replace(/"/g,'&quot;') + '"' : '';
-    var label = PILL_LABELS[step.name] || step.name;
-    return '<span class="step-pill ' + c + '"' + err + '>' + label + skip + '</span>';
-  }
-
-  // Collapse the VM-prep triplet into a single pill. Status precedence
-  // is fail > running > pass > skipped > pending so failures stay
-  // visible; firstErr surfaces the first non-empty triplet errorMessage.
-  var VM_PREP_STEPS = ['New-VM', 'Start-VM', 'New-VM.Resource'];
-  function collapseVmPrep(steps) {
-    var prep = [];
-    var rest = [];
-    for (var i = 0; i < steps.length; i++) {
-      if (VM_PREP_STEPS.indexOf(steps[i].name) >= 0) prep.push(steps[i]);
-      else rest.push(steps[i]);
-    }
-    if (prep.length === 0) return steps;
-    // Status precedence: fail > running > pass > skipped > pending.
-    var rank = { fail: 5, running: 4, pass: 3, skipped: 2, pending: 1 };
-    var bestStatus = 'pending';
-    var bestRank   = 0;
-    var allSkipped = true;
-    var firstErr   = null;
-    var earliestStart = null;
-    var latestFinish  = null;
-    for (var j = 0; j < prep.length; j++) {
-      var s = prep[j];
-      var r = rank[s.status] || 0;
-      if (r > bestRank) { bestRank = r; bestStatus = s.status; }
-      if (!s.skipped) allSkipped = false;
-      if (!firstErr && s.errorMessage) firstErr = s.errorMessage;
-      if (s.startedAt && (!earliestStart || s.startedAt < earliestStart)) earliestStart = s.startedAt;
-      if (s.finishedAt && (!latestFinish || s.finishedAt > latestFinish)) latestFinish = s.finishedAt;
-    }
-    var merged = {
-      name:         'New-VM.Resource',
-      status:       bestStatus,
-      skipped:      allSkipped,
-      errorMessage: firstErr,
-      startedAt:    earliestStart,
-      finishedAt:   latestFinish
-    };
-    // Splice merged pill in place of the first prep entry, preserving
-    // the original ordering of the remaining steps.
-    var out = [];
-    var inserted = false;
-    for (var k = 0; k < steps.length; k++) {
-      if (VM_PREP_STEPS.indexOf(steps[k].name) >= 0) {
-        if (!inserted) { out.push(merged); inserted = true; }
-        continue;
-      }
-      out.push(steps[k]);
-    }
-    return out;
-  }
-
-  // Resolve the URL of a cycle's HTML log file.
-  //
-  // New layout (cycleFolder per cycle, since 2026-05): the runner stores
-  // the folder URL on the record as `cycleFolderUrl`
-  // (e.g. "log/000001.2026-05-11.16-24-39.HOST/"), and the HTML log lives
-  // inside it with the same base name. When that field is present we use
-  // it directly -- no derivation needed.
-  //
-  // Legacy layout: log files were flat in test/status/log/ named
-  // "<cycleId>.<hostname>.<gitCommit>.html". History rows from older
-  // cycles still have that shape, so we keep the derivation as a
-  // fallback so the dashboard remains useful for historical browsing.
-  // New layout: cycleFolderUrl + same-name .html inside. Legacy: flat
-  // "<cycleId>.<host>.<sha>.html" under log/.
-  function logFileUrl(cycleId, hostname, gitCommit, cycleFolderUrl) {
-    if (cycleFolderUrl) {
-      var trimmed = cycleFolderUrl.replace(/\/+$/, '');
-      var parts = trimmed.split('/');
-      var base = parts[parts.length - 1];
-      return trimmed + '/' + base + '.html';
-    }
-    if (!cycleId || !hostname || !gitCommit) return null;
-    return 'log/' + cycleId.replace(/:/g, '-') + '.' + hostname + '.' + gitCommit + '.html';
-  }
-
-  // Normalize commit info to [{sha, repoUrl}]. Accepts the new schema
-  // (rec.gitCommits) and the legacy schema (rec.gitCommit + sibling
-  // repoUrl, possibly only the top-level data.repoUrl on a history row).
-  function gitCommitsForRender(rec, legacyRepoUrl) {
-    if (rec.gitCommits && rec.gitCommits.length > 0) return rec.gitCommits;
-    if (rec.gitCommit) return [{ sha: rec.gitCommit, repoUrl: rec.repoUrl || legacyRepoUrl || null }];
-    return [];
-  }
-  // Comma-separated short-SHA links. Validates scheme + alphanumeric
-  // SHA so a hostile repoUrl can't break out of the href.
-  function renderCommitLinks(commits) {
-    if (!commits || commits.length === 0) return '—';
-    return commits.map(function(c) {
-      var sha   = (c && c.sha) ? c.sha.slice(0, 8) : '';
-      var rawSha = (c && c.sha) ? c.sha : '';
-      if (!sha) return '—';
-      if (c.repoUrl && /^https?:\/\//i.test(c.repoUrl) && /^[A-Za-z0-9]+$/.test(rawSha)) {
-        var href = escHtml(c.repoUrl + '/commit/' + rawSha);
-        return '<a href="' + href + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + escHtml(sha) + '</a>';
-      }
-      return escHtml(sha);
-    }).join(', ');
-  }
-  // Per-cycle log file uses the framework SHA only. Convention:
-  // gitCommits[0] is framework; legacy rows carry only rec.gitCommit.
-  function primaryShaForLog(rec) {
-    var commits = gitCommitsForRender(rec, null);
-    if (commits.length > 0 && commits[0].sha) return commits[0].sha;
-    return rec.gitCommit || null;
-  }
-
-  // Banner text for the three pause states behind a single amber color:
-  //   step-armed but step still running     -> "will pause (after step)"
-  //   step actually waiting for resume      -> "Test paused"
-  //   cycle-armed but cycle still running   -> "will pause (after cycle)"
-  //   cycle armed and cycle finalized       -> "Test paused"
-  // Step wins over cycle (step boundary is always reached first).
-  // Step effectiveness signal: current-action.json line includes
-  // "Paused (waiting for resume)" (written by Invoke-Sequence).
-  // Returns null when no pause is armed.
-  function pauseBannerText(stepPaused, cyclePaused, status, actionData) {
-    var stepEffective  = stepPaused &&
-      !!(actionData && actionData.line && /Paused \(waiting for resume\)/.test(actionData.line));
-    var cycleEffective = cyclePaused && status !== 'running';
-    if (stepEffective)  return 'Test paused';
-    if (stepPaused)     return 'Test will pause (after current step)';
-    if (cycleEffective) return 'Test paused';
-    if (cyclePaused)    return 'Test will pause (after current cycle)';
-    return null;
-  }
-
-  // current-action.json sidecar; only flips amber once the runner
-  // has stopped at a step boundary (pause armed mid-step stays blue).
-  // breakData (from /runtime/break-active.json) drives the Continue button
-  // when the running guest is parked at a break step.
-  function guestActionHtml(g, actionData, paused, breakData) {
-    if (!actionData || !actionData.line) return '';
-    if (g.status !== 'running') return '';
-    if (actionData.guestKey && actionData.guestKey !== g.guestKey) return '';
-    var waitingForResume = paused && /Paused \(waiting for resume\)/.test(actionData.line);
-    var atBreak = !!(breakData && breakData.guestKey === g.guestKey);
-    var actionCls = (waitingForResume || atBreak) ? 'guest-action paused' : 'guest-action';
-    var html = '<div class="' + actionCls + '">' + escHtml(actionData.line);
-    if (atBreak) {
-      // Snapshot id is informational only -- the Continue server-side
-      // path reads it from break-active.json. Empty when break.id was
-      // omitted (in which case Continue resumes without snapshot restore).
-      var snapHint = breakData.snapshotId
-        ? (' (loadDiskSnapshot id="' + escHtml(breakData.snapshotId) + '")')
-        : ' (no snapshot to restore)';
-      html += ' <button id="break-continue-btn" class="meta-btn paused-active" type="button"' +
-              ' title="Restore snapshot' + snapHint.replace(/"/g,'&quot;') + ', start the VM, then resume the sequence">Continue</button>';
-    }
-    html += '</div>';
-    return html;
-  }
-
-  // POST /control/break-continue and refresh on completion. The break
-  // action in the runner detects the flag, restores the snapshot, starts
-  // the VM, and removes break-active.json -- which makes the button
-  // vanish on the next poll.
-  function continueFromBreak() {
-    var btn = document.getElementById('break-continue-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Continuing...'; }
-    fetch('control/break-continue', { method: 'POST', cache: 'no-store' })
-      ['catch'](function(e) { safeWarn('control/break-continue failed:', e); })
-      .then(function() { loadStatus(); });
-  }
-
-  function renderStatus(data, actionData, breakData, runnerStatus) {
-    var noData = document.getElementById('no-data');
-    var banner = document.getElementById('banner');
-    var headerMachine = document.getElementById('header-machine');
-
-    // Refresh #header-machine from the live poll. Yuruna.render
-    // HeaderMachine wipes textContent before it rebuilds, so the CTA
-    // stays single across polls.
-    var nameText = '';
-    var hostText = '';
-    if (data && data.hostname) {
-      nameText = data.hostname;
-      hostText = data.host ? data.host.replace('host.','') : '';
-      document.title = data.hostname + ' — Yuruna status';
-    } else {
-      nameText = window.location.hostname || '';
-    }
-    Yuruna.renderHeaderMachine(headerMachine, nameText, hostText, PAGE_CTA);
-
-    // Pre-rename files carry runId, not cycleId. Read either.
-    var liveCycleId = data && (data.cycleId || data.runId);
-    var hasGuests   = !!(data && data.guests && data.guests.length);
-    var hasHistory  = !!(data && data.history && data.history.length);
-
-    // Runner liveness override: running=false forces "stopped" so the
-    // operator can tell a snapshot from a live cycle.
-    var runnerStopped = !!(runnerStatus && runnerStatus.running === false);
-
-    if (!data || (!liveCycleId && !hasGuests && !hasHistory)) {
-      banner.className = runnerStopped ? 'stopped' : 'idle';
-      setBannerText(runnerStopped ? BANNER.stopped : BANNER.idle);
-      updatePauseButton('step',  false, false);
-      updatePauseButton('cycle', false, false);
-      var ids = ['sec-meta','sec-guests','sec-history'];
-      for (var i = 0; i < ids.length; i++) {
-        var s = document.getElementById(ids[i]);
-        if (s) s.style.display = 'none';
-      }
-      noData.style.display = '';
-      return;
-    }
-    noData.style.display = 'none';
-
-    var status = data.overallStatus || 'idle';
-    var stepPaused  = !!data.stepPaused;
-    var cyclePaused = !!data.cyclePaused;
-    // Banner is amber whenever EITHER pause is armed; text distinguishes
-    // the three cases. Step/guest-action pills keep their normal colors
-    // until the pause actually fires inside the runner.
-    var pauseText = pauseBannerText(stepPaused, cyclePaused, status, actionData);
-    var anyPaused = pauseText !== null;
-    var effective = anyPaused ? 'paused' : cls(status);
-    // Runner liveness wins: if the process is gone, the page is a
-    // snapshot. History/guest-list still render for context.
-    if (runnerStopped) {
-      banner.className = 'stopped';
-      setBannerText(BANNER.stopped);
-    } else {
-      banner.className = effective;
-      setBannerText(pauseText !== null ? pauseText : (BANNER[status] || status));
-    }
-    // Buttons stay enabled while the cycle is in flight (running OR
-    // either pause armed) so the operator can flip between modes.
-    var cycleActive = (status === 'running') || anyPaused;
-    updatePauseButton('step',  stepPaused,  cycleActive);
-    updatePauseButton('cycle', cyclePaused, cycleActive);
-
-    // Meta
-    if (liveCycleId) {
-      document.getElementById('sec-meta').style.display = '';
-      var liveCommits = gitCommitsForRender(data, data.repoUrl);
-      document.getElementById('m-commit').innerHTML = renderCommitLinks(liveCommits);
-      var cycleIdLabel = (liveCycleId || '—').slice(0, 19).replace('T', ' T');
-      var cycleLogUrl  = logFileUrl(liveCycleId, data.hostname, primaryShaForLog(data), data.cycleFolderUrl);
-      var cycleCell = cycleLogUrl
-        ? ('<a href="' + cycleLogUrl + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + cycleIdLabel + '</a>')
-        : cycleIdLabel;
-      document.getElementById('m-cycleid').innerHTML = '<span class="badge ' + cls(status) + '">' + cycleCell + '</span>';
-      document.getElementById('m-started').textContent  = fmtDate(data.startedAt);
-      document.getElementById('m-getimage').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';
-    }
-
-    // Guests
-    var guests = data.guests || [];
-    if (guests.length) {
-      document.getElementById('sec-guests').style.display = '';
-      document.getElementById('guest-list').innerHTML = guests.map(function(g) {
-        var stepsArr = collapseVmPrep(g.steps || []);
-        var steps    = stepsArr.map(pill).join('');
-        var firstStartedAt = stepsArr[0] ? stepsArr[0].startedAt : null;
-        var lastFinishedAt = stepsArr.length ? stepsArr[stepsArr.length - 1].finishedAt : null;
-        var dur            = fmtDuration(firstStartedAt, lastFinishedAt);
-        var errStep = null;
-        for (var i = 0; i < stepsArr.length; i++) {
-          if (stepsArr[i].errorMessage) { errStep = stepsArr[i]; break; }
-        }
-        var errHtml = errStep ? ('<div class="guest-error">' + escHtml(errStep.errorMessage) + '</div>') : '';
-        // stepPaused (not anyPaused): the amber box only fires for step
-        // pause; cycle pause is armed-but-pending mid-step.
-        var actHtml = guestActionHtml(g, actionData, stepPaused, breakData);
-        // guest-meta: VM name while running, Duration once terminal,
-        // " · " placeholder before the guest has started.
-        var metaParts = ' · ';
-        if (g.status === 'running' && g.vmName) {
-          metaParts = 'VM: ' + escHtml(g.vmName);
-        } else if (g.status && g.status !== 'running' && g.status !== 'pending' && dur !== '—') {
-          metaParts = 'Duration: ' + dur;
-        }
-        // Top-level workload(s) for this guest from the cycle plan.
-        var topLevelStr = (g.topLevel || '').replace(/^\s+|\s+$/g, '');
-        var topHtml = topLevelStr
-          ? ('<div class="guest-toplevel">' + escHtml(topLevelStr) + '</div>')
-          : '';
-        // g.failureArtifacts is the per-guest cycle folder URL (set as
-        // soon as the loop iteration begins, success or failure). Field
-        // name kept for back-compat with the JSON schema.
-        var folderUrl = g.failureArtifacts || '';
-        var titleHtml = folderUrl
-          ? ('<a href="' + folderUrl + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="color:inherit;text-decoration:underline dotted">' + escHtml(g.guestKey) + '</a>')
-          : escHtml(g.guestKey);
-        var badgeHtml = folderUrl
-          ? ('<a href="' + folderUrl + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="text-decoration:none">' + badge(g.status) + '</a>')
-          : badge(g.status);
-        return '<div class="guest-card">' +
-          '<div class="guest-card-header">' +
-            '<div class="left">' +
-              '<div class="guest-name">' + titleHtml + '</div>' +
-              '<div class="guest-meta">' + metaParts + '</div>' +
-            '</div>' +
-            '<div>' + badgeHtml + '</div>' +
-          '</div>' +
-          topHtml +
-          '<div class="steps">' + steps + '</div>' +
-          actHtml +
-          errHtml +
-        '</div>';
-      }).join('');
-    }
-
-    // History
-    var history = data.history || [];
-    if (history.length) {
-      document.getElementById('sec-history').style.display = '';
-      document.getElementById('history-body').innerHTML = history.map(function(h) {
-        var gs = h.guestSummary || {};
-        // gs[k] is either a bare "pass"|"fail" string (very old rows)
-        // or { status, failureArtifacts } (current). When the folder
-        // URL is set the pill anchors to it.
-        var guestPills = Object.keys(gs).map(function(k) {
-          var v        = gs[k];
-          var status   = (typeof v === 'string') ? v : (v && v.status) || '';
-          var debugUrl = (typeof v === 'object' && v) ? v.failureArtifacts : '';
-          var label    = k.replace('guest.','');
-          var pillHtml = '<span class="badge ' + cls(status) + '">' + label + '</span>';
-          if (debugUrl) {
-            return '<a href="' + debugUrl + '" target="_blank" title="Open debug folder for ' + label + '" style="text-decoration:none">' + pillHtml + '</a>';
-          }
-          return pillHtml;
-        }).join(' ');
-        // Pre-rename history rows carry runId, not cycleId.
-        var hCycleId    = h.cycleId || h.runId;
-        var hLogUrl     = logFileUrl(hCycleId, h.hostname, primaryShaForLog(h), h.cycleFolderUrl);
-        // <wbr> is the only legal break point in the badge (hyphens
-        // suppressed by white-space:nowrap).
-        var hCycleLabel = (hCycleId || '—').slice(0, 19).replace('T', ' <wbr>T');
-        var hCycleCell  = hLogUrl
-          ? ('<a href="' + hLogUrl + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + hCycleLabel + '</a>')
-          : hCycleLabel;
-        var statusCls  = cls(h.overallStatus);
-        var commitCell = renderCommitLinks(gitCommitsForRender(h, data.repoUrl));
-        return '<tr>' +
-          '<td class="mono"><span class="badge ' + statusCls + '">' + hCycleCell + '</span></td>' +
-          '<td>' + fmtDuration(h.startedAt, h.finishedAt) + '</td>' +
-          '<td>' + guestPills + '</td>' +
-          '<td class="mono">' + commitCell + '</td>' +
-        '</tr>';
-      }).join('');
-    }
-  }
-
-  var countdown = 30;
-
-  function loadStatus() {
-    var data = null;
-    var actionData = null;
-    var breakData = null;
-    var runnerStatus = null;
-    fetch('runtime/status.json?_=' + Date.now())
-      .then(function(res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
-      .then(function(d) { data = d; })
-      ['catch'](function(e) {
-        safeWarn('Could not load runtime/status.json:', e);
-      })
-      .then(function() {
-        // Soft fetch — 404 is normal when no sequence has run yet.
-        return fetch('runtime/current-action.json?_=' + Date.now())
-          .then(function(res) {
-            if (res.ok) return res.json();
-            return null;
-          })
-          ['catch'](function() { return null; });
-      })
-      .then(function(a) {
-        actionData = a;
-        // break-active sidecar: 404 = no break parked; ok = break is
-        // waiting for either marker delete or a /control/break-continue.
-        return fetch('runtime/break-active.json?_=' + Date.now())
-          .then(function(res) { return res.ok ? res.json() : null; })
-          ['catch'](function() { return null; });
-      })
-      .then(function(b) {
-        breakData = b;
-        // PID-based liveness probe; soft fetch (null leaves the banner
-        // in its data-driven state).
-        return fetch('control/runner-status', { cache: 'no-store' })
-          .then(function(res) { return res.ok ? res.json() : null; })
-          ['catch'](function() { return null; });
-      })
-      .then(function(rs) {
-        runnerStatus = rs;
-        renderStatus(data, actionData, breakData, runnerStatus);
-        // Wire the Continue handler after render -- the button is
-        // re-emitted on every poll, so onclick attached in the previous
-        // render is gone with its DOM node.
-        var contBtn = document.getElementById('break-continue-btn');
-        if (contBtn) { contBtn.onclick = continueFromBreak; }
-        document.getElementById('last-loaded').textContent = new Date().toLocaleTimeString();
-        countdown = 60;
-        loadCachingProxyText();
-      });
-  }
-
-  setInterval(function() {
-    countdown = Math.max(0, countdown - 1);
-    var el = document.getElementById('countdown');
-    if (el) el.textContent = countdown;
-    if (countdown === 0) loadStatus();
-  }, 1000);
-
-  // One-shot bootstrap from HostInfo (title, version, machine, IPs).
-  // renderStatus rewrites #header-machine on every poll using the live
-  // status.json data, so its CTA stays single.
-  Yuruna.populateHeader(PAGE_CTA);
-  Yuruna.getHostInfo().then(function(info) { renderIpAddresses(info.ipAddresses); });
-  // Prime cachingProxyHtml before the first renderStatus fires.
-  loadCachingProxyText();
-  loadStatus();
-})();
-</script>
 
 </body>
 </html>

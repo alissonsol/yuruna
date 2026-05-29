@@ -1,10 +1,10 @@
 <#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456783
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -292,6 +292,12 @@ function Set-PerfGuestContext {
 }
 
 function Clear-PerfGuestContext {
+<#
+.SYNOPSIS
+    Drops the active per-guest context so subsequent Write-PerfStepRow
+    calls emit null guestKey/vmName/guestInfoHash. Pairs with
+    Set-PerfGuestContext at guest teardown.
+#>
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if (-not $PSCmdlet.ShouldProcess('perf-guest', 'Clear perf guest context')) { return }
@@ -331,6 +337,13 @@ function Set-PerfSequenceContext {
 }
 
 function Clear-PerfSequenceContext {
+<#
+.SYNOPSIS
+    Drops the active per-sequence context (and its rolling step-
+    occurrence map) so subsequent Write-PerfStepRow calls no-op until
+    Set-PerfSequenceContext fires again. Pairs with that setter at
+    sequence teardown.
+#>
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if (-not $PSCmdlet.ShouldProcess('perf-sequence', 'Clear perf sequence context')) { return }
@@ -431,6 +444,12 @@ function Get-PerfCycleFile {
 }
 
 function Get-PerfSchemaVersion {
+<#
+.SYNOPSIS
+    Returns the integer schema version stamped onto every emitted
+    perf row. Lets consumers (analysis scripts, downstream loaders)
+    branch on schema without parsing a row first.
+#>
     [CmdletBinding()]
     [OutputType([int])]
     param()

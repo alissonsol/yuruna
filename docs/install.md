@@ -63,12 +63,12 @@ Re-runs of the installer must be able to upgrade installed packages and
 the repository in place. An active Yuruna test run or status server
 would fight with the upgrade for the working tree and port 8080. The
 patterns killed: `Invoke-TestRunner.ps1`, `Invoke-TestInnerRunner.ps1`,
-`Test-Sequence.ps1`, `Start-StatusServer.ps1`. Port 8080 is also freed
+`Test-Sequence.ps1`, `Start-StatusService.ps1`. Port 8080 is also freed
 if the status server is still holding it.
 
 ### Preserve the yuruna-caching-proxy VM
 
-The cache VM (`yuruna-caching-proxy`, formerly `squid-cache`) holds tens
+The cache VM (`yuruna-caching-proxy`, formerly `caching-proxy`) holds tens
 of GB of pre-fetched `.deb` / `.iso` content built up across prior test
 cycles. The installer never stops Hyper-V VMs (no `Stop-VM` / `Remove-VM`
 in any installer), so the cache survives re-runs by default.
@@ -206,9 +206,10 @@ preflight fails fast with "powershell-yaml is not installed" if the
 module is missing — which used to be the friction of every fresh-host
 bootstrap. Each installer now installs `powershell-yaml` (CurrentUser
 scope, `-Force -AllowClobber` to auto-trust PSGallery on a fresh box).
-`Install-PowerShellYamlIfMissing` in
-[test/modules/Test.Host.psm1](../test/modules/Test.Host.psm1) is still
-called from `Enable-TestAutomation.ps1` as a safety net for manual-clone
+`Install-PowerShellYamlIfMissing` (defined in
+[test/modules/Test.HostGit.psm1](../test/modules/Test.HostGit.psm1)
+and re-exported via `Test.Host`) is still called from
+`Enable-TestAutomation.ps1` as a safety net for manual-clone
 bootstraps.
 
 ---
@@ -428,7 +429,7 @@ the right one so subsequent steps see `brew` on PATH regardless of CPU.
 
 `brew upgrade --cask utm` requires UTM closed. The installer
 gracefully quits UTM via AppleScript (`tell application "UTM" to quit`)
-and falls back to `pkill` if it refuses. If the squid-cache VM is
+and falls back to `pkill` if it refuses. If the caching-proxy VM is
 running (see [Preserve the yuruna-caching-proxy VM](#preserve-the-yuruna-caching-proxy-vm)),
 the UTM cask upgrade is skipped this run; it gets upgraded on the next
 install re-run when the cache happens to be stopped (or when the
@@ -635,3 +636,9 @@ required.
 just updated. Don't use `id -nG` here: it reflects the stale live
 group set of THIS shell and would force the direct-pwsh fallback on
 the first run.
+
+Back to [Yuruna](../README.md)
+
+---
+
+Copyright (c) 2019-2026 by Alisson Sol et al.

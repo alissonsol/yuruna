@@ -1,9 +1,10 @@
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/sequence.schema.yml
 title: Yuruna interaction sequence
 description: >
   Drives a VM through OCR/keystroke or SSH steps. Action set matches the
-  switch in test/modules/Invoke-Sequence.psm1; the catalogue in
+  switch in test/modules/Invoke-Sequence.psm1; the catalog in
   test/sequences/actions.yml documents per-action parameters and defaults.
 
 type: object

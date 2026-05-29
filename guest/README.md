@@ -18,12 +18,12 @@ scripts (per hypervisor): [Hosts — ...](../host/README.md).
 Inside a running guest, workloads are installed by fetching and running
 one script each. The fetcher honors `YurunaCacheContent`:
 
-```bash
+```
 # Linux guests
-/automation/fetch-and-execute.sh guest/<name>/<name>.<workload>.sh
+/usr/local/lib/yuruna/fetch-and-execute.sh guest/<name>/<name>.<workload>.sh
 ```
 
-```powershell
+```
 # Windows 11 guest (elevated)
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/<workload>.ps1$nc" | iex

@@ -43,7 +43,7 @@ Adding a new entry:
 The ubuntu.server.24 KVM guest uses `virt-install --cdrom --print-xml=1`,
 patches the emitted XML, then `virsh define` + `virsh start` instead of
 letting virt-install orchestrate the install. Each piece of the dance
-addresses a specific virt-install behaviour:
+addresses a specific virt-install behavior:
 
 - **`--cdrom $baseImageFile` is the install method.** virt-install
   rejects the domain build without one of
@@ -58,7 +58,7 @@ addresses a specific virt-install behaviour:
   test runner expects `New-VM.ps1` to return promptly so the GUI
   sequence can pick up at "Continue with autoinstall?". `--wait 0`
   returns immediately after defining + starting the domain.
-- **UEFI on x86_64** matches the macos.utm and hyper-v variants, both
+- **UEFI on x86_64** matches the macOS UTM and Hyper-V variants, both
   of which are UEFI-only by their hypervisor's choice. `ubuntu-installer`
   uses `efibootmgr` to add an `ubuntu` UEFI boot entry that takes
   priority over the CDROM in the firmware boot order, so the
@@ -282,7 +282,7 @@ Source:
 
 ### Why cache VHDX uses Resize-VHD instead of qemu-img resize?
 
-The Hyper-V squid-cache image is resized to 512 GB for cache storage
+The Hyper-V caching-proxy image is resized to 512 GB for cache storage
 (384 GB `squid cache_dir` + ~128 GB OS/logs/headroom). VHDX is
 dynamic, so 512 GB is the APPARENT size only — actual disk consumption
 stays low until squid starts caching (or unattended-upgrades pulls a
@@ -296,7 +296,7 @@ Prefer Hyper-V's native `Resize-VHD`: `qemu-img` reports
 with `subformat=dynamic`. `Resize-VHD` handles VHDX correctly.
 
 Source:
-[`host/windows.hyper-v/guest.squid-cache/Get-Image.ps1`](../host/windows.hyper-v/guest.squid-cache/Get-Image.ps1).
+[`host/windows.hyper-v/guest.caching-proxy/Get-Image.ps1`](../host/windows.hyper-v/guest.caching-proxy/Get-Image.ps1).
 
 ---
 
@@ -323,7 +323,7 @@ The inner pwsh is spawned with `-NoProfile` so the operator's `$PROFILE`
 can't re-set these vars AFTER inheritance and override the snapshot.
 Without that flag, a profile line like
 
-```powershell
+```
 $env:YURUNA_CACHING_PROXY_IP = '192.168.7.223'
 ```
 
@@ -350,7 +350,7 @@ inner emitted its final cycle-end line.
 
 Root cause: any long-running grandchild spawned by the inner that
 inherited the inner's console handles (status server is the worst
-offender; `Start-StatusServer.ps1` was patched in the same change to
+offender; `Start-StatusService.ps1` was patched in the same change to
 redirect its stdio explicitly) kept the outer's `WaitForExit()` from
 completing. The call operator hands inner invocation to PowerShell's
 native command pipeline, which waits on the child's exit code directly
@@ -761,6 +761,183 @@ an empty string, so throws that fire before the first
 
 Source:
 [`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
+
+---
+
+### Why ubuntu guest update scripts install PowerShell first?
+
+[`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh)
+and its 26 sibling install `pwsh` as early as possible so that even
+if a later step in the script aborts under `set -euo pipefail`, the
+host-side failure diagnostic (which shells back into the guest as
+`pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`)
+still has `pwsh` available to gather state.
+
+The version is discovered at install time by resolving the GitHub
+`/releases/latest` redirect, so this stays current without code edits
+when Microsoft ships a new pwsh.
+
+Source:
+[`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh),
+[`guest/ubuntu.server.26/ubuntu.server.26.update.sh`](../guest/ubuntu.server.26/ubuntu.server.26.update.sh).
+
+---
+
+### Why ubuntu guest update scripts pre-extract the yuruna tarball?
+
+Both `ubuntu.server.{24,26}.update.sh` pre-extract the yuruna
+framework tarball before the long `apt-get update` / `apt-get upgrade`
+block.
+
+If the apt-get block stalls (UTM bridge throughput is the known
+culprit on macOS hosts) the cycle watchdog fires, the orchestrator
+captures diagnostics, and `Get-SystemDiagnostic.ps1` must already be
+on disk — else `pwsh` exits 64 and writes its usage banner instead of
+real guest state.
+
+Tarball-only at this position: the git-clone fallback at the original
+position later in the script stays put because it needs `git`, which
+requires `apt-get` to work, which is exactly what may be stuck.
+
+Source:
+[`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh),
+[`guest/ubuntu.server.26/ubuntu.server.26.update.sh`](../guest/ubuntu.server.26/ubuntu.server.26.update.sh).
+
+---
+
+### Why ubuntu / AL2023 guest update scripts wrap Install-Module powershell-yaml with pwsh_retry?
+
+A bare `sudo pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force"` fails periodically with:
+
+```
+Install-Package: No match was found for the specified search criteria and module name 'powershell-yaml'.
+                 Try Get-PSRepository to see all available registered module repositories.
+Import-Module: The specified module 'powershell-yaml' was not loaded ...
+ConvertFrom-Yaml: The term 'ConvertFrom-Yaml' is not recognized ...
+```
+
+Adjacent cycles on the same host with the same `pwsh` build succeed,
+so the failure is not a version regression. The same one-line error
+is what PowerShellGet emits for at least four distinct failure
+modes, none of which can be discriminated from the rendered text:
+
+| Failure mode | What actually happened upstream |
+|---|---|
+| PSGallery OData edge 5xx / empty body | `https://www.powershellgallery.com/api/v2/Search()?searchTerm='powershell-yaml'` returned 0 results that one moment |
+| NuGet provider bootstrap fetch flake | First `Install-Module` on a fresh pwsh fetches the NuGet provider; if that one GET fails, the search runs without a provider and returns empty |
+| DNS / TLS blip in the guest at the install window | systemd-resolved or CA chain transiently unhappy |
+| Cache-VM HTTPS CONNECT stall | Squid VM saturated when multiple guests install in parallel |
+
+Wrapping the call in
+[`pwsh_retry`](network.md#defining-yuruna-retry-lib) does two things:
+
+1. **Rides out the transient.** Five attempts with exponential
+   backoff (10/20/40/80/160 s) absorbs ~5 min of PSGallery edge
+   flapping at no cost on the happy path.
+2. **Captures the discriminating evidence.** Each attempt's
+   `Resolve-DnsName www.powershellgallery.com` + HEAD on
+   `api/v2/` is appended to
+   `/var/log/yuruna/pwsh-yaml-install.log` along with the
+   `Install-Module -Verbose 4>&1` stream, plus a one-shot pre-
+   flight (`Get-PSRepository`, `Get-PackageProvider -ListAvailable`,
+   PowerShellGet + PSResourceGet versions) recorded before the loop.
+
+The matching `Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v'`
+smoke test lives inside the retried body so a manifest that lands
+without a loadable module re-triggers instead of slipping through.
+
+Failure-collector handoff: `Get-SystemDiagnostic.ps1`'s
+[GUEST PROVISIONING (Linux) section](definition.md#defining-get-systemdiagnostic)
+cats every file under `/var/log/yuruna/` and flags any log
+containing `all N attempts exhausted` (the `_yuruna_retry`
+exhaustion string) as a problem. The operator sees the full
+per-attempt timeline post-mortem without re-shelling into the
+guest.
+
+Source:
+[`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh),
+[`guest/ubuntu.server.26/ubuntu.server.26.update.sh`](../guest/ubuntu.server.26/ubuntu.server.26.update.sh),
+[`guest/amazon.linux.2023/amazon.linux.2023.update.sh`](../guest/amazon.linux.2023/amazon.linux.2023.update.sh).
+
+---
+
+### Why fetch-and-execute tees into a well-known per-run log?
+
+[`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh)
+tees the inner script's combined stdout/stderr into
+`/tmp/yuruna-last-fetch-and-execute.log` so the harness can `scp` it
+back on failure
+(`Copy-FailureArtifactsToStatusLog` → `Save-GuestFetchAndExecuteLog`).
+The file is truncated at every fetch-and-execute call so it always
+holds the LAST script's output — the most useful artifact for
+post-mortem of a sequence that ended on a `fetchAndExecute` step.
+
+Without the tee, when a workload wrapper exits 0 but produces no
+useful output, the wrapper's console output is already scrolled
+off-screen by the `test-localhost.sh` poll loop and the OCR
+screenshot only captures the polling, not the wrapper itself.
+
+The header records WHICH script was fetched so a reader of the file
+alone can tell whether the last fetch was the workload wrapper or a
+smaller helper (`test-localhost.sh`, etc.). The tee runs inside a
+subshell so the inner script still sees a "regular" stdout/stderr
+(some tools behave differently under a pipe — e.g. `docker build`'s
+progress UI).
+
+Source:
+[`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
+
+---
+
+### Why fetch-and-execute self-heals the yuruna_retry library?
+
+[`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh)
+sources `/usr/local/lib/yuruna/yuruna_retry.sh` at startup so the
+inner script (spawned via `bash -c "$script_content"`) inherits
+`apt_retry` / `dnf_retry` / `curl_retry` via `export -f`.
+
+Cloud-init drops the library into `/usr/local/lib/yuruna/` at install
+time (`write_files: base64`). If for any reason that didn't happen
+(hand-cloned guest, a future host platform), fetch-and-execute fetches
+it once from the resolved `BASE_URL` so the guest can still benefit
+from the retry wrappers — but a missing library is non-fatal
+(`[ -r ... ] && . ...`); the inner script just runs without the
+retry helpers in scope.
+
+Source:
+[`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
+
+---
+
+### Why the Yuruna result-manifest is shaped this way?
+
+`New-YurunaResultManifest` (in
+[`automation/Yuruna.Result.psm1`](../automation/Yuruna.Result.psm1)) is
+the project-wide contract for what publish-step functions return.
+
+Every key is always present so callers can branch on values without
+`ContainsKey` gymnastics:
+
+| Key            | Type            | Meaning                                                                   |
+|----------------|-----------------|---------------------------------------------------------------------------|
+| `success`      | `[bool]`        | `$true` iff the operation completed without error.                        |
+| `skipped`      | `[bool]`        | `$true` iff the operation was a soft no-op (precondition not met).        |
+| `errorMessage` | `[string]`      | Short human reason on failure, `''` on success.                           |
+| `failureClass` | `[string]`      | One of `ok`, `config_error`, `cluster_unreachable`, `chart_invalid`, `tool_failed`, `unknown`. |
+| `exitCode`     | `[int]`         | External-tool exit code (kubectl/helm/tofu/docker/etc) or `0` on no-tool failure. |
+| `durationMs`   | `[long]`        | Wall-clock duration of the operation.                                     |
+| `artifacts`    | `[hashtable[]]` | Zero or more artifact descriptors (`path`, `kind`, `sizeBytes`) for things written to disk. |
+
+`Save-GuestDiagnostic` in
+[`test/modules/Test.Diagnostic.psm1`](../test/modules/Test.Diagnostic.psm1)
+returns a manifest of the same shape family
+(`success`/`exitCode`/`skipped`/...). `Yuruna.Result.psm1` is the
+formal, reusable builder; new manifest-returning functions in
+`automation/` should depend on `New-YurunaResultManifest` rather than
+hand-rolling the literal hashtable.
+
+Source:
+[`automation/Yuruna.Result.psm1`](../automation/Yuruna.Result.psm1).
 
 ---
 

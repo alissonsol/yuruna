@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -19,22 +19,11 @@
 $InformationPreference = 'Continue'
 $ProgressPreference = 'Continue'
 
-# Inherit logLevel from the parent process via $env:YURUNA_LOG_LEVEL
-# (refreshed per step from test.config.yml.logLevel by the runner's
-# Resolve-LogLevel). Child pwsh processes don't inherit PowerShell
-# preference variables, so the env var is the only way to propagate.
-# Each level shows itself + all higher-priority streams; Error is highest.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $global:WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $global:InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $global:VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $global:DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        if ($_eff -ge $_rank.Verbose) { $global:ProgressPreference = 'SilentlyContinue' }
-    }
-}
+# Inherit logLevel from the parent process via $env:YURUNA_LOG_LEVEL.
+# Child pwsh processes don't inherit PowerShell preference variables, so
+# the env var is the only way to propagate. See docs/loglevels.md.
+Import-Module (Join-Path $PSScriptRoot 'Test.LogLevel.psm1') -Global -Force
+Use-LogLevelFromEnv
 
 # ── Wire the host driver ─────────────────────────────────────────────────────
 # Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
@@ -66,7 +55,10 @@ $script:DefaultKeystrokeMechanism = "GUI"
 # Default poll interval for wait-style actions (waitForText, passwdPrompt,
 # fetchAndExecute, ...). A step's own `pollSeconds` overrides this; when the
 # step omits it, this global value (vmCommunication.pollSeconds) is used.
-$script:DefaultPollSeconds      = 5
+# Each waitForText iteration already pays a screenshot + OCR pass (200-1000 ms)
+# before sleeping; the sleep dominates total iteration cost, so trimming it
+# directly trims success-path lag.
+$script:DefaultPollSeconds      = 3
 # Default timeout for wait-style actions (waitForText, passwdPrompt,
 # fetchAndExecute, sshExec, sshWaitReady, ...). A step's own `timeoutSeconds`
 # overrides this; otherwise this global value (vmCommunication.timeoutSeconds)
@@ -76,6 +68,17 @@ $script:DefaultTimeoutSeconds   = 180
 # On guest success the buffer dir is deleted; on failure the whole sequence is
 # preserved so the failure-screenshot link can point at the run-up to the bug.
 $script:DefaultScreenHistorySize = 5
+# Memoize Get-OCRNormalized for repeated patterns. The same pattern string
+# is re-normalized on every poll in Test-OCRMatch (pattern + per-segment
+# normalize in Strategy 3). Patterns are bounded (one per sequence step),
+# so the cache stays small. Line / full-text inputs are NOT cached -- they
+# vary per call and would balloon memory.
+$script:OcrPatternCache = @{}
+
+# Exponential-backoff helper for filesystem-state poll loops is
+# centralised in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
+# lands once. Imported with -Global by Test.Prelude's module sets,
+# so callers in this file resolve the function via the global scope.
 
 # ── Progress wrapper ─────────────────────────────────────────────────────────
 # Invoke-Sequence runs inline in the runner's interactive host now (the cycle
@@ -84,6 +87,14 @@ $script:DefaultScreenHistorySize = 5
 # natively. This wrapper keeps the call sites uniform with the previous
 # child-pwsh era when a stdout marker protocol was also needed.
 function Write-ProgressTick {
+    <#
+    .SYNOPSIS
+        Uniform Write-Progress wrapper for sequence-step heartbeats.
+    .DESCRIPTION
+        Forwards to Write-Progress with a -Completed shortcut. Kept as a
+        thin wrapper so call sites stay uniform across hosts and across
+        the inline / former-child-spawn runtimes.
+    #>
     param(
         [Parameter(Mandatory)][string]$Activity,
         [string]$Status = '',
@@ -96,794 +107,54 @@ function Write-ProgressTick {
         Write-Progress -Activity $Activity -Status $Status -PercentComplete $PercentComplete
     }
 }
+Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot 'Test.SequenceAction.psm1') -Global -Force
+# Test.Transport carries the per-host keystroke / mouse / VNC backends.
+# -Global so the per-host Test.HostIO.<Host>.psm1 modules (loaded below)
+# resolve Send-KeyHyperV / Send-KeyVNC / Send-KeyUTM / Send-KeyKvm /
+# Send-TextHyperV / Send-TextVNC / Send-TextUTM / Send-TextKvm /
+# Send-ClickHyperV / Send-ClickUtm by bare name. See docs/host-io.md.
+Import-Module (Join-Path $PSScriptRoot 'Test.Transport.psm1') -Global -Force
+# Per-host I/O wiring: each module's load-time Register-HostIOProvider
+# calls populate the Test.HostIO registry that the Send-Key / Send-Text /
+# Send-Click dispatchers below delegate to via Invoke-HostIOAction.
+# Adding a new host adds a parallel Test.HostIO.<NewHost>.psm1 plus one
+# Import-Module line here.
+Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.HyperV.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.Utm.psm1')    -Global -Force
+Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.Kvm.psm1')    -Global -Force
+# Built-in verb Handlers (Register-SequenceAction blocks) live in
+# Test.SequenceHandler.psm1. retry and recoverFromSnapshot stay in this
+# module because their Handler bodies coordinate $script:LastFailure*
+# state with the engine's foreach loop; the rest of the verb catalog
+# is local to Test.SequenceHandler so adding a verb does not collide
+# with engine edits.
+Import-Module (Join-Path $PSScriptRoot 'Test.SequenceHandler.psm1') -Global -Force
 $_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test.config.yml"
-if (Test-Path $_configPath) {
-    try {
-        $_cfg = Get-Content -Raw $_configPath | ConvertFrom-Yaml -Ordered
-        # test.config.yml keys live under the `vmCommunication` node
-        # (`characterDelayMs`, `vncPort`, `keystrokeMechanism`,
-        # `pollSeconds`, `timeoutSeconds`); per-step YAML in sequences/
-        # still uses `charDelayMs` / `pollSeconds` / `timeoutSeconds` to
-        # override these defaults for an individual step (see actions.yml).
-        $_comm = $_cfg.vmCommunication
-        if ($_comm.characterDelayMs)   { $script:DefaultCharDelayMs        = [int]$_comm.characterDelayMs }
-        if ($_comm.vncPort)            { $script:DefaultVncPort            = [int]$_comm.vncPort }
-        if ($_comm.keystrokeMechanism) { $script:DefaultKeystrokeMechanism = [string]$_comm.keystrokeMechanism }
-        if ($_comm.pollSeconds)        { $script:DefaultPollSeconds        = [int]$_comm.pollSeconds }
-        if ($_comm.timeoutSeconds)     { $script:DefaultTimeoutSeconds     = [int]$_comm.timeoutSeconds }
-        # 0 disables the ring buffer; we still accept it as a configured value.
-        if ($null -ne $_cfg.screenHistorySize) { $script:DefaultScreenHistorySize = [int]$_cfg.screenHistorySize }
-    } catch { Write-Verbose "Config parse error — using built-in default: $_" }
+$_cfg = Read-TestConfig -Path $_configPath
+if ($_cfg) {
+    # test.config.yml keys live under the `vmCommunication` node
+    # (`characterDelayMs`, `vncPort`, `keystrokeMechanism`,
+    # `pollSeconds`, `timeoutSeconds`); per-step YAML in sequences/
+    # still uses `charDelayMs` / `pollSeconds` / `timeoutSeconds` to
+    # override these defaults for an individual step (see actions.yml).
+    $_comm = $_cfg.vmCommunication
+    if ($_comm.characterDelayMs)   { $script:DefaultCharDelayMs        = [int]$_comm.characterDelayMs }
+    if ($_comm.vncPort)            { $script:DefaultVncPort            = [int]$_comm.vncPort }
+    if ($_comm.keystrokeMechanism) { $script:DefaultKeystrokeMechanism = [string]$_comm.keystrokeMechanism }
+    if ($_comm.pollSeconds)        { $script:DefaultPollSeconds        = [int]$_comm.pollSeconds }
+    if ($_comm.timeoutSeconds)     { $script:DefaultTimeoutSeconds     = [int]$_comm.timeoutSeconds }
+    # 0 disables the ring buffer; we still accept it as a configured value.
+    if ($null -ne $_cfg.screenHistorySize) { $script:DefaultScreenHistorySize = [int]$_cfg.screenHistorySize }
 }
-Remove-Variable -Name _configPath, _cfg -ErrorAction SilentlyContinue
+Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Shared engine for executing interaction sequences from JSON files.
-#
-# Supported actions (defined in the "steps" array in each JSON):
-#   pressKey         — Send a single keystroke.
-#   inputText        — Type a text string into the VM (charDelayMs configurable, default from test.config.yml, fallback 20ms).
-#   inputTextAndEnter — Type a text string, wait, then press Enter (charDelayMs/delaySeconds configurable).
-#   takeScreenshot   — Capture a screenshot for debugging.
-#   waitForText      — Capture + OCR the VM screen until pattern appears (supports array of alternate patterns).
-#                       freshMatch: if true, captures a baseline, then waits for the screen
-#                       to change AND the pattern to appear in the last N lines.
-#                       freshMatchTailLines: number of trailing OCR lines to check (default 12).
-#   waitForAndEnter  — Wait for text pattern on screen via OCR, then type a string and press Enter.
-#                       Combines waitForText + inputTextAndEnter into a single step.
-#   passwdPrompt     — Like waitForAndEnter, but `text` is always treated as
-#                       sensitive (masked in logs unless -ShowSensitive). Use
-#                       for PAM password prompts.
-#   tapOn            — Wait for a labelled button via OCR and click its centre.
-#                       Uses Tesseract TSV to get per-word bounding boxes, then
-#                       synthesizes a mouse click at (centerX + offsetX, centerY + offsetY).
-#                       More reliable than Tab-count navigation for focus-sensitive UIs.
-#                       Hyper-V only for now; UTM support is stubbed.
-#   sshWaitReady     — Wait until the guest accepts SSH using the yuruna harness key.
-#   sshExec          — Run a command on the guest over SSH; non-zero exit fails unless allowFailure=true.
-#   sshFetchAndExecute — Run a long-lived command over SSH (SSH equivalent of fetchAndExecute).
-#   callExtension    — Side-effecting call into a test/extension/<area>/ module.
-#                       method: "area.Method"; args: named-parameter object.
-#                       Used for commits like authentication.SetPassword that must run
-#                       AFTER an interactive sub-sequence succeeds.
-#   saveSystemDiagnostic — SSH into the guest, run automation/Get-SystemDiagnostic.ps1,
-#                       and save the captured output to this cycle's
-#                       cycleGuestDataFolder ({cycleFolder}/{vmName}/).
-#                       Filename: <date>-<time>.system.diagnostic.<id>.txt.
-#                       Requires an 'id' field on the step (uniqueness
-#                       guard so two captures in the same sequence don't
-#                       clobber each other). Soft-fails on the SSH/console
-#                       rungs (a missing pwsh on the guest does not abort
-#                       the sequence). Useful for checkpoint dumps mid-
-#                       sequence. Diagnostic capture is opt-in: the runner
-#                       no longer auto-invokes at end-of-guest; place an
-#                       explicit saveSystemDiagnostic step in the YAML at
-#                       any point a capture is wanted.
-#
-# Variables defined in the YAML "variables" block are substituted into
-# action parameters using ${variableName} syntax. Built-in variables:
-# ${vmName}, ${hostType}, ${guestKey}.
-# ${ext:area.Method(arg1, arg2)} substitutions invoke the active
-# extension under test/extension/<area>/ for value-producing reads.
-# Inner ${var} placeholders in args are resolved first. Each ${ext:...}
-# is invoked fresh on every reference -- there is no per-run memoization.
-# To get a stable value across multiple steps (e.g. "New password:"
-# typed and then re-typed at "Retype:"), assign the call to a variable
-# in the "variables" block; entries there are evaluated eagerly in YAML
-# order at sequence start, and the stored value is reused on every
-# ${myVar} reference.
-# Escape: $$ produces a literal $. In particular $${foo} yields the
-# four-character literal ${foo} (no substitution). To embed two literal
-# dollars, write $$$$.
-#
-# On step failure, diagnostics are written to $env:YURUNA_LOG_DIR:
-#   last_failure.json              — failed step details (read by the parent runner)
-#   failure_screenshot_<VM>.png    — last VM screenshot at time of failure
-#   failure_ocr_<VM>.txt           — last OCR text (waitForText failures only)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ── Key code maps ────────────────────────────────────────────────────────────
-
-# macOS AppleScript key codes (special keys)
-$script:UTMKeyMap = @{
-    "Enter"=36; "Tab"=48; "Space"=49; "Escape"=53
-    "Up"=126; "Down"=125; "Left"=123; "Right"=124
-    "F1"=122; "F2"=120; "F3"=99; "F4"=118; "F5"=96
-    "F6"=97; "F7"=98; "F8"=100; "F9"=101; "F10"=109
-    "F11"=103; "F12"=111
-}
-
-# macOS character to virtual key code map (US keyboard layout).
-# Entries: [keyCode, needsShift]. Used by Send-TextUTM to send raw key codes
-# instead of AppleScript's keystroke command, which misinterprets certain
-# character sequences (e.g., "2-" becomes Enter).
-$script:MacCharKeyCodes = [System.Collections.Generic.Dictionary[string,object[]]]::new()
-# Lowercase letters
-$script:MacCharKeyCodes['a']=@(0,$false);  $script:MacCharKeyCodes['b']=@(11,$false)
-$script:MacCharKeyCodes['c']=@(8,$false);  $script:MacCharKeyCodes['d']=@(2,$false)
-$script:MacCharKeyCodes['e']=@(14,$false); $script:MacCharKeyCodes['f']=@(3,$false)
-$script:MacCharKeyCodes['g']=@(5,$false);  $script:MacCharKeyCodes['h']=@(4,$false)
-$script:MacCharKeyCodes['i']=@(34,$false); $script:MacCharKeyCodes['j']=@(38,$false)
-$script:MacCharKeyCodes['k']=@(40,$false); $script:MacCharKeyCodes['l']=@(37,$false)
-$script:MacCharKeyCodes['m']=@(46,$false); $script:MacCharKeyCodes['n']=@(45,$false)
-$script:MacCharKeyCodes['o']=@(31,$false); $script:MacCharKeyCodes['p']=@(35,$false)
-$script:MacCharKeyCodes['q']=@(12,$false); $script:MacCharKeyCodes['r']=@(15,$false)
-$script:MacCharKeyCodes['s']=@(1,$false);  $script:MacCharKeyCodes['t']=@(17,$false)
-$script:MacCharKeyCodes['u']=@(32,$false); $script:MacCharKeyCodes['v']=@(9,$false)
-$script:MacCharKeyCodes['w']=@(13,$false); $script:MacCharKeyCodes['x']=@(7,$false)
-$script:MacCharKeyCodes['y']=@(16,$false); $script:MacCharKeyCodes['z']=@(6,$false)
-# Uppercase letters (same key codes, shifted)
-$script:MacCharKeyCodes['A']=@(0,$true);  $script:MacCharKeyCodes['B']=@(11,$true)
-$script:MacCharKeyCodes['C']=@(8,$true);  $script:MacCharKeyCodes['D']=@(2,$true)
-$script:MacCharKeyCodes['E']=@(14,$true); $script:MacCharKeyCodes['F']=@(3,$true)
-$script:MacCharKeyCodes['G']=@(5,$true);  $script:MacCharKeyCodes['H']=@(4,$true)
-$script:MacCharKeyCodes['I']=@(34,$true); $script:MacCharKeyCodes['J']=@(38,$true)
-$script:MacCharKeyCodes['K']=@(40,$true); $script:MacCharKeyCodes['L']=@(37,$true)
-$script:MacCharKeyCodes['M']=@(46,$true); $script:MacCharKeyCodes['N']=@(45,$true)
-$script:MacCharKeyCodes['O']=@(31,$true); $script:MacCharKeyCodes['P']=@(35,$true)
-$script:MacCharKeyCodes['Q']=@(12,$true); $script:MacCharKeyCodes['R']=@(15,$true)
-$script:MacCharKeyCodes['S']=@(1,$true);  $script:MacCharKeyCodes['T']=@(17,$true)
-$script:MacCharKeyCodes['U']=@(32,$true); $script:MacCharKeyCodes['V']=@(9,$true)
-$script:MacCharKeyCodes['W']=@(13,$true); $script:MacCharKeyCodes['X']=@(7,$true)
-$script:MacCharKeyCodes['Y']=@(16,$true); $script:MacCharKeyCodes['Z']=@(6,$true)
-# Numbers
-$script:MacCharKeyCodes['1']=@(18,$false); $script:MacCharKeyCodes['2']=@(19,$false)
-$script:MacCharKeyCodes['3']=@(20,$false); $script:MacCharKeyCodes['4']=@(21,$false)
-$script:MacCharKeyCodes['5']=@(23,$false); $script:MacCharKeyCodes['6']=@(22,$false)
-$script:MacCharKeyCodes['7']=@(26,$false); $script:MacCharKeyCodes['8']=@(28,$false)
-$script:MacCharKeyCodes['9']=@(25,$false); $script:MacCharKeyCodes['0']=@(29,$false)
-# Punctuation (unshifted)
-$script:MacCharKeyCodes[' ']=@(49,$false);  $script:MacCharKeyCodes['-']=@(27,$false)
-$script:MacCharKeyCodes['=']=@(24,$false);  $script:MacCharKeyCodes['[']=@(33,$false)
-$script:MacCharKeyCodes[']']=@(30,$false);  $script:MacCharKeyCodes['\']=@(42,$false)
-$script:MacCharKeyCodes[';']=@(41,$false);  $script:MacCharKeyCodes["'"]=@(39,$false)
-$script:MacCharKeyCodes[',']=@(43,$false);  $script:MacCharKeyCodes['.']=@(47,$false)
-$script:MacCharKeyCodes['/']=@(44,$false);  $script:MacCharKeyCodes['`']=@(50,$false)
-# Punctuation (shifted). '*' and '+' are remapped to the numeric-keypad
-# keycodes (kVK_ANSI_KeypadMultiply=67, kVK_ANSI_KeypadPlus=69) so they
-# need no Shift; everything else maps to its main-row keycode with
-# needsShift=true, and the CGEvent typing loop presses Shift around it.
-$script:MacCharKeyCodes['!']=@(18,$true);  $script:MacCharKeyCodes['@']=@(19,$true)
-$script:MacCharKeyCodes['#']=@(20,$true);  $script:MacCharKeyCodes['$']=@(21,$true)
-$script:MacCharKeyCodes['%']=@(23,$true);  $script:MacCharKeyCodes['^']=@(22,$true)
-$script:MacCharKeyCodes['&']=@(26,$true);  $script:MacCharKeyCodes['*']=@(67,$false)
-$script:MacCharKeyCodes['(']=@(25,$true);  $script:MacCharKeyCodes[')']=@(29,$true)
-$script:MacCharKeyCodes['_']=@(27,$true);  $script:MacCharKeyCodes['+']=@(69,$false)
-$script:MacCharKeyCodes['{']=@(33,$true);  $script:MacCharKeyCodes['}']=@(30,$true)
-$script:MacCharKeyCodes['|']=@(42,$true);  $script:MacCharKeyCodes[':']=@(41,$true)
-$script:MacCharKeyCodes['"']=@(39,$true);  $script:MacCharKeyCodes['<']=@(43,$true)
-$script:MacCharKeyCodes['>']=@(47,$true);  $script:MacCharKeyCodes['?']=@(44,$true)
-$script:MacCharKeyCodes['~']=@(50,$true)
-
-# ── Cached Hyper-V keyboard (reused across steps) ───────────────────────────
-
-$script:CachedKb = $null
-$script:CachedKbVM = $null
-
-function Get-HyperVKeyboard {
-    param([string]$VMName)
-    if ($script:CachedKbVM -eq $VMName -and $script:CachedKb) { return $script:CachedKb }
-    $vmObj = Get-CimInstance -Namespace root\virtualization\v2 `
-        -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
-    if (-not $vmObj) { Write-Warning "VM '$VMName' not found in WMI"; return $null }
-    $kb = Get-CimAssociatedInstance -InputObject $vmObj -ResultClassName Msvm_Keyboard
-    if (-not $kb) { Write-Warning "Keyboard device not found for '$VMName'"; return $null }
-    $script:CachedKb = $kb
-    $script:CachedKbVM = $VMName
-    return $kb
-}
-
-# ── PS/2 Set 1 scan codes (hardware-level, works with any guest OS) ──────────
-# Each key maps to its make code. Break code = make | 0x80.
-# TypeScancodes sends these directly to the virtual keyboard controller.
-$script:PS2ScanCodes = @{
-    "Enter"=0x1C; "Tab"=0x0F; "Space"=0x39; "Escape"=0x01; "Backspace"=0x0E
-    "Up"=0x48; "Down"=0x50; "Left"=0x4B; "Right"=0x4D
-    "F1"=0x3B; "F2"=0x3C; "F3"=0x3D; "F4"=0x3E; "F5"=0x3F; "F6"=0x40
-    "F7"=0x41; "F8"=0x42; "F9"=0x43; "F10"=0x44; "F11"=0x57; "F12"=0x58
-    "LShift"=0x2A; "RShift"=0x36
-}
-
-# Character to PS/2 scan code map (US keyboard layout).
-# Entries: [scancode, needsShift]. Uses case-sensitive dictionary since
-# PowerShell's default hashtable is case-insensitive ('a' == 'A').
-$script:CharScanCodes = [System.Collections.Generic.Dictionary[string,object[]]]::new()
-# Lowercase letters
-$script:CharScanCodes['a']=@(0x1E,$false); $script:CharScanCodes['b']=@(0x30,$false)
-$script:CharScanCodes['c']=@(0x2E,$false); $script:CharScanCodes['d']=@(0x20,$false)
-$script:CharScanCodes['e']=@(0x12,$false); $script:CharScanCodes['f']=@(0x21,$false)
-$script:CharScanCodes['g']=@(0x22,$false); $script:CharScanCodes['h']=@(0x23,$false)
-$script:CharScanCodes['i']=@(0x17,$false); $script:CharScanCodes['j']=@(0x24,$false)
-$script:CharScanCodes['k']=@(0x25,$false); $script:CharScanCodes['l']=@(0x26,$false)
-$script:CharScanCodes['m']=@(0x32,$false); $script:CharScanCodes['n']=@(0x31,$false)
-$script:CharScanCodes['o']=@(0x18,$false); $script:CharScanCodes['p']=@(0x19,$false)
-$script:CharScanCodes['q']=@(0x10,$false); $script:CharScanCodes['r']=@(0x13,$false)
-$script:CharScanCodes['s']=@(0x1F,$false); $script:CharScanCodes['t']=@(0x14,$false)
-$script:CharScanCodes['u']=@(0x16,$false); $script:CharScanCodes['v']=@(0x2F,$false)
-$script:CharScanCodes['w']=@(0x11,$false); $script:CharScanCodes['x']=@(0x2D,$false)
-$script:CharScanCodes['y']=@(0x15,$false); $script:CharScanCodes['z']=@(0x2C,$false)
-# Uppercase letters (same scan codes, shifted)
-$script:CharScanCodes['A']=@(0x1E,$true); $script:CharScanCodes['B']=@(0x30,$true)
-$script:CharScanCodes['C']=@(0x2E,$true); $script:CharScanCodes['D']=@(0x20,$true)
-$script:CharScanCodes['E']=@(0x12,$true); $script:CharScanCodes['F']=@(0x21,$true)
-$script:CharScanCodes['G']=@(0x22,$true); $script:CharScanCodes['H']=@(0x23,$true)
-$script:CharScanCodes['I']=@(0x17,$true); $script:CharScanCodes['J']=@(0x24,$true)
-$script:CharScanCodes['K']=@(0x25,$true); $script:CharScanCodes['L']=@(0x26,$true)
-$script:CharScanCodes['M']=@(0x32,$true); $script:CharScanCodes['N']=@(0x31,$true)
-$script:CharScanCodes['O']=@(0x18,$true); $script:CharScanCodes['P']=@(0x19,$true)
-$script:CharScanCodes['Q']=@(0x10,$true); $script:CharScanCodes['R']=@(0x13,$true)
-$script:CharScanCodes['S']=@(0x1F,$true); $script:CharScanCodes['T']=@(0x14,$true)
-$script:CharScanCodes['U']=@(0x16,$true); $script:CharScanCodes['V']=@(0x2F,$true)
-$script:CharScanCodes['W']=@(0x11,$true); $script:CharScanCodes['X']=@(0x2D,$true)
-$script:CharScanCodes['Y']=@(0x15,$true); $script:CharScanCodes['Z']=@(0x2C,$true)
-# Numbers
-$script:CharScanCodes['1']=@(0x02,$false); $script:CharScanCodes['2']=@(0x03,$false)
-$script:CharScanCodes['3']=@(0x04,$false); $script:CharScanCodes['4']=@(0x05,$false)
-$script:CharScanCodes['5']=@(0x06,$false); $script:CharScanCodes['6']=@(0x07,$false)
-$script:CharScanCodes['7']=@(0x08,$false); $script:CharScanCodes['8']=@(0x09,$false)
-$script:CharScanCodes['9']=@(0x0A,$false); $script:CharScanCodes['0']=@(0x0B,$false)
-# Punctuation (unshifted)
-$script:CharScanCodes[' ']=@(0x39,$false); $script:CharScanCodes['-']=@(0x0C,$false)
-$script:CharScanCodes['=']=@(0x0D,$false); $script:CharScanCodes['[']=@(0x1A,$false)
-$script:CharScanCodes[']']=@(0x1B,$false); $script:CharScanCodes['\']=@(0x2B,$false)
-$script:CharScanCodes[';']=@(0x27,$false); $script:CharScanCodes["'"]=@(0x28,$false)
-$script:CharScanCodes[',']=@(0x33,$false); $script:CharScanCodes['.']=@(0x34,$false)
-$script:CharScanCodes['/']=@(0x35,$false); $script:CharScanCodes['`']=@(0x29,$false)
-# Punctuation (shifted)
-$script:CharScanCodes['!']=@(0x02,$true); $script:CharScanCodes['@']=@(0x03,$true)
-$script:CharScanCodes['#']=@(0x04,$true); $script:CharScanCodes['$']=@(0x05,$true)
-$script:CharScanCodes['%']=@(0x06,$true); $script:CharScanCodes['^']=@(0x07,$true)
-$script:CharScanCodes['&']=@(0x08,$true); $script:CharScanCodes['*']=@(0x09,$true)
-$script:CharScanCodes['(']=@(0x0A,$true); $script:CharScanCodes[')']=@(0x0B,$true)
-$script:CharScanCodes['_']=@(0x0C,$true); $script:CharScanCodes['+']=@(0x0D,$true)
-$script:CharScanCodes['{']=@(0x1A,$true); $script:CharScanCodes['}']=@(0x1B,$true)
-$script:CharScanCodes['|']=@(0x2B,$true); $script:CharScanCodes[':']=@(0x27,$true)
-$script:CharScanCodes['"']=@(0x28,$true); $script:CharScanCodes['<']=@(0x33,$true)
-$script:CharScanCodes['>']=@(0x34,$true); $script:CharScanCodes['?']=@(0x35,$true)
-$script:CharScanCodes['~']=@(0x29,$true)
-
-# ── VNC (RFB) keystroke transport ────────────────────────────────────────────
-# Sends keystrokes directly to the VM's virtual display via the VNC/RFB
-# protocol, bypassing the macOS GUI entirely — no window focus required.
-# Used for QEMU-backend UTM VMs with a built-in VNC server enabled
-# (via AdditionalArguments: -vnc localhost:0 in the plist). VMs without
-# a VNC server fall back to the AppleScript/CGEvent path in Send-TextUTM.
-
-# X11 keysym map for special keys (RFB key events use X11 keysyms)
-$script:X11KeySyms = @{
-    "Enter"=0xFF0D; "Tab"=0xFF09; "Space"=0x0020; "Escape"=0xFF1B; "Backspace"=0xFF08
-    "Up"=0xFF52; "Down"=0xFF54; "Left"=0xFF51; "Right"=0xFF53
-    "F1"=0xFFBE; "F2"=0xFFBF; "F3"=0xFFC0; "F4"=0xFFC1; "F5"=0xFFC2
-    "F6"=0xFFC3; "F7"=0xFFC4; "F8"=0xFFC5; "F9"=0xFFC6; "F10"=0xFFC7
-    "F11"=0xFFC8; "F12"=0xFFC9
-    "LShift"=0xFFE1; "RShift"=0xFFE2
-}
-
-# X11 keysyms for printable ASCII characters.
-# For standard ASCII, the keysym equals the Unicode/ASCII code point.
-# Entries: [keysym, needsShift].
-$script:X11CharKeySyms = [System.Collections.Generic.Dictionary[string,object[]]]::new()
-# Lowercase letters
-foreach ($c in 97..122) { $script:X11CharKeySyms[[string][char]$c] = @($c, $false) }
-# Uppercase letters
-foreach ($c in 65..90)  { $script:X11CharKeySyms[[string][char]$c] = @($c, $true) }
-# Digits
-foreach ($c in 48..57)  { $script:X11CharKeySyms[[string][char]$c] = @($c, $false) }
-# Unshifted punctuation
-' ','-','=','[',']','\',';',"'",',','.','/','`' | ForEach-Object {
-    $script:X11CharKeySyms[$_] = @([int][char]$_, $false)
-}
-# Shifted punctuation
-'!','@','#','$','%','^','&','*','(',')','_','+','{','}','|',':','"','<','>','?','~' | ForEach-Object {
-    $script:X11CharKeySyms[$_] = @([int][char]$_, $true)
-}
-
-# ── Cached VNC connection (reused across steps within a sequence) ────────────
-
-$script:CachedVnc   = $null
-$script:CachedVncVM = $null
-
-function Read-VncBuffer {
-    param([System.IO.Stream]$Stream, [int]$Count)
-    $buf = [byte[]]::new($Count)
-    $offset = 0
-    while ($offset -lt $Count) {
-        $n = $Stream.Read($buf, $offset, $Count - $offset)
-        if ($n -eq 0) { throw "VNC connection closed during read" }
-        $offset += $n
-    }
-    return $buf
-}
-
-function Connect-VNC {
-    param([string]$VMName, [int]$Port = 0)
-    # Resolve the per-VM VNC port. Hardcoding 5900 across every VM let the
-    # capture path silently grab whichever QEMU bound it first, so the
-    # producer (config.plist.template) and consumers (this module +
-    # Test.Screenshot.psm1) all derive the port from the VM name via
-    # Get-VncPortForVm. $script:DefaultVncPort is kept as a last-resort
-    # fallback for callers that don't pass a VMName.
-    if ($Port -le 0) {
-        if ($VMName) {
-            # Get-VncPortForVm now lives in host/macos.utm/Yuruna.Host.psm1
-            # (migrated from Test.Screenshot during the Yuruna.Host
-            # refactor). Yuruna.Host imports VM.common, so callers that
-            # ran Initialize-YurunaHost have it; otherwise import directly.
-            if (-not (Get-Command Get-VncPortForVm -ErrorAction SilentlyContinue)) {
-                $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-                $vmCommon = Join-Path $repoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
-                if (Test-Path $vmCommon) {
-                    Import-Module $vmCommon -Force -ErrorAction SilentlyContinue -Verbose:$false
-                }
-            }
-            $Port = Get-VncPortForVm -VMName $VMName
-        } else {
-            $Port = $script:DefaultVncPort
-        }
-    }
-    # Return cached connection if still alive
-    if ($script:CachedVncVM -eq $VMName -and $script:CachedVnc -and $script:CachedVnc.Connected) {
-        return $script:CachedVnc
-    }
-    Disconnect-VNC
-    try {
-        $tcp = [System.Net.Sockets.TcpClient]::new()
-        $tcp.ReceiveTimeout = 5000
-        $tcp.SendTimeout    = 5000
-        $tcp.Connect("127.0.0.1", $Port)
-        $stream = $tcp.GetStream()
-
-        # ── RFB 3.8 handshake ──────────────────────────────────────────
-        # Server sends protocol version (12 bytes): "RFB 003.008\n"
-        $verBytes = Read-VncBuffer -Stream $stream -Count 12
-        $serverVersion = [System.Text.Encoding]::ASCII.GetString($verBytes).Trim()
-        Write-Debug "      VNC server version: $serverVersion"
-
-        # Client responds with RFB 003.008
-        $clientVer = [System.Text.Encoding]::ASCII.GetBytes("RFB 003.008`n")
-        $stream.Write($clientVer, 0, 12)
-
-        # Server sends security types: [1 byte count] [count × 1 byte type]
-        $countBuf = Read-VncBuffer -Stream $stream -Count 1
-        $numTypes = [int]$countBuf[0]
-        if ($numTypes -eq 0) {
-            # Server sent an error — read the reason string
-            $reasonLenBuf = Read-VncBuffer -Stream $stream -Count 4
-            [Array]::Reverse($reasonLenBuf)
-            $reasonLen = [BitConverter]::ToInt32($reasonLenBuf, 0)
-            $reasonBuf = Read-VncBuffer -Stream $stream -Count $reasonLen
-            $reason = [System.Text.Encoding]::ASCII.GetString($reasonBuf)
-            Write-Warning "VNC connection refused: $reason"
-            $tcp.Dispose()
-            return $null
-        }
-        $typesBuf = Read-VncBuffer -Stream $stream -Count $numTypes
-
-        # Select security type 1 (None) — safe for localhost-only VNC
-        if ($typesBuf -notcontains 1) {
-            Write-Warning "VNC server does not offer 'None' auth. Available: $($typesBuf -join ', ')"
-            $tcp.Dispose()
-            return $null
-        }
-        $stream.WriteByte(1)
-
-        # RFB 3.8: read SecurityResult (4 bytes big-endian, 0 = OK)
-        $resultBuf = Read-VncBuffer -Stream $stream -Count 4
-        [Array]::Reverse($resultBuf)
-        $secResult = [BitConverter]::ToInt32($resultBuf, 0)
-        if ($secResult -ne 0) {
-            Write-Warning "VNC security handshake failed (result=$secResult)"
-            $tcp.Dispose()
-            return $null
-        }
-
-        # ClientInit: shared flag = 1 (allow other clients)
-        $stream.WriteByte(1)
-
-        # ServerInit: 2 (width) + 2 (height) + 16 (pixel format) + 4 (name len) = 24 fixed bytes
-        $initBuf = Read-VncBuffer -Stream $stream -Count 24
-        $nameLenBytes = $initBuf[20..23]
-        [Array]::Reverse($nameLenBytes)
-        $nameLen = [BitConverter]::ToInt32($nameLenBytes, 0)
-        if ($nameLen -gt 0) {
-            $nameBuf = Read-VncBuffer -Stream $stream -Count $nameLen
-            Write-Debug "      VNC desktop: $([System.Text.Encoding]::UTF8.GetString($nameBuf))"
-        }
-
-        Write-Debug "      VNC connected to $VMName on port $Port"
-        $script:CachedVnc   = $tcp
-        $script:CachedVncVM = $VMName
-        return $tcp
-    } catch {
-        Write-Debug "      VNC connection to port $Port failed: $_"
-        if ($tcp) { try { $tcp.Dispose() } catch { Write-Debug "      VNC dispose error: $_" } }
-        return $null
-    }
-}
-
-function Disconnect-VNC {
-    if ($script:CachedVnc) {
-        try { $script:CachedVnc.Dispose() } catch { Write-Debug "      VNC disconnect error: $_" }
-        $script:CachedVnc   = $null
-        $script:CachedVncVM = $null
-    }
-}
-
-function Send-VncKeyEvent {
-    param([System.Net.Sockets.TcpClient]$Client, [int]$KeySym, [bool]$Down)
-    # RFB KeyEvent message (8 bytes):
-    # [1: type=4] [1: down-flag] [2: padding] [4: X11 keysym big-endian]
-    $msg = [byte[]]::new(8)
-    $msg[0] = 4
-    $msg[1] = if ($Down) { 1 } else { 0 }
-    $msg[4] = [byte](($KeySym -shr 24) -band 0xFF)
-    $msg[5] = [byte](($KeySym -shr 16) -band 0xFF)
-    $msg[6] = [byte](($KeySym -shr 8)  -band 0xFF)
-    $msg[7] = [byte]($KeySym -band 0xFF)
-    $Client.GetStream().Write($msg, 0, 8)
-}
-
-function Send-KeyVNC {
-    param([string]$VMName, [string]$KeyName, [int]$Port = 0)
-    $keySym = $script:X11KeySyms[$KeyName]
-    if (-not $keySym) { Write-Warning "Unknown VNC key '$KeyName'"; return $false }
-    $tcp = Connect-VNC -VMName $VMName -Port $Port
-    if (-not $tcp) { return $false }
-    try {
-        Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
-        Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
-        Write-Debug "      VNC key='$KeyName' sym=0x$($keySym.ToString('X4'))"
-        return $true
-    } catch {
-        Write-Warning "VNC key send failed: $_"
-        Disconnect-VNC
-        return $false
-    }
-}
-
-function Send-TextVNC {
-    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs,
-          [int]$Port = 0)
-    $tcp = Connect-VNC -VMName $VMName -Port $Port
-    if (-not $tcp) { return $false }
-    Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
-    try {
-        # Empirically, UTM's QEMU VNC does NOT auto-shift from the keysym
-        # alone (e.g. `asterisk` arrives as `8`, `bar` arrives as `\`), so we
-        # must press LShift ourselves. The earlier 20ms/10ms guard wasn't
-        # enough on slower or busier hosts; matching the JXA path's 80ms
-        # shift-settle has been reliable there.
-        $shiftSym = $script:X11KeySyms["LShift"]
-        foreach ($ch in $Text.ToCharArray()) {
-            $entry = $script:X11CharKeySyms["$ch"]
-            if (-not $entry) {
-                Write-Warning "No VNC keysym for character '$ch'. Skipping."
-                continue
-            }
-            $keySym  = $entry[0]
-            $shifted = $entry[1]
-            if ($shifted) {
-                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $true
-                Start-Sleep -Milliseconds 80
-            }
-            Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
-            Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
-            if ($shifted) {
-                Start-Sleep -Milliseconds 40
-                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false
-            }
-            if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
-        }
-        Write-Debug "      VNC text send complete"
-        return $true
-    } catch {
-        Write-Warning "VNC text send failed: $_"
-        Disconnect-VNC
-        return $false
-    }
-}
-
-# ── AXUIElement keystroke transport (Accessibility API) ─────────────────────
-# NOT USED in the dispatcher chain. Kept for reference/future use.
-# AXUIElementPostKeyboardEvent targets UTM by PID and reports success, but
-# UTM's SwiftUI VM display view does not route Accessibility keyboard events
-# to the virtual machine's keyboard — keys silently vanish.
-# If a future UTM version fixes this, re-enable in Send-Key/Send-Text.
-# Uses the same macOS virtual key codes as the AppleScript/CGEvent functions.
-
-function Send-KeyAXUI {
-    param([string]$VMName, [string]$KeyName)
-    # VMName is accepted for consistent API with Send-KeyHyperV/Send-KeyUTM;
-    # AXUI targets the UTM app process, not an individual VM.
-    if ($VMName) { Write-Debug "      AXUI: -VMName '$VMName' is informational; AXUI targets the UTM app process." }
-    $code = $script:UTMKeyMap[$KeyName]
-    if (-not $code) { Write-Warning "Unknown key '$KeyName' for AXUI"; return $false }
-
-    $jxaScript = @"
-ObjC.import('ApplicationServices');
-var utm = Application('UTM');
-var pid = utm.id();
-var axApp = $.AXUIElementCreateApplication(pid);
-var err1 = $.AXUIElementPostKeyboardEvent(axApp, 0, $code, true);
-delay(0.01);
-var err2 = $.AXUIElementPostKeyboardEvent(axApp, 0, $code, false);
-(err1 === 0 && err2 === 0) ? 'ok' : 'axui_error:' + err1 + ',' + err2;
-"@
-
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_axui_$([System.IO.Path]::GetRandomFileName()).js")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
-        $result = & osascript -l JavaScript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
-    Write-Debug "      AXUI key='$KeyName' code=$code result=$result"
-    return ("$result" -eq "ok")
-}
-
-function Send-TextAXUI {
-    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
-
-    # VMName is accepted for consistent API with Send-TextHyperV/Send-TextUTM;
-    # AXUI targets the UTM app process, not an individual VM.
-    Write-Debug "      AXUI text send: vm='$VMName' $($Text.Length) chars, charDelay=${CharDelayMs}ms"
-    $charIndex = 0
-    $keyCalls = [System.Text.StringBuilder]::new()
-    foreach ($ch in $Text.ToCharArray()) {
-        $entry = $script:MacCharKeyCodes["$ch"]
-        if (-not $entry) {
-            Write-Warning "No macOS key code for character '$ch' (index $charIndex). Skipping."
-            $charIndex++
-            continue
-        }
-        $kc = $entry[0]
-        $shifted = $entry[1] ? "true" : "false"
-        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
-        $charIndex++
-    }
-
-    $jxaTemplate = @'
-ObjC.import('ApplicationServices');
-var utm = Application('UTM');
-var pid = utm.id();
-var axApp = $.AXUIElementCreateApplication(pid);
-var kShiftKeyCode = 56;
-
-function sendKey(keyCode, shift) {
-    if (shift) {
-        $.AXUIElementPostKeyboardEvent(axApp, 0, kShiftKeyCode, true);
-        delay(0.02);
-    }
-    $.AXUIElementPostKeyboardEvent(axApp, 0, keyCode, true);
-    delay(0.01);
-    $.AXUIElementPostKeyboardEvent(axApp, 0, keyCode, false);
-    if (shift) {
-        delay(0.02);
-        $.AXUIElementPostKeyboardEvent(axApp, 0, kShiftKeyCode, false);
-    }
-    delay(__DELAY__);
-}
-__KEYCALLS__
-'ok';
-'@
-
-    $jxaScript = $jxaTemplate -replace '__DELAY__', $delaySec `
-                              -replace '__KEYCALLS__', $keyCalls.ToString()
-
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_axui_$([System.IO.Path]::GetRandomFileName()).js")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
-        $result = & osascript -l JavaScript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
-    Write-Debug "      AXUI text: $result"
-    return ("$result" -eq "ok")
-}
-
-# ── Hyper-V scan code helper ────────────────────────────────────────────────
-
-function Send-ScanCode {
-    param($Keyboard, [byte[]]$Codes)
-    $r = Invoke-CimMethod -InputObject $Keyboard -MethodName "TypeScancodes" -Arguments @{Scancodes=$Codes}
-    return ($r.ReturnValue -eq 0)
-}
-
-# ── Action: key ──────────────────────────────────────────────────────────────
-
-function Send-KeyHyperV {
-    param([string]$VMName, [string]$KeyName)
-    $scanCode = $script:PS2ScanCodes[$KeyName]
-    if (-not $scanCode) { Write-Warning "Unknown key '$KeyName' for Hyper-V"; return $false }
-    $kb = Get-HyperVKeyboard -VMName $VMName
-    if (-not $kb) { return $false }
-    try {
-        # Send make + break (press + release) as raw PS/2 scan codes
-        [byte[]]$codes = @([byte]$scanCode, [byte]($scanCode -bor 0x80))
-        $ok = Send-ScanCode -Keyboard $kb -Codes $codes
-        Write-Debug "      TypeScancodes key='$KeyName' scan=0x$($scanCode.ToString('X2')) ok=$ok"
-        return $ok
-    } catch {
-        Write-Warning "Hyper-V TypeScancodes failed: $_"
-        return $false
-    }
-}
-
-function Send-KeyUTM {
-    param([string]$VMName, [string]$KeyName)
-    $code = $script:UTMKeyMap[$KeyName]
-    if (-not $code) { Write-Warning "Unknown key '$KeyName' for UTM"; return $false }
-    # Use `key code` for everything (including Enter, code 36). The previous
-    # `keystroke return` form for Enter sometimes fired twice when chained
-    # after a Send-Text run that left System Events' keystroke buffer warm —
-    # which submitted an empty password and bounced the guest back to the
-    # login prompt. `key code 36` is one synchronous event, no buffering.
-    $keyAction = "key code $code"
-    $safeVMName = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
-    $appleScript = @"
-tell application "UTM" to activate
-delay 0.5
-tell application "System Events"
-    tell process "UTM"
-        set frontmost to true
-        repeat with w in windows
-            if name of w contains "$safeVMName" then
-                perform action "AXRaise" of w
-                delay 0.5
-                $keyAction
-                return "ok"
-            end if
-        end repeat
-    end tell
-end tell
-return "window_not_found"
-"@
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).applescript")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $appleScript)
-        $result = & osascript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
-    Write-Debug "      AppleScript: $result"
-    return ("$result" -eq "ok")
-}
-
-# ── libvirt KVM keystroke transport: virsh send-key ──────────────────────────
-# We tried VNC first (Connect-VNC + Send-TextVNC, the same path UTM uses).
-# Empirically, libvirt-managed QEMU on Ubuntu 24.04 accepts our TCP connect
-# and emits its 'RFB 003.008' greeting, then drops the connection
-# immediately after we write the client version -- before any auth or
-# security-types handshake. UTM's QEMU does not. Tracking down the
-# libvirt-vs-stand-alone-QEMU handshake difference would be deep work; the
-# pragmatic fix is to bypass VNC entirely on KVM and inject keystrokes via
-# `virsh send-key`, which goes through libvirt's QMP monitor and has none
-# of the listen-address / port-discovery / RFB-version moving parts.
-#
-# `virsh send-key <domain> [keycode...]` accepts Linux input event names
-# (KEY_A, KEY_LEFTSHIFT, KEY_ENTER, ...) and sends them as one chord
-# (all pressed simultaneously, then released). For text typing we send
-# one chord per character; shifted characters become a 2-key chord
-# (KEY_LEFTSHIFT + KEY_X).
-# PowerShell's @{} hash literal uses a case-INSENSITIVE comparer, so 'a'
-# and 'A' would collide at parse time ("Duplicate keys 'A' are not allowed
-# in hash literals"), wrecking the whole module import. Build the table
-# with Ordinal StringComparer and populate via explicit indexer so each
-# letter case is its own key.
-function Get-KvmCharKeyMap {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
-        Justification = 'Need a case-sensitive (Ordinal) hashtable to map shifted vs unshifted letters; @{} literal is case-insensitive and would collide on a/A at parse time.')]
-    [CmdletBinding()]
-    [OutputType([System.Collections.Hashtable])]
-    param()
-    $h = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-$h['a'] = @('KEY_A');           $h['A'] = @('KEY_LEFTSHIFT','KEY_A')
-$h['b'] = @('KEY_B');           $h['B'] = @('KEY_LEFTSHIFT','KEY_B')
-$h['c'] = @('KEY_C');           $h['C'] = @('KEY_LEFTSHIFT','KEY_C')
-$h['d'] = @('KEY_D');           $h['D'] = @('KEY_LEFTSHIFT','KEY_D')
-$h['e'] = @('KEY_E');           $h['E'] = @('KEY_LEFTSHIFT','KEY_E')
-$h['f'] = @('KEY_F');           $h['F'] = @('KEY_LEFTSHIFT','KEY_F')
-$h['g'] = @('KEY_G');           $h['G'] = @('KEY_LEFTSHIFT','KEY_G')
-$h['h'] = @('KEY_H');           $h['H'] = @('KEY_LEFTSHIFT','KEY_H')
-$h['i'] = @('KEY_I');           $h['I'] = @('KEY_LEFTSHIFT','KEY_I')
-$h['j'] = @('KEY_J');           $h['J'] = @('KEY_LEFTSHIFT','KEY_J')
-$h['k'] = @('KEY_K');           $h['K'] = @('KEY_LEFTSHIFT','KEY_K')
-$h['l'] = @('KEY_L');           $h['L'] = @('KEY_LEFTSHIFT','KEY_L')
-$h['m'] = @('KEY_M');           $h['M'] = @('KEY_LEFTSHIFT','KEY_M')
-$h['n'] = @('KEY_N');           $h['N'] = @('KEY_LEFTSHIFT','KEY_N')
-$h['o'] = @('KEY_O');           $h['O'] = @('KEY_LEFTSHIFT','KEY_O')
-$h['p'] = @('KEY_P');           $h['P'] = @('KEY_LEFTSHIFT','KEY_P')
-$h['q'] = @('KEY_Q');           $h['Q'] = @('KEY_LEFTSHIFT','KEY_Q')
-$h['r'] = @('KEY_R');           $h['R'] = @('KEY_LEFTSHIFT','KEY_R')
-$h['s'] = @('KEY_S');           $h['S'] = @('KEY_LEFTSHIFT','KEY_S')
-$h['t'] = @('KEY_T');           $h['T'] = @('KEY_LEFTSHIFT','KEY_T')
-$h['u'] = @('KEY_U');           $h['U'] = @('KEY_LEFTSHIFT','KEY_U')
-$h['v'] = @('KEY_V');           $h['V'] = @('KEY_LEFTSHIFT','KEY_V')
-$h['w'] = @('KEY_W');           $h['W'] = @('KEY_LEFTSHIFT','KEY_W')
-$h['x'] = @('KEY_X');           $h['X'] = @('KEY_LEFTSHIFT','KEY_X')
-$h['y'] = @('KEY_Y');           $h['Y'] = @('KEY_LEFTSHIFT','KEY_Y')
-$h['z'] = @('KEY_Z');           $h['Z'] = @('KEY_LEFTSHIFT','KEY_Z')
-$h['1'] = @('KEY_1');           $h['!'] = @('KEY_LEFTSHIFT','KEY_1')
-$h['2'] = @('KEY_2');           $h['@'] = @('KEY_LEFTSHIFT','KEY_2')
-$h['3'] = @('KEY_3');           $h['#'] = @('KEY_LEFTSHIFT','KEY_3')
-$h['4'] = @('KEY_4');           $h['$'] = @('KEY_LEFTSHIFT','KEY_4')
-$h['5'] = @('KEY_5');           $h['%'] = @('KEY_LEFTSHIFT','KEY_5')
-$h['6'] = @('KEY_6');           $h['^'] = @('KEY_LEFTSHIFT','KEY_6')
-$h['7'] = @('KEY_7');           $h['&'] = @('KEY_LEFTSHIFT','KEY_7')
-$h['8'] = @('KEY_8');           $h['*'] = @('KEY_LEFTSHIFT','KEY_8')
-$h['9'] = @('KEY_9');           $h['('] = @('KEY_LEFTSHIFT','KEY_9')
-$h['0'] = @('KEY_0');           $h[')'] = @('KEY_LEFTSHIFT','KEY_0')
-$h[' ']  = @('KEY_SPACE')
-$h["`t"] = @('KEY_TAB')
-$h["`n"] = @('KEY_ENTER')
-$h["`r"] = @('KEY_ENTER')
-$h['-'] = @('KEY_MINUS');       $h['_'] = @('KEY_LEFTSHIFT','KEY_MINUS')
-$h['='] = @('KEY_EQUAL');       $h['+'] = @('KEY_LEFTSHIFT','KEY_EQUAL')
-$h['['] = @('KEY_LEFTBRACE');   $h['{'] = @('KEY_LEFTSHIFT','KEY_LEFTBRACE')
-$h[']'] = @('KEY_RIGHTBRACE');  $h['}'] = @('KEY_LEFTSHIFT','KEY_RIGHTBRACE')
-$h['\'] = @('KEY_BACKSLASH');   $h['|'] = @('KEY_LEFTSHIFT','KEY_BACKSLASH')
-$h[';'] = @('KEY_SEMICOLON');   $h[':'] = @('KEY_LEFTSHIFT','KEY_SEMICOLON')
-$h["'"] = @('KEY_APOSTROPHE');  $h['"'] = @('KEY_LEFTSHIFT','KEY_APOSTROPHE')
-$h[','] = @('KEY_COMMA');       $h['<'] = @('KEY_LEFTSHIFT','KEY_COMMA')
-$h['.'] = @('KEY_DOT');         $h['>'] = @('KEY_LEFTSHIFT','KEY_DOT')
-$h['/'] = @('KEY_SLASH');       $h['?'] = @('KEY_LEFTSHIFT','KEY_SLASH')
-$h['`'] = @('KEY_GRAVE');       $h['~'] = @('KEY_LEFTSHIFT','KEY_GRAVE')
-    return $h
-}
-$script:KvmCharKeyMap = Get-KvmCharKeyMap
-
-function Send-KeyKvm {
-    param([string]$VMName, [string]$KeyName)
-    # Map common harness key names to Linux KEY_* event names. Anything
-    # not in the table passes through verbatim so a sequence can write
-    # KEY_LEFTMETA, KEY_F2, etc. directly.
-    $map = @{
-        'Enter'     = 'KEY_ENTER'
-        'Return'    = 'KEY_ENTER'
-        'Tab'       = 'KEY_TAB'
-        'Escape'    = 'KEY_ESC'
-        'Esc'       = 'KEY_ESC'
-        'Space'     = 'KEY_SPACE'
-        'Backspace' = 'KEY_BACKSPACE'
-        'Up'        = 'KEY_UP'
-        'Down'      = 'KEY_DOWN'
-        'Left'      = 'KEY_LEFT'
-        'Right'     = 'KEY_RIGHT'
-    }
-    $code = $map[$KeyName]
-    if (-not $code) { $code = $KeyName }
-    & virsh --connect qemu:///system send-key $VMName $code 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Send-KeyKvm: virsh send-key '$code' failed for '$VMName'"
-        return $false
-    }
-    return $true
-}
-
-function Send-TextKvm {
-    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    $sentChars = 0
-    foreach ($ch in $Text.ToCharArray()) {
-        $codes = $script:KvmCharKeyMap["$ch"]
-        if (-not $codes) {
-            Write-Warning "Send-TextKvm: no keycode for character '$ch' (0x$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })). Skipping."
-            continue
-        }
-        # Splat the chord onto the virsh command line: with `&` the array
-        # elements become positional args, which is exactly what virsh
-        # send-key wants (one chord per call).
-        & virsh --connect qemu:///system send-key $VMName @codes 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Send-TextKvm: virsh send-key failed at char '$ch' (codes=$($codes -join ','))"
-            return $false
-        }
-        $sentChars++
-        if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
-    }
-    Write-Debug "      virsh send-key: $sentChars chars sent (${CharDelayMs}ms delay between chars)"
-    return $true
-}
+# Shared engine for executing interaction sequences from YAML files.
+# Action catalog, variable substitution, and on-failure artifact layout
+# are documented in docs/test-sequences.md (the operator-facing spec) --
+# do not duplicate them here. This module is the executable definition;
+# the Markdown is the contract.
 
 function Send-Key {
 <#
@@ -891,261 +162,23 @@ function Send-Key {
     Host-aware dispatcher for sending a named key (e.g. Enter, Tab) to
     the guest VM's GUI keyboard input channel.
 .DESCRIPTION
-    Routes by HostType to the matching backend (Send-KeyHyperV,
-    Send-KeyUTM via VNC fallback, Send-KeyKvm). Called by the
-    Yuruna.Host Send-Key contract so the host driver does not need
-    to import the host-specific helpers itself.
+    Dispatches via the Test.HostIO registry. Per-host backends are
+    registered at module-load time below (search for
+    Register-HostIOProvider 'Send-Key'). Yuruna.Host's Send-Key contract
+    routes here so each host driver doesn't import the platform-specific
+    helpers itself.
 #>
     param([string]$HostType, [string]$VMName, [string]$KeyName)
-    if ($HostType -eq "host.windows.hyper-v") { return Send-KeyHyperV -VMName $VMName -KeyName $KeyName }
-    elseif ($HostType -eq "host.macos.utm") {
-        # Try VNC first (QEMU VMs with built-in VNC server), then AppleScript/CGEvent.
-        # Note: AXUIElementPostKeyboardEvent was tested but UTM's SwiftUI VM display
-        # does not route Accessibility keyboard events to the virtual machine — it
-        # reports success but the keys never reach the guest OS.
-        $vncOk = Send-KeyVNC -VMName $VMName -KeyName $KeyName
-        if ($vncOk) { return $true }
-        Write-Debug "      VNC unavailable for key, falling back to AppleScript"
-        return Send-KeyUTM -VMName $VMName -KeyName $KeyName
-    }
-    elseif ($HostType -eq "host.ubuntu.kvm") { return Send-KeyKvm -VMName $VMName -KeyName $KeyName }
-    else { Write-Warning "Unknown host: $HostType"; return $false }
-}
-
-# ── Action: type / typeAndEnter ──────────────────────────────────────────────
-
-function Send-TextHyperV {
-    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    $kb = Get-HyperVKeyboard -VMName $VMName
-    if (-not $kb) { return $false }
     try {
-        # Defensive modifier-release prefix. The PS/2 controller in
-        # Hyper-V keeps a flat "is key down" state per scan code; the
-        # only thing that flips a key back to "up" is the matching
-        # break code. If a *prior* keyboard event left a modifier in
-        # the held state -- a dropped LShift break (0xAA) from a
-        # cancelled Send-Text, a make/break race during VM reboot, an
-        # operator manually clicking the vmconnect window with Shift
-        # held, an IDE focus-steal mid-send -- every subsequent char
-        # this function emits inherits that modifier and lands shifted.
-        # Symptom: typing the test user (e.g. `yauser1`) produces `YAUSER!` at the login
-        # prompt (caught by failure-screenshot OCR). Issuing
-        # break codes for LShift + RShift + LCtrl + RCtrl + LAlt +
-        # RAlt + LMeta + RMeta as a one-shot scancode burst BEFORE
-        # any character typing is sent forces all modifiers to the
-        # released state. Break-for-not-pressed is a no-op on PS/2 so
-        # this is idempotent and safe for the normal case (no leftover
-        # state). E0-prefixed right-side modifiers (RCtrl/RAlt/RMeta)
-        # need the E0 escape byte before each release.
-        [byte[]]$resetCodes = @(
-            0xAA,             # LShift break
-            0xB6,             # RShift break
-            0x9D,             # LCtrl break
-            0xE0, 0x9D,       # RCtrl break (E0-prefixed)
-            0xB8,             # LAlt break
-            0xE0, 0xB8,       # RAlt break (E0-prefixed)
-            0xE0, 0xDB,       # LMeta/LGUI break (E0-prefixed)
-            0xE0, 0xDC        # RMeta/RGUI break (E0-prefixed)
-        )
-        if (-not (Send-ScanCode -Keyboard $kb -Codes $resetCodes)) {
-            # Single-shot reset failed -- continue anyway; per-char
-            # writes may still succeed, and warning surfaces the
-            # divergence in the cycle log.
-            Write-Warning "Send-TextHyperV: modifier-reset prefix failed; proceeding without it."
-        }
-        # Send each character individually with a delay between them
-        # to avoid overwhelming the VM's keyboard buffer.
-        # For shifted characters: LShift-down, char-down, char-up, LShift-up.
-        $charCount = 0
-        foreach ($ch in $Text.ToCharArray()) {
-            $entry = $script:CharScanCodes["$ch"]
-            if (-not $entry) {
-                Write-Warning "No scan code for character '$ch' (0x$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })). Skipping."
-                continue
-            }
-            $scan = [byte]$entry[0]
-            $shifted = $entry[1]
-            $codeList = [System.Collections.Generic.List[byte]]::new()
-            if ($shifted) { $codeList.Add(0x2A) }            # LShift make
-            $codeList.Add($scan)                              # char make
-            $codeList.Add([byte]($scan -bor 0x80))            # char break
-            if ($shifted) { $codeList.Add(0xAA) }            # LShift break
-            $ok = Send-ScanCode -Keyboard $kb -Codes ([byte[]]$codeList.ToArray())
-            if (-not $ok) {
-                Write-Warning "Hyper-V TypeScancodes failed at char '$ch'"
-                return $false
-            }
-            $charCount++
-            if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
-        }
-        Write-Debug "      TypeScancodes: $charCount chars sent (${CharDelayMs}ms delay between chars, modifier-reset prefix sent)"
-        return $true
+        return (Invoke-HostIOAction -HostType $HostType -Action 'Send-Key' -Arguments @{ VMName=$VMName; KeyName=$KeyName })
     } catch {
-        Write-Warning "Hyper-V TypeScancodes (text) failed: $_"
+        Write-Warning "Send-Key: $($_.Exception.Message)"
         return $false
     }
 }
 
-function Test-HardCharsInText {
-    # Returns $true if Text has at least one char that needs Shift in
-    # MacCharKeyCodes after the keypad remap. Used by Send-TextUTM to
-    # decide whether the ShellEscape encoding is needed.
-    param([string]$Text)
-    foreach ($ch in $Text.ToCharArray()) {
-        $e = $script:MacCharKeyCodes["$ch"]
-        if ($e -and $e[1]) { return $true }
-    }
-    return $false
-}
+# ── Action: type / typeAndEnter ──────────────────────────────────────────────
 
-function ConvertTo-ShellEscapedText {
-    # Rewrite Text as a bash one-liner: eval `echo -e 'TEXT_HEX'` , where
-    # every shifted char is replaced by its \xNN escape and three structural
-    # chars are also hex-escaped to survive the surrounding quoting:
-    #   '  → \x27   (would close the surrounding apostrophe quote)
-    #   `  → \x60   (would close the eval-backtick subshell)
-    # Backslash is doubled (\\) so echo -e emits a single backslash.
-    param([string]$Text)
-    $sb = [System.Text.StringBuilder]::new()
-    foreach ($ch in $Text.ToCharArray()) {
-        $c = [char]$ch
-        if ($c -eq "'") { [void]$sb.Append('\x27'); continue }
-        if ($c -eq '\') { [void]$sb.Append('\\');   continue }
-        if ($c -eq '`') { [void]$sb.Append('\x60'); continue }
-        $e = $script:MacCharKeyCodes["$c"]
-        if ($e -and $e[1]) {
-            $hex = ([byte][char]$c).ToString('x2')
-            [void]$sb.Append("\x$hex")
-        } else {
-            [void]$sb.Append($c)
-        }
-    }
-    return "eval ``echo -e '$($sb.ToString())'``"
-}
-
-function Send-TextUTM {
-    param(
-        [string]$VMName,
-        [string]$Text,
-        [int]$CharDelayMs = $script:DefaultCharDelayMs,
-        # Opt-in shell-side decoding. When set AND Text contains chars
-        # that need Shift after the keypad remap (uppercase letters and
-        # shifted punctuation other than '*' / '+'), rewrites Text as
-        # `eval \`echo -e 'HEX'\`` so the bash prompt on the guest
-        # decodes the shifted chars from \xNN escapes. Default off: at
-        # login/password prompts there is no shell to decode the wrapper,
-        # so callers in those contexts (Send-Text via passwdPrompt) must
-        # NOT pass this switch.
-        [switch]$ShellEscape
-    )
-    # JXA CGEvent typing path.
-    if ($ShellEscape -and (Test-HardCharsInText -Text $Text)) {
-        $orig = $Text
-        $Text = ConvertTo-ShellEscapedText -Text $Text
-        Write-Debug "      UTM Send-Text -ShellEscape: '$orig' rewritten to '$Text' (Linux bash decodes \xNN at the prompt)."
-    }
-    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
-
-    $charIndex = 0
-    $shiftedCount = 0
-    $keyCalls = [System.Text.StringBuilder]::new()
-    foreach ($ch in $Text.ToCharArray()) {
-        $entry = $script:MacCharKeyCodes["$ch"]
-        if (-not $entry) {
-            Write-Warning "No macOS key code for character '$ch' (index $charIndex). Skipping."
-            $charIndex++
-            continue
-        }
-        $kc = $entry[0]
-        $shifted = if ($entry[1]) { 'true' } else { 'false' }
-        if ($entry[1]) { $shiftedCount++ }
-        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
-        $charIndex++
-    }
-    Write-Debug "      UTM text send (JXA CGEvent + HID-system shift): $charIndex chars total, $shiftedCount shifted, charDelay=${CharDelayMs}ms"
-
-    $jxaTemplate = @'
-ObjC.import('CoreGraphics');
-
-var se = Application('System Events');
-var utm = Application('UTM');
-utm.activate();
-delay(0.3);
-var proc = se.processes['UTM'];
-proc.frontmost = true;
-var wins = proc.windows();
-var found = false;
-for (var i = 0; i < wins.length; i++) {
-    if (wins[i].name().indexOf('__VMNAME__') >= 0) {
-        wins[i].actions['AXRaise'].perform();
-        found = true;
-        break;
-    }
-}
-if (!found) {
-    'window_not_found';
-} else {
-    delay(0.3);
-    var kShiftKeyCode = 56;          // Left Shift physical key
-    var kShiftFlag    = 0x00020000;  // kCGEventFlagMaskShift
-    var src = $.CGEventSourceCreate(1);  // kCGEventSourceStateHIDSystemState
-
-    function sendKey(keyCode, shift) {
-        if (shift) {
-            // Press physical Left Shift down first; flag is set on the
-            // event AND the HID-system source updates the global state
-            // so the guest sees Shift as held.
-            var shiftDn = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, true);
-            $.CGEventSetFlags(shiftDn, kShiftFlag);
-            $.CGEventPost(0, shiftDn);
-            delay(0.08);
-
-            var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
-            $.CGEventSetFlags(down, kShiftFlag);
-            $.CGEventPost(0, down);
-            delay(0.02);
-            var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
-            $.CGEventSetFlags(up, kShiftFlag);
-            $.CGEventPost(0, up);
-            delay(0.06);
-
-            // Release physical Left Shift; no flag so the modifier
-            // state clears for the next (potentially unshifted) char.
-            var shiftUp = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, false);
-            $.CGEventPost(0, shiftUp);
-            delay(0.02);
-        } else {
-            var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
-            $.CGEventPost(0, down);
-            delay(0.01);
-            var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
-            $.CGEventPost(0, up);
-        }
-        delay(__DELAY__);
-    }
-__KEYCALLS__
-    // Final drain: give the macOS event queue time to deliver the last
-    // CGEvent(s) to the guest before osascript exits. Without this, the
-    // last character(s) can be lost on long commands.
-    delay(0.3);
-    'ok';
-}
-'@
-    $safeJxaVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'"
-    $jxaScript = $jxaTemplate -replace '__VMNAME__', $safeJxaVMName `
-                              -replace '__DELAY__', $delaySec `
-                              -replace '__KEYCALLS__', $keyCalls.ToString()
-
-    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).js")
-    try {
-        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
-        $result = & osascript -l JavaScript $tmpFile 2>&1
-    } finally {
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    }
-    Write-Debug "      JXA CGEvent: $result"
-    return ("$result" -eq "ok")
-}
 
 function Send-Text {
 <#
@@ -1170,16 +203,12 @@ function Send-Text {
         # wrapper, so this switch is a no-op there.
         [switch]$ShellEscape
     )
-    if ($HostType -eq "host.windows.hyper-v") { return Send-TextHyperV -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs }
-    elseif ($HostType -eq "host.macos.utm") {
-        # Try VNC first (QEMU VMs with built-in VNC server), then JXA/CGEvent.
-        $vncOk = Send-TextVNC -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs
-        if ($vncOk) { return $true }
-        Write-Debug "      VNC unavailable for text, falling back to JXA/CGEvent"
-        return Send-TextUTM -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs -ShellEscape:$ShellEscape
+    try {
+        return (Invoke-HostIOAction -HostType $HostType -Action 'Send-Text' -Arguments @{ VMName=$VMName; Text=$Text; CharDelayMs=$CharDelayMs; ShellEscape=[bool]$ShellEscape })
+    } catch {
+        Write-Warning "Send-Text: $($_.Exception.Message)"
+        return $false
     }
-    elseif ($HostType -eq "host.ubuntu.kvm") { return Send-TextKvm -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs }
-    else { Write-Warning "Unknown host: $HostType"; return $false }
 }
 
 # ── OCR-tolerant matching ────────────────────────────────────────────────────
@@ -1219,8 +248,10 @@ $script:OCRStripChars = [System.Collections.Generic.HashSet[char]]::new(
     )
 )
 
-# Build canonical lookup: char → canonical lowercase representative of its group.
-# Used by Test-OCRMatch to normalize both pattern and text before comparison.
+# Why a canonical-form lookup rather than the raw confusion groups: at
+# match time Test-OCRMatch normalizes BOTH the pattern and the OCR text
+# through this map, so a search for "Install" against "lnstall" hits a
+# single hash lookup per character instead of iterating every group.
 $script:OCRCanonical = @{}
 foreach ($group in $script:OCRConfusionGroups) {
     $canonical = [char]::ToLowerInvariant($group[0])
@@ -1277,7 +308,11 @@ function Get-OCRNormalized {
 #>
 function Test-OCRMatch {
     param([string]$Text, [string]$Pattern)
-    $normPattern = Get-OCRNormalized $Pattern
+    $normPattern = $script:OcrPatternCache[$Pattern]
+    if ($null -eq $normPattern) {
+        $normPattern = Get-OCRNormalized $Pattern
+        $script:OcrPatternCache[$Pattern] = $normPattern
+    }
     if ($normPattern.Length -eq 0) { return $true }
     # Require at least 85% of normalized pattern chars to appear in order.
     # This allows ~1 dropped char per 7 pattern chars (e.g. "Password:" → "assuord:")
@@ -1363,7 +398,11 @@ function Test-OCRMatch {
     if ($splitPattern.Count -gt 1) {
         $allFound = $true
         foreach ($seg in $splitPattern) {
-            $normSeg = Get-OCRNormalized $seg
+            $normSeg = $script:OcrPatternCache[$seg]
+            if ($null -eq $normSeg) {
+                $normSeg = Get-OCRNormalized $seg
+                $script:OcrPatternCache[$seg] = $normSeg
+            }
             if ($normSeg.Length -eq 0) { continue }
             if (-not $normFull.Contains($normSeg)) {
                 $allFound = $false
@@ -1446,9 +485,12 @@ function Test-CombinedOcrMatch {
     $combinedMatch = $false
     $allTexts = @()
 
-    # Run OCR engines sequentially, short-circuiting based on combine mode:
-    #   Or  — stop on first detection (true)
-    #   And — stop on first non-detection (false)
+    # Why sequential, not parallel: the per-engine cost (~5-15 ms after
+    # the WinRT worker warm-up) is well below the dispatch overhead of
+    # Start-ThreadJob + RemotingWait, AND the combine modes are
+    # short-circuit by design — running both engines in parallel and
+    # then discarding the slower one would waste work in the common
+    # (Or-mode, first-engine-hits) case.
     foreach ($engineName in $enabledProviders) {
         try {
             $engineText = (Invoke-OcrProvider -Name $engineName -ImagePath $ImagePath) ?? ''
@@ -1529,106 +571,6 @@ function Test-CombinedOcrMatch {
 # area so image (x,y) == vmconnect client (x,y), and ClientToScreen maps
 # it to a SetCursorPos + mouse_event sequence.
 
-function Initialize-HyperVMouseType {
-    if ('HyperVMouse' -as [type]) { return }
-    Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-
-public class HyperVMouse {
-    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
-    [DllImport("user32.dll")] public static extern int  GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
-    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT pt);
-    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
-    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-
-    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
-
-    const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-    const uint MOUSEEVENTF_LEFTUP   = 0x0004;
-
-    static bool dpiAware = false;
-    public static void EnsureDpiAware() {
-        if (!dpiAware) { SetProcessDPIAware(); dpiAware = true; }
-    }
-
-    public static IntPtr FindWindow(string titleContains) {
-        IntPtr found = IntPtr.Zero;
-        EnumWindows((hWnd, lp) => {
-            if (!IsWindowVisible(hWnd)) return true;
-            var sb = new StringBuilder(256);
-            GetWindowText(hWnd, sb, 256);
-            if (sb.ToString().Contains(titleContains)) { found = hWnd; return false; }
-            return true;
-        }, IntPtr.Zero);
-        return found;
-    }
-
-    // Translate a client-area point to screen coordinates, for debug logging
-    // and diagnostics that need to report where a click actually landed.
-    // Returns null if the translation fails (e.g. invalid window handle).
-    public static int[] GetScreenPoint(IntPtr hWnd, int clientX, int clientY) {
-        EnsureDpiAware();
-        POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
-        if (!ClientToScreen(hWnd, ref pt)) return null;
-        return new int[] { pt.X, pt.Y };
-    }
-
-    // Left-click at a client-area pixel (clientX, clientY) inside hWnd.
-    // Restores the host cursor afterwards so the operator's mouse isn't
-    // "stolen" mid-test. Returns false if the window cannot be targeted.
-    public static bool ClickClientPoint(IntPtr hWnd, int clientX, int clientY) {
-        EnsureDpiAware();
-        POINT origin; GetCursorPos(out origin);
-        // Non-fatal: foreground may be refused if another window holds focus
-        // lock (e.g. another input-receiving app just got activated). The
-        // click still lands if vmconnect accepts mouse events while inactive.
-        SetForegroundWindow(hWnd);
-        System.Threading.Thread.Sleep(80);
-        POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
-        if (!ClientToScreen(hWnd, ref pt)) return false;
-        if (!SetCursorPos(pt.X, pt.Y)) return false;
-        System.Threading.Thread.Sleep(40);
-        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
-        System.Threading.Thread.Sleep(30);
-        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
-        System.Threading.Thread.Sleep(50);
-        SetCursorPos(origin.X, origin.Y);
-        return true;
-    }
-}
-"@
-}
-
-function Send-ClickHyperV {
-    param([string]$VMName, [int]$X, [int]$Y)
-    if (-not $IsWindows) {
-        Write-Warning "Send-ClickHyperV called on non-Windows host."
-        return $false
-    }
-    Initialize-HyperVMouseType
-    $hWnd = [HyperVMouse]::FindWindow($VMName)
-    if ($hWnd -eq [IntPtr]::Zero) {
-        Write-Warning "vmconnect window not found for '$VMName'. Click requires an open vmconnect session."
-        return $false
-    }
-    # Pre-compute screen-space target so logLevel=Debug can report where the
-    # click was actually dispatched, not just where we think the button is.
-    $screenPoint = [HyperVMouse]::GetScreenPoint($hWnd, $X, $Y)
-    $ok = [HyperVMouse]::ClickClientPoint($hWnd, $X, $Y)
-    if ($screenPoint) {
-        Write-Debug "      Hyper-V click at client ($X, $Y) -> screen ($($screenPoint[0]), $($screenPoint[1])) ok=$ok"
-    } else {
-        Write-Debug "      Hyper-V click at client ($X, $Y) screen=<ClientToScreen failed> ok=$ok"
-    }
-    return $ok
-}
 
 function Send-Click {
 <#
@@ -1652,119 +594,14 @@ function Send-Click {
         # resolves the window via ClientToScreen at click time.
         [hashtable]$Capture = $null
     )
-    if ($HostType -eq "host.windows.hyper-v") { return Send-ClickHyperV -VMName $VMName -X $X -Y $Y }
-    elseif ($HostType -eq "host.macos.utm") { return Send-ClickUtm -X $X -Y $Y -Capture $Capture }
-    else { Write-Warning "Unknown host for Send-Click: $HostType"; return $false }
+    try {
+        return (Invoke-HostIOAction -HostType $HostType -Action 'Send-Click' -Arguments @{ VMName=$VMName; X=$X; Y=$Y; Capture=$Capture })
+    } catch {
+        Write-Warning "Send-Click: $($_.Exception.Message)"
+        return $false
+    }
 }
 
-function Send-ClickUtm {
-    <#
-    .SYNOPSIS
-        Dispatches a left-click at (X, Y) in the UTM VM window's image
-        coordinate space.
-    .DESCRIPTION
-        X/Y arrive in PNG pixel coords (what Tesseract reports). The capture
-        hashtable carries the window's screen-point origin and the backing
-        scale factor so we can map image pixels -> screen points:
-            screenX = OriginX + X / Scale
-            screenY = OriginY + Y / Scale
-        kCGWindowBounds (source of OriginX/OriginY) and CGEventPost both use
-        the same global screen-point coordinate space (origin top-left of the
-        main display), so no axis flip is needed.
-
-        Requires Accessibility permission for the invoking process. Without
-        it CGEventPost silently drops clicks — we probe once per session and
-        warn loudly so the operator doesn't chase a phantom OCR bug.
-    #>
-    param(
-        [int]$X,
-        [int]$Y,
-        [hashtable]$Capture = $null
-    )
-    if (-not $IsMacOS) {
-        Write-Warning "Send-ClickUtm called on non-macOS host."
-        return $false
-    }
-    if (-not $Capture -or
-        -not $Capture.ContainsKey('OriginX') -or
-        -not $Capture.ContainsKey('OriginY') -or
-        -not $Capture.ContainsKey('Scale')   -or
-        [double]$Capture.Scale -le 0) {
-        Write-Warning "Send-ClickUtm requires a -Capture hashtable with OriginX / OriginY / Scale (from Get-UtmWindowScreenshot)."
-        return $false
-    }
-
-    $originX = [double]$Capture.OriginX
-    $originY = [double]$Capture.OriginY
-    $scale   = [double]$Capture.Scale
-    $screenX = [int][math]::Round($originX + ($X / $scale))
-    $screenY = [int][math]::Round($originY + ($Y / $scale))
-    Write-Debug "      UTM click: image ($X, $Y) scale=$scale origin=($originX, $originY) -> screen ($screenX, $screenY)"
-
-    # Bring UTM to the front before clicking. Some GNOME / GTK widgets only
-    # respond to input when the host window is key; `activate` is a no-op
-    # when UTM already has focus.
-    & osascript -e 'tell application "UTM" to activate' 2>&1 | Out-Null
-
-    # One-time Accessibility permission probe. AXIsProcessTrusted() returns
-    # false without prompting the user (we don't want a dialog popping up
-    # mid-test run). If denied, the first click-by-OCR call surfaces the
-    # fix instructions clearly; subsequent calls short-circuit.
-    if (-not $script:YurunaAxChecked) {
-        $script:YurunaAxChecked = $true
-        $axResult = & osascript -l JavaScript -e @'
-ObjC.import('ApplicationServices');
-$.AXIsProcessTrusted() ? 'yes' : 'no';
-'@ 2>&1
-        if ("$axResult".Trim() -ne 'yes') {
-            Write-Warning "Accessibility permission not granted for this terminal — CGEventPost clicks will be silently dropped."
-            Write-Warning "  System Settings > Privacy & Security > Accessibility > enable your terminal"
-            Write-Warning "  Then restart the terminal and re-run the test."
-            $script:YurunaAxWorks = $false
-        } else {
-            $script:YurunaAxWorks = $true
-        }
-    }
-    if ($script:YurunaAxWorks -eq $false) { return $false }
-
-    # Synthesize move + down + up. The move event ensures hover-triggered
-    # widgets (tooltips, hover-highlight buttons) settle on the target
-    # before the mousedown, matching a real user's cursor motion. Without
-    # the move some GTK buttons in GDM 46 ignore the first mousedown.
-    $clickScript = @"
-ObjC.import('CoreGraphics');
-var pt = { x: __X__, y: __Y__ };
-var mv = `$.CGEventCreateMouseEvent(null, `$.kCGEventMouseMoved,   pt, `$.kCGMouseButtonLeft);
-var dn = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseDown, pt, `$.kCGMouseButtonLeft);
-var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMouseButtonLeft);
-`$.CGEventPost(`$.kCGHIDEventTap, mv);
-`$.CGEventPost(`$.kCGHIDEventTap, dn);
-`$.CGEventPost(`$.kCGHIDEventTap, up);
-'ok';
-"@
-    $clickScript = ($clickScript -replace '__X__', $screenX) -replace '__Y__', $screenY
-    $clickResult = & osascript -l JavaScript -e $clickScript 2>&1
-    if ($LASTEXITCODE -ne 0 -or "$clickResult".Trim() -ne 'ok') {
-        Write-Warning "osascript CGEventPost failed: $clickResult"
-        return $false
-    }
-    return $true
-}
-
-<#
-.SYNOPSIS
-    Runs OCR on an image, finds the bounding box of a button-label pattern,
-    and returns its coordinates in the image's pixel space.
-.DESCRIPTION
-    Uses Tesseract TSV mode (word-level boxes) because TSV boxes are
-    directly consumable — Vision / WinRT don't surface per-word coords in
-    our existing shims. For multi-word labels, requires contiguous words
-    on the same line (y-diff within half a word height). Matching is
-    case-insensitive substring so low-confidence words ("lnstall") still
-    resolve.
-.OUTPUTS
-    Hashtable @{ x; y; w; h; centerX; centerY; text } or $null if not found.
-#>
 function Find-TextLocation {
     param(
         [Parameter(Mandatory)] [string]$ImagePath,
@@ -1889,7 +726,7 @@ function Save-ScreenshotWithClickMarker {
 
 <#
 .SYNOPSIS
-    Waits for a labelled button to appear on the VM screen and clicks it.
+    Waits for a labeled button to appear on the VM screen and clicks it.
 .DESCRIPTION
     Loops: capture the VM window at the host's coordinate space, OCR for
     the label, and if found, click at the label's centre. Falls back to
@@ -1904,14 +741,14 @@ function Invoke-TapOn {
         [string]$VMName,
         [string[]]$Label,
         [int]$TimeoutSeconds = 120,
-        [int]$PollSeconds = 5,
+        [int]$PollSeconds = 3,
         [int]$OffsetX = 0,
         [int]$OffsetY = 0
     )
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    # -Global: a nested -Force without -Global evicts Test.LogDir from
+    # -Global: a nested -Force without -Global evicts Test.YurunaDir from
     # the parent script's session state, breaking later top-level calls.
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
 
     $logDir = Initialize-YurunaLogDir
     $capturePath = Join-Path $logDir "clickbutton_${VMName}.png"
@@ -2020,16 +857,30 @@ function Save-OcrSidecar {
 # ── Action: waitForText ──────────────────────────────────────────────────────
 
 function Wait-ForText {
+    <#
+    .SYNOPSIS
+        Poll the guest framebuffer via OCR until $Pattern matches or
+        $TimeoutSeconds elapses.
+    .DESCRIPTION
+        Drives the waitForText sequence action: takes a screenshot,
+        OCRs it, fuzzy-matches against $Pattern, and either returns
+        $true on a match or sleeps $PollSeconds before retrying. Also
+        evaluates $FailurePattern entries each poll so a known crash
+        screen aborts the wait immediately instead of consuming the
+        full timeout budget.
+    .OUTPUTS
+        [bool] $true on positive match; $false on timeout or anti-pattern hit.
+    #>
     param(
-        # HostType retained for backward-compatible call sites. After the
-        # Yuruna.Host refactor the host driver dispatches Get-VMScreenshot
-        # internally; we accept the legacy arg, surface it in the debug
-        # stream, and route through the host facade.
+        # HostType is accepted but ignored at the dispatch level: the
+        # host driver's own Get-VMScreenshot resolves the per-host
+        # backend internally. We accept it for caller-site uniformity
+        # and surface it in the debug stream for cross-host triage.
         [string]$HostType,
         [string]$VMName,
         [string[]]$Pattern,
         [int]$TimeoutSeconds = 120,
-        [int]$PollSeconds = 5,
+        [int]$PollSeconds = 3,
         [bool]$FreshMatch = $false,
         [int]$FreshMatchTailLines = 12,
         # Anti-patterns: if ANY of these fuzzy-matches on screen OCR,
@@ -2089,7 +940,7 @@ function Wait-ForText {
     # later top-level call to Get-CycleScreenDir (Invoke-TestInnerRunner.ps1
     # success branch, the cycle 62 crash on macOS in-process runners)
     # fails with "term not recognized".
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     Import-Module (Join-Path $modulesDir "Test.Log.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     $logDir     = Initialize-YurunaLogDir
     # Ring buffer lives INSIDE the cycle folder so a stuck/restarted
@@ -2099,10 +950,22 @@ function Wait-ForText {
     $historySize = [int]$script:DefaultScreenHistorySize
     if ($historySize -lt 1) { $historySize = 1 }
 
-    # Accumulate all seen text for non-FreshMatch mode (per-engine text merged)
-    $allText = ''
+    # Accumulate all seen text for non-FreshMatch mode (per-engine text merged).
+    # StringBuilder rather than string += "`n" + text: a long poll loop (60-300 s
+    # at PollSeconds=3 = 20-100 iters) would otherwise allocate a fresh string
+    # each iteration, O(n^2) on the accumulated length.
+    $allTextSb = [System.Text.StringBuilder]::new()
     $lastOcrText = ''
     $lastCapturePath = $null
+
+    # Seed the ring-buffer queue once with anything already on disk from
+    # earlier Wait-ForText calls in this guest run (the screensDir persists
+    # across calls; see the ring-buffer note above). Subsequent iterations
+    # append + dequeue in O(1) instead of re-enumerating the directory.
+    $rawQueue = [System.Collections.Generic.Queue[string]]::new()
+    Get-ChildItem -Path $screensDir -Filter 'raw_*.png' -File -ErrorAction SilentlyContinue |
+        Sort-Object Name |
+        ForEach-Object { $rawQueue.Enqueue($_.FullName) }
 
     try {
         while ([DateTime]::UtcNow -lt $deadlineUtc) {
@@ -2130,15 +993,13 @@ function Wait-ForText {
             # Each raw_*.png has a sibling raw_*.txt holding that frame's
             # OCR output (per-engine sections, written further below).
             # Delete the .txt whenever we evict its .png so the two stay
-            # in lockstep — otherwise orphan .txt files accumulate.
-            $allRaws = Get-ChildItem -Path $screensDir -Filter 'raw_*.png' -File -ErrorAction SilentlyContinue |
-                       Sort-Object Name
-            if ($allRaws.Count -gt $historySize) {
-                $allRaws | Select-Object -First ($allRaws.Count - $historySize) | ForEach-Object {
-                    $txtSibling = [System.IO.Path]::ChangeExtension($_.FullName, '.txt')
-                    Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue
-                    if (Test-Path $txtSibling) { Remove-Item -Path $txtSibling -Force -ErrorAction SilentlyContinue }
-                }
+            # in lockstep -- otherwise orphan .txt files accumulate.
+            $rawQueue.Enqueue($rawScreenPath)
+            while ($rawQueue.Count -gt $historySize) {
+                $evict = $rawQueue.Dequeue()
+                $txtSibling = [System.IO.Path]::ChangeExtension($evict, '.txt')
+                Remove-Item -Path $evict -Force -ErrorAction SilentlyContinue
+                if (Test-Path $txtSibling) { Remove-Item -Path $txtSibling -Force -ErrorAction SilentlyContinue }
             }
 
             # OCR is fed the raw capture as-is — no preprocessing. Earlier
@@ -2192,7 +1053,8 @@ function Wait-ForText {
 
                     if ($result.AnyText) {
                         $lastOcrText = $result.AnyText
-                        $allText = ($allText + "`n" + $result.AnyText).Trim()
+                        if ($allTextSb.Length -gt 0) { [void]$allTextSb.Append("`n") }
+                        [void]$allTextSb.Append($result.AnyText)
                     }
 
                     if ($result.Match) {
@@ -2202,6 +1064,7 @@ function Wait-ForText {
 
                     # Fallback: test accumulated text across iterations.
                     # Handles patterns that span multiple poll cycles.
+                    $allText = $allTextSb.ToString()
                     foreach ($p in $Pattern) {
                         if (Test-OCRMatch -Text $allText -Pattern $p) {
                             Write-Debug "      Text detected in accumulated text: '$p'"
@@ -2265,6 +1128,16 @@ function Wait-ForText {
 # ── Action: takeScreenshot ───────────────────────────────────────────────────
 
 function Save-DebugScreenshot {
+    <#
+    .SYNOPSIS
+        Capture a labeled screenshot for the takeScreenshot sequence action.
+    .DESCRIPTION
+        Builds an HH-mm-ss filename under $OutputDir and asks the host
+        driver's Get-VMScreenshot to write it. Returns $true on success
+        so the calling step records a passing result.
+    .OUTPUTS
+        [bool] $true on capture; $false on host-driver failure.
+    #>
     param([string]$VMName, [string]$Label, [string]$OutputDir)
     $fileName = "$VMName-$Label-$(Get-Date -Format 'HHmmss').png"
     $outputPath = Join-Path $OutputDir $fileName
@@ -2383,15 +1256,39 @@ function Expand-Variable {
     the YAML parser does not produce PSCustomObject.
 #>
 function Read-SequenceFile {
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        # Bypass the mtime-keyed cache for diagnostic / probe call
+        # sites that need a guaranteed fresh read.
+        [switch]$NoCache
+    )
     if (-not (Get-Module powershell-yaml)) {
         if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
             throw "powershell-yaml is required to read sequence files. Install with: Install-Module -Name powershell-yaml -Scope CurrentUser"
         }
         Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
     }
+    # Mtime-keyed parse cache, parallel to Test.Config's pattern.
+    # The planner walks every sequence in the chain once per Resolve-
+    # CyclePlan call; without a cache that's 50+ YAML parses per cycle
+    # (~300-500 ms). Cache key is absolute path + LastWriteTimeUtc.
+    if (-not $script:SequenceFileCache) { $script:SequenceFileCache = @{} }
+    if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
+        $resolved = (Resolve-Path -LiteralPath $Path).Path
+        $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+        if ($script:SequenceFileCache.ContainsKey($resolved)) {
+            $entry = $script:SequenceFileCache[$resolved]
+            if ($entry.Mtime -eq $mtime) { return $entry.Parsed }
+        }
+    }
     try {
-        return (Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered)
+        $parsed = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered
+        if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
+            $resolved = (Resolve-Path -LiteralPath $Path).Path
+            $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+            $script:SequenceFileCache[$resolved] = @{ Mtime = $mtime; Parsed = $parsed }
+        }
+        return $parsed
     } catch {
         # YamlDotNet's SyntaxErrorException carries Start/End marks with
         # Line/Column, but powershell-yaml wraps it in a generic
@@ -2695,11 +1592,11 @@ function Invoke-SequenceByName {
     $sequenceFile = Resolve-SequencePath -SequencesDir $SequencesDir -Name $Name -HostType $HostType -RepoRoot $RepoRoot
     if (-not $sequenceFile) {
         # Missing sequence file is a setup error, not an optional skip.
-        # Previously returned $true here, which let a typo in a sequence
-        # name silently mark the test as passing.
+        # Returning $true here would let a typo in a sequence name
+        # silently mark the test as passing.
         # Resolve-SequencePath returns $null on miss; show what was searched
-        # (Get-SequenceSearchPath enumerates the same tier order) instead of
-        # the old "last attempted path" sentinel that invented a location.
+        # (Get-SequenceSearchPath enumerates the same tier order) so the
+        # operator can see the locations that were probed.
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $Name -HostType $HostType -RepoRoot $RepoRoot
         $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
         Write-Warning "[$GuestKey] Sequence file not found: $Name`nSearched (no match):`n$list"
@@ -2774,9 +1671,9 @@ function Invoke-Sequence {
     }
 
     if (-not (Test-Path $SequencePath)) {
-        # Missing sequence file = setup error. Previously returned $true
-        # (silent skip), which masked sequence-name typos and bad mode
-        # resolution as test successes.
+        # Missing sequence file = setup error. A silent-skip return of
+        # $true would mask sequence-name typos and bad mode resolution
+        # as test successes.
         Write-Warning "    Sequence file not found: $SequencePath"
         return $false
     }
@@ -2790,8 +1687,7 @@ function Invoke-Sequence {
     # evicts these modules from the parent script's session state and
     # breaks subsequent top-level calls (see Get-CycleScreenDir crash).
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.LogDir.psm1")   -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
-    Import-Module (Join-Path $modulesDir "Test.RuntimeDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")      -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     $logDir = Initialize-YurunaLogDir
 
@@ -2852,7 +1748,7 @@ function Invoke-Sequence {
     # is free to declare its own `loginUser` under variables: (or pass
     # one in via the cascade) -- only the unset case is auto-filled.
     # Empty corporate fields in users.yml mean loginUser == username
-    # (today's local-only behaviour); a populated corporate mapping
+    # (today's local-only behavior); a populated corporate mapping
     # renders DOMAIN\sam or upn@domain.com.
     if (-not $vars.ContainsKey('loginUser') -and $vars.ContainsKey('username')) {
         try {
@@ -2899,11 +1795,31 @@ function Invoke-Sequence {
             $seqGuid     = if ($sequence.Contains('sequenceGuid'))     { [string]$sequence.sequenceGuid }     else { $null }
             $seqRevision = if ($sequence.Contains('sequenceRevision')) { [int]$sequence.sequenceRevision }   else { 0 }
             $seqBody     = $null
-            try { $seqBody = [System.IO.File]::ReadAllText($SequencePath) } catch { Write-Verbose "Perf: read $SequencePath failed: $($_.Exception.Message)" }
+            try {
+                $seqBody = [System.IO.File]::ReadAllText($SequencePath)
+            } catch {
+                $readErr = $_
+                Write-Information "Perf: sequence file read failed; perf row will lack sequenceContentHash. Path=$SequencePath Error=$($readErr.Exception.Message)"
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event     = 'perf_context_unavailable'
+                    reason    = 'sequence_read_failed'
+                    path      = [string]$SequencePath
+                    error     = $readErr.Exception.Message
+                }
+            }
             Set-PerfSequenceContext -SequenceName $seqName -SequenceGuid $seqGuid -SequenceRevision $seqRevision -SequenceContent $seqBody
             Set-PerfGuestContext    -GuestKey $GuestKey -VMName $VMName
         } catch {
-            Write-Verbose "Perf-context setup failed (non-fatal): $($_.Exception.Message)"
+            $setupErr = $_
+            Write-Information "Perf-context setup failed (non-fatal): $($setupErr.Exception.Message)"
+            Send-CycleEventSafely -EventRecord @{
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                event     = 'perf_context_unavailable'
+                reason    = 'setup_failed'
+                path      = [string]$SequencePath
+                error     = $setupErr.Exception.Message
+            }
         }
     }
 
@@ -2953,18 +1869,34 @@ function Invoke-Sequence {
     $currentActionFile = Join-Path $runtimeDir 'current-action.json'
     $writeCurrentAction = {
         param([string]$Line)
-        try {
-            $doc = [ordered]@{
-                guestKey  = $GuestKey
-                vmName    = $VMName
-                line      = $Line
-                updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        $attempts = 0
+        $lastErr  = $null
+        while ($attempts -lt 3) {
+            $attempts++
+            try {
+                $doc = [ordered]@{
+                    guestKey  = $GuestKey
+                    vmName    = $VMName
+                    line      = $Line
+                    updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                }
+                $tmp = "$currentActionFile.tmp"
+                $doc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
+                Move-Item -Path $tmp -Destination $currentActionFile -Force
+                return
+            } catch {
+                $lastErr = $_
+                Start-Sleep -Milliseconds (50 * $attempts)
             }
-            $tmp = "$currentActionFile.tmp"
-            $doc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
-            Move-Item -Path $tmp -Destination $currentActionFile -Force
-        } catch {
-            Write-Verbose "current-action.json write failed: $($_.Exception.Message)"
+        }
+        Write-Warning "current-action.json write failed after $attempts attempts: $($lastErr.Exception.Message) (path=$currentActionFile)"
+        Send-CycleEventSafely -EventRecord @{
+            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            event     = 'sidecar_write_failed'
+            file      = 'current-action.json'
+            path      = [string]$currentActionFile
+            attempts  = $attempts
+            error     = $lastErr.Exception.Message
         }
     }
 
@@ -2977,9 +1909,11 @@ function Invoke-Sequence {
         param([string]$Label)
         if (Test-Path $stepPauseFlagFile) {
             & $writeCurrentAction "$Label Paused (waiting for resume)"
-            Write-Information "    $Label Paused (status-server request). Waiting for resume..."
+            Write-Information "    $Label Paused (status-service request). Waiting for resume..."
+            $pauseAttempt = 1
             while (Test-Path $stepPauseFlagFile) {
-                Start-Sleep -Seconds 1
+                Start-Sleep -Milliseconds (Get-PollDelay -Attempt $pauseAttempt)
+                $pauseAttempt++
             }
             Write-Information "    $Label Resumed."
         }
@@ -3000,7 +1934,7 @@ function Invoke-Sequence {
         if (Test-Path $cycleRestartFlagFile) {
             & $writeCurrentAction "$Label cycle-restart requested (aborting cycle)"
             Write-Information "    $Label cycle-restart signal seen — aborting current cycle."
-            throw "YurunaCycleRestart: status-server /control/start-cycle requested mid-cycle abort at $Label"
+            throw "YurunaCycleRestart: status-service /control/start-cycle requested mid-cycle abort at $Label"
         }
     }
 
@@ -3014,9 +1948,9 @@ function Invoke-Sequence {
     # HACK: Force vmconnect to repaint by reconnecting.
     # After a host reboot the Hyper-V console window may render blank;
     # closing and reopening it forces a full framebuffer refresh.
-    # Yuruna.Host's Restart-VMConsole replaces the legacy Test.Start-VM
-    # Restart-VMConnect dispatcher. Initialize-YurunaHost is called by
-    # Test-Sequence.ps1 / Invoke-TestRunner.ps1 before sequences run.
+    # Yuruna.Host's Restart-VMConsole is in scope here because
+    # Initialize-YurunaHost is called by Test-Sequence.ps1 /
+    # Invoke-TestRunner.ps1 before sequences run.
     [void](Restart-VMConsole -VMName $VMName -Confirm:$false)
 
     # takeScreenshot debug PNGs land under test/status/captures/sequences/
@@ -3024,8 +1958,11 @@ function Invoke-Sequence {
     # so cleaning a host is one rm -rf status/* away). Sequence name is
     # prefixed onto each filename in Save-DebugScreenshot, so a single
     # flat folder keeps captures organized without a per-sequence subdir.
-    $sequencesDir = Split-Path -Parent $SequencePath          # .../test/sequences
-    $testRoot     = Split-Path -Parent $sequencesDir          # .../test
+    # Anchor on $PSScriptRoot (this module lives at <TestRoot>/modules/);
+    # $SequencePath is unreliable as an anchor because the chain runner
+    # writes per-entry slices to the OS temp dir and project-tree
+    # sequences live under <RepoRoot>/project/.../test/<mode>/.
+    $testRoot = Split-Path -Parent $PSScriptRoot
     $screenshotDir = Join-Path -Path $testRoot -ChildPath 'status' `
                          -AdditionalChildPath 'captures', 'sequences'
     $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -3082,45 +2019,9 @@ function Invoke-Sequence {
                 Write-Verbose "runner.stepHeartbeat refresh failed: $($_.Exception.Message)"
             }
 
-            # ── retry: re-run inner steps from the top on any failure ──────────
-            # `retry` is a control-flow verb, not a normal action -- it does not
-            # go through the per-step switch / progress / PASS-FAIL logging
-            # pipeline below. Each attempt invokes $invokeStepBlock recursively
-            # on the inner `steps:` array; the first attempt that runs every
-            # inner step cleanly wins. If all attempts fail, the deepest inner
-            # failure label is wrapped with a "retry exhausted (N attempts)"
-            # prefix so the operator sees both that retry gave up AND which
-            # inner step ran out of patience.
-            if ($step.action -eq 'retry') {
-                $maxAttempts = $step.maxAttempts ? [int]$step.maxAttempts : 3
-                $innerSteps  = @($step.steps)
-                if ($innerSteps.Count -eq 0) {
-                    Write-Warning "    [$stepNum/$($Steps.Count)] retry block has no inner steps; treating as failure."
-                    $script:LastFailureLabel       = 'retry: empty steps block'
-                    $script:LastFailureDescription = $desc
-                    $script:LastFailedAction       = 'retry'
-                    $script:LastFailedStepNumber   = $stepNum
-                    return $false
-                }
-                $attemptOk = $false
-                for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-                    Write-Information ("    [{0}/{1}] retry attempt {2}/{3}: {4}" -f $stepNum, $Steps.Count, $attempt, $maxAttempts, $desc)
-                    $attemptOk = & $invokeStepBlock -Steps $innerSteps -ParentOrdinal $stepNum -ParentAction 'retry'
-                    if ($attemptOk) {
-                        Write-Information ("    [{0}/{1}] retry succeeded on attempt {2}/{3}" -f $stepNum, $Steps.Count, $attempt, $maxAttempts)
-                        break
-                    }
-                    if ($attempt -lt $maxAttempts) {
-                        Write-Warning ("    [{0}/{1}] retry attempt {2}/{3} failed; restarting from step 1 of {4}" -f $stepNum, $Steps.Count, $attempt, $maxAttempts, $innerSteps.Count)
-                    }
-                }
-                if (-not $attemptOk) {
-                    $script:LastFailureLabel     = "retry exhausted ($maxAttempts attempts): $script:LastFailureLabel"
-                    $script:LastFailedStepNumber = $stepNum
-                    return $false
-                }
-                continue
-            }
+            # `retry` is dispatched through the registry like every other
+            # verb; the Handler lives at the bottom of this module next
+            # to its Register-SequenceAction.
 
         # Current-step visibility is intentionally driven by Write-Progress
         # (via Write-ProgressTick below), NOT by a Write-Information here.
@@ -3144,675 +2045,50 @@ function Invoke-Sequence {
         # write itself.
         $stepStartUtc = [DateTime]::UtcNow
         $ok = $true
-        switch ($step.action) {
-            "waitForSeconds" {
-                $secs = [int]$step.seconds
-                Write-Debug "      Waiting $secs seconds..."
-                # PROGRESS-INLINE-TICK: reference implementation of the per-second
-                # progress loop. Keep other PROGRESS-INLINE-TICK blocks in sync.
-                for ($r = $secs; $r -gt 0; $r--) {
-                    $pct = [math]::Round((($secs - $r) / [math]::Max($secs,1)) * 100)
-                    Write-ProgressTick -Activity "waitForSeconds" -Status "${r}s remaining" -PercentComplete $pct
-                    Start-Sleep -Seconds 1
-                }
-                Write-ProgressTick -Activity "waitForSeconds" -Completed
-            }
-            "pressKey" {
-                $keyName = $step.name
-                Write-Debug "      Sending key '$keyName'..."
-                $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName $keyName
-            }
-            "break" {
-                # Cooperative breakpoint. Two ways out:
-                #  (a) Operator deletes the marker file -> just resume.
-                #  (b) Operator clicks "Continue" in the status UI ->
-                #      status server touches control.break-continue;
-                #      on detection we (optionally) Restore-VMDiskSnapshot
-                #      + Start-VM so the sequence picks up from a known
-                #      base, then resume.
-                # The intent is "stop here so I can take control"; it is
-                # NOT a failure -- the step succeeds either way.
-                #
-                # YURUNA_BREAK_DISABLED=1 turns the action into a no-op
-                # (logs a warning and continues), so CI / unattended
-                # runs do not deadlock on an interactive primitive.
-                #
-                # The marker filename includes the step number so two
-                # breakpoints in the same sequence do not collide. The
-                # path is printed at INFORMATION level so an operator
-                # tailing the run log can copy-paste the rm command.
-                #
-                # break.id (optional): when set, Continue calls
-                # Restore-VMDiskSnapshot -Id <id> followed by Start-VM,
-                # mirroring the convention that saveDiskSnapshot leaves
-                # a same-id snapshot+rename behind. Without break.id the
-                # Continue button still works but skips the snapshot
-                # restore (just resumes).
-                if ($env:YURUNA_BREAK_DISABLED -eq '1') {
-                    Write-Warning "      break: YURUNA_BREAK_DISABLED=1 -- skipping breakpoint."
-                    $ok = $true
-                } else {
-                    if (-not (Get-Command Get-CycleGuestDataFolder -ErrorAction SilentlyContinue)) {
-                        $logModule = Join-Path $PSScriptRoot 'Test.Log.psm1'
-                        if (Test-Path $logModule) { Import-Module $logModule -Global -Force -Verbose:$false }
-                    }
-                    $diagFolder = Get-CycleGuestDataFolder -VMName $VMName
-                    if (-not $diagFolder) {
-                        # No cycle folder established -- fall back to the
-                        # log dir root so the operator still has a path
-                        # to delete.
-                        $diagFolder = $logDir
-                    }
-                    $markerName = ".yuruna-break-{0:D3}.lock" -f [int]$stepNum
-                    $markerPath = Join-Path $diagFolder $markerName
-                    $reason = Expand-Variable $step.reason $vars
-                    $breakSnapshotId = Expand-Variable $step.id $vars
-                    $bodyLines = @(
-                        "Yuruna sequence breakpoint",
-                        "VM:       $VMName",
-                        "GuestKey: $GuestKey",
-                        "Step:     $stepNum/$($steps.Count)",
-                        "Reason:   $(if ($reason) { $reason } else { '(no reason supplied)' })",
-                        "Snapshot: $(if ($breakSnapshotId) { $breakSnapshotId } else { '(none -- Continue resumes without snapshot restore)' })",
-                        "",
-                        "To resume:",
-                        "  - Click 'Continue' in the status UI (http://localhost:8080/status/)",
-                        "    which restores the snapshot above (if set), starts the VM,",
-                        "    then deletes the marker; or",
-                        "  - Delete this file manually:",
-                        "      Remove-Item -LiteralPath '$markerPath'",
-                        "    or, on a POSIX shell:",
-                        "      rm `"$markerPath`""
-                    )
-                    Set-Content -LiteralPath $markerPath -Value ($bodyLines -join [Environment]::NewLine) -Encoding utf8 -Force
 
-                    # Break-active sidecar -- the status UI polls this
-                    # from /runtime/break-active.json to decide whether
-                    # the Continue button is live.
-                    $breakActivePath   = Join-Path $runtimeDir 'break-active.json'
-                    $breakContinueFlag = Join-Path $runtimeDir 'control.break-continue'
-                    # Discard any stale Continue flag from a previous
-                    # break that crashed before consuming it. Without
-                    # this, the new break would auto-resume on the
-                    # first poll tick.
-                    Remove-Item -LiteralPath $breakContinueFlag -Force -ErrorAction SilentlyContinue
-                    try {
-                        $breakDoc = [ordered]@{
-                            guestKey   = $GuestKey
-                            vmName     = $VMName
-                            hostType   = $HostType
-                            stepNum    = [int]$stepNum
-                            stepCount  = [int]$steps.Count
-                            snapshotId = $breakSnapshotId
-                            reason     = if ($reason) { [string]$reason } else { '' }
-                            markerPath = [string]$markerPath
-                            startedAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                        }
-                        $tmp = "$breakActivePath.tmp"
-                        $breakDoc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
-                        Move-Item -Path $tmp -Destination $breakActivePath -Force
-                    } catch {
-                        Write-Verbose "break-active.json write failed: $($_.Exception.Message)"
-                    }
-
-                    Write-Information "    [break] Paused at step $stepNum. Click Continue in the status UI, or delete '$markerPath' to resume."
-                    & $writeCurrentAction "[$stepNum/$($steps.Count)] break (waiting for operator: $markerName)"
-
-                    $resumedVia = 'marker-delete'
-                    while ($true) {
-                        if (Test-Path -LiteralPath $breakContinueFlag) {
-                            $resumedVia = 'continue-button'
-                            Remove-Item -LiteralPath $breakContinueFlag -Force -ErrorAction SilentlyContinue
-                            break
-                        }
-                        if (-not (Test-Path -LiteralPath $markerPath)) {
-                            break
-                        }
-                        Start-Sleep -Seconds 1
-                    }
-
-                    if ($resumedVia -eq 'continue-button') {
-                        # Continue clicked: optionally restore the snapshot, then
-                        # start the VM (loadDiskSnapshot leaves it stopped on every
-                        # host). Failures are warned but don't fail the break --
-                        # the operator deliberately said "continue", so the
-                        # sequence should keep going and any post-restore step
-                        # that needs a live guest will fail with its own message.
-                        if ($breakSnapshotId) {
-                            if (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue) {
-                                Write-Information "    [break/continue] Restoring snapshot '$breakSnapshotId' on $VMName..."
-                                try {
-                                    $restored = [bool](Restore-VMDiskSnapshot -VMName $VMName -Id $breakSnapshotId -Confirm:$false)
-                                    if (-not $restored) {
-                                        Write-Warning "    [break/continue] Restore-VMDiskSnapshot returned `$false for '$VMName/$breakSnapshotId'; continuing anyway."
-                                    }
-                                } catch {
-                                    Write-Warning "    [break/continue] Restore-VMDiskSnapshot threw: $($_.Exception.Message). Continuing anyway."
-                                }
-                            } else {
-                                Write-Warning "    [break/continue] Restore-VMDiskSnapshot not loaded; cannot restore snapshot '$breakSnapshotId'."
-                            }
-                        }
-                        if (Get-Command Start-VM -ErrorAction SilentlyContinue) {
-                            Write-Information "    [break/continue] Starting $VMName..."
-                            try {
-                                $startRes = Start-VM -VMName $VMName -Confirm:$false
-                                if ($startRes -is [hashtable] -and -not $startRes.success) {
-                                    Write-Warning "    [break/continue] Start-VM returned failure: $($startRes.errorMessage). Continuing anyway."
-                                }
-                            } catch {
-                                Write-Warning "    [break/continue] Start-VM threw: $($_.Exception.Message). Continuing anyway."
-                            }
-                        } else {
-                            Write-Warning "    [break/continue] Start-VM not loaded; VM remains stopped."
-                        }
-                        # Marker may still be present (Continue is the back-
-                        # channel signal, not a marker delete). Remove it so the
-                        # next cycle doesn't see a stale marker.
-                        Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
-                    }
-
-                    # Tear down the UI sidecar so the Continue button vanishes.
-                    Remove-Item -LiteralPath $breakActivePath -Force -ErrorAction SilentlyContinue
-
-                    Write-Information "    [break] Resumed (via $resumedVia)."
-                    $ok = $true
-                }
+        # Per-step registry dispatch. Test.SequenceAction lets a verb
+        # register a Handler scriptblock; the Context hashtable is the
+        # canonical state surface (no closures over the parent function's
+        # locals). Every built-in verb -- including `retry` -- registers
+        # a Handler.
+        # A YAML typo (e.g. "tapButton" instead of "tapOn") or a third-
+        # party verb that registered a FailureLabel without a Handler
+        # surfaces here as a hard fail so it never silently passes.
+        if (Test-SequenceActionHasHandler -Name $step.action) {
+            $ctx = @{
+                Step                  = $step
+                StepNum               = $stepNum
+                StepCount             = $steps.Count
+                Steps                 = $steps
+                Vars                  = $vars
+                VMName                = $VMName
+                GuestKey              = $GuestKey
+                HostType              = $HostType
+                LogDir                = $logDir
+                RuntimeDir            = $runtimeDir
+                ScreenshotDir         = $screenshotDir
+                ShowSensitive         = $ShowSensitive
+                SequencePath          = $SequencePath
+                ExpandVariable        = ${function:Expand-Variable}
+                # Step-default param resolution lives in each handler
+                # scriptblock; these mirror the values the engine used to
+                # read directly from $script:Default*.
+                DefaultCharDelayMs    = $script:DefaultCharDelayMs
+                DefaultPollSeconds    = $script:DefaultPollSeconds
+                DefaultTimeoutSeconds = $script:DefaultTimeoutSeconds
+                # Action helpers used by break / retry / composite verbs.
+                WriteCurrentAction    = $writeCurrentAction
+                WaitWhilePaused       = $waitWhilePaused
+                InvokeStepBlock       = $invokeStepBlock
+                # Description string the engine resolved for this step;
+                # the retry handler uses it in attempt-progress logs so
+                # the operator sees the original ${var}-expanded text.
+                Description           = $desc
             }
-            "saveDiskSnapshot" {
-                # Disk-only snapshot via Yuruna.Host's Save-VMDiskSnapshot
-                # contract. Stops the VM first (graceful, force-fallback
-                # via the host driver) and leaves it stopped on return,
-                # so a sequence wanting to keep going must follow with
-                # an explicit start step (host-specific). Pre-existing
-                # snapshots with the same Id are overwritten.
-                #
-                # Save-VMDiskSnapshot also renames the VM to $snapId
-                # (Hyper-V / KVM full support; UTM best-effort) so the
-                # next cycle's Remove-TestVMFiles.ps1 leaves the
-                # persisted VM alone. On success we update $VMName so
-                # every subsequent step (break, fetchAndExecute, etc.)
-                # targets the new persisted name -- otherwise SSH /
-                # console calls would race against a name that no
-                # longer exists.
-                $snapId = Expand-Variable $step.id $vars
-                if (-not $snapId) {
-                    Write-Warning "      saveDiskSnapshot: missing required 'id' field on step; failing step."
-                    $ok = $false
-                    break
-                }
-                if (-not (Get-Command Save-VMDiskSnapshot -ErrorAction SilentlyContinue)) {
-                    Write-Warning "      saveDiskSnapshot: Save-VMDiskSnapshot not loaded (Yuruna.Host import missing)."
-                    $ok = $false
-                    break
-                }
-                Write-Debug "      Saving disk snapshot '$snapId' for $VMName"
-                try {
-                    $ok = [bool](Save-VMDiskSnapshot -VMName $VMName -Id $snapId -Confirm:$false)
-                } catch {
-                    Write-Warning "      saveDiskSnapshot: $($_.Exception.Message)"
-                    $ok = $false
-                }
-                if ($ok -and $VMName -ne $snapId) {
-                    Write-Information "      saveDiskSnapshot: VM renamed '$VMName' -> '$snapId'; subsequent steps will target '$snapId'." -InformationAction Continue
-                    $VMName = $snapId
-                }
-            }
-            "loadDiskSnapshot" {
-                # Restore a previously-saved disk-only snapshot via
-                # Yuruna.Host's Restore-VMDiskSnapshot contract, then
-                # start the VM so the next step can interact with a live
-                # guest. The host driver stops the VM first if running
-                # and leaves it stopped on return from the restore call;
-                # this handler then re-starts it (Hyper-V / KVM / UTM all
-                # expose Start-VM with a uniform -VMName signature).
-                # RAM-state is not restored -- the guest boots fresh
-                # from the snapshot disk, so callers must expect a
-                # re-DHCP / SSH re-handshake (gate downstream consumers
-                # on sshWaitReady).
-                $snapId = Expand-Variable $step.id $vars
-                if (-not $snapId) {
-                    Write-Warning "      loadDiskSnapshot: missing required 'id' field on step; failing step."
-                    $ok = $false
-                    break
-                }
-                if (-not (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue)) {
-                    Write-Warning "      loadDiskSnapshot: Restore-VMDiskSnapshot not loaded (Yuruna.Host import missing)."
-                    $ok = $false
-                    break
-                }
-                Write-Debug "      Restoring disk snapshot '$snapId' for $VMName"
-                try {
-                    $ok = [bool](Restore-VMDiskSnapshot -VMName $VMName -Id $snapId -Confirm:$false)
-                } catch {
-                    Write-Warning "      loadDiskSnapshot: $($_.Exception.Message)"
-                    $ok = $false
-                }
-                if ($ok) {
-                    if (-not (Get-Command Start-VM -ErrorAction SilentlyContinue)) {
-                        Write-Warning "      loadDiskSnapshot: Start-VM not loaded (Yuruna.Host import missing); cannot start '$VMName' after restore."
-                        $ok = $false
-                    } else {
-                        Write-Debug "      Starting $VMName after snapshot restore"
-                        try {
-                            $startRes = Start-VM -VMName $VMName -Confirm:$false
-                            if ($startRes -is [hashtable] -and -not $startRes.success) {
-                                Write-Warning "      loadDiskSnapshot: Start-VM returned failure: $($startRes.errorMessage)"
-                                $ok = $false
-                            }
-                        } catch {
-                            Write-Warning "      loadDiskSnapshot: Start-VM threw: $($_.Exception.Message)"
-                            $ok = $false
-                        }
-                    }
-                }
-            }
-            "saveSystemDiagnostic" {
-                # Mid-sequence checkpoint dump. SSHes into the guest,
-                # runs automation/Get-SystemDiagnostic.ps1, and writes
-                # the captured text into the per-guest data folder under
-                # the cycleFolder. Soft-failing on every rung -- the
-                # sequence step is informational, so an unreachable
-                # guest or missing pwsh does not break the sequence.
-                # Capture is opt-in: place this step explicitly wherever
-                # a diagnostic snapshot is wanted (e.g. right after a
-                # workload deploy, before tearing down state, or as the
-                # final step in a guest sequence to mirror the old
-                # auto-call). The runner no longer fires it automatically.
-                #
-                # 'id' is required so that two captures inside the same
-                # sequence land in distinct files. Filename shape:
-                # yyyy-MM-dd.HH-mm.system.diagnostic.<id>.txt; the
-                # interpreter rejects a step that omits the field,
-                # making "I forgot the id" a sequence-validation failure
-                # at the step rather than a silently-clobbered file.
-                $diagId = Expand-Variable $step.id $vars
-                if (-not $diagId) {
-                    Write-Warning "      saveSystemDiagnostic: missing required 'id' field on step; failing step."
-                    $ok = $false
-                    break
-                }
-                if (-not (Get-Command Get-CycleGuestDataFolder -ErrorAction SilentlyContinue)) {
-                    $logModule = Join-Path $PSScriptRoot 'Test.Log.psm1'
-                    if (Test-Path $logModule) { Import-Module $logModule -Global -Force -Verbose:$false }
-                }
-                if (-not (Get-Command Save-GuestDiagnostic -ErrorAction SilentlyContinue)) {
-                    $diagModule = Join-Path $PSScriptRoot 'Test.Diagnostic.psm1'
-                    if (Test-Path $diagModule) { Import-Module $diagModule -Global -Force -Verbose:$false }
-                }
-                $diagFolder = Get-CycleGuestDataFolder -VMName $VMName
-                if (-not $diagFolder) {
-                    Write-Warning "      saveSystemDiagnostic: no cycle folder established; skipping."
-                    $ok = $true
-                } else {
-                    Write-Debug "      Capturing diagnostic '$diagId' from $VMName to $diagFolder"
-                    try {
-                        $null = Save-GuestDiagnostic -VMName $VMName -GuestKey $GuestKey -OutputFolder $diagFolder -Id $diagId
-                    } catch {
-                        Write-Warning "      saveSystemDiagnostic: $($_.Exception.Message)"
-                    }
-                    # Step itself does not fail the sequence; the
-                    # diagnostic file may or may not have landed, but
-                    # the cycleGuestDataFolder still exists for the
-                    # operator to inspect.
-                    $ok = $true
-                }
-            }
-            "callExtension" {
-                # Side-effecting call into the active extension for an
-                # area. Args are a named parameter object; values may
-                # contain ${var} or ${ext:...} placeholders, which are
-                # resolved before the call. Used for commits like
-                # authentication.SetPassword that must run AFTER an interactive
-                # rotation succeeds -- substitutions are not allowed to
-                # have side effects, so this is the dedicated write verb.
-                $methodFqn = [string]$step.method
-                if (-not $methodFqn -or $methodFqn -notmatch '^([A-Za-z0-9_]+)\.([A-Za-z][A-Za-z0-9_-]*)$') {
-                    throw "callExtension: 'method' must be 'area.Method' (got '$methodFqn')."
-                }
-                $callArea   = $matches[1]
-                $callMethod = $matches[2]
-                $resolvedArgs = @{}
-                if ($step.args) {
-                    foreach ($argKey in $step.args.Keys) {
-                        $val = $step.args[$argKey]
-                        if ($val -is [string]) { $val = Expand-Variable $val $vars }
-                        $resolvedArgs[$argKey] = $val
-                    }
-                }
-                $loaderPath = Join-Path $PSScriptRoot 'Test.Extension.psm1'
-                if (Test-Path $loaderPath) { Import-Module $loaderPath -Global -Force -Verbose:$false }
-                $extName = (@(Get-ActiveExtensionName -Area $callArea))[0]
-                [void](Import-Extension -Area $callArea)
-                $cmd = Resolve-ExtensionMethod -Area $callArea -ExtensionName $extName -Method $callMethod
-                Write-Debug "      callExtension: $callArea/$extName.$callMethod ($($resolvedArgs.Keys -join ', '))"
-                try {
-                    & $cmd @resolvedArgs
-                    $ok = $true
-                } catch {
-                    Write-Warning "callExtension $callArea.$callMethod failed: $($_.Exception.Message)"
-                    $ok = $false
-                }
-            }
-            "inputText" {
-                $text = Expand-Variable $step.text $vars
-                $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
-                $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
-                Write-Debug "      Typing: '$masked' (charDelay=${charDelay}ms)"
-                # -ShellEscape: shell-targeted action, so it's safe to let
-                # Send-TextUTM wrap shifted chars in a bash decode wrapper
-                # (no-op on Hyper-V/KVM and on text with no hard chars).
-                $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay -ShellEscape
-            }
-            { $_ -in 'inputTextAndEnter','typeAndEnter' } {
-                # typeAndEnter is the pre-rename alias still used by project
-                # sequences (e.g. workload.guest.ubuntu.server.24.k8s.website.yml
-                # in yuruna-project). Documented at line 113 in this file's
-                # action catalog; kept as an alias so a stale project clone
-                # doesn't break a runner that updated the framework alone.
-                $text = Expand-Variable $step.text $vars
-                $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
-                $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2
-                $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
-                Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
-                # -ShellEscape: shell-targeted action — see "inputText" above.
-                $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay -ShellEscape
-                if ($ok -ne $false) {
-                    # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
-                    $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-                    for ($r = $delaySecsInt; $r -gt 0; $r--) {
-                        $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-                        Write-ProgressTick -Activity "inputTextAndEnter" -Status "drain ${r}s" -PercentComplete $pct
-                        Start-Sleep -Seconds 1
-                    }
-                    Write-ProgressTick -Activity "inputTextAndEnter" -Completed
-                    # Brief pause to let the VM's keyboard buffer drain before Enter.
-                    # On macOS UTM, Send-Text (CGEvent/JXA) and Send-Key (AppleScript)
-                    # run as separate OS processes; without this gap the Enter can be
-                    # lost during UTM's second window activation.
-                    Start-Sleep -Milliseconds 800
-                    $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
-                }
-            }
-            "waitForText" {
-                # Support both string and array of strings for pattern
-                $rawPatterns = $step.pattern
-                if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
-                    [string[]]$patterns = $rawPatterns | ForEach-Object { Expand-Variable $_ $vars }
-                } else {
-                    [string[]]$patterns = @(Expand-Variable $rawPatterns $vars)
-                }
-                # Anti-patterns for early-fail. Accept the same shapes as
-                # `pattern` (string or array-of-strings); omitting the
-                # field leaves failurePatterns empty and Wait-ForText
-                # behaves exactly as before.
-                $rawFailurePatterns = $step.failurePatterns
-                [string[]]$failurePatterns = @()
-                if ($null -ne $rawFailurePatterns) {
-                    if ($rawFailurePatterns -is [System.Collections.IEnumerable] -and $rawFailurePatterns -isnot [string]) {
-                        $failurePatterns = @($rawFailurePatterns | ForEach-Object { Expand-Variable $_ $vars })
-                    } else {
-                        $failurePatterns = @(Expand-Variable $rawFailurePatterns $vars)
-                    }
-                }
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                $poll = $step.pollSeconds ? [int]$step.pollSeconds : $script:DefaultPollSeconds
-                $fresh = $step.freshMatch -eq $true
-                $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
-                $patternDisplay = $patterns -join "' | '"
-                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' })$(if ($failurePatterns.Count) { ", $($failurePatterns.Count) failurePatterns" }))"
-                $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
-                    -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
-                    -FreshMatchTailLines $tailLines `
-                    -FailurePattern $failurePatterns
-            }
-            "waitForAndEnter" {
-                # Composite: waitForText then typeAndEnter
-                $rawPatterns = $step.pattern
-                if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
-                    [string[]]$patterns = $rawPatterns | ForEach-Object { Expand-Variable $_ $vars }
-                } else {
-                    [string[]]$patterns = @(Expand-Variable $rawPatterns $vars)
-                }
-                $rawFailurePatterns = $step.failurePatterns
-                [string[]]$failurePatterns = @()
-                if ($null -ne $rawFailurePatterns) {
-                    if ($rawFailurePatterns -is [System.Collections.IEnumerable] -and $rawFailurePatterns -isnot [string]) {
-                        $failurePatterns = @($rawFailurePatterns | ForEach-Object { Expand-Variable $_ $vars })
-                    } else {
-                        $failurePatterns = @(Expand-Variable $rawFailurePatterns $vars)
-                    }
-                }
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                $poll = $step.pollSeconds ? [int]$step.pollSeconds : $script:DefaultPollSeconds
-                $fresh = $step.freshMatch -eq $true
-                $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
-                $patternDisplay = $patterns -join "' | '"
-                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' })$(if ($failurePatterns.Count) { ", $($failurePatterns.Count) failurePatterns" }))"
-                $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
-                    -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
-                    -FreshMatchTailLines $tailLines `
-                    -FailurePattern $failurePatterns
-                if ($ok -ne $false) {
-                    # Send Tab keystrokes before typing, if requested. This is
-                    # needed when the target element (e.g. an "Install" button)
-                    # does not have keyboard focus by default.
-                    $tabCount = $step.tabCount ? [int]$step.tabCount : 0
-                    if ($tabCount -gt 0) {
-                        Write-Debug "      Sending $tabCount Tab(s) to reach the target element"
-                        for ($t = 0; $t -lt $tabCount; $t++) {
-                            Send-Key -HostType $HostType -VMName $VMName -KeyName "Tab" | Out-Null
-                            Start-Sleep -Milliseconds 300
-                        }
-                        Start-Sleep -Milliseconds 500
-                    }
-                    $text = Expand-Variable $step.text $vars
-                    $masked = ($step.sensitive -and -not $ShowSensitive) ? "***" : $text
-                    $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2
-                    $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
-                    Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
-                    # -ShellEscape: shell-targeted action — see "inputText" above.
-                    $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay -ShellEscape
-                    if ($ok -ne $false) {
-                        # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
-                        $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-                        for ($r = $delaySecsInt; $r -gt 0; $r--) {
-                            $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-                            Write-ProgressTick -Activity "waitForAndEnter" -Status "drain ${r}s" -PercentComplete $pct
-                            Start-Sleep -Seconds 1
-                        }
-                        Write-ProgressTick -Activity "waitForAndEnter" -Completed
-                        Start-Sleep -Milliseconds 800
-                        $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
-                    }
-                }
-            }
-            "passwdPrompt" {
-                # Like waitForAndEnter, but `text` is always treated as
-                # sensitive (no `sensitive` field needed) — for PAM
-                # password prompts.
-                $rawPatterns = $step.pattern
-                if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
-                    [string[]]$patterns = $rawPatterns | ForEach-Object { Expand-Variable $_ $vars }
-                } else {
-                    [string[]]$patterns = @(Expand-Variable $rawPatterns $vars)
-                }
-                $rawFailurePatterns = $step.failurePatterns
-                [string[]]$failurePatterns = @()
-                if ($null -ne $rawFailurePatterns) {
-                    if ($rawFailurePatterns -is [System.Collections.IEnumerable] -and $rawFailurePatterns -isnot [string]) {
-                        $failurePatterns = @($rawFailurePatterns | ForEach-Object { Expand-Variable $_ $vars })
-                    } else {
-                        $failurePatterns = @(Expand-Variable $rawFailurePatterns $vars)
-                    }
-                }
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                $poll = $step.pollSeconds ? [int]$step.pollSeconds : $script:DefaultPollSeconds
-                $fresh = $step.freshMatch -eq $true
-                $tailLines = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
-                $patternDisplay = $patterns -join "' | '"
-                Write-Debug "      Watching screen for: '$patternDisplay' (timeout: ${timeout}s$(if ($fresh) { ', freshMatch' })$(if ($failurePatterns.Count) { ", $($failurePatterns.Count) failurePatterns" }))"
-                $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern $patterns `
-                    -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $fresh `
-                    -FreshMatchTailLines $tailLines `
-                    -FailurePattern $failurePatterns
-                if ($ok -ne $false) {
-                    $tabCount = $step.tabCount ? [int]$step.tabCount : 0
-                    if ($tabCount -gt 0) {
-                        Write-Debug "      Sending $tabCount Tab(s) to reach the target element"
-                        for ($t = 0; $t -lt $tabCount; $t++) {
-                            Send-Key -HostType $HostType -VMName $VMName -KeyName "Tab" | Out-Null
-                            Start-Sleep -Milliseconds 300
-                        }
-                        Start-Sleep -Milliseconds 500
-                    }
-                    $text = Expand-Variable $step.text $vars
-                    # Always sensitive — only show plaintext when -ShowSensitive.
-                    $masked = $ShowSensitive ? $text : "***"
-                    $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2
-                    $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
-                    Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
-                    $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay
-                    if ($ok -ne $false) {
-                        # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
-                        $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-                        for ($r = $delaySecsInt; $r -gt 0; $r--) {
-                            $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-                            Write-ProgressTick -Activity "passwdPrompt" -Status "drain ${r}s" -PercentComplete $pct
-                            Start-Sleep -Seconds 1
-                        }
-                        Write-ProgressTick -Activity "passwdPrompt" -Completed
-                        Start-Sleep -Milliseconds 800
-                        $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
-                    }
-                }
-            }
-            "tapOn" {
-                # Accept either a single string or array of candidate labels
-                # (useful when OCR might split "Install" as "lnstall" in some engines
-                # — list both forms and first hit wins).
-                $rawLabels = $step.label
-                if ($rawLabels -is [System.Collections.IEnumerable] -and $rawLabels -isnot [string]) {
-                    [string[]]$labels = $rawLabels | ForEach-Object { Expand-Variable $_ $vars }
-                } else {
-                    [string[]]$labels = @(Expand-Variable $rawLabels $vars)
-                }
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                $poll    = $step.pollSeconds    ? [int]$step.pollSeconds    : $script:DefaultPollSeconds
-                $offX    = $step.offsetX        ? [int]$step.offsetX        : 0
-                $offY    = $step.offsetY        ? [int]$step.offsetY        : 0
-                $labelDisplay = $labels -join "' | '"
-                Write-Debug "      Waiting for button '$labelDisplay' (timeout: ${timeout}s)"
-                $ok = Invoke-TapOn -HostType $HostType -VMName $VMName -Label $labels `
-                    -TimeoutSeconds $timeout -PollSeconds $poll -OffsetX $offX -OffsetY $offY
-            }
-            "takeScreenshot" {
-                $label = $step.label ?? "step$stepNum"
-                Save-DebugScreenshot -VMName $VMName -Label $label -OutputDir $screenshotDir | Out-Null
-            }
-            "fetchAndExecute" {
-                $text = Expand-Variable $step.text $vars
-                $delaySeconds = $step.delaySeconds ? [double]$step.delaySeconds : 2
-                $charDelay = $step.charDelayMs ? [int]$step.charDelayMs : $script:DefaultCharDelayMs
-                Write-Debug "      fetchAndExecute: typing '$text' + Enter"
-                # -ShellEscape: shell-targeted action — see "inputText" above.
-                $ok = Send-Text -HostType $HostType -VMName $VMName -Text $text -CharDelayMs $charDelay -ShellEscape
-                if ($ok -ne $false) {
-                    # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
-                    $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-                    for ($r = $delaySecsInt; $r -gt 0; $r--) {
-                        $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-                        Write-ProgressTick -Activity "fetchAndExecute" -Status "drain ${r}s" -PercentComplete $pct
-                        Start-Sleep -Seconds 1
-                    }
-                    Write-ProgressTick -Activity "fetchAndExecute" -Completed
-                    Start-Sleep -Milliseconds 800
-                    $ok = Send-Key -HostType $HostType -VMName $VMName -KeyName "Enter"
-                }
-
-                if ($ok -ne $false) {
-                    $waitPattern = Expand-Variable $step.waitPattern $vars
-                    $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                    $poll = $step.pollSeconds ? [int]$step.pollSeconds : $script:DefaultPollSeconds
-                    # Default failure pattern matches fetch-and-execute.sh's
-                    # rc!=0 end marker. Previously the script always printed
-                    # the success marker regardless of inner exit code, so a
-                    # failed inner script (e.g. workload script's `docker run`
-                    # failing on a broken upstream registry) appeared as PASS
-                    # in the harness -- only the next step's downstream
-                    # symptom surfaced the actual failure. With distinct
-                    # markers + this FailurePattern, fetchAndExecute fails
-                    # at the same poll cadence as it succeeds. Sequences can
-                    # override via $step.failPattern; default suits every
-                    # caller of fetch-and-execute.sh in the repo.
-                    $failPatterns = @()
-                    if ($step.failPattern) {
-                        $failPatterns = @(Expand-Variable $step.failPattern $vars)
-                    } elseif ($waitPattern -match '^\s*FETCHED AND EXECUTED:') {
-                        $failPatterns = @('FETCH AND EXECUTE FAILED:')
-                    }
-                    Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch); failurePatterns=$($failPatterns -join ', ')"
-                    $ok = Wait-ForText -HostType $HostType -VMName $VMName -Pattern @($waitPattern) `
-                        -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $true `
-                        -FreshMatchTailLines 12 -FailurePattern $failPatterns
-                }
-            }
-            "sshWaitReady" {
-                # Wait until the guest accepts SSH with the harness key.
-                # Handshakes all the way to an authenticated shell (not just TCP/22).
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                $poll    = $step.pollSeconds    ? [int]$step.pollSeconds    : $script:DefaultPollSeconds
-                Write-Debug "      sshWaitReady: $GuestKey@$VMName (timeout: ${timeout}s)"
-                $ok = Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $timeout -PollSeconds $poll
-            }
-            "sshExec" {
-                # Run a command on the guest over SSH. Non-zero exit fails the step
-                # unless allowFailure=true. On success, stdout+stderr are dropped to
-                # match the keystroke flow (which never captured guest-side output).
-                # On failure, the captured output is included in the warning so the
-                # user can see what went wrong without re-running with -Verbose.
-                $cmd     = Expand-Variable $step.command $vars
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                $masked  = ($step.sensitive -and -not $ShowSensitive) ? "***" : $cmd
-                Write-Debug "      sshExec: $masked"
-                $result  = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $cmd -TimeoutSeconds $timeout
-                Write-Debug "      sshExec output: $($result.output)"
-                if (-not $result.success) {
-                    if ($step.allowFailure -eq $true) {
-                        Write-Debug "      sshExec exit=$($result.exitCode) (allowFailure=true)"
-                    } else {
-                        Write-Warning "      sshExec failed (exit=$($result.exitCode)): $masked"
-                        if ($result.output) { Write-Warning "      output: $($result.output)" }
-                        $ok = $false
-                    }
-                }
-            }
-            "sshFetchAndExecute" {
-                # SSH equivalent of fetchAndExecute: runs a shell command (typically
-                # invoking fetch-and-execute.sh) over SSH in a single blocking call.
-                # No OCR polling, no password prompt handling (sudo is passwordless
-                # for cloud-init users, or the command handles its own auth).
-                # Output is dropped on success and included in the warning on failure.
-                $cmd     = Expand-Variable $step.command $vars
-                $timeout = $step.timeoutSeconds ? [int]$step.timeoutSeconds : $script:DefaultTimeoutSeconds
-                Write-Debug "      sshFetchAndExecute: $cmd"
-                $result  = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $cmd -TimeoutSeconds $timeout
-                Write-Debug "      sshFetchAndExecute output: $($result.output)"
-                if (-not $result.success) {
-                    Write-Warning "      sshFetchAndExecute failed (exit=$($result.exitCode)): $cmd"
-                    if ($result.output) { Write-Warning "      output: $($result.output)" }
-                    $ok = $false
-                }
-            }
-            default {
-                # Unknown action = hard fail. Previously this was a warning-only
-                # no-op, which silently passed the step (since $ok stayed $true
-                # from the per-step default). A typo in a sequence JSON — e.g.
-                # "tapButton" instead of "tapOn" — would then
-                # march the sequence forward without running the intended gate.
-                Write-Warning "Unknown action '$($step.action)' — treating as failure."
-                $ok = $false
-            }
+            $ok = Invoke-SequenceActionHandler -Name $step.action -Context $ctx
+        } else {
+            Write-Warning "Unknown action '$($step.action)' -- treating as failure."
+            $ok = $false
         }
         } finally {
             $global:ProgressPreference = $savedProgress
@@ -3833,6 +2109,52 @@ function Invoke-Sequence {
         $elapsedLabel = ("    {0,4}" -f [int]$stepStopwatch.Elapsed.TotalSeconds)
         $stepMarker   = if ($ok) { 'PASS' } else { 'FAIL' }
         Write-Information "$elapsedLabel s [$stepNum/$($steps.Count)] $stepMarker $($step.action): $desc"
+
+        # One NDJSON line per step_end so a downstream consumer can plot
+        # pass/fail rates without HTML scraping. Carries the SUPERSET
+        # schema (hostType, action, description, failureClass-when-known)
+        # of step_failure so a downstream consumer can do a single
+        # schema join across step_end + step_failure rows. The
+        # failureClass/severity/suggestedRecoveries fields are populated
+        # from the verb's static registration -- on a passing step they
+        # surface "what the verb *would* class a failure as".
+        $stepVerbEntry = Get-SequenceAction -Name ([string]$step.action)
+        $stepFailureClass = if ($stepVerbEntry) { [string]$stepVerbEntry.FailureClass } else { 'unknown' }
+        $stepSeverity     = if ($stepVerbEntry) { [string]$stepVerbEntry.Severity }     else { 'unknown' }
+        # Avoid the dual unwrap trap: PowerShell flattens single-element
+        # arrays AND empty arrays out of an if-statement's pipeline
+        # output, so `[string[]]$x = if (...) { @(...) }` yields a scalar
+        # on a 1-element value and $null on an empty value. The two-step
+        # form below initialises to an empty string[] up front, then
+        # overwrites only when there are entries to materialise; either
+        # outcome serialises as a JSON array and clears the schema
+        # validator's typed-array check.
+        [string[]]$stepSuggested = @()
+        if ($stepVerbEntry -and $null -ne $stepVerbEntry.SuggestedRecoveries) {
+            [string[]]$stepSuggested = @($stepVerbEntry.SuggestedRecoveries)
+        }
+        Send-CycleEventSafely -EventRecord @{
+            timestamp           = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            event               = 'step_end'
+            stepNumber          = [int]$stepNum
+            totalSteps          = [int]$steps.Count
+            actionVerb          = [string]$step.action
+            ok                  = [bool]$ok
+            durationMs          = [int]$stepStopwatch.Elapsed.TotalMilliseconds
+            vmName              = $VMName
+            guestKey            = $GuestKey
+            hostType            = $HostType
+            action              = [string]$step.action
+            description         = [string]$desc
+            failureClass        = $stepFailureClass
+            severity            = $stepSeverity
+            suggestedRecoveries = $stepSuggested
+            sequencePath        = $SequencePath
+        }
+        # Track the last passing step number so the failure payload can
+        # surface lastSucceededStepNumber -- a remediator that wants to
+        # replay needs to know the boundary it can safely resume past.
+        if ($ok) { $script:LastSucceededStepNumber = $stepNum }
 
         # Emit one structured row per step execution. stepName is the
         # RAW (pre-expansion) YAML `description:` -- variables like
@@ -3864,49 +2186,15 @@ function Invoke-Sequence {
             Write-Warning "    Step [$stepNum] failed: $desc"
 
             # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"').
-            # The OUTER call site reads $script:LastFailure* below to write
-            # last_failure.json + the failure screenshot. Capturing here (and
-            # only returning $false) keeps transient retry-attempt failures
-            # from leaving a stale last_failure.json behind.
-            $actionLabel = $step.action
-            switch ($step.action) {
-                "waitForText" {
-                    $rawPatterns = $step.pattern
-                    if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
-                        $patternDisplay = ($rawPatterns | ForEach-Object { Expand-Variable $_ $vars }) -join "' | '"
-                    } else {
-                        $patternDisplay = Expand-Variable $rawPatterns $vars
-                    }
-                    $actionLabel = "waitForText: `"$patternDisplay`""
-                }
-                "pressKey"          { $actionLabel = "pressKey: $($step.name)" }
-                "inputText"         { $actionLabel = "inputText" }
-                { $_ -in 'inputTextAndEnter','typeAndEnter' } { $actionLabel = $step.action }
-                "waitForAndEnter" {
-                    $rawPatterns = $step.pattern
-                    if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
-                        $patternDisplay = ($rawPatterns | ForEach-Object { Expand-Variable $_ $vars }) -join "' | '"
-                    } else {
-                        $patternDisplay = Expand-Variable $rawPatterns $vars
-                    }
-                    $actionLabel = "waitForAndEnter: `"$patternDisplay`""
-                }
-                "passwdPrompt" {
-                    $rawPatterns = $step.pattern
-                    if ($rawPatterns -is [System.Collections.IEnumerable] -and $rawPatterns -isnot [string]) {
-                        $patternDisplay = ($rawPatterns | ForEach-Object { Expand-Variable $_ $vars }) -join "' | '"
-                    } else {
-                        $patternDisplay = Expand-Variable $rawPatterns $vars
-                    }
-                    $actionLabel = "passwdPrompt: `"$patternDisplay`""
-                }
-                "fetchAndExecute"  { $actionLabel = "fetchAndExecute: `"$(Expand-Variable $step.text $vars)`"" }
-                "sshWaitReady"     { $actionLabel = "sshWaitReady" }
-                "sshExec"          { $actionLabel = "sshExec: `"$(Expand-Variable $step.command $vars)`"" }
-                "sshFetchAndExecute" { $actionLabel = "sshFetchAndExecute: `"$(Expand-Variable $step.command $vars)`"" }
-                "saveDiskSnapshot" { $actionLabel = "saveDiskSnapshot: `"$(Expand-Variable $step.id $vars)`"" }
-                "loadDiskSnapshot" { $actionLabel = "loadDiskSnapshot: `"$(Expand-Variable $step.id $vars)`"" }
-            }
+            # Canonical builder: Test.SequenceAction\Get-SequenceActionFailureLabel.
+            # Each verb's FailureLabel scriptblock lives next to its capability
+            # requirements at the bottom of this module — search for
+            # Register-SequenceAction. The OUTER call site reads $script:Last-
+            # Failure* below to write last_failure.json + the failure screen-
+            # shot. Capturing here (and only returning $false) keeps transient
+            # retry-attempt failures from leaving a stale last_failure.json
+            # behind.
+            $actionLabel = Get-SequenceActionFailureLabel -Step $step -Vars $vars -ExpandVariable ${function:Expand-Variable}
 
             # If Wait-ForText short-circuited on a failurePattern, annotate
             # the step label so the runner's ERROR banner and the per-run
@@ -3933,6 +2221,25 @@ function Invoke-Sequence {
     $script:LastFailureDescription = $null
     $script:LastFailedAction       = $null
     $script:LastFailedStepNumber   = 0
+    # Inner-verb capture for retry-exhausted failures. The outer per-step
+    # block at line ~2063 overwrites $script:LastFailedAction with the
+    # OUTER step's action name (= 'retry') whenever a Handler returns
+    # $false; that collapses the deepest inner verb's classification
+    # into 'retry_exhausted'. The retry Handler captures the inner verb
+    # into these slots BEFORE returning so the v2 emitter below can
+    # surface both classes -- 'retry_exhausted' for the outer step,
+    # plus the inner class an autonomous remediator needs to pick the
+    # right recovery (an OCR timeout asks for a different remediation
+    # than an SSH down).
+    $script:LastInnerFailedAction         = $null
+    $script:LastInnerFailureClass         = $null
+    $script:LastInnerSeverity             = $null
+    $script:LastInnerSuggestedRecoveries  = @()
+    # lastSucceededStepNumber: the step-N boundary a replay can safely
+    # resume past. Reset to 0 at sequence start so a fresh-cycle
+    # failure on step 1 surfaces as "no step succeeded" rather than
+    # carrying a leftover value from a prior sequence's run.
+    $script:LastSucceededStepNumber       = 0
     $result = & $invokeStepBlock -Steps $steps
     if (-not $result) {
         # Build the failure-context JSON from the deepest captured context.
@@ -3940,17 +2247,126 @@ function Invoke-Sequence {
         # wrapped in "retry exhausted (N attempts): ..." by the retry handler,
         # and $script:LastFailedStepNumber is the OUTER retry step's number
         # (not the inner sub-step) so the operator sees the outer position.
-        $failureInfo = @{
-            stepNumber  = $script:LastFailedStepNumber
-            totalSteps  = $steps.Count
-            action      = $script:LastFailureLabel
-            description = $script:LastFailureDescription
-            vmName      = $VMName
-            guestKey    = $GuestKey
-            timestamp   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
-        } | ConvertTo-Json
+        # last_failure.json schema v2: the v1 fields stay as-is for
+        # back-compat; v2 adds machine-readable failureClass / severity /
+        # suggestedRecoveries / actionVerb / context so a downstream
+        # remediation loop can route on the class without regex-parsing
+        # the human label. See docs/failure-schema.md.
+        $verbEntry = Get-SequenceAction -Name $script:LastFailedAction
+        $failureClass = if ($verbEntry) { $verbEntry.FailureClass } else { 'unknown' }
+        $severity     = if ($verbEntry) { $verbEntry.Severity }     else { 'unknown' }
+        # Two-step assignment so an empty SuggestedRecoveries does not
+        # collapse to $null via the if-pipeline flatten (see step_end
+        # emit above).
+        [string[]]$suggested = @()
+        if ($verbEntry -and $null -ne $verbEntry.SuggestedRecoveries) {
+            [string[]]$suggested = @($verbEntry.SuggestedRecoveries)
+        }
+        # Failure-pattern annotation surfaces when Wait-ForText short-
+        # circuited on a hard-block pattern (set by the engine inside the
+        # waitForText/waitForAndEnter/passwdPrompt Handlers).
+        $matchedFailPattern = $script:WaitForTextMatchedFailurePattern
+        if ($matchedFailPattern) { $failureClass = 'pattern_matched_failure' }
+        # When the deepest failure was inside a retry block, the retry
+        # Handler captured the inner verb's class into
+        # $script:LastInnerFailedAction. Surface BOTH the outer
+        # 'retry_exhausted' classification and the inner verb's class
+        # so a remediator can route on the inner cause.
+        #
+        # Deep-link fields under .context: failureScreenshotPath and
+        # failureOcrPath are relative to the cycle log dir, so a
+        # consumer that has the cycle folder URL can deep-link directly.
+        # cycleFolderUrl is intentionally omitted here (a remediator
+        # joining last_failure.json with the notification's EventData
+        # already has it from Get-FailureEventData); we surface the
+        # cycleFolder *path* so a same-host consumer can resolve files
+        # without re-deriving format.
+        $failScreenName = "failure_screenshot_${VMName}.png"
+        $failOcrName    = "failure_ocr_${VMName}.txt"
+        $failureInfo = [ordered]@{
+            schemaVersion = 2
+            stepNumber    = $script:LastFailedStepNumber
+            totalSteps    = $steps.Count
+            action        = $script:LastFailureLabel
+            description   = $script:LastFailureDescription
+            vmName        = $VMName
+            guestKey      = $GuestKey
+            timestamp     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+            # v2 fields below this line.
+            failureClass        = $failureClass
+            severity            = $severity
+            suggestedRecoveries = $suggested
+            actionVerb          = [string]$script:LastFailedAction
+            # Replay boundary: step N succeeded; step N+1 (== stepNumber)
+            # is where the failure landed. A remediator that wants to
+            # resume past N must guarantee the precondition state for
+            # N+1 itself -- this field is the "what's safe to replay
+            # past" boundary, not an automatic-resume-from pointer.
+            lastSucceededStepNumber = [int]$script:LastSucceededStepNumber
+            # Inner verb fields: only set when the failure bubbled up
+            # through a `retry` Handler that exhausted its attempts.
+            # $null on every non-retry failure so a remediator can
+            # branch on presence.
+            innerActionVerb            = $script:LastInnerFailedAction
+            innerFailureClass          = $script:LastInnerFailureClass
+            innerSeverity              = $script:LastInnerSeverity
+            innerSuggestedRecoveries   = @($script:LastInnerSuggestedRecoveries)
+            context             = [ordered]@{
+                hostType              = $HostType
+                matchedFailurePattern = $matchedFailPattern
+                sequencePath          = $SequencePath
+                cycleFolder           = $logDir
+                # Relative paths so a consumer that only has the
+                # cycleFolder URL can deep-link without absolute-path
+                # gymnastics. Files may not exist (waitForText emits
+                # OCR text only; non-OCR failures emit only the
+                # screenshot); presence is checked at deep-link time.
+                failureScreenshotPath = $failScreenName
+                failureOcrPath        = $failOcrName
+            }
+        } | ConvertTo-Json -Depth 4
         $failureFile = Join-Path $logDir "last_failure.json"
-        Set-Content -Path $failureFile -Value $failureInfo -Force -ErrorAction SilentlyContinue
+        # Atomic write: a remediator/status reader must never observe a
+        # truncated last_failure.json mid-write (partial-write regression
+        # class). Write-YurunaStateFile does temp-write + rename.
+        $null = Write-YurunaStateFile -Path $failureFile -Content $failureInfo -Confirm:$false
+        # Also emit a single NDJSON line for downstream stream consumers
+        # (status server, future remediation loop, CI hook).
+        Send-CycleEventSafely -EventRecord @{
+            timestamp               = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            event                   = 'step_failure'
+            stepNumber              = $script:LastFailedStepNumber
+            totalSteps              = $steps.Count
+            actionVerb              = [string]$script:LastFailedAction
+            # ok=false mirrors the step_end shape so an LLM joining
+            # the two event types can filter on a single field.
+            ok                      = $false
+            # No durationMs available on failure path (the failing
+            # step's stopwatch was captured by the outer block but
+            # not threaded through to this emit). Surfacing $null
+            # rather than omitting the field keeps schema parity
+            # with step_end.
+            durationMs              = $null
+            failureClass            = $failureClass
+            severity                = $severity
+            suggestedRecoveries     = $suggested
+            lastSucceededStepNumber = [int]$script:LastSucceededStepNumber
+            # Inner verb fields mirror last_failure.json v2 above so
+            # a streaming consumer doesn't need to cross-reference
+            # the static file for retry-exhausted classification.
+            innerActionVerb            = $script:LastInnerFailedAction
+            innerFailureClass          = $script:LastInnerFailureClass
+            innerSeverity              = $script:LastInnerSeverity
+            innerSuggestedRecoveries   = @($script:LastInnerSuggestedRecoveries)
+            vmName                  = $VMName
+            guestKey                = $GuestKey
+            hostType                = $HostType
+            action                  = $script:LastFailureLabel
+            description             = $script:LastFailureDescription
+            sequencePath            = $SequencePath
+            failureScreenshotPath   = "failure_screenshot_${VMName}.png"
+            failureOcrPath          = "failure_ocr_${VMName}.txt"
+        }
 
         # For non-OCR failures, capture a screenshot now (waitForText / waitForAndEnter
         # / passwdPrompt / fetchAndExecute already save one in their own failure paths).
@@ -4010,22 +2426,330 @@ function Invoke-Sequence {
             Write-Warning "      $line"
         }
     }
-    # Preserve diagnostics for the crash
+    # Preserve diagnostics for the crash, in the SAME schema-v2 shape
+    # the normal failure path emits at line ~2195. Without this, a
+    # throw from any verb Handler (or from infrastructure between
+    # steps) silently downgrades last_failure.json from v2 to a v0
+    # crash payload, stripping failureClass/severity/suggested
+    # Recoveries -- the exact fields a downstream remediator routes
+    # on. When $script:LastFailedAction was already captured by the
+    # foreach at L~2162 we resolve its registry entry; otherwise we
+    # emit an engine_crash classification so the schema shape is
+    # always v2 and the crash diagnostics live under .context.
     try {
-        $crashInfo = @{
-            error      = "$_"
-            origin     = $_.InvocationInfo ? $_.InvocationInfo.PositionMessage : $null
-            stack      = $_.ScriptStackTrace
-            vmName     = $VMName
-            guestKey   = $GuestKey
-            sequence   = $SequencePath
-            timestamp  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
-        } | ConvertTo-Json -Depth 4
-        Set-Content -Path (Join-Path $logDir "last_failure.json") -Value $crashInfo -Force -ErrorAction SilentlyContinue
-    } catch { Write-Verbose "Could not write last_failure.json: $_" }
+        $crashAction = if ($script:LastFailedAction) { [string]$script:LastFailedAction } else { 'script_error' }
+        $crashVerb   = if ($script:LastFailedAction) { Get-SequenceAction -Name $script:LastFailedAction } else { $null }
+        $crashClass  = if ($crashVerb) { [string]$crashVerb.FailureClass } else { 'engine_crash' }
+        $crashSev    = if ($crashVerb) { [string]$crashVerb.Severity }     else { 'fatal' }
+        # Two-step assignment so an empty SuggestedRecoveries does not
+        # collapse to $null via the if-pipeline flatten.
+        [string[]]$crashSugg = @('Inspect the crash origin/stack under .context; cycle continues unless StopOnFailure is set.')
+        if ($crashVerb -and $null -ne $crashVerb.SuggestedRecoveries) {
+            [string[]]$crashSugg = @($crashVerb.SuggestedRecoveries)
+        }
+        $crashLabel  = if ($script:LastFailureLabel) { [string]$script:LastFailureLabel } else { "engine crash: $($_.Exception.Message)" }
+        $crashDesc   = if ($script:LastFailureDescription) { [string]$script:LastFailureDescription } else { '(crash before step completion)' }
+        $crashStep   = if ($script:LastFailedStepNumber) { [int]$script:LastFailedStepNumber } else { 0 }
+        $crashInfo = [ordered]@{
+            schemaVersion = 2
+            stepNumber    = $crashStep
+            totalSteps    = [int]$steps.Count
+            action        = $crashLabel
+            description   = $crashDesc
+            vmName        = $VMName
+            guestKey      = $GuestKey
+            timestamp     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+            failureClass        = $crashClass
+            severity            = $crashSev
+            suggestedRecoveries = $crashSugg
+            actionVerb          = $crashAction
+            context             = [ordered]@{
+                hostType              = $HostType
+                matchedFailurePattern = $script:WaitForTextMatchedFailurePattern
+                sequencePath          = $SequencePath
+                crash = [ordered]@{
+                    error  = "$_"
+                    origin = $_.InvocationInfo ? $_.InvocationInfo.PositionMessage : $null
+                    stack  = $_.ScriptStackTrace
+                }
+            }
+        } | ConvertTo-Json -Depth 6
+        # Atomic, best-effort: a reader must never see a truncated crash
+        # record. Write-YurunaStateFile returns $false (rather than
+        # throwing) on failure, matching the prior SilentlyContinue
+        # behavior while eliminating the partial-write window.
+        $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content $crashInfo -Confirm:$false
+        # Mirror the normal failure path's NDJSON emission. Without this,
+        # a streaming consumer following cycle.events.ndjson sees the
+        # last step_end but no step_failure -- the cycle silently goes
+        # quiet, indistinguishable from a clean exit on the wire. Same
+        # superset shape as the normal-path step_failure event (includes
+        # inner-verb fields when retry was in flight) so downstream
+        # joins on schema don't have to special-case engine_crash.
+        Send-CycleEventSafely -EventRecord @{
+            timestamp                = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            event                    = 'step_failure'
+            stepNumber               = $crashStep
+            totalSteps               = [int]$steps.Count
+            actionVerb               = $crashAction
+            ok                       = $false
+            durationMs               = $null
+            failureClass             = $crashClass
+            severity                 = $crashSev
+            suggestedRecoveries      = $crashSugg
+            lastSucceededStepNumber  = [int]$script:LastSucceededStepNumber
+            innerActionVerb          = $script:LastInnerFailedAction
+            innerFailureClass        = $script:LastInnerFailureClass
+            innerSeverity            = $script:LastInnerSeverity
+            innerSuggestedRecoveries = @($script:LastInnerSuggestedRecoveries)
+            vmName                   = $VMName
+            guestKey                 = $GuestKey
+            hostType                 = $HostType
+            action                   = $crashLabel
+            description              = $crashDesc
+            sequencePath             = $SequencePath
+            failureScreenshotPath    = "failure_screenshot_${VMName}.png"
+            failureOcrPath           = "failure_ocr_${VMName}.txt"
+            crashError               = "$_"
+        }
+    } catch {
+        $writeErr = $_
+        Write-Warning "Could not write last_failure.json: $($writeErr.Exception.Message)"
+        Send-CycleEventSafely -EventRecord @{
+            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            event     = 'last_failure_write_failed'
+            path      = (Join-Path $logDir 'last_failure.json')
+            error     = $writeErr.Exception.Message
+        }
+    }
     return $false
   }
 }
 
+# ── Host I/O provider registrations ─────────────────────────────────────────
+# Lifted to per-host singular-noun modules:
+#   Test.HostIO.HyperV.psm1   host.windows.hyper-v
+#   Test.HostIO.Utm.psm1      host.macos.utm
+#   Test.HostIO.Kvm.psm1      host.ubuntu.kvm
+# Each module owns only its Register-HostIOProvider calls; the
+# function bodies (Send-KeyHyperV / Send-KeyVNC / Send-KeyUTM /
+# Send-KeyKvm / Send-TextHyperV / Send-TextVNC / Send-TextUTM /
+# Send-TextKvm / Send-ClickHyperV / Send-ClickUtm) live in
+# Test.Transport.psm1. The startup capability matrix reads
+# Get-HostIOProviderMatrix so the operator sees which actions are
+# wired on the current host before the cycle starts. See docs/host-io.md.
+
+# ── Sequence action metadata registrations ──────────────────────────────────
+# Failure-label scriptblock convention: $Context carries Step (parsed YAML
+# step), Vars (variable scope), and ExpandVariable (live reference to
+# Expand-Variable; we pass it in so the registry module does NOT have to
+# import Invoke-Sequence). Each block reads $Context and returns the
+# label string. Capability requirements (HostIORequirement + OcrRequired)
+# are the same table Test.Capability used to carry.
+#
+# The catalog of built-in verb Handlers lives in
+# Test.SequenceHandler.psm1, which is imported -Global at module load so
+# its Register-SequenceAction side effects populate the same
+# Test.SequenceAction registry the engine dispatches against. The two
+# verbs below (retry, recoverFromSnapshot) stay in this module because
+# their Handler bodies coordinate $script:LastFailure* state with the
+# engine's foreach loop and recursive $invokeStepBlock; moving them out
+# would require lifting that engine-private state into a shared module.
+
+Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false `
+    -FailureClass 'retry_exhausted' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
+    -Description 'Wrap inner steps with restart-on-failure semantics.' `
+    -FailureLabel { param($c)
+        $null = $c
+        # Use whatever the deepest inner step set on $script:LastFailureLabel
+        # (the recursive call already wrapped or set it). Fallback to a
+        # generic label when the inner never set one (empty steps block).
+        if ($script:LastFailureLabel) { [string]$script:LastFailureLabel } else { 'retry: no inner failure label captured' }
+    } `
+    -Handler {
+        param([hashtable]$c)
+        # `retry` re-runs inner steps from the top on any failure.
+        # Each attempt invokes $c.InvokeStepBlock recursively on the
+        # inner `steps:` array; the first attempt that runs every
+        # inner step cleanly wins. If all attempts fail, the deepest
+        # inner failure label is wrapped with a "retry exhausted
+        # (N attempts)" prefix so the operator sees both that retry
+        # gave up AND which inner step ran out of patience.
+        $maxAttempts = $c.Step.maxAttempts ? [int]$c.Step.maxAttempts : 3
+        $innerSteps  = @($c.Step.steps)
+        if ($innerSteps.Count -eq 0) {
+            Write-Warning "    [$($c.StepNum)/$($c.StepCount)] retry block has no inner steps; treating as failure."
+            $script:LastFailureLabel       = 'retry: empty steps block'
+            $script:LastFailureDescription = $c.Description
+            $script:LastFailedAction       = 'retry'
+            $script:LastFailedStepNumber   = $c.StepNum
+            return $false
+        }
+        $attemptOk = $false
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            # Refresh runner.stepHeartbeat per attempt. The engine
+            # already refreshes at step boundaries (top of
+            # $invokeStepBlock); a multi-attempt retry block runs as
+            # a SINGLE step from the watchdog's perspective and would
+            # blow past stepTimeoutMinutes without ever signalling
+            # proof-of-life. Per-attempt refresh keeps the watchdog
+            # aligned with reality.
+            try {
+                $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
+                [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
+            } catch {
+                Write-Verbose "runner.stepHeartbeat refresh (retry loop) failed: $($_.Exception.Message)"
+            }
+            Write-Information ("    [{0}/{1}] retry attempt {2}/{3}: {4}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts, $c.Description)
+            $attemptOk = & $c.InvokeStepBlock -Steps $innerSteps -ParentOrdinal $c.StepNum -ParentAction 'retry'
+            if ($attemptOk) {
+                Write-Information ("    [{0}/{1}] retry succeeded on attempt {2}/{3}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts)
+                break
+            }
+            if ($attempt -lt $maxAttempts) {
+                Write-Warning ("    [{0}/{1}] retry attempt {2}/{3} failed; restarting from step 1 of {4}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts, $innerSteps.Count)
+                # Back off before the next attempt. Re-running instantly
+                # burns all attempts in milliseconds and gives a transient
+                # fault (network blip, a service still coming up) no time to
+                # clear. Get-PollDelay is jittered + exponentially capped,
+                # so it also breaks lock-step when many guests retry at
+                # once. Refresh the heartbeat first so the watchdog stays
+                # aligned across the wait (mirrors the per-attempt refresh
+                # above).
+                try {
+                    $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
+                    [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
+                } catch {
+                    Write-Verbose "runner.stepHeartbeat refresh (retry backoff) failed: $($_.Exception.Message)"
+                }
+                Start-Sleep -Milliseconds (Get-PollDelay -Attempt $attempt)
+            }
+        }
+        if (-not $attemptOk) {
+            # Capture the deepest inner verb's classification BEFORE the
+            # outer per-step block overwrites $script:LastFailedAction
+            # with 'retry'. Without this, v2's failureClass collapses to
+            # 'retry_exhausted' alone and a remediator can't distinguish
+            # the inner cause (OCR timeout vs host_io_blocked vs ...).
+            $innerVerbEntry = Get-SequenceAction -Name $script:LastFailedAction
+            $script:LastInnerFailedAction        = [string]$script:LastFailedAction
+            $script:LastInnerFailureClass        = if ($innerVerbEntry) { [string]$innerVerbEntry.FailureClass } else { 'unknown' }
+            $script:LastInnerSeverity            = if ($innerVerbEntry) { [string]$innerVerbEntry.Severity }     else { 'unknown' }
+            # [string[]] cast prevents the single-element unwrap so a
+            # downstream consumer of $script:LastInnerSuggestedRecoveries
+            # (innerSuggestedRecoveries field on step_failure NDJSON)
+            # always sees a JSON array. Two-step assignment so an empty
+            # SuggestedRecoveries does not collapse to $null via the
+            # if-pipeline flatten.
+            [string[]]$script:LastInnerSuggestedRecoveries = @()
+            if ($innerVerbEntry -and $null -ne $innerVerbEntry.SuggestedRecoveries) {
+                [string[]]$script:LastInnerSuggestedRecoveries = @($innerVerbEntry.SuggestedRecoveries)
+            }
+            $script:LastFailureLabel     = "retry exhausted ($maxAttempts attempts): $script:LastFailureLabel"
+            $script:LastFailedStepNumber = $c.StepNum
+            return $false
+        }
+        return $true
+    }
+# recoverFromSnapshot — declarative auto-recovery primitive.
+# Fires AFTER a prior step's failure when $script:LastFailedAction is
+# set and matches the trigger condition. Restores a known snapshot and
+# starts the VM, leaving the sequence to continue with a clean guest.
+Register-SequenceAction -Name 'recoverFromSnapshot' -HostIORequirement @() -OcrRequired $false `
+    -FailureClass 'snapshot_restore_failed' -Severity 'soft' -SuggestedRecoveries @('abort_cycle') `
+    -Description 'Auto-recovery: when the prior step failed, restore a snapshot and start the VM.' `
+    -FailureLabel { param($c) "recoverFromSnapshot: `"$(& $c.ExpandVariable $c.Step.id $c.Vars)`"" } `
+    -Handler {
+        param([hashtable]$c)
+        # No-op when the prior step succeeded -- this verb only fires on
+        # failure of an earlier step in the same sequence. $script:Last-
+        # FailedStepNumber is set by the engine's failure path.
+        $priorFailed = ($null -ne $script:LastFailedStepNumber -and $script:LastFailedStepNumber -ne 0)
+        if (-not $priorFailed) {
+            Write-Debug "      recoverFromSnapshot: no prior failure; skipping."
+            return $true
+        }
+        $snapId = & $c.ExpandVariable $c.Step.id $c.Vars
+        if (-not $snapId) { Write-Warning "      recoverFromSnapshot: missing required 'id' field."; return $false }
+        if (-not (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue) -or `
+            -not (Get-Command Start-VM -ErrorAction SilentlyContinue)) {
+            Write-Warning "      recoverFromSnapshot: Restore-VMDiskSnapshot or Start-VM not loaded; cannot recover."
+            return $false
+        }
+        # Pre-validation: confirm the snapshot exists before any restore.
+        # Restore-VMDiskSnapshot on a missing snapshot can leave the VM
+        # in an ambiguous state on some hypervisors (Hyper-V silently
+        # no-ops; KVM virsh returns non-zero late, AFTER it has stopped
+        # the domain). Fail-loud here so the operator sees the missing
+        # snapshot, not a stopped VM with no explanation.
+        if (Get-Command Test-VMDiskSnapshot -ErrorAction SilentlyContinue) {
+            $snapExists = $false
+            try { $snapExists = [bool](Test-VMDiskSnapshot -VMName $c.VMName -Id $snapId) }
+            catch {
+                Write-Warning "      recoverFromSnapshot: Test-VMDiskSnapshot threw ($($_.Exception.Message)); proceeding with restore attempt."
+                $snapExists = $true
+            }
+            if (-not $snapExists) {
+                Write-Warning "      recoverFromSnapshot: snapshot '$snapId' not found on $($c.VMName); aborting restore. Manual intervention required."
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event        = 'snapshot_missing'
+                    vmName       = [string]$c.VMName
+                    snapshotId   = [string]$snapId
+                    handler      = 'recoverFromSnapshot'
+                    failureClass = 'snapshot_restore_failed'
+                    severity     = 'hard'
+                }
+                return $false
+            }
+        }
+        # Manifest identity check; same contract as loadDiskSnapshot.
+        # Missing manifest is warn-only (older snapshots may not have
+        # one); mismatch is a hard refuse.
+        if (Get-Command Test-SnapshotManifestMatch -ErrorAction SilentlyContinue) {
+            $check = Test-SnapshotManifestMatch -VMName $c.VMName -SnapshotId $snapId -HostType $c.HostType
+            if ($check.Status -eq 'mismatch') {
+                Write-Warning "      recoverFromSnapshot: manifest mismatch for '$snapId' on $($c.VMName); aborting restore. $($check.Violations -join '; ')"
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event        = 'snapshot_manifest_mismatch'
+                    vmName       = [string]$c.VMName
+                    snapshotId   = [string]$snapId
+                    handler      = 'recoverFromSnapshot'
+                    violations   = @($check.Violations)
+                    failureClass = 'snapshot_restore_failed'
+                    severity     = 'hard'
+                }
+                return $false
+            } elseif ($check.Status -eq 'missing') {
+                Write-Warning "      recoverFromSnapshot: no manifest for '$snapId' on $($c.VMName); proceeding (legacy snapshot)."
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event      = 'snapshot_manifest_missing'
+                    vmName     = [string]$c.VMName
+                    snapshotId = [string]$snapId
+                    handler    = 'recoverFromSnapshot'
+                }
+            }
+        }
+        Write-Information "      recoverFromSnapshot: prior step $script:LastFailedStepNumber failed; restoring '$snapId' on $($c.VMName)."
+        try { $restored = [bool](Restore-VMDiskSnapshot -VMName $c.VMName -Id $snapId -Confirm:$false) }
+        catch { Write-Warning "      recoverFromSnapshot: $($_.Exception.Message)"; return $false }
+        if (-not $restored) { return $false }
+        try {
+            $startRes = Start-VM -VMName $c.VMName -Confirm:$false
+            if ($startRes -is [hashtable] -and -not $startRes.success) {
+                Write-Warning "      recoverFromSnapshot: Start-VM returned failure: $($startRes.errorMessage)"
+                return $false
+            }
+        } catch { Write-Warning "      recoverFromSnapshot: Start-VM threw: $($_.Exception.Message)"; return $false }
+        # Clear the failed-step marker so downstream steps see a clean state.
+        $script:LastFailedStepNumber = 0
+        $script:LastFailureLabel     = $null
+        $script:LastFailedAction     = $null
+        return $true
+    }
+
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Resolve-SequencePath, Get-SequenceSearchPath, Get-SequenceMode, Get-SequenceModePath, Get-ProjectTestSearchDir, `
-    Find-ProjectSequenceFile, Read-SequenceFile, Send-Text, Send-Key, Send-Click
+    Find-ProjectSequenceFile, Read-SequenceFile, Send-Text, Send-Key, Send-Click, `
+    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, Get-PollDelay

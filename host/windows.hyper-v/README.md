@@ -8,14 +8,14 @@ VM, guest workload pattern) live in [Hosts — ...](../README.md).
 
 From a fresh **Windows PowerShell** (or `pwsh`):
 
-```powershell
+```
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1$nc" | iex
 ```
 
 Installs PowerShell 7, Git, Windows ADK Deployment Tools (for
 `oscdimg.exe`), QEMU tools (for `qemu-img` used by
-`guest.squid-cache/Get-Image.ps1`), and Tesseract OCR via `winget`;
+`guest.caching-proxy/Get-Image.ps1`), and Tesseract OCR via `winget`;
 enables **Microsoft-Hyper-V-All** via `dism.exe`; clones the repo to
 `%USERPROFILE%\git\yuruna`; seeds `test\test.config.yml`. Idempotent;
 elevation requested once. Disabling display timeout and screen lock
@@ -27,7 +27,7 @@ Then follow [Hosts — ...](../README.md#install-one-liner-convention). On
 Windows: step 2's reboot only applies when Hyper-V was just enabled;
 step 4's hypervisor UI is Hyper-V Manager:
 
-```powershell
+```
 Start-Process virtmgmt.msc
 ```
 
@@ -40,7 +40,7 @@ Manual walk-through: [Windows Hyper-V Host Setup - Nerd-Level Details](read.more
 ## Optional: Squid cache VM
 
 See [Hosts — ...](../README.md#optional-squid-cache-vm) and
-[Caching](../../docs/caching.md). Once `squid-cache` is
+[Caching](../../docs/caching.md). Once `caching-proxy` is
 running, the Ubuntu Server `New-VM.ps1` scripts auto-detect it and
 inject the proxy URL into the seed ISO.
 

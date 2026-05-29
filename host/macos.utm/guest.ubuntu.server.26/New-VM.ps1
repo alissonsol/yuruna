@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -42,19 +42,9 @@ param(
     [string]$Username = 'yuuser26'
 )
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
-# Each level shows itself + all higher-priority streams; Error is highest.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        if ($_eff -ge $_rank.Verbose) { $ProgressPreference = 'SilentlyContinue' }
-    }
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -153,8 +143,8 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # ConvertTo-Sha512CryptHash centralises the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
 # (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
-# option. See Test.VM.common\ConvertTo-Sha512CryptHash for rationale.
-Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.VM.common.psm1') -Force -DisableNameChecking
+# option. See Test.VMUtility\ConvertTo-Sha512CryptHash for rationale.
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
 } catch {
@@ -175,9 +165,8 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # immediately after `utmctl delete`).
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
-Import-Module (Join-Path $RepoRoot "test/modules/Test.VM.common.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot "test/modules/Test.VMUtility.psm1") -Force -DisableNameChecking
 
-# Create UTM bundle structure
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
     Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
     exit 1
@@ -204,7 +193,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # Generate autoinstall seed ISO
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
-if (Test-Path $SeedDir) { Remove-Item -Recurse -Force $SeedDir }
+if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
@@ -221,7 +210,7 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Detect the squid-cache and inject its proxy URL if available.
+# Detect the caching-proxy and inject its proxy URL if available.
 #
 # Cache VM is bridged to the host's physical NIC (VZBridgedNetwork-
 # DeviceAttachment in config.plist.template), so it carries its own
@@ -276,7 +265,7 @@ try { $probedUrl = Test-CachingProxyAvailable } catch {
 
 if ($probedUrl) {
     $CachingProxyUrl = $probedUrl
-    Write-Verbose "  squid-cache reachable on LAN — guest will use $CachingProxyUrl."
+    Write-Verbose "  caching-proxy reachable on LAN — guest will use $CachingProxyUrl."
 } elseif ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
     # VM is up but no :3128 answer was found on the LAN. Could be: the
     # bridged DHCP lease failed (Wi-Fi AP MAC filter), cloud-init still
@@ -325,21 +314,19 @@ To intentionally skip the cache:
 }
 
 # Build the autoinstall apt block. Always emit `geoip: false` + a pinned
-# primary mirror, even when no squid-cache is reachable -- subiquity's
+# primary mirror, even when no caching-proxy is reachable -- subiquity's
 # default `geoip: true` fires an HTTPS lookup to geoip.ubuntu.com that
 # adds seconds to mirror election. Pinning primary makes the election
 # deterministic and lets curtin's `modifymirrors` rewrite the existing
 # /etc/apt/sources.list.d/ubuntu.sources (Deb822) in-place. Format /
 # placement match the hyper-v and kvm sister scripts.
 #
-# A previous revision used curtin's `sources_list:` template here (with
-# `$PRIMARY` / `$SECURITY` tokens) plus a separate `sources:` entry. On
-# noble's curtin that just emitted a redundant per-suite index fetch
-# (perf bug). On resolute's curtin (subiquity snap 7227) the same
-# pattern aborts `subiquity/Mirror/cmd-apt-config` with exit 1 and
-# drops the installer to "An error occurred. Press enter to start a
-# shell". Hyper-V/KVM already use the simplified form below; this
-# brings macOS UTM in line.
+# Do NOT use curtin's `sources_list:` template plus a separate
+# `sources:` entry. On noble's curtin it doubles per-suite index
+# fetches; on resolute's curtin (subiquity snap 7227) it aborts
+# `subiquity/Mirror/cmd-apt-config` with exit 1 and drops to "An error
+# occurred. Press enter to start a shell". See
+# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
 #
 # Primary URI is the ports mirror because macOS UTM is always aarch64.
 $AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
@@ -351,7 +338,7 @@ $AptProxyBlock = @"
         uri: http://ports.ubuntu.com/ubuntu-ports$($AptProxyLine)
 "@
 
-# Fetch the squid-cache CA on the host so it can be base64-embedded in
+# Fetch the caching-proxy CA on the host so it can be base64-embedded in
 # the autoinstall seed. Guests on VZ shared-NAT cannot reach the cache
 # VM directly, but this script runs on the host which can. Any failure
 # (no recorded cache IP, HTTP error, empty response) leaves $CaCertBase64
@@ -378,7 +365,7 @@ if ($CachingProxyUrl -and $cacheVmIp) {
         if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
             $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
             $CaCertBase64 = [Convert]::ToBase64String($caBytes)
-            Write-Verbose "  Fetched squid-cache CA from $cacheVmCaUrl ($($caBytes.Length) bytes) — embedded in seed."
+            Write-Verbose "  Fetched caching-proxy CA from $cacheVmCaUrl ($($caBytes.Length) bytes) — embedded in seed."
         }
     } catch {
         Write-Warning "  Could not fetch CA cert from ${cacheVmCaUrl} : $($_.Exception.Message)"
@@ -396,11 +383,19 @@ $YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Pat
 if (Test-Path $YurunaTestConfig) {
     try {
         $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusServer.port) { $YurunaHostPort = "$($tc.statusServer.port)" }
+        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('USERNAME_PLACEHOLDER', $Username).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort)
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# write_files entries. Eliminates the legacy network-dependent wget+wget
+# bootstrap and ensures both files are on disk before any guest script runs.
+$YurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
+$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna_retry.sh')))
+$YurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'fetch-and-execute.sh')))
+
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('USERNAME_PLACEHOLDER', $Username).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64)
 
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
@@ -463,7 +458,6 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
-# Validate the generated plist is well-formed.
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Generated config.plist failed plist validation: $lintOutput"
@@ -473,7 +467,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
 # === Cleanup temporary folders ===
-Remove-Item -Recurse -Force $SeedDir -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Guidance ===
 Write-Output ""

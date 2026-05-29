@@ -25,7 +25,7 @@ side-by-side with `kubectl config rename-context old-name new-name`.
 **Debugging from inside a minimal container** — most images ship
 without `ping`:
 
-```shell
+```
 apt-get update && apt-get install -y iputils-ping
 ```
 
@@ -64,11 +64,13 @@ re-connecting contexts often helps. `automation/context-copy.ps1
 **PodSecurityPolicy** — `kubectl get psp -A` /
 `kubectl delete psp <name>`.
 
-**Ubuntu `Get-Image.ps1` latest-point-release picker is a string sort, not
-a version sort** — every `host/<host>/guest.ubuntu.server.<NN>/Get-Image.ps1`
-(noble + resolute × hyper-v, utm, kvm; six scripts total) resolves the
-"latest stable" ISO by regex-matching `ubuntu-[\d.]+-live-server-<arch>.iso`
-on the release directory listing and then
+**Ubuntu latest-point-release picker is a string sort, not a version
+sort** — `Resolve-UbuntuServerStableImage` in
+[`host/modules/Yuruna.UbuntuImage.psm1`](../host/modules/Yuruna.UbuntuImage.psm1)
+(consumed by every per-guest `Get-Image.ps1` across Hyper-V, UTM and
+KVM — noble + resolute) resolves the "latest stable" ISO by
+regex-matching `ubuntu-[\d.]+-live-server-<arch>.iso` on the release
+directory listing and then
 `Sort-Object Value -Descending | Select-Object -First 1`. That is a
 lexicographic sort on the filename, not a `[version]` comparison.
 Today it works because Ubuntu LTS has historically capped at ~5 point
@@ -79,10 +81,10 @@ correctly. The sort would silently mis-rank if Ubuntu ever shipped a
 newer `.10`. Symptom in that scenario: `Selected stable ISO:
 ubuntu-<NN>.04.9-live-server-<arch>.iso` even though releases.ubuntu.com
 already serves `.10`. Fix when it bites: replace the string sort in
-`Resolve-StableIso` with a `[version]`-keyed sort, e.g.
+`Resolve-UbuntuServerStableImage` with a `[version]`-keyed sort, e.g.
 `Sort-Object @{ Expression = { [version]([regex]::Match($_.Value, 'ubuntu-([\d.]+)-').Groups[1].Value) } } -Descending`,
 or grab the version from `releases.ubuntu.com/<codename>/SHA256SUMS`
-ordering. Same fix needs to land in all six scripts.
+ordering. One edit in the shared module covers every per-guest caller.
 
 Back to [Yuruna](../README.md)
 

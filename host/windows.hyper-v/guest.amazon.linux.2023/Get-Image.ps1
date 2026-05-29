@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42d7e8f9-a0b1-4c23-d456-7e8f9a0b1c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -16,19 +16,9 @@
 
 #requires -version 7
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL.
-# Each level shows itself + all higher-priority streams; Error is highest.
-if ($env:YURUNA_LOG_LEVEL) {
-    $_rank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-    if ($_rank.ContainsKey($env:YURUNA_LOG_LEVEL)) {
-        $_eff = $_rank[$env:YURUNA_LOG_LEVEL]
-        $WarningPreference     = if ($_rank.Warning     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $InformationPreference = if ($_rank.Information -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $VerbosePreference     = if ($_rank.Verbose     -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        $DebugPreference       = if ($_rank.Debug       -le $_eff) { 'Continue' } else { 'SilentlyContinue' }
-        if ($_eff -ge $_rank.Verbose) { $ProgressPreference = 'SilentlyContinue' }
-    }
-}
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 # Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
@@ -70,42 +60,31 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImag
 }
 
 # === Retrieve and process the files ===
+# Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download
+# through Save-CachedHttpUri when available + applies the warn-only
+# checksum policy used for Ubuntu ISOs. Missing checksum file is
+# silent-pass; mismatch surfaces as a visual banner Write-Warning
+# but keeps the file (operator decision).
 $downloadFile = Join-Path $downloadDir "downloaded.zip"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-Write-Output "Downloading $downloadUrl to $downloadFile"
-# Save-CachedHttpUri (Yuruna.Host.psm1) routes through the squid cache
-# transparently: HTTP origins go through :3128; HTTPS origins go
-# through :3129 with per-process trust of the freshly-fetched yuruna
-# CA (no OS trust-store mutation); when no cache is reachable it
-# falls through to a direct Invoke-WebRequest. Throws on failure.
-try {
-    Save-CachedHttpUri -Uri $downloadUrl -OutFile $downloadFile
-} catch {
-    Write-Error "Download failed: $($_.Exception.Message)"
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+$checksumLink = ($html.Links | Where-Object { $_.href -match "\.zip\.sha256$" })
+$checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink[0].href } else { $null }
+$downloaded = Save-ImageWithChecksum `
+    -SourceUrl  $downloadUrl `
+    -DestPath   $downloadFile `
+    -ChecksumUrl $checksumUrl `
+    -ChecksumTargetFileName $zipLink `
+    -OnMismatch 'WarnAndContinue' `
+    -Confirm:$false
+if (-not $downloaded) {
+    Write-Error "Download failed for $downloadUrl"
     exit 1
 }
 # Capture the HTTP-download size BEFORE extraction; the .vhdx that
 # lands at $baseImageFile is the unzipped artifact, not the bytes
 # Test-DownloadAlreadyCurrent will compare against on the next run.
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
-
-# Verify download integrity using SHA256 checksum
-$checksumLink = ($html.Links | Where-Object { $_.href -match "\.zip\.sha256$" })
-if ($checksumLink) {
-	$checksumUrl = $sourceUrl + $checksumLink[0].href
-	Write-Output "Verifying download integrity..."
-	$checksumContent = (Invoke-WebRequest -Uri $checksumUrl).Content
-	$expectedHash = ($checksumContent -split '\s+')[0]
-	$actualHash = (Get-FileHash -Path $downloadFile -Algorithm SHA256).Hash
-	if ($expectedHash -ine $actualHash) {
-		Write-Error "Checksum verification failed. Expected: $expectedHash, Got: $actualHash"
-		Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-		exit 1
-	}
-	Write-Output "Checksum verified successfully."
-} else {
-	Write-Warning "No checksum file found. Skipping integrity verification."
-}
 
 # Extract the .vhdx file from the zip — write to a temp path first so the
 # previous image is only replaced after a successful extraction.
@@ -145,7 +124,6 @@ Move-Item -Path $extractedFile -Destination $baseImageFile
 Set-Content -Path $baseImageOrigin -Value @($zipLink, $downloadUrl, "$downloadedSize")
 Write-Output "Recorded source filename, URL, and byte count to: $baseImageOrigin"
 
-# Clean up the downloaded zip file
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 
 Write-Output "Download complete: $baseImageFile"

@@ -1,12 +1,15 @@
 # Windows 11 on Ubuntu KVM/libvirt
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Boots Windows 11 Pro (multi-edition x64) unattended on KVM/QEMU with
 TPM 2.0 emulation, OVMF Secure Boot, and virtio-scsi/virtio-net for
 performance.
 
 ## Manual run
 
-```bash
+```
 pwsh ./Get-Image.ps1                        # stage Win11 ISO + virtio-win ISO
 pwsh ./New-VM.ps1                           # default name: windows-11-01
 pwsh ./New-VM.ps1 -VMName myhost            # custom name
@@ -55,7 +58,7 @@ the same account across all supported hosts.
 
 Once Setup completes (the FirstLogonCommands enable sshd):
 
-```bash
+```
 virsh -c qemu:///system domifaddr <vmname>
 ssh User@<ip>
 # Or graphically:

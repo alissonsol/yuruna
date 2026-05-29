@@ -22,12 +22,12 @@ Windows requires elevation; macOS does not.
 
 Copy the template (it is git-ignored):
 
-```powershell
+```
 cp test/test.config.yml.template test/test.config.yml
 ```
 
 Most operators only ever set `guestSequence`, `repositories.frameworkUrl`,
-`repositories.projectUrl`, `statusServer.port`, and `testCycle.shouldStopOnFailure`.
+`repositories.projectUrl`, `statusService.port`, and `testCycle.shouldStopOnFailure`.
 Notification credentials moved to
 `test/status/extension/notification/transports.yml` -- see the
 "Notifications (Resend)" section below.
@@ -55,7 +55,7 @@ a hardcoded list. Adding a new guest = creating the folder with
 
 ### Validate
 
-```powershell
+```
 pwsh test/Test-Config.ps1            # Live notification send
 pwsh test/Test-Config.ps1 -SkipSend  # Skip the send
 ```
@@ -64,10 +64,10 @@ Each check prints `[PASS]`, `[WARN]`, or `[FAIL]`.
 
 ## Remote caching proxy
 
-The runner auto-discovers a local `squid-cache` VM. Point at a remote
+The runner auto-discovers a local `caching-proxy` VM. Point at a remote
 proxy:
 
-```powershell
+```
 $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
 pwsh test/Invoke-TestRunner.ps1
 ```
@@ -78,7 +78,7 @@ Setup, monitoring, SSL-bump, and offline replay:
 
 ## Usage
 
-```powershell
+```
 pwsh test/Invoke-TestRunner.ps1                       # default
 pwsh test/Invoke-TestRunner.ps1 -NoGitPull            # dev mode
 pwsh test/Invoke-TestRunner.ps1 -NoServer             # headless
@@ -100,7 +100,7 @@ active: `http://localhost:8080/status/` (architecture in
   or `project/<...>/test/` (project-specific), dispatched via the
   cycle planner. Full architecture: [Test Modules](modules/README.md).
   Action reference + per-host
-  [Yuruna.Host](../host) contract notes (snapshot + rename behaviour,
+  [Yuruna.Host](../host) contract notes (snapshot + rename behavior,
   screen I/O divergence): [Sequence actions](../docs/test-sequences.md).
 - Screenshot-based testing: train references with
   `pwsh test/Train-Screenshots.ps1 -GuestKey <key>`. Capture commands

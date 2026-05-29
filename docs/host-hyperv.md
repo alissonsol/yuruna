@@ -49,6 +49,25 @@ The harness will also surface a one-line warning at startup
 `Get-HyperVScreenshot` warns when the WMI thumbnail comes back
 all-black — both point back at this section.
 
+## Display text scale must be 100% for OCR
+
+OCR on VM screenshots (Tesseract, Get-HyperVWindowScreenshot) degrades when
+the host display scales above 100%. `vmconnect` renders the guest
+framebuffer through the DPI-scaled compositor; the upscaled bitmap
+defeats Tesseract segmentation and `waitForText` silently times out on
+text a human reads fine. Fresh Windows 11 (HiDPI, 4K) ships at 125% or
+150% by default.
+
+`Set-WindowsHostConditionSet` therefore resets three independent
+scaling knobs (HKCU). All require sign-out to take effect; a warning
+fires if any value changed.
+
+| Knob | Registry | Reset to |
+|------|----------|----------|
+| Per-monitor DPI (Settings → System → Display → Scale) | `HKCU:\Control Panel\Desktop\PerMonitorSettings\<id>\DpiValue` (offset from `RecommendedDpiValue`; 0 = recommended, negative = smaller) | 100% (i.e. `-RecommendedDpiValue`) |
+| System-wide DPI fallback (non-per-monitor-aware processes) | `HKCU:\Control Panel\Desktop\LogPixels` + `Win8DpiScaling` | 96 + 1 |
+| Win11 text size (Settings → Accessibility → Text size) | `HKCU:\Software\Microsoft\Accessibility\TextScaleFactor` | 100 |
+
 Back to [Windows Hyper-V Host Setup](../host/windows.hyper-v/README.md) · [Yuruna](../README.md)
 
 ---

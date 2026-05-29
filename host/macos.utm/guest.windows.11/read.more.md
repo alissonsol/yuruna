@@ -24,7 +24,7 @@ Unlike Ubuntu, the Windows 11 ARM64 ISO has no direct download URL.
 [`Get-Image.ps1`](./Get-Image.ps1) prints instructions and checks for an
 existing ISO in `~/yuruna/image/windows.env/`:
 
-```bash
+```
 pwsh ./Get-Image.ps1
 ```
 
@@ -53,7 +53,7 @@ Three sourcing options:
 - Copies the UTM Guest Tools ISO (`spice.iso`) so SPICE + VirtIO can
   install offline.
 
-```bash
+```
 pwsh ./New-VM.ps1                    # default windows11-01
 pwsh ./New-VM.ps1 -VMName myhost
 ```
@@ -91,7 +91,7 @@ VPNs break Shared mode: UTM NAT routes VM traffic through the macOS
 stack, and a corporate VPN sends that traffic over the tunnel — Windows
 reports "a VPN that cannot be reset." Bridged bypasses the VPN.
 
-```bash
+```
 pwsh ./New-VM.ps1 -VMName myhost                                     # Shared
 pwsh ./New-VM.ps1 -VMName myhost -NetworkMode Bridged                # Bridged
 pwsh ./New-VM.ps1 -VMName myhost -NetworkMode Bridged -BridgeInterface en1

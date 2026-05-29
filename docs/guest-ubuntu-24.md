@@ -10,7 +10,7 @@
 ## Console Login Not Accepting the Password
 
 - `Ctrl+Alt+F3` for an alternate TTY.
-- `/automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh` (run two or three times until no updates or cleanup remain).
+- `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh` (run two or three times until no updates or cleanup remain).
 - `sudo reboot now`.
 
 ## Time Zone Incorrect
@@ -18,7 +18,7 @@
 Auto-detected at install via IP geolocation (cloud-init). To set
 manually:
 
-```bash
+```
 timedatectl list-timezones | grep <region>
 sudo timedatectl set-timezone America/Los_Angeles
 timedatectl                       # verify

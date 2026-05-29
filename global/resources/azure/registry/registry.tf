@@ -1,3 +1,4 @@
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 resource "azurerm_container_registry" "acr" {
   name                     = var.uniqueName

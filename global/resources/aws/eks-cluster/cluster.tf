@@ -1,3 +1,4 @@
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Based on: https://github.com/terraform-aws-modules/terraform-aws-eks/blob/v18.5.1/examples/eks_managed_node_group/main.tf
 

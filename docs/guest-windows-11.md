@@ -4,13 +4,13 @@
 
 After a fresh install, update **App Installer** in Microsoft Store and restart the terminal. Alternatively:
 
-```powershell
+```
 Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
 ```
 
 ## Scripts Blocked by Execution Policy
 
-```powershell
+```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 ```
 
@@ -30,7 +30,7 @@ Docker Desktop → **Settings** → **Kubernetes** → check **Enable Kubernetes
 
 The VM is installed with a generic key (unactivated). Activate:
 
-```powershell
+```
 slmgr /ipk XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
 slmgr /ato
 ```

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 4206c748-f960-4178-9901-2341a0b2c3d4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -29,7 +29,6 @@ if (-not (Test-Path $automationPath)) {
     return
 }
 
-# Add to current session
 if ($env:PATH -split [IO.Path]::PathSeparator -notcontains $automationPath) {
     $env:PATH = $automationPath + [IO.Path]::PathSeparator + $env:PATH
     Write-Output "Added to current session PATH: $automationPath"

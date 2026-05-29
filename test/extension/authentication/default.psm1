@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -16,25 +16,10 @@
 
 #requires -version 7
 
-# Default authentication extension: file-backed plaintext vault that
-# simulates an EXTERNAL authentication provider. Users are never deleted
-# and passwords never change without an explicit Set-Password call from
-# a sequence step -- mirroring the behaviour of a real directory service
-# (LDAP/AD/Entra) where the harness has no admin rights to wipe state.
-# Initialize-VaultConnection creates vault.yml on first ever run and is
-# a no-op when the file already exists. Get-Password / Set-Password /
-# New-RandomPassword are called by New-VM scripts and the sequence
-# runner. The "fake" simulation surface is the lazy-create branch in
-# Get-Password: first call for a username generates and stores a
-# password; every later call (this cycle or any future cycle) returns
-# the same stored value. A named system mutex serializes vault.yml
-# read-modify-write so two guests provisioning in parallel cannot race.
-#
-# Runtime state (vault.yml, vault.lock, events.log) lives under
-# test/status/extension/authentication/ so it sits with the rest of the
-# harness state that is wiped when cleaning a host. The committed
-# extension code lives under test/extension/authentication/ (no runtime
-# data alongside it).
+# Default authentication extension: file-backed plaintext vault simulating
+# an EXTERNAL authentication provider. Vault read-modify-write is serialized
+# by a named system mutex so parallel guest provisioning cannot race.
+# Threat model and full rationale: https://yuruna.link/authentication
 
 # Module file lives at test/extension/authentication/default.psm1; three
 # Split-Path -Parent calls reach the repo root.
@@ -82,7 +67,15 @@ function Write-VaultEvent {
         }
         if ($Username) { $rec.username = $Username }
         if ($Detail)   { $rec.detail   = $Detail }
-        Add-Content -Path (Get-VaultLogPath) -Value ($rec | ConvertTo-Json -Compress -Depth 3) -Encoding utf8
+        $logPath = Get-VaultLogPath
+        # Byte-bounded rotation. The check itself is throttled by
+        # Test-LogRotationDue (60 s window) so a tight Write-Vault-
+        # Event loop doesn't pay a Get-Item on every emit. Caps the
+        # live file at LOG_BYTE_LIMIT (1 MB) and keeps .1..10 archives.
+        if (Get-Command Invoke-LogRotation -ErrorAction SilentlyContinue) {
+            $null = Invoke-LogRotation -Path $logPath -Confirm:$false
+        }
+        Add-Content -Path $logPath -Value ($rec | ConvertTo-Json -Compress -Depth 3) -Encoding utf8
     } catch {
         Write-Verbose "Vault log write failed: $($_.Exception.Message)"
     }
@@ -150,7 +143,7 @@ function Write-VaultUnlocked {
     curated; the template ships pre-seeded with the four bundled Yuruna
     logical users (yuuser24, yuuser26, yauser1, ywuser1) plus the
     cache-VM 'yuruna' user, all with empty corporate fields so the
-    out-of-the-box behaviour is identical to today's local-only flow.
+    out-of-the-box behavior is identical to today's local-only flow.
 
     The return shape:
         @{ strict = $true; users = @{ <name> = @{ ... } } }
@@ -253,7 +246,7 @@ function Resolve-UserMapping {
     # are populated (mirrors what Windows login prompts expect when an
     # operator typed both forms into users.yml). No corporate identity
     # at all -> loginUser equals localOsUser, which keeps today's
-    # local-only behaviour: ${loginUser} renders as e.g. "yuuser26".
+    # local-only behavior: ${loginUser} renders as e.g. "yuuser26".
     if ($corpDomain -and $corpSam) {
         $loginUser = "$corpDomain\$corpSam"
     } elseif ($corpSam) {
@@ -412,7 +405,7 @@ function Get-PasswordByVaultKey {
 .DESCRIPTION
     For a logical user X:
       * users.yml entry missing OR empty vaultKey      -> vault[X]
-        (today's behaviour: auto-generated on first reference)
+        (today's behavior: auto-generated on first reference)
       * users.yml entry with non-empty vaultKey K      -> vault[K]
         (NEVER auto-generated; throws if the operator hasn't pre-
         populated the entry, so a missing corporate password is a
@@ -439,14 +432,14 @@ function Get-Password {
     cloud-init provisioning. Routes through users.yml's
     `localOsPasswordRef` indirection.
 .DESCRIPTION
-    Default decoupled behaviour (option beta in the design):
+    Default decoupled behavior (option beta in the design):
     `localOsPasswordRef` empty -> vault[logicalUser] auto-generated.
     The local OS account on the transient test VM receives a fresh
     random secret that nobody needs to know; sequence-login uses the
     SEPARATE `vaultKey` indirection so corporate plaintext never lands
     in the local /etc/shadow.
 
-    Operator-coupled behaviour (option alpha): set
+    Operator-coupled behavior (option alpha): set
     `localOsPasswordRef` = same value as `vaultKey` in users.yml when
     you want the local OS account to share its password with the
     corporate identity (e.g. for emergency console access using the

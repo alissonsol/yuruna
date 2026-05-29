@@ -1,5 +1,6 @@
 #!/bin/bash
-# Version: 2026.05.22
+# Version: 2026.05.29
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
@@ -24,36 +25,11 @@ case "$ARCH" in
     ;;
 esac
 
-# --- See https://yuruna.link/network#defining-package-manager-retry
-apt_retry() {
-    local max_attempts=5 attempt=1 delay=15 rc=0
-    while [ $attempt -le $max_attempts ]; do
-        if [ $attempt -gt 1 ]; then
-            echo ""
-            echo ">> apt_retry: attempt $attempt/$max_attempts for: $*"
-        fi
-        rc=0; "$@" || rc=$?
-        if [ $rc -eq 0 ]; then return 0; fi
-        echo "!! apt_retry: attempt $attempt/$max_attempts failed (rc=$rc): $*"
-        if [ $attempt -lt $max_attempts ]; then
-            echo "!! apt_retry: sleeping ${delay}s before retry"
-            sleep $delay
-            delay=$((delay * 2))
-        fi
-        attempt=$((attempt + 1))
-    done
-    echo "!! apt_retry: all $max_attempts attempts exhausted for: $*"
-    return $rc
-}
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+. /usr/local/lib/yuruna/yuruna_retry.sh
 
 # ===== Ensure PowerShell is installed =====
-# Installed as early as possible so that even if a later step in this
-# script aborts under `set -euo pipefail`, the host-side failure
-# diagnostic (which shells back into the guest as `pwsh -NoProfile ...`)
-# still has pwsh available to gather state.
-# Version is discovered at install time by resolving the GitHub
-# /releases/latest redirect, so this stays current without code edits
-# when Microsoft ships a new pwsh.
+# --- See https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 echo ""
 echo -e "\e[1;36m>>> Ensuring PowerShell is installed...\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -64,8 +40,10 @@ if ! command -v pwsh >/dev/null 2>&1; then
   apt_retry sudo apt-get install -y curl tar gzip
 
   # Resolve the latest-stable release tag via HEAD-follow of /releases/latest.
-  # Avoids the 60/hr unauthenticated GitHub API rate limit.
-  PS_TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+  # Avoids the 60/hr unauthenticated GitHub API rate limit. curl_retry adds
+  # --retry-connrefused so transient GitHub edge 502/503/504 + ECONNREFUSED
+  # is retried in-process; 4xx (rate-limit, 404) propagates immediately.
+  PS_TAG=$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' \
     "https://github.com/PowerShell/PowerShell/releases/latest")
   PS_TAG="${PS_TAG##*/}"
   if [[ ! "$PS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -76,7 +54,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
   PS_URL="https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/powershell-${PS_VER}-linux-${PS_ARCH}.tar.gz${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
   echo "Installing PowerShell ${PS_VER} (${PS_ARCH}) from ${PS_URL}"
 
-  curl -fsSL --retry 3 -o /tmp/powershell.tar.gz "$PS_URL"
+  curl_retry -fsSL -o /tmp/powershell.tar.gz "$PS_URL"
   sudo mkdir -p /opt/microsoft/powershell/7
   sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
   sudo chmod +x /opt/microsoft/powershell/7/pwsh
@@ -87,30 +65,50 @@ pwsh --version
 echo -e "\e[1;32m<<< PowerShell ready.\e[0m"
 
 # ===== Install powershell-yaml module =====
-# Installed for all users. No || swallow: with set -e, an Install-Module
-# failure now aborts the script - and the trailing Import-Module check
-# guards against the case where the manifest landed but the module won't
-# load (which Install-Module reports as success).
+# --- See https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
+PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
+sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
 echo -e "\e[1;36m>>> Installing PowerShell module: powershell-yaml...\e[0m"
-sudo pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force"
-sudo pwsh -NoProfile -Command "Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v' | Out-Null"
+
+sudo pwsh -NoProfile -Command - <<'PSEOF' >> "$PWSH_YAML_LOG" 2>&1
+"===== {0} pre-flight (static) =====" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
+"PowerShell : $($PSVersionTable.PSVersion)"
+""
+"--- Get-PSRepository ---"
+try { Get-PSRepository -ErrorAction Stop | Format-List Name,SourceLocation,InstallationPolicy,Trusted | Out-String } catch { "ERROR: $($_.Exception.Message)" }
+"--- Get-PackageProvider -ListAvailable ---"
+try { Get-PackageProvider -ListAvailable -ErrorAction Stop | Select-Object Name,Version | Format-Table -AutoSize | Out-String } catch { "ERROR: $($_.Exception.Message)" }
+"--- PowerShellGet + PSResourceGet (available) ---"
+try { Get-Module PowerShellGet, Microsoft.PowerShell.PSResourceGet -ListAvailable | Select-Object Name,Version | Format-Table -AutoSize | Out-String } catch { "ERROR: $($_.Exception.Message)" }
+PSEOF
+
+pwsh_retry "$PWSH_YAML_LOG" <<'PSEOF'
+$ErrorActionPreference = 'Stop'
+"--- per-attempt probe @ {0} ---" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
+try { Resolve-DnsName www.powershellgallery.com -Type A | Select-Object -First 3 Name,IPAddress | Format-Table -AutoSize | Out-String } catch { "DNS ERROR: $($_.Exception.Message)" }
+try {
+    $head = Invoke-WebRequest -UseBasicParsing -Method Head -Uri 'https://www.powershellgallery.com/api/v2/' -TimeoutSec 10
+    "HEAD api/v2 status: {0}" -f $head.StatusCode
+} catch { "HEAD ERROR: $($_.Exception.Message)" }
+
+"--- Install-Module powershell-yaml (Verbose) ---"
+Install-Module -Name powershell-yaml -Scope AllUsers -Force -Verbose 4>&1
+
+"--- Import + ConvertFrom-Yaml smoke ---"
+Import-Module powershell-yaml
+$null = ConvertFrom-Yaml 'k: v'
+"OK"
+PSEOF
+
 echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e[0m"
 
 # ===== Early yuruna framework extraction (host-side diagnostic prereq) =====
-# The host's failure-path diagnostic shells back as
-# `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
-# If the apt-get block below stalls (UTM bridge throughput is the known
-# culprit on macOS hosts) the cycle watchdog fires, the orchestrator
-# captures diagnostics, and that script must already be on disk -- else
-# pwsh exits 64 and writes its usage banner instead of real guest state.
-# Tarball-only here: the git-clone fallback at the original position
-# below stays put because it needs `git`, which requires apt-get to
-# work, which is exactly what may be stuck.
+# --- See https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
 echo ""
 echo -e "\e[1;36m>>> Pre-fetching yuruna framework tarball (for diagnostic availability)...\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(eval echo "~$REAL_USER")
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 if [ -r /etc/yuruna/host.env ]; then
   # shellcheck disable=SC1091
   . /etc/yuruna/host.env
@@ -148,8 +146,8 @@ EOF
 echo ""
 echo -e "\e[1;36m>>> Updating system packages...\e[0m"
 apt_retry sudo apt-get update;
-apt_retry sudo apt-get -o APT::Get::Always-Include-Phased-Updates=true upgrade -y;
-apt_retry sudo apt-get dist-upgrade -y;
+# dist-upgrade is a superset of upgrade; running both repeats resolver work.
+apt_retry sudo apt-get -o APT::Get::Always-Include-Phased-Updates=true dist-upgrade -y;
 apt_retry sudo apt-get autoclean -y;
 apt_retry sudo apt-get autoremove -y;
 # deborphan was dropped from Ubuntu 26 (resolute) repos; skip the orphan
@@ -167,7 +165,7 @@ echo -e "\e[1;32m<<< System packages update complete.\e[0m"
 
 # Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(eval echo "~$REAL_USER")
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
 # ===== Ensure Git is installed =====
 echo ""

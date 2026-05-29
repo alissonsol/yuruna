@@ -1,5 +1,6 @@
 #!/bin/bash
-# Version: 2026.05.22
+# Version: 2026.05.29
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 # --- See https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
@@ -40,6 +41,21 @@ esac
 QUERY_PARAMS="${EXEC_QUERY_PARAMS:-${YurunaCacheContent:+?nocache=${YurunaCacheContent}}}"
 FILE_PATH="$1"
 
+# --- See https://yuruna.link/memory#why-fetch-and-execute-self-heals-the-yuruna_retry-library
+YURUNA_LIB_DIR=/usr/local/lib/yuruna
+YURUNA_RETRY_LIB="$YURUNA_LIB_DIR/yuruna_retry.sh"
+if [ ! -r "$YURUNA_RETRY_LIB" ]; then
+    LIB_WGET_FLAGS=()
+    [ "$BASE_SOURCE" = 'host' ] && LIB_WGET_FLAGS=(--no-proxy)
+    sudo mkdir -p "$YURUNA_LIB_DIR" 2>/dev/null
+    if wget "${LIB_WGET_FLAGS[@]}" -qO- "${BASE_URL}automation/yuruna_retry.sh" 2>/dev/null \
+         | sudo tee "$YURUNA_RETRY_LIB" >/dev/null 2>&1; then
+        sudo chmod 0644 "$YURUNA_RETRY_LIB"
+    fi
+fi
+# shellcheck disable=SC1090
+[ -r "$YURUNA_RETRY_LIB" ] && . "$YURUNA_RETRY_LIB"
+
 if [ -z "$FILE_PATH" ]; then
     echo "Usage: $0 <file-path>"
     exit 1
@@ -76,22 +92,7 @@ fi
 echo "  bytes: $byte_count"
 echo ""
 
-# Tee a copy of the inner script's output into a well-known per-run log
-# file so the harness can `scp` it back on failure
-# (Copy-FailureArtifactsToStatusLog → Save-GuestFetchAndExecuteLog). The
-# file is truncated at every fetch-and-execute call so it always holds
-# the LAST script's output, which is the most useful artifact for
-# post-mortem of a sequence that ended on a fetchAndExecute step. Without
-# the tee, when a workload wrapper exits 0 but produces no useful output,
-# the wrapper's console output is already scrolled off-screen by the
-# test-localhost.sh poll loop and the OCR screenshot only captures the
-# polling, not the wrapper itself.
-#
-# Header records WHICH script was fetched so a reader of the file alone
-# can tell whether the last fetch was the workload wrapper or a smaller
-# helper (test-localhost.sh, etc.). The tee runs inside a subshell so
-# the inner script still sees a "regular" stdout/stderr (some tools
-# behave differently under a pipe -- e.g. docker build's progress UI).
+# --- See https://yuruna.link/memory#why-fetch-and-execute-tees-into-a-well-known-per-run-log
 fae_log='/tmp/yuruna-last-fetch-and-execute.log'
 {
   echo "# Yuruna fetch-and-execute log"

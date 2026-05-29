@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 # SSH-driven equivalent of gui/start.guest.ubuntu.server.24.yml. Selected
 # automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.
 # Subiquity runs fully hands-off via interactive-sections:[], so there is
@@ -33,7 +34,7 @@ steps:
     description: "Smoke test: whoami/hostname"
 
   - action: sshFetchAndExecute
-    command: "/automation/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"
+    command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"
     timeoutSeconds: 1800
     description: "ubuntu.server.24.update.sh"
 

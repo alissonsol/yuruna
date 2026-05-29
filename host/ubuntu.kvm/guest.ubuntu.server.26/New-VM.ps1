@@ -1,10 +1,10 @@
 <#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -162,7 +162,7 @@ if (-not $plaintextPassword) {
 } else {
     Write-Output "Password came from environment variable: YURUNA_GUEST_PASSWORD"
 }
-Import-Module (Join-Path $repoRoot 'test/modules/Test.VM.common.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $repoRoot 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking
 try {
     $pwHash = ConvertTo-Sha512CryptHash -Plaintext $plaintextPassword
 } catch {
@@ -180,13 +180,13 @@ $cfg = Join-Path $repoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $cfg) {
     try {
         $j = Get-Content -Raw -LiteralPath $cfg | ConvertFrom-Yaml -Ordered
-        if ($j.statusServer.port) { $hostPort = "$($j.statusServer.port)" }
+        if ($j.statusService.port) { $hostPort = "$($j.statusService.port)" }
     } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
 }
 
 # -- Build the autoinstall apt block --------------------------------------
 # Always emit `geoip: false` + a pinned primary mirror, even when no
-# squid-cache is reachable -- subiquity's default `geoip: true` fires an
+# caching-proxy is reachable -- subiquity's default `geoip: true` fires an
 # HTTPS lookup to geoip.ubuntu.com that adds seconds to mirror election.
 # Pinning primary makes the election deterministic. Format / placement
 # match the hyper-v variant.
@@ -199,7 +199,7 @@ $AptProxyBlock = @"
         uri: $primaryUri$($AptProxyLine)
 "@
 
-# -- Fetch squid-cache CA cert (base64-embedded in seed) -------------------
+# -- Fetch caching-proxy CA cert (base64-embedded in seed) -------------------
 # Mirrors host/macos.utm/guest.ubuntu.server.26/New-VM.ps1. The installer's
 # late-commands write the cert from CA_CERT_BASE64_PLACEHOLDER before
 # any HTTPS apt fetch, so SSL-bump caching works from the first install
@@ -216,10 +216,10 @@ if ($CachingProxyUrl) {
         if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
             $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
             $CaCertBase64 = [Convert]::ToBase64String($caBytes)
-            Write-Verbose "  Fetched squid-cache CA from $cacheCaUrl ($($caBytes.Length) bytes) -- embedded in seed."
+            Write-Verbose "  Fetched caching-proxy CA from $cacheCaUrl ($($caBytes.Length) bytes) -- embedded in seed."
         }
     } catch {
-        Write-Warning "  Could not fetch CA cert from squid-cache : $($_.Exception.Message)"
+        Write-Warning "  Could not fetch CA cert from caching-proxy : $($_.Exception.Message)"
         Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
     }
 }
@@ -233,6 +233,14 @@ foreach ($f in @($userDataTemplate, $metaDataTemplate)) {
         exit 1
     }
 }
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# write_files entries. Eliminates the legacy network-dependent wget+wget
+# bootstrap and ensures both files are on disk before any guest script runs.
+$yurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
+$yurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'yuruna_retry.sh')))
+$yurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'fetch-and-execute.sh')))
+
 $userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName).
     Replace('USERNAME_PLACEHOLDER', $Username).
@@ -242,7 +250,9 @@ $userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
     Replace('CACHING_PROXY_URL_PLACEHOLDER', ($CachingProxyUrl ?? '')).
     Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).
     Replace('YURUNA_HOST_IP_PLACEHOLDER', $hostIp).
-    Replace('YURUNA_HOST_PORT_PLACEHOLDER', $hostPort)
+    Replace('YURUNA_HOST_PORT_PLACEHOLDER', $hostPort).
+    Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $yurunaRetryLibB64).
+    Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $yurunaFaeB64)
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName)
 
@@ -272,8 +282,25 @@ if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
 
 # -- Define + start the VM via virt-install ---------------------------------
 $virshUri = 'qemu:///system'
-& virsh --connect $virshUri destroy $VMName 2>$null | Out-Null
-& virsh --connect $virshUri undefine --nvram $VMName 2>$null | Out-Null
+# Capture stdout+stderr + exit code for each call so an operator
+# running with -Verbose sees the per-call outcome. The post-condition
+# below catches the actual failure mode; this just preserves forensics
+# when something unusual surfaces between the two idempotent ops.
+$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
+Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
+$undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
+Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
+# Post-condition: virsh destroy/undefine on a non-existing domain is
+# idempotent (returns non-zero, swallowed by `2>$null`). But if either
+# op failed while the domain remains defined, the next virt-install
+# fails with "domain already defined" and the outer loop has no signal
+# to recover. Fail-loud now with dominfo so the operator can act.
+$stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
+    Where-Object { $_.Trim() -eq $VMName }
+if ($stillDefined) {
+    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
+    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+}
 
 # --- See https://yuruna.link/memory#why-we-patch-virt-installs-phase-1-xml-on-kvm
 

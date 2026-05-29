@@ -1,10 +1,10 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.22
+<#PSScriptInfo
+.VERSION 2026.05.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -42,8 +42,23 @@
 #>
 
 param(
-    [switch]$Force
+        [switch]$Force,
+    # Quiet mode: suppress every Write-Status (host paths, per-VM file
+    # listings, base-image keep-list, "Deleted: <file>" trail) so the
+    # automated cycle-start sweep (Remove-TestVMFiles.ps1 -Quiet) emits
+    # nothing from this script. Write-Warning / Write-Error remain
+    # visible because they always represent an actual problem. Direct
+    # invocation (no -Quiet) prints the full log.
+    [switch]$Quiet
 )
+
+function Write-Status {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline)][string]$Message)
+    process {
+        if ($Quiet) { Write-Verbose $Message } else { Write-Output $Message }
+    }
+}
 
 # Auto-relaunch under sg libvirt when this shell's running supplementary
 # group set lacks libvirt. The virsh call at "Enumerate registered
@@ -60,22 +75,22 @@ if (Test-Path $_testHost) {
 }
 
 # === Warning ===
-Write-Output ""
-Write-Output "================================================================"
-Write-Output "  WARNING: DESTRUCTIVE OPERATION"
-Write-Output "================================================================"
-Write-Output ""
-Write-Output "  This script deletes VM directories under ~/yuruna/vms/"
-Write-Output "  that are NOT registered with libvirt."
-Write-Output ""
-Write-Output "  THIS CANNOT BE UNDONE."
-Write-Output ""
-Write-Output "================================================================"
-Write-Output ""
+Write-Status ""
+Write-Status "================================================================"
+Write-Status "  WARNING: DESTRUCTIVE OPERATION"
+Write-Status "================================================================"
+Write-Status ""
+Write-Status "  This script deletes VM directories under ~/yuruna/vms/"
+Write-Status "  that are NOT registered with libvirt."
+Write-Status ""
+Write-Status "  THIS CANNOT BE UNDONE."
+Write-Status ""
+Write-Status "================================================================"
+Write-Status ""
 
 $vmRoot = Join-Path $HOME 'yuruna/vms'
 if (-not (Test-Path -LiteralPath $vmRoot)) {
-    Write-Output "No VM directory at '$vmRoot'. Nothing to scan."
+    Write-Status "No VM directory at '$vmRoot'. Nothing to scan."
     exit 0
 }
 
@@ -98,25 +113,25 @@ foreach ($n in $virshOutput) {
     if ($name) { $registered[$name] = $true }
 }
 
-Write-Output "libvirt registered VMs: $($registered.Count)"
-Write-Output ""
+Write-Status "libvirt registered VMs: $($registered.Count)"
+Write-Status ""
 
 if ($registered.Count -gt 0) {
-    Write-Output "Currently registered VMs and their on-disk artifacts:"
-    Write-Output ""
+    Write-Status "Currently registered VMs and their on-disk artifacts:"
+    Write-Status ""
     foreach ($vmName in ($registered.Keys | Sort-Object)) {
         $vmDir = Join-Path $vmRoot $vmName
-        Write-Output "  $vmName"
+        Write-Status "  $vmName"
         if (Test-Path -LiteralPath $vmDir) {
             $files = Get-ChildItem -Path $vmDir -Recurse -File -ErrorAction SilentlyContinue
             foreach ($f in ($files | Sort-Object FullName)) {
                 $sizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
-                Write-Output "    $($f.FullName)  ($sizeStr)"
+                Write-Status "    $($f.FullName)  ($sizeStr)"
             }
         } else {
-            Write-Output "    (no artifact directory under $vmRoot)"
+            Write-Status "    (no artifact directory under $vmRoot)"
         }
-        Write-Output ""
+        Write-Status ""
     }
 }
 
@@ -132,33 +147,33 @@ foreach ($d in $dirs) {
 }
 
 if ($orphanedItems.Count -eq 0) {
-    Write-Output "No orphaned VM directories found. Nothing to clean up."
+    Write-Status "No orphaned VM directories found. Nothing to clean up."
     exit 0
 }
 
-Write-Output "The following directories are NOT associated with any registered libvirt domain:"
-Write-Output ""
+Write-Status "The following directories are NOT associated with any registered libvirt domain:"
+Write-Status ""
 $totalSize = [int64]0
 foreach ($item in $orphanedItems) {
     $totalSize += [int64]$item.Size
     $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
-    Write-Output "  $($item.Path)  ($sizeStr)"
+    Write-Status "  $($item.Path)  ($sizeStr)"
     $files = Get-ChildItem -Path $item.Path -Recurse -File -ErrorAction SilentlyContinue
     foreach ($f in ($files | Sort-Object FullName)) {
         $fSizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
-        Write-Output "    $($f.FullName)  ($fSizeStr)"
+        Write-Status "    $($f.FullName)  ($fSizeStr)"
     }
 }
-Write-Output ""
-Write-Output ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
-Write-Output ""
+Write-Status ""
+Write-Status ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
+Write-Status ""
 
 if ($Force) {
-    Write-Output "Force mode enabled -- skipping confirmation."
+    Write-Status "Force mode enabled -- skipping confirmation."
 } else {
     $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
     if ($confirmation -ne "YES") {
-        Write-Output "Operation cancelled. No files were deleted."
+        Write-Status "Operation cancelled. No files were deleted."
         exit 0
     }
 }
@@ -177,16 +192,16 @@ foreach ($item in $orphanedItems) {
             continue
         }
         Remove-Item -Path $item.Path -Recurse -Force -ErrorAction Stop
-        Write-Output "  Deleted: $($item.Path)"
+        Write-Status "  Deleted: $($item.Path)"
     } catch {
         Write-Warning "  Failed to delete: $($item.Path) - $_"
         $errors++
     }
 }
 
-Write-Output ""
+Write-Status ""
 if ($errors -eq 0) {
-    Write-Output "Cleanup complete. All orphaned directories deleted."
+    Write-Status "Cleanup complete. All orphaned directories deleted."
 } else {
-    Write-Output "Cleanup complete with $errors error(s). Some items could not be deleted."
+    Write-Status "Cleanup complete with $errors error(s). Some items could not be deleted."
 }

@@ -1,8 +1,17 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
 #>
 
 #requires -version 7
@@ -25,10 +34,10 @@
 # Microsoft's OpenSSH port accepts /dev/null verbatim, so one line works
 # on every host.
 
-# -Global is load-bearing: without it, -Force evicts Test.VM.common from
+# -Global is load-bearing: without it, -Force evicts Test.VMUtility from
 # the runner's session mid-cycle (Start-GuestOS triggers this re-import)
 # and the next New-VM.Resource step crashes on missing Wait-VMRunning.
-Import-Module (Join-Path $PSScriptRoot 'Test.VM.common.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Force -DisableNameChecking -Global
 
 # test/modules/Test.Ssh.psm1 -> test/ is one Split-Path up; the SSH key
 # pair lives under test/status/ssh/ so it sits with the rest of the
@@ -36,6 +45,36 @@ Import-Module (Join-Path $PSScriptRoot 'Test.VM.common.psm1') -Force -DisableNam
 $script:SshKeyDir  = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'status' -AdditionalChildPath 'ssh'
 $script:SshKeyPath = Join-Path $script:SshKeyDir "yuruna_ed25519"
 $script:SshPubPath = "$script:SshKeyPath.pub"
+# Set to $script:SshKeyPath after the first successful Initialize-YurunaSshKey.
+# Get-YurunaSshPrivateKeyPath short-circuits the full re-init (ssh-keygen
+# probe + icacls) when the cached path still resolves to an on-disk file.
+$script:CachedSshKey = $null
+
+# Per-cycle overrides for Get-GuestSshUser. Populated by the runner
+# (Invoke-TestInnerRunner / Test-Sequence) from the cycle plan's
+# effectiveUsername so a workload's `variables.username:` cascade
+# reaches every SSH callsite that goes through Get-GuestSshUser:
+# Wait-SshReady, Invoke-GuestSsh, Save-GuestDiagnostic, the host
+# driver Send-Text / Send-Key SSH-mode dispatchers, and the inner
+# runner's fetchAndExecute SSH path. The alternative -- threading a
+# -Username parameter through every public signature -- would touch
+# every callsite (and the host contract) for the same outcome.
+#
+# Anchored in the global scope: Save-GuestDiagnostic and several
+# host drivers -Force re-import Test.Ssh defensively. A module-scoped
+# `$script:GuestSshUserOverrides = @{}` would be re-initialised on
+# every re-import, wiping the cascade value Test-Sequence /
+# Invoke-TestInnerRunner registered at plan-resolution time, falling
+# SSH auth back to the per-guest default (e.g. yauser1) and breaking
+# workloads whose `variables.username:` was meant to propagate down
+# the chain. Same eviction-safe pattern Test.Output and the
+# Test.Registry-based registries already use. Set-Variable
+# / Get-Variable -Scope Global is used instead of `$global:` so PSSA's
+# PSAvoidGlobalVars stays quiet for the rest of this large module.
+if (-not (Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ErrorAction SilentlyContinue)) {
+    Set-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -Value @{}
+}
+$script:GuestSshUserOverrides = Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ValueOnly
 
 function Initialize-YurunaSshKey {
 <#
@@ -126,13 +165,20 @@ function Get-YurunaSshPrivateKeyPath {
 Returns the absolute path to the yuruna test-harness SSH private key.
 .DESCRIPTION
 Generates the key pair on first call. Returned path is suitable for `ssh -i`.
+Subsequent calls in the same process skip the Initialize-YurunaSshKey re-probe
+(ssh-keygen + icacls) when the cached path still resolves to an on-disk file;
+the cache is invalidated automatically if the file is deleted.
 .OUTPUTS
 System.String. Absolute path to the private key file.
 #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
+    if ($script:CachedSshKey -and (Test-Path -LiteralPath $script:CachedSshKey -PathType Leaf)) {
+        return $script:CachedSshKey
+    }
     Initialize-YurunaSshKey | Out-Null
+    $script:CachedSshKey = $script:SshKeyPath
     return $script:SshKeyPath
 }
 
@@ -146,10 +192,10 @@ Default Switch or UTM on macOS, so `ssh user@vm-name` fails with "could
 not resolve hostname". This helper returns an IPv4 when discoverable,
 or the VMName as a fallback so the caller's retry loop can try again.
 
-After the Yuruna.Host refactor, the authoritative IP-discovery logic
-lives in the host driver's `Get-VMIp` (host/<host>/modules/Yuruna.Host.psm1).
-This function delegates there when available; otherwise it falls back
-to the inline host-conditional probe so standalone Test.Ssh consumers
+The authoritative IP-discovery logic lives in the host driver's
+`Get-VMIp` (host/<host>/modules/Yuruna.Host.psm1). This function
+delegates there when available; otherwise it falls back to the
+inline host-conditional probe so standalone Test.Ssh consumers
 still work without a fully-initialized Yuruna.Host session.
 .OUTPUTS
 System.String. An IPv4 address if one was discovered, otherwise the VMName.
@@ -256,12 +302,77 @@ System.String. Username to log in as over SSH.
     [CmdletBinding()]
     [OutputType([string])]
     param([string]$GuestKey)
+    # Per-cycle cascade override wins over the per-guest default.
+    # Set by Set-GuestSshUserOverride at cycle-plan resolution time.
+    if ($GuestKey -and $script:GuestSshUserOverrides.ContainsKey($GuestKey)) {
+        return [string]$script:GuestSshUserOverrides[$GuestKey]
+    }
     switch ($GuestKey) {
         "guest.ubuntu.server.24"  { return "yuuser24" }
         "guest.ubuntu.server.26"  { return "yuuser26" }
         "guest.amazon.linux.2023"   { return "yauser1" }
         "guest.windows.11"     { return "ywuser1" }
         default { return "root" }
+    }
+}
+
+function Set-GuestSshUserOverride {
+<#
+.SYNOPSIS
+    Registers a per-cycle SSH-user override for one guest. Get-GuestSshUser
+    returns the override (if set) before falling through to the per-guest
+    hardcoded default.
+.DESCRIPTION
+    Called from the runner immediately after the cycle plan is resolved,
+    once per guest present in the plan. The Username argument is the
+    cascade-walked `variables.username:` value the planner already
+    computed (effectiveUsername on each plan entry), so this function
+    just files it where every downstream SSH lookup can see it.
+
+    An empty Username drops the override for that GuestKey -- useful for
+    a test harness that registers conditionally.
+.PARAMETER GuestKey
+    The guest identifier whose lookup should be overridden
+    (e.g. guest.ubuntu.server.24).
+.PARAMETER Username
+    The cascaded login user. Empty value removes the override.
+#>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'In-memory hashtable mutation in a runtime-only registration helper; operator has no -WhatIf intent here. Same justification as Test.Prelude\Initialize-YurunaEntryPointModuleSet.')]
+    param(
+        [Parameter(Mandatory)][string]$GuestKey,
+        [string]$Username
+    )
+    if ([string]::IsNullOrEmpty($Username)) {
+        $script:GuestSshUserOverrides.Remove($GuestKey)
+        return
+    }
+    if ($script:GuestSshUserOverrides.ContainsKey($GuestKey) -and
+        $script:GuestSshUserOverrides[$GuestKey] -eq $Username) {
+        return
+    }
+    $script:GuestSshUserOverrides[$GuestKey] = $Username
+    Write-Verbose "Get-GuestSshUser override: ${GuestKey} -> ${Username}"
+}
+
+function Clear-GuestSshUserOverride {
+<#
+.SYNOPSIS
+    Drops every registered SSH-user override. Used at the top of a new
+    cycle so a fresh plan resolution starts from a known empty state.
+.DESCRIPTION
+    The Inner runner is spawned fresh per cycle, so the script-scoped
+    map is already empty in practice. Test-Sequence (and any future
+    long-lived runner) re-uses the same process across multiple plans,
+    so an explicit reset prevents a prior run's override from leaking
+    into the next one.
+#>
+    [CmdletBinding()]
+    param()
+    if ($script:GuestSshUserOverrides.Count -gt 0) {
+        Write-Verbose "Clearing $($script:GuestSshUserOverrides.Count) Get-GuestSshUser override(s)."
+        $script:GuestSshUserOverrides.Clear()
     }
 }
 
@@ -279,7 +390,9 @@ Guest identifier (e.g. guest.amazon.linux.2023); determines the SSH login user.
 .PARAMETER TimeoutSeconds
 Maximum total seconds to keep retrying. Default 300.
 .PARAMETER PollSeconds
-Seconds between connection attempts. Default 5.
+Seconds between connection attempts. Default 5. The first 3 attempts use a
+1-second backoff regardless of this value, so a sshd that comes up in its
+typical 1-2 s window is caught without waiting the full poll interval.
 .OUTPUTS
 System.Boolean. $true if SSH became ready, $false on timeout.
 #>
@@ -301,16 +414,31 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # the SSH banner / kex_exchange_identification stalls (or the post-
     # handshake session goes half-dead -- TCP ESTABLISHED both ends, no
     # data flowing), ssh has no further timeout of its own. Running the
-    # probe foreground in the runner runspace then makes the outer
+    # probe foreground in the runner runspace would then make the outer
     # `while ((Get-Date) -lt $deadline)` deadline useless: it is only
-    # checked between iterations, so one stuck ssh holds the loop forever
-    # and saveSystemDiagnostic blows past Save-GuestDiagnostic's 300s cap.
-    # Start-Job + Wait-Job gives a hard per-probe cap; the ServerAlive
-    # options below shorten the in-flight detection of a half-dead session
-    # to ~6s so most probes complete well under the cap on a healthy guest.
+    # checked between iterations, so one stuck ssh would hold the loop
+    # forever and saveSystemDiagnostic would blow past Save-GuestDiagnostic's
+    # cap.
+    #
+    # In-process .NET Process.Start + WaitForExit(timeoutMs) gives a
+    # hard per-probe cap WITHOUT the Start-Job / Wait-Job runspace cost
+    # (~200-500 ms cold-start per iteration; ~18 iterations on a 90 s
+    # boot is 4-9 s of pure overhead). On timeout the child ssh is
+    # killed directly via Process.Kill($true) (entire process tree),
+    # which also closes the leaked OS-level ssh that the prior Start-Job
+    # implementation left behind. The ServerAlive options below shorten
+    # the in-flight detection of a half-dead session to ~6 s so most
+    # probes complete well under the cap on a healthy guest.
     $probeCapSeconds = 15
+    # Adaptive backoff: first 3 attempts at 1 s catch the typical sshd-
+    # becomes-ready window (1-2 s on a healthy guest) without sleeping
+    # through it. After that the configured $PollSeconds takes over for
+    # the longer wait on a slow guest.
+    $earlyPollSeconds = 1
+    $earlyAttemptThreshold = 3
     while ((Get-Date) -lt $deadline) {
         $attempts++
+        $thisPollSeconds = if ($attempts -le $earlyAttemptThreshold) { $earlyPollSeconds } else { $PollSeconds }
         # Re-resolve each iteration: on Hyper-V the IP may not be reported
         # until integration services come up a few seconds into boot.
         $target = Get-GuestAddress -VMName $VMName
@@ -318,40 +446,66 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             Write-Debug "  sshWaitReady target: $user@$target (from VMName '$VMName')"
             $lastTarget = $target
         }
-        $job = Start-Job -ScriptBlock {
-            $out = & ssh -i $using:key `
-                -o BatchMode=yes `
-                -o StrictHostKeyChecking=no `
-                -o UserKnownHostsFile=/dev/null `
-                -o GlobalKnownHostsFile=/dev/null `
-                -o ConnectTimeout=5 `
-                -o ServerAliveInterval=3 `
-                -o ServerAliveCountMax=2 `
-                -o LogLevel=ERROR `
-                "$($using:user)@$($using:target)" "echo yuruna-ssh-ready" 2>&1
-            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($out | Out-String) }
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName               = 'ssh'
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.UseShellExecute        = $false
+        $psi.CreateNoWindow         = $true
+        # ArgumentList (.NET 5+) handles per-arg quoting -- no shell
+        # interpolation, no double-quote-inside-double-quote hazard for
+        # paths with spaces in $key.
+        $psi.ArgumentList.Add('-i'); $psi.ArgumentList.Add($key)
+        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('BatchMode=yes')
+        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('StrictHostKeyChecking=no')
+        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('UserKnownHostsFile=/dev/null')
+        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('GlobalKnownHostsFile=/dev/null')
+        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ConnectTimeout=5')
+        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ServerAliveInterval=3')
+        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ServerAliveCountMax=2')
+        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('LogLevel=ERROR')
+        $psi.ArgumentList.Add("$user@$target")
+        $psi.ArgumentList.Add('echo yuruna-ssh-ready')
+
+        $proc = $null
+        try {
+            $proc = [System.Diagnostics.Process]::Start($psi)
+        } catch {
+            $lastError = "Process.Start('ssh') threw: $($_.Exception.Message)"
+            Start-Sleep -Seconds $thisPollSeconds
+            continue
         }
-        $completed = Wait-Job -Job $job -Timeout $probeCapSeconds
-        if (-not $completed) {
-            Stop-Job   -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            # Stop-Job kills the runspace, not the OS-level ssh.exe child --
-            # the leaked process is harmless (no TCP backlog, sshd MaxStartups
-            # is not at risk for a single-digit per-cycle leak), and the outer
-            # loop continues to its deadline check on the next iteration.
-            $lastError = "probe timed out after ${probeCapSeconds}s (ssh hung post-TCP; runspace stopped)"
+        # Read both streams asynchronously to avoid the classic "child
+        # blocks on a full pipe while we wait for it to exit" deadlock.
+        # ReadToEndAsync returns a Task; we read .Result AFTER WaitForExit
+        # confirms the streams are closed.
+        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+        $stderrTask = $proc.StandardError.ReadToEndAsync()
+        $completed  = $proc.WaitForExit($probeCapSeconds * 1000)
+        $stdoutText = ''
+        $stderrText = ''
+        $exit       = -1
+        if ($completed) {
+            $stdoutText = $stdoutTask.Result
+            $stderrText = $stderrTask.Result
+            $exit       = [int]$proc.ExitCode
         } else {
-            $r = Receive-Job -Job $job
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            $exit = [int]$r.ExitCode
-            $resultText = ([string]$r.Output)
+            # Hung probe -- kill the process tree so the leaked ssh
+            # doesn't accumulate across iterations. .Kill($true) is
+            # the .NET 5+ "kill entire process tree" call.
+            try { $proc.Kill($true) } catch { Write-Verbose "Process.Kill failed: $($_.Exception.Message)" }
+            $lastError = "probe timed out after ${probeCapSeconds}s (ssh hung post-TCP; process killed)"
+        }
+        $proc.Dispose()
+        if ($completed) {
+            $resultText = ($stdoutText + $stderrText)
             if ($exit -eq 0 -and $resultText -match "yuruna-ssh-ready") {
                 Write-Debug "SSH ready after $attempts attempt(s): $user@$target"
                 return $true
             }
             $lastError = $resultText.Trim()
         }
-        Start-Sleep -Seconds $PollSeconds
+        Start-Sleep -Seconds $thisPollSeconds
     }
 
     # Failure path: dump everything we can for diagnostics.
@@ -394,6 +548,26 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     } catch { Write-Warning "  verbose dump failed: $_" }
     Write-Warning "  --- end verbose handshake ---"
 
+    # Surface the failure as a structured NDJSON event so an autonomous
+    # remediator routes on `event=ssh_handshake_failed` without having to
+    # regex-parse the Write-Warning stream. lastError carries the final
+    # probe output (cookie of root-cause keywords: "Permission denied",
+    # "Connection refused", "Host key verification failed"); attempts /
+    # timeout pin down whether the gate was time- or attempt-bounded.
+    Send-CycleEventSafely -EventRecord @{
+        timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        event            = 'ssh_handshake_failed'
+        target           = [string]$lastTarget
+        user             = [string]$user
+        privateKey       = [string]$key
+        attempts         = [int]$attempts
+        timeoutSeconds   = [int]$TimeoutSeconds
+        pollSeconds      = [int]$PollSeconds
+        probeCapSeconds  = [int]$probeCapSeconds
+        lastError        = [string]$lastError
+        failureClass     = 'network_timeout'
+        severity         = 'soft'
+    }
     return $false
 }
 
@@ -432,7 +606,9 @@ System.Collections.Hashtable with keys: success (bool), exitCode (int), output (
 
     # Run ssh in a background job so TimeoutSeconds bounds total runtime, not
     # just TCP setup. ConnectTimeout still guards the handshake phase.
-    $job = Start-Job -ScriptBlock {
+    # Start-ThreadJob (in-process runspace) avoids the ~200-500 ms pwsh spawn
+    # cost of Start-Job. The ThreadJob module ships with PowerShell 7+.
+    $job = Start-ThreadJob -ScriptBlock {
         $out = & ssh -i $using:keyPath `
             -o BatchMode=yes `
             -o StrictHostKeyChecking=no `
@@ -509,4 +685,4 @@ System.String IPv4 on success, $null on timeout.
     return $null
 }
 
-Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Wait-SshReady, Invoke-GuestSsh, Get-GuestSshUser, Get-GuestAddress, Wait-GuestIp
+Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Wait-SshReady, Invoke-GuestSsh, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp

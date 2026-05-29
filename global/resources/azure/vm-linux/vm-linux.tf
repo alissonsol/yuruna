@@ -1,3 +1,4 @@
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 resource "azurerm_virtual_network" "vm-vnet" {
   name                = "vm-vnet"

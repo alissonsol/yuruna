@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES
@@ -51,7 +51,7 @@
                           workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline)
                           must reuse a shorter guest's scripts but the walk
                           would pick the wrong base.
-.PARAMETER ShowSensitive  Print expanded passwords / vault secrets in the
+.PARAMETER ShowSensitive Print expanded passwords / vault secrets in the
                           transcript. OFF by default to match production
                           (Invoke-TestRunner). Turn on only for one-off
                           local debugging; never share a transcript captured
@@ -95,68 +95,71 @@ param(
 $script:CmdLineLogLevel = if ($PSBoundParameters.ContainsKey('logLevel')) { $logLevel } else { $null }
 
 # === Resolve paths ===
-$TestRoot       = $PSScriptRoot
-$RepoRoot       = Split-Path -Parent $TestRoot
-$ModulesDir     = Join-Path $TestRoot "modules"
-$SequencesDir   = Join-Path $TestRoot "sequences"
+Import-Module (Join-Path $PSScriptRoot "modules/Test.Prelude.psm1") -Global -Force
+$paths        = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath
+$TestRoot     = $paths.TestRoot
+$RepoRoot     = $paths.RepoRoot
+$ModulesDir   = $paths.ModulesDir
+$SequencesDir = $paths.SequencesDir
+$ConfigPath   = $paths.ConfigPath
+# Publish the resolved config path so Update-TransportDefault and any
+# other cross-module reload site read the SAME file when -ConfigPath
+# <elsewhere> is in play.
+$env:YURUNA_CONFIG_PATH = $ConfigPath
 
-if (-not $ConfigPath) { $ConfigPath = Join-Path $TestRoot "test.config.yml" }
+# Canonical exit codes (centralised in Test.Prelude so a future change
+# to the contract -- e.g. introduce code 2 for "needs operator action" --
+# lands in one place rather than touching ~15 bare `exit 1` sites here.)
+$ExitOk      = Get-EntryPointExitCode -Outcome Ok
+$ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
-# === logLevel resolution: cmdline > YAML > 'Information' ===
-# Each level shows itself + all higher-priority streams; Error is highest.
-# Children spawned later inherit the resolved value via $env:YURUNA_LOG_LEVEL.
-$cfgForLevel = $null
-if (Test-Path $ConfigPath) {
-    try { $cfgForLevel = Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered } catch { $cfgForLevel = $null }
-}
-$effective = if ($script:CmdLineLogLevel) {
-    $script:CmdLineLogLevel
-} elseif ($cfgForLevel -is [System.Collections.IDictionary] -and $cfgForLevel.Contains('logLevel') -and $cfgForLevel.logLevel) {
-    [string]$cfgForLevel.logLevel
-} else { 'Information' }
-$valid = @('Error','Warning','Information','Verbose','Debug')
-$matched = $valid | Where-Object { $_ -ieq $effective } | Select-Object -First 1
-if (-not $matched) {
-    Write-Warning "logLevel '$effective' is not one of $($valid -join ', '); falling back to 'Information'."
-    $matched = 'Information'
-}
-$effective = $matched
-$rank      = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-$effRank   = $rank[$effective]
-$global:WarningPreference     = if ($rank.Warning     -le $effRank) { 'Continue' } else { 'SilentlyContinue' }
-$global:InformationPreference = if ($rank.Information -le $effRank) { 'Continue' } else { 'SilentlyContinue' }
-$global:VerbosePreference     = if ($rank.Verbose     -le $effRank) { 'Continue' } else { 'SilentlyContinue' }
-$global:DebugPreference       = if ($rank.Debug       -le $effRank) { 'Continue' } else { 'SilentlyContinue' }
-if ($effRank -ge $rank.Verbose) { $global:ProgressPreference = 'SilentlyContinue' }
-$env:YURUNA_LOG_LEVEL = $effective
-
-# === Import all modules (suppress engine verbose noise during imports) ===
+# === Canonical module set for the Sequence entry-point ===
+# Test.LogLevel + Test.Config + Test.SequenceAction + Test.HostIO +
+# Test.Host + Test.Log + Invoke-Sequence + Test.SequencePlanner +
+# Test.YurunaDir + Test.OcrEngine + Test.Tesseract +
+# Test.ConfigPreflight. Order in the helper matches the prior inline
+# sequence (planner AFTER engine so the engine's -Force re-import
+# inside the planner doesn't evict the just-imported engine).
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
-
+Initialize-YurunaEntryPointModuleSet -For Sequence -ModulesDir $ModulesDir
+# Yuruna.Log proxy is in automation/, not test/modules/, so it's not
+# part of the canonical set; load it inline.
 $yurunaLogModule = Join-Path -Path $RepoRoot -ChildPath "automation" -AdditionalChildPath "Yuruna.Log.psm1"
 if (Test-Path $yurunaLogModule) {
     Import-Module $yurunaLogModule -Global -Force
 }
-
-foreach ($mod in @("Test.Host", "Test.Log")) {
-    $modPath = Join-Path $ModulesDir "$mod.psm1"
-    if (-not (Test-Path $modPath)) { Write-Error "Module not found: $modPath"; exit 1 }
-    Import-Module -Name $modPath -Force
-}
-
-$engineModule = Join-Path $ModulesDir "Invoke-Sequence.psm1"
-if (-not (Test-Path $engineModule)) { Write-Error "Invoke-Sequence module not found: $engineModule"; exit 1 }
-Import-Module -Name $engineModule -Force
-
-# Planner: needed for Resolve-NamedSequenceChain so Test-Sequence runs the
-# full baseline -> workload prereq chain (matches Invoke-TestRunner). Import
-# AFTER Invoke-Sequence so its own -Force re-import of the engine doesn't
-# evict the just-imported engine from the global session.
-$plannerModule = Join-Path $ModulesDir "Test.SequencePlanner.psm1"
-if (-not (Test-Path $plannerModule)) { Write-Error "Planner module not found: $plannerModule"; exit 1 }
-Import-Module -Name $plannerModule -Force
+# Test.SequenceRunner.psm1 holds the chain-planning + chain-execution
+# blocks extracted out of this script so they can be unit-tested with
+# fixture data (see test/modules/Test.SequenceRunner.psm1 header).
+Import-Module (Join-Path $ModulesDir 'Test.SequenceRunner.psm1') -Global -Force
 $global:VerbosePreference = $savedVerbose
+
+# === logLevel resolution: cmdline > YAML > 'Information' ===
+# Canonical cascade: Test.LogLevel.psm1. See docs/loglevels.md.
+# Clear any stale custom action / host-I/O registrations left over
+# from a prior Test-Sequence run in the same shell. The $global:
+# anchors that protect against -Force re-imports also cause prior
+# extensions to leak across runs; an explicit reset on every entry
+# means a stale "myCustomAction" registration from yesterday cannot
+# silently mask a renamed verb today.
+Clear-SequenceAction -Confirm:$false
+Clear-HostIOProvider -Confirm:$false
+
+# Re-run Invoke-Sequence.psm1's module-load body so its
+# Register-SequenceAction calls (retry, recoverFromSnapshot) AND the
+# Test.SequenceHandler.psm1 import that registers every other built-in
+# verb (waitForText, passwdPrompt, fetchAndExecute, ...) repopulate the
+# registry that Clear-SequenceAction above just wiped. Without this
+# refresh the engine's per-step lookup fails with
+# "Unknown action 'retry' -- treating as failure." on the first verb of
+# the chain. Host I/O providers are re-registered later via
+# Initialize-YurunaHost (the per-host Test.HostIO.<Host>.psm1 loads
+# there), so Clear-HostIOProvider does not need a matching refresh here.
+Import-Module (Join-Path $ModulesDir 'Invoke-Sequence.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+$cfgForLevel = Read-TestConfig -Path $ConfigPath
+$configLevel = Get-TestConfigValue -Config $cfgForLevel -Path 'logLevel'
+$null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $script:CmdLineLogLevel -ConfigLevel $configLevel
 
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
 # group set lacks libvirt -- Test-Sequence runs the engine which
@@ -165,43 +168,23 @@ $global:VerbosePreference = $savedVerbose
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # === Read config ===
-if (-not (Test-Path $ConfigPath)) { Write-Error "Config not found: $ConfigPath"; exit 1 }
-$Config = Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered
+$Config = Read-TestConfig -Path $ConfigPath
+if (-not $Config) { Write-Error "Config not found or unparseable: $ConfigPath"; exit 1 }
 
 # === Pre-cycle config gate ==================================================
 # Mirror Invoke-TestRunner: refuse to bring up a VM when test.config.yml /
 # vault.yml / users.yml / transports.yml are in a state Test-Config.ps1
 # would reject. Without this gate a sequence can "pass" under Test-Sequence
 # (extension quirks-mode covers misconfig) while the runner refuses to even
-# start the cycle on the same config -- exactly the confusing surprise the
-# audit flagged. Bypass with -NoConfigGate for ad-hoc / in-progress edits.
+# start the cycle on the same config -- exactly the kind of confusing
+# surprise this gate guards against. Bypass with -NoConfigGate for
+# ad-hoc / in-progress edits.
 # Spawn a fresh pwsh so an Out-Of-Order ::Stop early-exit inside Test-Config
 # cannot unwind this script. -SkipSend stops the smoke-test email from
 # flooding subscribers["config.smoke"] on every Test-Sequence invocation.
-$ConfigGateScript = Join-Path $TestRoot 'Test-Config.ps1'
-if (-not (Test-Path -LiteralPath $ConfigGateScript)) {
-    Write-Warning "Pre-cycle config gate skipped: $ConfigGateScript not found."
-} elseif ($NoConfigGate) {
-    Write-Output "Pre-cycle config gate SKIPPED (-NoConfigGate)."
-} else {
-    Write-Output "Pre-cycle config gate: running Test-Config.ps1..."
-    $pwshExe = (Get-Process -Id $PID).Path
-    & $pwshExe -NoProfile -ExecutionPolicy Bypass -File $ConfigGateScript -SkipSend -ConfigPath $ConfigPath
-    $gateExit = $LASTEXITCODE
-    if ($gateExit -ne 0) {
-        Write-Warning ""
-        Write-Warning "============================================================"
-        Write-Warning "  Pre-cycle config gate FAILED (Test-Config.ps1 exit $gateExit)."
-        Write-Warning "  Fix the FAIL items above (test.config.yml, vault.yml,"
-        Write-Warning "  users.yml, transports.yml, ...) then re-run."
-        Write-Warning ""
-        Write-Warning "  To bypass for an ad-hoc / in-progress edit run:"
-        Write-Warning "      pwsh test/Test-Sequence.ps1 -NoConfigGate ..."
-        Write-Warning "============================================================"
-        exit $gateExit
-    }
-    Write-Output "Pre-cycle config gate PASSED."
-}
+# Test.ConfigPreflight was imported by Initialize-YurunaEntryPointModuleSet above.
+$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'Test-Sequence'
+if (-not $gate.passed) { exit $gate.exitCode }
 
 # === Refresh <RepoRoot>/project from test.config.yml's repositories.projectUrl ===
 # Mirror Invoke-TestInnerRunner: the cycle's planner (and Resolve-SequencePath
@@ -224,13 +207,13 @@ if (-not $cloneRes.success) {
     Write-Warning "  <RepoRoot>/project/. Fix repositories.projectUrl in"
     Write-Warning "  test.config.yml (or empty it to use the in-tree project)."
     Write-Warning "============================================================"
-    exit 1
+    exit $ExitFailure
 }
 
 # === Ensure status server is running (restart to pick up any changes) ===
-$startScript = Join-Path $TestRoot "Start-StatusServer.ps1"
-if ($Config.statusServer.isEnabled) {
-    $serverPort = $Config.statusServer.port ? [int]$Config.statusServer.port : 8080
+$startScript = Join-Path $TestRoot "Start-StatusService.ps1"
+if ($Config.statusService.isEnabled) {
+    $serverPort = $Config.statusService.port ? [int]$Config.statusService.port : 8080
     & $startScript -Port $serverPort -Restart
 }
 
@@ -265,6 +248,17 @@ try {
     }
 } catch { $null = $_ }
 
+# Tolerate operator typing the .yml/.yaml extension on the name form
+# (e.g. via shell tab-completion against a sibling project working tree
+# whose path the Resolve-Path branch couldn't resolve from this cwd).
+# Resolve-SequencePath unconditionally appends .yml, so a trailing
+# extension here would search for `Name.yml.yml` and miss. Same strip
+# Test.SequencePlanner already does when reading baseline entries from
+# YAML, kept symmetric so CLI callers and YAML callers behave the same.
+if (-not $SequencePathOverride -and $SequenceName -match '\.ya?ml$') {
+    $SequenceName = $SequenceName -replace '\.ya?ml$', ''
+}
+
 if ($SequencePathOverride) {
     Write-Output "Sequence path: $SequencePathOverride (basename: $SequenceName)"
     # Heads-up: if a host-variant sibling exists, Resolve-SequencePath
@@ -279,7 +273,7 @@ if ($SequencePathOverride) {
         if (Test-Path -LiteralPath $variantPath) {
             Write-Warning "Host-variant sibling exists: $variantPath"
             Write-Warning "  Invoke-TestRunner would pick the variant on $HostType, but Test-Sequence is running the generic file you passed."
-            Write-Warning "  Pass the variant path explicitly to match runner behaviour."
+            Write-Warning "  Pass the variant path explicitly to match runner behavior."
         }
     }
     $SequencePath = $SequencePathOverride
@@ -309,7 +303,7 @@ if (-not $SequencePath) {
             Sort-Object BaseName -Unique |
             ForEach-Object { Write-Output "    $($_.BaseName)" }
     }
-    exit 1
+    exit $ExitFailure
 }
 
 # Wire the host driver so contract calls (New-VM, Start-VM, Get-VMState, ...)
@@ -318,18 +312,24 @@ if (-not $SequencePath) {
 
 if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
 
-$savedVerbose = $global:VerbosePreference
-$global:VerbosePreference = "SilentlyContinue"
-Import-Module (Join-Path $ModulesDir "Test.RuntimeDir.psm1") -Force
-Import-Module (Join-Path $ModulesDir "Test.LogDir.psm1")   -Force
-Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
-Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
-$global:VerbosePreference = $savedVerbose
-
+# Test.YurunaDir / Test.OcrEngine / Test.Tesseract were
+# imported by Initialize-YurunaEntryPointModuleSet above.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
 Write-Output "Track directory: $env:YURUNA_RUNTIME_DIR"
 Write-Output "Log directory:   $env:YURUNA_LOG_DIR"
+
+# Archive any break-active.json left behind by a prior Test-Sequence /
+# Invoke-TestRunner that crashed (or was Ctrl-C'd) while paused at a
+# breakpoint. Otherwise the stale file would tell the status UI that a
+# Continue is pending for THIS new run before its break step has even
+# fired -- and the next break would write over the stale file with no
+# audit trail of what the previous one was paused on. Resolve-Stale-
+# BreakActive renames to break-active.<UTC>.json.aborted so forensics
+# survive. Same helper Invoke-TestRunner's outer-startup sweep runs.
+if (Get-Command Resolve-StaleBreakActive -ErrorAction SilentlyContinue) {
+    $null = Resolve-StaleBreakActive -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+}
 
 # Clear any stale control.cycle-restart flag. The status server's
 # /control/start-cycle endpoint writes this file to ask the runner to
@@ -349,51 +349,54 @@ if (Test-Path -LiteralPath $restartFlag) {
     }
 }
 
+# Clear any leftover pause flags (control.step-pause / .cycle-pause).
+# A fresh Test-Sequence invocation should never inherit a pause request
+# from a prior session the operator never explicitly resumed -- the
+# operator typed THIS command line, so we honour the intent to run, not
+# the stale flag. Same helper Invoke-YurunaBootRecovery uses.
+if (Get-Command Clear-StalePauseFlag -ErrorAction SilentlyContinue) {
+    $null = Clear-StalePauseFlag -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+}
+
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
 if (-not (Assert-TesseractInstalled)) { exit 1 }
 
-# === Derive GuestKey from sequence name ===
-# Sequence names follow the pattern: <phase>.<guestKey>[.<workload-suffix>]
-#   workload.guest.ubuntu.server.24                          -> guest.ubuntu.server.24
-#   start.guest.amazon.linux.2023                            -> guest.amazon.linux.2023
-#   workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline -> guest.ubuntu.server.24
-# Cascade-child sequences (third example) tack workload-specific suffixes
-# onto the guest key. The base guest is the LONGEST dotted prefix whose
-# host/<short>/<prefix>/ folder exists -- walk from full to shortest and
-# stop at the first hit. Explicit -GuestKey skips the walk.
+# === Derive GuestKey from the sequence's baseline map ===
+# Source of truth is the sequence's `baseline:` field -- whichever OS
+# key(s) it lists tell us which guest VM the sequence targets. The
+# filename is NOT authoritative: a typo or rename would otherwise
+# silently derail the whole chain (and a project sequence like
+# `ch01.website.example.yml` has no guest token in its name at all).
+# Same lookup the cycle planner uses in Resolve-CyclePlan
+# (Test.SequencePlanner.psm1) for Invoke-TestRunner / Test-Project,
+# kept symmetric so Test-Sequence behaves the same standalone.
 if ($GuestKey) {
     Write-Output "Guest key (override): $GuestKey"
 } else {
-    $parts = $SequenceName -split '\.', 2
-    if ($parts.Count -lt 2) {
-        Write-Error "Cannot derive guest key from sequence name '$SequenceName'. Expected format: <phase>.<guestKey>"
-        exit 1
+    try {
+        $topSeq = Read-SequenceFile -Path $SequencePath
+    } catch {
+        Write-Error "Could not parse sequence file '$SequencePath': $($_.Exception.Message)"
+        exit $ExitFailure
     }
-    $tried = @()
-    $candidate = $parts[1]
-    while ($candidate) {
-        $tried += $candidate
-        if (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $candidate) {
-            $GuestKey = $candidate
-            break
-        }
-        if ($candidate -notmatch '\.') { break }
-        $candidate = $candidate -replace '\.[^.]+$', ''
+    $osKeys = @()
+    if ($topSeq -is [System.Collections.IDictionary] -and
+        $topSeq.baseline -is [System.Collections.IDictionary] -and
+        $topSeq.baseline.Keys.Count -gt 0) {
+        $osKeys = @($topSeq.baseline.Keys)
     }
-    if (-not $GuestKey) {
-        $hostShort = $HostType -replace '^host\.',''
-        Write-Error "No guest folder found for sequence '$SequenceName' on $HostType."
-        Write-Output "  Tried (longest-first): $($tried -join ', ')"
-        Write-Output "  Add host/$hostShort/<guestKey>/ for one of those keys, or pass -GuestKey explicitly."
-        exit 1
+    if ($osKeys.Count -eq 0) {
+        Write-Error "Sequence '$SequenceName' has no 'baseline:' OS key in $SequencePath. Add a 'baseline:' block (e.g. 'baseline: { amazon.linux.2023: [start.guest.amazon.linux.2023] }') or pass -GuestKey explicitly."
+        exit $ExitFailure
     }
-    if ($tried.Count -gt 1) {
-        Write-Output "Guest key: $GuestKey (walked $($tried.Count) prefixes from '$($tried[0])')"
-    } else {
-        Write-Output "Guest key: $GuestKey"
+    $osKey = $osKeys[0]
+    if ($osKeys.Count -gt 1) {
+        Write-Warning "Sequence '$SequenceName' declares multiple baseline OS keys ($($osKeys -join ', ')). Test-Sequence will target '$osKey'. Pass -GuestKey to choose explicitly."
     }
+    $GuestKey = "guest.$osKey"
+    Write-Output "Guest key (from baseline): $GuestKey"
 }
 
 # Final safety net: even an explicit -GuestKey must point to a real folder.
@@ -402,7 +405,7 @@ if (-not (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $Gu
     Write-Error "Guest folder not found for '$GuestKey' on $HostType`: $folder"
     Write-Output "  Add Get-Image.ps1 + New-VM.ps1 under that path to enable this guest, or"
     Write-Output "  correct -GuestKey to a guest that exists on this host."
-    exit 1
+    exit $ExitFailure
 }
 
 # === Derive VM name (use -VMName override if provided) ===
@@ -411,102 +414,59 @@ if (-not $VMName) {
     $VMName = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix
 }
 
+# === UTM concurrent-VM pre-flight ===========================================
+# macOS vmnet-shared assigns one host-side bridge interface per vmnet
+# "session" (bridge100, bridge101, ...). Two concurrent UTM VMs land on
+# different bridges that don't route between each other. Observed: an
+# unrelated macos-26-01 running before the cycle pushed the test guests
+# onto bridge101, breaking the cloud-init host-proxy URL baked into
+# seed.iso. Refuse the cycle if anything else is running. The
+# operator's own target VM ($VMName) is exempted so the iterate-on-an-
+# existing-VM dev loop still works (Test-Sequence reuses a running VM
+# at line below).
+if ($HostType -eq 'host.macos.utm') {
+    if (-not (Assert-NoConcurrentUtmVm -ExceptVmName $VMName)) { exit 1 }
+}
+
 # === Build chain plan ===
-# Mirror Invoke-TestRunner's cycle planner: walk the named sequence's
-# baseline chain so every prereq runs before the top-level. Both the
-# name form and the path form (-TopLevelPath) walk the chain -- prereqs
-# living in the framework tree resolve normally; if the path form was
-# necessary because the project tree is not at <RepoRoot>/project/
-# (e.g. yuruna-project mounted as a sibling working tree), only the
-# top-level uses the override. effectiveUsername must be known BEFORE
-# New-VM below, matching the runner's same forward.
+# Chain planning + warm-path requiresSnapshot probe live in
+# Test.SequenceRunner.psm1 so they can be unit-tested with fixture
+# data. Behavior identical to the previous inline blocks: walk the
+# baseline chain, build (name,path,sequence,stepCount,globalStart) per
+# entry, and -- when the top-level declares requiresSnapshot.id and
+# the snapshot is already on disk -- drop every prereq and run only
+# the top-level against the persisted VM. effectiveUsername must be
+# known BEFORE New-VM below, matching the runner's same forward.
 $osKey = $GuestKey -replace '^guest\.',''
-$plannerArgs = @{
-    RepoRoot     = $RepoRoot
-    SequencesDir = $SequencesDir
-    HostType     = $HostType
-    SequenceName = $SequenceName
-    OsKey        = $osKey
-}
-if ($SequencePathOverride) { $plannerArgs.TopLevelPath = $SequencePathOverride }
-$ChainPlan = Resolve-NamedSequenceChain @plannerArgs
-$effectiveUser = $ChainPlan.effectiveUsername
+$plan = Resolve-TestSequencePlan `
+    -RepoRoot $RepoRoot `
+    -SequencesDir $SequencesDir `
+    -HostType $HostType `
+    -SequenceName $SequenceName `
+    -OsKey $osKey `
+    -SequencePathOverride $SequencePathOverride
+if ($plan.resolveFailed) { exit $ExitFailure }
+$ChainEntries       = $plan.chainEntries
+$ChainPlan          = $plan.chainPlan
+$effectiveUser      = $plan.effectiveUser
+$ChainTotalSteps    = $plan.chainTotalSteps
+$requiredSnapshotId = $plan.requiredSnapshotId
+if ($plan.warmPath) { $VMName = $requiredSnapshotId }
 
-# Build (name, path, sequence, stepCount, globalStart) per chain entry
-# using the planner's chainPaths map. Re-reading the YAML here (vs.
-# returning parsed sequences from the planner) keeps the planner's
-# return type simple; YAML parse cost is trivial next to running steps.
-$ChainEntries = New-Object System.Collections.Generic.List[object]
-$globalCount = 0
-foreach ($name in $ChainPlan.fullChain) {
-    $path = $ChainPlan.chainPaths[$name]
-    if (-not $path) {
-        $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $name -HostType $HostType -RepoRoot $RepoRoot
-        Write-Error "Chain prereq not found: $name (referenced via baseline of $SequenceName)"
-        Write-Output "Searched (no match):"
-        foreach ($p in $searched) { Write-Output "  $p" }
-        exit 1
-    }
-    $seq = Read-SequenceFile -Path $path
-    $count = @($seq.steps).Count
-    $ChainEntries.Add([pscustomobject]@{
-        name        = $name
-        path        = $path
-        sequence    = $seq
-        stepCount   = $count
-        globalStart = ($globalCount + 1)
-    })
-    $globalCount += $count
+# Same cascade registration as Invoke-TestInnerRunner: Test.Ssh's
+# Get-GuestSshUser is the lookup point for Save-GuestDiagnostic +
+# host-driver SSH-mode Send-Text / fetchAndExecute SSH. Standalone
+# Test-Sequence runs the same chain as a one-off, so register the
+# same override here. Empty $effectiveUser falls through to the
+# hardcoded per-guest default via Get-GuestSshUser unchanged.
+if (-not (Get-Command Set-GuestSshUserOverride -ErrorAction SilentlyContinue)) {
+    Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Force -Global -ErrorAction SilentlyContinue
 }
-$ChainTotalSteps = $globalCount
-
-if ($ChainPlan.fullChain.Count -gt 1) {
-    Write-Output "Chain: $($ChainPlan.fullChain -join ' -> ')"
-} else {
-    Write-Output "Chain: $($ChainPlan.fullChain[0]) (no baseline prereqs declared)"
+if (Get-Command Clear-GuestSshUserOverride -ErrorAction SilentlyContinue) {
+    Clear-GuestSshUserOverride
 }
-
-# === requiresSnapshot warm-path probe =======================================
-# When the top-level sequence declares `requiresSnapshot: { id: <X> }`,
-# the chain ends in a saveDiskSnapshot that renames `test-<guestKey>`
-# -> <X>. Two paths:
-#
-#   WARM: persisted VM <X> exists AND already has snapshot <X> on disk.
-#         Skip every prereq sequence and run only the top-level against
-#         <X>. The top-level's first loadDiskSnapshot reverts the disk.
-#
-#   COLD: snapshot not present. Walk the full chain. The build VM is
-#         created with the test-<guestKey> name (so Remove-TestVMFiles
-#         can sweep a failed cold build); saveDiskSnapshot renames it
-#         to <X> mid-chain, and subsequent entries operate on <X>. The
-#         per-entry loop below detects the rename and updates $VMName.
-$requiredSnapshotId = $null
-$topLevelEntry      = $ChainEntries[$ChainEntries.Count - 1]
-if ($topLevelEntry.sequence.requiresSnapshot -is [System.Collections.IDictionary] -and
-    $topLevelEntry.sequence.requiresSnapshot.Contains('id') -and
-    $topLevelEntry.sequence.requiresSnapshot.id) {
-    $requiredSnapshotId = [string]$topLevelEntry.sequence.requiresSnapshot.id
-}
-if ($requiredSnapshotId) {
-    $snapPresent = $false
-    try {
-        $snapPresent = [bool](Test-VMDiskSnapshot -VMName $requiredSnapshotId -Id $requiredSnapshotId)
-    } catch {
-        Write-Verbose "Test-VMDiskSnapshot threw ($($_.Exception.Message)); assuming cold path."
-    }
-    if ($snapPresent) {
-        Write-Output "requiresSnapshot: snapshot '$requiredSnapshotId' present on persisted VM '$requiredSnapshotId' -- skipping baseline chain (warm path)."
-        $VMName = $requiredSnapshotId
-        # Drop every prereq; keep only the top-level entry and rebase its
-        # globalStart to 1 so -StartStep / -StopStep index into the
-        # truncated step list naturally.
-        $topLevelEntry.globalStart = 1
-        $ChainEntries = New-Object System.Collections.Generic.List[object]
-        [void]$ChainEntries.Add($topLevelEntry)
-        $ChainTotalSteps = $topLevelEntry.stepCount
-    } else {
-        Write-Output "requiresSnapshot: snapshot '$requiredSnapshotId' not on host -- running full baseline chain (cold path; VM will be renamed to '$requiredSnapshotId' at saveDiskSnapshot)."
-    }
+if ($effectiveUser -and (Get-Command Set-GuestSshUserOverride -ErrorAction SilentlyContinue)) {
+    Set-GuestSshUserOverride -GuestKey $GuestKey -Username $effectiveUser
 }
 
 # === Promote vmStart.cachingProxyIP config -> env ==========================
@@ -552,7 +512,7 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
     # is not feasible standalone, but the sequence's own variables.username
     # is the only override Test-Sequence can honor without the planner).
     # Empty $effectiveUser falls through to the per-host New-VM default --
-    # matches today's behaviour when no plan resolves.
+    # matches today's behavior when no plan resolves.
     if ($effectiveUser) {
         Write-Verbose "Forwarding -Username '$effectiveUser' from $($SequenceName).variables.username."
         $r = New-VM -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName -Username $effectiveUser -CachingProxyUrl $newVmProxy -Confirm:$false
@@ -561,7 +521,7 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
     }
     if (-not $r.success) {
         Write-Error "New-VM failed: $($r.errorMessage)"
-        exit 1
+        exit $ExitFailure
     }
     Write-Output "VM '$VMName' created."
 }
@@ -591,13 +551,13 @@ if ($firstStepAction -eq 'loadDiskSnapshot') {
     $r = Start-VM -VMName $VMName -Confirm:$false
     if (-not $r.success) {
         Write-Error "Start-VM failed: $($r.errorMessage)"
-        exit 1
+        exit $ExitFailure
     }
     $ok = Wait-VMRunning -VMName $VMName `
         -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
     if (-not $ok) {
         Write-Error "VM '$VMName' did not reach running state within ${VmStartTimeout}s."
-        exit 1
+        exit $ExitFailure
     }
     Write-Output "VM '$VMName' is running."
 }
@@ -611,13 +571,13 @@ $totalSteps = $ChainTotalSteps
 
 if ($StartStep -lt 1 -or $StartStep -gt $totalSteps) {
     Write-Error "StartStep $StartStep is out of range. The chain has $totalSteps steps (1-$totalSteps)."
-    exit 1
+    exit $ExitFailure
 }
 
 if ($StopStep -ne 0) {
     if ($StopStep -lt $StartStep) {
         Write-Warning "StopStep ($StopStep) must be greater than or equal to StartStep ($StartStep). Stopping."
-        exit 1
+        exit $ExitFailure
     }
     if ($StopStep -gt $totalSteps) {
         Write-Warning "StopStep $StopStep exceeds total steps ($totalSteps). Clamping to $totalSteps."
@@ -629,9 +589,46 @@ $effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
 
 $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
+# === Register this run as a cycle in status.json ============================
+# Without this block Test-Sequence runs landed under cycle "000000" with no
+# row in the dashboard's history table, and break-active.json had no live
+# cycle to anchor the Continue button against. Mirrors Invoke-TestInner-
+# Runner's shape but uses a single 'Sequence' step (the inner runner's
+# fixed phase pills -- New-VM / Start-VM / Start-GuestOS / ... -- would
+# render four "pending" chips that never animate, since Test-Sequence
+# skips those phase boundaries).
+$StatusFile = Join-Path $env:YURUNA_RUNTIME_DIR 'status.json'
+Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
+
+$frameworkUrl = if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.frameworkUrl) {
+    [string]$Config.repositories.frameworkUrl
+} else { '' }
+$frameworkCommit = ''
+if (Get-Command Get-CurrentGitCommit -ErrorAction SilentlyContinue) {
+    try { $frameworkCommit = [string](Get-CurrentGitCommit -RepoRoot $RepoRoot) } catch { $frameworkCommit = '' }
+}
+$gitCommitsList = @()
+if ($frameworkCommit) {
+    $gitCommitsList += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl }
+}
+$SeqCycleId = Initialize-StatusDocument `
+    -StatusFilePath $StatusFile `
+    -HostType       $HostType `
+    -Hostname       (hostname) `
+    -GitCommit      $frameworkCommit `
+    -RepoUrl        $frameworkUrl `
+    -GitCommits     $gitCommitsList `
+    -GuestList      @($GuestKey) `
+    -StepNames      @('Sequence')
+
+Set-GuestVMName -GuestKey $GuestKey -VMName $VMName -Confirm:$false
+Set-GuestTopLevel -GuestKey $GuestKey -TopLevel $SequenceName -Confirm:$false
+Set-GuestStatus -GuestKey $GuestKey -Status 'running' -Confirm:$false
+Set-StepStatus -GuestKey $GuestKey -StepName 'Sequence' -Status 'running' -Confirm:$false
+
 # --- Start log file (transcript captures all console output) ---
-$SeqCycleId = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$LogFile    = Start-LogFile -TestRoot $TestRoot -CycleId $SeqCycleId -Hostname (hostname)
+$CycleNumber = Get-CycleNumber
+$LogFile    = Start-LogFile -TestRoot $TestRoot -CycleId $SeqCycleId -Hostname (hostname) -CycleNumber $CycleNumber
 Write-Output "Log file: $LogFile"
 
 Write-Output ""
@@ -659,89 +656,68 @@ foreach ($entry in $ChainEntries) {
 Write-Output ""
 
 # === Run each chain entry that overlaps the requested step range ===
-# Forward $ChainPlan.effectiveVariables on every Invoke-Sequence call so
-# the cascaded `variables.username` (etc.) propagates the same way the
-# runner's Invoke-SequenceByName forwards them. Empty cascade (no chain
-# prereqs found) leaves Invoke-Sequence's own `variables:` block as the
-# fallback -- same as the pre-chain single-sequence behaviour.
-# A failure in any chain entry aborts the whole run with the original
-# error reproduction tip; later entries don't auto-skip past the failure.
+# Per-entry slice + temp-file + Invoke-Sequence + mid-chain rename
+# detection lives in Test.SequenceRunner.psm1 (Invoke-TestSequenceChain).
+# The $tempFiles list + finally cleanup remain in this script so a
+# pre-call exception (failing module-resolution, control-C) still sweeps
+# the slice files. A mid-chain saveDiskSnapshot rename surfaces via the
+# returned finishedVmName so this script's outer $VMName tracks the
+# rename for the post-run banner.
 $tempFiles = New-Object System.Collections.Generic.List[string]
+# Outcome tracker for the finally{} -- script-scope so a mid-try exit
+# captures the right disposition before Stop-LogFile emits cycle_end.
+# 'unknown' is the safe default if control bails before either of the
+# success/failure branches assigns.
+$script:TestSequenceOutcome = 'unknown'
+$script:TestSequenceReason  = ''
 try {
-    Write-Output "Running steps $StartStep to $effectiveStop..."
-    Write-Output ""
-
-    foreach ($entry in $ChainEntries) {
-        $thisStart = $entry.globalStart
-        $thisEnd   = $thisStart + $entry.stepCount - 1
-
-        # Intersect this entry's global range with the requested range.
-        $sliceStart = [Math]::Max($StartStep, $thisStart)
-        $sliceEnd   = [Math]::Min($effectiveStop, $thisEnd)
-        if ($sliceStart -gt $sliceEnd) {
-            Write-Output "Skipping (no steps in requested range): $($entry.name)"
-            continue
-        }
-
-        # Convert global -> local 1-based indices for this entry's slice.
-        $localStart = $sliceStart - $thisStart + 1
-        $localEnd   = $sliceEnd   - $thisStart + 1
-
-        $allSteps   = @($entry.sequence.steps)
-        $slicedSteps = $allSteps[($localStart - 1)..($localEnd - 1)]
-
-        # Same top-level-keys-except-steps copy the original did; chain
-        # entries are each their own sequence dictionary.
-        $trimmedSequence = [ordered]@{}
-        foreach ($key in $entry.sequence.Keys) {
-            if ($key -ne 'steps') { $trimmedSequence[$key] = $entry.sequence[$key] }
-        }
-        $trimmedSequence['steps'] = $slicedSteps
-
-        $tempFile = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.yml'
-        $trimmedSequence | ConvertTo-Yaml | Set-Content -Path $tempFile -Encoding UTF8
-        [void]$tempFiles.Add($tempFile)
-
-        Write-Output ""
-        Write-Output "--- $($entry.name): local steps $localStart-$localEnd of $($entry.stepCount) (global $sliceStart-$sliceEnd) ---"
-
-        # -ShowSensitive defaults OFF to match Invoke-TestRunner's masking;
-        # the operator opts in with the switch when local debugging actually
-        # needs the cleartext values rendered.
-        $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $tempFile -EffectiveVariables $ChainPlan.effectiveVariables -ShowSensitive:$ShowSensitive
-        if ($ok -ne $true) {
-            Write-Warning "Sequence failed: $($entry.name)"
-            Write-Output ""
-            Write-Output "To reproduce with full diagnostics:"
-            Write-Output "  pwsh test/Test-Sequence.ps1 -SequenceName `"$SequenceName`" -StartStep $sliceStart -logLevel Debug"
-            exit 1
-        }
-
-        # Detect a mid-chain saveDiskSnapshot rename. The engine updates
-        # its internal $VMName when Save-VMDiskSnapshot succeeds (test-X
-        # -> <id>), but this script's outer $VMName is passed by value
-        # and is now stale. Without this swap the next entry would target
-        # the old, now-absent VM. Only fires when requiresSnapshot was
-        # declared, so non-snapshot chains keep their existing behaviour.
-        if ($requiredSnapshotId -and $VMName -ne $requiredSnapshotId) {
-            if ((Get-VMState -VMName $VMName) -eq 'absent' -and
-                (Get-VMState -VMName $requiredSnapshotId) -ne 'absent') {
-                Write-Output "VM renamed mid-chain: '$VMName' -> '$requiredSnapshotId'; subsequent entries will target '$requiredSnapshotId'."
-                $VMName = $requiredSnapshotId
-            }
-        }
+    $result = Invoke-TestSequenceChain `
+        -ChainEntries $ChainEntries `
+        -ChainPlan $ChainPlan `
+        -StartStep $StartStep `
+        -EffectiveStop $effectiveStop `
+        -StopStep $StopStep `
+        -ChainTotalSteps $totalSteps `
+        -HostType $HostType `
+        -GuestKey $GuestKey `
+        -VMName $VMName `
+        -RequiredSnapshotId $requiredSnapshotId `
+        -TempFiles $tempFiles `
+        -SequenceName $SequenceName `
+        -ShowSensitive:$ShowSensitive
+    if (-not $result.ok) {
+        $script:TestSequenceOutcome = 'fail'
+        $script:TestSequenceReason  = "chain '$SequenceName' (StartStep=$StartStep)"
+        exit $ExitFailure
     }
-
-    Write-Output ""
-    if ($StopStep -ne 0 -and $effectiveStop -lt $totalSteps) {
-        Write-Output "Chain stopped after step $effectiveStop of $totalSteps. VM '$VMName' left running for inspection."
-    } else {
-        Write-Output "Chain completed successfully ($totalSteps step(s) across $($ChainPlan.fullChain.Count) sequence(s))."
-    }
-    exit 0
+    if ($result.finishedVmName -ne $VMName) { $VMName = $result.finishedVmName }
+    $script:TestSequenceOutcome = 'pass'
+    exit $ExitOk
 } finally {
     foreach ($tf in $tempFiles) {
         Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue
     }
-    Stop-LogFile
+    # Finalize the status.json cycle row so the dashboard's history table
+    # reflects this Test-Sequence run. 'unknown' (mid-try exit before
+    # outcome was assigned) is recorded as 'fail' -- a cycle the operator
+    # walked away from is closer to a failed cycle than a clean pass for
+    # downstream automation (notification, retry, history pruning).
+    $finalOutcome = if ($script:TestSequenceOutcome -eq 'pass') { 'pass' } else { 'fail' }
+    if (Get-Command Set-StepStatus -ErrorAction SilentlyContinue) {
+        Set-StepStatus -GuestKey $GuestKey -StepName 'Sequence' -Status $finalOutcome -ErrorMessage $script:TestSequenceReason -Confirm:$false
+    }
+    if (Get-Command Set-GuestStatus -ErrorAction SilentlyContinue) {
+        Set-GuestStatus -GuestKey $GuestKey -Status $finalOutcome -Confirm:$false
+    }
+    if (Get-Command Complete-Run -ErrorAction SilentlyContinue) {
+        $maxHistory = 30
+        if ($Config -is [System.Collections.IDictionary] -and
+            $Config.testCycle -is [System.Collections.IDictionary] -and
+            $Config.testCycle.recentDisplayCount) {
+            $maxHistory = [int]$Config.testCycle.recentDisplayCount
+        }
+        Complete-Run -OverallStatus $finalOutcome -MaxHistoryRuns $maxHistory
+    }
+    Stop-LogFile -Outcome $script:TestSequenceOutcome -Reason $script:TestSequenceReason
 }
+

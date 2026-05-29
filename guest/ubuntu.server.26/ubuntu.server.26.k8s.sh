@@ -1,5 +1,6 @@
 #!/bin/bash
-# Version: 2026.05.22
+# Version: 2026.05.29
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
@@ -9,7 +10,7 @@ export NONINTERACTIVE=1
 
 # Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(eval echo "~$REAL_USER")
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
 # ===== Detect architecture =====
 ARCH=$(uname -m)
@@ -28,27 +29,8 @@ case "$ARCH" in
     ;;
 esac
 
-# --- See https://yuruna.link/network#defining-package-manager-retry
-apt_retry() {
-    local max_attempts=5 attempt=1 delay=15 rc=0
-    while [ $attempt -le $max_attempts ]; do
-        if [ $attempt -gt 1 ]; then
-            echo ""
-            echo ">> apt_retry: attempt $attempt/$max_attempts for: $*"
-        fi
-        rc=0; "$@" || rc=$?
-        if [ $rc -eq 0 ]; then return 0; fi
-        echo "!! apt_retry: attempt $attempt/$max_attempts failed (rc=$rc): $*"
-        if [ $attempt -lt $max_attempts ]; then
-            echo "!! apt_retry: sleeping ${delay}s before retry"
-            sleep $delay
-            delay=$((delay * 2))
-        fi
-        attempt=$((attempt + 1))
-    done
-    echo "!! apt_retry: all $max_attempts attempts exhausted for: $*"
-    return $rc
-}
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+. /usr/local/lib/yuruna/yuruna_retry.sh
 
 echo "=== Installing Kubernetes requirements for Ubuntu ==="
 
@@ -71,9 +53,8 @@ echo -e "\e[1;32m<<< Basic Tools installation complete.\e[0m"
 # ===== Docker =====
 echo ""
 echo -e "\e[1;36m>>> Installing Docker...\e[0m"
-# Add Docker's official repository
 sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL "https://download.docker.com/linux/ubuntu/gpg${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /etc/apt/keyrings/docker.asc
+curl_retry -fsSL "https://download.docker.com/linux/ubuntu/gpg${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
 sudo chmod a+r /etc/apt/keyrings/docker.asc
 
 sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
@@ -106,6 +87,12 @@ sudo tee /etc/docker/daemon.json >/dev/null <<EOF
 }
 EOF
 
+# Write the Kubernetes repo HERE so the single `apt-get update` below
+# refreshes both Docker and K8s indices in one shot. K8s packages are
+# installed later but the index is cheap to carry.
+curl_retry -fsSL "https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
+
 apt_retry sudo apt-get update -y
 apt_retry sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
@@ -115,7 +102,6 @@ sudo systemctl enable docker 2>/dev/null || echo "Note: systemctl enable docker 
 sudo systemctl start docker 2>/dev/null || echo "Note: systemctl start docker skipped (systemd may not be available)"
 sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service status unknown"
 
-# Configure Docker user permissions
 if ! getent group docker > /dev/null 2>&1; then
     sudo groupadd docker
 fi
@@ -190,12 +176,8 @@ echo -e "\e[1;32m<<< Docker is ready.\e[0m"
 # ===== Kubernetes =====
 echo ""
 echo -e "\e[1;36m>>> Installing Kubernetes...\e[0m"
-# Add Kubernetes official repository (new pkgs.k8s.io, deprecated apt.kubernetes.io)
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL "https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
-
-apt_retry sudo apt-get update -y
+# K8s repo + keyring already written next to the Docker source above so a
+# single apt-get update covers both.
 apt_retry sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 # ===== Initialize Kubernetes Cluster =====
@@ -288,15 +270,13 @@ sudo sysctl --system
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
 sudo kubeadm init --pod-network-cidr=10.244.0.0/16
 
-# Configure kubectl for the real user
 mkdir -p "${REAL_HOME}/.kube"
 sudo cp /etc/kubernetes/admin.conf "${REAL_HOME}/.kube/config"
 sudo chown "$REAL_USER:$REAL_USER" "${REAL_HOME}/.kube/config"
 export KUBECONFIG="${REAL_HOME}/.kube/config"
 
-# Install Flannel networking plugin
 FLANNEL_MANIFEST=/tmp/kube-flannel.yml
-if ! curl -fsSL "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml" -o "$FLANNEL_MANIFEST"; then
+if ! curl_retry -fsSL "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml" -o "$FLANNEL_MANIFEST"; then
     echo "ERROR: Failed to download kube-flannel.yml from github.com/flannel-io/flannel" >&2
     exit 1
 fi
@@ -334,20 +314,20 @@ echo -e "\e[1;32m<<< Kubernetes installation complete.\e[0m"
 # Helm (official install script)
 echo ""
 echo -e "\e[1;36m>>> Installing Helm...\e[0m"
-curl -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash || true
+curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash || true
 echo -e "\e[1;32m<<< Helm installation complete.\e[0m"
 
 # OpenTofu: deb install (primary) with standalone fallback, then verify.
 # The deb method fetches https://get.opentofu.org/opentofu.gpg; a transient
-# outage on that endpoint previously caused the install to fail while the
-# script happily continued (due to `|| true`), leaving every downstream
+# outage on that endpoint causes the install to fail while the script
+# happily continues (due to `|| true`), leaving every downstream
 # Set-Resource tofu invocation breaking with "command not recognized" and
 # ultimately producing HTTP 503 from the ingress. The standalone method
 # pulls the binary from github.com/opentofu/opentofu/releases and does not
 # touch get.opentofu.org, so it routes around the outage entirely.
 echo ""
 echo -e "\e[1;36m>>> Installing OpenTofu...\e[0m"
-curl --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh
+curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
 if ! /tmp/install-opentofu.sh --install-method deb; then
     echo "WARNING: OpenTofu deb install failed (often a GPG-key fetch from get.opentofu.org). Falling back to standalone method..."
@@ -380,26 +360,13 @@ fi
 if [ -n "$MKCERT_ARCH" ]; then
     MKCERT_URL="https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}${YurunaCacheContent:+&nocache=${YurunaCacheContent}}"
     MKCERT_INSTALLED=false
-    attempt=1
-    delay=10
-    while [ $attempt -le 3 ]; do
-        if curl -fsSL "$MKCERT_URL" -o /tmp/mkcert && [ -s /tmp/mkcert ]; then
-            chmod +x /tmp/mkcert
-            sudo mv /tmp/mkcert /usr/local/bin/mkcert
-            MKCERT_INSTALLED=true
-            break
-        fi
-        echo "!! mkcert curl attempt ${attempt}/3 failed for $MKCERT_URL"
+    if curl_retry -fsSL "$MKCERT_URL" -o /tmp/mkcert && [ -s /tmp/mkcert ]; then
+        chmod +x /tmp/mkcert
+        sudo mv /tmp/mkcert /usr/local/bin/mkcert
+        MKCERT_INSTALLED=true
+    else
         rm -f /tmp/mkcert
-        if [ $attempt -lt 3 ]; then
-            echo "!! sleeping ${delay}s before retry"
-            sleep $delay
-            delay=$((delay * 2))
-        fi
-        attempt=$((attempt + 1))
-    done
-    if [ "$MKCERT_INSTALLED" = false ]; then
-        echo "WARNING: dl.filippo.io fetch failed after 3 attempts. Falling back to apt mkcert (Ubuntu universe)..."
+        echo "WARNING: dl.filippo.io fetch failed. Falling back to apt mkcert (Ubuntu universe)..."
         if apt_retry sudo apt-get install -y mkcert; then
             MKCERT_INSTALLED=true
         fi

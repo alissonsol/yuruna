@@ -9,7 +9,7 @@ Squid cache VM, guest workload pattern) live in
 
 From a fresh **terminal** on Ubuntu 22.04+:
 
-```bash
+```
 bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 ```
 

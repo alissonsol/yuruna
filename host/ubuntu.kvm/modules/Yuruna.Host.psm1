@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host kvm libvirt
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .RELEASENOTES
     Yuruna host driver for Ubuntu KVM/libvirt hosts. Implements the
@@ -41,7 +41,7 @@ $script:VirshUri       = 'qemu:///system'
 $script:VmRootDir      = Join-Path $HOME 'yuruna/vms'
 $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
 
-Import-Module (Join-Path $script:TestModulesDir 'Test.VM.common.psm1')    -Force -DisableNameChecking
+Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking
 
@@ -445,6 +445,17 @@ function Test-VMDiskSnapshot {
 }
 
 function Restore-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Revert $VMName to libvirt snapshot $Id via `virsh snapshot-revert`.
+    .DESCRIPTION
+        Verifies the snapshot exists with `snapshot-info` first so a
+        typo'd Id does not bounce a healthy guest, stops the VM if it
+        is running, then runs `snapshot-revert`. Returns the virsh exit
+        status as a bool so callers can branch on success.
+    .OUTPUTS
+        [bool] $true on success; $false on missing snapshot or virsh failure.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -492,7 +503,7 @@ function Test-VMConsoleOpen {
 .SYNOPSIS
     Refresh or re-open the host-side console window for the given VM.
 .DESCRIPTION
-    Mirrors the Hyper-V `Restart-HyperVConnect` behaviour: kill any
+    Mirrors the Hyper-V `Restart-HyperVConnect` behavior: kill any
     existing viewer for THIS VM, then launch a fresh one. The operator
     sees a console window for every guest under test, same as on
     Hyper-V's vmconnect and on macOS UTM's display window.
@@ -977,12 +988,12 @@ function Write-YurunaNmcliFailure {
     if (Test-NetworkManagerCrashedRecently -WithinMinutes 3) {
         Write-Warning "NetworkManager CRASHED while trying to $Operation."
         Write-Warning "  This is an upstream NetworkManager bug (an internal assertion in"
-        Write-Warning "  nm-settings-utils.c, then SIGABRT) -- NOT a yuruna fault -- and it"
+        Write-Warning "  nm-settings-utils.c, then SIGABRT) -- NOT a Yuruna fault -- and it"
         Write-Warning "  is what raised the Ubuntu 'system problem detected' dialog."
         Write-Warning "  The cache VM will fall back to libvirt NAT 'default' (host-only)."
         Write-Warning "  To stop this recurring: re-run with YURUNA_EXTERNAL_BRIDGE_SKIP=1,"
         Write-Warning "  upgrade NetworkManager, or define 'yuruna-external' manually"
-        Write-Warning "  (see host/ubuntu.kvm/guest.squid-cache/README.md)."
+        Write-Warning "  (see host/ubuntu.kvm/guest.caching-proxy/README.md)."
     } else {
         Write-Warning "nmcli: failed to $Operation. nmcli reported:"
         foreach ($l in @($NmcliOutput)) {
@@ -1185,7 +1196,7 @@ on this same host.
 For LAN exposure despite the NM bug, either:
   * upgrade NetworkManager (the assertion is an upstream NM defect), or
   * define the 'yuruna-external' bridge manually (netplan) -- see
-    host/ubuntu.kvm/guest.squid-cache/README.md
+    host/ubuntu.kvm/guest.caching-proxy/README.md
 "@
         return $plan
     }
@@ -1317,7 +1328,7 @@ function New-YurunaExternalNetwork {
         if ((Test-YurunaNetworkManagerActive) -and (Test-NetworkManagerCrashedRecently)) {
             Write-Warning "NetworkManager has core-dumped recently on this host (see its journal)."
             Write-Warning "  The nmcli bridge build is what crashes it -- an upstream NM bug, not a"
-            Write-Warning "  yuruna fault. Skipping bridge creation to avoid crashing NM again."
+            Write-Warning "  Yuruna fault. Skipping bridge creation to avoid crashing NM again."
             Write-Warning "  Cache VM will use libvirt NAT 'default' (host-only). For LAN exposure,"
             Write-Warning "  upgrade NetworkManager or define 'yuruna-external' manually."
             return $null
@@ -1482,8 +1493,8 @@ function New-YurunaBridgeViaNmcli {
     # does not auto-enslave member ports. The bridge sits up with no
     # uplink until the slave is brought up below; DHCP on the bridge
     # will start, time out at ~45 s with `ip-config-unavailable`, and
-    # loop -- which is exactly the failure mode that left the cache
-    # VM stranded with no IP before this fix.
+    # loop -- which is exactly the failure mode that strands the cache
+    # VM with no IP if this branch is skipped.
     Write-Information "  Activating bridge '$BridgeName'..."
     $brUpOut = & sudo nmcli connection up $BridgeName 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -1603,7 +1614,7 @@ network:
 
 <#
 .SYNOPSIS
-    Returns true if the squid-cache VM is on a bridged libvirt network
+    Returns true if the caching-proxy VM is on a bridged libvirt network
     (LAN-routable IP, no host portproxy needed).
 #>
 function Test-CacheVMOnExternalNetwork {
@@ -1862,7 +1873,7 @@ function Get-GuestReachableHostIp {
 
 <#
 .SYNOPSIS
-    Probe and return the squid-cache URL, or null if none is reachable.
+    Probe and return the caching-proxy URL, or null if none is reachable.
 .DESCRIPTION
     Discovery is intentionally narrow -- only caches this host owns,
     or a remote cache the operator explicitly named, are returned:
@@ -2104,7 +2115,7 @@ function Get-HostProxyBackupPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    return Test.VM.common\Get-HostProxyBackupPath
+    return Test.VMUtility\Get-HostProxyBackupPath
 }
 
 <#
@@ -2143,91 +2154,6 @@ function Assert-Virtualization {
     return $true
 }
 
-# === SSH server (host-side) =================================================
-
-<#
-.SYNOPSIS
-    Returns true if the host has a code path for SSH-server lifecycle.
-#>
-function Test-SshServerSupported {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    return $true
-}
-
-<#
-.SYNOPSIS
-    Returns true if the host SSH server is installed.
-#>
-function Test-SshServerInstalled {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    # On Debian/Ubuntu, openssh-server installs sshd at /usr/sbin/sshd.
-    # Fall back to the dpkg query when sshd is removed but the package
-    # is still flagged as half-installed.
-    if (Test-Path -LiteralPath '/usr/sbin/sshd') { return $true }
-    $st = & dpkg-query -W -f='${db:Status-Status}' openssh-server 2>$null
-    return ("$st".Trim() -eq 'installed')
-}
-
-<#
-.SYNOPSIS
-    Install the host SSH server (idempotent).
-#>
-function Install-SshServer {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param()
-    if (-not $PSCmdlet.ShouldProcess('openssh-server', 'apt-get install')) { return $false }
-    if (Test-SshServerInstalled) { return $true }
-    & sudo apt-get update -qq | Out-Null
-    & sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server
-    return ($LASTEXITCODE -eq 0)
-}
-
-<#
-.SYNOPSIS
-    Start the host SSH server and set it to autostart.
-#>
-function Start-SshServer {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param()
-    if (-not $PSCmdlet.ShouldProcess('ssh.service', 'systemctl enable --now ssh')) { return $false }
-    if (-not (Test-SshServerInstalled)) { return $false }
-    & sudo systemctl enable --now ssh 2>$null | Out-Null
-    return ($LASTEXITCODE -eq 0)
-}
-
-<#
-.SYNOPSIS
-    Stop the host SSH server.
-#>
-function Stop-SshServer {
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
-    param()
-    if (-not $PSCmdlet.ShouldProcess('ssh.service', 'systemctl disable --now ssh')) { return $false }
-    & sudo systemctl disable --now ssh 2>$null | Out-Null
-    return ($LASTEXITCODE -eq 0)
-}
-
-<#
-.SYNOPSIS
-    Return 'running', 'stopped', 'not-installed', or 'unsupported'.
-#>
-function Get-SshServerStatus {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    if (-not (Test-SshServerInstalled)) { return 'not-installed' }
-    $active = & systemctl is-active ssh 2>$null
-    if ("$active".Trim() -eq 'active') { return 'running' }
-    return 'stopped'
-}
-
 # === Exports ================================================================
 
 Export-ModuleMember -Function `
@@ -2240,6 +2166,21 @@ Export-ModuleMember -Function `
     Get-ExternalNetwork, New-ExternalNetwork, New-YurunaExternalNetwork, Get-YurunaExternalNetworkPlan, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
     Test-CachingProxyAvailable, Get-CachingProxyVMIp, `
-    Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
-    Test-SshServerSupported, Test-SshServerInstalled, Install-SshServer, `
-    Start-SshServer, Stop-SshServer, Get-SshServerStatus
+    Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization
+
+# Contract-coverage assertion: warns at load time if the export block
+# above drifts away from the canonical Yuruna.Host contract. See
+# host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
+Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
+$null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' -ExportedFunction @(
+    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState',
+    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
+    'Test-VMConsoleOpen','Restart-VMConsole',
+    'Get-Image','Get-ImagePath',
+    'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',
+    'Wait-VMIp','Get-VMIp','Get-VMMac',
+    'Get-ExternalNetwork','New-ExternalNetwork','New-YurunaExternalNetwork','Get-YurunaExternalNetworkPlan','Test-CacheVMOnExternalNetwork',
+    'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
+    'Test-CachingProxyAvailable','Get-CachingProxyVMIp',
+    'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
+)

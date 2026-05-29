@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM workload testing.
 # See possible actions in the actions.yml file.
 # ${vmName}, ${hostType}, ${guestKey} are built-in. ${ext:area.Method(args)}
@@ -38,7 +39,7 @@ steps:
     description: "${username}@${vmName}"
 
   - action: waitForSeconds
-    seconds: 9
+    seconds: 10
     description: "Pause before installing toolset"
 
   - action: inputTextAndEnter
@@ -60,5 +61,5 @@ steps:
     description: "Show installed desktop packages"
 
   - action: waitForSeconds
-    seconds: 30
-    description: "Pause to see output."
+    seconds: 10
+    description: "Pause for displayed output."

@@ -28,7 +28,7 @@ replace `__MEMORY_SIZE__`).
 
 Existing VMs:
 
-```powershell
+```
 # Hyper-V (stop first):
 Stop-VM -Name "<vm>" -Force
 Set-VM  -Name "<vm>" -MemoryStartupBytes 32768MB -MemoryMinimumBytes 32768MB -MemoryMaximumBytes 32768MB
@@ -39,12 +39,12 @@ UTM: VM settings → **System** → **Memory**.
 
 Find the guest IP:
 
-```powershell
+```
 # Hyper-V:
 Get-VM -Name "<vm>" | Select-Object -ExpandProperty NetworkAdapters | Select IPAddresses
 ```
 
-```bash
+```
 # UTM console shows `eth0: <ip>` at the login prompt; or
 awk -F'[ =]' '/name=<vm>/{f=1} f && /ip_address/{print $NF; exit}' /var/db/dhcpd_leases
 ```

@@ -2,8 +2,6 @@ guestSequence:
   - guest.amazon.linux.2023
   - guest.ubuntu.server.24
   - guest.ubuntu.server.26
-hostSshServer:
-  enabled: false
 logLevel: Information
 notification:
   failuresBeforeAlert: 2
@@ -11,7 +9,7 @@ notification:
 repositories:
   frameworkUrl: https://github.com/alissonsol/yuruna
   projectUrl: https://github.com/alissonsol/yuruna-project
-statusServer:
+statusService:
   isEnabled: true
   port: 8080
 testCycle:

@@ -1,10 +1,10 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.22
+.VERSION 2026.05.29
 .GUID 42a1b2c3-d4e5-4f67-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
-.LICENSEURI https://yuruna.com
+.LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
 .EXTERNALMODULEDEPENDENCIES powershell-yaml
@@ -127,8 +127,23 @@ switch -Exact ($operation)
 }
 
 $null = Stop-Transcript
-if (-Not $result) {
-    Write-Output $result
+# Publish-Resource/Component/WorkloadList return a result-manifest
+# hashtable; the other operations still return a bare [bool]. Probe the
+# type before reading .success.
+$isOk = $false
+if ($result -is [hashtable] -or $result -is [System.Collections.IDictionary]) {
+    $isOk = (Test-YurunaResultManifestOk $result)
+}
+else {
+    $isOk = [bool]$result
+}
+if (-Not $isOk) {
+    if ($result -is [hashtable] -or $result -is [System.Collections.IDictionary]) {
+        Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
+    }
+    else {
+        Write-Output $result
+    }
     Write-Output $(Get-Content -Path $transcriptFileName)
 }
 else {

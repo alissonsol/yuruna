@@ -13,7 +13,7 @@ Create the guest VM first:
 Open an **elevated PowerShell terminal** in the guest. The one-liner is
 the same shape for every workload — only the script name changes:
 
-```powershell
+```
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/<script>$nc" | iex
 ```

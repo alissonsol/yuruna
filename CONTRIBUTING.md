@@ -182,7 +182,7 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 
 **Interceptor**
 
-  The concept of the interceptor is simple. You can test locally submitted changes without pushing to the repository. The status server "intercepts" your requests if you used the "fetch and execute" pattern, and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details on the definition of the "[Fetch-and-execution contract](http://yuruna.link/definition#fetch-and-execution-contract)".
+  The concept of the interceptor is simple. You can test locally submitted changes without pushing to the repository. The status server "intercepts" your requests if you used the "fetch and execute" pattern, and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details on the definition of the "[Fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract)".
 
 **Testing workload scripts** (self-contained):
 

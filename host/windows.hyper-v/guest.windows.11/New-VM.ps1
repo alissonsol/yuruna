@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,6 +169,13 @@ Set-VMFirmware -VMName $VMName -SecureBootTemplate MicrosoftWindows | Out-Null
 Set-VMKeyProtector -VMName $VMName -NewLocalKeyProtector
 Enable-VMTPM -VMName $VMName
 
+# Prune stale per-VM ACEs accumulated on this SHARED base image before
+# Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
+# unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
+# hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
+# have permission to open attachment"). See docs/hyperv-iso-ace-bloat.md.
+$prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
+if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 
@@ -189,7 +196,6 @@ Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions 
 # Enable Guest Service Interface for file copy (Hyper-V Integration Services)
 Enable-VMIntegrationService -VMName $VMName -Name "Guest Service Interface"
 
-# Set display resolution to 1920x1080.
 # WARNING: The test harness OCR is calibrated for 1920x1080.
 # Changing this resolution may break automated screen-text detection
 # in waitForText sequence steps.

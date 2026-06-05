@@ -1,0 +1,630 @@
+<#PSScriptInfo
+.VERSION 2026.06.05
+.GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test runner outer-loop
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Eternal cycle loop for [test/Invoke-TestRunner.ps1](../Invoke-TestRunner.ps1):
+    git pull, spawn the inner runner per cycle, watch the heartbeat,
+    pause on failure with four break-out triggers (framework commit,
+    project commit, local config edit, status-UI start request).
+.DESCRIPTION
+    Stops only on Ctrl+C (caller's $State.ShutdownState['Requested']
+    flip). Per the resilience contract, anything else -- a flaky
+    network, a hung sequence, an unhandled exception inside the
+    inner -- is just another failure that the outer absorbs and retries.
+
+    Carved out of the previously monolithic Invoke-TestRunner.ps1 so
+    the loop body and its helpers can be unit-tested independently of
+    the entry-point script. The caller (Invoke-TestRunner.ps1) builds
+    a State hashtable and calls Invoke-RunnerOuterLoop; the function
+    returns when ShutdownState['Requested'] flips. The watchdog lives
+    in its own module ([Test.RunnerWatchdog](Test.RunnerWatchdog.psm1))
+    so the heartbeat + kill logic stays decoupled from the loop.
+#>
+
+# === Pure git / config helpers ============================================
+# Each helper is module-level and takes its inputs as parameters; no
+# script-scope state is read implicitly. Callers (Invoke-RunnerOuterLoop
+# and downstream test fixtures) pass repo paths + config paths
+# explicitly so the helpers stay testable.
+
+function Get-OuterCommitSha {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $sha = & git -C $RepoRoot rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return ([string]$sha).Trim()
+}
+
+function Test-OuterNewCommitsAvailable {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$BaselineSha
+    )
+    & git -C $RepoRoot fetch --quiet origin 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    $upstream = & git -C $RepoRoot rev-parse '@{u}' 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $upstream) { return $false }
+    return (([string]$upstream).Trim() -ne $BaselineSha)
+}
+
+function Invoke-OuterGitPull {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    & git -C $RepoRoot pull --ff-only --quiet 2>&1 | Write-Output
+    return ($LASTEXITCODE -eq 0)
+}
+
+# Query a remote repo's current HEAD SHA without needing a local clone.
+# Used for the repositories.projectUrl probe (the project is wiped +
+# re-cloned at cycle start, so a local clone may not exist mid-pause).
+# Returns $null on any failure.
+function Get-OuterRemoteSha {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$RemoteUrl)
+    if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { return $null }
+    $line = & git ls-remote $RemoteUrl HEAD 2>$null | Select-Object -First 1
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($line)) { return $null }
+    return ([string]$line).Split("`t")[0].Trim()
+}
+
+# Snapshot the on-disk mtime of test.config.yml. Returns $null when
+# the file is missing -- pairs with the comparison logic in the pause
+# loop: a $null / non-null transition (file deleted or created mid-
+# pause) is itself a change worth breaking on, so the operator can
+# edit/create the config and expect a near-immediate cycle restart.
+function Get-OuterConfigMtime {
+    [CmdletBinding()]
+    [OutputType([Nullable[datetime]])]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+    try {
+        if (Test-Path -LiteralPath $ConfigPath) {
+            return (Get-Item -LiteralPath $ConfigPath).LastWriteTimeUtc
+        }
+    } catch {
+        Write-Verbose "Get-OuterConfigMtime: $($_.Exception.Message)"
+    }
+    return $null
+}
+
+# Read testCycle.stepTimeoutMinutes from test.config.yml each cycle so
+# an operator can edit between cycles and the new bound takes effect
+# on the next spawn without restarting the outer.
+function Get-OuterStepTimeoutMinute {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][int]$DefaultMinutes
+    )
+    # -NoCache so a mid-cycle operator edit (the "lower stepTimeout for
+    # the next cycle" workflow documented in test/README.md) takes effect
+    # at the spawn boundary even if Read-TestConfig's mtime-keyed cache
+    # hasn't noticed yet on a low-resolution filesystem.
+    $cfg = Read-TestConfig -Path $ConfigPath -NoCache
+    $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.stepTimeoutMinutes'
+    if ($null -ne $v) {
+        $i = [int]$v
+        if ($i -gt 0) { return $i }
+    }
+    return $DefaultMinutes
+}
+
+function Get-OuterAutoRemediation {
+    <#
+    .SYNOPSIS
+        Read the default-off auto-remediation opt-in (enable flag + per-streak
+        cap) fresh from test.config.yml so an operator edit takes effect at the
+        spawn boundary, like Get-OuterStepTimeoutMinute.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+    $enabled = $false
+    $maxAttempts = 2
+    try {
+        $cfg = Read-TestConfig -Path $ConfigPath -NoCache
+        $e = Get-TestConfigValue -Config $cfg -Path 'testCycle.autoRemediationEnabled'
+        if ($null -ne $e) { $enabled = [bool]$e }
+        $m = Get-TestConfigValue -Config $cfg -Path 'testCycle.autoRemediationMaxAttemptsPerCycle'
+        if (($null -ne $m) -and ([int]$m -gt 0)) { $maxAttempts = [int]$m }
+    } catch { Write-Verbose "Get-OuterAutoRemediation: $($_.Exception.Message)" }
+    return @{ Enabled = $enabled; MaxAttempts = $maxAttempts }
+}
+
+function Get-OuterLastFailureClass {
+    <#
+    .SYNOPSIS
+        failureClass from the just-failed cycle's last_failure.json. Safe to
+        read during the failure-pause -- the pre-spawn wipe runs at the NEXT
+        cycle start, so the file is intact here. $null when absent/unparseable.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (-not $env:YURUNA_LOG_DIR) { return $null }
+    $f = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+    if (-not (Test-Path -LiteralPath $f)) { return $null }
+    try {
+        $rec = Get-Content -Raw -LiteralPath $f -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        if ($rec.Contains('failureClass')) { return [string]$rec['failureClass'] }
+    } catch { Write-Verbose "Get-OuterLastFailureClass: $($_.Exception.Message)" }
+    return $null
+}
+
+function Get-OuterProjectUrl {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+    $cfg = Read-TestConfig -Path $ConfigPath
+    $v = Get-TestConfigValue -Config $cfg -Path 'repositories.projectUrl'
+    if ($v) { return [string]$v }
+    return $null
+}
+
+# === Forward-env + outer.log helpers ======================================
+
+function Sync-ForwardEnv {
+    <#
+    .SYNOPSIS
+        Re-assert the launch-time snapshot of YURUNA_* env vars so the
+        inner sees them even if some module in this outer process
+        clobbered $env: mid-run. See [[feedback memory entry on snapshot
+        + re-assert]] for why this is not a one-shot at outer startup.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Re-asserts a known-good snapshot; -WhatIf would be noise per key.')]
+    param([Parameter(Mandatory)][hashtable]$ForwardEnvSnapshot)
+    foreach ($n in $ForwardEnvSnapshot.Keys) {
+        $current = [Environment]::GetEnvironmentVariable($n)
+        if ($current -ne $ForwardEnvSnapshot[$n]) {
+            Set-Item -Path "Env:$n" -Value $ForwardEnvSnapshot[$n]
+        }
+    }
+}
+
+function Write-OuterLog {
+    <#
+    .SYNOPSIS
+        Append a timestamped line to runtime/outer.log. Survives a
+        console-output wedge (observed on Windows: conhost can swallow
+        every Write-Output for the entire failure-pause window).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Message)
+    $stamp = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+    try {
+        Add-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'outer.log') `
+            -Value "$stamp $Message" -Encoding utf8 -ErrorAction Stop
+    } catch {
+        Write-Verbose "outer.log write failed (non-fatal): $($_.Exception.Message)"
+    }
+}
+
+# === Main loop ============================================================
+
+function Invoke-RunnerOuterLoop {
+    <#
+    .SYNOPSIS
+        Run the eternal cycle loop until ShutdownState['Requested'] flips.
+    .PARAMETER State
+        Hashtable carrying per-run config + cross-thread references.
+        Required keys (all enforced via the validation block below):
+          RepoRoot, ConfigPath, InnerScript, PwshExe, ArgList,
+          ForwardEnvSnapshot, ShutdownState, NoGitPull,
+          FailurePauseMaxSeconds, FailureCommitPollSeconds,
+          OuterPullErrorSleepSec, InnerSpawnErrorSleepSec,
+          StepTimeoutMinutesDefault, WatchdogPollSeconds.
+        ShutdownState is a hashtable (reference-shared with the
+        caller's Ctrl+C handler) whose ['Requested'] key flipping
+        ends the loop.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+        Justification = 'Implementation reads keys from $State; PSSA cannot track hashtable indexer reads.')]
+    param([Parameter(Mandatory)][hashtable]$State)
+    $required = @(
+        'RepoRoot','ConfigPath','InnerScript','PwshExe','ArgList',
+        'ForwardEnvSnapshot','ShutdownState','NoGitPull',
+        'FailurePauseMaxSeconds','FailureCommitPollSeconds',
+        'OuterPullErrorSleepSec','InnerSpawnErrorSleepSec',
+        'StepTimeoutMinutesDefault','WatchdogPollSeconds'
+    )
+    foreach ($k in $required) {
+        if (-not $State.ContainsKey($k)) {
+            throw "Invoke-RunnerOuterLoop: -State is missing required key '$k'."
+        }
+    }
+    $cycle = 0
+    # Consecutive auto-remediation pause-skips; reset on a passing cycle so a
+    # deterministic transient still escalates to the normal wait-for-human
+    # pause after the per-streak cap, while an isolated transient retries fast.
+    $remediationAutoSkips = 0
+    while (-not $State.ShutdownState['Requested']) {
+        $cycle++
+
+        # State machine: idle -> cycle-start. The transition lands
+        # before any per-cycle work so a watchdog reading
+        # runner.state.json sees "cycle-start" while the git pull /
+        # pre-spawn cleanup is in flight; a crash during that window
+        # leaves "cycle-start" stale, which the next outer's
+        # Initialize-RunnerState detects + synthesises a fault.
+        if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+            $null = Set-RunnerState -To 'cycle-start' -Reason "cycle $cycle starting" -Confirm:$false
+        }
+
+        # 1. Outer git pull (framework repo). Skip on -NoGitPull,
+        #    mirroring the prior runner's flag. A failure here is
+        #    treated as transient: short sleep + retry, so the loop
+        #    doesn't burn CPU thrashing on a transient git error.
+        if (-not $State.NoGitPull) {
+            Write-Output ""
+            Write-Output "[outer cycle $cycle] git pull (framework)"
+            if (-not (Invoke-OuterGitPull -RepoRoot $State.RepoRoot)) {
+                Write-Warning "[outer cycle $cycle] git pull failed -- sleeping $($State.OuterPullErrorSleepSec)s before retry."
+                Start-Sleep -Seconds $State.OuterPullErrorSleepSec
+                continue
+            }
+        }
+
+        # 2. Spawn the inner. YURUNA_RUNNER_RELAUNCH=1 tells the inner
+        #    that we (the outer) own the pidfile + Ctrl+C handler;
+        #    inner skips its own copies of those. Sync-ForwardEnv
+        #    re-asserts the launch-time snapshot of YURUNA_* vars
+        #    (cache IP, track/log dirs, log level, OCR combine) so
+        #    the inner sees them even if some module in this outer
+        #    process clobbered $env: mid-run.
+        Sync-ForwardEnv -ForwardEnvSnapshot $State.ForwardEnvSnapshot
+        $env:YURUNA_RUNNER_RELAUNCH = '1'
+        if ($State.ForwardEnvSnapshot.Count -gt 0) {
+            Write-Output "[outer cycle $cycle] forwarding env: $($State.ForwardEnvSnapshot.Keys -join ', ')"
+        }
+        Write-Output "[outer cycle $cycle] spawning inner pwsh... (local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
+        Write-OuterLog "[outer cycle $cycle] about to invoke inner pwsh"
+        # Wipe last cycle's inner.pid + runner.stepHeartbeat BEFORE
+        # arming the watchdog. Without this, Start-Watchdog's wait-
+        # for-pidfile loop sees the stale file from the previous cycle
+        # and skips the wait entirely; it then reads the dead PID,
+        # observes Get-Process returns nothing, and disarms in <60s
+        # -- leaving the new inner unwatched for the whole cycle. A
+        # stale runner.stepHeartbeat has the symmetric trap: the
+        # watchdog would see a 7h-old mtime and kill the new inner
+        # before it even started its first step.
+        #
+        # last_failure.json is wiped here too. Invoke-Sequence removes
+        # it at the start of each sequence within a cycle, but between
+        # the previous cycle's failure and the new cycle's first
+        # sequence there is a multi-second window where a dashboard /
+        # status-server reader sees stale cycle-N failure context
+        # attached to cycle N+1. Pre-spawn deletion closes that window.
+        $innerPidFile    = Join-Path $env:YURUNA_RUNTIME_DIR 'inner.pid'
+        $stepHbFile      = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
+        $lastFailureFile = Join-Path $env:YURUNA_LOG_DIR     'last_failure.json'
+        Remove-Item -LiteralPath $innerPidFile    -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stepHbFile      -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $lastFailureFile -Force -ErrorAction SilentlyContinue
+        # Post-wipe: if Remove-Item failed (locked file, transient
+        # permission error, AV mid-scan, anything), the watchdog about
+        # to arm would read the stale mtime and kill the new inner
+        # inside one poll. Force a fresh stepHeartbeat mtime so the
+        # watchdog window is full regardless of whether Remove-Item
+        # succeeded.
+        try {
+            [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
+        } catch {
+            Write-Warning "[outer cycle $cycle] could not force-fresh runner.stepHeartbeat ($($_.Exception.Message)) -- watchdog may false-positive within the first poll."
+            Write-OuterLog "[outer cycle $cycle] runner.stepHeartbeat force-touch failed: $($_.Exception.Message)"
+        }
+        # inner.pid is the watchdog's other input; the new inner
+        # overwrites it at startup. If a stale pidfile survived
+        # Remove-Item, log loudly so the operator can investigate;
+        # the watchdog's wait-for-pidfile loop sees the stale content
+        # and either targets a dead PID (no-op) or, worst case, kills
+        # a live unrelated process. Surface so it's diagnosable
+        # instead of silently weird.
+        if (Test-Path -LiteralPath $innerPidFile) {
+            Write-Warning "[outer cycle $cycle] inner.pid wipe failed and the file is still present; watchdog may target the stale PID."
+            Write-OuterLog "[outer cycle $cycle] inner.pid wipe failed -- stale content survived Remove-Item"
+        }
+        # break-active.json: written by the `break` sequence action
+        # when a cooperative breakpoint parks the cycle, removed on
+        # resume. If the operator restarts only Invoke-TestRunner.ps1
+        # while a break is parked, the file survives and the first
+        # new-cycle step's Gate #1 thinks a break is still active --
+        # hanging the cycle on a non-existent marker. Status-server
+        # startup also sweeps this file but the runner can start
+        # without the status server; clean here so both startup paths
+        # agree.
+        Remove-Item -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'break-active.json') -Force -ErrorAction SilentlyContinue
+        # Arm the watchdog BEFORE the spawn so it's already polling
+        # by the time the inner writes inner.pid + the first
+        # heartbeat. Re-read stepTimeoutMinutes each cycle so an
+        # operator can tighten / loosen the bound between cycles
+        # without restarting the outer.
+        $stepTimeoutMin = Get-OuterStepTimeoutMinute -ConfigPath $State.ConfigPath -DefaultMinutes $State.StepTimeoutMinutesDefault
+        Write-OuterLog "[outer cycle $cycle] watchdog: stepTimeoutMinutes=$stepTimeoutMin"
+        $watchdogJob = Start-Watchdog -StepTimeoutMinutes $stepTimeoutMin -RuntimeDir $env:YURUNA_RUNTIME_DIR -PollSeconds $State.WatchdogPollSeconds
+        # A watchdog that failed to arm (null job, or one already in a
+        # terminal/failed state) silently disables hang protection: the inner
+        # would run unguarded and a hang would never be killed. Surface it
+        # loudly to console AND outer.log. A freshly started job is
+        # NotStarted -> Running, so only a terminal state here means the arm did
+        # not take -- this avoids a false warn on the NotStarted transition.
+        if ((-not $watchdogJob) -or ($watchdogJob.State -in @('Failed', 'Stopped', 'Completed'))) {
+            $wdState = if ($watchdogJob) { [string]$watchdogJob.State } else { '<null>' }
+            Write-Warning "[outer cycle $cycle] watchdog did NOT arm (state=$wdState) -- hang protection is DISABLED for this cycle."
+            Write-OuterLog "[outer cycle $cycle] WARNING: watchdog did not arm (job state=$wdState); cycle runs without hang protection."
+        }
+        # State machine: cycle-start -> in-cycle. Lands AFTER the
+        # watchdog is armed and BEFORE the call-op blocks. A crash
+        # while inner is running leaves "in-cycle" stale; boot
+        # recovery + Initialize-RunnerState narrate the recovery on
+        # the next startup.
+        if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+            $null = Set-RunnerState -To 'in-cycle' -Reason "inner spawning" -Confirm:$false
+        }
+        # --- See https://yuruna.link/memory#why-the-inner-spawn-uses-the-call-operator-instead-of-start-process
+        $exitCode = 0
+        try {
+            & $State.PwshExe @($State.ArgList)
+            $exitCode = $LASTEXITCODE
+        } catch {
+            Write-Warning "[outer cycle $cycle] failed to invoke inner pwsh: $_"
+            Stop-Watchdog -Job $watchdogJob
+            Start-Sleep -Seconds $State.InnerSpawnErrorSleepSec
+            continue
+        }
+        Stop-Watchdog -Job $watchdogJob
+        # Outer regained control. Emit BOTH to console and to runtime/
+        # outer.log so a conhost wedge (documented above) can't hide
+        # the moment Start-Process -Wait returned.
+        Write-Output "[outer cycle $cycle] outer runner back in control (local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
+        Write-OuterLog "[outer cycle $cycle] outer runner back in control"
+        Write-Output "[outer cycle $cycle] inner exited with code $exitCode"
+        Write-OuterLog "[outer cycle $cycle] inner exited with code $exitCode"
+
+        # Watchdog-kill detection: when the inner exits non-zero AND
+        # the last step heartbeat is older than the threshold, the
+        # cause was almost certainly the watchdog (the exit code is
+        # whatever Stop-Process -Force happened to deliver; the
+        # application-level failure path can't run after a SIGKILL/
+        # TerminateProcess). Tag the situation so the operator doesn't
+        # waste time hunting an application-level failure that never
+        # happened.
+        if ($exitCode -ne 0) {
+            $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
+            if (Test-Path -LiteralPath $stepHbFile) {
+                $hbAge = ((Get-Date) - (Get-Item -LiteralPath $stepHbFile).LastWriteTime).TotalSeconds
+                if ($hbAge -gt ($stepTimeoutMin * 60)) {
+                    Write-Warning "[outer cycle $cycle] inner exited non-zero AND runner.stepHeartbeat is $([int]$hbAge)s stale (threshold $($stepTimeoutMin * 60)s) -- watchdog likely killed the inner. See runtime/outer.log for the kill line."
+                    Write-OuterLog "[outer cycle $cycle] inner kill attributed to watchdog (step heartbeat age $([int]$hbAge)s > $($stepTimeoutMin * 60)s)"
+                    # A SIGKILL leaves no last_failure.json (the inner's application
+                    # failure path cannot run), so the auto-remediation pause-skip
+                    # below has nothing to classify and the cycle escalates straight
+                    # to the full human-wait pause. Synthesize a minimal record --
+                    # only when the inner left none -- with the already-wired
+                    # 'wait_timeout' class so the streak-capped auto-retry can end
+                    # the pause early. Atomic write so a reader never sees a partial
+                    # record; the existing per-streak cap still escalates a
+                    # deterministic hang after MaxAttempts.
+                    $synthFailureFile = if ($env:YURUNA_LOG_DIR) { Join-Path $env:YURUNA_LOG_DIR 'last_failure.json' } else { $null }
+                    if ($synthFailureFile -and -not (Test-Path -LiteralPath $synthFailureFile) -and (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue)) {
+                        $null = Write-YurunaStateFileJson -Path $synthFailureFile -Confirm:$false -InputObject ([ordered]@{
+                            failureClass            = 'wait_timeout'
+                            severity                = 'hard'
+                            reason                  = 'watchdog_kill'
+                            stepHeartbeatAgeSeconds = [int]$hbAge
+                            stepTimeoutSeconds      = ($stepTimeoutMin * 60)
+                            cycle                   = $cycle
+                            synthesizedBy           = 'outer-watchdog'
+                            timestamp               = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        })
+                        Write-OuterLog "[outer cycle $cycle] synthesized last_failure.json (failureClass=wait_timeout) for the watchdog kill so auto-remediation can retry."
+                    }
+                }
+            }
+        }
+
+        if ($exitCode -eq 0) {
+            # 3a. Success -- next iteration pulls and respawns
+            # immediately. State machine: in-cycle -> cycle-end ->
+            # idle. Both transitions are emitted so a streaming
+            # consumer sees the clean closure explicitly rather than
+            # inferring it from the absence of a fault event.
+            if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+                $null = Set-RunnerState -To 'cycle-end' -Reason "inner exited 0" -Confirm:$false
+                $null = Set-RunnerState -To 'idle'      -Reason "cycle complete"  -Confirm:$false
+            }
+            # A passing cycle re-arms the auto-remediation budget.
+            $remediationAutoSkips = 0
+            continue
+        }
+
+        # State machine: in-cycle -> fault. The transition lands BEFORE
+        # the failure-pause loop so a dashboard sees "fault" the moment
+        # the inner exits non-zero; the subsequent fault -> paused
+        # transition at the start of the pause loop makes the long
+        # wait explicit.
+        if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+            $null = Set-RunnerState -To 'fault' -Reason "inner exited $exitCode" -Confirm:$false
+        }
+
+        # 3b. Failure -- pause until either a new upstream commit
+        #     lands on the framework repo OR a new commit lands on
+        #     repositories.projectUrl OR the local test.config.yml
+        #     is edited OR the status-UI requests a restart OR the
+        #     cap elapses, polled every FailureCommitPollSeconds.
+        #     The wait loop sleeps in 5-second slices so Ctrl+C is
+        #     responsive (Start-Sleep can't be interrupted by our
+        #     event handler in long sweeps).
+        $baselineSha         = Get-OuterCommitSha -RepoRoot $State.RepoRoot
+        $baselineProjectUrl  = Get-OuterProjectUrl -ConfigPath $State.ConfigPath
+        $baselineProjectSha  = if ($baselineProjectUrl) { Get-OuterRemoteSha -RemoteUrl $baselineProjectUrl } else { $null }
+        $baselineConfigMtime = Get-OuterConfigMtime -ConfigPath $State.ConfigPath
+        $pauseStart  = Get-Date
+        $deadline    = $pauseStart.AddSeconds($State.FailurePauseMaxSeconds)
+        $projectWatchMsg = if ($baselineProjectUrl) { "framework + project ($baselineProjectUrl) + local config" } else { "framework + local config (no repositories.projectUrl)" }
+        Write-Warning "[outer cycle $cycle] inner failed -- pausing up to $($State.FailurePauseMaxSeconds / 60) min, polling $projectWatchMsg every $($State.FailureCommitPollSeconds / 60) min."
+        Write-OuterLog "[outer cycle $cycle] inner failed -- pausing up to $($State.FailurePauseMaxSeconds / 60) min; watching: $projectWatchMsg."
+        # Progress bar: tracks elapsed time toward the failure-pause
+        # cap (or earlier break-out when a trigger fires). Updated on
+        # every 5-second slice so the bar advances ~1.4%/tick and the
+        # operator sees forward motion instead of a silent terminal.
+        # -Id is fixed so we only ever own one progress row;
+        # -Completed in the finally clears it cleanly when the loop
+        # exits via any path (success, cap, Ctrl+C, exception).
+        $progressId = 1
+        # State machine: fault -> paused. The pause loop polls the
+        # framework + project + config-mtime triggers; this transition
+        # makes the waiting state explicit on the NDJSON stream.
+        if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+            $null = Set-RunnerState -To 'paused' -Reason "failure-pause begin" -Confirm:$false
+        }
+        try {
+            while ((Get-Date) -lt $deadline -and -not $State.ShutdownState['Requested']) {
+                $remainingPoll = $State.FailureCommitPollSeconds
+                while ($remainingPoll -gt 0 -and -not $State.ShutdownState['Requested']) {
+                    $slice = [math]::Min(5, $remainingPoll)
+                    Start-Sleep -Seconds $slice
+                    $remainingPoll -= $slice
+                    $remainingSec = [math]::Max(0, [int]($deadline - (Get-Date)).TotalSeconds)
+                    $elapsedSec   = [int]((Get-Date) - $pauseStart).TotalSeconds
+                    $percent      = [math]::Min(100, [math]::Max(0, [int](($elapsedSec * 100) / $State.FailurePauseMaxSeconds)))
+                    $remainingMin = [math]::Round($remainingSec / 60, 1)
+                    # Hardened the same way Wait-WithProgress draws its bar:
+                    # Write-Progress throws on tmux/sshd PTYs without a
+                    # resolvable TERM (the SetCursorPosition trap in
+                    # feedback_pwsh_linux_write_progress_setcursor.md). Swallow
+                    # the render failure so the pause keeps sleeping + polling
+                    # silently instead of aborting the whole outer loop.
+                    try {
+                        Write-Progress -Id $progressId `
+                            -Activity "[outer cycle $cycle] failure-pause toward next cycle" `
+                            -Status  ("{0} min remain (next commit poll in {1}s)" -f $remainingMin, $remainingPoll) `
+                            -PercentComplete $percent `
+                            -SecondsRemaining $remainingSec
+                    } catch { $null = $_ }
+                }
+                if ($State.ShutdownState['Requested']) { break }
+                # Trigger 1: framework repo new commit.
+                if (Test-OuterNewCommitsAvailable -RepoRoot $State.RepoRoot -BaselineSha $baselineSha) {
+                    Write-Output "[outer cycle $cycle] new framework upstream commits detected -- ending pause."
+                    Write-OuterLog "[outer cycle $cycle] new framework upstream commits detected -- ending pause."
+                    break
+                }
+                # Trigger 2: project repo new commit. ls-remote returns
+                # $null on network failure; require a non-null current
+                # AND a non-null baseline so a transient failure on
+                # either side doesn't fire spuriously, and don't fire
+                # when repositories.projectUrl wasn't set in the first
+                # place.
+                if ($baselineProjectUrl) {
+                    $currentProjectSha = Get-OuterRemoteSha -RemoteUrl $baselineProjectUrl
+                    if ($currentProjectSha -and $baselineProjectSha -and ($currentProjectSha -ne $baselineProjectSha)) {
+                        Write-Output "[outer cycle $cycle] new project upstream commits detected at $baselineProjectUrl -- ending pause."
+                        Write-OuterLog "[outer cycle $cycle] new project upstream commits detected at $baselineProjectUrl ($baselineProjectSha -> $currentProjectSha) -- ending pause."
+                        break
+                    }
+                }
+                # Trigger 3: local test.config.yml edit (mtime change
+                # OR file appearing/disappearing relative to the
+                # baseline). Comparing nullable datetimes with -ne
+                # handles all three transitions (changed / created /
+                # deleted) in one shot.
+                $currentConfigMtime = Get-OuterConfigMtime -ConfigPath $State.ConfigPath
+                if ($currentConfigMtime -ne $baselineConfigMtime) {
+                    Write-Output "[outer cycle $cycle] local test.config.yml changed ($($State.ConfigPath)) -- ending pause."
+                    Write-OuterLog "[outer cycle $cycle] local test.config.yml changed ($($State.ConfigPath): $baselineConfigMtime -> $currentConfigMtime) -- ending pause."
+                    break
+                }
+                # Trigger 4: status-service /control/start-cycle from
+                # the UI. The endpoint sees this outer's runner.pid as
+                # alive and skips spawning a replacement; without this
+                # poll, that path would leave the UI's "Start cycle"
+                # button silent until the backoff cap. Consume the
+                # flag here so the next inner spawn doesn't re-fire on
+                # it (Test-Sequence / inner's boot sweep also consume,
+                # but the closer the consume to the wake the smaller
+                # the window for stale-flag re-entry).
+                $outerRestartFlag = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-restart'
+                if (Test-Path -LiteralPath $outerRestartFlag) {
+                    Write-Output "[outer cycle $cycle] /control/start-cycle requested via status UI -- ending pause."
+                    Write-OuterLog "[outer cycle $cycle] /control/start-cycle requested via status UI -- ending pause."
+                    Remove-Item -LiteralPath $outerRestartFlag -Force -ErrorAction SilentlyContinue
+                    break
+                }
+                # Trigger 5: gated auto-remediation (default off). The remediation
+                # dispatcher's recovery vocabulary maps four failure classes to
+                # a clearly-safe retry; for those there is no point waiting the
+                # full human-commit pause, so end it early and let the next spawn
+                # retry. Capped per consecutive-failure streak (reset on a
+                # passing cycle) so a DETERMINISTIC transient still escalates to
+                # the normal wait-for-human pause after a couple of fast retries.
+                # Everything else (pause_and_inspect / operator_intervention_
+                # required / restart_from_snapshot classes) keeps the full pause.
+                $autoRem = Get-OuterAutoRemediation -ConfigPath $State.ConfigPath
+                if ($autoRem.Enabled -and $remediationAutoSkips -lt $autoRem.MaxAttempts) {
+                    $failClass = Get-OuterLastFailureClass
+                    if ($failClass -in @('wait_timeout','instrumentation_failure','network_timeout','host_io_blocked')) {
+                        $remediationAutoSkips++
+                        Write-Output "[outer cycle $cycle] auto-remediation: transient '$failClass' -- ending pause early to retry (auto-retry $remediationAutoSkips/$($autoRem.MaxAttempts))."
+                        Write-OuterLog "[outer cycle $cycle] auto-remediation: transient '$failClass' -- ending pause early (auto-retry $remediationAutoSkips/$($autoRem.MaxAttempts))."
+                        if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                            Send-CycleEventSafely -EventRecord @{
+                                timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                                event        = 'auto_remediation_applied'
+                                failureClass = [string]$failClass
+                                action       = 'end_failure_pause_early'
+                                attempt      = $remediationAutoSkips
+                                maxAttempts  = $autoRem.MaxAttempts
+                            }
+                        }
+                        break
+                    }
+                }
+                $remainingMin = [math]::Max(0, [math]::Round((($deadline - (Get-Date)).TotalMinutes), 1))
+                Write-Output "[outer cycle $cycle] no new commits, no config edit; ${remainingMin} min remain in pause."
+            }
+        } finally {
+            # Dismiss the bar on every exit path (trigger, cap, Ctrl+C,
+            # exception). Wrapped for the same render-failure reason as the
+            # in-loop draw above; an unrenderable terminal must not turn loop
+            # teardown into a thrown error.
+            try { Write-Progress -Id $progressId -Activity 'failure-pause' -Completed } catch { $null = $_ }
+            # State machine: paused -> idle. The pause-loop exits via
+            # any of: new framework commit, new project commit, config
+            # edit, status-UI request, cap elapsed, or Ctrl+C. All are
+            # "ready to try again" from the state machine's perspective.
+            if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+                $null = Set-RunnerState -To 'idle' -Reason "failure-pause ended" -Confirm:$false
+            }
+        }
+    }
+}
+
+Export-ModuleMember -Function `
+    Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, `
+    Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
+    Sync-ForwardEnv, Write-OuterLog, `
+    Invoke-RunnerOuterLoop

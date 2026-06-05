@@ -17,7 +17,7 @@ exits if it detects an outer already running.
 ## Sequence engine and cycle planner
 
 The cycle no longer needs per-guest `.ps1` extensions. The runner walks
-`project/test/test.sequence.yml` to derive an ordered execution plan,
+`project/test/test.runner.yml` to derive an ordered execution plan,
 and runs every sequence inline through
 [`Invoke-Sequence.psm1`](Invoke-Sequence.psm1) — the engine that
 implements the YAML `actions` (keystrokes, OCR waits, SSH pushes,
@@ -27,7 +27,7 @@ etc.). Action reference and per-host
 
 ### Where the work lives
 
-- **Cycle definition** — [`project/test/test.sequence.yml`](../../project/test/test.sequence.yml):
+- **Runner definition** — [`project/test/test.runner.yml`](../../project/test/test.runner.yml):
   top-level workload sequence names to drive each cycle.
 - **Per-sequence baseline** — every sequence's `baseline` field
   declares which guest OSes it supports and which prerequisite
@@ -52,7 +52,7 @@ etc.). Action reference and per-host
 
 | Function | Purpose |
 |---|---|
-| `Resolve-CyclePlan` | Reads `project/test/test.sequence.yml` and walks each top-level baseline to produce ordered `(topLevel, guestKey, fullChain)` entries. |
+| `Resolve-CyclePlan` | Reads `project/test/test.runner.yml` and walks each top-level sequence's baseline chain to produce ordered `(topLevel, guestKey, fullChain)` entries. |
 | `Get-CyclePlanGuestList` | Deduplicated guest list in plan order — used for pre-flight folder checks and image refresh. |
 | `Get-CyclePlanSequencesForGuest` | Merged `startSequences` / `workloadSequences` for a single guest across all matching plan entries (current runner contract: one VM lifecycle per unique guest). |
 
@@ -109,7 +109,7 @@ move it into the correct module or update this table.
 2. Set `baseline` to the guest OS keys and prerequisite sequence
    names. An empty array terminates the chain (used by `start.guest.*`).
 3. Reference the new sequence (or anything that depends on it) from
-   `project/test/test.sequence.yml` `baseline`.
+   the `project/test/test.runner.yml` `sequences` list.
 
 Back to [Test runner](../README.md) · [Test harness](../../docs/test-harness.md) · [Yuruna](../../README.md)
 

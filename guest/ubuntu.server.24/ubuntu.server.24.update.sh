@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -8,7 +8,6 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -26,12 +25,11 @@ case "$ARCH" in
 esac
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-. /usr/local/lib/yuruna/yuruna_retry.sh
+. /usr/local/lib/yuruna/yuruna-retry.sh
 
-# ===== Ensure PowerShell is installed =====
 # --- See https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 echo ""
-echo -e "\e[1;36m>>> Ensuring PowerShell is installed...\e[0m"
+echo -e "\e[1;36m==== PowerShell ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
   case "$ARCH" in
     x86_64)  PS_ARCH="x64" ;;
@@ -62,14 +60,12 @@ if ! command -v pwsh >/dev/null 2>&1; then
   rm -f /tmp/powershell.tar.gz
 fi
 pwsh --version
-echo -e "\e[1;32m<<< PowerShell ready.\e[0m"
 
-# ===== Install powershell-yaml module =====
 # --- See https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
 PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
 sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
-echo -e "\e[1;36m>>> Installing PowerShell module: powershell-yaml...\e[0m"
+echo -e "\e[1;36m==== powershell-yaml ====\e[0m"
 
 sudo pwsh -NoProfile -Command - <<'PSEOF' >> "$PWSH_YAML_LOG" 2>&1
 "===== {0} pre-flight (static) =====" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
@@ -101,12 +97,9 @@ $null = ConvertFrom-Yaml 'k: v'
 "OK"
 PSEOF
 
-echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e[0m"
-
-# ===== Early yuruna framework extraction (host-side diagnostic prereq) =====
 # --- See https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
 echo ""
-echo -e "\e[1;36m>>> Pre-fetching yuruna framework tarball (for diagnostic availability)...\e[0m"
+echo -e "\e[1;36m==== yuruna framework tarball ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 if [ -r /etc/yuruna/host.env ]; then
@@ -120,7 +113,7 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ] && [ ! -d "$RE
     mkdir -p "$REAL_HOME/yuruna"
     if wget --no-proxy -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
-      echo -e "\e[1;32m<<< Yuruna framework available at $REAL_HOME/yuruna (early extract).\e[0m"
+      echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
     else
       rm -rf "$REAL_HOME/yuruna"
       echo "yuruna: early tarball fetch failed -- will retry after apt phase."
@@ -130,7 +123,6 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ] && [ ! -d "$RE
   fi
 fi
 
-# ===== Disable services that may suspend the machine =====
 echo "TESTHACK: Disabling services that may suspend the machine."
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
@@ -142,9 +134,8 @@ APT::Periodic::AutocleanInterval "0";
 APT::Periodic::Unattended-Upgrade "0";
 EOF
 
-# ===== Update system packages =====
 echo ""
-echo -e "\e[1;36m>>> Updating system packages...\e[0m"
+echo -e "\e[1;36m==== system packages update ====\e[0m"
 apt_retry sudo apt-get update;
 # dist-upgrade is a superset of upgrade; running both repeats resolver work.
 apt_retry sudo apt-get -o APT::Get::Always-Include-Phased-Updates=true dist-upgrade -y;
@@ -161,23 +152,20 @@ if [ -n "$(apt-cache madison deborphan 2>/dev/null)" ]; then
   orphans=$(sudo deborphan --guess-data)
   if [ -n "$orphans" ]; then apt_retry sudo apt-get -y remove --purge $orphans; fi
 fi
-echo -e "\e[1;32m<<< System packages update complete.\e[0m"
 
 # Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
-# ===== Ensure Git is installed =====
 echo ""
-echo -e "\e[1;36m>>> Ensuring Git is installed...\e[0m"
+echo -e "\e[1;36m==== Git ====\e[0m"
 if ! command -v git >/dev/null 2>&1; then
   apt_retry sudo apt-get install -y git
 fi
 git --version
-echo -e "\e[1;32m<<< Git ready.\e[0m"
 
-# ===== Materialize the yuruna framework and project repos =====
 # --- See https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+echo -e "\e[1;32m==== yuruna framework and project repos ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
 if [ -r /etc/yuruna/host.env ]; then

@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM workload testing.
 # See possible actions in the actions.yml file.

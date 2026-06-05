@@ -892,7 +892,7 @@ Source:
 ### Why fetch-and-execute self-heals the yuruna_retry library?
 
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh)
-sources `/usr/local/lib/yuruna/yuruna_retry.sh` at startup so the
+sources `/usr/local/lib/yuruna/yuruna-retry.sh` at startup so the
 inner script (spawned via `bash -c "$script_content"`) inherits
 `apt_retry` / `dnf_retry` / `curl_retry` via `export -f`.
 

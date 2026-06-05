@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a7b8c9-d0e1-4f23-9456-7e8f9a0b1c20
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,8 +27,8 @@
 # (Initialize-YurunaHost lives in Test.HostBootstrap.psm1).
 
 # Module-level self-healing: re-import Test.VMUtility.psm1 with -Global
-# every time Test.Host is loaded. The runner's cycle re-import block
-# reloads Test.Host every cycle; doing the -Global import here keeps
+# every time Test.HostContract is loaded. The runner's cycle re-import block
+# reloads Test.HostContract every cycle; doing the -Global import here keeps
 # Wait-VMRunning / Test-IpAddress / Format-IpUrlHost (and the other
 # cross-host helpers) in the runner's session even when something
 # mid-cycle has wiped the global module table -- e.g. a sequence step
@@ -264,10 +264,21 @@ function Get-TestVMName {
 function Test-ElevationRequired {
     <#
     .SYNOPSIS
-    Returns $true if the host type requires Administrator elevation.
+    Returns $true if the host type requires Administrator / root
+    elevation. Reads the RequiresElevation flag from the host-condition
+    registry (Test.HostCondition.psm1).
+    .DESCRIPTION
+    Conservative default ($false) when the registry isn't loaded yet
+    -- the runner imports Test.HostCondition before this is meaningfully
+    queried, so the early-call window is small.
     #>
     param([string]$HostType)
-    return ($HostType -eq "host.windows.hyper-v")
+    if (-not (Get-Command Get-HostConditionProvider -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider) { return $false }
+    return [bool]$provider.RequiresElevation
 }
 
 function Assert-Elevation {
@@ -331,44 +342,19 @@ function Test-HostRequirement {
 
     $ok = $true
 
-    switch ($HostType) {
-        'host.windows.hyper-v' {
-            $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')
-            if (-not $isAdmin) {
-                Write-Warning "host.windows.hyper-v requires Administrator. Re-run this script from an elevated PowerShell -- without elevation, Hyper-V cmdlets (Get-VM/Stop-VM/Remove-VM) fail with 'You do not have the required permission...' before any friendlier check can run."
-                $ok = $false
-            }
-            $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
-            if (-not $svc) {
-                Write-Warning "Hyper-V Virtual Machine Management service (vmms) is not installed. Enable Hyper-V from an elevated PowerShell: Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All  (then reboot)."
-                $ok = $false
-            } elseif ($svc.Status -ne 'Running') {
-                Write-Warning "Hyper-V Virtual Machine Management service (vmms) is not running. Start it from an elevated PowerShell: Start-Service vmms"
-                $ok = $false
-            }
-        }
-        'host.ubuntu.kvm' {
-            if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
-                Write-Warning "virsh not found on PATH. Install libvirt + QEMU: sudo apt install libvirt-clients libvirt-daemon-system qemu-kvm"
-                $ok = $false
-            }
-            if (-not (Test-Path '/dev/kvm')) {
-                Write-Warning "/dev/kvm missing -- kvm.ko not loaded or VT-x/SVM disabled in firmware. Enable hardware virtualization in BIOS/UEFI and load the kvm kernel module."
-                $ok = $false
-            }
-        }
-        'host.macos.utm' {
-            if (-not (Test-Path '/Applications/UTM.app')) {
-                Write-Warning "/Applications/UTM.app not found. Install UTM from https://mac.getutm.app."
-                $ok = $false
-            }
-            if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
-                Write-Warning "utmctl not found on PATH. The UTM.app bundle ships it at /Applications/UTM.app/Contents/MacOS/utmctl -- symlink it into /usr/local/bin or rerun host/macos.utm/Enable-TestAutomation.ps1."
-                $ok = $false
-            }
-        }
-        default {
+    # Registry-backed dispatch: each platform sibling
+    # (Test.HostCondition.{Mac,Windows,Linux}.psm1) registers a
+    # Test-*HostMinimum scriptblock that runs the quick check below.
+    # Adding a new host is one Register-HostConditionProvider call;
+    # nothing here changes.
+    if (-not (Get-Command Get-HostConditionProvider -ErrorAction SilentlyContinue)) {
+        Write-Warning "Test.HostCondition not loaded -- skipping requirements check for '$HostType'."
+    } else {
+        $provider = Get-HostConditionProvider -HostType $HostType
+        if (-not $provider) {
             Write-Warning "Unknown host type '$HostType' -- skipping requirements check."
+        } elseif ($provider.AssertMinimum) {
+            $ok = [bool](& $provider.AssertMinimum)
         }
     }
 

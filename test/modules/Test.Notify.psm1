@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456703
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -423,4 +423,105 @@ function Get-FailureEventData {
     return $payload
 }
 
-Export-ModuleMember -Function Send-Notification, Format-FailureMessage, Get-FailureEventData, Write-NotificationDelivery
+<#
+.SYNOPSIS
+    Builds the failure-notification body and dispatches it for a cycle failure.
+.DESCRIPTION
+    Collapses the duplicated "format the body, then Send-Notification" unit
+    shared by the cycle-failure sites in Invoke-TestInnerRunner.ps1 into one
+    place. Owns ONLY that build-body-and-send step: the fixed EventCode
+    'cycle.failure', the fixed subject prefix "Yuruna Test: FAIL on <HostType>
+    / " with the caller-supplied -SubjectSuffix appended, Format-FailureMessage
+    (the human body plus its JSON trailer), and Send-Notification.
+
+    It deliberately does NOT gate (AlertArmed / ConsecutiveFailures), does NOT
+    remediate, and does NOT disarm, exit, or write status output. Those
+    side-effects differ per site (a bootstrap site exits; an in-cycle site
+    disarms and reports a suppressed-until line) and stay inline at the call
+    site. In particular the in-cycle / post-loop sites run Invoke-Remediation
+    on the payload BEFORE the send -- an ordering the caller keeps visible by
+    remediating inline and handing the already-built payload here.
+
+    Payload sourcing:
+      * In-cycle / post-loop callers pre-build the payload (so they can run
+        Invoke-Remediation against it first) and pass it via -EventData; the
+        helper reuses that exact hashtable and skips its own build, so the
+        shipped payload is byte-identical to the remediated one.
+      * Bootstrap callers fire before the cycle folder exists, so no
+        last_failure.json is present and nothing downstream consumes the
+        payload after the send. They let the helper build it by passing
+        -DefaultFailureClass / -DefaultSeverity and omitting -EventData.
+
+    Format-FailureMessage is fed the SAME raw scalars the caller holds, never
+    fields read back out of the payload: Get-FailureEventData applies
+    if($X){$X}else{fallback} substitution (e.g. an empty ErrorMessage falls
+    back to action / actionVerb), so reading the body's "Error:" line from the
+    payload instead of the raw scalar would change the human text for an empty
+    error. Forwarding the scalars verbatim keeps the body byte-identical.
+
+    (hostname) is evaluated once here and reused for both the internal
+    Get-FailureEventData build path and Format-FailureMessage; every call site
+    invokes (hostname) twice today with the same result, so one evaluation is
+    behavior-equivalent and drops a redundant process spawn.
+
+    Output hygiene: the Get-FailureEventData and Format-FailureMessage results
+    are captured into locals and Send-Notification is the final statement, so
+    the helper's pipeline output equals Send-Notification's today and the
+    payload hashtable never leaks to the caller's pipeline. When -EventData is
+    supplied it wins; the build-path inputs (Default* / ProjectCommit) are then
+    ignored, matching how the four internal callers already use the helper.
+#>
+function Send-CycleFailureNotification {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        # Subject tail after "Yuruna Test: FAIL on <HostType> / ".
+        # GitPull | ProjectClone | "<FailedGuest> / <FailedStep>".
+        [Parameter(Mandatory)][string]$SubjectSuffix,
+        [string]$GuestKey,
+        [string]$StepName,
+        [string]$ErrorMessage,
+        [string]$CycleId,
+        [string]$GitCommit,
+        # Pre-built payload (in-cycle / post-loop sites remediate on it before
+        # the send). When supplied the internal Get-FailureEventData build is
+        # skipped so the shipped payload is byte-identical to the remediated one.
+        [hashtable]$EventData = $null,
+        # Build-path inputs (bootstrap sites, no last_failure.json yet). Only
+        # consulted when -EventData was not supplied. ProjectCommit defaults to
+        # '', which Get-FailureEventData treats the same as not passing it.
+        [string]$ProjectCommit = '',
+        [string]$DefaultFailureClass = 'unknown',
+        [string]$DefaultSeverity     = 'unknown'
+    )
+    $machineName = (hostname)
+    $payload = $EventData
+    if (-not $payload) {
+        $payload = Get-FailureEventData `
+            -HostType            $HostType `
+            -Hostname            $machineName `
+            -GuestKey            $GuestKey `
+            -StepName            $StepName `
+            -ErrorMessage        $ErrorMessage `
+            -CycleId             $CycleId `
+            -GitCommit           $GitCommit `
+            -ProjectCommit       $ProjectCommit `
+            -DefaultFailureClass $DefaultFailureClass `
+            -DefaultSeverity     $DefaultSeverity
+    }
+    $body = Format-FailureMessage `
+        -HostType     $HostType `
+        -Hostname     $machineName `
+        -GuestKey     $GuestKey `
+        -StepName     $StepName `
+        -ErrorMessage $ErrorMessage `
+        -CycleId      $CycleId `
+        -GitCommit    $GitCommit `
+        -EventData    $payload
+    Send-Notification -EventCode    'cycle.failure' `
+                      -EventMessage "Yuruna Test: FAIL on $HostType / $SubjectSuffix" `
+                      -EventNote    $body `
+                      -EventData    $payload
+}
+
+Export-ModuleMember -Function Send-Notification, Format-FailureMessage, Get-FailureEventData, Write-NotificationDelivery, Send-CycleFailureNotification

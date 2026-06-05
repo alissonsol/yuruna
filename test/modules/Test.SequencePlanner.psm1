@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,11 +18,11 @@
 
 <#
 .SYNOPSIS
-    Builds the per-cycle execution plan from project/test/test.sequence.yml
+    Builds the per-cycle execution plan from project/test/test.runner.yml
     and the per-sequence baseline fields.
 
 .DESCRIPTION
-    The cycle config (project/test/test.sequence.yml) lists top-level
+    The runner config (project/test/test.runner.yml) lists top-level
     sequence names. Each sequence has a baseline field keyed by guest OS,
     pointing at one or more prerequisite sequences. Walking the prereq
     graph depth-first produces an ordered chain ending in the top-level
@@ -51,18 +51,18 @@ if (Test-Path $script:EngineModule) {
 
 <#
 .SYNOPSIS
-    Returns the path to project/test/test.sequence.yml under the cloned project root.
+    Returns the path to project/test/test.runner.yml under the cloned project root.
 #>
 function Get-CycleConfigPath {
     param([Parameter(Mandatory)][string]$RepoRoot)
-    return (Join-Path $RepoRoot "project/test/test.sequence.yml")
+    return (Join-Path $RepoRoot "project/test/test.runner.yml")
 }
 
 <#
 .SYNOPSIS
-    Reads project/test/test.sequence.yml and returns the parsed object.
+    Reads project/test/test.runner.yml and returns the parsed object.
 .DESCRIPTION
-    Throws when the file is missing or has no `baseline` array, since the
+    Throws when the file is missing or has no `sequences` array, since the
     cycle has no work to do without one. Callers can wrap in try/catch
     and degrade to legacy guestSequence if they want fallback behavior.
 
@@ -74,11 +74,11 @@ function Get-CycleConfig {
     param([Parameter(Mandatory)][string]$RepoRoot)
     $path = Get-CycleConfigPath -RepoRoot $RepoRoot
     if (-not (Test-Path $path)) {
-        throw "Cycle config not found: $path (set test.config.yml's repositories.projectUrl, or place the file under <repo>/project/test/)"
+        throw "Runner config not found: $path (set test.config.yml's repositories.projectUrl, or place the file under <repo>/project/test/)"
     }
     $cfg = Read-SequenceFile -Path $path
-    if (-not $cfg.baseline -or $cfg.baseline.Count -eq 0) {
-        throw "Cycle config has no 'baseline' entries: $path"
+    if (-not $cfg.sequences -or $cfg.sequences.Count -eq 0) {
+        throw "Runner config has no 'sequences' entries: $path"
     }
     return $cfg
 }
@@ -107,7 +107,7 @@ function Add-CyclePrereqChainEntry {
         # the last-attempted file would be misleading.
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
         $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
-        throw "PlannerFatal: prereq sequence not found: $SequenceName (referenced by an entry in project/test/test.sequence.yml)`nSearched (no match):`n$list"
+        throw "PlannerFatal: prereq sequence not found: $SequenceName (referenced by an entry in project/test/test.runner.yml)`nSearched (no match):`n$list"
     }
     $seq = Read-SequenceFile -Path $path
     if ($seq.baseline -and $seq.baseline.Contains($OsKey)) {
@@ -123,8 +123,8 @@ function Add-CyclePrereqChainEntry {
 .SYNOPSIS
     Resolves the cycle baseline into ordered (topLevel, guestKey, fullChain) entries.
 .DESCRIPTION
-    For each top-level sequence in project/test/test.sequence.yml baseline,
-    iterates the supported guest OSes (keys of the sequence's own baseline
+    For each top-level sequence in the project/test/test.runner.yml sequences
+    list, iterates the supported guest OSes (keys of the sequence's own baseline
     field) and produces one entry per (top-level, OS) pair. Each entry
     carries:
       - topLevel:          the top-level sequence name from the cycle config
@@ -148,7 +148,7 @@ function Resolve-CyclePlan {
     )
     $cycleCfg = Get-CycleConfig -RepoRoot $RepoRoot
     $entries = New-Object System.Collections.Generic.List[Object]
-    foreach ($raw in $cycleCfg.baseline) {
+    foreach ($raw in $cycleCfg.sequences) {
         # Accept entries written with or without an extension. Older project
         # configs sometimes spell sequences as `<name>.json`; the migration
         # to `.yml` shouldn't break those clones.
@@ -158,13 +158,13 @@ function Resolve-CyclePlan {
             # Throw PlannerFatal so the runner aborts the cycle (via the
             # !!!!! banner branch in Invoke-TestInnerRunner.ps1's catch)
             # instead of warn-and-continue with a fake "resolved to <last
-            # attempted path>" pointer. A typo in the baseline used to
-            # silently skip the entry, leaving operators chasing an empty
-            # cycle; now the searched locations are spelled out and the
-            # cycle stops on the spot.
+            # attempted path>" pointer. A typo in the sequences list must
+            # abort rather than silently skip the entry: a skipped entry
+            # leaves operators chasing an empty cycle, so the searched
+            # locations are spelled out and the cycle stops on the spot.
             $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $topName -HostType $HostType -RepoRoot $RepoRoot
             $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
-            throw "PlannerFatal: cycle baseline references missing sequence: $topName (in $(Get-CycleConfigPath -RepoRoot $RepoRoot))`nSearched (no match):`n$list"
+            throw "PlannerFatal: runner sequences list references missing sequence: $topName (in $(Get-CycleConfigPath -RepoRoot $RepoRoot))`nSearched (no match):`n$list"
         }
         $topSeq = Read-SequenceFile -Path $topPath
         if (-not $topSeq.baseline) {
@@ -246,7 +246,7 @@ function Resolve-CyclePlan {
     VM-name allocation — places that operate per unique guest rather than
     per plan entry. The relative order matches the order entries appear in
     the plan, which is itself the order top-level sequences appear in
-    project/test/test.sequence.yml baseline.
+    the project/test/test.runner.yml sequences list.
 #>
 function Get-CyclePlanGuestList {
     param([Parameter(Mandatory)]$Plan)
@@ -255,6 +255,48 @@ function Get-CyclePlanGuestList {
     foreach ($e in $Plan) {
         if ($seen.Add($e.guestKey)) { [void]$list.Add($e.guestKey) }
     }
+    return ,@($list.ToArray())
+}
+
+<#
+.SYNOPSIS
+    Returns the cycle plan's top-level sequences with their guest(s), in runner-list order.
+.DESCRIPTION
+    The dashboard renders one card per top-level sequence (the entries listed
+    in project/test/test.runner.yml), nesting the guest(s) each sequence
+    drives. This produces that ordered mapping from the resolved plan: one
+    entry per distinct topLevel in first-appearance order (= the order the
+    sequences appear in test.runner.yml, since Resolve-CyclePlan iterates that
+    list), each carrying the guestKeys it expands to (also first-appearance
+    order). The same guest can appear under more than one sequence when
+    multiple top-levels depend on it.
+
+    Each emitted entry is an ordered hashtable @{ name = <topLevel>;
+    guests = @(<guestKey>...) } so it serializes straight into status.json's
+    `sequences` array. The Dictionary uses an ordinal comparer so two
+    sequence names differing only by case stay distinct (mirrors the
+    case-sensitive HashSet dedup in Get-CyclePlanGuestList).
+#>
+function Get-CyclePlanSequenceList {
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
+    param([Parameter(Mandatory)]$Plan)
+    $order  = New-Object System.Collections.Generic.List[string]
+    $guests = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[string]]]::new([System.StringComparer]::Ordinal)
+    foreach ($e in $Plan) {
+        $name = [string]$e.topLevel
+        $gk   = [string]$e.guestKey
+        if (-not $guests.ContainsKey($name)) {
+            $guests[$name] = New-Object System.Collections.Generic.List[string]
+            [void]$order.Add($name)
+        }
+        if (-not $guests[$name].Contains($gk)) { [void]$guests[$name].Add($gk) }
+    }
+    $list = New-Object System.Collections.Generic.List[Object]
+    foreach ($name in $order) {
+        $list.Add([ordered]@{ name = $name; guests = @($guests[$name].ToArray()) })
+    }
+    # Wrap in @() at return so a single entry doesn't unwrap to scalar.
     return ,@($list.ToArray())
 }
 
@@ -280,7 +322,7 @@ function Get-CyclePlanSequencesForGuest {
     # Merge cascaded variables across all plan entries hitting this guest.
     # When two top-levels both depend on the same guest, the FIRST entry's
     # effectiveVariables win for keys they share (plan order = order top-
-    # levels appear in project/test/test.sequence.yml). Other entries fill
+    # levels appear in project/test/test.runner.yml). Other entries fill
     # in keys the first one didn't declare. The 'username' shortcut is
     # surfaced separately because every guest needs one for New-VM.
     $mergedVars     = [ordered]@{}
@@ -312,7 +354,7 @@ function Get-CyclePlanSequencesForGuest {
 .SYNOPSIS
     Walks the baseline chain of a single named sequence (Test-Sequence helper).
 .DESCRIPTION
-    Resolve-CyclePlan keys off project/test/test.sequence.yml, which the
+    Resolve-CyclePlan keys off project/test/test.runner.yml, which the
     runner consumes but Test-Sequence does not. This sibling takes a top-
     level sequence NAME directly (the same name a Test-Sequence operator
     types) and produces the same per-entry shape Resolve-CyclePlan would
@@ -459,4 +501,4 @@ function Resolve-NamedSequenceChain {
     }
 }
 
-Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain
+Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain

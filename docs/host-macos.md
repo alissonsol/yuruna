@@ -120,7 +120,7 @@ Symptom in the cycle log:
 ```
 cachingProxyIP: 192.168.7.46
 guest.<os> Start-VM: PASS ==> IP: 192.168.64.4
-Failure pattern matched: 'FETCH AND EXECUTE FAILED:' -- aborting wait early
+Failure pattern matched: 'NONZERO SCRIPT EXIT:' -- aborting wait early
 ```
 
 OCR of the failing console shows the guest cloud-init retrying:

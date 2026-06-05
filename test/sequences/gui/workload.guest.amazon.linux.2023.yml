@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM workload testing.
 # See possible actions in the actions.yml file.
@@ -20,41 +21,41 @@ variables:
 steps:
   - action: retry
     maxAttempts: 2
-    description: "Login (restart on timeout)"
+    description: "Login + retry"
     steps:
       - action: passwdPrompt
         pattern: "login:"
         timeoutSeconds: 600
         text: "${username}"
-        description: "${vmName} login:"
+        description: "OCR: login:"
 
       - action: passwdPrompt
         pattern: "Password:"
         text: "${ext:authentication.GetPassword(${username})}"
-        description: "Password:"
+        description: "OCR: Password:"
 
   - action: waitForText
     pattern: "${username}@${vmName}"
     timeoutSeconds: 90
-    description: "${username}@${vmName}"
-
-  - action: waitForSeconds
-    seconds: 10
-    description: "Pause before installing toolset"
+    description: "OCR: ${username}@${vmName}"
 
   - action: inputTextAndEnter
-    text: 'sudo dnf groupinstall -y "Desktop"'
+    # `&& echo DESKTOP_INSTALL_DONE` prints a sentinel only on dnf success.
+    # Matching that rare marker instead of the shell prompt avoids the
+    # username@hostname false-match against the login banner (the prompt
+    # tokens also appear in "<host> login: <user>") and only reports success
+    # when the install actually completed exit-0.
+    text: 'sudo dnf groupinstall -y "Desktop" && echo DESKTOP_INSTALL_DONE'
     description: "GUI install"
 
-  - action: waitForSeconds
-    seconds: 15
-    description: "HACK: scroll login prompt off"
-
   - action: waitForText
-    pattern: "${username}@${vmName}"
+    # Underscores keep this one atomic fuzzy token (not in the segment-split
+    # set), and freshMatch (last 12 OCR lines) ignores the echoed command that
+    # carried the same marker, matching only the post-install echo.
+    pattern: "DESKTOP_INSTALL_DONE"
     timeoutSeconds: 300
     freshMatch: true
-    description: "${username}@${vmName}"
+    description: "OCR: DESKTOP_INSTALL_DONE"
 
   - action: inputTextAndEnter
     text: 'dnf list installed "*desktop*"'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42d0c9e8-f7a6-4c54-5432-bad0c9e8f7a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,10 +68,16 @@ $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
 if (-not $Path -or $Path.Count -eq 0) {
-    # Canonical default: the bootstrap installer that has the strictest
-    # PS 5.1 `irm | iex` constraint. Add more installers here when they
-    # adopt the same convention.
-    $Path = @((Join-Path $RepoRoot 'install/windows.hyper-v.ps1'))
+    # Default set: every script fetched and executed byte-for-byte on a
+    # fresh host before any BOM-tolerant shell exists -- the PS 5.1
+    # `irm | iex` bootstrap installer, and the guest/windows.11 scripts the
+    # freshly-provisioned Windows guest runs first the same way. A BOM or
+    # non-ASCII byte in any of them aborts at line 1. Add more such scripts
+    # here as they adopt the convention.
+    $Path = @(
+        (Join-Path $RepoRoot 'install/windows.hyper-v.ps1'),
+        (Join-Path $RepoRoot 'guest/windows.11/*.ps1')
+    )
 }
 
 # Resolve every input (supporting wildcards) into concrete file paths.

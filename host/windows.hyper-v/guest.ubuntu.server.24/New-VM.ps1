@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -187,12 +187,19 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
-$UserDataTemplate = Join-Path $VmConfigDir "user-data"
 $MetaDataTemplate = Join-Path $VmConfigDir "meta-data"
-if (-not (Test-Path $UserDataTemplate)) {
-    Write-Error "user-data template not found at '$UserDataTemplate'."
-    exit 1
+# user-data is the shared base + Hyper-V overlay under host/vmconfig/.
+# Three Split-Path -Parent walks: guest.ubuntu.server.24/ -> windows.hyper-v/
+# -> host/ -> <RepoRoot>. The merger's anchor contract is documented in
+# automation/Yuruna.CloudInitTemplate.psm1.
+$RepoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+$HostVmConfigDir = Join-Path $RepoRoot 'host/vmconfig'
+$BaseUserData    = Join-Path $HostVmConfigDir 'ubuntu.server.base.user-data'
+$OverlayUserData = Join-Path $HostVmConfigDir 'ubuntu.server.hyperv.overlay.yml'
+foreach ($p in @($BaseUserData, $OverlayUserData)) {
+    if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
 }
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
 # SSH public key used by the test harness.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
@@ -300,6 +307,10 @@ $AptProxyBlock = @"
     primary:
       - arches: [default]
         uri: http://archive.ubuntu.com/ubuntu$($AptProxyLine)
+    conf: |
+      Acquire::Retries "5";
+      Acquire::http::Timeout "120";
+      Acquire::https::Timeout "120";
 "@
 
 # Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the
@@ -357,15 +368,25 @@ if ($CachingProxyUrl) {
 }
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
-$YurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
-$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna_retry.sh')))
-$YurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'fetch-and-execute.sh')))
-
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('USERNAME_PLACEHOLDER', $Username).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64)
-Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+$null = Build-CloudInitUserData `
+    -BasePath    $BaseUserData `
+    -OverlayPath $OverlayUserData `
+    -RepoRoot    $RepoRoot `
+    -OutputPath  "$SeedDir/user-data" `
+    -Replacement @{
+        HOSTNAME_PLACEHOLDER           = $VMName
+        USERNAME_PLACEHOLDER           = $Username
+        HASH_PLACEHOLDER               = $PasswordHash
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        APT_PROXY_BLOCK_PLACEHOLDER    = $AptProxyBlock
+        CACHING_PROXY_URL_PLACEHOLDER  = $CachingProxyUrl
+        CA_CERT_BASE64_PLACEHOLDER     = $CaCertBase64
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+    } -Confirm:$false
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $VMName
@@ -381,6 +402,13 @@ Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -Me
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
+# Prune stale per-VM ACEs accumulated on this SHARED base image before
+# Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
+# unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
+# hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
+# have permission to open attachment"). See docs/hyperv-iso-ace-bloat.md.
+$prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
+if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 
@@ -397,7 +425,6 @@ if ($hostCores -lt 4) {
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions $true | Out-Null
 
-# Set display resolution to 1920x1080.
 # WARNING: The test harness OCR is calibrated for 1920x1080.
 # Changing this resolution may break automated screen-text detection
 # in waitForText sequence steps.

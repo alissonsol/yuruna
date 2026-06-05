@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -277,9 +277,10 @@ function Invoke-ScreenshotTest {
     Get-VMScreenshot (Yuruna.Host) for capture and on Compare-Screenshot
     here for the pixel comparison.
 
-    Reference PNGs (committed by Train-Screenshots.ps1) live under
-    $ScreenshotsDir/<guestKey>/reference/ in the source tree. Runtime
-    captures (compared against the references each cycle) land under
+    Reference PNGs live under $ScreenshotsDir/<guestKey>/reference/
+    in the source tree (one PNG per checkpoint named in schedule.json,
+    captured manually and committed by the operator). Runtime captures
+    (compared against the references each cycle) land under
     test/status/captures/training/<guestKey>/ -- gitignored, wiped when
     cleaning the host.
 #>
@@ -311,7 +312,7 @@ function Invoke-ScreenshotTest {
         $threshold = $cp.threshold ? [double]$cp.threshold : 0.85
         $refFile   = Join-Path $guestDir "reference/$cpName.png"
         if (-not (Test-Path $refFile)) {
-            return @{ success=$false; skipped=$false; errorMessage="Reference screenshot missing: $refFile. Run Train-Screenshots.ps1 -GuestKey $GuestKey first." }
+            return @{ success=$false; skipped=$false; errorMessage="Reference screenshot missing: $refFile. Commit a PNG at that path (one per checkpoint in schedule.json) or remove the checkpoint." }
         }
         Write-Information "  Screenshot checkpoint '$cpName': waiting ${delay}s..."
         Start-Sleep -Seconds $delay
@@ -622,4 +623,44 @@ function ConvertTo-Sha512CryptHash {
     throw "ConvertTo-Sha512CryptHash: no working openssl with SHA-512 (-6) support found. Tried: $($candidates -join ', '). Install OpenSSL >= 1.1 (Linux/macOS) or Git for Windows."
 }
 
-Export-ModuleMember -Function Wait-VMRunning, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Test-IpAddress, Format-IpUrlHost, ConvertTo-Sha512CryptHash
+function Remove-GuestVMQuietly {
+    <#
+    .SYNOPSIS
+        Tear down a guest VM with the Hyper-V progress bar suppressed.
+    .DESCRIPTION
+        Wraps the ProgressPreference save/restore around the Yuruna.Host
+        contract Stop-VM + Remove-VM so the ~dozen teardown sites in the inner
+        runner share one implementation -- one place to evolve VM teardown, the
+        path that matters most when a cycle is failing. Stop-VM / Remove-VM are
+        the -Global contract exports (resolved at call time after
+        Initialize-YurunaHost); this helper never re-imports the host driver.
+    .PARAMETER SkipStop
+        Remove without stopping first (the pre-spawn cleanup of a leftover VM).
+    .PARAMETER BestEffort
+        Add -ErrorAction SilentlyContinue (emergency / catch-all teardown paths
+        that must never throw on an already-gone VM).
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'Thin wrapper over the host contract Stop-VM/Remove-VM, which own the -Confirm:$false teardown semantics.')]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [switch]$SkipStop,
+        [switch]$BestEffort
+    )
+    $savedProgress = $global:ProgressPreference
+    $global:ProgressPreference = 'SilentlyContinue'
+    try {
+        if ($BestEffort) {
+            if (-not $SkipStop) { Stop-VM -VMName $VMName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null }
+            Remove-VM -VMName $VMName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        } else {
+            if (-not $SkipStop) { Stop-VM -VMName $VMName -Confirm:$false | Out-Null }
+            Remove-VM -VMName $VMName -Confirm:$false | Out-Null
+        }
+    } finally {
+        $global:ProgressPreference = $savedProgress
+    }
+}
+
+Export-ModuleMember -Function Wait-VMRunning, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Test-IpAddress, Format-IpUrlHost, ConvertTo-Sha512CryptHash, Remove-GuestVMQuietly

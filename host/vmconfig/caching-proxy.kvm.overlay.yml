@@ -1,0 +1,26 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# KVM/libvirt overlay for caching-proxy.base.user-data.
+# Anchor sections in base-file order. Empty section = insert nothing at that anchor.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+  # qemu-guest-agent: the libvirt counterpart of hyperv-daemons. Lets
+  # `virsh domifaddr --source agent` report the guest's IPv4 even before
+  # the host's DHCP lease/ARP cache populates, which matters on bridged
+  # 'yuruna-external' where the host is NOT the DHCP server. apt package
+  # is reliable on Resolute (the postinst enables qemu-guest-agent.service
+  # automatically); kept top-level so failure surfaces in the package
+  # phase rather than half-way through runcmd.
+  - qemu-guest-agent
+# === YURUNA_OVERLAY_NIC_OFFLOAD ===
+# === YURUNA_OVERLAY_RUNCMD_NET ===
+# === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
+  # qemu-guest-agent: enable + start so `virsh domifaddr --source agent`
+  # reports the guest IPv4 promptly on the bridged 'yuruna-external'
+  # network, where the host is NOT the DHCP server and the lease never
+  # lands in the host's ARP cache passively. The apt package's postinst
+  # usually enables this automatically, but a belt-and-braces enable
+  # makes the IP-discovery path deterministic.
+  - systemctl enable qemu-guest-agent.service || true
+  - systemctl start qemu-guest-agent.service || true
+# === YURUNA_OVERLAY_FIRMWARE_PKGS ===
+    for pkg in linux-firmware linux-generic-hwe-24.04 intel-microcode amd64-microcode firmware-sof-signed; do

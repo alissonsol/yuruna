@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,10 +30,17 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-arm64.img"
 $downloadDir = "$HOME/yuruna/image/caching-proxy"
 $baseImageName = "host.macos.utm.guest.caching-proxy"
-# Final artifact is RAW: Apple Virtualization.framework accepts only raw
-# block-device images. Convert once here so New-VM.ps1 can copy the
-# ready-to-boot disk directly into the .utm bundle.
-$baseImageFile = Join-Path $downloadDir "$baseImageName.raw"
+# Final artifact is qcow2: these bundles run on UTM's QEMU backend, which
+# boots qcow2 natively, so no raw conversion is needed. qcow2 is also
+# required for correctness on macOS -- UTM attaches read-write disks with
+# discard=unmap,detect-zeroes=unmap, and QEMU's macOS file-posix backend
+# services those discards via fcntl(F_PUNCHHOLE), which rejects any
+# request not aligned to the APFS 4 KiB block size with EINVAL ("Invalid
+# argument"). A raw image punches holes at the guest's 512-byte discard
+# granularity and trips that; qcow2 only ever punches at its 64 KiB
+# cluster boundaries, which are always 4 KiB-aligned. See
+# feedback_macos-qemu-punchhole-alignment.md.
+$baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
@@ -42,12 +49,12 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 #   * $baseImageFile exists
 #   * the sentinel records the same filename, URL, byte count, AND
 #     Last-Modified date as a fresh HEAD probe of $sourceUrl
-# Any mismatch -- including a stale 3-line sentinel from before the
-# Last-Modified field was added -- forces a re-download. The only way
-# to force a re-download manually is to delete or rename $baseImageFile
-# (or $baseImageOrigin). The original 3-line format was vulnerable to
-# a noble->resolute style URL bump being silently skipped if the
-# sentinel happened to be out of sync; the 4-line format closes that.
+# Any mismatch -- including a legacy 3-line sentinel that lacks the
+# Last-Modified field -- forces a re-download. The only way to force a
+# re-download manually is to delete or rename $baseImageFile (or
+# $baseImageOrigin). The 4-line sentinel guards against the silent-skip
+# regression class where a noble->resolute style URL bump matches the
+# byte count by coincidence.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {
@@ -73,7 +80,7 @@ Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # SHA-256 policy against cloud-images.ubuntu.com's published
 # SHA256SUMS file. This script PROVISIONS the squid cache, so on
 # a first-run host the helper falls through to a direct fetch.
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
 $downloaded = Save-ImageWithChecksum `
@@ -87,9 +94,9 @@ if (-not $downloaded) {
     Write-Error "Download failed for $sourceUrl"
     exit 1
 }
-# Capture the HTTP-download size BEFORE qcow2→raw conversion; the
-# .raw at $baseImageFile is the converted+resized artifact, not the
-# bytes Test-DownloadAlreadyCurrent will compare against next run.
+# Capture the HTTP-download size BEFORE the in-place resize; the qcow2
+# at $baseImageFile is the resized artifact, not the bytes
+# Test-DownloadAlreadyCurrent will compare against next run.
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
 $fileSize = (Get-Item $downloadFile).Length
@@ -99,35 +106,34 @@ if ($fileSize -lt 100MB) {
     exit 1
 }
 
-# === Convert qcow2 → raw for Apple Virtualization ===
-$convertedFile = Join-Path $downloadDir "$baseImageName.converting.raw"
+# === Resize the qcow2 to 512 GB ===
+# No raw conversion: UTM's QEMU backend boots qcow2 directly, and qcow2
+# avoids the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits under
+# UTM's discard=unmap,detect-zeroes=unmap (see the header note and
+# feedback_macos-qemu-punchhole-alignment.md). Resize a staging copy of
+# the downloaded qcow2, then promote it in the finalize block below.
+$convertedFile = Join-Path $downloadDir "$baseImageName.staging.qcow2"
 Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
-Write-Output "Converting qcow2 to raw..."
-& qemu-img convert -f qcow2 -O raw $downloadFile $convertedFile
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "qemu-img convert failed. Install QEMU with: brew install qemu"
-    Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
-    exit 1
-}
+Copy-Item -LiteralPath $downloadFile -Destination $convertedFile
 
-# Resize to 512 GB (sparse on APFS: apparent 512 GB, actual ~2.5 GB
-# until used). Sized for squid's 384 GB cache_dir + ~128 GB OS/logs/
-# headroom -- see vmconfig/user-data `cache_dir ufs /var/spool/squid
-# 393216` and the `maximum_object_size 65 GB` directive that lets the
-# proxy cache files like the macOS install image (~18 GB) and other
-# multi-GB blobs end-to-end instead of bypassing them direct to CDN.
-Write-Output "Resizing raw image to 512GB..."
-& qemu-img resize -f raw $convertedFile 512G
+# Resize to 512 GB (qcow2 grows on demand: apparent 512 GB, actual only
+# what the guest has written). Sized for squid's 384 GB cache_dir + ~128
+# GB OS/logs/headroom -- see vmconfig/user-data `cache_dir ufs
+# /var/spool/squid 393216` and the `maximum_object_size 65 GB` directive
+# that lets the proxy cache files like the macOS install image (~18 GB)
+# and other multi-GB blobs end-to-end instead of bypassing them direct to
+# CDN.
+Write-Output "Resizing qcow2 image to 512GB..."
+& qemu-img resize -f qcow2 $convertedFile 512G
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "qemu-img resize failed — continuing with original size."
     Write-Warning "The cache VM will only have the base cloud-image capacity (~2.5 GB)"
     Write-Warning "which fills up after 1-2 installs. Resize manually with:"
-    Write-Warning "  qemu-img resize -f raw '$baseImageFile' 512G"
+    Write-Warning "  qemu-img resize -f qcow2 '$baseImageFile' 512G"
 }
 
 # === Preserve previous and finalize ===
-$previousFile = Join-Path $downloadDir "$baseImageName.previous.raw"
+$previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {
     Move-Item -Path $baseImageFile -Destination $previousFile

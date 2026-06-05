@@ -1,4 +1,6 @@
 #cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/vmconfig and https://yuruna.link/stash-service
 # Minimal cloud-init for the stash-service VM: get ssh + console login
 # working; the daemon, schema, and SCP wire-protocol handler are installed

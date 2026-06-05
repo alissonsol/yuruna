@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,20 @@ $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuru
 Import-Module -Name $validationModulePath
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
+# Set-ExpandedVariableHashtable + Set-ExpandedResourcesOutput live in
+# Yuruna.VariableExpansion. Component passes -NoExpand because its
+# layering happens at the YAML level -- ExpandString here would
+# interpolate against whatever happens to be in env at the moment,
+# which is exactly what the layered model is meant to avoid.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global -Force
+# Registry-login dispatcher. Yuruna.Component.Registry bridges to the
+# credential-provider registry in test/modules/Test.CredentialProvider
+# so this pipeline's "registryLogin" phase and the test harness's
+# self-heal Repair-Credential path agree on what the login command is
+# for any given registry hostname. Adding a new registry kind (ECR,
+# GAR, Docker Hub, Harbor, ...) is one Register-CredentialProvider
+# call inside Test.CredentialProvider; nothing to edit here.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Component.Registry.psm1') -Global -Force
 Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 
 function Publish-ComponentList {
@@ -73,34 +87,10 @@ function Publish-ComponentList {
         $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
     }
 
-    if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
-        foreach ($resource in $resourcesOutputYaml.Keys) {
-            if ($resource -eq "globalVariables") {
-                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                    $resourceKey = "$key"
-                    $value = $resourcesOutputYaml.$resource[$key]
-                    Write-Debug "globalVariables[$resourceKey] = $value"
-                    Set-Item -Path Env:$resourceKey -Value ${value}
-                }
-            }
-            else {
-                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                    $resourceKey = "$resource.$key"
-                    $value = $resourcesOutputYaml.$resource[$key].value
-                    Write-Debug "resourcesOutput[$resourceKey] = $value"
-                    Set-Item -Path Env:$resourceKey -Value ${value}
-                }
-            }
-        }
-    }
-
-    if (-Not ($null -eq $componentsYaml.globalVariables)) {
-        foreach ($key in $componentsYaml.globalVariables.Keys) {
-            $value = $componentsYaml.globalVariables[$key]
-            Write-Debug "globalVariables[$key] = $value"
-            Set-Item -Path Env:$key -Value ${value}
-        }
-    }
+    # Resources output and component-globals pushed to env verbatim
+    # (no ExpandString -- layering is done at the YAML level).
+    Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -NoExpand -EmitDebug
+    Set-ExpandedVariableHashtable -Variables $componentsYaml.globalVariables -NoExpand -DebugLabel 'globalVariables'
 
     $componentsPath = Join-Path -Path $project_root -ChildPath "components/"
 
@@ -118,8 +108,8 @@ function Publish-ComponentList {
 
     function Invoke-ComponentCommand {
         # Run a build-pipeline command, capture all streams into the per-
-        # environment docker.stderr.log with a "=== [$Phase] <cmd> (exit=N)
-        # ===" header, rewrite docker.rc with the latest exit code, and
+        # environment docker.stderr.log with a "== [$Phase] <cmd> (exit=N)
+        # ==" header, rewrite docker.rc with the latest exit code, and
         # replay the captured output onto the parent stdout so the test
         # runner's transcript still shows what docker did. Sets the global
         # $LASTEXITCODE so the caller's `if (-Not (0 -eq $LASTEXITCODE))`
@@ -132,7 +122,7 @@ function Publish-ComponentList {
         # then evaluates `0 -eq $null` to $false and treats the phase as a
         # tool failure. Coerce so "no native command ran" reads as success.
         $rc  = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-        Add-Content -LiteralPath $dockerLogFile -Value "=== [$Phase] $Command (exit=$rc) ==="
+        Add-Content -LiteralPath $dockerLogFile -Value "== [$Phase] $Command (exit=$rc) =="
         $out | ForEach-Object { Add-Content -LiteralPath $dockerLogFile -Value ([string]$_) }
         Set-Content -LiteralPath $dockerRcFile -Value $rc -NoNewline
         $out | ForEach-Object { Write-Output ([string]$_) }
@@ -158,45 +148,12 @@ function Publish-ComponentList {
 
         # No string expansion for the components script here; values are
         # layered in order: resources globals, resources.output, components
-        # globals, component locals.
+        # globals, component locals. Each layer is also pushed to env via
+        # the helper's per-key Set-Item.
         $componentVars = [ordered]@{}
-        if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
-            foreach ($resource in $resourcesOutputYaml.Keys) {
-                if ($resource -eq "globalVariables") {
-                    foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                        $resourceKey = "$key"
-                        $value = $resourcesOutputYaml.$resource[$key]
-                        $componentVars[$resourceKey] = $value
-                        Set-Item -Path Env:$resourceKey -Value ${value}
-                    }
-                }
-                else {
-                    foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                        $resourceKey = "$resource.$key"
-                        $value = $resourcesOutputYaml.$resource[$key].value
-                        $componentVars[$resourceKey] = $value
-                        Set-Item -Path Env:$resourceKey -Value ${value}
-                    }
-                }
-            }
-        }
-
-        if (-Not ($null -eq $componentsYaml.globalVariables)) {
-            foreach ($key in $componentsYaml.globalVariables.Keys) {
-                $value = $componentsYaml.globalVariables[$key]
-                $componentVars[$key] = $value
-                Set-Item -Path Env:$key -Value ${value}
-            }
-        }
-
-        if ((-Not ($null -eq $component.variables)) -and (-Not ($null -eq  $component.variables.Keys))) {
-            foreach ($key in $component.variables.Keys) {
-                $value = $component.variables[$key]
-                $componentVars[$key] = $value
-                Write-Debug "componentVariables[$key] = $value"
-                Set-Item -Path Env:$key -Value ${value}
-            }
-        }
+        Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -Sink $componentVars -NoExpand
+        Set-ExpandedVariableHashtable -Variables $componentsYaml.globalVariables -Sink $componentVars -NoExpand
+        Set-ExpandedVariableHashtable -Variables $component.variables -Sink $componentVars -NoExpand -DebugLabel 'componentVariables'
 
         # buildCommand comes from components.yml
         $buildCommand = $component['buildCommand']
@@ -271,11 +228,15 @@ function Publish-ComponentList {
             return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "tag[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
-        # Registry login: Azure ACR only today. Generalising to other
-        # registries (ECR, GAR, Docker Hub, etc.) is tracked in docs/opportunities.md.
+        # Registry login dispatched through Yuruna.Component.Registry
+        # (Azure ACR, ECR, GAR, Docker Hub, generic). $null means "no
+        # provider matched or this provider opted out" -- silently skip
+        # the phase and let the operator's pre-existing docker
+        # credential helper handle the push.
         $registryLocation = $([Environment]::GetEnvironmentVariable("${env:registryName}.registryLocation"))
-        if ($registryLocation -like '*azurecr.io*') {
-            $executionCommand = $ExecutionContext.InvokeCommand.ExpandString("az acr login -n $registryLocation *>&1")
+        $loginCommand = Resolve-ComponentRegistryLogin -RegistryLocation $registryLocation
+        if ($loginCommand) {
+            $executionCommand = $ExecutionContext.InvokeCommand.ExpandString("$loginCommand *>&1")
             Invoke-ComponentCommand -Phase "registryLogin[$projectName]" -Command $executionCommand | Write-Verbose
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for: $executionCommand"

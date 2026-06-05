@@ -11,6 +11,26 @@ Project-wide architecture: [Yuruna Architecture](../docs/architecture.md). Guest
 workloads installed inside a running VM:
 [Guests — ...](../guest/README.md).
 
+## What lives where
+
+The host area splits documentation between two files per scope:
+
+- **`README.md`** (this file) — the happy path. Folder layout, install
+  one-liner, the steps an operator follows when nothing surprises
+  them. Decisions and policy that everyone needs to know once
+  (VM sizing, `Enable-TestAutomation.ps1` purpose, optional cache VM).
+- **`read.more.md`** — the gotcha catalogue and command reference.
+  TCC grant details, VM resize commands, IP discovery cascades,
+  per-platform first-run subtleties. Reach for it when the README's
+  one-liner did not deliver.
+
+The same split applies recursively under each platform folder
+([`macos.utm/README.md`](macos.utm/README.md) vs
+[`macos.utm/read.more.md`](macos.utm/read.more.md), etc.). README
+entries link into the matching `read.more.md` section when a topic
+is summarised here and detailed there — the README never duplicates
+content already in `read.more.md`, only links to it.
+
 ## Folder layout
 
 ```

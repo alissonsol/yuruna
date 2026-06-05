@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # SSH-driven equivalent of gui/workload.guest.ubuntu.server.26.yml. Selected
 # automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.

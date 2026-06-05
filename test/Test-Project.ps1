@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 4292b214-b454-46f0-976c-81a548f8de5d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     Each step is gated and reports its own reason on failure:
 
       Step 1+2 wipe + re-clone <RepoRoot>/project via the same
-                Test.Host\Update-ProjectClone helper Invoke-TestInnerRunner
+                Test.HostContract\Update-ProjectClone helper Invoke-TestInnerRunner
                 calls every cycle. A failure here stops with a clear
                 "what + why" line; the inner is never spawned.
 
@@ -86,16 +86,15 @@ $ConfigPath  = $paths.ConfigPath
 $env:YURUNA_CONFIG_PATH = $ConfigPath
 $InnerScript = Join-Path $ModulesDir 'Invoke-TestInnerRunner.ps1'
 # Canonical module set for the Project entry-point: Test.Config,
-# Test.YurunaDir, Test.ConfigPreflight, Test.Host, Test.InnerSpawn.
+# Test.YurunaDir, Test.ConfigPreflight, Test.HostContract, Test.InnerSpawn.
 Initialize-YurunaEntryPointModuleSet -For Project -ModulesDir $ModulesDir
 
-# Exit-code contract: 0 = success, 1 = anything else. Distinct codes
-# for "preflight" / "clone failed" / "inner spawn failed" used to live
-# here, but a CI consumer that wants to discriminate reads the
-# Stop-WithReason banner ("STOP at <Step>") rather than the numeric
-# code -- and a consumer that only wants pass/fail wants a binary
-# answer. Standardised on 0/1 across all entry points; the $Step +
-# $Reason in the banner carry the "why".
+# Exit-code contract: 0 = success, 1 = anything else. A binary code
+# is what pass/fail consumers want; a CI consumer that needs to
+# discriminate between "preflight" / "clone failed" / "inner spawn
+# failed" reads the Stop-WithReason banner ("STOP at <Step>") rather
+# than a numeric code. Standardised on 0/1 across all entry points;
+# the $Step + $Reason in the banner carry the "why".
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
@@ -138,7 +137,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
         -Reason "powershell-yaml is not installed. Install with: Install-Module powershell-yaml -Scope CurrentUser"
 }
 Import-Module powershell-yaml -ErrorAction Stop
-# Test.Config / Test.YurunaDir / Test.ConfigPreflight / Test.Host /
+# Test.Config / Test.YurunaDir / Test.ConfigPreflight / Test.HostContract /
 # Test.InnerSpawn already imported by Initialize-YurunaEntryPointModuleSet above.
 
 try {
@@ -168,6 +167,20 @@ Set repositories.projectUrl to a clonable URL and retry.
 # was imported by Initialize-YurunaEntryPointModuleSet above.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
+
+# Refuse to start when an Invoke-TestRunner already owns the runtime dir.
+# Test-Project spawns its own inner with YURUNA_RUNNER_RELAUNCH=1 below,
+# which tells inner to skip its own pidfile-takeover guard -- safe only
+# when Test-Project itself is the legitimate parent. If a real Invoke-
+# TestRunner is already running, that contract would let our inner race
+# the live cycle's runner.pid + status.json updates. Assert-NoOtherRunner
+# (Test.Prelude, backed by Test.SingleInstance) reads runner.pid +
+# runner.start and refuses; Invoke-TestRunner's takeover path is the
+# opposite (Stop-StaleRunner) and stays in the outer.
+if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Test-Project')) {
+    Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (single-instance)' `
+        -Reason 'A live Invoke-TestRunner already owns runner.pid in this runtime dir. Stop it before invoking Test-Project, or run from a different YURUNA_RUNTIME_DIR.'
+}
 
 # Archive any break-active.json left behind by a prior cycle / Test-
 # Sequence that crashed while paused at a breakpoint. Test-Project
@@ -217,7 +230,7 @@ if (-not $gate.passed) {
 # in Test-Project before it ever bites Invoke-TestRunner. The function
 # combines the wipe + clone in a single safe sequence; splitting them in
 # Test-Project would duplicate the safety check without adding value.
-# Test.Host was imported by Initialize-YurunaEntryPointModuleSet above.
+# Test.HostContract was imported by Initialize-YurunaEntryPointModuleSet above.
 
 Write-Output ''
 Write-Output "[Test-Project] Step 1+2: wipe and re-clone <RepoRoot>/project from $projectUrl"

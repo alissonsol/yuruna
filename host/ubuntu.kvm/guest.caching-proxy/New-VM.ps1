@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -204,19 +204,28 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 $PasswordFile = Get-CachingProxyStatePath
 
 # === Render user-data / meta-data ===
-$userDataTemplate = Join-Path $ScriptDir 'vmconfig/user-data'
+$baseUserData     = Join-Path $repoRoot 'host/vmconfig/caching-proxy.base.user-data'
+$overlayUserData  = Join-Path $repoRoot 'host/vmconfig/caching-proxy.kvm.overlay.yml'
 $metaDataTemplate = Join-Path $ScriptDir 'vmconfig/meta-data'
-foreach ($f in @($userDataTemplate, $metaDataTemplate)) {
+foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
         Write-Error "Template missing: $f"
         exit 1
     }
 }
-# .Replace() (literal) rather than -replace (regex): keys can contain
-# regex-special chars. Cheap insurance.
-$userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
-    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
-    Replace('PASSWORD_PLACEHOLDER', $YurunaPassword)
+# Render user-data from the shared base + KVM overlay (host/vmconfig/
+# caching-proxy.*). Build-CloudInitUserData resolves the SSH-key and
+# password placeholders with literal .Replace(), so regex-special chars
+# in the values are safe.
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+$userData = Build-CloudInitUserData `
+    -BasePath    $baseUserData `
+    -OverlayPath $overlayUserData `
+    -RepoRoot    $repoRoot `
+    -Replacement @{
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        PASSWORD_PLACEHOLDER           = $YurunaPassword
+    } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
 $seedDir = Join-Path $vmDir 'seed.src'
@@ -237,7 +246,7 @@ if ($LASTEXITCODE -ne 0) {
 # via virt-viewer -- without the password they'd have to dig seed.iso
 # off disk. The final "ready" banner reprints the same credentials.
 Write-Output ""
-Write-Output "=== caching-proxy console/SSH login (available NOW) ==="
+Write-Output "== caching-proxy console/SSH login (available NOW) =="
 Write-Output "  user:     yuruna"
 Write-Output "  password: $PasswordFile"
 Write-Output "  If the wait below stalls or fails, open"
@@ -469,7 +478,7 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
             $tcp.EndConnect($async) | Out-Null
             $tcp.Close()
             Write-Output ""
-            Write-Output "=== caching-proxy is READY ==="
+            Write-Output "== caching-proxy is READY =="
             Write-Output "  VM:        $VMName"
             Write-Output "  IP:        $cacheIp"
             Write-Output "  Network:   $networkName"

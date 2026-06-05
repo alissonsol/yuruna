@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42b9c0d1-e2f3-4a56-b789-0c1d2e3f4a57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@ $languageFilter = "English"
 $downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11arm64"
 
 Write-Output ""
-Write-Output "=== Image Download ==="
+Write-Output "== Image Download =="
 Write-Output "Download folder: $downloadDir"
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 if (!(Test-Path -Path $downloadDir)) {
@@ -244,9 +244,9 @@ if (-not $spiceOk) {
 # ===========================================================================
 Write-Output ""
 if ($windowsOk -and $spiceOk) {
-    Write-Output "=== All images ready ==="
+    Write-Output "== All images ready =="
     exit 0
 } else {
-    Write-Output "=== Some images are missing — see manual download instructions above ==="
+    Write-Output "== Some images are missing — see manual download instructions above =="
     exit 1
 }

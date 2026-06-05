@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ $ModulesDir = $paths.ModulesDir
 # them at /runtime/* and /log/*. Other status/ subdirs (perf/, extension/,
 # captures/, ssh/) are served straight from $StatusDir as relative paths.
 # StatusService kind imports Test.YurunaDir, Test.VMUtility, Test.CachingProxy,
-# Test.PortOwner, and Test.Host -- one call replaces five inline imports
+# Test.PortOwner, and Test.HostContract -- one call replaces five inline imports
 # spread across the bootstrap section of this script.
 Initialize-YurunaEntryPointModuleSet -For StatusService -ModulesDir $ModulesDir
 $null = Initialize-YurunaRuntimeDir
@@ -94,6 +94,16 @@ if ($Restart -and (Test-Path $PidFile)) {
 }
 
 # --- Check for an existing server ---
+# The detached server bakes the ~1.5 KLOC here-string (and the modules
+# it imports at startup) into its in-memory state. Files under test/status/
+# are served from disk per request, so frontend edits do NOT need a
+# restart; only a change in the framework code does. We persist the
+# framework HEAD SHA to server.sha at launch and compare it here, so the
+# zero-change cycle of the inner runner (the common case) is a no-op
+# instead of a 1 s teardown + multi-second relaunch. Cycle-start downtime
+# drops from "every cycle" to "only when `git pull` actually pulled
+# something that affects the server".
+$ShaFile = Join-Path $RuntimeDir 'server.sha'
 if (Test-Path $PidFile) {
     $oldPid = (Get-Content $PidFile).Trim()
     $serverAlive = $false
@@ -113,9 +123,31 @@ if (Test-Path $PidFile) {
         }
     }
     if ($serverAlive) {
-        Write-Output "Status server is already running (PID $oldPid, port $Port)."
-        Write-Output "Stop with: .\Stop-StatusService.ps1"
-        exit 0
+        $currentSha = $null
+        try {
+            $currentSha = (& git -C $RepoRoot rev-parse HEAD 2>$null | Out-String).Trim()
+        } catch { Write-Verbose "server.sha probe: git rev-parse failed: $($_.Exception.Message)" }
+        $persistedSha = $null
+        if (Test-Path -LiteralPath $ShaFile) {
+            try { $persistedSha = (Get-Content -LiteralPath $ShaFile -Raw).Trim() } catch { Write-Verbose "server.sha read failed: $($_.Exception.Message)" }
+        }
+        if ($currentSha -and $persistedSha -and ($currentSha -eq $persistedSha)) {
+            Write-Output "Status server is already running on the current framework SHA (PID $oldPid, port $Port, sha $($currentSha.Substring(0,[Math]::Min(12,$currentSha.Length))))."
+            Write-Output "Stop with: .\Stop-StatusService.ps1"
+            exit 0
+        }
+        # SHA differs (or either side is unknown). Tear down + fall
+        # through to the launch path so the new framework code is
+        # picked up. Conservative on unknown: an unwritten / unreadable
+        # server.sha (e.g. upgrade from an older Start-StatusService
+        # that didn't persist it) forces a restart rather than risking
+        # a stale-code server.
+        $reason = if (-not $currentSha) { 'current HEAD unknown' }
+                  elseif (-not $persistedSha) { 'no persisted SHA' }
+                  else { "framework SHA changed ($persistedSha -> $currentSha)" }
+        Write-Output "Restarting status server (PID $oldPid): $reason."
+        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
     }
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
@@ -250,7 +282,7 @@ try {
 # folder lookup at /control/guest-folders can find host/<short>/guest.*.
 $detectedHost = ''
 try {
-    # Test.Host imported by the StatusService kind at file top; Get-HostType
+    # Test.HostContract imported by the StatusService kind at file top; Get-HostType
     # is resolvable here without a redundant Import-Module call.
     $detectedHost = Get-HostType
 } catch {
@@ -267,7 +299,7 @@ try {
 $CachingProxyFile = Join-Path $RuntimeDir "caching-proxy.txt"
 try {
     if ($detectedHost) {
-        Import-Module (Join-Path $ModulesDir 'Test.Host.psm1') -Force
+        Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Force
         [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $TestRoot) -HostType $detectedHost)
         # Re-import Test.CachingProxy with -Global -Force here even though
         # line 55 already imported it once: Initialize-YurunaHost cascades
@@ -443,11 +475,16 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.VMUtility.psm1') -Force -
 # Test.CachingProxy.psm1. The parent process imports it for the startup
 # probe at line 555, but the detached child has its own fresh runspace.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# Read-TestConfig (mtime+hash cached YAML parse) for the test-config GET
+# and perf-aggregates handlers. Same cache the runner uses, so an
+# operator edit to test.config.yml is observed on the very next handler
+# call without restarting the server.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.Config.psm1')      -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 `$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
 `$statusJsonFile = Join-Path `$runtimeDir 'status.json'
 `$serverLogFile  = Join-Path `$runtimeDir 'server.err'
-# $serverHostType is the parent-detected host type baked into the
+# `$serverHostType is the parent-detected host type baked into the
 # detached server's here-string. Used by /control/guest-folders to list
 # guests under host/<short>/.
 `$serverHostType = '$detectedHost'
@@ -477,7 +514,10 @@ try {
     Write-ServerErr "server hostType='`$serverHostType'"
     # Cross-request memoized per-sequence aggregates served at
     # /control/perf-aggregates. Cleared on POST to that endpoint.
+    # `$perfAggregatesBytes holds the serialized response so a GET on an
+    # already-built cache skips ConvertTo-Json + GetBytes entirely.
     `$perfAggregatesCache = `$null
+    `$perfAggregatesBytes = `$null
     while (`$listener.IsListening) {
       # Outer try/catch: any throw below MUST NOT kill the server.
       # `$listener.EndGetContext(...)` MUST stay inside this try, since
@@ -521,7 +561,7 @@ try {
                         continue
                     }
                     try {
-                        `$doc  = Get-Content -Raw -LiteralPath `$testConfigFile | ConvertFrom-Yaml -Ordered
+                        `$doc  = Read-TestConfig -Path `$testConfigFile -ThrowOnError
                         `$json = `$doc | ConvertTo-Json -Depth 20
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$json)
                     } catch {
@@ -717,6 +757,7 @@ try {
                 }
                 if (`$req.HttpMethod -eq 'POST') {
                     `$perfAggregatesCache = `$null
+                    `$perfAggregatesBytes = `$null
                 }
                 if (`$null -eq `$perfAggregatesCache) {
                     # Same cap that bounds status.json's history[] (the
@@ -727,12 +768,10 @@ try {
                     `$recentLimit = 30
                     try {
                         `$testConfigFile = Join-Path `$repoRoot 'test/test.config.yml'
-                        if (Test-Path -LiteralPath `$testConfigFile) {
-                            `$doc = Get-Content -Raw -LiteralPath `$testConfigFile | ConvertFrom-Yaml -Ordered
-                            if (`$doc -and (`$doc.testCycle -is [System.Collections.IDictionary]) -and `$doc.testCycle.Contains('recentDisplayCount')) {
-                                `$v = [int]`$doc.testCycle.recentDisplayCount
-                                if (`$v -gt 0) { `$recentLimit = `$v }
-                            }
+                        `$doc = Read-TestConfig -Path `$testConfigFile
+                        if (`$doc -and (`$doc.testCycle -is [System.Collections.IDictionary]) -and `$doc.testCycle.Contains('recentDisplayCount')) {
+                            `$v = [int]`$doc.testCycle.recentDisplayCount
+                            if (`$v -gt 0) { `$recentLimit = `$v }
                         }
                     } catch {
                         Write-ServerErr "perf-aggregates: could not read recentDisplayCount: `$(`$_.Exception.Message)"
@@ -781,14 +820,37 @@ try {
                                         if ("`$(`$row.outcome)" -eq 'fail') { `$agg.failCount = [int]`$agg.failCount + 1 }
                                         `$ord = 0; try { `$ord = [int]`$row.stepOrdinal    } catch { `$ord = 0 }
                                         `$occ = 1; try { `$occ = [int]`$row.stepOccurrence } catch { `$occ = 1 }
-                                        `$null = `$agg.steps.Add([ordered]@{
-                                            ordinal    = `$ord
-                                            occurrence = `$occ
-                                            name       = "`$(`$row.stepName)"
-                                            kind       = "`$(`$row.stepKind)"
-                                            durationMs = `$ms
-                                            outcome    = "`$(`$row.outcome)"
-                                        })
+                                        `$prnt = 0; try { `$prnt = [int]`$row.parentStepOrdinal } catch { `$prnt = 0 }
+                                        # Absolute step window as epoch-ms integers. perf.html derives
+                                        # the step hierarchy from these windows (a retry parent's
+                                        # window brackets its child steps) and draws each cycle as a
+                                        # time-based icicle, so nested time is shown once instead of
+                                        # the parent being stacked on top of its children. Emitted as
+                                        # numbers (not the .NET 'o' ISO string) so the browser never
+                                        # has to parse 7-digit fractional-second timestamps.
+                                        `$sMs = `$null; `$eMs = `$null
+                                        try { `$sMs = [DateTimeOffset]::Parse(`$row.startedAtUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUnixTimeMilliseconds() } catch { `$sMs = `$null }
+                                        try { `$eMs = [DateTimeOffset]::Parse(`$row.endedAtUtc,   [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUnixTimeMilliseconds() } catch { `$eMs = `$null }
+                                        `$stepEntry = [ordered]@{
+                                            ordinal       = `$ord
+                                            occurrence    = `$occ
+                                            name          = "`$(`$row.stepName)"
+                                            kind          = "`$(`$row.stepKind)"
+                                            durationMs    = `$ms
+                                            outcome       = "`$(`$row.outcome)"
+                                            parentOrdinal = `$prnt
+                                            parentAction  = "`$(`$row.parentAction)"
+                                            startedMs     = `$sMs
+                                            endedMs       = `$eMs
+                                        }
+                                        # fetchAndExecute steps also keep the ISO [start,end] window:
+                                        # guest-pushed checkpoint sidecars are joined to them by
+                                        # matching receivedAtUtc against this window.
+                                        if ("`$(`$row.stepKind)" -eq 'fetchAndExecute') {
+                                            `$stepEntry.startedAtUtc = "`$(`$row.startedAtUtc)"
+                                            `$stepEntry.endedAtUtc   = "`$(`$row.endedAtUtc)"
+                                        }
+                                        `$null = `$agg.steps.Add(`$stepEntry)
                                     }
                                 } finally { `$reader.Close() }
                             } catch {
@@ -796,14 +858,59 @@ try {
                             }
                         }
                     }
+                    # Load recent guest-pushed checkpoint sidecars once. Each is
+                    # joined to the fetchAndExecute step whose [start,end] window
+                    # contains its host-stamped receivedAtUtc (host clock both
+                    # sides -> skew-immune). Newest-first so a window holding more
+                    # than one sidecar prefers the latest; Consumed stops two
+                    # steps claiming the same one.
+                    `$ckptDir2 = Join-Path `$statusDir 'perf/checkpoints'
+                    `$ckptSidecars = New-Object System.Collections.ArrayList
+                    if (Test-Path -LiteralPath `$ckptDir2) {
+                        `$scFiles = @(Get-ChildItem -LiteralPath `$ckptDir2 -Filter '*.json' -File -ErrorAction SilentlyContinue |
+                                       Sort-Object Name -Descending | Select-Object -First 1000)
+                        foreach (`$sc in `$scFiles) {
+                            try {
+                                `$scDoc = Get-Content -LiteralPath `$sc.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                            } catch { continue }
+                            if (-not `$scDoc.receivedAtUtc) { continue }
+                            `$rcvd = [DateTime]::MinValue
+                            try {
+                                `$rcvd = [DateTime]::Parse(`$scDoc.receivedAtUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+                            } catch { continue }
+                            `$null = `$ckptSidecars.Add([pscustomobject]@{
+                                ReceivedAt  = `$rcvd
+                                Checkpoints = `$scDoc.checkpoints
+                                Consumed    = `$false
+                            })
+                        }
+                    }
                     `$out = [ordered]@{}
                     foreach (`$seq in (`$sequences.Keys | Sort-Object)) {
                         `$cyclesArr = @(`$sequences[`$seq].Values | Sort-Object { "`$(`$_.cycleStartedAtUtc)" })
                         # Sort each cycle's steps in execution order so the
-                        # stacked-bar segments render bottom-to-top in the
-                        # order the runner actually ran them.
+                        # stacked-bar segments render bottom-to-top in the order
+                        # the runner ran them, then splice any matching checkpoint
+                        # sidecar onto the fetchAndExecute steps.
                         foreach (`$cyc2 in `$cyclesArr) {
                             `$sortedSteps = @(`$cyc2.steps | Sort-Object @{Expression='ordinal'},@{Expression='occurrence'})
+                            foreach (`$st2 in `$sortedSteps) {
+                                if ("`$(`$st2.kind)" -ne 'fetchAndExecute') { continue }
+                                if (-not `$st2.Contains('startedAtUtc') -or -not `$st2.Contains('endedAtUtc')) { continue }
+                                `$sUtc = [DateTime]::MinValue; `$eUtc = [DateTime]::MinValue
+                                try {
+                                    `$sUtc = [DateTime]::Parse(`$st2.startedAtUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+                                    `$eUtc = [DateTime]::Parse(`$st2.endedAtUtc,   [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+                                } catch { continue }
+                                foreach (`$cand in `$ckptSidecars) {
+                                    if (`$cand.Consumed) { continue }
+                                    if (`$cand.ReceivedAt -ge `$sUtc -and `$cand.ReceivedAt -le `$eUtc) {
+                                        `$cand.Consumed = `$true
+                                        `$st2.checkpoints = @(`$cand.Checkpoints)
+                                        break
+                                    }
+                                }
+                            }
                             `$cyc2.steps = `$sortedSteps
                         }
                         `$out[`$seq] = `$cyclesArr
@@ -813,15 +920,156 @@ try {
                         recentLimit    = `$recentLimit
                         sequences      = `$out
                     }
+                    # Serialize once on (re)build; every subsequent GET writes
+                    # these bytes directly. Depth 8: payload -> sequences ->
+                    # cycles[] -> cycle -> steps[] -> step -> checkpoints[] ->
+                    # checkpoint{name,offsetMs}; the checkpoint objects sit one
+                    # level deeper than the rest, so a shallower depth would
+                    # stringify them and drop name/offsetMs.
+                    `$json = `$perfAggregatesCache | ConvertTo-Json -Depth 8 -Compress
+                    `$perfAggregatesBytes = [System.Text.Encoding]::UTF8.GetBytes(`$json)
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
-                `$json = `$perfAggregatesCache | ConvertTo-Json -Depth 6 -Compress
-                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$json)
-                `$res.ContentLength64 = `$body.Length
+                `$res.ContentLength64 = `$perfAggregatesBytes.Length
                 if (`$req.HttpMethod -ne 'HEAD') {
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Write(`$perfAggregatesBytes, 0, `$perfAggregatesBytes.Length)
                 }
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- /control/perf-checkpoints: guest-pushed fetch-and-execute phase timings ---
+            # fetch-and-execute.sh POSTs the ==== checkpoint ==== markers it
+            # collected while running a fetched script. We host-stamp the arrival
+            # time -- that timestamp is the join key: perf-aggregates matches it
+            # against the fetchAndExecute step's [start,end] window. Both sides of
+            # that comparison are host-clock, so guest/host clock skew can never
+            # break the match. The sidecar filename is minted here, never taken
+            # from the body, so nothing in the payload can traverse the path.
+            if (`$path -eq 'control/perf-checkpoints') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
+                    `$res.StatusCode = 405
+                    `$res.Headers.Add('Allow', 'POST, PUT')
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed; POST the checkpoint body"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                if (`$req.ContentLength64 -gt 256KB) {
+                    `$res.StatusCode = 413
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"payload too large (>256 KB)"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$rawBody = ''
+                try {
+                    `$reader = [System.IO.StreamReader]::new(`$req.InputStream, `$req.ContentEncoding)
+                    try { `$rawBody = `$reader.ReadToEnd() } finally { `$reader.Close() }
+                } catch { `$rawBody = '' }
+                `$parsed = `$null
+                try { `$parsed = `$rawBody | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { `$parsed = `$null }
+                if (`$null -eq `$parsed -or -not (`$parsed -is [System.Collections.IDictionary])) {
+                    `$res.StatusCode = 400
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"body must be a JSON object"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                # Bounded, validated copy of the checkpoint list (max 500;
+                # name <= 200 chars; offsetMs a non-negative int). Off-shape
+                # entries are dropped, not rejected, so a partial run still
+                # records the checkpoints it did capture.
+                `$cleanCkpts = New-Object System.Collections.ArrayList
+                if (`$parsed.Contains('checkpoints') -and (`$parsed.checkpoints -is [System.Collections.IEnumerable])) {
+                    foreach (`$ck in `$parsed.checkpoints) {
+                        if (`$cleanCkpts.Count -ge 500) { break }
+                        if (-not (`$ck -is [System.Collections.IDictionary])) { continue }
+                        `$nm = ''
+                        if (`$ck.Contains('name') -and `$null -ne `$ck.name) { `$nm = [string]`$ck.name }
+                        if (`$nm.Length -gt 200) { `$nm = `$nm.Substring(0, 200) }
+                        if ([string]::IsNullOrWhiteSpace(`$nm)) { continue }
+                        `$off = 0
+                        try { `$off = [int]`$ck.offsetMs } catch { `$off = 0 }
+                        if (`$off -lt 0) { `$off = 0 }
+                        `$null = `$cleanCkpts.Add([ordered]@{ name = `$nm; offsetMs = `$off })
+                    }
+                }
+                `$scriptPathIn = ''
+                if (`$parsed.Contains('scriptPath') -and `$null -ne `$parsed.scriptPath) { `$scriptPathIn = [string]`$parsed.scriptPath }
+                if (`$scriptPathIn.Length -gt 400) { `$scriptPathIn = `$scriptPathIn.Substring(0, 400) }
+                `$srcTag = ''
+                if (`$parsed.Contains('source') -and `$null -ne `$parsed.source) { `$srcTag = [string]`$parsed.source }
+                `$guestHost = ''
+                if (`$parsed.Contains('hostname') -and `$null -ne `$parsed.hostname) { `$guestHost = [string]`$parsed.hostname }
+                `$ckptExit = 0
+                try { if (`$parsed.Contains('exitCode')) { `$ckptExit = [int]`$parsed.exitCode } } catch { `$ckptExit = 0 }
+                `$remoteIp = ''
+                try { `$remoteIp = `$req.RemoteEndPoint.Address.ToString() } catch { `$remoteIp = '' }
+
+                `$receivedUtc = [DateTime]::UtcNow.ToString('o')
+                `$sidecar = [ordered]@{
+                    schema        = 1
+                    receivedAtUtc = `$receivedUtc
+                    remoteIp      = `$remoteIp
+                    scriptPath    = `$scriptPathIn
+                    source        = `$srcTag
+                    hostname      = `$guestHost
+                    exitCode      = `$ckptExit
+                    checkpoints   = @(`$cleanCkpts)
+                }
+
+                `$ckptDir = Join-Path `$statusDir 'perf/checkpoints'
+                `$writeOk = `$false
+                try {
+                    if (-not (Test-Path -LiteralPath `$ckptDir)) {
+                        `$null = New-Item -ItemType Directory -Path `$ckptDir -Force -ErrorAction SilentlyContinue
+                    }
+                    # ':' is illegal in Windows filenames, so the ISO arrival
+                    # stamp gets colons -> hyphens (same transform Test.Perf uses
+                    # for cycle JSONL names); the receivedAtUtc field inside keeps
+                    # the untouched ISO for the window comparison.
+                    `$safeStamp   = `$receivedUtc -replace ':', '-'
+                    `$tail        = ([Guid]::NewGuid().ToString('N')).Substring(0, 4)
+                    `$ckptFile    = Join-Path `$ckptDir "`${safeStamp}__`${tail}.json"
+                    `$tmpFile     = "`$ckptFile.tmp"
+                    `$sidecarJson = `$sidecar | ConvertTo-Json -Depth 6 -Compress
+                    [System.IO.File]::WriteAllText(`$tmpFile, `$sidecarJson)
+                    Move-Item -LiteralPath `$tmpFile -Destination `$ckptFile -Force
+                    `$writeOk = `$true
+                    # Light retention: keep the newest ~500 sidecars so the
+                    # directory can't grow without bound across many cycles.
+                    `$allCkpts = @(Get-ChildItem -LiteralPath `$ckptDir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+                    if (`$allCkpts.Count -gt 500) {
+                        foreach (`$old in (`$allCkpts | Select-Object -Skip 500)) {
+                            Remove-Item -LiteralPath `$old.FullName -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                } catch {
+                    Write-ServerErr "perf-checkpoints: write failed: `$(`$_.Exception.Message)"
+                }
+                if (-not `$writeOk) {
+                    `$res.StatusCode = 500
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"sidecar write failed"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                # Fresh checkpoint data invalidates the memoized aggregates so the
+                # next GET re-runs the join (mirrors the POST-recalc invalidation).
+                `$perfAggregatesCache = `$null
+                `$perfAggregatesBytes = `$null
+                `$payloadOut = '{"ok":true,"checkpoints":' + `$cleanCkpts.Count + '}'
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payloadOut)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
                 `$res.OutputStream.Close()
                 continue
             }
@@ -1066,7 +1314,12 @@ try {
                     }
                 } catch { Write-Debug `$_ }
                 try {
-                    `$doc = Get-Content -Raw `$statusJsonFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+                    # Read-modify-write: must read fresh from disk every
+                    # time (a concurrent runner-side write would otherwise
+                    # be silently clobbered if we returned a cached parse).
+                    # [File]::ReadAllText skips the Get-Content cmdlet-
+                    # binding / encoding-sniff overhead.
+                    `$doc = [System.IO.File]::ReadAllText(`$statusJsonFile) | ConvertFrom-Json -AsHashtable
                     `$doc[`$fieldName] = `$desiredPaused
                     `$tmp = "`$statusJsonFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                     `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
@@ -1196,11 +1449,13 @@ try {
                 `$action = 'restarted'
                 `$errMsg = `$null
                 try {
-                    # 1. clear pause flags (D4: start implies un-pause)
+                    # 1. clear pause flags (start implies un-pause)
                     Remove-Item `$cyclePauseFile -Force -ErrorAction SilentlyContinue
                     Remove-Item `$stepPauseFile  -Force -ErrorAction SilentlyContinue
                     try {
-                        `$doc = Get-Content -Raw `$statusJsonFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+                        # Same RMW reasoning as the pause-control handler:
+                        # cannot cache the parse without risking a clobber.
+                        `$doc = [System.IO.File]::ReadAllText(`$statusJsonFile) | ConvertFrom-Json -AsHashtable
                         `$doc['cyclePaused'] = `$false
                         `$doc['stepPaused']  = `$false
                         `$tmp = "`$statusJsonFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
@@ -1252,7 +1507,7 @@ try {
                     # 4. Remove-TestVMFiles synchronously. Captures both
                     #    streams; non-zero exit is surfaced in the response
                     #    so the operator can investigate, but does NOT
-                    #    abort the spawn (D1: hard-stop noise is accepted).
+                    #    abort the spawn (hard-stop noise is accepted).
                     `$removeScript = Join-Path `$repoRoot 'test/Remove-TestVMFiles.ps1'
                     if (Test-Path -LiteralPath `$removeScript) {
                         try {
@@ -1630,6 +1885,114 @@ try {
                 continue
             }
 
+            # --- /log-upload/<rel>: write a diagnostic file under `$logDir ---
+            # Failed-install diagnostic sink. Subiquity's error-commands
+            # block runs INSIDE the installer environment (not the half-
+            # built target) when the install aborts, and POSTs
+            # /var/log/installer/* here before the VM dies. Without this
+            # endpoint the only failure evidence is the screen OCR; the
+            # underlying apt stderr / curtin trace is lost when the
+            # installer drops to shell. Mirrors the static /log/ GET
+            # route so an uploaded file appears in the dashboard's
+            # cycle-log listing as soon as it lands.
+            #
+            # Scoped narrowly to keep the write surface tight:
+            #   * Method:    PUT or POST only.
+            #   * Path:      log-upload/<rel> with no '..' segments.
+            #   * Extension: .log .txt .json .err .crash (matches what
+            #                /var/log/installer/* actually produces;
+            #                rejects e.g. .ps1 / .exe upload attempts).
+            #   * Body cap:  4 MB (a typical curtin-install.log tail is
+            #                ~200 KB; full file ~1-2 MB).
+            # Path is normalized + range-checked against `$logDir so
+            # nothing escapes the log mount.
+            if (`$path -like 'log-upload/*') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                if (`$req.HttpMethod -ne 'PUT' -and `$req.HttpMethod -ne 'POST') {
+                    `$res.StatusCode = 405
+                    `$res.Headers.Add('Allow', 'PUT, POST')
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"PUT or POST required"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$uploadRel = `$path.Substring(11) -replace '\\','/'
+                `$uploadDeny = `$false
+                if ([string]::IsNullOrWhiteSpace(`$uploadRel))             { `$uploadDeny = `$true }
+                elseif (`$uploadRel -match '(^|/)\.\.(/|`$)')              { `$uploadDeny = `$true }
+                elseif (`$uploadRel -match '^/')                           { `$uploadDeny = `$true }
+                elseif (-not (`$uploadRel -match '\.(log|txt|json|err|crash)`$')) { `$uploadDeny = `$true }
+                if (`$uploadDeny) {
+                    `$res.StatusCode = 400
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"invalid upload path (must end in .log/.txt/.json/.err/.crash, no traversal)"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                if (`$req.ContentLength64 -gt 4MB) {
+                    `$res.StatusCode = 413
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"payload too large (>4 MB)"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$uploadTarget = Join-Path `$logDir `$uploadRel
+                `$uploadFull   = [System.IO.Path]::GetFullPath(`$uploadTarget)
+                `$logDirFull   = [System.IO.Path]::GetFullPath(`$logDir)
+                if (-not `$uploadFull.StartsWith(`$logDirFull)) {
+                    `$res.StatusCode = 403
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"path escapes log dir"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$uploadParent = Split-Path -Parent `$uploadFull
+                `$writeOk = `$false
+                `$writeErr = `$null
+                try {
+                    if (-not (Test-Path -LiteralPath `$uploadParent)) {
+                        `$null = New-Item -ItemType Directory -Force -Path `$uploadParent -ErrorAction Stop
+                    }
+                    `$out = [System.IO.File]::Open(`$uploadFull, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+                    try {
+                        `$buf = New-Object byte[] 65536
+                        `$total = 0L
+                        while (`$true) {
+                            `$n = `$req.InputStream.Read(`$buf, 0, `$buf.Length)
+                            if (`$n -le 0) { break }
+                            `$total += `$n
+                            if (`$total -gt 4MB) { throw "payload exceeded 4 MB mid-stream" }
+                            `$out.Write(`$buf, 0, `$n)
+                        }
+                    } finally { `$out.Dispose() }
+                    `$writeOk = `$true
+                } catch {
+                    `$writeErr = `$_.Exception.Message
+                    Write-ServerErr "log-upload write failed for `$uploadRel : `$writeErr"
+                }
+                if (-not `$writeOk) {
+                    `$res.StatusCode = 500
+                    `$errEsc = (`$writeErr -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"write failed: ' + `$errEsc + '"}')
+                    `$res.ContentLength64 = `$body.Length
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$res.StatusCode = 201
+                `$relEsc = (`$uploadRel -replace '\\','\\' -replace '"','\"')
+                `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true,"path":"' + `$relEsc + '"}')
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
             # Dispatch by URL prefix:
             #   yuruna-repo/<rel> -> `$repoRoot (working tree, with deny-list)
             #   runtime/<name>    -> `$runtimeDir (pids, status.json, control
@@ -1780,7 +2143,7 @@ try {
                 # the inner attribute quotes) and at deployed-parse
                 # time. `$titleEnc` is the only dynamic part, so a
                 # plain `+` keeps the rest literal.
-                [void]`$sb.AppendLine('<!doctype html><html><head><meta charset="utf-8"><title>Index of ' + `$titleEnc + '</title><style>body{font-family:sans-serif;margin:1.5em}h1{font-size:1.1em}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid #eee;font-family:monospace;text-align:left}th{background:#f4f4f4}</style></head><body>')
+                [void]`$sb.AppendLine('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Index of ' + `$titleEnc + '</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid var(--border);font-family:var(--font-mono);text-align:left}th{background:var(--bg-hover)}</style></head><body>')
                 [void]`$sb.AppendLine("<h1>Index of `$titleEnc</h1>")
                 [void]`$sb.AppendLine('<table><thead><tr><th>Name</th><th>Size</th><th>Modified (UTC)</th></tr></thead><tbody>')
                 if (`$origLocal -ne '/') {
@@ -1899,6 +2262,13 @@ try {
 # "The filename or extension is too long" which is obscure and easy to
 # misread as a path problem. -File sidesteps the size limit entirely:
 # pwsh reads the script from disk instead of its command line.
+# Reap the prior-name generated server script (.status-server.ps1, since
+# renamed to .status-service.ps1) and its stdout log so an upgrade does not
+# leave a stale, misleading copy under the runtime dir that an inspector could
+# mistake for the live server. Runs before the current script is written below.
+Remove-Item (Join-Path $RuntimeDir '.status-server.ps1') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $RuntimeDir 'server.out') -Force -ErrorAction SilentlyContinue
+
 $serverScriptFile = Join-Path $RuntimeDir ".status-service.ps1"
 Set-Content -Path $serverScriptFile -Value $serverScript -Encoding UTF8BOM
 
@@ -1976,6 +2346,22 @@ if (-not $serverReady) {
     Write-Warning "Status server process started but port $Port is not responding after $script:StatusServiceReadyTimeoutSeconds seconds."
     Write-Warning "Check the server error log: $(Join-Path $RuntimeDir 'server.err')"
 }
+
+# Persist the framework HEAD SHA the new server was launched against so a
+# subsequent Start-StatusService invocation (the per-cycle call from
+# Invoke-TestInnerRunner.ps1) can short-circuit the kill+relaunch when the
+# code the running server already loaded is still current. Written AFTER
+# the readiness probe so a server that never came up does not advertise
+# itself as "already running on SHA X" -- the missing SHA file forces the
+# next call to restart.
+try {
+    $launchSha = (& git -C $RepoRoot rev-parse HEAD 2>$null | Out-String).Trim()
+    if ($launchSha) {
+        [System.IO.File]::WriteAllText($ShaFile, $launchSha, [System.Text.UTF8Encoding]::new($false))
+    } elseif (Test-Path -LiteralPath $ShaFile) {
+        Remove-Item -LiteralPath $ShaFile -Force -ErrorAction SilentlyContinue
+    }
+} catch { Write-Verbose "Could not persist server.sha: $($_.Exception.Message)" }
 
 # --- Display connection info ---
 $machineName = (hostname).Trim()

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # tofu data "external" hook -- verify the local docker registry the
 # workload bash starts BEFORE Set-Resource is actually running. POSIX
-# only, no pwsh: a prior null_resource provisioner spawned pwsh here
-# and crashed at startup on pwsh 7.6.1 / .NET 10 with a
-# FileLoadException on System.Collections.Specialized (truncated
+# only, no pwsh: a null_resource provisioner spawning pwsh here hits
+# the FileLoadException trap class documented in
+# feedback_pwsh_provisioner_assemblyname_flake.md (pwsh 7.6.x / .NET 10
+# crashes at startup on System.Collections.Specialized with a truncated
 # PublicKeyToken). Set-Resource's planfile-pinned apply means this
 # script runs at plan time only, so the result is captured once and
 # the apply pass never re-invokes it.

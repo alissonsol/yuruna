@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,8 +42,8 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 }
 
 # Canonical path bundle + CachingProxy module kind (Test.VMUtility,
-# Test.CachingProxy, Test.Host) -- one helper call loads the inline
-# Test.Host import this script needs.
+# Test.CachingProxy, Test.HostContract) -- one helper call loads the inline
+# Test.HostContract import this script needs.
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
 $ModulesDir = $paths.ModulesDir
@@ -62,12 +62,17 @@ Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSComman
 # config; on macOS, networksetup). Prime it once, with the reason, so the
 # teardown doesn't stop for a password prompt halfway through.
 Write-Output ""
-Write-Output "=== Step 0: plan -- tear down caching proxy '$VMName' ==="
+Write-Output "== Step 0: plan -- tear down caching proxy '$VMName' =="
 Write-Output "  1. wipe machine-wide host proxy config"
 Write-Output "  2. remove any host-side port forwarders"
 Write-Output "  3. destroy + undefine the cache VM (if registered)"
 Write-Output "  4. delete the per-VM disk directory (base image is kept)"
-[void](Initialize-SudoCache -Reasons @("wipe machine-wide host proxy config (/etc/environment, apt)"))
+$stopProxyReason = if ($IsMacOS) {
+    "clear the macOS system HTTP/HTTPS proxy (networksetup)"
+} else {
+    "wipe machine-wide host proxy config (/etc/environment, apt)"
+}
+[void](Initialize-SudoCache -Reasons @($stopProxyReason))
 Write-Output "  Proceeding unattended (no further prompts)."
 
 # === Wipe machine-wide host proxy (if it was promoted) =====================
@@ -83,7 +88,7 @@ Write-Output "  Proceeding unattended (no further prompts)."
 # On macOS networksetup requires root — the sudo preamble above guarantees
 # we are already elevated by the time this runs.
 try {
-    Import-Module (Join-Path $PSScriptRoot 'modules/Test.Host.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $PSScriptRoot))
     [void](Remove-HostProxy -Confirm:$false)
 } catch {
@@ -94,12 +99,11 @@ try {
 }
 
 if ($IsMacOS) {
-    $UtmDir      = "$HOME/yuruna/guest.nosync/$VMName.utm"
     # Repo root for importing Yuruna.Host.psm1 (squid forwarder helpers).
     $RepoRoot    = Split-Path -Parent $PSScriptRoot
 
     Write-Output ""
-    Write-Output "=== Stop + delete '$VMName' (macOS/UTM) ==="
+    Write-Output "== Stop + delete '$VMName' (macOS/UTM) =="
 
     # Tear down any leftover host-side forwarders from the retired
     # shared-NAT path (forwarder.<port>.pid pwsh subprocesses under
@@ -108,7 +112,7 @@ if ($IsMacOS) {
     # layer in the data path -- but an upgrade from the previous shape
     # can leave one running, and on macOS killing the root-owned :80
     # forwarder requires sudo. No-op on a fresh install.
-    Import-Module (Join-Path $RepoRoot 'test/modules/Test.Host.psm1') -Force
+    Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
     $stateDir = Join-Path $HOME "yuruna/image/caching-proxy"
     $hasRootForwarder = $false
@@ -140,23 +144,17 @@ if ($IsMacOS) {
     Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
     [void](Save-CachingProxyState -IpAddress '' -Confirm:$false)
 
-    # `utmctl status <name>` exits non-zero with "Virtual machine not found"
-    # when the VM isn't registered — cheap probe, no need to parse `utmctl list`.
-    & utmctl status $VMName 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    # Host-agnostic teardown via the Yuruna.Host contract (loaded above by
+    # Initialize-YurunaHost). On UTM, Remove-VM stops the VM, deletes it
+    # from UTM's registry (with a delete retry + wait-for-stopped poll the
+    # raw utmctl sequence lacked), and removes the .utm bundle under
+    # $HOME/yuruna/guest.nosync. The base image lives in a separate
+    # download dir ($HOME/yuruna/image/caching-proxy) and is untouched.
+    if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Output "  VM registered with UTM — stopping and deleting..."
-        & utmctl stop $VMName 2>&1 | Out-Null
-        Start-Sleep -Seconds 2
-        & utmctl delete $VMName 2>&1 | Out-Null
+        [void](Remove-VM -VMName $VMName -Confirm:$false)
     } else {
         Write-Output "  No VM registered with UTM."
-    }
-
-    if (Test-Path $UtmDir) {
-        Write-Output "  Removing bundle $UtmDir"
-        Remove-Item -LiteralPath $UtmDir -Recurse -Force
-    } else {
-        Write-Output "  No bundle found at $UtmDir."
     }
 
     Write-Output ""
@@ -165,7 +163,7 @@ if ($IsMacOS) {
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsWindows) {
     Write-Output ""
-    Write-Output "=== Stop + delete '$VMName' (Windows/Hyper-V) ==="
+    Write-Output "== Stop + delete '$VMName' (Windows/Hyper-V) =="
 
     # Tear down any host-side port mappings a prior cycle exposed for this
     # cache VM (Grafana on :3000 etc.). Done BEFORE deleting the VM so the
@@ -173,7 +171,7 @@ if ($IsMacOS) {
     # removed in sync — otherwise a stale :3000 listener would outlive the
     # VM and black-hole LAN traffic until the next Invoke-TestRunner cycle.
     $RepoRoot = Split-Path -Parent $PSScriptRoot
-    Import-Module (Join-Path $RepoRoot 'test/modules/Test.Host.psm1') -Force
+    Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
     [void](Remove-PortMap -Confirm:$false)
 
@@ -203,18 +201,17 @@ if ($IsMacOS) {
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsLinux) {
     Write-Output ""
-    Write-Output "=== Stop + delete '$VMName' (Linux/KVM/libvirt) ==="
+    Write-Output "== Stop + delete '$VMName' (Linux/KVM/libvirt) =="
 
     $RepoRoot    = Split-Path -Parent $PSScriptRoot
     $downloadDir = Join-Path $HOME 'yuruna/image/caching-proxy'
-    $vmDir       = Join-Path $HOME "yuruna/vms/$VMName"
 
     # Tear down any pwsh-based host port forwarders Start-CachingProxy.ps1
     # set up on the NAT 'default' fallback. On a bridged 'yuruna-external'
     # network Start-CachingProxy didn't create any forwarders, so this is
     # a no-op there. Done BEFORE deleting the VM so a stale forwarder
     # can't outlive the VM and tunnel LAN traffic into a black hole.
-    Import-Module (Join-Path $RepoRoot 'test/modules/Test.Host.psm1') -Force
+    Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
     [void](Remove-PortMap -Confirm:$false)
 
@@ -224,26 +221,17 @@ if ($IsMacOS) {
     Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
     [void](Save-CachingProxyState -IpAddress '' -Confirm:$false)
 
-    # `virsh dominfo` exits non-zero with "Domain not found" when the
-    # VM isn't defined; cheap probe, no need to parse `virsh list`.
-    & virsh --connect qemu:///system dominfo $VMName 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    # Host-agnostic teardown via the Yuruna.Host contract (loaded above by
+    # Initialize-YurunaHost). On KVM, Remove-VM runs virsh destroy +
+    # undefine --nvram (NVRAM removal is required or undefine leaves the
+    # domain def in place) and deletes the per-VM artifact directory under
+    # ~/yuruna/vms/<name>. The base image lives in a separate download dir
+    # (~/yuruna/image/caching-proxy) and is untouched.
+    if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Output "  VM registered with libvirt -- destroying and undefining..."
-        # `destroy` is force-stop; we are about to delete the disk
-        # anyway. `undefine --nvram` removes the domain definition AND
-        # any per-domain NVRAM (UEFI EFI vars), without which undefine
-        # refuses to remove the domain and leaves the def in place.
-        & virsh --connect qemu:///system destroy $VMName 2>&1 | Out-Null
-        & virsh --connect qemu:///system undefine --nvram $VMName 2>&1 | Out-Null
+        [void](Remove-VM -VMName $VMName -Confirm:$false)
     } else {
         Write-Output "  No VM registered with libvirt."
-    }
-
-    if (Test-Path $vmDir) {
-        Write-Output "  Removing VM disk directory $vmDir"
-        Remove-Item -LiteralPath $vmDir -Recurse -Force
-    } else {
-        Write-Output "  No VM disk directory found at $vmDir."
     }
 
     Write-Output ""

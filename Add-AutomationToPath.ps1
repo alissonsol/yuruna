@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 4206c748-f960-4178-9901-2341a0b2c3d4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # Adds the 'automation' subfolder of this repository to the current session's PATH,
 # and persists it to the user-level PATH so it survives reboots and new terminal windows.
-# Use the script's own directory as the repo root instead of `git rev-parse` — in some
+# Use the script's own directory as the repo root instead of `git rev-parse` -- in some
 # environments Git refuses with "fatal: detected dubious ownership in repository" and
 # asks the user to add the path to safe.directory, but that path isn't known up front.
 $repoRoot = $PSScriptRoot

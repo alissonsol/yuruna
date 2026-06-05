@@ -1,6 +1,6 @@
 # Stash Service — Go daemon (`stash-server`)
 
-Spec: [docs/stash-service.md](../../../docs/stash-service.md) ·
+Spec: [docs/stash-service.md](../../../../docs/stash-service.md) ·
 [yuruna.link/stash-service](https://yuruna.link/stash-service).
 
 A single static binary that listens on TCP/22, accepts any SSH

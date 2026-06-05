@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ if (-not (Test-Path $utmPlist)) {
 
 # === Seek the base image ===
 $baseImageName = "host.macos.utm.guest.stash-service"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.raw"
+$baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 if (-not (Test-Path $baseImageFile)) {
     $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
     if (Test-Path -LiteralPath $getImageScript) {
@@ -89,9 +89,13 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
-# Copy the pre-built raw cloud image into the bundle as the boot disk.
-$DiskImage = "$DataDir/disk.img"
-Write-Output "Copying cloud image into bundle as disk.img (APFS clone)..."
+# Copy the pre-built qcow2 cloud image into the bundle as the boot disk.
+# qcow2 (not raw) is deliberate: UTM's QEMU backend boots it directly and
+# it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits
+# under UTM's discard=unmap,detect-zeroes=unmap -- see Get-Image.ps1 and
+# feedback_macos-qemu-punchhole-alignment.md.
+$DiskImage = "$DataDir/disk.qcow2"
+Write-Output "Copying cloud image into bundle as disk.qcow2 (APFS clone)..."
 & /bin/cp -c $baseImageFile $DiskImage
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "/bin/cp -c (APFS clone) failed; falling back to Copy-Item."
@@ -117,9 +121,18 @@ if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-$UserData = (Get-Content -Raw (Join-Path $VmConfigDir "user-data")).
-    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
-    Replace('PASSWORD_PLACEHOLDER', $YurunaPassword)
+# Render user-data from the shared base + UTM overlay (host/vmconfig/
+# stash-service.*). The overlay is empty (no per-platform divergence today);
+# Build-CloudInitUserData resolves the SSH-key and password placeholders.
+Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+$UserData = Build-CloudInitUserData `
+    -BasePath    (Join-Path $_repoRoot 'host/vmconfig/stash-service.base.user-data') `
+    -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/stash-service.utm.overlay.yml') `
+    -RepoRoot    $_repoRoot `
+    -Replacement @{
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        PASSWORD_PLACEHOLDER           = $YurunaPassword
+    } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"
@@ -182,7 +195,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__MAC_ADDRESS__',        $MacAddress `
     -replace '__BRIDGE_INTERFACE__',   $BridgeInterface `
     -replace '__DISK_IDENTIFIER__',    $DiskId `
-    -replace '__DISK_IMAGE_NAME__',    'disk.img' `
+    -replace '__DISK_IMAGE_NAME__',    'disk.qcow2' `
     -replace '__SEED_IDENTIFIER__',    $SeedId `
     -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
     -replace '__VNC_DISPLAY__',        "$VncDisplay" `
@@ -202,7 +215,7 @@ Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay)
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Output ""
-Write-Output "=== stash-service VM bundle created ==="
+Write-Output "== stash-service VM bundle created =="
 Write-Output "  Path:      $UtmDir"
 Write-Output "  Backend:   QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
 Write-Output ""

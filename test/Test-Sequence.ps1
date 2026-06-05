@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,7 +115,7 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
 # === Canonical module set for the Sequence entry-point ===
 # Test.LogLevel + Test.Config + Test.SequenceAction + Test.HostIO +
-# Test.Host + Test.Log + Invoke-Sequence + Test.SequencePlanner +
+# Test.HostContract + Test.Log + Invoke-Sequence + Test.SequencePlanner +
 # Test.YurunaDir + Test.OcrEngine + Test.Tesseract +
 # Test.ConfigPreflight. Order in the helper matches the prior inline
 # sequence (planner AFTER engine so the engine's -Force re-import
@@ -137,26 +137,10 @@ $global:VerbosePreference = $savedVerbose
 
 # === logLevel resolution: cmdline > YAML > 'Information' ===
 # Canonical cascade: Test.LogLevel.psm1. See docs/loglevels.md.
-# Clear any stale custom action / host-I/O registrations left over
-# from a prior Test-Sequence run in the same shell. The $global:
-# anchors that protect against -Force re-imports also cause prior
-# extensions to leak across runs; an explicit reset on every entry
-# means a stale "myCustomAction" registration from yesterday cannot
-# silently mask a renamed verb today.
-Clear-SequenceAction -Confirm:$false
-Clear-HostIOProvider -Confirm:$false
-
-# Re-run Invoke-Sequence.psm1's module-load body so its
-# Register-SequenceAction calls (retry, recoverFromSnapshot) AND the
-# Test.SequenceHandler.psm1 import that registers every other built-in
-# verb (waitForText, passwdPrompt, fetchAndExecute, ...) repopulate the
-# registry that Clear-SequenceAction above just wiped. Without this
-# refresh the engine's per-step lookup fails with
-# "Unknown action 'retry' -- treating as failure." on the first verb of
-# the chain. Host I/O providers are re-registered later via
-# Initialize-YurunaHost (the per-host Test.HostIO.<Host>.psm1 loads
-# there), so Clear-HostIOProvider does not need a matching refresh here.
-Import-Module (Join-Path $ModulesDir 'Invoke-Sequence.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+# Reset + repopulate the sequence-action / host-I/O registries so a
+# stale extension registered earlier in the same shell cannot shadow
+# a renamed verb today. Rationale + ordering live in Test.Prelude.
+Initialize-SequenceEngineRegistry -ModulesDir $ModulesDir -Confirm:$false
 $cfgForLevel = Read-TestConfig -Path $ConfigPath
 $configLevel = Get-TestConfigValue -Config $cfgForLevel -Path 'logLevel'
 $null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $script:CmdLineLogLevel -ConfigLevel $configLevel
@@ -169,7 +153,7 @@ Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSComman
 
 # === Read config ===
 $Config = Read-TestConfig -Path $ConfigPath
-if (-not $Config) { Write-Error "Config not found or unparseable: $ConfigPath"; exit 1 }
+if (-not $Config) { Write-Error "Config not found or unparseable: $ConfigPath"; exit $ExitFailure }
 
 # === Pre-cycle config gate ==================================================
 # Mirror Invoke-TestRunner: refuse to bring up a VM when test.config.yml /
@@ -223,7 +207,7 @@ if ($Config.statusService.isEnabled) {
 # generic <Name>.yml -- needed because KVM cloud-image guests skip the
 # autoinstall flow that Hyper-V/UTM autoinstall guests run through.
 $HostType = Get-HostType
-if (-not $HostType) { exit 1 }
+if (-not $HostType) { exit $ExitFailure }
 Write-Output "Host type: $HostType"
 
 # === Resolve sequence file ===
@@ -310,7 +294,7 @@ if (-not $SequencePath) {
 # resolve without HostType branches.
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
+if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 
 # Test.YurunaDir / Test.OcrEngine / Test.Tesseract were
 # imported by Initialize-YurunaEntryPointModuleSet above.
@@ -318,6 +302,27 @@ $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
 Write-Output "Track directory: $env:YURUNA_RUNTIME_DIR"
 Write-Output "Log directory:   $env:YURUNA_LOG_DIR"
+
+# === Single-instance guard ==================================================
+# Refuse to start when an Invoke-TestRunner already owns the runtime dir.
+# Test-Sequence is a dev entry point: it does not coordinate the runner
+# state machine, so a concurrent run would race the runner's pidfile,
+# status.json registrations, and VM operations. Get-RunnerInstanceState
+# (Test.SingleInstance) does the read; Assert-NoOtherRunner wraps it
+# with the "refuse + banner" semantics this entry point needs --
+# Invoke-TestRunner's takeover path is the opposite (Stop-StaleRunner).
+if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Test-Sequence')) {
+    exit $ExitFailure
+}
+
+# === Ctrl+C handler =========================================================
+# Register a CancelKeyPress handler that flips $script:CancelState['Requested']
+# instead of letting Ctrl+C tear the runspace down mid-step. The finally{}
+# block below polls the flag and stops the VM so a half-baked guest
+# (interrupted during New-VM / Start-VM / a long sequence step) doesn't
+# linger consuming host CPU + memory. The disk is intentionally kept so
+# the operator can inspect post-mortem via virsh / vmconnect / utmctl.
+$script:CancelState = Register-EntryPointCancelHandler
 
 # Archive any break-active.json left behind by a prior Test-Sequence /
 # Invoke-TestRunner that crashed (or was Ctrl-C'd) while paused at a
@@ -361,7 +366,7 @@ if (Get-Command Clear-StalePauseFlag -ErrorAction SilentlyContinue) {
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
-if (-not (Assert-TesseractInstalled)) { exit 1 }
+if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 
 # === Derive GuestKey from the sequence's baseline map ===
 # Source of truth is the sequence's `baseline:` field -- whichever OS
@@ -425,7 +430,7 @@ if (-not $VMName) {
 # existing-VM dev loop still works (Test-Sequence reuses a running VM
 # at line below).
 if ($HostType -eq 'host.macos.utm') {
-    if (-not (Assert-NoConcurrentUtmVm -ExceptVmName $VMName)) { exit 1 }
+    if (-not (Assert-NoConcurrentUtmVm -ExceptVmName $VMName)) { exit $ExitFailure }
 }
 
 # === Build chain plan ===
@@ -697,6 +702,24 @@ try {
     foreach ($tf in $tempFiles) {
         Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue
     }
+    # Ctrl+C cleanup: stop the VM so an interrupted run does not orphan
+    # a half-baked guest holding host CPU + memory. Normal completion
+    # leaves the VM running so the dev can ssh in and iterate. The disk
+    # is retained on cancel too -- inspection via virsh / vmconnect /
+    # utmctl stays available; only the running process is reclaimed.
+    if ($script:CancelState -and $script:CancelState['Requested'] -and $VMName) {
+        try {
+            $stopResult = Stop-VM -VMName $VMName -Confirm:$false -ErrorAction Stop
+            if ($stopResult -and $stopResult.success) {
+                Write-Output "Stopped VM '$VMName' after Ctrl+C (disk retained for inspection)."
+            } elseif ($stopResult) {
+                Write-Warning "Stop-VM '$VMName' after Ctrl+C reported: $($stopResult.errorMessage)"
+            }
+        } catch {
+            Write-Warning "Could not stop VM '$VMName' after Ctrl+C: $($_.Exception.Message)"
+        }
+    }
+    Unregister-EntryPointCancelHandler
     # Finalize the status.json cycle row so the dashboard's history table
     # reflects this Test-Sequence run. 'unknown' (mid-try exit before
     # outcome was assigned) is recorded as 'fail' -- a cycle the operator

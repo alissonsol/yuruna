@@ -144,12 +144,16 @@
     .cache-ip-wrap {
       flex: 1; min-width: 0;
       display: flex; flex-direction: column;
-      gap: .25rem;
     }
+    /* Margin idiom instead of flex `gap` (Safari 14.1 / iOS 14.5+ only) to hold
+       the iOS baseline: column container -> margin-top on subsequent children;
+       row containers -> margin-left. */
+    .cache-ip-wrap > * + * { margin-top: .25rem; }
     .cache-ip-envrow {
-      display: flex; align-items: center; gap: .5rem;
+      display: flex; align-items: center;
       font-size: .75rem;
     }
+    .cache-ip-envrow > * + * { margin-left: .5rem; }
     .cache-ip-envlabel {
       color: var(--fg-muted);
       font-family: var(--font-mono);
@@ -162,8 +166,9 @@
     }
     .tree-input.cache-ip-envinput:focus { outline: none; }
     .cache-ip-input-row {
-      display: flex; align-items: center; gap: .4rem;
+      display: flex; align-items: center;
     }
+    .cache-ip-input-row > * + * { margin-left: .4rem; }
     .cache-ip-mark {
       flex: 0 0 auto;
       display: inline-flex; align-items: center; justify-content: center;

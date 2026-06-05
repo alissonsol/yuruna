@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,6 +105,12 @@
 .PARAMETER SkipDocker
     Skip the Docker section even if docker is available.
 
+.PARAMETER SkipProjectGaps
+    Skip the YURUNA PROJECT and GAP HEURISTICS sections. These recursively
+    walk the entire ../project tree (the slowest part of a run); a
+    host/guest-only collection that does not need deploy-gap analysis can
+    bypass them. Omit it to get the full collection.
+
 .PARAMETER logLevel
     One of Error|Warning|Information|Verbose|Debug. Each level shows
     itself + all higher-priority streams (Error highest). Default
@@ -124,10 +130,16 @@ param(
     [string]$OutFile = $null,
     [switch]$SkipDocker,
     [switch]$SkipKube,
+    # When set, skips the YURUNA PROJECT and GAP HEURISTICS sections. Those
+    # walk the entire project tree recursively (resources.output.yml, .yuruna/
+    # working folders, tofu state) and are the slowest part of a run; a
+    # host/guest-only collection that does not care about deploy-gap analysis
+    # can bypass them. Default (unset) reproduces the full collection.
+    [switch]$SkipProjectGaps,
     [ValidateSet('Error','Warning','Information','Verbose','Debug', IgnoreCase = $true)]
     [string]$logLevel = 'Information'
 )
-Write-Debug "Get-SystemDiagnostic: skipDocker=$SkipDocker skipKube=$SkipKube logLevel=$logLevel"
+Write-Debug "Get-SystemDiagnostic: skipDocker=$SkipDocker skipKube=$SkipKube skipProjectGaps=$SkipProjectGaps logLevel=$logLevel"
 
 $_logRank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
 $_logEff  = $_logRank[$logLevel]
@@ -174,14 +186,7 @@ function Invoke-DiagnosticSection {
     }
 }
 
-# Wall-clock-bounded scriptblock invocation. A wedged daemon (dockerd
-# stuck in a syscall, kubectl blocked on an unreachable apiserver) can
-# consume the entire outer SSH/console budget if invoked in-process;
-# running the probe in a background job with Wait-Job -Timeout caps
-# the cost at $TimeoutSeconds regardless of what the child is doing.
-# Captured variables flow through -ArgumentList rather than the
-# scriptblock closure: Start-Job runs the block in a fresh runspace,
-# so $using: / lexical scope are not honored.
+# --- See https://yuruna.link/system-diagnostic#invoke-withdeadline
 function Invoke-WithDeadline {
     param(
         [Parameter(Mandatory)][scriptblock]$ScriptBlock,
@@ -203,11 +208,45 @@ function Invoke-WithDeadline {
     } finally {
         try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
     }
-    # Child-process exit code only flows back if the scriptblock emits it
-    # explicitly (parent-scope $LASTEXITCODE is unrelated to the job's
-    # runspace); callers that care must include $LASTEXITCODE in their
-    # block's final pipeline and recover it from $Output.
+    # --- See https://yuruna.link/system-diagnostic#invoke-withdeadline (exit-code recovery)
     return @{ TimedOut = $false; Output = $out; ExitCode = $null }
+}
+
+# Recursive project-tree walks can wedge for minutes on a huge or
+# network-mounted checkout. Run each behind Invoke-WithDeadline so a slow
+# walk degrades to a partial/empty result plus a marker line instead of
+# stalling the whole diagnostic. Job serialization preserves the FileInfo
+# note properties the callers read (FullName, Length, Extension, Name,
+# LastWriteTime), so downstream code is unchanged on the success path.
+#
+# The function has a singular collection contract, so the timeout marker is
+# emitted by the caller (statement level) rather than from here -- a
+# Write-Output of the marker would be captured into the caller's @(...)
+# array instead of reaching stdout/transcript.
+function Get-FileTreeWithDeadline {
+    param(
+        [Parameter(Mandatory)][scriptblock]$ScriptBlock,
+        [Parameter(Mandatory)][string]$Label,
+        [object[]]$ArgumentList = @(),
+        [int]$TimeoutSeconds = 30
+    )
+    $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList $ArgumentList -ScriptBlock $ScriptBlock
+    if ($result.TimedOut) {
+        Add-Problem ("DIAG: {0} recursive walk timed out after {1}s; results below may be incomplete." -f $Label, $TimeoutSeconds)
+        return @{ TimedOut = $true; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @() }
+    }
+    return @{ TimedOut = $false; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @($result.Output) }
+}
+
+# Emit the degradation marker (if any) at statement level so it lands in
+# stdout/transcript next to the section that triggered it. Pure side effect:
+# call this WITHOUT assigning its result, then read the walk's .Items
+# separately, so the marker is never captured into a caller's @(...) array.
+function Show-FileTreeWalkTimeout {
+    param([Parameter(Mandatory)][hashtable]$Walk)
+    if ($Walk.TimedOut) {
+        Write-Output ("  ({0} walk timed out after {1}s -- returning partial/empty results)" -f $Walk.Label, $Walk.TimeoutSeconds)
+    }
 }
 
 function Invoke-Tool {
@@ -215,8 +254,13 @@ function Invoke-Tool {
         [Parameter(Mandatory)][string]$Tool,
         [string[]]$ToolArgs = @(),
         [string]$ProblemTag = $null,
-        [int]$TimeoutSeconds = 0
+        [int]$TimeoutSeconds = 0,
+        [switch]$Privileged
     )
+    if ($Privileged -and $script:LinuxPriv -and $script:LinuxPriv.Count -gt 0) {
+        $ToolArgs = @($script:LinuxPriv | Select-Object -Skip 1) + @($Tool) + $ToolArgs
+        $Tool = $script:LinuxPriv[0]
+    }
     try {
         if ($TimeoutSeconds -gt 0) {
             $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList @($Tool, $ToolArgs) -ScriptBlock {
@@ -259,6 +303,47 @@ function Test-CommandAvailable {
     return ($null -ne (Get-Command $Name -ErrorAction SilentlyContinue))
 }
 
+# --- Linux privileged-probe support ------------------------------------
+# journalctl / dmesg / networkctl only expose system- and kernel-scope
+# output when run with privilege. Over an unprivileged SSH session they
+# silently degrade to the caller's own user journal and a restricted
+# (usually empty) kernel ring buffer -- so a remote diagnostic that does
+# not elevate comes back blank for exactly the boot / network / kernel
+# evidence it exists to capture. Resolve a non-interactive sudo prefix
+# once (-n never prompts, so a password-required sudo fails fast instead
+# of hanging the whole capture) and reuse it for every privileged probe.
+function Get-LinuxPrivPrefix {
+    if (-not $IsLinux) { return @() }
+    $uid = $null
+    try { $uid = (& id -u 2>$null) } catch { $null = $_ }
+    if ("$uid" -eq '0') { return @() }
+    if (-not (Test-CommandAvailable 'sudo')) { return @() }
+    & sudo -n true 2>$null
+    if (0 -eq $LASTEXITCODE) { return @('sudo', '-n') }
+    return @()
+}
+$script:LinuxPriv = @(Get-LinuxPrivPrefix)
+
+# Run a privileged Linux probe with the resolved prefix and return its
+# output as a string[]. Stderr is dropped by default (matches probes that
+# only want clean stdout); -KeepStderr merges it (for probes that inspect
+# warnings or detect a restricted ring buffer). $LASTEXITCODE is left
+# reflecting the underlying tool so callers can still branch on it.
+function Invoke-PrivProbe {
+    param(
+        [Parameter(Mandatory)][string]$Tool,
+        [string[]]$ToolArgs = @(),
+        [switch]$KeepStderr
+    )
+    $argv = @($script:LinuxPriv) + @($Tool) + $ToolArgs
+    $exe  = $argv[0]
+    $rest = @($argv | Select-Object -Skip 1)
+    if ($KeepStderr) {
+        return @(& $exe @rest 2>&1 | ForEach-Object { $_.ToString() })
+    }
+    return @(& $exe @rest 2>$null | ForEach-Object { $_.ToString() })
+}
+
 function Format-ByteCount {
     param([Parameter(Mandatory)][double]$Bytes)
     $units = 'B','KB','MB','GB','TB','PB'
@@ -289,13 +374,7 @@ try {
     Write-Output ("Time (local) : {0}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))
 
     # ---- Software ----------------------------------------------------
-    # Probes follow automation/Yuruna.Requirement.yml plus tools that
-    # show up in the codebase (>10 mentions) but aren't in the YAML:
-    # git, python3, node/npm, containerd, curl, tesseract, qemu-img.
-    # Each entry is resilient to the tool being absent OR present-but-
-    # broken (e.g. Windows App Execution Alias for python3 that resolves
-    # via Get-Command but refuses to execute) -- a failure renders as
-    # "(not installed)" rather than aborting the whole HOST section.
+    # --- See https://yuruna.link/system-diagnostic#1-host-software-probe-resilience
     Write-Sub "Software"
     function Get-VersionLine {
         param(
@@ -336,9 +415,7 @@ try {
     Get-VersionLine 'npm' {
         if (Get-Command npm -ErrorAction SilentlyContinue) { & npm --version 2>$null }
     }
-    # `docker --version` is local (no daemon roundtrip) -- safer than
-    # `docker version -f json` from the YAML, which hangs ~30s when
-    # dockerd is unreachable.
+    # --- See https://yuruna.link/system-diagnostic#per-tool-request-timeouts (docker --version)
     Get-VersionLine 'Docker' {
         if (Get-Command docker -ErrorAction SilentlyContinue) {
             ((& docker --version 2>$null) -replace '^Docker version ','' -replace ',\s*build.*$','')
@@ -361,9 +438,7 @@ try {
     }
     Get-VersionLine 'Kubernetes' {
         if (Get-Command kubectl -ErrorAction SilentlyContinue) {
-            # --client suppresses the apiserver roundtrip but kubectl
-            # still resolves kubeconfig; --request-timeout caps the
-            # fallback for unreachable clusters with broken contexts.
+            # --- See https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --client)
             $j = & kubectl version --client -o json --request-timeout=5s 2>$null
             if ($LASTEXITCODE -eq 0 -and $j) {
                 (($j -join "`n") | ConvertFrom-Json).clientVersion.gitVersion
@@ -429,10 +504,7 @@ try {
     }
     Get-VersionLine 'Google Cloud' {
         if (Get-Command gcloud -ErrorAction SilentlyContinue) {
-            # Use 2>$null (not 2>&1) so a broken bundled-python install
-            # produces "(not installed)" rather than dumping a Python
-            # traceback into the table. `gcloud -v` writes the version
-            # line to stdout on healthy installs.
+            # --- See https://yuruna.link/system-diagnostic#per-tool-request-timeouts (gcloud -v)
             & gcloud -v 2>$null | Select-Object -First 1
         }
     }
@@ -667,11 +739,7 @@ try {
 
     Write-Sub "Connectivity"
 
-    # Detect env-configured HTTP proxy (cloud-init writes these into
-    # /etc/environment, /etc/profile.d, and systemd DefaultEnvironment).
-    # When set, direct TCP/443 to public IPs is typically REJECTed by the
-    # egress lock that the same cloud-init also installs, so probe via
-    # the proxy instead of pretending direct works.
+    # --- See https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
     $proxyUrl  = $null
     $proxyHost = $null
     $proxyPort = 0
@@ -762,11 +830,7 @@ try {
         )
 
         if ($proxyUrl) {
-            # Forced through the cache: report end-to-end round-trip via
-            # HTTP CONNECT (single TCP to proxy + tunnel-setup reply from
-            # the upstream target). The reply timing approximates
-            # client->proxy + proxy->target without doing a full TLS
-            # handshake, which would skew the number with crypto cost.
+            # --- See https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
             Write-Output ("Egress goes through ${proxyHost}:${proxyPort} ({0}); reporting round-trip via HTTP CONNECT." -f $proxyUrl)
             $probeTimeoutMs = 4000
             $probeDeadline  = [System.Environment]::TickCount + $probeTimeoutMs
@@ -973,7 +1037,7 @@ try {
     } elseif ($IsLinux) {
         if (Test-CommandAvailable 'journalctl') {
             Write-Sub "journalctl -p err -n 20 --no-pager (since 1h ago)"
-            $jc = & journalctl -p err -n 20 --since '1 hour ago' --no-pager 2>$null
+            $jc = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-p','err','-n','20','--since','1 hour ago','--no-pager')
             $count = ($jc | Measure-Object).Count
             if ($count -gt 0) {
                 $jc | ForEach-Object { Write-Output $_ }
@@ -1061,10 +1125,7 @@ try {
         Write-Output "docker command not found in PATH."
         Add-Problem "DOCKER: docker not installed (or not in PATH)."
     } else {
-        # A wedged dockerd will hang `docker info` for the full client
-        # timeout (default 30s+); cap with Invoke-WithDeadline so the
-        # rest of the diagnostic dump still runs inside the outer
-        # SSH/console budget.
+        # --- See https://yuruna.link/system-diagnostic#wedged-daemon-protection
         $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
             $null = & docker info --format '{{.ServerVersion}}' 2>&1
             $LASTEXITCODE
@@ -1214,10 +1275,7 @@ try {
         Add-Problem "KUBE: kubectl not installed (or not in PATH)."
     } else {
         Write-Sub "kubectl version"
-        # --request-timeout caps the per-call wait on an unreachable
-        # apiserver; without it a stale kubeconfig pointing at a torn-
-        # down VIP blocks for the full client default (~30s) per probe
-        # and starves later sections of the section's wall budget.
+        # --- See https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --request-timeout)
         $kv = & kubectl version --output=json --request-timeout=5s 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
         if ($kv) {
             if ($kv.clientVersion) { Write-Output ("Client : {0}" -f $kv.clientVersion.gitVersion) }
@@ -1352,19 +1410,10 @@ try {
     }
 
     # ===== 11. HOST DETAIL =============================================
-    # Per-platform host facts plus the runner process tree (which is
-    # cross-platform). On a stuck cycle the process tree is the most
-    # actionable artifact in this section: it shows the runner pwsh's
-    # descendants (ssh.exe, virsh, vmconnect, ...) so the operator can
-    # tell whether the inner is wedged on a specific child vs spinning
-    # on its own logic.
+    # --- See https://yuruna.link/system-diagnostic#11-host-detail-runner-process-tree
     Invoke-DiagnosticSection "HOST DETAIL" {
 
         # ---- Runner process tree (all platforms) ----------------------
-        # Read the inner pwsh pid from $env:YURUNA_RUNTIME_DIR/inner.pid,
-        # falling back to runner.pid (outer's pid) if the inner isn't
-        # currently running. Walks descendants iteratively with a visited
-        # set so a process recycling its parent's pid can't loop us.
         Write-Sub "Yuruna runner process tree (descendants of inner.pid / runner.pid)"
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
         if (-not $runtimeDir) {
@@ -1413,12 +1462,7 @@ try {
                     Write-Output "(Get-CimInstance Win32_Process failed: $($_.Exception.Message))"
                 }
             } elseif ($IsLinux -or $IsMacOS) {
-                # `-ww` forces unlimited column width so the cmd column
-                # isn't truncated to the terminal width (BSD ps default).
-                # Tab-separated columns avoid having to count spaces in
-                # the cmd field. ETIME is wall-clock since the process
-                # started in [[dd-]hh:]mm:ss; we leave it as the raw
-                # string for human readability.
+                # --- See https://yuruna.link/system-diagnostic#ps-ww-is-mandatory-on-macos-linux
                 try {
                     $psLines = & '/bin/ps' -ww -axo 'pid=,ppid=,etime=,pcpu=,args=' 2>$null
                     foreach ($line in $psLines) {
@@ -1676,7 +1720,7 @@ try {
 
         Write-Sub "dmesg -T (last 100 lines, with OOM scan)"
         if (Test-CommandAvailable 'dmesg') {
-            $dmesgOut = & dmesg -T 2>&1
+            $dmesgOut = Invoke-PrivProbe -Tool 'dmesg' -ToolArgs @('-T') -KeepStderr
             $dmesgExit = $LASTEXITCODE
             if ($dmesgExit -ne 0) {
                 Write-Output ("(dmesg returned exit {0}; kernel.dmesg_restrict may be 1 -- rerun as root for kernel ring buffer)" -f $dmesgExit)
@@ -1711,7 +1755,7 @@ try {
 
         Write-Sub "journalctl -xe (last 100 lines, no-pager)"
         if (Test-CommandAvailable 'journalctl') {
-            $jxe = & journalctl -xe -n 100 --no-pager 2>&1
+            $jxe = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-xe','-n','100','--no-pager') -KeepStderr
             if ($jxe) {
                 $inScriptBlock = $false
                 foreach ($line in $jxe) {
@@ -1734,7 +1778,7 @@ try {
         if (Test-CommandAvailable 'journalctl') {
             foreach ($svc in @('docker','containerd','kubelet')) {
                 Write-Output "## $svc"
-                $jOut = & journalctl -u $svc --since '6 hours ago' -p warning -n 100 --no-pager 2>&1
+                $jOut = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-u',$svc,'--since','6 hours ago','-p','warning','-n','100','--no-pager') -KeepStderr
                 if (-not $jOut -or (($jOut -join "`n") -match 'No entries')) {
                     Write-Output "(no warning+ entries in the last 6 hours, or unit not present)"
                 } else {
@@ -1777,15 +1821,7 @@ try {
     }
 
     # ===== 11b. INSTALL & EARLY-BOOT TIMELINE (Linux) ==================
-    # Captures evidence the runtime-state sections cannot: what the
-    # autoinstall actually shipped, how subiquity/curtin progressed,
-    # whether cloud-init / systemd-networkd hit retries, and what the
-    # install boot's journal looked like. Motivating case: the
-    # `subiquity/Network/_send_update: CHANGE eth0` loop on
-    # host.windows.hyper-v -- the discriminating signal (RAs vs apt
-    # mirror retries vs hv_netvsc VF flap) only exists in
-    # /var/log/installer/subiquity-server-debug.log and the previous
-    # boot's journal, neither of which section 11 collects.
+    # --- See https://yuruna.link/system-diagnostic#11b-install-early-boot-timeline-linux
     if ($IsLinux) {
         Invoke-DiagnosticSection "INSTALL & EARLY-BOOT TIMELINE (Linux)" {
             Write-Sub "/var/log/installer/ (dir listing)"
@@ -1901,12 +1937,12 @@ try {
 
             Write-Sub "journalctl --list-boots"
             if (Test-CommandAvailable 'journalctl') {
-                Invoke-Tool -Tool 'journalctl' -ToolArgs @('--list-boots','--no-pager')
+                Invoke-Tool -Tool 'journalctl' -ToolArgs @('--list-boots','--no-pager') -Privileged
             } else { Write-Output "(journalctl not available)" }
 
             Write-Sub "journalctl -b -1 -p warning --no-pager (PREVIOUS boot -- usually the install boot; head 60 + tail 60)"
             if (Test-CommandAvailable 'journalctl') {
-                $prev = & journalctl -b -1 -p warning --no-pager 2>$null
+                $prev = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-b','-1','-p','warning','--no-pager')
                 if ($prev) {
                     $prev | Select-Object -First 60 | ForEach-Object { Write-Output $_ }
                     if ($prev.Count -gt 120) {
@@ -1922,7 +1958,7 @@ try {
 
             Write-Sub "journalctl -b 0 -u systemd-networkd --no-pager (last 100)"
             if (Test-CommandAvailable 'journalctl') {
-                $nw = & journalctl -b 0 -u systemd-networkd --no-pager 2>$null
+                $nw = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-b','0','-u','systemd-networkd','--no-pager')
                 if ($nw) {
                     $nw | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
                 } else {
@@ -1932,7 +1968,7 @@ try {
 
             Write-Sub "networkctl status --all"
             if (Test-CommandAvailable 'networkctl') {
-                Invoke-Tool -Tool 'networkctl' -ToolArgs @('status','--all','--no-pager')
+                Invoke-Tool -Tool 'networkctl' -ToolArgs @('status','--all','--no-pager') -Privileged
             } else { Write-Output "(networkctl not in PATH)" }
 
             Write-Sub "ip -br link / ip -br addr"
@@ -1944,7 +1980,7 @@ try {
 
             Write-Sub "dmesg | grep -iE 'eth0|netvsc|hv_|carrier|link is|accept_ra|NEWLINK' (last 80 matches)"
             if (Test-CommandAvailable 'dmesg') {
-                $dm = & dmesg -T 2>$null
+                $dm = Invoke-PrivProbe -Tool 'dmesg' -ToolArgs @('-T')
                 if ($LASTEXITCODE -eq 0) {
                     $hits = @($dm | Where-Object { $_ -match '(?i)eth0|netvsc|hv_|carrier|link is|accept_ra|NEWLINK' })
                     if ($hits.Count -eq 0) {
@@ -1999,7 +2035,7 @@ try {
 
             Write-Sub "journalctl -u systemd-resolved --since '15 min ago' (DNS slice)"
             if (Test-CommandAvailable 'journalctl') {
-                $r = & journalctl -u systemd-resolved --since '15 min ago' --no-pager 2>$null
+                $r = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-u','systemd-resolved','--since','15 min ago','--no-pager')
                 if ($r) {
                     $r | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
                 } else {
@@ -2039,6 +2075,10 @@ try {
 
     # ===== 12. YURUNA PROJECT ==========================================
     Invoke-DiagnosticSection "YURUNA PROJECT" {
+        if ($SkipProjectGaps) {
+            Write-Output "(skipped via -SkipProjectGaps)"
+            return
+        }
         $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
         $projectRoot = $null
         if (Test-Path -LiteralPath $candidate) {
@@ -2110,7 +2150,12 @@ try {
         }
         Write-Output "Project root: $projectRoot"
 
-        $outputFiles = @(Get-ChildItem -Path $projectRoot -Recurse -Filter 'resources.output.yml' -File -ErrorAction SilentlyContinue)
+        $outputWalk = Get-FileTreeWithDeadline -Label 'resources.output.yml scan' -ArgumentList @($projectRoot) -ScriptBlock {
+            param($root)
+            Get-ChildItem -Path $root -Recurse -Filter 'resources.output.yml' -File -ErrorAction SilentlyContinue
+        }
+        Show-FileTreeWalkTimeout -Walk $outputWalk
+        $outputFiles = @($outputWalk.Items)
         if ($outputFiles.Count -eq 0) {
             Write-Sub "resources.output.yml"
             Write-Output "(none under $projectRoot -- 'yuruna resources' has not been run for any project, or its output file was cleared)"
@@ -2179,8 +2224,13 @@ try {
         }
 
         Write-Sub "Errors, failures and warnings"
-        $yurunaDirs = @(Get-ChildItem -Path $projectRoot -Recurse -Directory -Force -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -eq '.yuruna' })
+        $yurunaWalk = Get-FileTreeWithDeadline -Label '.yuruna/ directory scan' -ArgumentList @($projectRoot) -ScriptBlock {
+            param($root)
+            Get-ChildItem -Path $root -Recurse -Directory -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -eq '.yuruna' }
+        }
+        Show-FileTreeWalkTimeout -Walk $yurunaWalk
+        $yurunaDirs = @($yurunaWalk.Items)
         if ($yurunaDirs.Count -eq 0) {
             Write-Output "(no .yuruna/ working folders under $projectRoot -- no project has been deployed via the yuruna framework here yet)"
         } else {
@@ -2204,7 +2254,12 @@ try {
             $filesSkipped = 0
             $linesFiltered = 0
             foreach ($yd in $yurunaDirs) {
-                $files = @(Get-ChildItem -Path $yd.FullName -Recurse -File -ErrorAction SilentlyContinue)
+                $fileWalk = Get-FileTreeWithDeadline -Label ("file scan of {0}" -f $yd.FullName) -ArgumentList @($yd.FullName) -ScriptBlock {
+                    param($dir)
+                    Get-ChildItem -Path $dir -Recurse -File -ErrorAction SilentlyContinue
+                }
+                Show-FileTreeWalkTimeout -Walk $fileWalk
+                $files = @($fileWalk.Items)
                 foreach ($fi in $files) {
                     if ($fi.Length -gt 5MB)             { $filesSkipped++; continue }
                     if ($skipExtensions -contains $fi.Extension.ToLowerInvariant()) { $filesSkipped++; continue }
@@ -2256,8 +2311,12 @@ try {
             Write-Sub "Most recently modified files under .yuruna/ (top 100 by mtime)"
             $allFiles = New-Object System.Collections.Generic.List[object]
             foreach ($yd in $yurunaDirs) {
-                Get-ChildItem -Path $yd.FullName -Recurse -File -ErrorAction SilentlyContinue |
-                    ForEach-Object { $allFiles.Add($_) }
+                $mtimeWalk = Get-FileTreeWithDeadline -Label ("mtime scan of {0}" -f $yd.FullName) -ArgumentList @($yd.FullName) -ScriptBlock {
+                    param($dir)
+                    Get-ChildItem -Path $dir -Recurse -File -ErrorAction SilentlyContinue
+                }
+                Show-FileTreeWalkTimeout -Walk $mtimeWalk
+                foreach ($f in @($mtimeWalk.Items)) { $allFiles.Add($f) }
             }
             if ($allFiles.Count -eq 0) {
                 Write-Output "(no files)"
@@ -2277,14 +2336,12 @@ try {
     }
 
     # ===== 13. GAP HEURISTICS ==========================================
-    # Cross-section sanity checks. Each one catches a documented silent-
-    # failure mode where one phase wrote its artifacts but a downstream
-    # phase produced nothing -- the kind of incident where every section
-    # above looks fine in isolation but the cluster ended up empty. Run
-    # AFTER YURUNA PROJECT so we have the same projectRoot resolution; we
-    # also re-query helm/kubectl read-only so a stale variable from the
-    # KUBE section doesn't mislead.
+    # --- See https://yuruna.link/system-diagnostic#13-gap-heuristics
     Invoke-DiagnosticSection "GAP HEURISTICS" {
+        if ($SkipProjectGaps) {
+            Write-Output "(skipped via -SkipProjectGaps)"
+            return
+        }
         $candidate   = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'project'
         $projectRoot = $null
         if (Test-Path -LiteralPath $candidate) {
@@ -2299,13 +2356,14 @@ try {
         $helmReady    = $null -ne (Get-Command 'helm'    -ErrorAction SilentlyContinue)
 
         # --- Heuristic 1: tofu.tfstate exists but helm has zero releases ---
-        # If Set-Resource (tofu) wrote state, the project intends to deploy
-        # something; if the matching workloads phase didn't produce a single
-        # helm release across ALL namespaces, the wrapper script most likely
-        # exited 0 without invoking Set-Workload (or Set-Workload silently
-        # short-circuited).
+        # --- See https://yuruna.link/system-diagnostic#heuristic-1-tofu-state-without-helm-releases
         Write-Sub "Heuristic 1: tofu state without helm releases"
-        $tfStateFiles = @(Get-ChildItem -Path $projectRoot -Recurse -Filter 'tofu.tfstate' -File -ErrorAction SilentlyContinue)
+        $tfStateWalk = Get-FileTreeWithDeadline -Label 'tofu.tfstate scan' -ArgumentList @($projectRoot) -ScriptBlock {
+            param($root)
+            Get-ChildItem -Path $root -Recurse -Filter 'tofu.tfstate' -File -ErrorAction SilentlyContinue
+        }
+        Show-FileTreeWalkTimeout -Walk $tfStateWalk
+        $tfStateFiles = @($tfStateWalk.Items)
         $tfStateCount = $tfStateFiles.Count
         if ($tfStateCount -eq 0) {
             Write-Output "(no tofu.tfstate files under $projectRoot -- Set-Resource has not run; skipping)"
@@ -2328,16 +2386,15 @@ try {
             }
         }
 
-        # --- Heuristic 2: resources.output.yml declares a namespace that
-        #     doesn't exist in the cluster ---
-        # globalVariables.namespace is the canonical Helm/kubectl target. If
-        # it's declared in any resources.output.yml but kubectl get ns
-        # doesn't list it, the workloads phase never ran `kubectl create
-        # namespace` (or it ran but errored). Symptom of the same class of
-        # silent failure as heuristic 1, but works even on projects that
-        # don't use helm.
+        # --- Heuristic 2: resources.output.yml declares a namespace that doesn't exist in the cluster ---
+        # --- See https://yuruna.link/system-diagnostic#heuristic-2-declared-namespaces-missing-from-cluster
         Write-Sub "Heuristic 2: declared namespaces missing from cluster"
-        $outputFiles = @(Get-ChildItem -Path $projectRoot -Recurse -Filter 'resources.output.yml' -File -ErrorAction SilentlyContinue)
+        $nsOutputWalk = Get-FileTreeWithDeadline -Label 'resources.output.yml scan' -ArgumentList @($projectRoot) -ScriptBlock {
+            param($root)
+            Get-ChildItem -Path $root -Recurse -Filter 'resources.output.yml' -File -ErrorAction SilentlyContinue
+        }
+        Show-FileTreeWalkTimeout -Walk $nsOutputWalk
+        $outputFiles = @($nsOutputWalk.Items)
         if ($outputFiles.Count -eq 0) {
             Write-Output "(no resources.output.yml under $projectRoot -- skipping)"
         } elseif (-not $kubectlReady) {
@@ -2348,9 +2405,7 @@ try {
                 try {
                     $content = Get-Content -LiteralPath $of.FullName -Raw -ErrorAction Stop
                 } catch { continue }
-                # globalVariables.namespace lives two-space-indented under the
-                # globalVariables key in the synthesized output. Cheap regex
-                # avoids pulling in powershell-yaml just for one field.
+                # --- See https://yuruna.link/system-diagnostic#heuristic-2-declared-namespaces-missing-from-cluster (regex rationale)
                 $inGlobals = $false
                 foreach ($raw in ($content -split "`r?`n")) {
                     if ($raw -match '^globalVariables:\s*$') { $inGlobals = $true; continue }
@@ -2376,12 +2431,7 @@ try {
         }
 
         # --- Heuristic 3: nodes Ready but zero user-namespace pods ---
-        # Same shape as 1 + 2 but doesn't need any project context, so it
-        # catches a deploy-nothing-at-all failure even when resources.output
-        # .yml and tofu.tfstate are both missing. A fresh kubeadm cluster
-        # only ships kube-system + kube-flannel + kube-public + kube-node-
-        # lease; anything outside that set is "user content" we should see
-        # once Set-Workload / Set-Component land.
+        # --- See https://yuruna.link/system-diagnostic#heuristic-3-cluster-ready-but-no-user-namespace-pods
         Write-Sub "Heuristic 3: cluster Ready but no user-namespace pods"
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
@@ -2405,13 +2455,7 @@ try {
         }
 
         # --- Heuristic 4: image in local registry but no pod references it ---
-        # If Set-Component pushed an image to the localhost:5000 registry and
-        # nothing in the cluster is pulling it, either the workloads phase
-        # didn't run (covered by 1/3) or it ran but the chart's image ref
-        # doesn't match what was pushed (e.g. registryLocation rendered
-        # empty -- the "InvalidImageName" failure mode the chart template's
-        # `required` guardrail was added to catch). Either way, surfacing
-        # the mismatch helps narrow the diagnosis fast.
+        # --- See https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod
         Write-Sub "Heuristic 4: local registry image not referenced by any pod"
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
@@ -2435,11 +2479,7 @@ try {
                     -split "`n" | Where-Object { $_ })
                 $orphans = @()
                 foreach ($repo in $registryRepos) {
-                    # Pod image refs against localhost:5000 take the form
-                    # "localhost:5000/<repo>:<tag>" or sometimes
-                    # "<host>:5000/<repo>:<tag>" if the chart was rendered
-                    # with a non-localhost registryLocation. Match on the
-                    # /<repo>: substring so both shapes resolve.
+                    # --- See https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod (image-ref shape)
                     $needle = "/$repo`:"
                     $matched = @($allImages | Where-Object { $_ -like "*$needle*" })
                     if ($matched.Count -eq 0) {

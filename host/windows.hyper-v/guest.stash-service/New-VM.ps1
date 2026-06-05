@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,9 +129,18 @@ if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-$UserData = (Get-Content -Raw (Join-Path $vmConfigDir "user-data")).
-    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
-    Replace('PASSWORD_PLACEHOLDER', $YurunaPassword)
+# Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
+# stash-service.*). The overlay is empty (no per-platform divergence today);
+# Build-CloudInitUserData resolves the SSH-key and password placeholders.
+Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+$UserData = Build-CloudInitUserData `
+    -BasePath    (Join-Path $_repoRoot 'host/vmconfig/stash-service.base.user-data') `
+    -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/stash-service.hyperv.overlay.yml') `
+    -RepoRoot    $_repoRoot `
+    -Replacement @{
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        PASSWORD_PLACEHOLDER           = $YurunaPassword
+    } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"
@@ -139,7 +148,7 @@ Write-Output "Generating seed.iso with cloud-init configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
 Write-Output ""
-Write-Output "=== stash-service console/SSH login (available NOW) ==="
+Write-Output "== stash-service console/SSH login (available NOW) =="
 Write-Output "  user:     yuruna"
 Write-Output "  password: (in authentication vault under 'yuruna')"
 Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VMName'"
@@ -260,7 +269,7 @@ Accessing the VM for debugging:
 $dockIp = $dockCandidateIps | Select-Object -First 1
 
 Write-Output ""
-Write-Output "=== stash-service VM is READY ==="
+Write-Output "== stash-service VM is READY =="
 Write-Output "  VM:       $VMName"
 Write-Output "  IP:       $dockIp"
 Write-Output "  SSH:      ssh yuruna@$dockIp  (harness key authorized)"

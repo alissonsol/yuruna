@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,12 @@
 
 $script:Doc  = $null
 $script:File = $null
+
+# Test.StateFile owns the atomic temp-write + rename primitive (no-BOM,
+# per-PID temp name). Import -Global so a -Force reimport here cannot evict it
+# from the global session; the primitive is stateless, so the reimport wipes no
+# per-cycle $script: state.
+Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -DisableNameChecking
 
 <#
 .SYNOPSIS
@@ -113,6 +119,11 @@ function Reset-StatusDocumentForCycleStart {
         lastGetImageAt = $lastGetImageAt
         cycle          = $cycle
         guests         = @()
+        # Empty until Initialize-StatusDocument resolves the cycle plan; kept
+        # here so the interim "running" doc carries the same shape the
+        # dashboard expects (it falls back to the flat guest list while this
+        # is empty).
+        sequences      = @()
         history        = $history
     }
     Write-StatusJson
@@ -147,6 +158,15 @@ function Reset-StatusDocumentForCycleStart {
     GitCommits is empty. Also persisted into the document's top-level
     `repoUrl` field for legacy-dashboard compat and as the source for
     Start-StatusService.ps1's bootstrap path.
+.PARAMETER Sequences
+    Ordered list of the cycle's top-level sequences (the entries in
+    project/test/test.runner.yml), each an ordered hashtable
+    @{ name = '<sequence>'; guests = @('guest.<os>', ...) }, as produced by
+    Get-CyclePlanSequenceList. Persisted as the document's `sequences` array;
+    the dashboard renders one card per entry (in this order) and joins each
+    `guests` member back to the `guests[]` array for step progress. Empty for
+    the legacy guestSequence path, where the dashboard falls back to a flat
+    per-guest list.
 #>
 function Initialize-StatusDocument {
     param(
@@ -157,6 +177,7 @@ function Initialize-StatusDocument {
         [string]   $RepoUrl    = $null,
         [object[]] $GitCommits = @(),
         [string[]] $GuestList,
+        [object[]] $Sequences  = @(),
         [string[]] $StepNames = @("New-VM", "Start-VM", "New-VM.Resource")
     )
     $script:File = $StatusFilePath
@@ -250,6 +271,11 @@ function Initialize-StatusDocument {
         # navigates to "<cycleFolderUrl><vmName>/".
         cycleFolderUrl = ''
         guests         = @($guests)
+        # Ordered top-level sequences (the test.runner.yml entries) mapped to
+        # the guest(s) each drives. The dashboard renders one card per entry,
+        # in this order, and joins `guests` back to the guests[] array above
+        # for per-step progress. Empty on the legacy guestSequence path.
+        sequences      = @($Sequences)
         history        = $history
     }
 
@@ -391,6 +417,40 @@ function Complete-Run {
             -replace '\.incomplete(/?)$', '$1' `
             -replace '\.aborted\.[^/]+(/?)$', '$1'
     } else { '' }
+
+    # Per-sequence rollup, parallel to guestSummary. The dashboard's Recent
+    # Cycles table renders one button per sequence (the test.runner.yml
+    # entries this cycle ran), each linking to that sequence's results
+    # folder. Built from the cycle's ordered sequences[] joined to the
+    # per-guest status + folder URL already gathered in $guestSummary. The
+    # status rank mirrors the dashboard's aggregateStatus
+    # (fail > running > pass > skipped > pending) so a sequence row's badge
+    # matches the Latest Cycle sequence card. A 1:1 sequence links straight
+    # to its guest's per-VM folder; a sequence that fans out to >1 guest
+    # links to the cycle folder so every guest subfolder stays reachable.
+    $statusRank = @{ fail = 5; running = 4; pass = 3; skipped = 2; pending = 1 }
+    $sequenceSummary = @(
+        foreach ($seq in $script:Doc.sequences) {
+            $seqGuests  = @($seq.guests)
+            $bestStatus = 'pending'
+            $bestRank   = 0
+            foreach ($gk in $seqGuests) {
+                $gEntry = $guestSummary[$gk]
+                $st = if ($gEntry) { [string]$gEntry.status } else { 'pending' }
+                $r  = if ($statusRank.ContainsKey($st)) { [int]$statusRank[$st] } else { 0 }
+                if ($r -gt $bestRank) { $bestRank = $r; $bestStatus = $st }
+            }
+            $folderUrl = $historyCycleFolderUrl
+            if ($seqGuests.Count -eq 1) {
+                $only = $guestSummary[$seqGuests[0]]
+                if ($only -and $only.Contains('failureArtifacts') -and $only.failureArtifacts) {
+                    $folderUrl = [string]$only.failureArtifacts
+                }
+            }
+            [ordered]@{ name = [string]$seq.name; status = $bestStatus; folderUrl = $folderUrl }
+        }
+    )
+
     $entry = [ordered]@{
         cycleId          = $script:Doc.cycleId
         startedAt        = $script:Doc.startedAt
@@ -402,6 +462,7 @@ function Complete-Run {
         hostname         = $script:Doc.hostname
         cycleFolderUrl   = $historyCycleFolderUrl
         guestSummary     = $guestSummary
+        sequenceSummary  = @($sequenceSummary)
     }
     $script:Doc.history = @($entry) + @($script:Doc.history) | Select-Object -First $MaxHistoryRuns
     Write-StatusJson
@@ -439,9 +500,12 @@ function Write-StatusJson {
     # A PID+GUID suffix keeps each writer's temp private; the rename to
     # the final path stays atomic. Suffix ends in .tmp so existing
     # *.tmp cleanup/ignore rules still match.
-    $tmp = "$($script:File).$PID-$([guid]::NewGuid().ToString('N')).tmp"
-    $script:Doc | ConvertTo-Json -Depth 10 | Set-Content -Path $tmp -Encoding utf8
-    Move-Item -Path $tmp -Destination $script:File -Force
+    # Atomic temp-write + rename via the shared primitive: guarantees no BOM
+    # (Set-Content -Encoding utf8 emits one on PS5.1, and a leading BOM breaks
+    # fetch().json() in the browser) and keeps the per-PID temp-name concurrency
+    # safety in one place. -Compress:$false preserves the pretty-printed on-disk
+    # shape; -Depth 10 matches the document nesting.
+    $null = Write-YurunaStateFileJson -Path $script:File -InputObject $script:Doc -Depth 10 -Compress:$false -Confirm:$false
 }
 
 <#

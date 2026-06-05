@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,8 +49,9 @@ if (-not $global:YurunaOutputState) {
         WarningsBySection = [ordered]@{}
     }
 }
-# Tolerate the older state shape from a long-lived shell that imported
-# this module before WarningsBySection was added.
+# A long-lived shell can hold a $global:YurunaOutputState created by a
+# previous import that didn't carry WarningsBySection; backfill the key
+# so downstream readers don't NRE on first access.
 if (-not $global:YurunaOutputState.Contains('WarningsBySection')) {
     $global:YurunaOutputState['WarningsBySection'] = [ordered]@{}
 }

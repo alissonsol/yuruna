@@ -309,44 +309,12 @@ New-VM.Resource, Start-GuestOS, Screenshots, Start-GuestWorkload),
 history, and clickable Cycle IDs. Stop
 the detached server with `pwsh test/Stop-StatusService.ps1`.
 
-## Screenshot-based testing
-
-Train references once per guest:
-
-```
-pwsh test/Train-Screenshots.ps1 -GuestKey guest.amazon.linux.2023
-```
-
-The tool creates a VM and waits for capture commands:
-
-| Command | Action |
-|---------|--------|
-| `c <name>` | Capture a checkpoint (e.g. `c boot-complete`) |
-| `d` | Done — save schedule and exit |
-| `q` | Quit without saving |
-
-Training produces `test/screenshots/<guestKey>/schedule.json` and
-`reference/*.png`. `schedule.json` is editable:
-
-```
-{
-  "checkpoints": [
-    { "name": "boot-complete", "delaySeconds": 60, "threshold": 0.85 },
-    { "name": "login-screen",  "delaySeconds": 120, "threshold": 0.80 }
-  ]
-}
-```
-
-`threshold` is minimum pixel-similarity to pass (0.85 = 85% match).
-Per-run captures land in `status/captures/training/`
-(git-ignored).
-
 ## Adding a test sequence
 
 Drop a YAML sequence under `test/sequences/{gui,ssh}/` (framework
 generic) or `project/<...>/test/{gui,ssh}/` (project-specific), wire
 its `baseline` to declare prerequisites, then reference the top-level
-sequence from `project/test/test.sequence.yml` `baseline`. Full
+sequence from the `project/test/test.runner.yml` `sequences` list. Full
 architecture: [Test Modules ...](modules/README.md).
 
 Back to [Test runner](README.md) · [Yuruna](../README.md)

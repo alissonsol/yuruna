@@ -1,10 +1,9 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -22,9 +21,8 @@ case "$ARCH" in
 esac
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-. /usr/local/lib/yuruna/yuruna_retry.sh
+. /usr/local/lib/yuruna/yuruna-retry.sh
 
-# ===== Ensure PowerShell is installed =====
 # Installed as early as possible so that even if a later step in this
 # script aborts under `set -euo pipefail`, the host-side failure
 # diagnostic (which shells back into the guest as `pwsh -NoProfile ...`)
@@ -35,7 +33,7 @@ esac
 # /releases/latest redirect, so this stays current without code edits
 # when Microsoft ships a new pwsh.
 echo ""
-echo -e "\e[1;36m>>> Ensuring PowerShell is installed...\e[0m"
+echo -e "\e[1;36m==== PowerShell ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
   case "$ARCH" in
     x86_64)  PS_ARCH="x64" ;;
@@ -77,14 +75,12 @@ if ! command -v pwsh >/dev/null 2>&1; then
   rm -f /tmp/powershell.tar.gz
 fi
 pwsh --version
-echo -e "\e[1;32m<<< PowerShell ready.\e[0m"
 
-# ===== Install powershell-yaml module =====
 # --- See https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
 PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
 sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
-echo -e "\e[1;36m>>> Installing PowerShell module: powershell-yaml...\e[0m"
+echo -e "\e[1;36m==== powershell-yaml ====\e[0m"
 
 sudo pwsh -NoProfile -Command - <<'PSEOF' >> "$PWSH_YAML_LOG" 2>&1
 "===== {0} pre-flight (static) =====" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
@@ -116,9 +112,6 @@ $null = ConvertFrom-Yaml 'k: v'
 "OK"
 PSEOF
 
-echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e[0m"
-
-# ===== Early yuruna framework extraction (host-side diagnostic prereq) =====
 # The host's failure-path diagnostic shells back as
 # `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
 # If the dnf block below stalls the cycle watchdog fires, the orchestrator
@@ -128,7 +121,7 @@ echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e
 # below stays put because it needs `git`, which requires dnf to work,
 # which is exactly what may be stuck.
 echo ""
-echo -e "\e[1;36m>>> Pre-fetching yuruna framework tarball (for diagnostic availability)...\e[0m"
+echo -e "\e[1;36m==== yuruna framework tarball ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 if [ -r /etc/yuruna/host.env ]; then
@@ -142,7 +135,7 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ] && [ ! -d "$RE
     mkdir -p "$REAL_HOME/yuruna"
     if wget --no-proxy -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
-      echo -e "\e[1;32m<<< Yuruna framework available at $REAL_HOME/yuruna (early extract).\e[0m"
+      echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
     else
       rm -rf "$REAL_HOME/yuruna"
       echo "yuruna: early tarball fetch failed -- will retry after dnf phase."
@@ -152,7 +145,6 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ] && [ ! -d "$RE
   fi
 fi
 
-# ===== Disable services that may suspend the machine =====
 echo "TESTHACK: Disabling services that may suspend the machine."
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
@@ -162,25 +154,21 @@ sudo systemctl disable --now dnf-automatic.timer dnf-automatic-notifyonly.timer 
 sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
     gsettings set org.gnome.software download-updates false 2>/dev/null || true
 
-# ===== Update system packages =====
 echo ""
-echo -e "\e[1;36m>>> Updating system packages...\e[0m"
+echo -e "\e[1;36m==== system packages update ====\e[0m"
 # dnf update and dnf upgrade are aliases; one call covers both.
 dnf_retry sudo dnf upgrade -y
 dnf_retry sudo dnf autoremove -y
-echo -e "\e[1;32m<<< System packages update complete.\e[0m"
 
-# ===== Ensure Git is installed =====
 echo ""
-echo -e "\e[1;36m>>> Ensuring Git is installed...\e[0m"
+echo -e "\e[1;36m==== Git ====\e[0m"
 if ! command -v git >/dev/null 2>&1; then
   dnf_retry sudo dnf -y install git
 fi
 git --version
-echo -e "\e[1;32m<<< Git ready.\e[0m"
 
-# ===== Materialize the yuruna framework and project repos =====
 # --- See https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+echo -e "\e[1;32m==== yuruna framework and project repos ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
 if [ -r /etc/yuruna/host.env ]; then
@@ -265,20 +253,51 @@ fi
 # Tarball extraction and any sudo'd cleanup may have left root-owned files.
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
-# ===== Wait for NetworkManager to converge =====
-# Wait before signaling "script done": dnf transactions that touch
-# NetworkManager / kernel / systemd can bounce the primary connection
-# at the tail of the transaction, briefly dropping the DHCP lease. The
+# Wait before signaling "script done": dnf transactions that touch the
+# network stack / kernel / systemd can bounce the primary connection at
+# the tail of the transaction, briefly dropping the DHCP lease. The
 # harness's next sequence step is saveSystemDiagnostic, which opens the
-# FIRST host->guest SSH of the run; if it fires during the bounce
-# window the host's vmnet neighbor entry is stale (UTM analogue of the
-# Hyper-V External vSwitch ARP-discovery trap) and SSH times out for
-# the full 180 s Wait-SshReady budget. nm-online returns 0 once NM
-# reports online; cap at 30 s so a genuinely broken NM cannot hang the
-# cycle, and swallow non-zero with || true so set -e does not abort.
+# FIRST host->guest SSH of the run; if it fires during the bounce window
+# the host's neighbor entry is stale (the Hyper-V External vSwitch
+# ARP-discovery trap; UTM has the vmnet analogue) and SSH times out for
+# the full 180 s Wait-SshReady budget. The probe MUST match whichever
+# manager actually owns the link: AL2023 defaults to systemd-networkd
+# (where nm-online is absent), while some desktop spins use
+# NetworkManager. A probe keyed on the wrong manager silently no-ops --
+# skipping the settle entirely -- or blocks its full timeout for nothing,
+# so branch on the active manager. Cap every branch at 30 s so a broken
+# stack cannot hang the cycle, and swallow non-zero so set -e does not
+# abort.
 echo ""
-echo -e "\e[1;36m>>> Waiting for NetworkManager to converge...\e[0m"
-if command -v nm-online >/dev/null 2>&1; then
-  nm-online -q -t 30 || echo "WARNING: nm-online did not return 'online' within 30s; continuing."
+echo -e "\e[1;36m==== Network convergence ====\e[0m"
+if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
+  nm-online -q -t 30 || echo "WARNING: nm-online did not report 'online' within 30s; continuing."
+elif systemctl is-active --quiet systemd-networkd; then
+  # systemd-networkd-wait-online lives outside PATH; resolve it explicitly.
+  # --any: succeed once at least one link is online (single-NIC guests have
+  # no second link to wait on).
+  networkd_wait=""
+  for cand in /usr/lib/systemd/systemd-networkd-wait-online /lib/systemd/systemd-networkd-wait-online; do
+    if [ -x "$cand" ]; then
+      networkd_wait="$cand"
+      break
+    fi
+  done
+  if [ -n "$networkd_wait" ]; then
+    "$networkd_wait" --any --timeout=30 || echo "WARNING: systemd-networkd-wait-online did not report 'online' within 30s; continuing."
+  else
+    echo "WARNING: systemd-networkd active but systemd-networkd-wait-online not found; continuing."
+  fi
+else
+  echo "WARNING: no active NetworkManager/systemd-networkd to wait on; continuing."
 fi
-echo -e "\e[1;32m<<< Network ready.\e[0m"
+
+# A definite end-of-script line keeps the guest console actively repainting
+# right up to the handoff back to fetch-and-execute.sh. The convergence wait
+# above can run silently for up to 30s, and on a headless Hyper-V host the
+# screen-capture surface stops updating moments after the console goes idle --
+# so the FETCHED AND EXECUTED marker that fetch-and-execute.sh prints next must
+# land adjacent to real output rather than after a silent gap, or the host's
+# waitForText OCRs a stale frame until the step times out.
+# See feedback_frozen_capture_feed_idle_tail.
+echo -e "\e[1;32m==== Network ready. ====\e[0m"

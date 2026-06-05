@@ -17,7 +17,6 @@ pattern.
 gh auth login
 git config --global user.name "Your Name"
 git config --global user.email "your@email.com"
-code --install-extension anthropic.claude-code
 ```
 
 Then open VS Code and sign in to each extension that needs it.

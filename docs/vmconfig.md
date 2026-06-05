@@ -164,7 +164,7 @@ it on first boot. Two cloud-init knobs are flipped:
   regardless of login state and races first-boot login).
 
 These are distinct from `autoinstall.ssh` above (subiquity's
-installer-side SSH config); leaving `authorized-keys` / `install-server`
+installer-side SSH config), which leaves `authorized-keys` / `install-server`
 intact.
 
 ### LVM sizing policy
@@ -334,8 +334,8 @@ removed:
   starts with `-`. A real failure observed in the wild: vault produced
   `-4aWj*CRw`.
 - Without `--`, `openssl passwd -6 -4aWj*CRw` parses `-4aWj*CRw` as an
-  unknown option flag, prints `passwd: Use -help for summary` to stderr
-  on stderr, writes nothing to stdout, and exits non-zero. The cycle
+  unknown option flag, prints `passwd: Use -help for summary` to stderr,
+  writes nothing to stdout, and exits non-zero. The cycle
   then writes an EMPTY hash into the cloud-init user-data and the guest
   comes up with no working password -- recoverable only via the
   console.
@@ -577,7 +577,7 @@ framebuffer on idle. Symptom: `virt-viewer`'s window stops updating
 ("looks like the VNC connection dropped"), AND `virsh screenshot` (QMP
 screendump — independent of the VNC client) starts producing black
 PPMs. Both fall together because the guest's VGA framebuffer is the
-source for both. Pinning `consoleblank=0` at the kernel cmdline so
+source for both. Pin `consoleblank=0` at the kernel cmdline so
 EVERY boot (and every VT) inherits no-blank, regardless of whatever
 userspace `setterm` calls do or don't survive.
 
@@ -728,7 +728,7 @@ MUST come BEFORE the fetch-and-execute download and the timezone wget
 
 ```
 write_files:
-  - path: /usr/local/lib/yuruna/yuruna_retry.sh
+  - path: /usr/local/lib/yuruna/yuruna-retry.sh
     encoding: base64
     content: YURUNA_RETRY_LIB_BASE64_PLACEHOLDER
     permissions: '0644'
@@ -744,7 +744,7 @@ write_files:
 The two files live in the canonical `/usr/local/lib/yuruna/`
 directory on every supported guest:
 
-- `yuruna_retry.sh` — sourced by every guest provisioning script for
+- `yuruna-retry.sh` — sourced by every guest provisioning script for
   `apt_retry` / `dnf_retry` / `curl_retry`. See
   [Defining yuruna retry lib](https://yuruna.link/network#defining-yuruna-retry-lib).
 - `fetch-and-execute.sh` — the harness's invocation point; the
@@ -764,7 +764,7 @@ repo.
 
 ```
 timedatectl set-ntp true
-TZ=$(wget -qO - --timeout=5 "https://ip-api.com/line?fields=timezone")
+TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone")
 [ -n "$TZ" ] && timedatectl set-timezone "$TZ"
 ```
 
@@ -796,6 +796,33 @@ the installer (last late-command, against `/cdrom` NOT
 already, and a non-zero exit here would fail the entire install.
 
 MUST be the final two late-commands.
+
+### error-commands installer log upload
+
+*(ubuntu.server.24, ubuntu.server.26)*
+
+```
+error-commands:
+  - <PUT subiquity / curtin / cloud-init logs to the host status server>
+```
+
+Runs in the live-installer environment when subiquity aborts the
+install. POSTs the curtin / cloud-init / crash files to the host
+status server's `/log-upload/` endpoint so the underlying failure
+(`apt-get` exit 100, mirror 5xx, hash-sum mismatch) is visible in
+the dashboard instead of being lost when the installer drops to a
+shell.
+
+- `--no-proxy` / `--noproxy '*'`: bypass any apt proxy that may
+  itself be the failure.
+- Per-file failures swallowed (`|| true`) so a single bad upload
+  does not mask the next.
+- `HOST_IP` / `HOST_PORT` baked from `YURUNA_HOST_IP_PLACEHOLDER` /
+  `YURUNA_HOST_PORT_PLACEHOLDER`; if either is empty the block
+  early-exits 0 (nothing to upload to).
+
+Bucket layout on the status server:
+`installer-fail/<hostname>/<UTC-timestamp>/<file>`.
 
 ### Squid-cache hostname vs template name
 

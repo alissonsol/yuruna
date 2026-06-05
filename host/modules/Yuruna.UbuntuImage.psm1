@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42b1e7d3-c9a4-4f82-a571-6c8d3e5f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -201,14 +201,14 @@ function Resolve-UbuntuServerImage {
     )
     $url = Get-UbuntuServerImageManifestUrl -ReleaseCodename $ReleaseCodename -Arch $Arch
     if ($PreferDaily) {
-        Write-Output "Resolving daily build from $($url.DailyBaseUrl) ..."
+        Write-Information "Resolving daily build from $($url.DailyBaseUrl) ..." -InformationAction Continue
         $resolved = Resolve-UbuntuServerDailyImage -DailyBaseUrl $url.DailyBaseUrl -IsoFileName $url.DailyIsoFileName
         if (-not $resolved) {
             Write-Warning "Daily build unavailable; falling back to stable build at $($url.StableReleaseUrl) ..."
             $resolved = Resolve-UbuntuServerStableImage -ReleaseBaseUrl $url.StableReleaseUrl -IsoPattern $url.StableIsoPattern
         }
     } else {
-        Write-Output "Resolving stable build from $($url.StableReleaseUrl) ..."
+        Write-Information "Resolving stable build from $($url.StableReleaseUrl) ..." -InformationAction Continue
         $resolved = Resolve-UbuntuServerStableImage -ReleaseBaseUrl $url.StableReleaseUrl -IsoPattern $url.StableIsoPattern
         if (-not $resolved) {
             Write-Warning "Stable build unavailable; falling back to daily build at $($url.DailyBaseUrl) ..."
@@ -240,7 +240,7 @@ function Test-UbuntuServerImageChecksum {
         [Parameter(Mandatory)][string]$IsoFileName,
         [Parameter(Mandatory)][string]$DownloadFile
     )
-    Write-Output "Verifying download integrity..."
+    Write-Information "Verifying download integrity..." -InformationAction Continue
     try {
         $checksumContent = (Invoke-WebRequest -Uri $ChecksumUrl -ErrorAction Stop).Content
     } catch {
@@ -268,7 +268,7 @@ function Test-UbuntuServerImageChecksum {
         Write-Warning ('=' * 72)
         return $false
     }
-    Write-Output "Checksum verified successfully."
+    Write-Information "Checksum verified successfully." -InformationAction Continue
     return $true
 }
 
@@ -355,7 +355,6 @@ function Save-UbuntuServerImage {
     if (-not $resolved) {
         $url = Get-UbuntuServerImageManifestUrl -ReleaseCodename $ReleaseCodename -Arch $Arch
         $msg = "Could not resolve a usable Ubuntu live-server $Arch ISO. Stable ($($url.StableReleaseUrl)) and daily ($($url.DailyBaseUrl)) are both unreachable or missing the expected image."
-        Write-Output $msg
         Write-Information $msg -InformationAction Continue
         if ($EmitProxyDiagnosticOnFailure) {
             Write-UbuntuImageProxyDiagnostic -ProbeUrls @("$($url.StableReleaseUrl)/", "$($url.DailyBaseUrl)/$($url.DailyIsoFileName)")
@@ -366,7 +365,7 @@ function Save-UbuntuServerImage {
     $isoFileName = $resolved.IsoFileName
     $sourceUrl   = $resolved.SourceUrl
     $checksumUrl = $resolved.ChecksumUrl
-    Write-Output "Selected $($resolved.Variant) ISO: $isoFileName"
+    Write-Information "Selected $($resolved.Variant) ISO: $isoFileName" -InformationAction Continue
 
     New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
 
@@ -382,13 +381,12 @@ function Save-UbuntuServerImage {
     if ($alreadyCurrent) {
         $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
         Write-Information $msg -InformationAction Continue
-        Write-Output $msg
         return 'skipped'
     }
 
     $downloadFile = Join-Path $DownloadDir 'downloaded.iso'
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    Write-Output "Downloading $sourceUrl to $downloadFile"
+    Write-Information "Downloading $sourceUrl to $downloadFile" -InformationAction Continue
     try {
         if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
             Save-CachedHttpUri -Uri $sourceUrl -OutFile $downloadFile
@@ -423,13 +421,13 @@ function Save-UbuntuServerImage {
     Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $baseImageFile) {
         Move-Item -Path $baseImageFile -Destination $previousFile
-        Write-Output "Previous image preserved as: $previousFile"
+        Write-Information "Previous image preserved as: $previousFile" -InformationAction Continue
     }
     Move-Item -Path $downloadFile -Destination $baseImageFile
 
     Set-Content -Path $baseImageOrigin -Value @($isoFileName, $sourceUrl, "$downloadedSize")
-    Write-Output "Recorded source filename, URL, and byte count to: $baseImageOrigin"
-    Write-Output "Download complete: $baseImageFile"
+    Write-Information "Recorded source filename, URL, and byte count to: $baseImageOrigin" -InformationAction Continue
+    Write-Information "Download complete: $baseImageFile" -InformationAction Continue
     return 'downloaded'
 }
 

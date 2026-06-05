@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456728
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,10 @@
 # and Test-RepoFreshness call regardless of import order.
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Output.psm1') -Global -Force
+# Test.HostGit owns Get-GitUpstreamStatus, the shared upstream classifier that
+# Test-RepoFreshness reports on (Invoke-GitPull acts on the same result). Import
+# -Global so a -Force reimport here cannot evict it from the global session.
+Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -Global -Force
 
 function Test-IsSet {
     <#
@@ -122,24 +126,13 @@ function Test-RepoFreshness {
             Write-Warn "${Label}: git fetch failed (offline?); cannot determine staleness."
             return
         }
-        $local  = (& git -C $Path rev-parse HEAD 2>$null).Trim()
-        $remote = (& git -C $Path rev-parse '@{u}' 2>$null).Trim()
-        if (-not $remote) {
-            Write-Info "${Label}: no upstream tracking branch -- skipping ahead/behind."
-            return
-        }
-        if ($local -eq $remote) {
-            Write-Pass "${Label}: up to date with $remote."
-            return
-        }
-        $behind = (& git -C $Path rev-list --count "$local..$remote" 2>$null).Trim()
-        $ahead  = (& git -C $Path rev-list --count "$remote..$local" 2>$null).Trim()
-        if ([int]$behind -gt 0 -and [int]$ahead -eq 0) {
-            Write-Warn "${Label}: $behind commit(s) behind upstream -- 'git pull --ff-only' before next cycle."
-        } elseif ([int]$ahead -gt 0 -and [int]$behind -eq 0) {
-            Write-Pass "${Label}: $ahead commit(s) ahead of upstream (unpushed local work)."
-        } else {
-            Write-Warn "${Label}: diverged ($ahead ahead, $behind behind). Rebase or merge manually."
+        $st = Get-GitUpstreamStatus -Path $Path
+        switch ($st.State) {
+            'no-upstream' { Write-Info "${Label}: no upstream tracking branch -- skipping ahead/behind." }
+            'up-to-date'  { Write-Pass "${Label}: up to date with $($st.Remote)." }
+            'behind'      { Write-Warn "${Label}: $($st.Behind) commit(s) behind upstream -- 'git pull --ff-only' before next cycle." }
+            'ahead'       { Write-Pass "${Label}: $($st.Ahead) commit(s) ahead of upstream (unpushed local work)." }
+            default       { Write-Warn "${Label}: diverged ($($st.Ahead) ahead, $($st.Behind) behind). Rebase or merge manually." }
         }
     } catch {
         Write-Warn "${Label}: freshness check threw -- $($_.Exception.Message)"

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,7 +68,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
 # === Download the cloud image ===
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.img"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
 $downloaded = Save-ImageWithChecksum `
@@ -91,52 +91,15 @@ if ($fileSize -lt 100MB) {
     exit 1
 }
 
-# === Convert qcow2 to VHDX ===
-$qemuImg = Get-Command qemu-img -ErrorAction SilentlyContinue
-if (-not $qemuImg) {
-    $candidates = @(
-        "$env:ProgramFiles\qemu\qemu-img.exe",
-        "${env:ProgramFiles(x86)}\qemu\qemu-img.exe"
-    )
-    foreach ($c in $candidates) {
-        if (Test-Path $c) { $qemuImg = $c; break }
-    }
-}
-if (-not $qemuImg) {
-    Write-Error "qemu-img not found. Install QEMU for Windows (winget install SoftwareFreedomConservancy.QEMU) or add qemu-img to PATH."
-    Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    exit 1
-}
-
+# === Convert qcow2 to VHDX + resize ===
+# The shared Convert-Qcow2ToVhdx (Yuruna.Image) owns qemu-img discovery, the
+# convert, the NTFS sparse-flag clear, and the Resize-VHD/qemu-img resize
+# fallback (feedback_qemu_img_vhdx_sparse.md), so the trap fix lives once.
 $convertedFile = Join-Path $downloadDir "$baseImageName.converting.vhdx"
-Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
-Write-Output "Converting qcow2 to VHDX..."
-& $qemuImg convert -f qcow2 -O vhdx -o subformat=dynamic $downloadFile $convertedFile
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "qemu-img convert failed (exit code $LASTEXITCODE)"
+if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $convertedFile -SizeBytes 256GB)) {
+    Write-Error "qcow2 to VHDX conversion failed for the download"
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
     exit 1
-}
-
-# --- See https://yuruna.link/memory#why-cache-vhdx-uses-resize-vhd-instead-of-qemu-img-resize
-# Clear NTFS sparse flag (feedback_qemu_img_vhdx_sparse.md) before Resize-VHD.
-& fsutil sparse setflag $convertedFile 0 | Out-Null
-
-Write-Output "Resizing VHDX to 256GB..."
-$resized = $false
-try {
-    Resize-VHD -Path $convertedFile -SizeBytes 256GB -ErrorAction Stop
-    $resized = $true
-} catch {
-    Write-Warning "Resize-VHD failed: $($_.Exception.Message)"
-    Write-Output "  Falling back to qemu-img resize..."
-    & $qemuImg resize $convertedFile 256G
-    if ($LASTEXITCODE -eq 0) { $resized = $true }
-}
-if (-not $resized) {
-    Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img."
-    Write-Warning "Resize manually: fsutil sparse setflag '$baseImageFile' 0; Resize-VHD -Path '$baseImageFile' -SizeBytes 256GB"
 }
 
 # === Preserve previous and finalize ===

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,7 +51,7 @@ function Show-ManualDownloadInstruction {
 }
 
 Write-Output ""
-Write-Output "=== Windows 11 ISO ==="
+Write-Output "== Windows 11 ISO =="
 
 # --- Short-circuit #1: default-path existence check (no admin needed) -------
 # Hyper-V's default VHD location is predictable, so check there FIRST
@@ -204,7 +204,7 @@ try {
     Set-Content -Path $baseImageOrigin -Value @($originalName, $downloadUrl)
     Write-Output "Recorded source filename and URL to: $baseImageOrigin"
     Write-Output ""
-    Write-Output "=== Download complete: $baseImageFile ==="
+    Write-Output "== Download complete: $baseImageFile =="
     exit 0
 
 } catch {

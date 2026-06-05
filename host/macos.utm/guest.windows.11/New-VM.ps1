@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -250,12 +250,10 @@ if ($NetworkMode -eq "Bridged") {
     Write-Verbose "Network patched to Bridged (interface: $BridgeInterface)."
 }
 
-# === Cleanup temporary folders ===
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Guidance ===
 Write-Verbose ""
-Write-Verbose "=== VM bundle created: $UtmDir ==="
+Write-Verbose "== VM bundle created: $UtmDir =="
 Write-Verbose ""
 Write-Verbose "Network mode : $NetworkMode$(if ($NetworkMode -eq 'Bridged') { " ($BridgeInterface)" })"
 Write-Verbose ""

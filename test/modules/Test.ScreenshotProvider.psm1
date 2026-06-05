@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 429eb9ac-a948-4c0b-b4f9-fc1974431076
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,22 +24,23 @@
 # fast-path capturer (e.g, a delta-only frame grabber) or a fallback
 # (e.g, when WMI / virsh screenshot times out).
 #
+# Storage is delegated to the shared Test.Registry primitive
+# (New-YurunaRegistry) so there is one registry mechanism across the
+# harness and this domain shows up in the cross-domain introspection
+# directory (Get-YurunaRegistryDirectory/Summary). The
+# $global:YurunaScreenshotProviders anchor name is reused as the
+# backing store so registrations stay cross-module-eviction-safe and
+# survive -Force re-imports.
+#
 # The paired self-healing primitive is Repair-ScreenshotRing: clear
 # the in-memory ring-buffer file list so the next Wait-ForText poll
 # starts fresh against the live framebuffer, avoiding stale cached-
-# frame artifacts. Called from Wait-ForText's catch block when the
-# OCR engine returns no detectable text for N consecutive polls.
-#
-# Eviction-safe via $global:YurunaScreenshotProviders.
+# frame artifacts. Invoked (best-effort) from Wait-ForText's bounded
+# no-text self-heal after N consecutive polls with no OCR text.
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-    Justification = 'Cross-module-eviction-safe anchor; registrations must survive -Force re-imports.')]
-param()
+Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
 
-if (-not $global:YurunaScreenshotProviders) {
-    $global:YurunaScreenshotProviders = [ordered]@{}
-}
-$script:Providers = $global:YurunaScreenshotProviders
+$script:Reg = New-YurunaRegistry -Name 'ScreenshotProvider' -AnchorVar 'YurunaScreenshotProviders' -Comparer 'OrdinalIgnoreCase'
 
 function Register-ScreenshotProvider {
     <#
@@ -51,13 +52,11 @@ function Register-ScreenshotProvider {
         without re-importing Test.Transport's per-host backend.
     #>
     [CmdletBinding()]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter',
-        '', Justification = 'Parameters land in the registry, not used by the function body.')]
     param(
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)][scriptblock]$Capturer
     )
-    $script:Providers[$HostType] = $Capturer
+    & $script:Reg.Register $HostType $Capturer
 }
 
 function Test-ScreenshotProviderAvailable {
@@ -72,7 +71,7 @@ function Test-ScreenshotProviderAvailable {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$HostType)
-    return [bool]$script:Providers.Contains($HostType)
+    return [bool](& $script:Reg.Has $HostType)
 }
 
 function Invoke-ScreenshotProvider {
@@ -88,10 +87,10 @@ function Invoke-ScreenshotProvider {
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)][hashtable]$Arguments
     )
-    if (-not $script:Providers.Contains($HostType)) {
+    if (-not (& $script:Reg.Has $HostType)) {
         throw "Screenshot provider not registered for '$HostType'."
     }
-    return [bool](& $script:Providers[$HostType] $Arguments)
+    return [bool](& (& $script:Reg.Get $HostType) $Arguments)
 }
 
 function Get-ScreenshotProviderMatrix {
@@ -107,7 +106,7 @@ function Get-ScreenshotProviderMatrix {
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param()
     $out = [ordered]@{}
-    foreach ($h in $script:Providers.Keys) { $out[$h] = $true }
+    foreach ($h in (& $script:Reg.GetMatrix).Keys) { $out[$h] = $true }
     return $out
 }
 
@@ -146,14 +145,14 @@ function Clear-ScreenshotProvider {
         Drop every registered screenshot provider.
     .DESCRIPTION
         Tests-only: production code relies on -Force re-import to
-        refresh registrations. Resets both the script-local and global
-        anchor so the registry is observably empty.
+        refresh registrations. The primitive's Clear rebinds the backing
+        store AND updates the global anchor so the registry is observably
+        empty.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if ($PSCmdlet.ShouldProcess('Test.ScreenshotProvider registry', 'Clear all providers')) {
-        $script:Providers = [ordered]@{}
-        $global:YurunaScreenshotProviders = $script:Providers
+        & $script:Reg.Clear
     }
 }
 

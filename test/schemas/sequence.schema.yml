@@ -1,3 +1,4 @@
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/sequence.schema.yml
@@ -118,6 +119,7 @@ $defs:
           - inputText
           - inputTextAndEnter
           - loadDiskSnapshot
+          - networkRelease
           - passwdPrompt
           - pressKey
           - retry
@@ -291,8 +293,9 @@ $defs:
       - if: { properties: { action: { const: sshWaitReady } } }
         then:
           properties:
-            timeoutSeconds: { type: integer, minimum: 0 }
-            pollSeconds:    { type: number,  minimum: 0 }
+            timeoutSeconds:           { type: integer, minimum: 0 }
+            pollSeconds:              { type: number,  minimum: 0 }
+            installerFailurePatterns: { $ref: "#/$defs/patternOrArray" }
 
       - if: { properties: { action: { const: tapOn } } }
         then:

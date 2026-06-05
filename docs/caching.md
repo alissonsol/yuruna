@@ -5,7 +5,7 @@ lets the Squid VM serve cached copies of install scripts.
 
 1. **[`YurunaCacheContent`](#the-yurunacachecontent-cache-buster)** —
    env var controlling cache-busting of `irm`/`wget`/`curl` one-liners.
-2. **[Squid cache VM](#caching-proxy-vm)** — optional VM that caches
+2. **[Squid cache VM](#squid-cache-vm)** — optional VM that caches
    HTTP/HTTPS for test VMs. First install populates; subsequent installs
    pull from LAN.
 
@@ -258,7 +258,7 @@ cached responses without the install scripts having to know about
 the proxy.
 
 Source: the `refresh_pattern` block in
-[`host/{ubuntu.kvm,windows.hyper-v,macos.utm}/guest.caching-proxy/vmconfig/user-data`](../host/ubuntu.kvm/guest.caching-proxy/vmconfig/user-data).
+[`host/{ubuntu.kvm,windows.hyper-v,macos.utm}/guest.caching-proxy/vmconfig/user-data`](../host/vmconfig/caching-proxy.base.user-data).
 
 ### offline_mode
 
@@ -359,6 +359,151 @@ capped at 7d. Verify with
 speaks squid's cache-manager protocol on `localhost:3128`. Built from
 source during cloud-init (`go install`); `golang-go` is purged once
 the static binary lands in `/usr/local/bin/squid-exporter`.
+
+### Loki + Promtail boot-order traps
+
+`runcmd` brings Loki and Promtail up explicitly (not just relying on
+the debs' enable-by-default postinst). Three traps to respect:
+
+- **Restart after the `proxy` group exists.** The Promtail drop-in
+  declares `SupplementaryGroups=proxy` so it can read
+  `/var/log/squid/access.log` (which squid writes mode 0640
+  `proxy:adm`). The `proxy` group lands with `squid-openssl`; if
+  Promtail was started by deb-postinst before squid landed, it
+  caches the old unit and logs `permission denied` on every poll
+  forever. Solution: `daemon-reload` + explicit `restart` after
+  packages settle.
+- **Pre-create per-service state dirs.** Neither postinst reliably
+  creates `/var/lib/promtail` (positions file) or `/var/lib/loki`
+  (Loki's `path_prefix`). Loki crashes with
+  `mkdir /var/lib/loki: permission denied` because `/var/lib` is
+  `root:root` and the `loki` user can't create top-level entries.
+  systemd retries 19× then gives up with "Start request repeated
+  too quickly"; Promtail then silently retries `POST
+  /loki/api/v1/push` forever and the Grafana panel stays empty.
+  `runcmd` runs `install -d -o promtail` / `install -d -o loki`
+  and `systemctl reset-failed` to clear the rate-limit.
+- **Create the `zot` user BEFORE Promtail starts.** Promtail's
+  drop-in lists `SupplementaryGroups=proxy zot`; on modern systemd a
+  missing group either silently drops the entry (OCI "Recent 100"
+  panel stays empty even once zot starts logging) or the unit fails
+  to start (which also takes down the squid "Recent 100" panel
+  because nothing tails `yuruna_access.log`). The zot binary
+  install later in `runcmd` would create the user — but Promtail is
+  already enabled by then. Idempotent
+  `id zot >/dev/null 2>&1 || useradd ...` up front.
+
+## Zot OCI registry
+
+Squid catches digest-pinned blob / manifest URLs (immutable,
+content-addressable) but **cannot** cache the tag-pointer freshness
+check (`HEAD /v2/<image>/manifests/<tag>`) — that's a revalidation
+against upstream by definition. AWS ECR Public's anonymous quota
+and Docker Hub's anonymous-pull limits both bite on those HEADs.
+
+`zot` is OCI-protocol-aware and serves the manifest cache with a
+TTL + stale-on-error — the behavior that masks the
+"`registry:2` returns 400 from `public.ecr.aws`" class of incident
+that has taken out multiple test hosts simultaneously.
+
+Guests reach `zot` at `http://<cache-vm>:5000` and configure
+`dockerd` with `registry-mirrors` (set by
+`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` at provision
+time). Plain HTTP (no TLS) — intra-LAN, same trust boundary as the
+SSL-bump CA the guests already trust. The `zot` binary is fetched
+from GitHub releases by `runcmd`.
+
+### mcr.microsoft.com appears twice
+
+In the zot `registries[]` block, `mcr.microsoft.com` is declared
+twice:
+
+1. `onDemand: true` + `prefix: **` — catch-all for any future MCR
+   image.
+2. `pollInterval: 6h` + tagged content for `dotnet/sdk:10.0` and
+   `dotnet/aspnet:10.0` — first on-demand sync of `dotnet/sdk:10.0`
+   takes ~30 s end-to-end (skopeo walks the index, per-arch
+   manifests, config blobs, disk commit) and trips workload probes
+   running `curl --max-time 30` right at the boundary. The
+   scheduled pre-warm keeps the two manifests resident so
+   subsequent probes return in 0 ms.
+
+## macOS UTM platform notes
+
+Apple Virtualization Framework (AVF) and UTM Shared NAT introduce
+several traps that the cache-VM `user-data` accounts for. They only
+fire on `host/macos.utm/`; the same image on Hyper-V or KVM doesn't
+need any of this.
+
+### Disable NIC TX offloads on AVF bridge
+
+`/etc/systemd/network/10-yuruna-no-offload.link` switches off TSO,
+GSO, GRO, and TX-checksum offload on every `virtio_net` interface.
+Without it, the cache VM tops out at **~360 KB/s** (cwnd collapsed to
+1–2 segments) instead of the line-rate **~941 Mbps** measured with
+offloads off. iperf3 from a remote LAN host confirmed the ~120×
+gain.
+
+Mechanism: with offloads on, the guest defers segmentation and
+checksumming to "the NIC", but AVF's bridge path forwards onto the
+host's `en0` without performing those deferred ops — remote
+receivers see invalid checksums / oversized segments, drop them,
+and cubic collapses cwnd.
+
+Two layers, both required:
+
+- **systemd `.link` drop-in** (write-files) applies at udev rename
+  time on every subsequent boot, **before** the NIC is brought up.
+- **`ethtool -K enp0s1 tx off gso off tso off gro off`** (runcmd,
+  first line) applies the change on **this** boot. cloud-init
+  write-files runs after `enp0s1` is already up and DHCP'd, so
+  udev has already processed the interface without the `.link` in
+  place. Without the runcmd step, the very first apt fetches
+  through the proxy crawl until reboot.
+
+The Hyper-V build of the same `user-data` does **not** include
+either step — the Hyper-V virtual NIC handles offloads correctly in
+kernel.
+
+### UTM Shared NAT topology
+
+UTM's Shared mode hands out `192.168.64.0/24` with a gateway of
+`192.168.64.1` (the host). Three consequences in the squid config:
+
+- **RFC1918 ACL covers all three blocks** (`10/8`, `172.16/12`,
+  `192.168/16`) so the same `yuruna.conf` is reusable across
+  alternate network modes — only the `192.168/16` entry actually
+  matches on UTM.
+- **`macos-host` `/etc/hosts` alias.** `runcmd` discovers the
+  gateway dynamically via `ip -4 route show default` and appends
+  `<gw> macos-host` so squid access-log triage is readable without
+  hardcoding a subnet that could change.
+- **All UTM VMs egress through the host's single public IP.** That
+  amplifies upstream rate-limiting (`security.ubuntu.com` 429s bite
+  faster than on Hyper-V where every VM may NAT through its own
+  source) — one of the reasons squid replaced apt-cacher-ng on this
+  platform first.
+
+### Cache-VM disk sizing for the macOS install image
+
+`maximum_object_size 65 GB` is sized so the cache covers **every**
+install image yuruna currently provisions, including the macOS
+install image (~18 GB) and headroom for a 64 GB worst case
+(Xcode-bundled SDKs, full Windows Server install media, full-fat
+dev VM templates). Squid's `maximum_object_size` is **inclusive** —
+anything strictly larger is silently not cached, so the 1 GB
+headroom on top of 64 GB matters. Raising the value does not
+allocate disk on its own; it only changes the rejection threshold.
+
+### CA cert published over Apache without ACL
+
+The `runcmd` step
+`install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt`
+publishes the SSL-bump CA at `http://<cache>/yuruna-squid-ca.crt`
+intentionally **world-readable**. RFC1918 reachability is enforced
+at the UTM Shared NAT network layer, not by Apache. Only the public
+cert is copied; `ca.key` stays inside `/etc/squid/ssl_cert/` with
+mode `600 proxy:proxy`.
 
 **cachemgr.cgi (fallback)** — `http://<vm-ip>/cgi-bin/cachemgr.cgi`,
 Cache Host `localhost`, Port `3128`. Reports: `info`, `utilization`,
@@ -672,6 +817,31 @@ ClientHello for SNI, then intercepts. For pin-checking clients (snap,
 Go HTTPS), add `acl nobump dstdomain ...` + `ssl_bump splice nobump`
 **above** `bump all` rather than disabling bumping. See
 `/etc/squid/conf.d/yuruna.conf`.
+
+### Squid 6 parser traps
+
+The yuruna squid drop-in encodes three FATAL-at-parse traps the Noble
+package surfaces but the older docs do not:
+
+- **`step1` ACL must be declared explicitly** — Squid does NOT
+  auto-define `at_step` ACLs. Without `acl step1 at_step SslBump1`,
+  `ssl_bump peek step1` FATALs with `"Bungled ... ssl_bump peek
+  step1"` and squid never binds 3128/3129.
+- **`dynamic_cert_mem_cache_size` is TOP-LEVEL in Squid 6** (not an
+  `http_port` option). Inlining it on the `http_port` line FATALs
+  with `"Bungled"`. The default 4 MB is fine; leave it unset.
+- **PROXY-protocol option name changed** — Squid 6 spells it
+  `require-proxy-header`; the old `accept-proxy-protocol` (Squid 4 /
+  older docs) FATALs at parse with
+  `"Unknown http_port option 'accept-proxy-protocol'"`. Same
+  semantics — every connection on the port MUST start with a PROXY
+  v1 (or v2) header. The `:3138` / `:3139` listeners (separate from
+  `:3128` / `:3129`) exist precisely because `require-proxy-header`
+  is mandatory: local NAT-shared guests that connect without one
+  still need `:3128` / `:3129` open.
+
+Always run `squid -k parse` before `squid -k reconfigure` to surface
+these at deploy time rather than after a restart that fails to bind.
 
 Back to [Yuruna](../README.md)
 

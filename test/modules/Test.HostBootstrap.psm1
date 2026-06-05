@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42d0e1f2-a3b4-4c56-9789-0b1c2d3e4f53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,11 @@
 # every test/ caller resolves the New-VM / Start-VM / Stop-VM / Get-VM /
 # Remove-VM contract without a HostType branch. Also pulls in the
 # Test.Host{Detection,Condition,Git} siblings with -Global so importing
-# THIS module alone gives a caller the full Test.Host surface area.
+# THIS module alone gives a caller the full Test.Host* surface area.
 
 # Re-import the three sibling modules so a caller that only imports
-# Test.HostBootstrap (or Test.Host -- the facade re-imports
-# Bootstrap) still gets the full Test.Host surface area. -Global so
+# Test.HostBootstrap (or Test.HostContract -- the facade re-imports
+# Bootstrap) still gets the full Test.Host* surface area. -Global so
 # the names land in the caller's session; -Force so a stale cached
 # copy is evicted; -DisableNameChecking because Get-* / Test-* /
 # Assert-* / Set-* / Update-* / Install-* span many noun families.

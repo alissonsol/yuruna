@@ -11,9 +11,6 @@ Thumbs.db
 
 # Claude
 .claude/
-# CLAUDE.md is intentionally tracked in yurunadev (private). When copying
-# yurunadev into the public yuruna repository, remove it from the public
-# commits -- see the reminder at the top of CLAUDE.md.
 
 # Yuruna test harness SSH keys are generated per-host on first run and now
 # live under test/status/ssh/ (covered by the umbrella status-subdirs

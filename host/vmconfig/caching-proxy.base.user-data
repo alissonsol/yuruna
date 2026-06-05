@@ -1,13 +1,15 @@
 #cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/vmconfig
 hostname: yuruna-caching-proxy
 # Replace the Ubuntu cloud image's default `ubuntu` user with `yuruna`.
 # Listing a `users:` block WITHOUT `- default` suppresses ubuntu creation
 # entirely -- only the listed users land in /etc/passwd. yuruna gets:
-#   - Passwordless sudo (this VM is a debug box on a private switch).
+#   - Passwordless sudo (this VM is a debug box on a private network).
 #   - The yuruna harness SSH key for passwordless `ssh yuruna@<cache-ip>`.
 #   - lock_passwd: false so chpasswd below can set a known random password
-#     for console fallback (vmconnect) when cloud-init hasn't finished
+#     for console fallback (the host VM console) when cloud-init hasn't finished
 #     and SSH isn't up yet.
 users:
   - name: yuruna
@@ -80,7 +82,7 @@ apt:
         -----END PGP PUBLIC KEY BLOCK-----
 package_update: true
 packages:
-  # squid-openssl: OpenSSL-linked build. Ubuntu Noble's default `squid`
+  # squid-openssl: OpenSSL-linked build. Ubuntu's default `squid`
   # package is built WITHOUT --with-openssl (Debian packaging split over
   # OpenSSL vs GPL licensing), so its http_port parser rejects `ssl-bump`,
   # `tls-cert=`, etc. with a "Bungled" FATAL at config-load and
@@ -93,7 +95,7 @@ packages:
   # cachemgr queries.
   - squid-cgi
   # squidclient (/usr/bin/squidclient) ships in squid-common (already pulled
-  # in by squid-openssl); no separate package on Noble. PURGE example:
+  # in by squid-openssl); no separate package needed. PURGE example:
   #   curl -x http://<cache>:3128 -X PURGE http://<origin>:<port>/<path>
   - apache2
   # Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301);
@@ -117,7 +119,7 @@ packages:
   - acl
   - golang-go
   # Network debugging tools for interactive triage via console/SSH.
-  # Noble's server cloud image ships `ip` but not `ifconfig` or `ping`;
+  # The server cloud image ships `ip` but not `ifconfig` or `ping`;
   # cheap to install, big quality-of-life win.
   - net-tools       # ifconfig, netstat, route, arp
   - iputils-ping    # ping, ping6
@@ -136,14 +138,9 @@ packages:
   # first-boot `apt-get -y upgrade` at the end of runcmd applies the
   # backlog that exists between the cloud image's build date and now.
   - unattended-upgrades
-  # NOTE: hyperv-daemons (hv_kvp_daemon) is installed via runcmd with
-  # `|| true`, not here. Its dep on linux-cloud-tools-$(uname -r) matching
-  # the running cloud-image kernel isn't always satisfiable until a fresh
-  # `apt-get update` lands, and a hard failure was aborting the ENTIRE
-  # packages phase (grafana/prometheus/squid included). If hv-kvp-daemon
-  # doesn't come up, Get-VMNetworkAdapter on the host returns empty and
-  # discovery falls back to ARP -- slower but works.
+  # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
+  # === YURUNA_OVERLAY_NIC_OFFLOAD ===
   # Retry apt fetches on transient network errors. Cloud-init's default is
   # one-shot; a single timeout or TCP reset against archive.ubuntu.com
   # fails the whole package install and leaves the VM without squid -- the
@@ -175,8 +172,7 @@ write_files:
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
   # Restrict cachemgr.cgi to RFC1918, matching the squid ACL. Apache's
-  # default cgi-bin/ is open to all; in practice the VM is only reachable
-  # from Hyper-V's Default Switch, but aligning policy with squid means a
+  # default cgi-bin/ is open to all; aligning policy with squid means a
   # misconfigured host network can't accidentally expose cachemgr.
   - path: /etc/apache2/conf-available/yuruna-cachemgr.conf
     permissions: '0644'
@@ -211,8 +207,8 @@ write_files:
       # already in use") while squid still appears 'running'. The default
       # binding (all interfaces, :3128) is what we want.
 
-      # Permit only RFC1918 sources. Hyper-V Default Switch hands out
-      # 172.x.x.x; 10/8 and 192.168/16 cover other private switches.
+      # Permit only RFC1918 sources. The host switch/bridge/NAT hands out
+      # 172.16/12, 192.168/16, or 10/8 depending on platform; all covered.
       acl yuruna_local src 10.0.0.0/8
       acl yuruna_local src 172.16.0.0/12
       acl yuruna_local src 192.168.0.0/16
@@ -245,7 +241,7 @@ write_files:
       cache_replacement_policy heap LFUDA
       memory_replacement_policy heap GDSF
 
-      # Disk cache sized for a 512 GB VHDX: 384 GB squid + ~128 GB OS/
+      # Disk cache sized for a 512 GB VM disk: 384 GB squid + ~128 GB OS/
       # logs/headroom. ufs is fine for a single-host dev cache; switch
       # to aufs/diskd only if squid blocks on disk I/O under concurrent
       # installs. 393216 MB = 384 GB / 16 top-level dirs / 256 subdirs
@@ -426,68 +422,15 @@ write_files:
 
       logfile_rotate 2
 
-      # --- HTTPS caching via SSL-bump (second listener on :3129) ---
-      # Stock http_port 3128 stays a pure CONNECT-tunnel for HTTPS -- no
-      # MITM, no caching, no trust required. Keeps legacy clients and
-      # subiquity's pre-install HTTPS calls (which run before our CA
-      # lands in the target chroot) working as before ssl-bump existed.
-      #
-      # Port 3129 is the opt-in ssl-bump listener. Guests that trust
-      # /etc/squid/ssl_cert/ca.pem (published at
-      # http://<cache>/yuruna-squid-ca.crt by Apache below) point
-      # Acquire::https::Proxy there and get HTTPS apt traffic
-      # intercepted, cached, and replayed through the same
-      # refresh_pattern + offline_mode pipeline as HTTP.
-      #
-      # peek-step1-then-bump-all: squid reads the TLS ClientHello for the
-      # SNI hostname, mints a per-host leaf signed by the yuruna CA, and
-      # terminates the client side. If a pin-checking client (snap, Go
-      # binaries) ever hits the install path, add `acl nobump dstdomain
-      # ...` + `ssl_bump splice nobump` ABOVE bump-all rather than
-      # disabling bumping wholesale.
-      #
-      # The `step1` acl MUST be declared explicitly -- squid does not
-      # auto-define at_step ACLs; without it, `ssl_bump peek step1` FATALs
-      # with "Bungled ... ssl_bump peek step1" and squid never binds
-      # 3128/3129.
+      # --- See https://yuruna.link/caching#ssl_bump-rules
+      # --- See https://yuruna.link/caching#squid-6-parser-traps
       acl step1 at_step SslBump1
-      #
-      # NOTE: dynamic_cert_mem_cache_size is TOP-LEVEL in Squid 6 (Noble),
-      # NOT an http_port option. Inlining it on the http_port line FATALs
-      # at parse with "Bungled" and squid never binds. 4 MB is the
-      # default; we let it stand.
       http_port 3129 ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
       sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/lib/squid/ssl_db -M 4MB
       sslcrtd_children 5
       ssl_bump peek step1
       ssl_bump bump all
 
-      # --- PROXY-protocol-aware listeners for the host-side userspace
-      # forwarder. Without these, every connection that came through
-      # netsh portproxy (or the pwsh forwarder) appeared in access.log
-      # as the host's NAT-side IP because TCP forwarding rewrites the
-      # source. The Test.PortMap module launches a pwsh forwarder for
-      # host:3128/3129 that prepends a HAProxy PROXY v1 header; squid
-      # parses it on these ports and uses the supplied client IP for
-      # ACLs and access.log.
-      #
-      # NOTE: option name is `require-proxy-header` in Squid 6 (Noble),
-      # NOT `accept-proxy-protocol` (the squid 4 / older-docs name).
-      # Using the old name FATALs at parse:
-      #   "Unknown http_port option 'accept-proxy-protocol'"
-      # Same semantics either way -- every connection on the port MUST
-      # start with a PROXY v1 (or v2) header.
-      #
-      # Separate ports (not the same 3128/3129) because require-proxy-header
-      # mandates a PROXY header -- local Default-Switch guests that
-      # connect directly without one still hit 3128/3129.
-      #
-      # proxy_protocol_access controls which client IPs may send PROXY
-      # headers (i.e. which proxies are trusted to vouch for client IPs).
-      # Allow RFC1918 + loopback -- the host forwarder lives on the
-      # 172.16/12 Default Switch (RFC1918); loopback covers on-VM
-      # diagnostics like `python3 -c 'socket... PROXY TCP4 ...'` against
-      # 127.0.0.1:3138 to spot-check the path without a real LAN client.
       acl yuruna_proxy_senders src 10.0.0.0/8
       acl yuruna_proxy_senders src 172.16.0.0/12
       acl yuruna_proxy_senders src 192.168.0.0/16
@@ -673,7 +616,7 @@ write_files:
   # access logs:
   #   - proxy:  /var/log/squid/yuruna_access.log (proxy:proxy 640)
   #   - zot:    /var/log/zot/zot.log             (zot:zot     640)
-  # Can't use Group= -- Noble's promtail postinst falls back to `nogroup`
+  # Can't use Group= -- the promtail postinst falls back to `nogroup`
   # (no `promtail` group created), so referencing it would fail.
   - path: /etc/systemd/system/promtail.service.d/yuruna.conf
     permissions: '0644'
@@ -1320,32 +1263,7 @@ write_files:
           }
         ]
       }
-  # --- zot OCI registry: Docker Hub pull-through cache ---
-  # squid catches digest-pinned blob/manifest URLs (immutable, content-
-  # addressable) but cannot cache the tag-pointer freshness check
-  # (HEAD /v2/<image>/manifests/<tag>) -- that's by definition a
-  # revalidation against upstream. AWS ECR Public's anonymous quota
-  # and Docker Hub's anonymous-pull limits both bite on those HEADs.
-  # zot is OCI-protocol-aware and serves the manifest cache with a TTL
-  # + stale-on-error -- the exact behavior that masks the
-  # "registry:2 returns 400 from public.ecr.aws" class of incident
-  # that has taken out multiple test hosts simultaneously.
-  #
-  # Guests reach zot at http://<cache-vm>:5000 and configure dockerd
-  # with `registry-mirrors` (set by guest/ubuntu.server.24/ubuntu.server.24.
-  # k8s.sh at provision time). Plain HTTP (no TLS) -- intra-LAN, same
-  # trust boundary as the squid SSL-bump CA the guests already trust.
-  # zot binary is fetched from GitHub releases in runcmd below.
-  #
-  # mcr.microsoft.com appears TWICE in registries[] below: once with
-  # onDemand+prefix:** (the catch-all for any future MCR image) and
-  # once with pollInterval:6h + tagged content for dotnet/sdk:10.0 and
-  # dotnet/aspnet:10.0. zot's first onDemand sync of dotnet/sdk:10.0
-  # can take ~30s end-to-end (skopeo walks the index + per-arch
-  # manifests + config blobs + disk commit) and trips workload probes
-  # with curl --max-time 30 right at the boundary. The scheduled
-  # pre-warm keeps the two manifests resident so subsequent probes
-  # return in 0ms instead of racing the boundary.
+  # --- See https://yuruna.link/caching#zot-oci-registry
   - path: /etc/zot/config.json
     permissions: '0644'
     owner: root:root
@@ -1496,13 +1414,7 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 runcmd:
-  # Gateway IP discovered dynamically (Hyper-V Default Switch IP drifts across reboots;
-  # aliased to `hyperv-host` so access.log ops are readable without hardcoding the IP).
-  - |
-    GW=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3; exit}')
-    if [ -n "$GW" ] && ! grep -q "^${GW}[[:space:]]" /etc/hosts; then
-      echo "${GW} hyperv-host" >> /etc/hosts
-    fi
+  # === YURUNA_OVERLAY_RUNCMD_NET ===
   # Stop the squid apt's postinst started: it's FATAL (yuruna.conf references ca.pem before
   # we generate it) or on partial/default config. Don't run `squid -z` here -- it also parses
   # yuruna.conf and FATALs on the missing cert (was tried; left only a scary log FATAL).
@@ -1537,7 +1449,7 @@ runcmd:
   # already exists, so the existence check guards re-runs. DB holds leaf
   # certs minted per SNI hostname -- 4 MB is generous (each entry ~1 KB).
   #
-  # The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu Noble
+  # The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu
   # the squid-openssl postinst doesn't guarantee this directory, and
   # security_file_certgen's Create() makes only the leaf `ssl_db/` dir,
   # not the parent. Without `install -d` the helper FATALs with "Cannot
@@ -1554,18 +1466,7 @@ runcmd:
     fi
   - systemctl enable squid
   - systemctl start squid
-  # Install hyperv-daemons tolerantly (see packages: note). Re-run
-  # apt-get update because hyperv-daemons' linux-cloud-tools-$(uname -r)
-  # dep can show up after a refresh. If it still fails, discovery falls
-  # back to ARP -- don't abort the rest of runcmd.
-  - DEBIAN_FRONTEND=noninteractive apt-get update || true
-  # Single-quoted so YAML doesn't parse `yuruna:` inside the echo as a
-  # mapping key and abort runcmd with a shellify TypeError.
-  - 'DEBIAN_FRONTEND=noninteractive apt-get install -y hyperv-daemons || echo "yuruna: hyperv-daemons install failed - host IP discovery will fall back to ARP"'
-  # Start hv-kvp-daemon so the host can discover our IP. `|| true` because
-  # the service only exists if the install above succeeded.
-  - systemctl enable hv-kvp-daemon.service || true
-  - systemctl start hv-kvp-daemon.service || true
+  # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
   # --- Enable cachemgr.cgi monitoring ---
   # a2enmod cgi wires mod_cgi into Apache; a2enconf enables the RFC1918
   # ACL dropin. Squid's default squid.conf has `http_access allow manager
@@ -1577,7 +1478,7 @@ runcmd:
   # guests can fetch and trust it during install. Only the public cert
   # is copied -- ca.key stays in /etc/squid/ssl_cert/. Mode 644 is
   # intentional: RFC1918 reachability is enforced at the network layer
-  # (Hyper-V Default Switch), so trust distribution works without an
+  # (the host switch/bridge/NAT), so trust distribution works without an
   # extra cachemgr-style `Require ip` dropin.
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
   - systemctl enable apache2
@@ -1602,7 +1503,7 @@ runcmd:
     # (e.g. EADDRINUSE from a duplicate http_port). Otherwise the host
     # just sees "can't TCP-connect" without knowing why.
     if ! ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128; then
-      echo "=== YURUNA: squid did not bind :3128 within 60s ==="
+      echo "== YURUNA: squid did not bind :3128 within 60s =="
       systemctl --no-pager -l status squid || true
       journalctl --no-pager -u squid -n 80 || true
     fi
@@ -1619,8 +1520,8 @@ runcmd:
   # and friends). `|| true` on the fallback so one miss doesn't abort the
   # loop.
   - |
-    for pkg in linux-firmware linux-generic-hwe-24.04 intel-microcode amd64-microcode firmware-sof-signed; do
-      echo "=== yuruna prewarm: $pkg ==="
+    # === YURUNA_OVERLAY_FIRMWARE_PKGS ===
+      echo "== yuruna prewarm: $pkg =="
       apt-get install --download-only --reinstall -y "$pkg" 2>/dev/null \
         || apt-get install --download-only -y "$pkg" 2>/dev/null \
         || echo "yuruna prewarm: skipped $pkg"
@@ -1658,7 +1559,7 @@ runcmd:
   # --- Build and install squid-exporter + caching-proxy-parser. No apt
   # package for either; `go install` (squid-exporter) and `go build`
   # against fetched source (caching-proxy-parser) keep this cross-arch
-  # path working -- amd64 on Hyper-V, arm64 on UTM, no URL guessing.
+  # path working -- amd64 on Hyper-V/KVM, arm64 on UTM, no URL guessing.
   # squid-exporter pinned to v1.13.0 for reproducibility. v1.13.0 is the
   # cutoff: it dropped legacy `cache_mgr://` URI support and switched to
   # Squid 7's `/squid-internal-mgr/` HTTP path. Ubuntu 26.04 (Resolute)
@@ -1679,7 +1580,7 @@ runcmd:
         install -m 0755 /root/go/bin/squid-exporter /usr/local/bin/squid-exporter
         echo "yuruna: squid-exporter installed at /usr/local/bin/squid-exporter"
     else
-        echo "=== YURUNA: squid-exporter build failed -- Grafana squid panels will stay empty until the binary is provided by hand ==="
+        echo "== YURUNA: squid-exporter build failed -- Grafana squid panels will stay empty until the binary is provided by hand =="
     fi
     # caching-proxy-parser: in-memory tail-and-serve for the dashboard's
     # "Recent 100 requests" view; replaces the loki+promtail pipeline.
@@ -1698,7 +1599,7 @@ runcmd:
         install -m 0644 caching-proxy-parser.service /etc/systemd/system/caching-proxy-parser.service
         echo "yuruna: caching-proxy-parser built and installed at /usr/local/bin/caching-proxy-parser"
     else
-        echo "=== YURUNA: caching-proxy-parser build failed -- Recent 100 requests view will be unavailable ==="
+        echo "== YURUNA: caching-proxy-parser build failed -- Recent 100 requests view will be unavailable =="
     fi
     cd /
     rm -rf /root/go /opt/caching-proxy-parser
@@ -1741,7 +1642,7 @@ runcmd:
       sleep 1
     done
     if ! systemctl is-active --quiet grafana-server.service; then
-      echo "=== YURUNA: grafana-server did not become active within 60s ==="
+      echo "== YURUNA: grafana-server did not become active within 60s =="
       systemctl --no-pager -l status grafana-server.service || true
       journalctl --no-pager -u grafana-server.service -n 80 || true
     fi
@@ -1765,38 +1666,9 @@ runcmd:
         rm -f /tmp/zot_official.json
         echo "yuruna: community Zot dashboard (Grafana ID 20501) installed at /var/lib/grafana/dashboards/zot-official.json"
     else
-        echo "=== YURUNA: failed to fetch Grafana dashboard 20501 from grafana.com -- the 'Zot (official)' dashboard will be missing until the next boot retries ==="
+        echo "== YURUNA: failed to fetch Grafana dashboard 20501 from grafana.com -- the 'Zot (official)' dashboard will be missing until the next boot retries =="
     fi
-  # --- Loki + Promtail. The proxy group exists by now (squid-openssl
-  # was in `packages:`), so daemon-reload + restart picks up the
-  # SupplementaryGroups=proxy drop-in written above; promtail can then
-  # read /var/log/squid/access.log. Without the restart, promtail keeps
-  # running with the unit definition cached at deb-postinst time (when
-  # systemd may have started it before the proxy group existed) and
-  # logs "permission denied" on every poll -- Grafana panel stays empty.
-  #
-  # `install -d` (no -g, since there's no `promtail` / `loki` group --
-  # see the drop-in comment) creates the per-service state dirs that
-  # the debs' postinsts don't reliably create:
-  #   /var/lib/promtail  -- positions.yaml lives here.
-  #   /var/lib/loki      -- Loki's `path_prefix` from /etc/loki/config.yml.
-  # Loki crashes on startup with `mkdir /var/lib/loki: permission denied`
-  # if the dir doesn't exist, since /var/lib is root:root and the loki
-  # user can't create new top-level entries. systemd retries 19x and
-  # gives up ("Start request repeated too quickly"); promtail then
-  # silently retries POST /loki/api/v1/push forever and the dashboard
-  # panel stays empty. `reset-failed` clears the rate-limit before our
-  # restart so the unit can come up cleanly.
-  # Pre-create the zot user/group so promtail's drop-in resolves
-  # `SupplementaryGroups=proxy zot` at startup. The zot binary install
-  # later in runcmd would create the same user, but promtail.service is
-  # enabled here (BEFORE the zot install) -- and on modern systemd, a
-  # SupplementaryGroups entry naming a non-existent group is silently
-  # dropped (without it the OCI Recent-100 panel stays empty even after
-  # zot starts producing logs) or causes the unit to fail to start
-  # (which also takes down the squid Recent-100 panel because nothing
-  # tails yuruna_access.log). Creating the user upfront is idempotent
-  # with the later `if ! id zot ... useradd zot` guard.
+  # --- See https://yuruna.link/caching#loki-promtail-boot-order-traps
   - id zot >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin zot
   - install -d -o promtail -m 0755 /var/lib/promtail
   - install -d -o loki -m 0755 /var/lib/loki
@@ -1817,7 +1689,7 @@ runcmd:
       case " $GROUPS " in
         *" $g "*) ;;
         *)
-          echo "=== YURUNA: promtail.service missing supplementary group '$g' -- Recent-100 panel for that source will stay empty ==="
+          echo "== YURUNA: promtail.service missing supplementary group '$g' -- Recent-100 panel for that source will stay empty =="
           systemctl --no-pager -l status promtail.service || true
           journalctl --no-pager -u promtail.service -n 20 || true
           ;;
@@ -1842,12 +1714,12 @@ runcmd:
     for t in apt-daily.timer apt-daily-upgrade.timer; do
       systemctl enable --now "$t" 2>/dev/null || true
       if ! systemctl is-enabled --quiet "$t"; then
-        echo "=== YURUNA: $t is NOT enabled -- auto-upgrades will not run on the 24h cadence ==="
+        echo "== YURUNA: $t is NOT enabled -- auto-upgrades will not run on the 24h cadence =="
       fi
     done
   - |
     vm_ip=$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -1)
-    echo "=== YURUNA monitoring ==="
+    echo "== YURUNA monitoring =="
     echo "  Grafana:    http://${vm_ip}:3000 (anonymous Viewer -- no login required)"
     echo "  Prometheus: http://127.0.0.1:9090 (loopback only -- scrape via Grafana)"
     echo "  Loki:       http://127.0.0.1:3100 (loopback only -- scrape via Grafana)"

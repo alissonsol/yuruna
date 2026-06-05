@@ -4,65 +4,23 @@ Prioritized work the project would welcome help on. New contributors:
 pick something at a priority level that matches the time you have, and
 read [Contributing](../CONTRIBUTING.md) for the workflow.
 
-Status legend: ✓ done · 🚧 in progress · ⏸ paused / deferred ·
-no marker = open. Last reviewed 2026-05-29.
-
-## Audit-cycle outcomes (2026-05)
-
-Four cycles ran during the 2026-05 architectural review. All
-Critical, High, and Medium issues resolved or verified as false
-positives; the Low batch + R-* resilience mechanisms also closed.
-
-- ✓ Criticals (8): atomic state-sidecar writes, crash-safe `New-VM`
-  cleanup, cycle-folder `.incomplete` marker, dark-mode WCAG-AA
-  contrast lift, 4-digit temp-path entropy, GUID-uniqueness scan.
-- ✓ Highs (10): watchdog heartbeat freshness, atomic pidfile +
-  sidecar, FailureClass enum coverage, centralised NDJSON guard,
-  failure-time host diagnostic, NDJSON-on-init-failure, image
-  SHA-256 (warn-only), cycle-log rotation at CYCLE_HISTORY_LIMIT.
-- ✓ Mediums (11): unified registry shapes, Get-PollDelay extraction,
-  Test.KeyCodeRegistry split, caching-proxy YAML corruption signal,
-  snapshot existence pre-validation, copyright headers, extension
-  enumeration, cycleId stamping, sidecar inventory docs, config-
-  snapshot infrastructure.
-- ✓ Resilience mechanisms (R-1, R-4..R-12, partial R-2): atomic
-  state-file primitive, failure-class dispatcher, boot recovery
-  sweep, snapshot manifest sidecars, NDJSON schema validator,
-  cycle correlation IDs, image-integrity gateway (6/9 Get-Image
-  scripts wired), log rotation, runner state machine, key-code
-  registry.
-- ⏸ H-10 (Invoke-Sequence verb-handler split, ~2461 LOC) —
-  deferred pending the comment-to-markdown migration.
+Status legend: 🚧 in progress · ⏸ paused / deferred ·
+no marker = open. Last reviewed 2026-06-04.
 
 ## Verb-handler migration progress
 
-Tracking the move from inline switch in `Invoke-Sequence.psm1` to
-the per-verb registry in `Test.SequenceAction.psm1` +
-`Test.SequenceHandler.psm1`:
+The move from the inline switch in `Invoke-Sequence.psm1` to the
+per-verb registry in `Test.SequenceAction.psm1` +
+`Test.SequenceHandler.psm1` is complete — all 19 verbs are registry
+handlers. `retry` and `recoverFromSnapshot` were the last two; their
+engine-private failure state was lifted into the shared
+`Test.SequenceFailureState` store (`$script:Fail`), so they now live in
+`Test.SequenceHandler.psm1` with the rest of the catalog and
+`Invoke-Sequence.psm1` is purely the executor.
 
-| Status | Verb | Notes |
-| --- | --- | --- |
-| ✓ | `waitForSeconds` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `pressKey` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `break` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `saveDiskSnapshot` | In `Test.SequenceHandler.psm1`. R-6 wires manifest write. |
-| ✓ | `loadDiskSnapshot` | In `Test.SequenceHandler.psm1`. M-5 + R-6 wire validation. |
-| ✓ | `saveSystemDiagnostic` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `callExtension` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `inputText` / `inputTextAndEnter` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `waitForText` / `waitForAndEnter` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `passwdPrompt` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `tapOn` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `takeScreenshot` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `fetchAndExecute` | In `Test.SequenceHandler.psm1`. |
-| ✓ | `sshWaitReady` / `sshExec` / `sshFetchAndExecute` | In `Test.SequenceHandler.psm1`. |
-| 🚧 | `retry` | Inlined in `Invoke-Sequence.psm1` because it reads/writes engine-private `$script:LastFailure*` slots. H-10. |
-| 🚧 | `recoverFromSnapshot` | Same engine-state coupling as `retry`. H-10. |
+✓ H-10 (`Invoke-Sequence` verb-handler split) — done.
 
-17 of 19 verbs migrated. Remaining two are blocked on the
-engine-state-extraction prerequisite tracked under H-10.
-
-## Architecture as of 2026-05
+## Architecture as of 2026-06
 
 What the test harness's structural building blocks look like today;
 each is a module you can grep for if you want to extend it.
@@ -77,6 +35,13 @@ each is a module you can grep for if you want to extend it.
   `Send-Click` dispatch through `Test.HostIO` so a new host or a new
   action verb is one registration, not three edits in the engine.
   Platform keystroke / mouse / VNC backends live in `Test.Transport`.
+- [Deployment-kind catalog](../automation/Yuruna.DeploymentKind.psm1) —
+  the `chart` / `kubectl` / `helm` / `shell` detection, the kinds error
+  text, the tool-expression mapping and the retry gating resolve through
+  one `Yuruna.DeploymentKind` catalog shared by the validator
+  (`Confirm-WorkloadList`) and the publisher (`Publish-WorkloadList`), so
+  a new tool-expression kind is one `Register-YurunaDeploymentKind` line,
+  not parallel edits in two modules.
 - [Capability matrix](capability-matrix.md) — startup banner + per-cycle
   gate that refuses cycles referencing host I/O backends not wired on
   the current host. Replaces the prior silent "Unknown host: …" mode.
@@ -85,11 +50,16 @@ each is a module you can grep for if you want to extend it.
   `SuggestedRecoveries` metadata consumed by the
   [failure-schema v2](../test/modules/Invoke-Sequence.psm1) writer.
   Contract reference: [handler schema](handler-schema.md).
+- [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) — the shared,
+  eviction-safe in-memory registry primitive (Register/Get/Has/GetMatrix/Clear
+  closures over a `$global:`-anchored store). The Host I/O, `Test.SequenceAction`,
+  screenshot-provider, and VNC-provider registries are all built on it, so every
+  domain registry shows up in one introspection call
+  (`Get-YurunaRegistryDirectory`) instead of each module owning a private anchor.
 - Module decomposition under `test/modules/`: `Test.Output`,
   `Test.ConfigValidator`, `Test.PortOwner`,
   `Test.ScreenshotProvider` / `Test.VncProvider` /
-  `Test.CachingProxyProvider` / `Test.CredentialProvider` (paired
-  registry + recovery primitives).
+  `Test.CredentialProvider` (paired registry + recovery primitives).
 - Telemetry: per-cycle NDJSON event log
   (`<cycleFolder>/cycle.events.ndjson`); `Send-Notification`
   supports an `-EventData` structured payload and runs async by
@@ -108,12 +78,6 @@ each is a module you can grep for if you want to extend it.
 ### P0
 
 - Get to at most one "framework incident" every 24 hours.
-- Generic registry login approach in `automation/Yuruna.Component.psm1`
-  (today only `*.azurecr.io` is handled via `az acr login`; needs
-  ECR / GAR / Docker Hub / generic-docker-login coverage; the
-  scaffolding now lives in
-  [`Test.CredentialProvider`](../test/modules/Test.CredentialProvider.psm1)
-  — wire the missing providers there).
 - SSH support across hosts.
 - Windows sequence for startup and minimal workload test.
 - **Installer & in-guest script integrity.** The bootstrap installers
@@ -127,7 +91,7 @@ each is a module you can grep for if you want to extend it.
   [`fetch-and-execute.sh`](../automation/fetch-and-execute.sh) has the
   same shape — `wget -qO- … | bash` of working-tree content served by
   the status server, see `feedback_status_server_working_tree_rename_race.md`.
-  Track of changes needed:
+  Changes needed:
   - Publish `install.sha256` alongside each installer; one-liners in
     [`install/README.md`](../install/README.md) print the expected hash
     so an operator can `sha256sum -c` before piping.
@@ -194,6 +158,49 @@ each is a module you can grep for if you want to extend it.
 ## Host / guest
 
 - Document Hyper-V Amazon Linux nested virtualization setup (`host/windows.hyper-v/guest.amazon.linux.2023/read.more.md`)
+
+### Host-driver shared helpers
+
+Each virtualization backend has its own
+`host/<host>/modules/Yuruna.Host.psm1` driver implementing the canonical
+contract ([`Yuruna.Host.Contract.psm1`](../host/Yuruna.Host.Contract.psm1),
+enforced at module load by `Assert-YurunaHostContractCoverage`). The contract
+verbs are platform-specific by design: Hyper-V cmdlets, libvirt/`virsh`, and
+the UTM CLI are genuinely different backends, as are the three host-proxy,
+screen-capture, and disk-snapshot stacks.
+
+Logic that is *not* platform-specific is factored into shared modules under
+[`host/modules/`](../host/modules/) so a fix lands once instead of drifting
+across drivers — injecting the one varying platform detail as a scriptblock or
+a plain parameter rather than reaching across a module boundary by name:
+
+- [`Yuruna.HostDownload`](../host/modules/Yuruna.HostDownload.psm1) — the squid
+  caching-proxy download stack (HTTP proxy + HTTPS SSL-bump with per-process CA
+  trust); the cache-VM IP discovery is injected as `-ResolveCacheHostIp`.
+- [`Yuruna.HostProvision`](../host/modules/Yuruna.HostProvision.psm1) — the
+  cross-driver helpers that differ only in one platform detail: the per-guest
+  `New-VM.ps1` / `Get-Image.ps1` child-runners (`Invoke-PerGuestNewVm`,
+  `Invoke-GetImage` — host subdir as a plain parameter, `Get-ImagePath` and the
+  log writer injected), the guest-IP poll (`Invoke-WaitVmIp`, with `Get-VMIp`
+  injected), and the squid-reachability probe (`Invoke-CachingProxyAvailableProbe`,
+  win/mac). Each driver's `New-VM` / `Get-Image` / `Wait-VMIp` /
+  `Test-CachingProxyAvailable` is a thin wrapper supplying its one platform
+  variable — a host-subdir or verify-hint string, or a driver-private command
+  captured as `CommandInfo` (`Get-VMIp`, `Get-ImagePath`) so the shared body
+  never resolves a name across a module boundary.
+- `Yuruna.Image` / `Yuruna.UbuntuImage` (image integrity + checksum) and
+  `Yuruna.VMCleanup`; `test/modules/Test.VMUtility` and `Test.CachingProxy`
+  hold the host-proxy-path and cache-state primitives the drivers share.
+
+What stays driver-local is the irreducibly platform-specific backend code (three
+VM backends, three host-proxy / capture / snapshot stacks). The cross-driver
+duplication worth extracting is now factored out; what remains is deliberately
+left per-platform — the host-proxy, firewall, and bridge paths are
+routing/security-adjacent and only validatable by a live cycle on each host, so
+the cost of a shared abstraction there outweighs the lines it would save. (The
+KVM `Test-CachingProxyAvailable` is intentionally *not* folded into the shared
+probe: it omits the IPv6 host-bracketing the guests rely on, so converging it
+would change the proxy URL they trust.)
 
 Back to [Yuruna](../README.md)
 

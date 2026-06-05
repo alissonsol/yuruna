@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM installation.
 # See possible actions in the actions.yml file.
@@ -9,7 +10,7 @@
 
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 42946cbc-c2ec-48e4-a4ba-8e25a71c1286
-sequenceRevision: 1
+sequenceRevision: 2
 
 description: "Ubuntu Server 24.04: first login, change password, run update script, reboot."
 baseline:
@@ -24,7 +25,7 @@ steps:
     pattern: "Continue with autoinstall?"
     timeoutSeconds: 900
     text: "yes"
-    description: "Continue with autoinstall?"
+    description: "OCR: Continue with autoinstall?"
 
   - action: retry
     maxAttempts: 3
@@ -33,7 +34,15 @@ steps:
       - action: waitForText
         pattern: "login:"
         timeoutSeconds: 1800
-        description: "Initial boot: wait for login prompt to appear"
+        # Fast-fail OCR scan: if subiquity crashed the installer drops to
+        # a shell and the login: prompt will never appear -- short-circuit
+        # so the inner runner's yuruna_retry backoff can auto-retry on a
+        # fresh VM instead of burning the full 1800 s per attempt.
+        failurePatterns:
+          - "install_fail.crash"
+          - "Press enter to start a shell"
+          - "An error occurred"
+        description: "OCR: login:"
 
       - action: pressKey
         name: Enter
@@ -41,43 +50,39 @@ steps:
 
       - action: waitForSeconds
         seconds: 2
-        description: "Let agetty redraw before resyncing on login:"
+        description: "Let agetty redraw"
 
       - action: passwdPrompt
         pattern: "login:"
         text: "${username}"
-        description: "${vmName} login:"
+        description: "OCR: login:"
 
       - action: passwdPrompt
         pattern: "Password:"
         text: "${currentPassword}"
-        description: "Password:"
+        description: "OCR: Password:"
 
       - action: passwdPrompt
         pattern: ["Current password", "urrent password:"]
         text: "${currentPassword}"
-        description: "Current password:"
+        description: "OCR: Current password"
 
       - action: passwdPrompt
         pattern: ["New password", "ew password:"]
         text: "${newPassword}"
-        description: "New password:"
+        description: "OCR: New password"
 
       - action: passwdPrompt
         pattern: ["Retype new password", "etype new password:"]
         text: "${newPassword}"
-        description: "Retype new password:"
+        description: "OCR: Retype new password"
 
       - action: callExtension
         method: authentication.SetPassword
         args:
           Username: "${username}"
           NewPassword: "${newPassword}"
-        description: "Commit the rotated password to the vault."
-
-  - action: waitForSeconds
-    seconds: 10
-    description: "Pause before updating"
+        description: "Commit new password to auth system"
 
   - action: fetchAndExecute
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"
@@ -87,7 +92,7 @@ steps:
 
   - action: saveSystemDiagnostic
     id: yuruna.update
-    description: "Capture diagnostics after update, before reboot"
+    description: "Capture diagnostics"
 
   - action: inputTextAndEnter
     text: "clear; sudo reboot now"

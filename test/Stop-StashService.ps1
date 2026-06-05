@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456761
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -For
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
 $RepoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
-Import-Module (Join-Path $ModulesDir 'Test.Host.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Global -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 $HostType = Get-HostType

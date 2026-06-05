@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42e7c4b3-d2a1-4f56-9c78-3e4f5a6b7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -194,6 +194,98 @@ foreach ($c in 48..57)  { $script:X11CharKeyMap[[string][char]$c] = @($c, $false
     $script:X11CharKeyMap[$_] = @([int][char]$_, $true)
 }
 
+# PowerShell's @{} hash literal uses a case-INSENSITIVE comparer, so 'a'
+# and 'A' would collide at parse time ("Duplicate keys 'A' are not allowed
+# in hash literals"), wrecking the whole module import. Build the table
+# with Ordinal StringComparer and populate via explicit indexer so each
+# letter case is its own key.
+function Get-KvmCharKeyMap {
+    <#
+    .SYNOPSIS
+        Build the case-sensitive char -> Linux KEY_* chord table used
+        by Send-TextKvm.
+    .DESCRIPTION
+        Uses an Ordinal-comparer hashtable because @{} literals are
+        case-insensitive and would collide on 'a' / 'A' at parse time,
+        wrecking the whole module import. See feedback memory
+        [[feedback_powershell_hashtable_case_insensitive]].
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
+        Justification = 'Need a case-sensitive (Ordinal) hashtable to map shifted vs unshifted letters; @{} literal is case-insensitive and would collide on a/A at parse time.')]
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable])]
+    param()
+    $h = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
+$h['a'] = @('KEY_A');           $h['A'] = @('KEY_LEFTSHIFT','KEY_A')
+$h['b'] = @('KEY_B');           $h['B'] = @('KEY_LEFTSHIFT','KEY_B')
+$h['c'] = @('KEY_C');           $h['C'] = @('KEY_LEFTSHIFT','KEY_C')
+$h['d'] = @('KEY_D');           $h['D'] = @('KEY_LEFTSHIFT','KEY_D')
+$h['e'] = @('KEY_E');           $h['E'] = @('KEY_LEFTSHIFT','KEY_E')
+$h['f'] = @('KEY_F');           $h['F'] = @('KEY_LEFTSHIFT','KEY_F')
+$h['g'] = @('KEY_G');           $h['G'] = @('KEY_LEFTSHIFT','KEY_G')
+$h['h'] = @('KEY_H');           $h['H'] = @('KEY_LEFTSHIFT','KEY_H')
+$h['i'] = @('KEY_I');           $h['I'] = @('KEY_LEFTSHIFT','KEY_I')
+$h['j'] = @('KEY_J');           $h['J'] = @('KEY_LEFTSHIFT','KEY_J')
+$h['k'] = @('KEY_K');           $h['K'] = @('KEY_LEFTSHIFT','KEY_K')
+$h['l'] = @('KEY_L');           $h['L'] = @('KEY_LEFTSHIFT','KEY_L')
+$h['m'] = @('KEY_M');           $h['M'] = @('KEY_LEFTSHIFT','KEY_M')
+$h['n'] = @('KEY_N');           $h['N'] = @('KEY_LEFTSHIFT','KEY_N')
+$h['o'] = @('KEY_O');           $h['O'] = @('KEY_LEFTSHIFT','KEY_O')
+$h['p'] = @('KEY_P');           $h['P'] = @('KEY_LEFTSHIFT','KEY_P')
+$h['q'] = @('KEY_Q');           $h['Q'] = @('KEY_LEFTSHIFT','KEY_Q')
+$h['r'] = @('KEY_R');           $h['R'] = @('KEY_LEFTSHIFT','KEY_R')
+$h['s'] = @('KEY_S');           $h['S'] = @('KEY_LEFTSHIFT','KEY_S')
+$h['t'] = @('KEY_T');           $h['T'] = @('KEY_LEFTSHIFT','KEY_T')
+$h['u'] = @('KEY_U');           $h['U'] = @('KEY_LEFTSHIFT','KEY_U')
+$h['v'] = @('KEY_V');           $h['V'] = @('KEY_LEFTSHIFT','KEY_V')
+$h['w'] = @('KEY_W');           $h['W'] = @('KEY_LEFTSHIFT','KEY_W')
+$h['x'] = @('KEY_X');           $h['X'] = @('KEY_LEFTSHIFT','KEY_X')
+$h['y'] = @('KEY_Y');           $h['Y'] = @('KEY_LEFTSHIFT','KEY_Y')
+$h['z'] = @('KEY_Z');           $h['Z'] = @('KEY_LEFTSHIFT','KEY_Z')
+$h['1'] = @('KEY_1');           $h['!'] = @('KEY_LEFTSHIFT','KEY_1')
+$h['2'] = @('KEY_2');           $h['@'] = @('KEY_LEFTSHIFT','KEY_2')
+$h['3'] = @('KEY_3');           $h['#'] = @('KEY_LEFTSHIFT','KEY_3')
+$h['4'] = @('KEY_4');           $h['$'] = @('KEY_LEFTSHIFT','KEY_4')
+$h['5'] = @('KEY_5');           $h['%'] = @('KEY_LEFTSHIFT','KEY_5')
+$h['6'] = @('KEY_6');           $h['^'] = @('KEY_LEFTSHIFT','KEY_6')
+$h['7'] = @('KEY_7');           $h['&'] = @('KEY_LEFTSHIFT','KEY_7')
+$h['8'] = @('KEY_8');           $h['*'] = @('KEY_LEFTSHIFT','KEY_8')
+$h['9'] = @('KEY_9');           $h['('] = @('KEY_LEFTSHIFT','KEY_9')
+$h['0'] = @('KEY_0');           $h[')'] = @('KEY_LEFTSHIFT','KEY_0')
+$h[' ']  = @('KEY_SPACE')
+$h["`t"] = @('KEY_TAB')
+$h["`n"] = @('KEY_ENTER')
+$h["`r"] = @('KEY_ENTER')
+$h['-'] = @('KEY_MINUS');       $h['_'] = @('KEY_LEFTSHIFT','KEY_MINUS')
+$h['='] = @('KEY_EQUAL');       $h['+'] = @('KEY_LEFTSHIFT','KEY_EQUAL')
+$h['['] = @('KEY_LEFTBRACE');   $h['{'] = @('KEY_LEFTSHIFT','KEY_LEFTBRACE')
+$h[']'] = @('KEY_RIGHTBRACE');  $h['}'] = @('KEY_LEFTSHIFT','KEY_RIGHTBRACE')
+$h['\'] = @('KEY_BACKSLASH');   $h['|'] = @('KEY_LEFTSHIFT','KEY_BACKSLASH')
+$h[';'] = @('KEY_SEMICOLON');   $h[':'] = @('KEY_LEFTSHIFT','KEY_SEMICOLON')
+$h["'"] = @('KEY_APOSTROPHE');  $h['"'] = @('KEY_LEFTSHIFT','KEY_APOSTROPHE')
+$h[','] = @('KEY_COMMA');       $h['<'] = @('KEY_LEFTSHIFT','KEY_COMMA')
+$h['.'] = @('KEY_DOT');         $h['>'] = @('KEY_LEFTSHIFT','KEY_DOT')
+$h['/'] = @('KEY_SLASH');       $h['?'] = @('KEY_LEFTSHIFT','KEY_SLASH')
+$h['`'] = @('KEY_GRAVE');       $h['~'] = @('KEY_LEFTSHIFT','KEY_GRAVE')
+    return $h
+}
+$script:KvmCharKeyMap = Get-KvmCharKeyMap
+
+# KVM named-key map (Enter / Tab / arrows -> Linux KEY_*) used by Send-KeyKvm.
+$script:KvmNamedKeyMap = @{
+    'Enter'     = 'KEY_ENTER'
+    'Return'    = 'KEY_ENTER'
+    'Tab'       = 'KEY_TAB'
+    'Escape'    = 'KEY_ESC'
+    'Esc'       = 'KEY_ESC'
+    'Space'     = 'KEY_SPACE'
+    'Backspace' = 'KEY_BACKSPACE'
+    'Up'        = 'KEY_UP'
+    'Down'      = 'KEY_DOWN'
+    'Left'      = 'KEY_LEFT'
+    'Right'     = 'KEY_RIGHT'
+}
+
 # Kind -> map dispatch table. Built once so Get-KeyCodeMap returns by
 # reference (callers can still index the map directly).
 $script:KeyCodeMapByKind = @{
@@ -203,6 +295,8 @@ $script:KeyCodeMapByKind = @{
     'PS2-Char'  = $script:Ps2CharKeyMap
     'X11-Named' = $script:X11NamedKeyMap
     'X11-Char'  = $script:X11CharKeyMap
+    'KVM-Named' = $script:KvmNamedKeyMap
+    'KVM-Char'  = $script:KvmCharKeyMap
 }
 
 function Get-KeyCodeMap {
@@ -222,7 +316,7 @@ function Get-KeyCodeMap {
     [OutputType([object])]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('UTM-Named','UTM-Char','PS2-Named','PS2-Char','X11-Named','X11-Char')]
+        [ValidateSet('UTM-Named','UTM-Char','PS2-Named','PS2-Char','X11-Named','X11-Char','KVM-Named','KVM-Char')]
         [string]$Kind
     )
     return $script:KeyCodeMapByKind[$Kind]

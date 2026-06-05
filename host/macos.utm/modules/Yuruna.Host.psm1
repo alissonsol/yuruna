@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,9 +19,8 @@
 
 .DESCRIPTION
     Self-contained host driver: contract surface plus the UTM/macOS
-    helpers (formerly host/macos.utm/modules/Yuruna.Host.psm1) it consumes.
-    Cross-host helpers still live in test/modules/Test.VMUtility.psm1
-    and Test.Ssh.psm1, imported below.
+    helpers it consumes. Cross-host helpers live in
+    test/modules/Test.VMUtility.psm1 and Test.Ssh.psm1, imported below.
 #>
 
 # === Module setup ===========================================================
@@ -34,7 +33,14 @@ $script:HostFolder     = Join-Path $script:RepoRoot 'host/macos.utm'
 Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking
-# === Helpers lifted from former Yuruna.Host.psm1 (host/macos.utm) ============
+# Shared squid download / TLS-bump stack — single source of truth across host drivers.
+# The X509 chain-validation callback lives here verbatim; per-driver cache-host
+# discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking
+# Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
+# the Get-Image log-line writer) that all three drivers carried in duplicate.
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
+# === macOS/UTM host helpers =================================================
 
 <#
 .SYNOPSIS
@@ -505,171 +511,6 @@ function Stop-AllCachingProxyForwarder {
 
 <#
 .SYNOPSIS
-    Returns $true when $BaseImageFile already matches what we'd
-    download from $SourceUrl, so the caller can skip the transfer.
-
-.DESCRIPTION
-    Four conditions, ALL required (any single mismatch forces a
-    re-download):
-      1. $BaseImageFile exists on disk.
-      2. $OriginFile (the sentinel a previous successful run wrote
-         next to $BaseImageFile) has at least 4 lines:
-           [0] source filename  (matches Path.GetFileName($SourceUrl))
-           [1] source URL       (matches $SourceUrl exactly)
-           [2] byte count       (positive int64)
-           [3] Last-Modified    (HTTP date string, optionally empty
-                                 if the upstream doesn't expose it)
-      3. A fresh HEAD probe of $SourceUrl returns:
-           - Content-Length that exactly equals the recorded byte count.
-           - Last-Modified that exactly equals the recorded date
-             (when both sentinel and HEAD provide one; if either is
-             missing, the date check is skipped -- some mirrors strip
-             Last-Modified, so we don't punish that).
-
-    Sentinels from older script versions (3 lines, no Last-Modified)
-    deliberately fail the line-count gate so the caller re-downloads
-    once. After that the new 4-line sentinel is in place and the
-    full check applies on every subsequent run. The cost is a single
-    re-download per upgrade; the benefit is that the check catches
-    cases where the URL/filename was changed in Get-Image.ps1 but a
-    previously-cached sentinel was somehow updated to match without
-    the corresponding image being re-fetched (the noble->resolute
-    bug that motivated this rewrite).
-
-    HEAD failure (offline, 4xx, no Content-Length, mirror redirect
-    that strips the header, etc.) returns $false too, so the caller
-    falls through to the regular download path rather than skipping
-    silently on a transient error.
-
-    Mismatch reasons are surfaced via Write-Verbose so the operator
-    can run `Get-Image.ps1 -Verbose` and see WHICH check failed.
-
-    Forcing a re-download is intentionally not a parameter here:
-    the operator deletes or renames $BaseImageFile (or $OriginFile),
-    which makes condition #1 or #2 fail. Keeping it filesystem-only
-    means there is exactly one way to override and it survives a
-    crashed/aborted prior run with no extra cleanup.
-
-.PARAMETER SourceUrl
-    URL the caller has resolved as the download target.
-
-.PARAMETER BaseImageFile
-    Final on-disk path of the image (e.g. *.iso, *.qcow2, *.raw).
-
-.PARAMETER OriginFile
-    Sentinel path -- typically "$baseImageName.txt" next to
-    $BaseImageFile. Lines: [0] original filename, [1] source URL,
-    [2] byte count of the downloaded source, [3] Last-Modified date.
-
-.OUTPUTS
-    [bool]
-#>
-function Test-DownloadAlreadyCurrent {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$SourceUrl,
-        [Parameter(Mandatory)][string]$BaseImageFile,
-        [Parameter(Mandatory)][string]$OriginFile
-    )
-    if (-not (Test-Path -LiteralPath $BaseImageFile)) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: base image file missing ($BaseImageFile); will download."
-        return $false
-    }
-    if (-not (Test-Path -LiteralPath $OriginFile)) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: sentinel file missing ($OriginFile); will download."
-        return $false
-    }
-
-    $lines = @(Get-Content -LiteralPath $OriginFile -ErrorAction SilentlyContinue)
-    if ($lines.Count -lt 4) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: sentinel has only $($lines.Count) line(s); the 4-line format with Last-Modified is required, will re-download to refresh."
-        return $false
-    }
-
-    $sentinelFilename = $lines[0].Trim()
-    $sentinelUrl      = $lines[1].Trim()
-    $sentinelSizeRaw  = $lines[2].Trim()
-    $sentinelLastMod  = $lines[3].Trim()
-
-    $expectedFilename = [System.IO.Path]::GetFileName(([System.Uri]$SourceUrl).LocalPath)
-    if ($sentinelFilename -ne $expectedFilename) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: sentinel filename '$sentinelFilename' != URL filename '$expectedFilename'; will download. (This is what catches a noble->resolute style URL change.)"
-        return $false
-    }
-    if ($sentinelUrl -ne $SourceUrl) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: sentinel URL '$sentinelUrl' != requested URL '$SourceUrl'; will download."
-        return $false
-    }
-    $previousSize = 0L
-    if (-not [int64]::TryParse($sentinelSizeRaw, [ref]$previousSize) -or $previousSize -le 0) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: sentinel byte count '$sentinelSizeRaw' is not a positive integer; will download."
-        return $false
-    }
-
-    try {
-        $head = Invoke-WebRequest -Uri $SourceUrl -Method Head -ErrorAction Stop
-    } catch {
-        Write-Verbose "Test-DownloadAlreadyCurrent: HEAD probe of $SourceUrl failed: $($_.Exception.Message); will download."
-        return $false
-    }
-    $cl = $head.Headers['Content-Length']
-    if ($cl -is [System.Array]) { $cl = $cl[0] }
-    $expectedSize = 0L
-    if (-not [int64]::TryParse([string]$cl, [ref]$expectedSize)) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: HEAD response has no usable Content-Length; will download."
-        return $false
-    }
-    if ($expectedSize -ne $previousSize) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: size mismatch (sentinel=$previousSize, HEAD=$expectedSize); will download."
-        return $false
-    }
-    # Last-Modified check, lenient when either side lacks the header.
-    $headLm = $head.Headers['Last-Modified']
-    if ($headLm -is [System.Array]) { $headLm = $headLm[0] }
-    $headLastMod = [string]$headLm
-    if ($sentinelLastMod -and $headLastMod -and ($sentinelLastMod -ne $headLastMod)) {
-        Write-Verbose "Test-DownloadAlreadyCurrent: Last-Modified differs (sentinel='$sentinelLastMod', HEAD='$headLastMod'); will download."
-        return $false
-    }
-    Write-Verbose "Test-DownloadAlreadyCurrent: match (filename='$sentinelFilename', size=$previousSize, last-modified='$sentinelLastMod'); skipping."
-    return $true
-}
-
-<#
-.SYNOPSIS
-    Async TCP port probe with bounded wait. $true when $IpAddress:$Port
-    accepts within $TimeoutMs.
-
-.DESCRIPTION
-    BeginConnect+WaitOne caps the wait predictably; synchronous
-    TcpClient.Connect() blocks ~20s on a filtered/dropped port.
-    Same shape as host\windows.hyper-v\modules\Yuruna.Host.psm1's
-    Test-CachingProxyPort, copied here so the macOS module stays
-    self-contained.
-#>
-function Test-CacheTcpPort {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$IpAddress,
-        [Parameter(Mandatory)][int]$Port,
-        [int]$TimeoutMs = 500
-    )
-    $tcp = [System.Net.Sockets.TcpClient]::new()
-    try {
-        $h = $tcp.BeginConnect($IpAddress, $Port, $null, $null)
-        return ($h.AsyncWaitHandle.WaitOne($TimeoutMs) -and $tcp.Connected)
-    } catch {
-        Write-Verbose "Test-CacheTcpPort ${IpAddress}:${Port} failed: $($_.Exception.Message)"
-        return $false
-    } finally {
-        $tcp.Close()
-    }
-}
-
-<#
-.SYNOPSIS
     Returns the IP of a reachable caching-proxy (probed on :3128), or
     $null when no cache is currently usable. Prefers the direct VM IP
     so SSL-bump (:3129) and the CA endpoint (:80) are also reachable;
@@ -696,256 +537,25 @@ function Resolve-CacheHostIp {
     param()
     $httpPort = Get-CachingProxyPort -Scheme http
     $ip = (Read-CachingProxyState).ipAddress
-    if ($ip -and (Test-IpAddress $ip) -and (Test-CacheTcpPort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
+    if ($ip -and (Test-IpAddress $ip) -and (Test-CachingProxyPort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
         return $ip
     }
-    if (Test-CacheTcpPort -IpAddress '127.0.0.1' -Port $httpPort -TimeoutMs 500) {
+    if (Test-CachingProxyPort -IpAddress '127.0.0.1' -Port $httpPort -TimeoutMs 500) {
         return '127.0.0.1'
     }
     return $null
 }
 
-<#
-.SYNOPSIS
-    Resolves the right squid endpoint for $Uri: HTTP through :3128 or
-    SSL-bumped HTTPS through :3129 with a freshly-fetched yuruna CA,
-    or $null when going direct is the only viable option.
-
-.DESCRIPTION
-    Output is a hashtable consumed by Save-CachedHttpUri:
-
-        @{ Proxy = 'http://<ip>:3128'; CaPemPath = $null }
-            HTTP origin: route through squid; no extra trust needed.
-
-        @{ Proxy = 'http://<ip>:3129'; CaPemPath = '<temp>.pem' }
-            HTTPS origin AND :3129 + :80 reachable AND
-            http://<ip>/yuruna-squid-ca.crt fetched OK. Caller passes
-            the PEM path to Invoke-HttpsViaSquidBump's per-process
-            HttpClient handler -- system trust store stays untouched.
-
-        $null
-            Cache not running, ports unreachable, or CA fetch failed.
-            Caller goes direct (still safer than forcing a dead proxy).
-
-    The CA is regenerated on every cache VM rebuild
-    (`openssl req -x509 ... CN=yuruna-caching-proxy <hostname> <utc>` in
-    user-data runcmd), so we always re-fetch -- no stable thumbprint
-    to pin out-of-band. Trust is bootstrapped over plain HTTP from the
-    cache itself, which is the same trust assumption the rest of the
-    yuruna LAN-side workflow makes.
-.PARAMETER Uri
-    The download URL the caller is about to fetch.
-.OUTPUTS
-    [hashtable] or $null.
-#>
-function Get-CacheProxyForHostDownload {
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$Uri)
-
-    $httpPort  = Get-CachingProxyPort -Scheme http
-    $httpsPort = Get-CachingProxyPort -Scheme https
-
-    $scheme = ([System.Uri]$Uri).Scheme.ToLowerInvariant()
-    if ($scheme -ne 'http' -and $scheme -ne 'https') {
-        Write-Verbose "Get-CacheProxyForHostDownload: scheme '$scheme' not http(s); going direct."
-        return $null
-    }
-
-    $cacheIp = Resolve-CacheHostIp
-    if (-not $cacheIp) {
-        Write-Verbose "Get-CacheProxyForHostDownload: no squid cache reachable on :${httpPort}; going direct."
-        return $null
-    }
-
-    $cacheHost = Format-IpUrlHost $cacheIp
-    if ($scheme -eq 'http') {
-        return @{ Proxy = "http://${cacheHost}:${httpPort}"; CaPemPath = $null }
-    }
-
-    # HTTPS via SSL-bump on the HTTPS port -- needs the apache CA
-    # endpoint on :80 AND the SSL-bump listener. Probe both before committing.
-    if (-not (Test-CacheTcpPort -IpAddress $cacheIp -Port $httpsPort -TimeoutMs 500)) {
-        Write-Verbose "Get-CacheProxyForHostDownload: squid :${httpsPort} not reachable on $cacheIp; HTTPS goes direct."
-        return $null
-    }
-    if (-not (Test-CacheTcpPort -IpAddress $cacheIp -Port 80 -TimeoutMs 500)) {
-        Write-Verbose "Get-CacheProxyForHostDownload: apache :80 not reachable on $cacheIp (cannot fetch CA); HTTPS goes direct."
-        return $null
-    }
-    $caUrl = "http://${cacheHost}/yuruna-squid-ca.crt"
-    $caPem = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-squid-ca.pem'
-    try {
-        Invoke-WebRequest -Uri $caUrl -OutFile $caPem -ErrorAction Stop -UseBasicParsing | Out-Null
-    } catch {
-        Write-Verbose "Get-CacheProxyForHostDownload: CA fetch from $caUrl failed: $($_.Exception.Message); HTTPS goes direct."
-        return $null
-    }
-    return @{ Proxy = "http://${cacheHost}:${httpsPort}"; CaPemPath = $caPem }
-}
-
-<#
-.SYNOPSIS
-    Downloads $Uri to $OutFile, transparently routing through the
-    squid cache (HTTP via :3128 or SSL-bumped HTTPS via :3129) when
-    one is reachable. Throws on failure.
-
-.DESCRIPTION
-    Single entry point used by every host-side Get-Image.ps1 in
-    place of Invoke-WebRequest -OutFile. Three paths:
-
-      1. No cache reachable, or unsupported scheme -> falls through to
-         Invoke-WebRequest direct. Same behavior the scripts had
-         before any squid wiring existed.
-
-      2. HTTP origin + cache reachable -> Invoke-WebRequest with
-         -Proxy http://<cache>:3128. Standard CONNECT-less HTTP
-         proxying; squid caches per the snapshot-cache config.
-
-      3. HTTPS origin + cache reachable + SSL-bump usable -> custom
-         HttpClient with proxy http://<cache>:3129 and a per-call
-         ServerCertificateCustomValidationCallback that trusts ONLY
-         the freshly-fetched yuruna CA on top of the system roots.
-         The OS trust store is never modified; the trust closes when
-         this PowerShell process exits.
-
-    Throwing model: any underlying exception (TLS failure, HTTP non-
-    2xx, write error, etc.) propagates to the caller's try/catch,
-    same as Invoke-WebRequest -ErrorAction Stop.
-.PARAMETER Uri
-    Source URL.
-.PARAMETER OutFile
-    Destination file path; overwritten if it exists.
-#>
+# Thin driver-local wrapper over the shared download stack. The closure binds
+# this driver's Resolve-CacheHostIp (UTM cache discovery) so the shared module
+# stays platform-agnostic while still reaching macOS-specific cache lookup.
 function Save-CachedHttpUri {
     [CmdletBinding()]
-    [OutputType([void])]
     param(
         [Parameter(Mandatory)][string]$Uri,
         [Parameter(Mandatory)][string]$OutFile
     )
-    $cfg = Get-CacheProxyForHostDownload -Uri $Uri
-    if (-not $cfg) {
-        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -ErrorAction Stop
-        return
-    }
-    if (-not $cfg.CaPemPath) {
-        Write-Output "Routing download through squid cache: $($cfg.Proxy)"
-        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -Proxy $cfg.Proxy -ErrorAction Stop
-        return
-    }
-    Write-Output "Routing HTTPS download through squid SSL-bump: $($cfg.Proxy) (per-process trust of Yuruna CA at $($cfg.CaPemPath))"
-    Invoke-HttpsViaSquidBump -Uri $Uri -OutFile $OutFile -ProxyUrl $cfg.Proxy -CaPemPath $cfg.CaPemPath
-}
-
-<#
-.SYNOPSIS
-    Internal: HTTPS GET through a squid SSL-bump listener with a
-    per-process custom CA trust. Invoke via Save-CachedHttpUri.
-
-.DESCRIPTION
-    Why HttpClient and not Invoke-WebRequest:
-
-    PowerShell 7's Invoke-WebRequest exposes -SkipCertificateCheck
-    (accept ANY cert -- too loose) and accepts no custom server-cert
-    callback. Modern .NET HttpClient with HttpClientHandler does
-    expose ServerCertificateCustomValidationCallback, which lets us
-    accept yuruna-CA-signed leaves WITHOUT touching the OS trust
-    store and WITHOUT skipping name validation.
-
-    Validation policy: defer to the OS for everything except a chain
-    error. On a chain error (the expected case for squid SSL-bumped
-    leaves, since yuruna CA isn't a public root), rebuild the chain
-    with the yuruna CA in ExtraStore and AllowUnknownCertificateAuthority,
-    then require the chain to terminate at a root whose thumbprint
-    matches our CA. Name mismatches and missing-cert errors still
-    fail closed.
-
-    Progress: Write-Progress every 2s with bytes/MB and percent when
-    Content-Length is known; honors $ProgressPreference (the test
-    runner sets it to SilentlyContinue, so the runner's HTML log
-    stays clean).
-#>
-function Invoke-HttpsViaSquidBump {
-    [CmdletBinding()]
-    [OutputType([void])]
-    param(
-        [Parameter(Mandatory)][string]$Uri,
-        [Parameter(Mandatory)][string]$OutFile,
-        [Parameter(Mandatory)][string]$ProxyUrl,
-        [Parameter(Mandatory)][string]$CaPemPath
-    )
-    # X509Certificate2::CreateFromPemFile expects cert+key in the same
-    # file; the yuruna-squid-ca.crt published by the cache is cert-only.
-    # The ctor auto-detects PEM/DER/PFX and works for cert-only PEM.
-    $extraCa = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CaPemPath)
-    $expectedThumb = $extraCa.Thumbprint
-
-    $handler = [System.Net.Http.HttpClientHandler]::new()
-    $handler.UseProxy = $true
-    $handler.Proxy = [System.Net.WebProxy]::new([System.Uri]$ProxyUrl, $true)
-    $handler.ServerCertificateCustomValidationCallback = {
-        param($req, $cert, $chain, $errors)
-        # $req (HttpRequestMessage) and $chain (the system-built chain)
-        # are part of the delegate signature but unused by our policy --
-        # we make our own chain below seeded with the yuruna CA. Touching
-        # them as $null = ... silences PSReviewUnusedParameter without
-        # changing the delegate's contract.
-        $null = $req; $null = $chain
-        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable) -ne 0) { return $false }
-        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch) -ne 0) { return $false }
-        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors) -eq 0) { return $true }
-        $extraChain = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
-        [void]$extraChain.ChainPolicy.ExtraStore.Add($extraCa)
-        $extraChain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
-        $extraChain.ChainPolicy.VerificationFlags = [System.Security.Cryptography.X509Certificates.X509VerificationFlags]::AllowUnknownCertificateAuthority
-        if (-not $extraChain.Build($cert)) { return $false }
-        $root = $extraChain.ChainElements[$extraChain.ChainElements.Count - 1].Certificate
-        return ($root.Thumbprint -eq $expectedThumb)
-    }.GetNewClosure()
-
-    $client = [System.Net.Http.HttpClient]::new($handler, $true)
-    # 4 GB at ~50 MB/s LAN cache = ~80s; HTTP/SSL handshake + cold cache
-    # populate from origin can stretch this. Generous timeout vs. the
-    # default 100s which would abort mid-fetch on a cold ISO pull.
-    $client.Timeout = [TimeSpan]::FromHours(2)
-    try {
-        $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, [System.Uri]$Uri)
-        $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
-        try {
-            if (-not $response.IsSuccessStatusCode) {
-                throw "HTTP $([int]$response.StatusCode) $($response.ReasonPhrase) for $Uri"
-            }
-            $total = $response.Content.Headers.ContentLength
-            $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-            try {
-                $out = [System.IO.File]::Create($OutFile)
-                try {
-                    $buf = [byte[]]::new(64 * 1024)
-                    $written = 0L
-                    $next = [DateTime]::UtcNow.AddSeconds(2)
-                    $activity = "Downloading $Uri (via squid SSL-bump)"
-                    while (($n = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
-                        $out.Write($buf, 0, $n)
-                        $written += $n
-                        if ([DateTime]::UtcNow -gt $next) {
-                            if ($total) {
-                                $pct = [math]::Round($written * 100.0 / $total, 1)
-                                Write-Progress -Activity $activity -Status ("{0:N1} / {1:N1} MB ({2}%)" -f ($written/1MB), ($total/1MB), $pct) -PercentComplete $pct
-                            } else {
-                                Write-Progress -Activity $activity -Status ("{0:N1} MB" -f ($written/1MB))
-                            }
-                            $next = [DateTime]::UtcNow.AddSeconds(2)
-                        }
-                    }
-                } finally { $out.Dispose() }
-            } finally { $stream.Dispose() }
-            Write-Progress -Activity $activity -Completed
-        } finally { $response.Dispose() }
-    } finally {
-        $client.Dispose()
-        $handler.Dispose()
-    }
+    Yuruna.HostDownload\Save-CachedHttpUri -Uri $Uri -OutFile $OutFile -ResolveCacheHostIp { Resolve-CacheHostIp }
 }
 
 # === VM lifecycle helpers ====================================================
@@ -1283,7 +893,7 @@ function Restart-UtmConsole {
     return $true
 }
 
-# === Host proxy helpers (migrated from test/modules/Test.HostProxy.psm1) =====
+# === Host proxy helpers =====================================================
 # networksetup is sudo-only for writes. Read paths don't need sudo, so the
 # backup capture can happen before the sudo check and surface a clearer
 # error if sudo is missing. Marker file at $HOME/.yuruna/host-proxy.managed
@@ -1508,7 +1118,7 @@ function Remove-MacHostProxy {
     if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
 }
 
-# === Screenshot helpers (migrated from test/modules/Test.Screenshot.psm1) ====
+# === Screenshot helpers =====================================================
 # UTM-side screenshot capture: VNC framebuffer first (real pixels even when
 # UTM's NSWindow stays black), then CGWindowList screencapture -l <id>,
 # then bounds-based screencapture -R fallback. Per-VM VNC port (5910..5989)
@@ -1942,6 +1552,8 @@ end tell
     Create a guest VM by running the per-guest New-VM.ps1 script.
 #>
 function New-VM {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
+        Justification = 'ShouldProcess is delegated to Invoke-PerGuestNewVm, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
@@ -1953,45 +1565,11 @@ function New-VM {
         # per-guest script declares -Username (introspected below).
         [string]$Username
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) { return @{ success = $false; errorMessage = 'WhatIf' } }
-    $scriptPath = Join-Path $RepoRoot (Join-Path 'host/macos.utm' (Join-Path $GuestKey 'New-VM.ps1'))
-    if (-not (Test-Path $scriptPath)) {
-        return @{ success = $false; errorMessage = "New-VM.ps1 not found at: $scriptPath" }
-    }
-    $childArgs = @('-VMName', $VMName)
-    $scriptAcceptsProxy    = $false
-    $scriptAcceptsUsername = $false
-    try {
-        $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
-        if ($cmdInfo.Parameters) {
-            $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyUrl')
-            $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
-        }
-    } catch {
-        $scriptAcceptsProxy    = $false
-        $scriptAcceptsUsername = $false
-    }
-    if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
-        $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
-    }
-    if ($PSBoundParameters.ContainsKey('Username') -and $Username -and $scriptAcceptsUsername) {
-        $childArgs += @('-Username', $Username)
-    } elseif ($PSBoundParameters.ContainsKey('Username') -and $Username -and -not $scriptAcceptsUsername) {
-        Write-Verbose "Cascaded -Username '$Username' NOT forwarded: $scriptPath does not declare a -Username parameter."
-    }
-    Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
-    $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
-    $exitCode = $LASTEXITCODE
-    foreach ($line in $output) {
-        $text = "$line".TrimEnd()
-        if ($text -ne '' -and $text -notmatch '^\s*\d+%\s+complete') {
-            Write-Output $text
-        }
-    }
-    if ($exitCode -ne 0) {
-        return @{ success = $false; errorMessage = "New-VM.ps1 exited with code $exitCode" }
-    }
-    return @{ success = $true; errorMessage = $null }
+    # Thin wrapper over the shared per-guest runner; the host subdir is the
+    # only platform variable. Splatting $PSBoundParameters preserves the
+    # conditional -CachingProxyUrl/-Username forwarding (the runner checks
+    # ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
+    Invoke-PerGuestNewVm -HostSubdir 'host/macos.utm' @PSBoundParameters
 }
 
 <#
@@ -2451,6 +2029,8 @@ function Restart-VMConsole {
     Run the per-guest Get-Image.ps1 to download or refresh the base image.
 #>
 function Get-Image {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
+        Justification = 'ShouldProcess is delegated to Invoke-GetImage, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
@@ -2458,27 +2038,10 @@ function Get-Image {
         [Parameter(Mandatory)][string]$RepoRoot,
         [switch]$Force
     )
-    if (-not $PSCmdlet.ShouldProcess($GuestKey, 'Download / refresh base image')) { return @{ success = $false; skipped = $false; errorMessage = 'WhatIf' } }
-    $scriptPath = Join-Path $RepoRoot (Join-Path 'host/macos.utm' (Join-Path $GuestKey 'Get-Image.ps1'))
-    if (-not (Test-Path $scriptPath)) {
-        return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 not found at: $scriptPath" }
-    }
-    if (-not $Force) {
-        $imagePath = Get-ImagePath -GuestKey $GuestKey
-        if ($imagePath -and (Test-Path $imagePath)) {
-            Write-GetImageLine "Image exists, skipping download: $imagePath"
-            return @{ success = $true; skipped = $true; errorMessage = $null }
-        }
-    }
-    Write-GetImageLine "Running: $scriptPath"
-    & pwsh -NoProfile -File $scriptPath 2>&1 | ForEach-Object {
-        Write-GetImageLine ([string]$_)
-    }
-    $code = $LASTEXITCODE
-    if ($code -ne 0) {
-        return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 exited with code $code" }
-    }
-    return @{ success = $true; skipped = $false; errorMessage = $null }
+    # Thin wrapper over the shared runner; the host subdir is the only platform
+    # variable and Get-ImagePath (the per-platform image table) is injected as a
+    # CommandInfo resolved in THIS driver's scope so the shared body binds ours.
+    Invoke-GetImage -HostSubdir 'host/macos.utm' -ResolveImagePath (Get-Command Get-ImagePath) @PSBoundParameters
 }
 
 <#
@@ -2504,22 +2067,6 @@ function Get-ImagePath {
 # Helper for Get-Image: console + cycle log without polluting the
 # function-output pipeline (callers do `$r = Get-Image ...` and would
 # otherwise capture the diagnostic stream alongside the hashtable).
-<#
-.SYNOPSIS
-    Write-GetImageLine.
-#>
-function Write-GetImageLine {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'global:__YurunaLogFile is the per-cycle HTML log handle, set/cleared by the runner; intentionally process-wide.')]
-    [CmdletBinding()]
-    param([string]$Line)
-    Microsoft.PowerShell.Utility\Write-Host $Line
-    if ($global:__YurunaLogFile) {
-        [System.Net.WebUtility]::HtmlEncode($Line) |
-            Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
-    }
-}
-
 # === VM I/O =================================================================
 
 <#
@@ -2661,13 +2208,9 @@ function Wait-VMIp {
         [int]$TimeoutSeconds = 30,
         [int]$PollSeconds    = 3
     )
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        $candidate = Get-VMIp -VMName $VMName
-        if ($candidate) { return [string]$candidate }
-        Start-Sleep -Seconds $PollSeconds
-    }
-    return $null
+    # Get-Command runs in THIS driver's scope, so the shared poller resolves
+    # our Get-VMIp; a bare name would resolve in the shared module's scope.
+    Invoke-WaitVmIp @PSBoundParameters -ResolveVmIp (Get-Command Get-VMIp)
 }
 
 <#
@@ -2747,6 +2290,50 @@ function Get-ExternalNetwork {
     # 'external network' to pick by name. Return the conventional value
     # so callers can compare without branching on host.
     return 'vmnet-shared'
+}
+
+<#
+.SYNOPSIS
+    True when the host's default-route interface is the Wi-Fi hardware port.
+.DESCRIPTION
+    QEMU bridged networking is unreliable over Wi-Fi: the access point
+    commonly drops frames from the VM's locally-administered MAC, so a
+    bridged guest never gets a LAN DHCP lease. Callers use this to fall
+    back to UTM Shared NAT (192.168.64.x) + host port-forwarders on Wi-Fi-
+    only hosts. Returns $false when the default route is Ethernet/USB-
+    Ethernet, or when there is no default route at all (the caller surfaces
+    the missing-route error on its own bridged path).
+.OUTPUTS
+    [bool]
+#>
+function Test-MacDefaultRouteIsWiFi {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    $iface = $null
+    foreach ($line in (& '/sbin/route' -n get default 2>$null)) {
+        if ($line -match 'interface:\s*(\S+)') { $iface = $matches[1]; break }
+    }
+    if (-not $iface) { return $false }
+    # networksetup -listallhardwareports prints stanzas of the form:
+    #   Hardware Port: Wi-Fi
+    #   Device: en0
+    #   Ethernet Address: ...
+    # Collect the Device of every Wi-Fi port, then test the default-route
+    # interface for membership.
+    $wifiDevices = [System.Collections.Generic.List[string]]::new()
+    $portIsWifi  = $false
+    foreach ($line in (& '/usr/sbin/networksetup' -listallhardwareports 2>$null)) {
+        if ($line -match '^Hardware Port:\s*(.+?)\s*$') {
+            $portIsWifi = ($matches[1] -match 'Wi-?Fi')
+            continue
+        }
+        if ($portIsWifi -and $line -match '^Device:\s*(\S+)') {
+            $wifiDevices.Add($matches[1])
+            $portIsWifi = $false
+        }
+    }
+    return ($wifiDevices -contains $iface)
 }
 
 <#
@@ -2961,60 +2548,11 @@ function Test-CachingProxyAvailable {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $httpPort = Get-CachingProxyPort -Scheme http
-    # External cache override (same shape as the Windows host).
-    if ($Env:YURUNA_CACHING_PROXY_IP) {
-        $externIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
-        if (-not (Test-IpAddress $externIp)) {
-            Write-Warning "YURUNA_CACHING_PROXY_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
-            return $null
-        }
-        $tcp = New-Object System.Net.Sockets.TcpClient
-        try {
-            $async = $tcp.BeginConnect($externIp, $httpPort, $null, $null)
-            if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
-                return "http://$(Format-IpUrlHost $externIp):${httpPort}"
-            }
-        } catch {
-            Write-Verbose "external caching proxy probe to ${externIp}:${httpPort} failed: $($_.Exception.Message)"
-        } finally {
-            $tcp.Close()
-        }
-        Write-Warning "YURUNA_CACHING_PROXY_IP=${externIp} set but ${externIp}:${httpPort} did not answer."
-        return $null
-    }
-
-    # Local cache: probe only the IP we recorded ourselves at the last
-    # Start-CachingProxy.ps1. Empty state -> no cache (the explicit
-    # contract after Stop-CachingProxy.ps1). State-set-but-unreachable
-    # is loud (Write-Warning) because the inner runner's bootstrap
-    # detection runs ONCE per cycle -- a silently-failed probe means
-    # the whole cycle's guests download direct from the internet, and
-    # we want the operator to see "why" alongside the headline
-    # "Caching proxy: not detected" line in Invoke-TestRunner output.
-    $stateIp = (Read-CachingProxyState).ipAddress
-    if (-not $stateIp -or -not (Test-IpAddress $stateIp)) {
-        Write-Warning "Test-CachingProxyAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_IP to point at a remote cache, or run Start-CachingProxy.ps1."
-        return $null
-    }
-    # 1500 ms matches test/Test-CachingProxy.ps1's CLI probe so a
-    # cache that answers the standalone smoke test also answers here;
-    # the earlier 500 ms left a window where a momentarily busy squid
-    # (cold start, big cidata fetch) would miss the runner's single
-    # bootstrap probe and silently strand the whole inner cycle.
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    try {
-        $async = $tcp.BeginConnect($stateIp, $httpPort, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne(1500) -and $tcp.Connected) {
-            return "http://$(Format-IpUrlHost $stateIp):${httpPort}"
-        }
-    } catch {
-        Write-Verbose "cache probe ${stateIp}:${httpPort} failed: $($_.Exception.Message)"
-    } finally {
-        $tcp.Close()
-    }
-    Write-Warning "Test-CachingProxyAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with 'nc -G 2 -z ${stateIp} ${httpPort}'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxy.ps1 (the VM may have restarted with a new DHCP lease)."
-    return $null
+    # Thin wrapper over the shared probe; the only platform variable is the
+    # operator verify-command template embedded in the unreachable-cache
+    # warning (nc on macOS). The kvm driver keeps its own probe (it omits
+    # Format-IpUrlHost's IPv6 bracketing the guests rely on).
+    Invoke-CachingProxyAvailableProbe -VerifyHint 'nc -G 2 -z {0} {1}'
 }
 
 <#
@@ -3188,13 +2726,13 @@ Export-ModuleMember -Function `
     Wait-VMIp, Get-VMIp, Get-VMMac, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
-    Test-CachingProxyAvailable, Get-CachingProxyVMIp, Get-HostLanPrefix, `
+    Test-CachingProxyAvailable, Get-CachingProxyVMIp, Get-HostLanPrefix, Test-MacDefaultRouteIsWiFi, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
     `
     Remove-UtmBundleWithRetry, Invoke-EntitledSwift, `
     Start-CachingProxyForwarder, Stop-CachingProxyForwarder, Get-CachingProxyForwarder, Stop-AllCachingProxyForwarder, `
-    Test-DownloadAlreadyCurrent, Test-CacheTcpPort, Resolve-CacheHostIp, Get-CacheProxyForHostDownload, `
-    Save-CachedHttpUri, Invoke-HttpsViaSquidBump, `
+    Test-DownloadAlreadyCurrent, Test-CachingProxyPort, Resolve-CacheHostIp, `
+    Save-CachedHttpUri, `
     Stop-UtmDialogWatchdog, Start-UtmDialogWatchdog, `
     Confirm-UtmVMCreated, Remove-UtmTestVM, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Restart-UtmConsole, `
     Get-RunningVmName, Assert-NoConcurrentUtmVm, `

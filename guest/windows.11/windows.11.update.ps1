@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,10 +25,10 @@
 # ===== Ensure running as Administrator =====
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
-    Write-Output "╔════════════════════════════════════════════════════════════╗"
-    Write-Output "║  This script requires elevation (Run as Administrator)    ║"
-    Write-Output "║  Right-click PowerShell and select 'Run as Administrator' ║"
-    Write-Output "╚════════════════════════════════════════════════════════════╝"
+    Write-Output "=============================================================="
+    Write-Output "|  This script requires elevation (Run as Administrator)    |"
+    Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
+    Write-Output "=============================================================="
     Write-Output ""
     exit 1
 }

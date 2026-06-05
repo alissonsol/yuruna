@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/extension-config.schema.json
 
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Active provider for the caching-proxy-parser extension. Single-provider
 # area; the Go source under default.go gets fetched + built into the

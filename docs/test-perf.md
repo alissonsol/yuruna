@@ -369,7 +369,7 @@ crashes a cycle.**
 
 ---
 
-Back to [Yuruna](https://yuruna.com).
+Back to [Yuruna](../README.md)
 
 ---
 

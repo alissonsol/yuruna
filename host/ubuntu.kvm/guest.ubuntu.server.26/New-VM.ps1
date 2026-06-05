@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -197,6 +197,10 @@ $AptProxyBlock = @"
     primary:
       - arches: [default]
         uri: $primaryUri$($AptProxyLine)
+    conf: |
+      Acquire::Retries "5";
+      Acquire::http::Timeout "120";
+      Acquire::https::Timeout "120";
 "@
 
 # -- Fetch caching-proxy CA cert (base64-embedded in seed) -------------------
@@ -225,34 +229,45 @@ if ($CachingProxyUrl) {
 }
 
 # -- Render user-data / meta-data ------------------------------------------
-$userDataTemplate = Join-Path $ScriptDir 'vmconfig/user-data'
+# user-data is the shared base + KVM overlay under host/vmconfig/. The
+# meta-data file stays per-guest for now. Three Split-Path -Parent walks:
+# guest.ubuntu.server.26/ -> ubuntu.kvm/ -> host/ -> <RepoRoot>. Anchor
+# contract: automation/Yuruna.CloudInitTemplate.psm1.
 $metaDataTemplate = Join-Path $ScriptDir 'vmconfig/meta-data'
-foreach ($f in @($userDataTemplate, $metaDataTemplate)) {
+$repoRoot         = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+$hostVmConfigDir  = Join-Path $repoRoot 'host/vmconfig'
+$baseUserData     = Join-Path $hostVmConfigDir 'ubuntu.server.base.user-data'
+$overlayUserData  = Join-Path $hostVmConfigDir 'ubuntu.server.kvm.overlay.yml'
+foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
         Write-Error "Template missing: $f"
         exit 1
     }
 }
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
-$yurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
-$yurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'yuruna_retry.sh')))
-$yurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'fetch-and-execute.sh')))
-
-$userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
-    Replace('HOSTNAME_PLACEHOLDER', $VMName).
-    Replace('USERNAME_PLACEHOLDER', $Username).
-    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $sshPub).
-    Replace('HASH_PLACEHOLDER', $pwHash).
-    Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).
-    Replace('CACHING_PROXY_URL_PLACEHOLDER', ($CachingProxyUrl ?? '')).
-    Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).
-    Replace('YURUNA_HOST_IP_PLACEHOLDER', $hostIp).
-    Replace('YURUNA_HOST_PORT_PLACEHOLDER', $hostPort).
-    Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $yurunaRetryLibB64).
-    Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $yurunaFaeB64)
+# Build-CloudInitUserData reads + base64-encodes the two scripts from
+# $repoRoot/automation/, populates YURUNA_RETRY_LIB_BASE64_PLACEHOLDER /
+# YURUNA_FAE_BASE64_PLACEHOLDER, then renders the merged template with
+# the per-cycle replacements below.
+$userData = Build-CloudInitUserData `
+    -BasePath    $baseUserData `
+    -OverlayPath $overlayUserData `
+    -RepoRoot    $repoRoot `
+    -Replacement @{
+        HOSTNAME_PLACEHOLDER           = $VMName
+        USERNAME_PLACEHOLDER           = $Username
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $sshPub
+        HASH_PLACEHOLDER               = $pwHash
+        APT_PROXY_BLOCK_PLACEHOLDER    = $AptProxyBlock
+        CACHING_PROXY_URL_PLACEHOLDER  = ($CachingProxyUrl ?? '')
+        CA_CERT_BASE64_PLACEHOLDER     = $CaCertBase64
+        YURUNA_HOST_IP_PLACEHOLDER     = $hostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $hostPort
+    } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName)
 

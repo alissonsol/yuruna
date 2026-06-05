@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456723
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,6 @@
 #   * Test.ConfigPreflight   — pre-cycle gate that spawns Test-Config.ps1
 #                              and refuses the cycle on FAIL items
 #                              (this file; the policy layer).
-# Rename rationale: the previous name "Test.ConfigGate" hid the role.
 # "Preflight" names the *when* (before each cycle) instead of the
 # *mechanism* (a gate). The split by role keeps the validation
 # primitives reusable while the cycle-spawning policy lives here.
@@ -35,10 +34,10 @@
 # delivering an email on every outer relaunch / dev iteration would
 # flood the subscribers["config.smoke"] list.
 #
-# The two call sites (Invoke-TestRunner outer-startup, Test-Sequence dev
-# helper, and soon Test-Project too) were copy-paste-equivalent before
-# this module; future fixes (e.g. a new gate parameter) now reach all
-# callers from one place.
+# Centralizing the gate here keeps Invoke-TestRunner outer-startup,
+# Test-Sequence, and Test-Project agreeing on the same gate semantics --
+# a new gate parameter reaches every caller from one place instead of
+# drifting between near-identical copy-pastes.
 
 function Invoke-ConfigGate {
     <#

@@ -34,7 +34,7 @@ Install each of the tools linked below. After installing PowerShell, run `Test-R
   - Create an [AWS Account](https://aws.amazon.com/free)
   - Install the [AWS CLI](https://aws.amazon.com/cli/)
 - Azure
-  - Create an [Azure Account](https://azure.microsoft.com/free)
+  - Create an [Azure Account](https://azure.microsoft.com/en-us/free/)
   - Install the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Google Cloud SDK
   - Create a [Google Cloud Account](https://console.cloud.google.com/freetrial)

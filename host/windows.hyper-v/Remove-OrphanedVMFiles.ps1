@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 param(
         [switch]$Force,
-    # Quiet mode: suppress every Write-Status (host paths, per-VM file
+    # Quiet mode: suppress every Write-CleanupMessage (host paths, per-VM file
     # listings, base-image keep-list, "Deleted: <file>" trail) so the
     # automated cycle-start sweep (Remove-TestVMFiles.ps1 -Quiet) emits
     # nothing from this script. Write-Warning / Write-Error remain
@@ -27,53 +27,46 @@ param(
     [switch]$Quiet
 )
 
-$script:QuietOutput = $Quiet.IsPresent
-
-function Write-Status {
-    [CmdletBinding()]
-    param([Parameter(ValueFromPipeline)][string]$Message)
-    process {
-        if ($script:QuietOutput) { Write-Verbose $Message } else { Write-Output $Message }
-    }
-}
+# Write-CleanupMessage + base-image discovery live in
+# host/modules/Yuruna.VMCleanup.psm1 so a future tweak to the routing
+# contract (or a new piece of cleanup state) lands in one place rather
+# than three.
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Import-Module -Name (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.VMCleanup.psm1') -Force
+Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 
 # === Warning ===
-Write-Status ""
-Write-Status "================================================================"
-Write-Status "  WARNING: DESTRUCTIVE OPERATION"
-Write-Status "================================================================"
-Write-Status ""
-Write-Status "  This script deletes files from your Hyper-V storage paths"
-Write-Status "  that are NOT associated with any currently listed VM."
-Write-Status ""
-Write-Status "  This includes orphaned VHDX disks, ISOs, config files,"
-Write-Status "  and any other files left behind by removed VMs."
-Write-Status ""
-Write-Status "  THIS CANNOT BE UNDONE."
-Write-Status ""
-Write-Status "================================================================"
-Write-Status ""
+Write-CleanupMessage ""
+Write-CleanupMessage "================================================================"
+Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
+Write-CleanupMessage "================================================================"
+Write-CleanupMessage ""
+Write-CleanupMessage "  This script deletes files from your Hyper-V storage paths"
+Write-CleanupMessage "  that are NOT associated with any currently listed VM."
+Write-CleanupMessage ""
+Write-CleanupMessage "  This includes orphaned VHDX disks, ISOs, config files,"
+Write-CleanupMessage "  and any other files left behind by removed VMs."
+Write-CleanupMessage ""
+Write-CleanupMessage "  THIS CANNOT BE UNDONE."
+Write-CleanupMessage ""
+Write-CleanupMessage "================================================================"
+Write-CleanupMessage ""
 
-# === Discover base image names from guest.* subfolders ===
 # Base image filenames follow the legacy convention "host.<short>.guest.<name>"
-# (e.g. host.windows.hyper-v.guest.amazon.linux.2023.vhdx). The script now lives at
-# host/<short>/, so Split-Path -Leaf returns just <short>; prepend "host." to
-# reconstruct the prefix that every guest's Get-Image.ps1 / New-VM.ps1 writes.
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$hostFolder = "host.$(Split-Path -Leaf $ScriptDir)"
-$guestFolders = Get-ChildItem -Path $ScriptDir -Directory -Filter "guest.*"
-$baseImageNames = @()
-foreach ($guest in $guestFolders) {
-    $baseImageNames += "$hostFolder.$($guest.Name)"
-}
+# (e.g. host.windows.hyper-v.guest.amazon.linux.2023.vhdx). Resolve-BaseImageName
+# walks guest.* subfolders and reconstructs the prefix every Get-Image.ps1 /
+# New-VM.ps1 writes.
+$nameInfo       = Resolve-BaseImageName -HostScriptDir $ScriptDir
+$hostFolder     = $nameInfo.HostFolder
+$baseImageNames = $nameInfo.BaseImageNames
 
 # Shared Hyper-V / vmms precondition helper.
 Import-Module -Name (Join-Path $ScriptDir 'modules/Yuruna.Host.psm1') -Force
 
 # === Check prerequisites ===
-Write-Status "This script requires elevation (Run as Administrator)."
+Write-CleanupMessage "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Status "Please run this script as Administrator."
+    Write-CleanupMessage "Please run this script as Administrator."
     exit 1
 }
 
@@ -86,9 +79,9 @@ $vmHost = Get-VMHost
 $vhdPath = $vmHost.VirtualHardDiskPath
 $vmPath = $vmHost.VirtualMachinePath
 
-Write-Status "Hyper-V VirtualHardDiskPath: $vhdPath"
-Write-Status "Hyper-V VirtualMachinePath:  $vmPath"
-Write-Status ""
+Write-CleanupMessage "Hyper-V VirtualHardDiskPath: $vhdPath"
+Write-CleanupMessage "Hyper-V VirtualMachinePath:  $vmPath"
+Write-CleanupMessage ""
 
 # --- See https://yuruna.link/memory#why-orphaned-vm-cleanup-skips-hyper-vs-virtualmachinepath-root
 $vmPathNormalized = $vmPath.TrimEnd('\', '/')
@@ -116,7 +109,7 @@ function Test-IsHyperVSystemPath {
 $scanPaths = @($vhdPath, $vmPath) | Sort-Object -Unique
 foreach ($p in $scanPaths) {
     if (!(Test-Path -Path $p)) {
-        Write-Status "Path does not exist: $p"
+        Write-CleanupMessage "Path does not exist: $p"
         exit 1
     }
 }
@@ -131,7 +124,7 @@ foreach ($scanPath in $scanPaths) {
 }
 
 if ($allFiles.Count -eq 0) {
-    Write-Status "No files found under the Hyper-V storage paths."
+    Write-CleanupMessage "No files found under the Hyper-V storage paths."
     exit 0
 }
 
@@ -152,10 +145,10 @@ function Add-ClaimedFilesUnderDir {
 
 # === List registered VMs and their associated files ===
 if ($allVMs.Count -eq 0) {
-    Write-Status "No VMs found in Hyper-V Manager."
+    Write-CleanupMessage "No VMs found in Hyper-V Manager."
 } else {
-    Write-Status "Currently listed VMs and their associated files:"
-    Write-Status ""
+    Write-CleanupMessage "Currently listed VMs and their associated files:"
+    Write-CleanupMessage ""
 }
 
 foreach ($vm in $allVMs) {
@@ -211,21 +204,21 @@ foreach ($vm in $allVMs) {
         }
     }
 
-    Write-Status "  $($vm.Name) [$($vm.State)]"
+    Write-CleanupMessage "  $($vm.Name) [$($vm.State)]"
     if ($vmFiles.Count -eq 0) {
-        Write-Status "    (no files found under scan paths)"
+        Write-CleanupMessage "    (no files found under scan paths)"
     } else {
         foreach ($f in ($vmFiles | Sort-Object)) {
             $fileInfo = Get-Item -Path $f -ErrorAction SilentlyContinue
             if ($fileInfo) {
                 $sizeStr = "{0:N2} MB" -f ($fileInfo.Length / 1MB)
-                Write-Status "    $f  ($sizeStr)"
+                Write-CleanupMessage "    $f  ($sizeStr)"
             } else {
-                Write-Status "    $f  (not on disk)"
+                Write-CleanupMessage "    $f  (not on disk)"
             }
         }
     }
-    Write-Status ""
+    Write-CleanupMessage ""
 }
 
 # === Identify orphaned files (excluding base images) ===
@@ -254,53 +247,74 @@ foreach ($f in $allFiles) {
 
 # === List protected base images ===
 if ($protectedFiles.Count -gt 0) {
-    Write-Status "The following base images are KEPT (not associated with any VM, but needed as base images):"
-    Write-Status ""
+    Write-CleanupMessage "The following base images are KEPT (not associated with any VM, but needed as base images):"
+    Write-CleanupMessage ""
     foreach ($filePath in ($protectedFiles | Sort-Object)) {
         $fileInfo = Get-Item -Path $filePath -ErrorAction SilentlyContinue
         if ($fileInfo) {
             $sizeStr = "{0:N2} MB" -f ($fileInfo.Length / 1MB)
-            Write-Status "  $filePath  ($sizeStr)"
+            Write-CleanupMessage "  $filePath  ($sizeStr)"
         } else {
-            Write-Status "  $filePath"
+            Write-CleanupMessage "  $filePath"
         }
         $fileName = [System.IO.Path]::GetFileNameWithoutExtension($filePath)
         $guestName = ($fileName -replace "^$([regex]::Escape($hostFolder))\.", '')
-        Write-Status "    Reason: base image for $guestName. Update by rerunning Get-Image.ps1 in $guestName/"
+        Write-CleanupMessage "    Reason: base image for $guestName. Update by rerunning Get-Image.ps1 in $guestName/"
     }
-    Write-Status ""
+    Write-CleanupMessage ""
+}
+
+# === Strip stale per-VM ACEs from kept base images ===
+# A SHARED base image (e.g. a base install ISO reused for every VM creation)
+# gathers one per-VM access ACE per VM created against it; Hyper-V never
+# revokes them on Remove-VM, so the DACL grows until it hits the ~64 KB ACL
+# limit and the next Add-VMDvdDrive fails with 0x8007053C. Prune the ACEs of
+# VMs that no longer exist here. No-op on base VHDX images (those are copied
+# per-VM and never attached directly, so they accumulate nothing). Runs every
+# invocation, before the deletion prompt, because it is safe maintenance --
+# it only removes access for VMs that no longer exist. See
+# docs/hyperv-iso-ace-bloat.md.
+foreach ($filePath in $protectedFiles) {
+    try {
+        $prunedAce = Remove-OrphanedVMFileAccess -Path $filePath
+        if ($prunedAce -gt 0) {
+            Write-CleanupMessage "  Pruned $prunedAce stale per-VM ACE(s) from base image: $filePath"
+        }
+    } catch {
+        Write-Warning "  Could not prune stale ACEs from $filePath - $_"
+    }
 }
 
 # === Delete orphaned files ===
 if ($orphanedFiles.Count -eq 0) {
-    Write-Status "No orphaned files found. Nothing to clean up."
+    Write-CleanupMessage "No orphaned files found. Nothing to clean up."
     exit 0
 }
 
-Write-Status "The following files are NOT associated with any current VM:"
-Write-Status ""
+Write-CleanupMessage "The following files are NOT associated with any current VM:"
+Write-CleanupMessage ""
 $totalSize = 0
 foreach ($filePath in ($orphanedFiles | Sort-Object)) {
     $fileInfo = Get-Item -Path $filePath -ErrorAction SilentlyContinue
     if ($fileInfo) {
         $totalSize += $fileInfo.Length
         $sizeStr = "{0:N2} MB" -f ($fileInfo.Length / 1MB)
-        Write-Status "  $filePath  ($sizeStr)"
+        Write-CleanupMessage "  $filePath  ($sizeStr)"
     }
 }
-Write-Status ""
-Write-Status ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
-Write-Status ""
-Write-Status "Empty subfolders will also be removed after file deletion."
-Write-Status ""
+Write-CleanupMessage ""
+Write-CleanupMessage ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
+Write-CleanupMessage ""
+Write-CleanupMessage "Empty subfolders will also be removed after file deletion."
+Write-CleanupMessage ""
 
 # Ask for confirmation (skip if -Force)
 if ($Force) {
-    Write-Status "Force mode enabled — skipping confirmation."
+    Write-CleanupMessage "Force mode enabled — skipping confirmation."
 } else {
     $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
     if ($confirmation -ne "YES") {
-        Write-Status "Operation cancelled. No files were deleted."
+        Write-CleanupMessage "Operation cancelled. No files were deleted."
         exit 0
     }
 }
@@ -309,7 +323,7 @@ $errors = 0
 foreach ($filePath in $orphanedFiles) {
     try {
         Remove-Item -Path $filePath -Force
-        Write-Status "  Deleted: $filePath"
+        Write-CleanupMessage "  Deleted: $filePath"
     } catch {
         Write-Warning "  Failed to delete: $filePath - $_"
         $errors++
@@ -331,7 +345,7 @@ foreach ($scanPath in $scanPaths) {
         if ($null -eq $remaining -or $remaining.Count -eq 0) {
             try {
                 Remove-Item -Path $dir.FullName -Force
-                Write-Status "  Removed empty folder: $($dir.FullName)"
+                Write-CleanupMessage "  Removed empty folder: $($dir.FullName)"
             } catch {
                 Write-Warning "  Failed to remove folder: $($dir.FullName) - $_"
                 $errors++
@@ -341,9 +355,9 @@ foreach ($scanPath in $scanPaths) {
 }
 
 # === Cleanup result ===
-Write-Status ""
+Write-CleanupMessage ""
 if ($errors -eq 0) {
-    Write-Status "Cleanup complete. All orphaned items deleted."
+    Write-CleanupMessage "Cleanup complete. All orphaned items deleted."
 } else {
-    Write-Status "Cleanup complete with $errors error(s). Some items could not be deleted."
+    Write-CleanupMessage "Cleanup complete with $errors error(s). Some items could not be deleted."
 }

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42e5f6a7-b8c9-4d01-e2f3-4a5b6c7d8e9f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ param(
 )
 
 Write-Output ""
-Write-Output "=== Windows.Media.Ocr access test ==="
+Write-Output "== Windows.Media.Ocr access test =="
 Write-Output ""
 
 # --- Attempt 1: Direct WinRT from pwsh (PowerShell 7+) ---
@@ -148,7 +148,7 @@ try {
 }
 
 Write-Output ""
-Write-Output "=== Summary ==="
+Write-Output "== Summary =="
 Write-Output ""
 Write-Output "Windows.Media.Ocr is installed on every Windows machine, but:"
 Write-Output "  - PowerShell 7+ (.NET 6+) CANNOT access it (WinRT bridge removed)"
@@ -161,7 +161,7 @@ Write-Output ""
 
 # --- Attempt 4: OCR an actual image if provided ---
 if ($ImagePath) {
-    Write-Output "=== OCR: $ImagePath ==="
+    Write-Output "== OCR: $ImagePath =="
     Write-Output ""
 
     if (-not (Test-Path $ImagePath)) {

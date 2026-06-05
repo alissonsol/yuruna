@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -12,7 +12,6 @@ export NONINTERACTIVE=1
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -30,15 +29,14 @@ case "$ARCH" in
 esac
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-. /usr/local/lib/yuruna/yuruna_retry.sh
+. /usr/local/lib/yuruna/yuruna-retry.sh
 
 echo ""
-echo -e "\e[1;36m>>> Installing Git...\e[0m"
+echo -e "\e[1;36m==== Git ====\e[0m"
 apt_retry sudo apt-get install git -y
-echo -e "\e[1;32m<<< Git installation complete.\e[0m"
 
 echo ""
-echo -e "\e[1;36m>>> Installing NVM and Node.js...\e[0m"
+echo -e "\e[1;36m==== NVM and Node.js ====\e[0m"
 # Install NVM, Node.js, and OpenClaw
 bash << 'EOF'
 # Install NVM (installer is idempotent — updates existing installation)
@@ -51,13 +49,12 @@ wget -qO- "https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh${Yuru
 nvm install 22
 
 echo ""
-echo -e "\e[1;36m>>> Installing OpenClaw...\e[0m"
+echo -e "\e[1;36m==== OpenClaw ====\e[0m"
 npm install -g openclaw@latest
 
 openclaw onboard --install-daemon --non-interactive --accept-risk --workspace ~/openclaw
 
 openclaw doctor --non-interactive
-echo -e "\e[1;32m<<< OpenClaw installation complete.\e[0m"
 EOF
 
 # Make node, npm, and openclaw available to all users by symlinking to /usr/local/bin
@@ -67,9 +64,9 @@ if [ -n "$NVM_BIN" ]; then
     sudo ln -sf "$NVM_BIN/npm" /usr/local/bin/npm
     sudo ln -sf "$NVM_BIN/openclaw" /usr/local/bin/openclaw
 fi
-echo -e "\e[1;32m<<< NVM and Node.js installation complete.\e[0m"
 
 echo ""
+echo "== Installation Summary =="
 echo "Git: $(git --version)"
 bash -c '
     export NVM_DIR="$HOME/.nvm"

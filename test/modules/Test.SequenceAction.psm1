@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456726
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,7 @@ function Register-SequenceAction {
             # Context fields: Step, StepNum, StepCount, Vars, VMName,
             # GuestKey, HostType, LogDir, RuntimeDir, ShowSensitive,
             # SequencePath, ExpandVariable. Returns [bool] (success).
-        When when registered, the
+        When registered, the
         engine dispatches via Invoke-SequenceActionHandler instead of
         the legacy switch arm. Migrated verbs use the Handler; the
         legacy switch remains as the safety net for verbs not yet
@@ -95,6 +95,20 @@ function Register-SequenceAction {
         [string]$Severity = 'unknown',
         [string[]]$SuggestedRecoveries = @()
     )
+    # SuggestedRecoveries must draw from the same recovery vocabulary the
+    # remediation dispatcher routes on (Test.Remediation). Late-bound via
+    # Get-Command + soft (warn, not throw) so registration never hard-depends on
+    # Test.Remediation being loaded; in the full runtime it is, so a drifted
+    # token surfaces loudly at module load instead of silently routing to
+    # nothing once the remediation loop is wired.
+    if ($SuggestedRecoveries.Count -gt 0 -and (Get-Command Get-RecoveryRecommendationName -ErrorAction SilentlyContinue)) {
+        $recoveryVocab = Get-RecoveryRecommendationName
+        foreach ($recoveryToken in $SuggestedRecoveries) {
+            if ($recoveryVocab -notcontains $recoveryToken) {
+                Write-Warning "Register-SequenceAction '$Name': SuggestedRecoveries token '$recoveryToken' is not in the recovery vocabulary; the remediation dispatcher cannot route on it."
+            }
+        }
+    }
     $entry = [ordered]@{
         Name                = $Name
         FailureLabel        = $FailureLabel

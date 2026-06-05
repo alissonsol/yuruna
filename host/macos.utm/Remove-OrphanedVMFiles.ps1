@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 param(
         [switch]$Force,
-    # Quiet mode: suppress every Write-Status (host paths, per-VM file
+    # Quiet mode: suppress every Write-CleanupMessage (host paths, per-VM file
     # listings, base-image keep-list, "Deleted: <file>" trail) so the
     # automated cycle-start sweep (Remove-TestVMFiles.ps1 -Quiet) emits
     # nothing from this script. Write-Warning / Write-Error remain
@@ -27,42 +27,35 @@ param(
     [switch]$Quiet
 )
 
-$script:QuietOutput = $Quiet.IsPresent
-
-function Write-Status {
-    [CmdletBinding()]
-    param([Parameter(ValueFromPipeline)][string]$Message)
-    process {
-        if ($script:QuietOutput) { Write-Verbose $Message } else { Write-Output $Message }
-    }
-}
+# Write-CleanupMessage + base-image discovery live in
+# host/modules/Yuruna.VMCleanup.psm1 so a future tweak to the routing
+# contract (or a new piece of cleanup state) lands in one place rather
+# than three.
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Import-Module -Name (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.VMCleanup.psm1') -Force
+Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 
 # === Warning ===
-Write-Status ""
-Write-Status "================================================================"
-Write-Status "  WARNING: DESTRUCTIVE OPERATION"
-Write-Status "================================================================"
-Write-Status ""
-Write-Status "  This script deletes UTM VM bundles (.utm) from ~/Desktop"
-Write-Status "  that are NOT registered in UTM."
-Write-Status ""
-Write-Status "  THIS CANNOT BE UNDONE."
-Write-Status ""
-Write-Status "================================================================"
-Write-Status ""
+Write-CleanupMessage ""
+Write-CleanupMessage "================================================================"
+Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
+Write-CleanupMessage "================================================================"
+Write-CleanupMessage ""
+Write-CleanupMessage "  This script deletes UTM VM bundles (.utm) from ~/Desktop"
+Write-CleanupMessage "  that are NOT registered in UTM."
+Write-CleanupMessage ""
+Write-CleanupMessage "  THIS CANNOT BE UNDONE."
+Write-CleanupMessage ""
+Write-CleanupMessage "================================================================"
+Write-CleanupMessage ""
 
-# === Discover base image names from guest.* subfolders ===
 # Base image filenames follow the legacy convention "host.<short>.guest.<name>"
-# (e.g. host.macos.utm.guest.amazon.linux.2023.qcow2). The script now lives at
-# host/<short>/, so Split-Path -Leaf returns just <short>; prepend "host." to
-# reconstruct the prefix that every guest's Get-Image.ps1 / New-VM.ps1 writes.
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$hostFolder = "host.$(Split-Path -Leaf $ScriptDir)"
-$guestFolders = Get-ChildItem -Path $ScriptDir -Directory -Filter "guest.*"
-$baseImageNames = @()
-foreach ($guest in $guestFolders) {
-    $baseImageNames += "$hostFolder.$($guest.Name)"
-}
+# (e.g. host.macos.utm.guest.amazon.linux.2023.qcow2). Resolve-BaseImageName
+# walks guest.* subfolders and reconstructs the prefix every Get-Image.ps1 /
+# New-VM.ps1 writes.
+$nameInfo       = Resolve-BaseImageName -HostScriptDir $ScriptDir
+$hostFolder     = $nameInfo.HostFolder
+$baseImageNames = $nameInfo.BaseImageNames
 
 if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
     Write-Error "utmctl not found. Ensure UTM is installed and utmctl is in your PATH."
@@ -73,7 +66,7 @@ if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
 # === Scan for VM bundles ===
 $scanPath = "$HOME/yuruna/guest.nosync"
 if (-not (Test-Path $scanPath)) {
-    Write-Status "No yuruna/guest.nosync folder found at '$scanPath'. Nothing to scan."
+    Write-CleanupMessage "No yuruna/guest.nosync folder found at '$scanPath'. Nothing to scan."
     exit 0
 }
 
@@ -142,8 +135,8 @@ function Get-UTMBundleUUID {
     return $null
 }
 
-Write-Status "UTM registered VMs: $($registeredVMs.Count)"
-Write-Status ""
+Write-CleanupMessage "UTM registered VMs: $($registeredVMs.Count)"
+Write-CleanupMessage ""
 
 $utmBundles = Get-ChildItem -Path $scanPath -Directory -Filter "*.utm" -ErrorAction SilentlyContinue
 $bundleMap = @{}
@@ -154,25 +147,25 @@ foreach ($bundle in $utmBundles) {
 
 # === List registered VMs and their associated files ===
 if ($registeredVMs.Count -gt 0) {
-    Write-Status "Currently registered VMs and their associated Desktop files:"
-    Write-Status ""
+    Write-CleanupMessage "Currently registered VMs and their associated Desktop files:"
+    Write-CleanupMessage ""
 }
 
 foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
     $vmStatus = $registeredVMs[$vmName]
-    Write-Status "  $vmName [$vmStatus]"
+    Write-CleanupMessage "  $vmName [$vmStatus]"
 
     if ($bundleMap.ContainsKey($vmName)) {
         $bundlePath = $bundleMap[$vmName]
         $bundleFiles = Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue
         foreach ($f in ($bundleFiles | Sort-Object FullName)) {
             $sizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
-            Write-Status "    $($f.FullName)  ($sizeStr)"
+            Write-CleanupMessage "    $($f.FullName)  ($sizeStr)"
         }
     } else {
-        Write-Status "    (no bundle found on Desktop)"
+        Write-CleanupMessage "    (no bundle found on Desktop)"
     }
-    Write-Status ""
+    Write-CleanupMessage ""
 }
 
 # === Identify orphaned bundles (excluding base images) ===
@@ -214,46 +207,46 @@ foreach ($vmName in $bundleMap.Keys) {
 
 # === List protected base images ===
 if ($protectedItems.Count -gt 0) {
-    Write-Status "The following base images are KEPT (not associated with a registered VM, but needed as base images):"
-    Write-Status ""
+    Write-CleanupMessage "The following base images are KEPT (not associated with a registered VM, but needed as base images):"
+    Write-CleanupMessage ""
     foreach ($item in $protectedItems) {
         $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
-        Write-Status "  $($item.Path)  ($sizeStr)"
+        Write-CleanupMessage "  $($item.Path)  ($sizeStr)"
         $guestName = ($item.Name -replace "^$([regex]::Escape($hostFolder))\.", '')
-        Write-Status "    Reason: base image for $($guestName). Update by rerunning Get-Image.ps1 in $($guestName)/"
+        Write-CleanupMessage "    Reason: base image for $($guestName). Update by rerunning Get-Image.ps1 in $($guestName)/"
     }
-    Write-Status ""
+    Write-CleanupMessage ""
 }
 
 # === Delete orphaned bundles ===
 if ($orphanedItems.Count -eq 0) {
-    Write-Status "No orphaned VM bundles found. Nothing to clean up."
+    Write-CleanupMessage "No orphaned VM bundles found. Nothing to clean up."
     exit 0
 }
 
-Write-Status "The following .utm bundles are NOT associated with any registered UTM VM:"
-Write-Status ""
+Write-CleanupMessage "The following .utm bundles are NOT associated with any registered UTM VM:"
+Write-CleanupMessage ""
 $totalSize = 0
 foreach ($item in $orphanedItems) {
     $totalSize += $item.Size
     $sizeStr = "{0:N2} GB" -f ($item.Size / 1GB)
-    Write-Status "  $($item.Path)  ($sizeStr)"
+    Write-CleanupMessage "  $($item.Path)  ($sizeStr)"
     $bundleFiles = Get-ChildItem -Path $item.Path -Recurse -File -ErrorAction SilentlyContinue
     foreach ($f in ($bundleFiles | Sort-Object FullName)) {
         $fSizeStr = "{0:N2} MB" -f ($f.Length / 1MB)
-        Write-Status "    $($f.FullName)  ($fSizeStr)"
+        Write-CleanupMessage "    $($f.FullName)  ($fSizeStr)"
     }
 }
-Write-Status ""
-Write-Status ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
-Write-Status ""
+Write-CleanupMessage ""
+Write-CleanupMessage ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
+Write-CleanupMessage ""
 
 if ($Force) {
-    Write-Status "Force mode enabled — skipping confirmation."
+    Write-CleanupMessage "Force mode enabled — skipping confirmation."
 } else {
     $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
     if ($confirmation -ne "YES") {
-        Write-Status "Operation cancelled. No files were deleted."
+        Write-CleanupMessage "Operation cancelled. No files were deleted."
         exit 0
     }
 }
@@ -284,7 +277,7 @@ foreach ($item in $orphanedItems) {
             continue
         }
         Remove-Item -Path $item.Path -Recurse -Force
-        Write-Status "  Deleted: $($item.Path)"
+        Write-CleanupMessage "  Deleted: $($item.Path)"
     } catch {
         Write-Warning "  Failed to delete: $($item.Path) - $_"
         $errors++
@@ -292,9 +285,9 @@ foreach ($item in $orphanedItems) {
 }
 
 # === Cleanup result ===
-Write-Status ""
+Write-CleanupMessage ""
 if ($errors -eq 0) {
-    Write-Status "Cleanup complete. All orphaned bundles deleted."
+    Write-CleanupMessage "Cleanup complete. All orphaned bundles deleted."
 } else {
-    Write-Status "Cleanup complete with $errors error(s). Some items could not be deleted."
+    Write-CleanupMessage "Cleanup complete with $errors error(s). Some items could not be deleted."
 }

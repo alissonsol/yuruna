@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,11 @@ $NotificationTmplPath = Join-Path $ExtensionRoot      "notification/transports.y
 $script:ModulesDir = Join-Path $TestRoot "modules"
 Import-Module (Join-Path $script:ModulesDir 'Test.Output.psm1')          -Global -Force
 Import-Module (Join-Path $script:ModulesDir 'Test.ConfigValidator.psm1') -Global -Force
+# Read-TestConfig is the single source of truth for the
+# `Get-Content -Raw | ConvertFrom-Yaml -Ordered` flow; it caches by
+# absolute-path + mtime + content-hash so the repeated reads here (and
+# per-cycle re-spawns) reuse one parse.
+Import-Module (Join-Path $script:ModulesDir 'Test.Config.psm1')          -Global -Force
 Initialize-OutputState
 
 # ── Section 1: Config file ────────────────────────────────────────────────────
@@ -96,7 +101,7 @@ if (-not (Test-Path $ConfigPath)) {
 Write-Section "YAML structure"
 
 try {
-    $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered
+    $Config = Read-TestConfig -Path $ConfigPath -ThrowOnError
     Write-Pass "YAML is valid and parsed successfully."
 } catch {
     Write-Fail "YAML parse error in ${ConfigPath}: $_" -FullPath $ConfigPath
@@ -105,7 +110,7 @@ try {
 }
 
 # ── Section 3: Host requirements (quick) ─────────────────────────────────────
-# Imports Test.Host.psm1 and runs the same fast pre-flight that
+# Imports Test.HostContract.psm1 and runs the same fast pre-flight that
 # operator-facing helpers (Remove-TestVMFiles.ps1, ...) call: detects
 # the host type and verifies the absolute minimum (Administrator +
 # vmms on Hyper-V, virsh + /dev/kvm on Ubuntu, UTM.app + utmctl on
@@ -116,10 +121,10 @@ try {
 Write-Section "Host requirements (quick)"
 
 $ModulesDir  = Join-Path $TestRoot "modules"
-$hostModPath = Join-Path $ModulesDir "Test.Host.psm1"
+$hostModPath = Join-Path $ModulesDir "Test.HostContract.psm1"
 $HostType    = $null
 if (-not (Test-Path $hostModPath)) {
-    Write-Fail "Test.Host.psm1 not found at: $hostModPath"
+    Write-Fail "Test.HostContract.psm1 not found at: $hostModPath"
 } else {
     Import-Module -Name $hostModPath -Force -Global
     $HostType = Get-HostType
@@ -544,7 +549,7 @@ if (Test-Path $UsersPath) {
     # need the data structure for the completeness checks below).
     $usersDoc = $null
     try {
-        $usersDoc = Get-Content -Raw $UsersPath | ConvertFrom-Yaml -Ordered
+        $usersDoc = Read-TestConfig -Path $UsersPath -ThrowOnError
     } catch {
         Write-Fail "users.yml parse error in ${UsersPath}: $($_.Exception.Message)" -FullPath $UsersPath
     }
@@ -589,7 +594,7 @@ if (Test-Path $UsersPath) {
         # localOsPasswordRef can auto-gen, so we only warn there.
         $vaultDoc = $null
         if (Test-Path $VaultPath) {
-            try { $vaultDoc = Get-Content -Raw $VaultPath | ConvertFrom-Yaml -Ordered } catch { Write-Verbose "vault.yml parse for users.yml cross-check failed: $_" }
+            try { $vaultDoc = Read-TestConfig -Path $VaultPath } catch { Write-Verbose "vault.yml parse for users.yml cross-check failed: $_" }
         }
         $vaultUsers = if ($vaultDoc -and $vaultDoc.Contains('users') -and $vaultDoc['users'] -is [System.Collections.IDictionary]) { $vaultDoc['users'] } else { $null }
         foreach ($logical in $declared.Keys) {
@@ -645,7 +650,7 @@ if (Test-Path $UsersPath) {
                 Get-ChildItem -LiteralPath $sd -Recurse -File -Include '*.yml' -ErrorAction SilentlyContinue |
                     ForEach-Object {
                         try {
-                            $seq = Get-Content -Raw $_.FullName | ConvertFrom-Yaml -Ordered
+                            $seq = Read-TestConfig -Path $_.FullName
                             if ($seq -is [System.Collections.IDictionary] -and $seq.Contains('variables') -and $seq['variables'] -is [System.Collections.IDictionary]) {
                                 if ($seq['variables'].Contains('username')) {
                                     $u = [string]$seq['variables']['username']
@@ -680,7 +685,7 @@ Write-Section "Resend transport settings"
 $resend = $null
 if (Test-Path $NotificationCfgPath) {
     try {
-        $notifCfg = Get-Content -Raw $NotificationCfgPath | ConvertFrom-Yaml -Ordered
+        $notifCfg = Read-TestConfig -Path $NotificationCfgPath -ThrowOnError
         if ($notifCfg.Contains('transports') -and $notifCfg.transports.Contains('resend')) {
             $resend = $notifCfg.transports.resend
         }
@@ -783,6 +788,30 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
             Write-Fail "Send-Notification failed: $_"
             Write-Info "Verify your transports.resend.apiKey and fromEmail in transports.yml"
         }
+    }
+}
+
+# ── Section: Bootstrap script encoding (ASCII, no BOM) ───────────────────────
+# The PS 5.1 `irm | iex` installer and the guest/windows.11 scripts the fresh
+# Windows guest runs the same way are parsed byte-for-byte before any
+# BOM-tolerant shell exists, so a UTF-8 BOM or non-ASCII byte aborts them at
+# line 1. Fold the shared Test-AsciiNoBom guard into this pre-cycle gate so an
+# accidental re-encode blocks the cycle here instead of breaking first-install
+# on the guest. See feedback_bootstrap_installer_no_bom.md.
+
+Write-Section "Bootstrap script encoding (ASCII, no BOM)"
+
+$asciiGate = Join-Path $TestRoot "Test-AsciiNoBom.ps1"
+if (-not (Test-Path -LiteralPath $asciiGate)) {
+    Write-Info "Test-AsciiNoBom.ps1 not found at ${asciiGate}; encoding gate skipped."
+} else {
+    $asciiPwsh = (Get-Process -Id $PID).Path
+    $asciiOut  = & $asciiPwsh -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Pass "irm|iex installer and guest scripts are BOM-less 7-bit ASCII."
+    } else {
+        Write-Fail "An irm|iex / first-run guest script is not BOM-less ASCII." -FullPath $asciiGate
+        foreach ($asciiLine in $asciiOut) { Write-Info ([string]$asciiLine) }
     }
 }
 

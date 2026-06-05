@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -366,12 +366,11 @@ function Send-TextVNC {
     try {
         # Empirically, UTM's QEMU VNC does NOT auto-shift from the keysym
         # alone (e.g. `asterisk` arrives as `8`, `bar` arrives as `\`), so we
-        # must press LShift ourselves. The earlier 80ms/40ms shift-settle
-        # was over-conservative on the build-out hosts -- 20/10 has tested
-        # clean for the same guests; matched against the cleaned-up settle
-        # in Send-TextHyperV's batched-scancode path. Restore the larger
-        # window if a future guest regresses; the cycle log's "VNC text
-        # send: failed" warning is the trigger.
+        # must press LShift ourselves. 20ms down / 10ms up has tested clean
+        # for the supported guests and is matched against Send-TextHyperV's
+        # batched-scancode shift settle. If a future guest regresses, the
+        # cycle log's "VNC text send: failed" warning is the trigger -- a
+        # larger window (e.g. 80/40) is the conservative escape hatch.
         $shiftSym = $script:X11KeySyms["LShift"]
         $shiftDownMs = 20
         $shiftUpMs   = 10
@@ -631,82 +630,8 @@ return "window_not_found"
 # (all pressed simultaneously, then released). For text typing we send
 # one chord per character; shifted characters become a 2-key chord
 # (KEY_LEFTSHIFT + KEY_X).
-# PowerShell's @{} hash literal uses a case-INSENSITIVE comparer, so 'a'
-# and 'A' would collide at parse time ("Duplicate keys 'A' are not allowed
-# in hash literals"), wrecking the whole module import. Build the table
-# with Ordinal StringComparer and populate via explicit indexer so each
-# letter case is its own key.
-function Get-KvmCharKeyMap {
-    <#
-    .SYNOPSIS
-        Build the case-sensitive char -> Linux KEY_* chord table used
-        by Send-TextKvm.
-    .DESCRIPTION
-        Uses an Ordinal-comparer hashtable because @{} literals are
-        case-insensitive and would collide on 'a' / 'A' at parse time,
-        wrecking the whole module import. See feedback memory
-        [[feedback_powershell_hashtable_case_insensitive]].
-    #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
-        Justification = 'Need a case-sensitive (Ordinal) hashtable to map shifted vs unshifted letters; @{} literal is case-insensitive and would collide on a/A at parse time.')]
-    [CmdletBinding()]
-    [OutputType([System.Collections.Hashtable])]
-    param()
-    $h = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
-$h['a'] = @('KEY_A');           $h['A'] = @('KEY_LEFTSHIFT','KEY_A')
-$h['b'] = @('KEY_B');           $h['B'] = @('KEY_LEFTSHIFT','KEY_B')
-$h['c'] = @('KEY_C');           $h['C'] = @('KEY_LEFTSHIFT','KEY_C')
-$h['d'] = @('KEY_D');           $h['D'] = @('KEY_LEFTSHIFT','KEY_D')
-$h['e'] = @('KEY_E');           $h['E'] = @('KEY_LEFTSHIFT','KEY_E')
-$h['f'] = @('KEY_F');           $h['F'] = @('KEY_LEFTSHIFT','KEY_F')
-$h['g'] = @('KEY_G');           $h['G'] = @('KEY_LEFTSHIFT','KEY_G')
-$h['h'] = @('KEY_H');           $h['H'] = @('KEY_LEFTSHIFT','KEY_H')
-$h['i'] = @('KEY_I');           $h['I'] = @('KEY_LEFTSHIFT','KEY_I')
-$h['j'] = @('KEY_J');           $h['J'] = @('KEY_LEFTSHIFT','KEY_J')
-$h['k'] = @('KEY_K');           $h['K'] = @('KEY_LEFTSHIFT','KEY_K')
-$h['l'] = @('KEY_L');           $h['L'] = @('KEY_LEFTSHIFT','KEY_L')
-$h['m'] = @('KEY_M');           $h['M'] = @('KEY_LEFTSHIFT','KEY_M')
-$h['n'] = @('KEY_N');           $h['N'] = @('KEY_LEFTSHIFT','KEY_N')
-$h['o'] = @('KEY_O');           $h['O'] = @('KEY_LEFTSHIFT','KEY_O')
-$h['p'] = @('KEY_P');           $h['P'] = @('KEY_LEFTSHIFT','KEY_P')
-$h['q'] = @('KEY_Q');           $h['Q'] = @('KEY_LEFTSHIFT','KEY_Q')
-$h['r'] = @('KEY_R');           $h['R'] = @('KEY_LEFTSHIFT','KEY_R')
-$h['s'] = @('KEY_S');           $h['S'] = @('KEY_LEFTSHIFT','KEY_S')
-$h['t'] = @('KEY_T');           $h['T'] = @('KEY_LEFTSHIFT','KEY_T')
-$h['u'] = @('KEY_U');           $h['U'] = @('KEY_LEFTSHIFT','KEY_U')
-$h['v'] = @('KEY_V');           $h['V'] = @('KEY_LEFTSHIFT','KEY_V')
-$h['w'] = @('KEY_W');           $h['W'] = @('KEY_LEFTSHIFT','KEY_W')
-$h['x'] = @('KEY_X');           $h['X'] = @('KEY_LEFTSHIFT','KEY_X')
-$h['y'] = @('KEY_Y');           $h['Y'] = @('KEY_LEFTSHIFT','KEY_Y')
-$h['z'] = @('KEY_Z');           $h['Z'] = @('KEY_LEFTSHIFT','KEY_Z')
-$h['1'] = @('KEY_1');           $h['!'] = @('KEY_LEFTSHIFT','KEY_1')
-$h['2'] = @('KEY_2');           $h['@'] = @('KEY_LEFTSHIFT','KEY_2')
-$h['3'] = @('KEY_3');           $h['#'] = @('KEY_LEFTSHIFT','KEY_3')
-$h['4'] = @('KEY_4');           $h['$'] = @('KEY_LEFTSHIFT','KEY_4')
-$h['5'] = @('KEY_5');           $h['%'] = @('KEY_LEFTSHIFT','KEY_5')
-$h['6'] = @('KEY_6');           $h['^'] = @('KEY_LEFTSHIFT','KEY_6')
-$h['7'] = @('KEY_7');           $h['&'] = @('KEY_LEFTSHIFT','KEY_7')
-$h['8'] = @('KEY_8');           $h['*'] = @('KEY_LEFTSHIFT','KEY_8')
-$h['9'] = @('KEY_9');           $h['('] = @('KEY_LEFTSHIFT','KEY_9')
-$h['0'] = @('KEY_0');           $h[')'] = @('KEY_LEFTSHIFT','KEY_0')
-$h[' ']  = @('KEY_SPACE')
-$h["`t"] = @('KEY_TAB')
-$h["`n"] = @('KEY_ENTER')
-$h["`r"] = @('KEY_ENTER')
-$h['-'] = @('KEY_MINUS');       $h['_'] = @('KEY_LEFTSHIFT','KEY_MINUS')
-$h['='] = @('KEY_EQUAL');       $h['+'] = @('KEY_LEFTSHIFT','KEY_EQUAL')
-$h['['] = @('KEY_LEFTBRACE');   $h['{'] = @('KEY_LEFTSHIFT','KEY_LEFTBRACE')
-$h[']'] = @('KEY_RIGHTBRACE');  $h['}'] = @('KEY_LEFTSHIFT','KEY_RIGHTBRACE')
-$h['\'] = @('KEY_BACKSLASH');   $h['|'] = @('KEY_LEFTSHIFT','KEY_BACKSLASH')
-$h[';'] = @('KEY_SEMICOLON');   $h[':'] = @('KEY_LEFTSHIFT','KEY_SEMICOLON')
-$h["'"] = @('KEY_APOSTROPHE');  $h['"'] = @('KEY_LEFTSHIFT','KEY_APOSTROPHE')
-$h[','] = @('KEY_COMMA');       $h['<'] = @('KEY_LEFTSHIFT','KEY_COMMA')
-$h['.'] = @('KEY_DOT');         $h['>'] = @('KEY_LEFTSHIFT','KEY_DOT')
-$h['/'] = @('KEY_SLASH');       $h['?'] = @('KEY_LEFTSHIFT','KEY_SLASH')
-$h['`'] = @('KEY_GRAVE');       $h['~'] = @('KEY_LEFTSHIFT','KEY_GRAVE')
-    return $h
-}
-$script:KvmCharKeyMap = Get-KvmCharKeyMap
+# KVM key maps now live in Test.KeyCodeRegistry (KVM-Char / KVM-Named).
+$script:KvmCharKeyMap = Get-KeyCodeMap -Kind 'KVM-Char'
 
 function Send-KeyKvm {
     <#
@@ -720,23 +645,10 @@ function Send-KeyKvm {
         RFB handshake mid-stream.
     #>
     param([string]$VMName, [string]$KeyName)
-    # Map common harness key names to Linux KEY_* event names. Anything
-    # not in the table passes through verbatim so a sequence can write
-    # KEY_LEFTMETA, KEY_F2, etc. directly.
-    $map = @{
-        'Enter'     = 'KEY_ENTER'
-        'Return'    = 'KEY_ENTER'
-        'Tab'       = 'KEY_TAB'
-        'Escape'    = 'KEY_ESC'
-        'Esc'       = 'KEY_ESC'
-        'Space'     = 'KEY_SPACE'
-        'Backspace' = 'KEY_BACKSPACE'
-        'Up'        = 'KEY_UP'
-        'Down'      = 'KEY_DOWN'
-        'Left'      = 'KEY_LEFT'
-        'Right'     = 'KEY_RIGHT'
-    }
-    $code = $map[$KeyName]
+    # Named-key map lives in Test.KeyCodeRegistry (KVM-Named) alongside the char
+    # map. Anything not in the table passes through verbatim so a sequence can
+    # write KEY_LEFTMETA, KEY_F2, etc. directly.
+    $code = (Get-KeyCodeMap -Kind 'KVM-Named')[$KeyName]
     if (-not $code) { $code = $KeyName }
     & virsh --connect qemu:///system send-key $VMName $code 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
@@ -831,17 +743,17 @@ function Send-TextHyperV {
             Write-Warning "Send-TextHyperV: modifier-reset prefix failed; proceeding without it."
         }
         # Batch all chars' scancodes into ONE Send-ScanCode CIM call.
-        # The prior implementation issued one CIM call per char plus a
-        # Start-Sleep $CharDelayMs after each one -- a 16-char password
-        # took ~16 * (CIM ~5-15 ms + 20 ms default delay) = 400-560 ms
-        # wall-clock just for the typing. Hyper-V's TypeScancodes
-        # queues the entire byte payload internally and feeds the
-        # guest's PS/2 buffer at its own (fast) pace, so batching
-        # cuts cost to ~one CIM call.
+        # The per-char alternative (one CIM call per char plus a
+        # Start-Sleep $CharDelayMs after each) costs ~N * (CIM ~5-15 ms
+        # + 20 ms default delay) -- a 16-char password takes 400-560 ms
+        # wall-clock just for the typing. Hyper-V's TypeScancodes queues
+        # the entire byte payload internally and feeds the guest's PS/2
+        # buffer at its own (fast) pace, so batching cuts cost to ~one
+        # CIM call.
         #
         # For shifted characters: LShift-make, char-make, char-break,
-        # LShift-break -- same per-char sequence as before, just
-        # concatenated. CharDelayMs is now interpreted as a wall-clock
+        # LShift-break -- the standard per-char sequence, concatenated
+        # into the batch. CharDelayMs is interpreted as a wall-clock
         # SETTLE budget AFTER the batch: an explicit non-zero value
         # asks the guest to drain before the next action; default
         # behavior is "minimal pacing, fast through". Operators who
@@ -1101,6 +1013,7 @@ public class HyperVMouse {
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
 
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
 
@@ -1110,6 +1023,25 @@ public class HyperVMouse {
     static bool dpiAware = false;
     public static void EnsureDpiAware() {
         if (!dpiAware) { SetProcessDPIAware(); dpiAware = true; }
+    }
+
+    // Click-by-OCR feeds the captured image's pixel coordinates straight back
+    // as client coordinates -- the capture is taken so image (x,y) == vmconnect
+    // client (x,y). HyperVCapture grabs that frame under Per-Monitor-V2, so the
+    // image is in the window's true physical pixels; the click must map those
+    // same physical client coords, hence ClientToScreen/SetCursorPos run under
+    // a matching Per-Monitor-V2 context. A system-DPI-aware mapping on a
+    // >100%-scaled monitor would land the click off-target by the scale factor.
+    // Thread-scoped + reversible; IntPtr.Zero means the API is absent and the
+    // EnsureDpiAware process awareness stays in force.
+    static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+    static IntPtr EnterPerMonitorV2() {
+        try { return SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
+        catch { return IntPtr.Zero; }
+    }
+    static void RestoreThreadDpiContext(IntPtr prev) {
+        if (prev == IntPtr.Zero) return;
+        try { SetThreadDpiAwarenessContext(prev); } catch { }
     }
 
     public static IntPtr FindWindow(string titleContains) {
@@ -1129,9 +1061,14 @@ public class HyperVMouse {
     // Returns null if the translation fails (e.g. invalid window handle).
     public static int[] GetScreenPoint(IntPtr hWnd, int clientX, int clientY) {
         EnsureDpiAware();
-        POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
-        if (!ClientToScreen(hWnd, ref pt)) return null;
-        return new int[] { pt.X, pt.Y };
+        IntPtr prevDpiCtx = EnterPerMonitorV2();
+        try {
+            POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
+            if (!ClientToScreen(hWnd, ref pt)) return null;
+            return new int[] { pt.X, pt.Y };
+        } finally {
+            RestoreThreadDpiContext(prevDpiCtx);
+        }
     }
 
     // Left-click at a client-area pixel (clientX, clientY) inside hWnd.
@@ -1139,22 +1076,27 @@ public class HyperVMouse {
     // "stolen" mid-test. Returns false if the window cannot be targeted.
     public static bool ClickClientPoint(IntPtr hWnd, int clientX, int clientY) {
         EnsureDpiAware();
-        POINT origin; GetCursorPos(out origin);
-        // Non-fatal: foreground may be refused if another window holds focus
-        // lock (e.g. another input-receiving app just got activated). The
-        // click still lands if vmconnect accepts mouse events while inactive.
-        SetForegroundWindow(hWnd);
-        System.Threading.Thread.Sleep(80);
-        POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
-        if (!ClientToScreen(hWnd, ref pt)) return false;
-        if (!SetCursorPos(pt.X, pt.Y)) return false;
-        System.Threading.Thread.Sleep(40);
-        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
-        System.Threading.Thread.Sleep(30);
-        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
-        System.Threading.Thread.Sleep(50);
-        SetCursorPos(origin.X, origin.Y);
-        return true;
+        IntPtr prevDpiCtx = EnterPerMonitorV2();
+        try {
+            POINT origin; GetCursorPos(out origin);
+            // Non-fatal: foreground may be refused if another window holds focus
+            // lock (e.g. another input-receiving app just got activated). The
+            // click still lands if vmconnect accepts mouse events while inactive.
+            SetForegroundWindow(hWnd);
+            System.Threading.Thread.Sleep(80);
+            POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
+            if (!ClientToScreen(hWnd, ref pt)) return false;
+            if (!SetCursorPos(pt.X, pt.Y)) return false;
+            System.Threading.Thread.Sleep(40);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
+            System.Threading.Thread.Sleep(30);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
+            System.Threading.Thread.Sleep(50);
+            SetCursorPos(origin.X, origin.Y);
+            return true;
+        } finally {
+            RestoreThreadDpiContext(prevDpiCtx);
+        }
     }
 }
 "@
@@ -1302,9 +1244,14 @@ var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMo
     Hashtable @{ x; y; w; h; centerX; centerY; text } or $null if not found.
 #>
 
+# Send-KeyAXUI / Send-TextAXUI are intentionally NOT exported: AXUI keyboard
+# events do not route to UTM's SwiftUI guest display, so they are dead as a
+# transport. Kept as private functions (their docstrings record the finding)
+# rather than deleted, so the knowledge survives without shipping a dead
+# public entry point.
 Export-ModuleMember -Function Get-HyperVKeyboard, Read-VncBuffer, Connect-VNC, Disconnect-VNC, `
-    Send-VncKeyEvent, Send-KeyVNC, Send-TextVNC, Send-KeyAXUI, Send-TextAXUI, `
-    Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Get-KvmCharKeyMap, Send-KeyKvm, `
+    Send-VncKeyEvent, Send-KeyVNC, Send-TextVNC, `
+    Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Send-KeyKvm, `
     Send-TextKvm, Send-TextHyperV, Test-HardCharsInText, ConvertTo-ShellEscapedText, `
     Send-TextUTM, Initialize-HyperVMouseType, Send-ClickHyperV, Send-ClickUtm, `
     Update-TransportDefault

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,32 @@ $ProgressPreference = 'Continue'
 Import-Module (Join-Path $PSScriptRoot 'Test.LogLevel.psm1') -Global -Force
 Use-LogLevelFromEnv
 
+# Shared, cross-module sequence failure-state. The verb Handlers below and
+# the SSH/OCR handlers in Test.SequenceHandler all read and write the SAME
+# slots; binding $script:Fail to the one $global:-anchored store (a
+# scriptblock's $script: otherwise resolves to its own defining module) is
+# what makes that work. See Test.SequenceFailureState.psm1.
+Import-Module (Join-Path $PSScriptRoot 'Test.SequenceFailureState.psm1') -Global -Force
+$script:Fail = Get-SequenceFailureState
+
+# OCR-tolerant matching (Get-OCRNormalized / Test-OCRMatch / Test-CombinedOcrMatch)
+# lives in its own module so Wait-ForText here and sshWaitReady in
+# Test.SequenceHandler reach the SAME matcher through one export.
+Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Global -Force
+
+# Variable substitution (Expand-Variable / ${ext:...} expansion) lives in its
+# own module. The -Global import is load-bearing: the engine captures
+# ${function:Expand-Variable} into each step's Context for the verb Handlers,
+# and that ref is $null unless the defining module is imported here.
+Import-Module (Join-Path $PSScriptRoot 'Test.SequenceVariable.psm1') -Global -Force
+
+# Sequence-file reading + gui/ssh search-path resolution. -Global so the
+# engine's own callers (Invoke-SequenceByName, Invoke-Sequence) and the
+# external importers (Test.SequencePlanner / Test.SequenceRunner / Test-Sequence)
+# resolve the moved functions transitively. Get-SequenceMode there reads the
+# keystroke mechanism from $env:YURUNA_KEYSTROKE_MECHANISM, mirrored below.
+Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -Global -Force
+
 # ── Wire the host driver ─────────────────────────────────────────────────────
 # Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
 # contract functions (Get-VMScreenshot, Restart-VMConsole) that live in
@@ -36,7 +62,7 @@ Use-LogLevelFromEnv
 # short-circuits the re-load if the module is already imported.
 try {
     $repoRoot      = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $testHostMod   = Join-Path $repoRoot 'test/modules/Test.Host.psm1'
+    $testHostMod   = Join-Path $repoRoot 'test/modules/Test.HostContract.psm1'
     if (Test-Path $testHostMod) {
         Import-Module $testHostMod -Global -DisableNameChecking
         if (Get-Command Initialize-YurunaHost -ErrorAction SilentlyContinue) {
@@ -68,12 +94,6 @@ $script:DefaultTimeoutSeconds   = 180
 # On guest success the buffer dir is deleted; on failure the whole sequence is
 # preserved so the failure-screenshot link can point at the run-up to the bug.
 $script:DefaultScreenHistorySize = 5
-# Memoize Get-OCRNormalized for repeated patterns. The same pattern string
-# is re-normalized on every poll in Test-OCRMatch (pattern + per-segment
-# normalize in Strategy 3). Patterns are bounded (one per sequence step),
-# so the cache stays small. Line / full-text inputs are NOT cached -- they
-# vary per call and would balloon memory.
-$script:OcrPatternCache = @{}
 
 # Exponential-backoff helper for filesystem-state poll loops is
 # centralised in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
@@ -125,11 +145,12 @@ Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.HyperV.psm1') -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.Utm.psm1')    -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.Kvm.psm1')    -Global -Force
 # Built-in verb Handlers (Register-SequenceAction blocks) live in
-# Test.SequenceHandler.psm1. retry and recoverFromSnapshot stay in this
-# module because their Handler bodies coordinate $script:LastFailure*
-# state with the engine's foreach loop; the rest of the verb catalog
-# is local to Test.SequenceHandler so adding a verb does not collide
-# with engine edits.
+# Test.SequenceHandler.psm1. retry and recoverFromSnapshot still sit in
+# this module, but no longer because of scope: the failure slots they
+# coordinate now live in the shared Test.SequenceFailureState store
+# ($script:Fail), reachable from either module. They remain here pending
+# their own migration; the rest of the verb catalog is local to
+# Test.SequenceHandler so adding a verb does not collide with engine edits.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceHandler.psm1') -Global -Force
 $_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test.config.yml"
 $_cfg = Read-TestConfig -Path $_configPath
@@ -148,6 +169,12 @@ if ($_cfg) {
     # 0 disables the ring buffer; we still accept it as a configured value.
     if ($null -ne $_cfg.screenHistorySize) { $script:DefaultScreenHistorySize = [int]$_cfg.screenHistorySize }
 }
+# Mirror the keystroke mechanism into an env var so Get-SequenceMode in
+# Test.SequenceResolve (which no longer shares this module's $script: scope)
+# resolves gui-vs-ssh identically -- same cross-process pattern as
+# YURUNA_LOG_LEVEL. The engine keeps $script:DefaultKeystrokeMechanism for its
+# own direct read in Invoke-Sequence.
+$env:YURUNA_KEYSTROKE_MECHANISM = $script:DefaultKeystrokeMechanism
 Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
 
 # Shared engine for executing interaction sequences from YAML files.
@@ -155,6 +182,22 @@ Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
 # are documented in docs/test-sequences.md (the operator-facing spec) --
 # do not duplicate them here. This module is the executable definition;
 # the Markdown is the contract.
+
+function Invoke-HostIODispatch {
+    # Shared try/catch + Write-Warning + return-$false envelope for the public
+    # Send-Key / Send-Text / Send-Click dispatchers, so the failure shape cannot
+    # drift between the three and there is one place to add cross-cutting
+    # behavior (e.g. retry-on-transient) later. The public wrapper names and
+    # signatures stay exactly as-is -- the Yuruna.Host / Invoke-Sequence
+    # qualified-call discipline depends on them.
+    param([string]$HostType, [string]$Action, [hashtable]$Arguments)
+    try {
+        return (Invoke-HostIOAction -HostType $HostType -Action $Action -Arguments $Arguments)
+    } catch {
+        Write-Warning "${Action}: $($_.Exception.Message)"
+        return $false
+    }
+}
 
 function Send-Key {
 <#
@@ -169,12 +212,7 @@ function Send-Key {
     helpers itself.
 #>
     param([string]$HostType, [string]$VMName, [string]$KeyName)
-    try {
-        return (Invoke-HostIOAction -HostType $HostType -Action 'Send-Key' -Arguments @{ VMName=$VMName; KeyName=$KeyName })
-    } catch {
-        Write-Warning "Send-Key: $($_.Exception.Message)"
-        return $false
-    }
+    return (Invoke-HostIODispatch -HostType $HostType -Action 'Send-Key' -Arguments @{ VMName=$VMName; KeyName=$KeyName })
 }
 
 # ── Action: type / typeAndEnter ──────────────────────────────────────────────
@@ -203,360 +241,9 @@ function Send-Text {
         # wrapper, so this switch is a no-op there.
         [switch]$ShellEscape
     )
-    try {
-        return (Invoke-HostIOAction -HostType $HostType -Action 'Send-Text' -Arguments @{ VMName=$VMName; Text=$Text; CharDelayMs=$CharDelayMs; ShellEscape=[bool]$ShellEscape })
-    } catch {
-        Write-Warning "Send-Text: $($_.Exception.Message)"
-        return $false
-    }
+    return (Invoke-HostIODispatch -HostType $HostType -Action 'Send-Text' -Arguments @{ VMName=$VMName; Text=$Text; CharDelayMs=$CharDelayMs; ShellEscape=[bool]$ShellEscape })
 }
 
-# ── OCR-tolerant matching ────────────────────────────────────────────────────
-
-# Common OCR confusion groups: characters within each group are frequently
-# misrecognized as each other on console/monospace text.
-# Sources: WinRT/Vision observed errors, UNLV OCR accuracy studies.
-$script:OCRConfusionGroups = @(
-    'wuv'       # w↔u↔v — most common on console fonts
-    'mn'        # m↔n
-    'oO0@'      # o↔O↔0↔@ — '@' frequently substituted for '0' on console fonts
-                # (e.g. "test-ubuntu-server-01" reads as "test-ubuntu-server-@1")
-    "lI1i[]$([char]0x0131)"  # l↔I↔1↔i↔[↔]↔ı — brackets misread as l/1/i, ı (dotless i) from Vision OCR
-    'S5s'       # S↔5↔s
-    'B8'        # B↔8
-    'Z2z'       # Z↔2↔z
-    'gq9'       # g↔q↔9
-    'ce'        # c↔e — at small sizes
-    ':;.'       # :↔;↔. — punctuation frequently mangled on terminal fonts
-)
-
-# Characters that are stripped entirely during normalization.
-# OCR engines frequently insert em/en dashes, smart quotes, or other
-# Unicode substitutions for ASCII punctuation on terminal screens.
-# Stripping these (along with their ASCII equivalents) prevents
-# mismatches when the pattern uses plain ASCII.
-#
-# '@' is NOT in this list — it now lives in the oO0@ confusion group
-# (above) because OCR mistakes for '0' are more common in this codebase
-# than '@' being dropped from a prompt. With '@' canonicalized to 'o',
-# a pattern with literal '@' (e.g. "[ec2-user@host]$") still matches
-# OCR text that reads '@' as '@' OR as '0' — both canonicalize the same.
-$script:OCRStripChars = [System.Collections.Generic.HashSet[char]]::new(
-    [char[]]@(
-        '-', [char]0x2014, [char]0x2013, [char]0x2012,  # -, —, –, ‒
-        '[', ']', '$', '~', '"', '`'                    # terminal prompt chars frequently dropped by OCR
-    )
-)
-
-# Why a canonical-form lookup rather than the raw confusion groups: at
-# match time Test-OCRMatch normalizes BOTH the pattern and the OCR text
-# through this map, so a search for "Install" against "lnstall" hits a
-# single hash lookup per character instead of iterating every group.
-$script:OCRCanonical = @{}
-foreach ($group in $script:OCRConfusionGroups) {
-    $canonical = [char]::ToLowerInvariant($group[0])
-    foreach ($ch in $group.ToCharArray()) {
-        $script:OCRCanonical[[char]::ToLowerInvariant($ch)] = $canonical
-    }
-}
-
-<#
-.SYNOPSIS
-    Normalizes a string for OCR comparison: lowercase, strip spaces/dashes, map confusion groups.
-.DESCRIPTION
-    Each character is lowercased and mapped to the canonical representative of its
-    OCR confusion group.  Spaces and dash-like characters (hyphens, em/en dashes)
-    are stripped entirely because OCR on courier/monospace fonts inserts spurious
-    spaces and frequently substitutes Unicode dashes for ASCII hyphens.
-#>
-function Get-OCRNormalized {
-    param([string]$Text)
-    $sb = [System.Text.StringBuilder]::new($Text.Length)
-    foreach ($ch in $Text.ToCharArray()) {
-        if ($ch -eq ' ') { continue }
-        if ($script:OCRStripChars.Contains($ch)) { continue }
-        $lower = [char]::ToLowerInvariant($ch)
-        if ($script:OCRCanonical.ContainsKey($lower)) {
-            [void]$sb.Append($script:OCRCanonical[$lower])
-        } else {
-            [void]$sb.Append($lower)
-        }
-    }
-    return $sb.ToString()
-}
-
-<#
-.SYNOPSIS
-    Tests if OCR text matches a pattern with tolerance for character confusion,
-    spurious spaces, and dropped characters.
-.DESCRIPTION
-    Normalizes both strings (lowercase, space/dash-stripped, confusion-group-mapped)
-    and checks if the pattern appears as an approximate match in any line
-    of the text.  At least 85% of the normalized pattern characters must match.
-
-    Two matching strategies are tried (either passing is sufficient):
-    1. Positional (sliding window): handles arbitrary single-character
-       substitutions not covered by confusion groups (e.g. R→K).
-    2. Subsequence with span limit: handles dropped characters
-       (e.g. "Password" OCR'd as "assuord").
-
-    Also handles:
-    - Character confusion (w↔u↔v, o↔O↔0↔@, l↔I↔1↔i↔[↔], etc.)
-    - Punctuation confusion (:↔;↔.)
-    - Dash normalization (-, —, –, ‒ all stripped)
-    - Spurious spaces from courier/monospace OCR
-#>
-function Test-OCRMatch {
-    param([string]$Text, [string]$Pattern)
-    $normPattern = $script:OcrPatternCache[$Pattern]
-    if ($null -eq $normPattern) {
-        $normPattern = Get-OCRNormalized $Pattern
-        $script:OcrPatternCache[$Pattern] = $normPattern
-    }
-    if ($normPattern.Length -eq 0) { return $true }
-    # Require at least 85% of normalized pattern chars to appear in order.
-    # This allows ~1 dropped char per 7 pattern chars (e.g. "Password:" → "assuord:")
-    # while rejecting scattered coincidental matches in long log lines.
-    # The :;. confusion group handles punctuation substitution (e.g. "rassword."
-    # matches "Password:" via the sliding window at 8/9 = 89%).
-    $threshold = [int][Math]::Ceiling($normPattern.Length * 0.85)
-    $patternChars = $normPattern.ToCharArray()
-    # Matched chars in the text must span at most 2× the pattern length to
-    # prevent hits where common chars are scattered across a long line.
-    $maxSpan = $normPattern.Length * 2
-    # Loop-invariant: depends only on $patternChars, hoisted from the
-    # per-line foreach so multi-line OCR text doesn't reallocate per line.
-    $patternCharSet = [System.Collections.Generic.HashSet[char]]::new([char[]]$patternChars)
-
-    foreach ($line in ($Text -split "`n")) {
-        $normLine = Get-OCRNormalized $line
-        if ($normLine.Length -eq 0) { continue }
-
-        # --- Strategy 1: Positional (sliding window) comparison ---
-        # Slide the pattern across the text and count character matches at each
-        # aligned position.  This naturally handles arbitrary single-character
-        # substitutions (e.g. R→K in "Retype"→"Ketype") that are not covered
-        # by confusion groups and that break the subsequence algorithm.
-        $patLen = $normPattern.Length
-        if ($normLine.Length -ge $patLen) {
-            for ($offset = 0; $offset -le ($normLine.Length - $patLen); $offset++) {
-                $posMatched = 0
-                for ($i = 0; $i -lt $patLen; $i++) {
-                    if ($normLine[$offset + $i] -eq $patternChars[$i]) { $posMatched++ }
-                }
-                if ($posMatched -ge $threshold) { return $true }
-            }
-        }
-
-        # --- Strategy 2: Subsequence match (handles dropped characters) ---
-        # Try from each text position that contains any pattern character.
-        # A single greedy pass can latch onto an early occurrence (e.g. the 'l'
-        # in "Iinux") and stretch the span past the limit even though the real
-        # match ("login:") starts later and is compact.  Starting from any
-        # pattern char (not just the first) also handles the case where the
-        # first pattern char was dropped by OCR (e.g. "Password" → "assuord").
-        for ($startIdx = 0; $startIdx -lt $normLine.Length; $startIdx++) {
-            if (-not $patternCharSet.Contains($normLine[$startIdx])) { continue }
-
-            $ti = $startIdx
-            $matched = 0
-            $firstMatchPos = -1
-            $lastMatchPos  = -1
-            foreach ($pc in $patternChars) {
-                $savedTi = $ti
-                $found = $false
-                while ($ti -lt $normLine.Length) {
-                    if ($normLine[$ti] -eq $pc) {
-                        $matched++
-                        if ($firstMatchPos -lt 0) { $firstMatchPos = $ti }
-                        $lastMatchPos = $ti
-                        $ti++
-                        $found = $true
-                        break
-                    }
-                    $ti++
-                }
-                if (-not $found) { $ti = $savedTi }
-            }
-
-            if ($matched -ge $threshold) {
-                $span = $lastMatchPos - $firstMatchPos + 1
-                if ($span -le $maxSpan) { return $true }
-            }
-        }
-    }
-
-    # --- Strategy 3: Segment match (handles OCR word reordering) ---
-    # OCR may reorder parts of a line (e.g. "[ec2-user@test-amazon-linux01 ~]$"
-    # becomes "test-amazon-I inux01 login: ecZ-user").  Split the original pattern
-    # on characters that are stripped during normalization (@, -, etc.) to get
-    # meaningful segments, normalize each, and check that every segment appears
-    # somewhere in the full normalized text (across all lines).
-    $normFull = Get-OCRNormalized $Text
-    # Split on strip chars and spaces to get pattern segments
-    $splitPattern = [regex]::Split($Pattern, '[\s@\-\[\]$~"''`]+') | Where-Object { $_.Length -gt 0 }
-    if ($splitPattern.Count -gt 1) {
-        $allFound = $true
-        foreach ($seg in $splitPattern) {
-            $normSeg = $script:OcrPatternCache[$seg]
-            if ($null -eq $normSeg) {
-                $normSeg = Get-OCRNormalized $seg
-                $script:OcrPatternCache[$seg] = $normSeg
-            }
-            if ($normSeg.Length -eq 0) { continue }
-            if (-not $normFull.Contains($normSeg)) {
-                $allFound = $false
-                break
-            }
-        }
-        if ($allFound) { return $true }
-    }
-
-    return $false
-}
-
-# ── Multi-engine OCR combine logic ──────────────────────────────────────────
-
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ COMBINE MODE: controls how per-engine detection booleans are merged.   │
-# │                                                                        │
-# │  'Or'  — pattern detected by ANY engine → match  (default, resilient)  │
-# │  'And' — pattern detected by ALL engines → match  (strict, fewer FPs)  │
-# │                                                                        │
-# │ To switch: change the value below, or set $env:YURUNA_OCR_COMBINE.    │
-# └─────────────────────────────────────────────────────────────────────────┘
-function Get-OcrCombineMode {
-    $envVal = $env:YURUNA_OCR_COMBINE
-    if ($envVal -and $envVal -notin @('Or', 'And')) {
-        throw "Invalid YURUNA_OCR_COMBINE value '$envVal'. Only 'Or' and 'And' are allowed."
-    }
-    if ($envVal -eq 'And') { return 'And' }
-    return 'Or'   # ← default
-}
-
-function Test-CombinedOcrMatch {
-    <#
-    .SYNOPSIS
-        Runs all enabled OCR engines on a screen capture, tests each engine's
-        text against every pattern, and returns $true/$false based on the
-        combine mode.
-
-    .DESCRIPTION
-        For each enabled OCR engine:
-          1. Run OCR on ImagePath → engine text
-          2. For each pattern, test engine text → boolean
-        Collect a boolean per engine (true if ANY pattern matched that engine's text).
-
-        Combine mode (Or/And) controls how the per-engine booleans are merged:
-          Or  → $true if at least one engine detected any pattern
-          And → $true only if every engine detected at least one pattern
-
-    .PARAMETER ImagePath
-        Path to the screen capture PNG. The image is sent to each OCR engine
-        as-is — no preprocessing.
-
-    .PARAMETER Pattern
-        One or more patterns to match (any pattern matching counts for that engine).
-
-    .PARAMETER FreshMatchTailLines
-        When greater than 0, only the last N lines of each engine's OCR text are
-        tested. Defaults to 0 (test all lines). Typically set to 12 for freshMatch.
-
-    .OUTPUTS
-        A hashtable with:
-          .Match       — [bool] combined result
-          .EngineResults — [ordered] engine-name → @{ Text; Matched; MatchedPattern }
-          .AnyText     — [string] concatenation of all engine texts (for accumulation)
-    #>
-    param(
-        [Parameter(Mandatory)] [string]$ImagePath,
-        [Parameter(Mandatory)] [string[]]$Pattern,
-        [int]$FreshMatchTailLines = 0
-    )
-
-    # Test.OcrEngine.psm1 is loaded by Wait-ForText (the only caller in the
-    # hot path) before the poll loop; importing it again here -- per poll --
-    # paid the cmdlet + path-resolution + timestamp-check cost on every
-    # iteration even though -Force is a no-op when nothing changed.
-
-    $combineMode = Get-OcrCombineMode
-    $enabledProviders = Get-EnabledOcrProvider
-    $engineResults = [ordered]@{}
-    $combinedMatch = $false
-    $allTexts = @()
-
-    # Why sequential, not parallel: the per-engine cost (~5-15 ms after
-    # the WinRT worker warm-up) is well below the dispatch overhead of
-    # Start-ThreadJob + RemotingWait, AND the combine modes are
-    # short-circuit by design — running both engines in parallel and
-    # then discarding the slower one would waste work in the common
-    # (Or-mode, first-engine-hits) case.
-    foreach ($engineName in $enabledProviders) {
-        try {
-            $engineText = (Invoke-OcrProvider -Name $engineName -ImagePath $ImagePath) ?? ''
-            $engineText = $engineText.Trim()
-        } catch {
-            Write-Warning "OCR provider '$engineName' failed: $_"
-            $engineText = ''
-        }
-
-        $textForMatch = if ($FreshMatchTailLines -gt 0 -and $engineText) {
-            $lines = $engineText -split "`n"
-            ($lines | Select-Object -Last $FreshMatchTailLines) -join "`n"
-        } else {
-            $engineText
-        }
-
-        $matched = $false
-        $matchedPattern = $null
-        if ($textForMatch) {
-            foreach ($p in $Pattern) {
-                if (Test-OCRMatch -Text $textForMatch -Pattern $p) {
-                    $matched = $true
-                    $matchedPattern = $p
-                    break
-                }
-            }
-        }
-
-        $engineResults[$engineName] = @{
-            Text           = $engineText
-            Matched        = $matched
-            MatchedPattern = $matchedPattern
-        }
-        if ($engineText) { $allTexts += $engineText }
-
-        # Log each engine's result as it runs (before possible short-circuit)
-        $snippet = $engineText.Length -le 120 ? $engineText : ("..." + $engineText.Substring($engineText.Length - 120))
-        $status = $matched ? "MATCH '$matchedPattern'" : "no match"
-        Write-Debug "      [$engineName] $status | $snippet"
-
-        # Short-circuit: Or returns early on first match, And on first non-match
-        if ($combineMode -eq 'Or' -and $matched) {
-            Write-Debug "      Short-circuit ($combineMode): skipping remaining engines"
-            $combinedMatch = $true
-            break
-        } elseif ($combineMode -eq 'And' -and -not $matched) {
-            Write-Debug "      Short-circuit ($combineMode): skipping remaining engines"
-            $combinedMatch = $false
-            break
-        }
-
-        # If we reach here without breaking, track the last engine's result
-        $combinedMatch = $matched
-    }
-
-    if ($enabledProviders.Count -eq 0) { $combinedMatch = $false }
-
-    # Concatenate all engine texts for accumulation in non-FreshMatch mode
-    $allEngineText = ($allTexts | Where-Object { $_ }) -join "`n"
-
-    return @{
-        Match         = $combinedMatch
-        EngineResults = $engineResults
-        AnyText       = $allEngineText
-    }
-}
 
 # ── Action: tapOn — OCR-located mouse click ─────────────────────────────────
 #
@@ -594,12 +281,7 @@ function Send-Click {
         # resolves the window via ClientToScreen at click time.
         [hashtable]$Capture = $null
     )
-    try {
-        return (Invoke-HostIOAction -HostType $HostType -Action 'Send-Click' -Arguments @{ VMName=$VMName; X=$X; Y=$Y; Capture=$Capture })
-    } catch {
-        Write-Warning "Send-Click: $($_.Exception.Message)"
-        return $false
-    }
+    return (Invoke-HostIODispatch -HostType $HostType -Action 'Send-Click' -Arguments @{ VMName=$VMName; X=$X; Y=$Y; Capture=$Capture })
 }
 
 function Find-TextLocation {
@@ -608,7 +290,11 @@ function Find-TextLocation {
         [Parameter(Mandatory)] [string]$Label
     )
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.Tesseract.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    # -Global keeps Test.Tesseract in the global session; a bare -Force
+    # re-import would evict the already-global copy into this module's
+    # private scope and break Tesseract callers elsewhere (legacy
+    # module-eviction regression class).
+    Import-Module (Join-Path $modulesDir "Test.Tesseract.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
 
     try {
         $boxes = Get-TesseractWordBox -ImagePath $ImagePath
@@ -891,7 +577,7 @@ function Wait-ForText {
         # is never going to appear, so polling until $TimeoutSeconds
         # wastes up to an hour before the runner gets a misleading
         # "pattern not found" failure. On match this function also sets
-        # the module-scoped $script:WaitForTextMatchedFailurePattern so
+        # the shared cross-module WaitForTextMatchedFailurePattern signal so
         # the caller's failure-label builder can surface *which* anti-
         # pattern fired, producing a banner like
         #   waitForAndEnter: "Not listed?" -- matched failurePattern "install_fail.crash"
@@ -900,7 +586,7 @@ function Wait-ForText {
     )
     # Reset the cross-function signal so a prior call's match can't leak
     # into the next Wait-ForText invocation.
-    $script:WaitForTextMatchedFailurePattern = $null
+    $script:Fail.WaitForTextMatchedFailurePattern = $null
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
     # Display label uses first pattern for log messages
@@ -922,9 +608,16 @@ function Wait-ForText {
     # Import required modules. Screenshot capture is via the Yuruna.Host
     # contract (Get-VMScreenshot) -- assumed already loaded by the caller's
     # Initialize-YurunaHost. OcrEngine stays in test/modules/ as a
-    # cross-host helper.
+    # cross-host helper. -Global is load-bearing: the poll loop below calls
+    # Test-CombinedOcrMatch (Test.OcrMatch module), which resolves
+    # Get-EnabledOcrProvider / Invoke-OcrProvider through the global session
+    # state. A nested -Force WITHOUT -Global evicts Test.OcrEngine from
+    # global (the module-eviction regression class,
+    # feedback_module_force_import_evicts_global.md), so the very next
+    # Test-CombinedOcrMatch call crashes with "Get-EnabledOcrProvider is not
+    # recognized".
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
 
     # Log which OCR engines are active for this wait
     $enabledEngines = Get-EnabledOcrProvider
@@ -950,13 +643,34 @@ function Wait-ForText {
     $historySize = [int]$script:DefaultScreenHistorySize
     if ($historySize -lt 1) { $historySize = 1 }
 
-    # Accumulate all seen text for non-FreshMatch mode (per-engine text merged).
-    # StringBuilder rather than string += "`n" + text: a long poll loop (60-300 s
-    # at PollSeconds=3 = 20-100 iters) would otherwise allocate a fresh string
-    # each iteration, O(n^2) on the accumulated length.
-    $allTextSb = [System.Text.StringBuilder]::new()
+    # Cross-poll fallback buffer for non-FreshMatch mode. A pattern can be split
+    # at the OCR capture boundary between two ADJACENT frames (a line OCR'd half
+    # in frame N, half in N+1). Keep only the last few frames' text, not the whole
+    # growing history: the live frame is matched directly each poll, and once any
+    # frame (or adjacent pair) matches the wait returns, so older frames are never
+    # re-examined. A bounded ring keeps this O(1) per poll instead of the O(n^2)
+    # a full-history rescan would cost over a 60-300 s loop.
+    $recentFrameMax = 3
+    $recentFrames   = [System.Collections.Generic.List[string]]::new()
     $lastOcrText = ''
     $lastCapturePath = $null
+    # Bounded no-text self-heal: count consecutive polls where OCR finds no
+    # text at all (a likely sign the capture feed is stale -- e.g. a dropped
+    # VNC handle returning a frozen frame -- rather than the screen being
+    # genuinely blank), and cap how many times we repair per wait.
+    $noTextPolls = 0
+    $ringRepairs = 0
+    # Frozen-feed self-heal state (the poll loop's second repair path, below).
+    # The no-text counter above only catches a BLANK capture; a feed that
+    # froze on a frame still holding readable text slips past it. Track the
+    # raw-frame hash and how long it has been unchanged so a stale viewer
+    # surface can be forced to reconnect. Thresholds are wall-clock so they
+    # don't drift with $PollSeconds.
+    $lastFrameHash          = $null
+    $frameUnchangedSinceUtc = $null
+    $consoleRestarts        = 0
+    $frozenFeedSeconds      = 45
+    $maxConsoleRestarts     = 2
 
     # Seed the ring-buffer queue once with anything already on disk from
     # earlier Wait-ForText calls in this guest run (the screensDir persists
@@ -1023,7 +737,7 @@ function Wait-ForText {
                         $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                         $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
                         Write-Verbose "      [$eName] $status | $snippet"
-                        $ocrSections.Add("=== $eName ($status) ===")
+                        $ocrSections.Add("== $eName ($status) ==")
                         $ocrSections.Add($er.Text)
                         $ocrSections.Add('')
                     }
@@ -1045,7 +759,7 @@ function Wait-ForText {
                         $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                         $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
                         Write-Verbose "      [$eName] $status | $snippet"
-                        $ocrSections.Add("=== $eName ($status) ===")
+                        $ocrSections.Add("== $eName ($status) ===")
                         $ocrSections.Add($er.Text)
                         $ocrSections.Add('')
                     }
@@ -1053,8 +767,8 @@ function Wait-ForText {
 
                     if ($result.AnyText) {
                         $lastOcrText = $result.AnyText
-                        if ($allTextSb.Length -gt 0) { [void]$allTextSb.Append("`n") }
-                        [void]$allTextSb.Append($result.AnyText)
+                        $recentFrames.Add([string]$result.AnyText)
+                        if ($recentFrames.Count -gt $recentFrameMax) { $recentFrames.RemoveAt(0) }
                     }
 
                     if ($result.Match) {
@@ -1062,13 +776,79 @@ function Wait-ForText {
                         return $true
                     }
 
-                    # Fallback: test accumulated text across iterations.
-                    # Handles patterns that span multiple poll cycles.
-                    $allText = $allTextSb.ToString()
+                    # Fallback: a pattern split across the boundary of two adjacent
+                    # frames. Match the last few frames' join (not the whole growing
+                    # history -- see the $recentFrames note above); the live frame
+                    # already matched above, so this only catches a frame-straddling
+                    # split.
+                    $recentText = [string]::Join("`n", $recentFrames)
                     foreach ($p in $Pattern) {
-                        if (Test-OCRMatch -Text $allText -Pattern $p) {
-                            Write-Debug "      Text detected in accumulated text: '$p'"
+                        if (Test-OCRMatch -Text $recentText -Pattern $p) {
+                            Write-Debug "      Text detected across recent frames: '$p'"
                             return $true
+                        }
+                    }
+                }
+
+                # Bounded self-heal (arms Test.VncProvider / Test.ScreenshotProvider):
+                # several consecutive no-text polls suggest the capture feed went
+                # stale. Force the next Get-VMScreenshot to re-handshake by clearing
+                # the cached VNC handle, and best-effort clear the screenshot ring.
+                # Capped per wait so a genuinely blank screen still times out
+                # normally rather than thrashing the transport.
+                if ($result.AnyText) {
+                    $noTextPolls = 0
+                } else {
+                    $noTextPolls++
+                    if ($noTextPolls -ge 4 -and $ringRepairs -lt 2) {
+                        $noTextPolls = 0
+                        $ringRepairs++
+                        Write-Verbose "      Wait-ForText: no OCR text for 4 polls; self-heal repair $ringRepairs/2 (clear VNC handle + screenshot ring)."
+                        if (Get-Command Repair-VncConnection -ErrorAction SilentlyContinue) { [void](Repair-VncConnection -VMName $VMName -HostType $HostType -Confirm:$false) }
+                        if (Get-Command Repair-ScreenshotRing -ErrorAction SilentlyContinue) { [void](Repair-ScreenshotRing -VMName $VMName -Confirm:$false) }
+                    }
+                }
+
+                # Frozen-feed self-heal (distinct from the no-text case above).
+                # On a headless Hyper-V host the vmconnect PrintWindow surface
+                # can go stale during an idle console tail: the guest has
+                # already repainted -- e.g. printed the fetchAndExecute
+                # completion marker after a quiet network-convergence wait --
+                # but every captured frame is byte-identical, so OCR keeps
+                # reading a dead frame that will never contain the pattern and
+                # the wait burns its full timeout. The no-text branch can't see
+                # this: the frozen frame still holds readable text, so
+                # $result.AnyText is true. Detect a feed whose raw bytes have
+                # not changed for $frozenFeedSeconds and force the console
+                # viewer to reconnect -- Restart-VMConsole relaunches vmconnect
+                # (virt-viewer on KVM, the UTM console on macOS), which
+                # re-attaches to the guest's live framebuffer. A live-but-idle
+                # console keeps a blinking cursor, so its captures differ
+                # frame-to-frame and never trip this; the repair is capped so a
+                # genuinely static screen still times out normally instead of
+                # thrashing the viewer.
+                if ($result.AnyText) {
+                    $frameHash = $null
+                    try { $frameHash = (Get-FileHash -LiteralPath $rawScreenPath -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $frameHash = $null }
+                    if ($frameHash) {
+                        if ($frameHash -ne $lastFrameHash) {
+                            $lastFrameHash = $frameHash
+                            $frameUnchangedSinceUtc = [DateTime]::UtcNow
+                        } elseif ($frameUnchangedSinceUtc) {
+                            $frozenSecs = [int]([DateTime]::UtcNow - $frameUnchangedSinceUtc).TotalSeconds
+                            if ($frozenSecs -ge $frozenFeedSeconds -and $consoleRestarts -lt $maxConsoleRestarts) {
+                                $consoleRestarts++
+                                Write-Warning "      Wait-ForText: capture feed frozen (byte-identical ${frozenSecs}s) while still seeking '$patternLabel' -- forcing console reconnect (repair $consoleRestarts/$maxConsoleRestarts)."
+                                if (Get-Command Restart-VMConsole -ErrorAction SilentlyContinue) {
+                                    try { [void](Restart-VMConsole -VMName $VMName -Confirm:$false) }
+                                    catch { Write-Verbose "      Restart-VMConsole failed: $($_.Exception.Message)" }
+                                }
+                                # Re-arm: give the relaunched viewer a fresh full
+                                # $frozenFeedSeconds window to deliver an updated
+                                # frame before considering another repair.
+                                $lastFrameHash = $null
+                                $frameUnchangedSinceUtc = $null
+                            }
                         }
                     }
                 }
@@ -1082,7 +862,7 @@ function Wait-ForText {
                 foreach ($fp in $FailurePattern) {
                     if ([string]::IsNullOrWhiteSpace($fp)) { continue }
                     if (Test-OCRMatch -Text $lastOcrText -Pattern $fp) {
-                        $script:WaitForTextMatchedFailurePattern = $fp
+                        $script:Fail.WaitForTextMatchedFailurePattern = $fp
                         Write-Warning "      Failure pattern matched: '$fp' -- aborting wait early (elapsed ${elapsed}s / ${TimeoutSeconds}s)"
                         if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
                             $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
@@ -1148,411 +928,7 @@ function Save-DebugScreenshot {
     return $false
 }
 
-# ── Variable substitution ────────────────────────────────────────────────────
-
-# Private-use Unicode codepoint used as the placeholder for `$` after the
-# $$ → sentinel pre-pass and before the sentinel → $ post-pass. The
-# Unicode private-use area (U+E000–U+F8FF) is reserved for application-
-# specific use and effectively never appears in legitimate input, so it
-# is safe to round-trip through the regex pass without colliding with
-# something a user actually typed.
-$script:DollarSentinel = [char]0xE000
-
-# ${ext:area.Method(arg1, arg2, ...)} -- inline expression form. ArgList
-# may include nested ${var} placeholders, which are expanded BEFORE the
-# extension is invoked. Each call is dispatched fresh -- there is no
-# caching, so ${ext:authentication.NewRandomPassword()} returns a new
-# value every time it is evaluated. Side-effecting calls
-# (e.g. Set-Password) still belong in the dedicated `callExtension`
-# action; ${ext:...} is for value-producing reads. Parameter is named
-# ArgList (not Args) because $Args is a PowerShell automatic variable.
-function Invoke-ExtensionExpression {
-    param(
-        [Parameter(Mandatory)][string]$Area,
-        [Parameter(Mandatory)][string]$Method,
-        [string[]]$ArgList = @()
-    )
-    $loaderPath = Join-Path $PSScriptRoot 'Test.Extension.psm1'
-    if (Test-Path $loaderPath) {
-        Import-Module $loaderPath -Global -Force -Verbose:$false
-    }
-    $names = @(Get-ActiveExtensionName -Area $Area)
-    $extName = $names[0]
-    [void](Import-Extension -Area $Area)
-    $cmd = Resolve-ExtensionMethod -Area $Area -ExtensionName $extName -Method $Method
-    if ($ArgList.Count -eq 0) { return (& $cmd) }
-    return (& $cmd @ArgList)
-}
-
-# Resolves `${ext:area.Method(arg1, arg2)}` occurrences in $Text. Nested
-# `${var}` inside args are expanded first, then the call is invoked
-# fresh on every match. Plain `${var}` substitution remains the
-# responsibility of the surrounding regex pass.
-function Expand-ExtensionExpression {
-    param([string]$Text, [hashtable]$Variables)
-    if (-not $Text -or -not $Text.Contains('${ext:')) { return $Text }
-    # Pre-materialize the variable map keys for the MatchEvaluator closure
-    # below -- the analyzer cannot see references through [regex]::Replace's
-    # scriptblock, so binding $vars here keeps the parameter explicitly used.
-    $vars = $Variables
-    $sentinel = $script:DollarSentinel
-    $pattern = '\$\{ext:([A-Za-z0-9_]+)\.([A-Za-z][A-Za-z0-9_-]*)\(([^)]*)\)\}'
-    return [regex]::Replace($Text, $pattern, {
-        param($m)
-        $area    = $m.Groups[1].Value
-        $method  = $m.Groups[2].Value
-        $rawArgs = $m.Groups[3].Value
-        $argList = @()
-        if ($rawArgs.Trim() -ne '') {
-            foreach ($raw in ($rawArgs -split ',')) {
-                $a = $raw.Trim()
-                # Expand inner ${var} so e.g. ${ext:authentication.GetPassword(${username})}
-                # resolves to GetPassword('yauser1') before the call.
-                foreach ($key in $vars.Keys) {
-                    $a = $a -replace [regex]::Escape("`${$key}"), $vars[$key]
-                }
-                # Restore any $$ escapes the caller had in the arg text
-                # so the extension sees the user's intended literal `$`,
-                # not the internal sentinel.
-                $argList += $a.Replace($sentinel, '$')
-            }
-        }
-        return [string](Invoke-ExtensionExpression -Area $area -Method $method -ArgList $argList)
-    })
-}
-
-function Expand-Variable {
-    param([string]$Text, [hashtable]$Variables)
-    if ($null -eq $Text) { return $Text }
-    # Escape pass: $$ → sentinel hides escaped dollars from both the
-    # ${ext:...} regex and the ${var} text replacement below. The
-    # closing sentinel → $ pass at the end restores them. So $${foo}
-    # survives as literal "${foo}", and $$$${foo} survives as "$${foo}".
-    $result = $Text.Replace('$$', $script:DollarSentinel)
-    # ${ext:...} expressions are resolved first so any ${var} placeholders
-    # inside their args see the current Variables table.
-    $result = Expand-ExtensionExpression -Text $result -Variables $Variables
-    # [string]::Replace is literal substitution -- no regex compile, no
-    # [regex]::Escape needed for $key, no $1-backreference surprise from
-    # -replace if a Variables value contained dollar-digit text.
-    foreach ($key in $Variables.Keys) {
-        $result = $result.Replace("`${$key}", [string]$Variables[$key])
-    }
-    # Restore $$ escapes.
-    return $result.Replace($script:DollarSentinel, '$')
-}
-
 # ── Main executor ────────────────────────────────────────────────────────────
-
-<#
-.SYNOPSIS
-    Parses a YAML sequence file into an OrderedDictionary.
-.DESCRIPTION
-    Centralises the powershell-yaml dependency for every sequence reader
-    (Invoke-Sequence, Test.SequencePlanner, Test-Sequence). Uses
-    -Ordered so the steps array and the variables map preserve their
-    on-disk order. The returned object is an [OrderedDictionary]; callers
-    must use .Keys / .Contains() rather than .PSObject.Properties, since
-    the YAML parser does not produce PSCustomObject.
-#>
-function Read-SequenceFile {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        # Bypass the mtime-keyed cache for diagnostic / probe call
-        # sites that need a guaranteed fresh read.
-        [switch]$NoCache
-    )
-    if (-not (Get-Module powershell-yaml)) {
-        if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
-            throw "powershell-yaml is required to read sequence files. Install with: Install-Module -Name powershell-yaml -Scope CurrentUser"
-        }
-        Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
-    }
-    # Mtime-keyed parse cache, parallel to Test.Config's pattern.
-    # The planner walks every sequence in the chain once per Resolve-
-    # CyclePlan call; without a cache that's 50+ YAML parses per cycle
-    # (~300-500 ms). Cache key is absolute path + LastWriteTimeUtc.
-    if (-not $script:SequenceFileCache) { $script:SequenceFileCache = @{} }
-    if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
-        $resolved = (Resolve-Path -LiteralPath $Path).Path
-        $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
-        if ($script:SequenceFileCache.ContainsKey($resolved)) {
-            $entry = $script:SequenceFileCache[$resolved]
-            if ($entry.Mtime -eq $mtime) { return $entry.Parsed }
-        }
-    }
-    try {
-        $parsed = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered
-        if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
-            $resolved = (Resolve-Path -LiteralPath $Path).Path
-            $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
-            $script:SequenceFileCache[$resolved] = @{ Mtime = $mtime; Parsed = $parsed }
-        }
-        return $parsed
-    } catch {
-        # YamlDotNet's SyntaxErrorException carries Start/End marks with
-        # Line/Column, but powershell-yaml wraps it in a generic
-        # MethodInvocationException whose message just says "Exception
-        # calling 'Load' with '1' argument(s): <inner>". Walk the
-        # InnerException chain to find the SyntaxErrorException, pull the
-        # marks, and re-throw with file path + line:col so the operator
-        # doesn't have to bisect the sequence tree by hand.
-        $err = $_.Exception
-        $synErr = $null
-        $probe = $err
-        while ($probe) {
-            if ($probe.GetType().FullName -eq 'YamlDotNet.Core.SyntaxErrorException') {
-                $synErr = $probe; break
-            }
-            $probe = $probe.InnerException
-        }
-        if ($synErr) {
-            $line = $synErr.Start.Line
-            $col  = $synErr.Start.Column
-            throw "YAML parse error in $Path at line ${line}:${col}: $($synErr.Message)"
-        }
-        throw "YAML parse error in $Path`: $($err.Message)"
-    }
-}
-
-<#
-.SYNOPSIS
-    Returns the active sequence mode (gui or ssh) from test.config.yml.
-.DESCRIPTION
-    Maps test.config.yml keystrokeMechanism to the sequence subfolder:
-    "SSH" -> "ssh", anything else -> "gui". Callers use this to build
-    mode-specific paths like <sequencesDir>/<mode>/<name>.yml.
-#>
-function Get-SequenceMode {
-    if ($script:DefaultKeystrokeMechanism -eq "SSH") { return "ssh" }
-    return "gui"
-}
-
-<#
-.SYNOPSIS
-    Given a sequence path in one mode's subfolder, return the path in another mode's subfolder.
-.DESCRIPTION
-    Swaps the mode subfolder (gui <-> ssh) while keeping the sequence filename
-    and the parent sequences directory. Returns $null if the input path is not
-    under a recognised mode subfolder. Callers are responsible for Test-Path-ing
-    the result before using it.
-#>
-function Get-SequenceModePath {
-    param(
-        [Parameter(Mandatory)][string]$SequencePath,
-        [Parameter(Mandatory)][ValidateSet('gui', 'ssh')][string]$Mode
-    )
-    $leaf      = Split-Path -Leaf   $SequencePath
-    $parent    = Split-Path -Parent $SequencePath
-    $grandparent = Split-Path -Parent $parent
-    if (-not $grandparent) { return $null }
-    return (Join-Path (Join-Path $grandparent $Mode) $leaf)
-}
-
-<#
-.SYNOPSIS
-    Returns the ordered list of project test/<mode>/ directories beneath
-    the cloned project root, e.g. project/example/website/test/gui/.
-.DESCRIPTION
-    The cycle clones test.config.yml's repositories.projectUrl into <RepoRoot>/project/. Each
-    project under that tree may ship its own test sequences in
-    <project>/test/<mode>/. We walk project/ once and collect every
-    directory whose name matches the requested mode and whose immediate
-    parent is named "test". This keeps depth flexible — projects sit at
-    project/<category>/<name>/test/<mode>/ (e.g. example/website) or at
-    project/<name>/test/<mode>/ (e.g. template) — without callers having
-    to know the layout.
-
-    project/test/ (cycle config holder) deliberately has no gui/ssh
-    subdirs, so it is naturally excluded.
-#>
-function Get-ProjectTestSearchDir {
-    param(
-        [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][ValidateSet('gui', 'ssh')][string]$Mode
-    )
-    $projectRoot = Join-Path $RepoRoot 'project'
-    if (-not (Test-Path $projectRoot)) { return @() }
-    return @(
-        Get-ChildItem -Path $projectRoot -Directory -Recurse -Filter $Mode -ErrorAction SilentlyContinue |
-            Where-Object { (Split-Path -Leaf (Split-Path -Parent $_.FullName)) -eq 'test' } |
-            ForEach-Object { $_.FullName }
-    )
-}
-
-<#
-.SYNOPSIS
-    Returns the single project-tree match for $FileName under test/$Mode/ folders.
-.DESCRIPTION
-    Scans every project test/<Mode>/ folder returned by Get-ProjectTestSearchDir
-    for a file with the exact $FileName. Returns the full path when exactly one
-    hit is found; $null when none. When two or more hits are found, throws a
-    PlannerFatal exception so the cycle aborts before any guest runs --
-    duplicates indicate an ambiguous plan (two examples both shipping the same
-    sequence name) and the operator must decide which one wins.
-.PARAMETER RepoRoot
-    Framework repo root. The project clone lives at <RepoRoot>/project/.
-.PARAMETER Mode
-    Keystroke mechanism ('gui' or 'ssh') -- selects the test/<mode>/ subfolder.
-.PARAMETER FileName
-    Sequence basename WITH extension, e.g. "workload.guest.ubuntu.server.24.yml".
-    Host-specific variants get passed in with the suffix already applied.
-#>
-function Find-ProjectSequenceFile {
-    param(
-        [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][ValidateSet('gui', 'ssh')][string]$Mode,
-        [Parameter(Mandatory)][string]$FileName
-    )
-    $hits = @(
-        foreach ($d in (Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode $Mode)) {
-            $candidate = Join-Path $d $FileName
-            if (Test-Path $candidate) { $candidate }
-        }
-    )
-    if ($hits.Count -gt 1) {
-        $list = ($hits | ForEach-Object { "    $_" }) -join "`n"
-        throw "PlannerFatal: $($hits.Count) project sequence files named '$FileName' found under test/$Mode/ folders:`n$list`nKeep only one so the planner can resolve a single sequence file."
-    }
-    if ($hits.Count -eq 1) { return $hits[0] }
-    return $null
-}
-
-<#
-.SYNOPSIS
-    Resolves a sequence name to the path under the active mode subfolder, with gui fallback.
-.DESCRIPTION
-    Search order:
-      1. Project tree:   project/<...>/test/<mode>/<Name>.[<host-short>.]yml
-      2. Framework:      <SequencesDir>/<mode>/<Name>.[<host-short>.]yml
-      3. Framework gui:  <SequencesDir>/gui/<Name>.[<host-short>.]yml (when mode != gui)
-    Project-tree matches win so a project can override a framework
-    sequence with the same name. Returns $null when no tier matches --
-    callers should pair this with Get-SequenceSearchPath to report the
-    actual locations tried instead of inventing a "resolved" path.
-.PARAMETER SequencesDir
-    Path to the framework sequences root (e.g. test/sequences). The gui/
-    and ssh/ subfolders live directly beneath this.
-.PARAMETER Name
-    Sequence basename without extension, e.g. "workload.guest.ubuntu.server.24".
-.PARAMETER HostType
-    Optional. When supplied, host-specific variants
-    (<Name>.<host-short>.yml) are tried before the unsuffixed file.
-.PARAMETER RepoRoot
-    Optional. When supplied, project-tree dirs (project/<...>/test/<mode>/)
-    are searched first. Omit for framework-only resolution.
-#>
-function Resolve-SequencePath {
-    param(
-        [Parameter(Mandatory)][string]$SequencesDir,
-        [Parameter(Mandatory)][string]$Name,
-        [string]$HostType,
-        [string]$RepoRoot
-    )
-    # When a HostType is provided, prefer a host-specific sequence file
-    # (filename suffix == HostType minus the 'host.' prefix). This lets a
-    # single GuestKey ship divergent sequences across hosts -- e.g. KVM's
-    # ubuntu.server.24 uses a cloud-image (no autoinstall, boots straight to
-    # login) while Hyper-V's drives subiquity through autoinstall first.
-    # When $HostType is null/empty the host-specific tiers are skipped.
-    $mode = Get-SequenceMode
-    $hostShort = $null
-    if ($HostType) { $hostShort = $HostType -replace '^host\.','' }
-
-    # Default RepoRoot to parent of SequencesDir's parent (test/sequences -> test -> repo).
-    # Callers that already know RepoRoot can pass it explicitly to skip the inference.
-    if (-not $RepoRoot) {
-        $maybeTest = Split-Path -Parent $SequencesDir
-        if ($maybeTest) { $RepoRoot = Split-Path -Parent $maybeTest }
-    }
-
-    # Tier 1: project tree. Scan EVERY test/<mode>/ folder under the project
-    # root via Find-ProjectSequenceFile -- examples are self-contained, so a
-    # sequence may live under any example's test tree. When two folders
-    # contain the same filename, Find-ProjectSequenceFile throws PlannerFatal
-    # so the operator resolves the duplicate before the cycle proceeds (see
-    # the catch around Resolve-CyclePlan in Invoke-TestInnerRunner.ps1).
-    if ($RepoRoot) {
-        $modeOrder = @($mode)
-        if ($mode -ne 'gui') { $modeOrder += 'gui' }
-        foreach ($searchMode in $modeOrder) {
-            if ($hostShort) {
-                $hit = Find-ProjectSequenceFile -RepoRoot $RepoRoot -Mode $searchMode -FileName "$Name.$hostShort.yml"
-                if ($hit) { return $hit }
-            }
-            $hit = Find-ProjectSequenceFile -RepoRoot $RepoRoot -Mode $searchMode -FileName "$Name.yml"
-            if ($hit) { return $hit }
-        }
-    }
-
-    # Tier 2/3: framework SequencesDir.
-    if ($hostShort) {
-        $hostModePath = Join-Path (Join-Path $SequencesDir $mode) "$Name.$hostShort.yml"
-        if (Test-Path $hostModePath) { return $hostModePath }
-    }
-    $modePath = Join-Path (Join-Path $SequencesDir $mode) "$Name.yml"
-    if (Test-Path $modePath) { return $modePath }
-    if ($mode -ne 'gui') {
-        if ($hostShort) {
-            $hostGuiPath = Join-Path (Join-Path $SequencesDir 'gui') "$Name.$hostShort.yml"
-            if (Test-Path $hostGuiPath) { return $hostGuiPath }
-        }
-        $guiPath = Join-Path (Join-Path $SequencesDir 'gui') "$Name.yml"
-        if (Test-Path $guiPath) { return $guiPath }
-    }
-    # Nothing matched. Returning the last-tried path here would lie about
-    # where the file "lives" -- callers Test-Path'd it and emitted warnings
-    # naming a path that was never an actual hit. Return $null so the miss
-    # is unambiguous; callers pair this with Get-SequenceSearchPath when
-    # they need to show the operator which locations were searched.
-    return $null
-}
-
-<#
-.SYNOPSIS
-    Returns the ordered list of paths Resolve-SequencePath would attempt for $Name.
-.DESCRIPTION
-    Mirrors the search order of Resolve-SequencePath without touching the
-    filesystem -- every tier (project tree x mode x host-suffix, then
-    framework SequencesDir tiers) is materialised so callers can show the
-    operator exactly which locations were checked when nothing matched.
-    Use this in "sequence not found" diagnostics instead of printing the
-    last-attempted path as if it were the canonical location.
-#>
-function Get-SequenceSearchPath {
-    param(
-        [Parameter(Mandatory)][string]$SequencesDir,
-        [Parameter(Mandatory)][string]$Name,
-        [string]$HostType,
-        [string]$RepoRoot
-    )
-    $mode = Get-SequenceMode
-    $hostShort = $null
-    if ($HostType) { $hostShort = $HostType -replace '^host\.','' }
-    if (-not $RepoRoot) {
-        $maybeTest = Split-Path -Parent $SequencesDir
-        if ($maybeTest) { $RepoRoot = Split-Path -Parent $maybeTest }
-    }
-
-    $paths = New-Object System.Collections.Generic.List[string]
-    if ($RepoRoot) {
-        $modeOrder = @($mode)
-        if ($mode -ne 'gui') { $modeOrder += 'gui' }
-        foreach ($searchMode in $modeOrder) {
-            foreach ($d in (Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode $searchMode)) {
-                if ($hostShort) { [void]$paths.Add((Join-Path $d "$Name.$hostShort.yml")) }
-                [void]$paths.Add((Join-Path $d "$Name.yml"))
-            }
-        }
-    }
-    if ($hostShort) { [void]$paths.Add((Join-Path (Join-Path $SequencesDir $mode) "$Name.$hostShort.yml")) }
-    [void]$paths.Add((Join-Path (Join-Path $SequencesDir $mode) "$Name.yml"))
-    if ($mode -ne 'gui') {
-        if ($hostShort) { [void]$paths.Add((Join-Path (Join-Path $SequencesDir 'gui') "$Name.$hostShort.yml")) }
-        [void]$paths.Add((Join-Path (Join-Path $SequencesDir 'gui') "$Name.yml"))
-    }
-    return $paths.ToArray()
-}
 
 <#
 .SYNOPSIS
@@ -1880,9 +1256,14 @@ function Invoke-Sequence {
                     line      = $Line
                     updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 }
-                $tmp = "$currentActionFile.tmp"
-                $doc | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding utf8NoBOM
-                Move-Item -Path $tmp -Destination $currentActionFile -Force
+                # Route through the shared atomic writer: a fixed "$Path.tmp"
+                # lets a concurrent writer's rename clobber a half-written temp,
+                # so the primitive uses a per-PID unique temp name (and a
+                # guaranteed no-BOM encoding) in one place. It returns $false
+                # rather than throwing, so surface that into the retry loop.
+                if (-not (Write-YurunaStateFileJson -Path $currentActionFile -InputObject $doc -Confirm:$false)) {
+                    throw "Write-YurunaStateFileJson returned false for $currentActionFile"
+                }
                 return
             } catch {
                 $lastErr = $_
@@ -1977,7 +1358,7 @@ function Invoke-Sequence {
     # $script:Default* defaults from the enclosing function scope via
     # PowerShell's dynamic-scoping read semantics; the param $Steps shadows
     # the outer $steps within the block. On step failure the block captures
-    # context into $script:LastFailure* and returns $false. The OUTER call
+    # context into the shared failure store ($script:Fail) and returns $false. The OUTER call
     # site below is what writes last_failure.json + failure screenshot +
     # post-failure pause, so a transient failure inside a retry attempt
     # never pollutes last_failure.json -- only an exhausted-retry failure
@@ -2086,6 +1467,14 @@ function Invoke-Sequence {
                 Description           = $desc
             }
             $ok = Invoke-SequenceActionHandler -Name $step.action -Context $ctx
+            # A handler that renamed the VM mid-sequence (saveDiskSnapshot
+            # promotes a snapshot by renaming the live VM) reports the new name
+            # via $ctx.NewVMName. Propagate it so subsequent steps -- and every
+            # ${vmName} expansion -- target the renamed VM, not the stale name.
+            if ($ctx.NewVMName) {
+                $VMName = [string]$ctx.NewVMName
+                $vars['vmName'] = $VMName
+            }
         } else {
             Write-Warning "Unknown action '$($step.action)' -- treating as failure."
             $ok = $false
@@ -2154,7 +1543,7 @@ function Invoke-Sequence {
         # Track the last passing step number so the failure payload can
         # surface lastSucceededStepNumber -- a remediator that wants to
         # replay needs to know the boundary it can safely resume past.
-        if ($ok) { $script:LastSucceededStepNumber = $stepNum }
+        if ($ok) { $script:Fail.LastSucceededStepNumber = $stepNum }
 
         # Emit one structured row per step execution. stepName is the
         # RAW (pre-expansion) YAML `description:` -- variables like
@@ -2189,7 +1578,7 @@ function Invoke-Sequence {
             # Canonical builder: Test.SequenceAction\Get-SequenceActionFailureLabel.
             # Each verb's FailureLabel scriptblock lives next to its capability
             # requirements at the bottom of this module — search for
-            # Register-SequenceAction. The OUTER call site reads $script:Last-
+            # Register-SequenceAction. The OUTER call site reads $script:Fail.Last-
             # Failure* below to write last_failure.json + the failure screen-
             # shot. Capturing here (and only returning $false) keeps transient
             # retry-attempt failures from leaving a stale last_failure.json
@@ -2200,29 +1589,29 @@ function Invoke-Sequence {
             # the step label so the runner's ERROR banner and the per-run
             # failure JSON both say *why* the step died instead of the
             # generic "pattern not found within Ns". Only waitForText /
-            # waitForAndEnter / passwdPrompt set this signal; for other
-            # actions the variable is $null and the label is unchanged.
-            if (($step.action -eq 'waitForText' -or $step.action -eq 'waitForAndEnter' -or $step.action -eq 'passwdPrompt') -and
-                $script:WaitForTextMatchedFailurePattern) {
-                $actionLabel = $actionLabel + " -- matched failurePattern `"$($script:WaitForTextMatchedFailurePattern)`""
+            # waitForAndEnter / passwdPrompt / sshWaitReady set this signal;
+            # for other actions it is $null and the label is unchanged.
+            if (($step.action -eq 'waitForText' -or $step.action -eq 'waitForAndEnter' -or $step.action -eq 'passwdPrompt' -or $step.action -eq 'sshWaitReady') -and
+                $script:Fail.WaitForTextMatchedFailurePattern) {
+                $actionLabel = $actionLabel + " -- matched failurePattern `"$($script:Fail.WaitForTextMatchedFailurePattern)`""
             }
 
-            $script:LastFailureLabel       = $actionLabel
-            $script:LastFailureDescription = $desc
-            $script:LastFailedAction       = $step.action
-            $script:LastFailedStepNumber   = $stepNum
+            $script:Fail.LastFailureLabel       = $actionLabel
+            $script:Fail.LastFailureDescription = $desc
+            $script:Fail.LastFailedAction       = $step.action
+            $script:Fail.LastFailedStepNumber   = $stepNum
             return $false
         }
         }  # end foreach inside $invokeStepBlock
         return $true
     }  # end $invokeStepBlock
 
-    $script:LastFailureLabel       = $null
-    $script:LastFailureDescription = $null
-    $script:LastFailedAction       = $null
-    $script:LastFailedStepNumber   = 0
+    $script:Fail.LastFailureLabel       = $null
+    $script:Fail.LastFailureDescription = $null
+    $script:Fail.LastFailedAction       = $null
+    $script:Fail.LastFailedStepNumber   = 0
     # Inner-verb capture for retry-exhausted failures. The outer per-step
-    # block at line ~2063 overwrites $script:LastFailedAction with the
+    # block at line ~2063 overwrites $script:Fail.LastFailedAction with the
     # OUTER step's action name (= 'retry') whenever a Handler returns
     # $false; that collapses the deepest inner verb's classification
     # into 'retry_exhausted'. The retry Handler captures the inner verb
@@ -2231,148 +1620,34 @@ function Invoke-Sequence {
     # plus the inner class an autonomous remediator needs to pick the
     # right recovery (an OCR timeout asks for a different remediation
     # than an SSH down).
-    $script:LastInnerFailedAction         = $null
-    $script:LastInnerFailureClass         = $null
-    $script:LastInnerSeverity             = $null
-    $script:LastInnerSuggestedRecoveries  = @()
+    $script:Fail.LastInnerFailedAction         = $null
+    $script:Fail.LastInnerFailureClass         = $null
+    $script:Fail.LastInnerSeverity             = $null
+    $script:Fail.LastInnerSuggestedRecoveries  = @()
     # lastSucceededStepNumber: the step-N boundary a replay can safely
     # resume past. Reset to 0 at sequence start so a fresh-cycle
     # failure on step 1 surfaces as "no step succeeded" rather than
     # carrying a leftover value from a prior sequence's run.
-    $script:LastSucceededStepNumber       = 0
+    $script:Fail.LastSucceededStepNumber       = 0
     $result = & $invokeStepBlock -Steps $steps
     if (-not $result) {
-        # Build the failure-context JSON from the deepest captured context.
-        # For a retry-exhausted failure, $script:LastFailureLabel was already
-        # wrapped in "retry exhausted (N attempts): ..." by the retry handler,
-        # and $script:LastFailedStepNumber is the OUTER retry step's number
-        # (not the inner sub-step) so the operator sees the outer position.
-        # last_failure.json schema v2: the v1 fields stay as-is for
-        # back-compat; v2 adds machine-readable failureClass / severity /
-        # suggestedRecoveries / actionVerb / context so a downstream
-        # remediation loop can route on the class without regex-parsing
-        # the human label. See docs/failure-schema.md.
-        $verbEntry = Get-SequenceAction -Name $script:LastFailedAction
-        $failureClass = if ($verbEntry) { $verbEntry.FailureClass } else { 'unknown' }
-        $severity     = if ($verbEntry) { $verbEntry.Severity }     else { 'unknown' }
-        # Two-step assignment so an empty SuggestedRecoveries does not
-        # collapse to $null via the if-pipeline flatten (see step_end
-        # emit above).
-        [string[]]$suggested = @()
-        if ($verbEntry -and $null -ne $verbEntry.SuggestedRecoveries) {
-            [string[]]$suggested = @($verbEntry.SuggestedRecoveries)
-        }
-        # Failure-pattern annotation surfaces when Wait-ForText short-
-        # circuited on a hard-block pattern (set by the engine inside the
-        # waitForText/waitForAndEnter/passwdPrompt Handlers).
-        $matchedFailPattern = $script:WaitForTextMatchedFailurePattern
-        if ($matchedFailPattern) { $failureClass = 'pattern_matched_failure' }
-        # When the deepest failure was inside a retry block, the retry
-        # Handler captured the inner verb's class into
-        # $script:LastInnerFailedAction. Surface BOTH the outer
-        # 'retry_exhausted' classification and the inner verb's class
-        # so a remediator can route on the inner cause.
-        #
-        # Deep-link fields under .context: failureScreenshotPath and
-        # failureOcrPath are relative to the cycle log dir, so a
-        # consumer that has the cycle folder URL can deep-link directly.
-        # cycleFolderUrl is intentionally omitted here (a remediator
-        # joining last_failure.json with the notification's EventData
-        # already has it from Get-FailureEventData); we surface the
-        # cycleFolder *path* so a same-host consumer can resolve files
-        # without re-deriving format.
-        $failScreenName = "failure_screenshot_${VMName}.png"
-        $failOcrName    = "failure_ocr_${VMName}.txt"
-        $failureInfo = [ordered]@{
-            schemaVersion = 2
-            stepNumber    = $script:LastFailedStepNumber
-            totalSteps    = $steps.Count
-            action        = $script:LastFailureLabel
-            description   = $script:LastFailureDescription
-            vmName        = $VMName
-            guestKey      = $GuestKey
-            timestamp     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
-            # v2 fields below this line.
-            failureClass        = $failureClass
-            severity            = $severity
-            suggestedRecoveries = $suggested
-            actionVerb          = [string]$script:LastFailedAction
-            # Replay boundary: step N succeeded; step N+1 (== stepNumber)
-            # is where the failure landed. A remediator that wants to
-            # resume past N must guarantee the precondition state for
-            # N+1 itself -- this field is the "what's safe to replay
-            # past" boundary, not an automatic-resume-from pointer.
-            lastSucceededStepNumber = [int]$script:LastSucceededStepNumber
-            # Inner verb fields: only set when the failure bubbled up
-            # through a `retry` Handler that exhausted its attempts.
-            # $null on every non-retry failure so a remediator can
-            # branch on presence.
-            innerActionVerb            = $script:LastInnerFailedAction
-            innerFailureClass          = $script:LastInnerFailureClass
-            innerSeverity              = $script:LastInnerSeverity
-            innerSuggestedRecoveries   = @($script:LastInnerSuggestedRecoveries)
-            context             = [ordered]@{
-                hostType              = $HostType
-                matchedFailurePattern = $matchedFailPattern
-                sequencePath          = $SequencePath
-                cycleFolder           = $logDir
-                # Relative paths so a consumer that only has the
-                # cycleFolder URL can deep-link without absolute-path
-                # gymnastics. Files may not exist (waitForText emits
-                # OCR text only; non-OCR failures emit only the
-                # screenshot); presence is checked at deep-link time.
-                failureScreenshotPath = $failScreenName
-                failureOcrPath        = $failOcrName
-            }
-        } | ConvertTo-Json -Depth 4
+        # Build the schema-v2 failure record once; New-SequenceFailureRecord
+        # reads the $script:Fail slots and returns both the last_failure.json
+        # ordered dict and the matching step_failure NDJSON record so the file
+        # and the event stream can never drift. See docs/failure-schema.md.
+        $failRec = New-SequenceFailureRecord -Reason 'step' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $steps.Count
         $failureFile = Join-Path $logDir "last_failure.json"
-        # Atomic write: a remediator/status reader must never observe a
-        # truncated last_failure.json mid-write (partial-write regression
-        # class). Write-YurunaStateFile does temp-write + rename.
-        $null = Write-YurunaStateFile -Path $failureFile -Content $failureInfo -Confirm:$false
-        # Also emit a single NDJSON line for downstream stream consumers
-        # (status server, future remediation loop, CI hook).
-        Send-CycleEventSafely -EventRecord @{
-            timestamp               = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-            event                   = 'step_failure'
-            stepNumber              = $script:LastFailedStepNumber
-            totalSteps              = $steps.Count
-            actionVerb              = [string]$script:LastFailedAction
-            # ok=false mirrors the step_end shape so an LLM joining
-            # the two event types can filter on a single field.
-            ok                      = $false
-            # No durationMs available on failure path (the failing
-            # step's stopwatch was captured by the outer block but
-            # not threaded through to this emit). Surfacing $null
-            # rather than omitting the field keeps schema parity
-            # with step_end.
-            durationMs              = $null
-            failureClass            = $failureClass
-            severity                = $severity
-            suggestedRecoveries     = $suggested
-            lastSucceededStepNumber = [int]$script:LastSucceededStepNumber
-            # Inner verb fields mirror last_failure.json v2 above so
-            # a streaming consumer doesn't need to cross-reference
-            # the static file for retry-exhausted classification.
-            innerActionVerb            = $script:LastInnerFailedAction
-            innerFailureClass          = $script:LastInnerFailureClass
-            innerSeverity              = $script:LastInnerSeverity
-            innerSuggestedRecoveries   = @($script:LastInnerSuggestedRecoveries)
-            vmName                  = $VMName
-            guestKey                = $GuestKey
-            hostType                = $HostType
-            action                  = $script:LastFailureLabel
-            description             = $script:LastFailureDescription
-            sequencePath            = $SequencePath
-            failureScreenshotPath   = "failure_screenshot_${VMName}.png"
-            failureOcrPath          = "failure_ocr_${VMName}.txt"
-        }
+        # Atomic write: a remediator/status reader must never observe a truncated
+        # last_failure.json mid-write (partial-write regression class).
+        $null = Write-YurunaStateFile -Path $failureFile -Content ($failRec.File | ConvertTo-Json -Depth 6) -Confirm:$false
+        # One NDJSON line for stream consumers (status server, remediation loop, CI hook).
+        Send-CycleEventSafely -EventRecord $failRec.Event
 
         # For non-OCR failures, capture a screenshot now (waitForText / waitForAndEnter
         # / passwdPrompt / fetchAndExecute already save one in their own failure paths).
         # Use the DEEPEST failed action's name -- after retry-exhausted, that's the inner
         # action, not 'retry' itself.
-        if ($script:LastFailedAction -ne "waitForText" -and $script:LastFailedAction -ne "waitForAndEnter" -and $script:LastFailedAction -ne "passwdPrompt" -and $script:LastFailedAction -ne "fetchAndExecute") {
+        if ($script:Fail.LastFailedAction -ne "waitForText" -and $script:Fail.LastFailedAction -ne "waitForAndEnter" -and $script:Fail.LastFailedAction -ne "passwdPrompt" -and $script:Fail.LastFailedAction -ne "fetchAndExecute") {
             $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
             $captured = Get-VMScreenshot -VMName $VMName -OutFile $failScreenPath
             if ($captured) {
@@ -2387,7 +1662,7 @@ function Invoke-Sequence {
         # context while the user decides whether to resume. Resuming does not
         # change the outcome -- the step is still a failure -- it only gives
         # the user time to investigate before the runner moves on.
-        & $waitWhilePaused "[$($script:LastFailedStepNumber)/$($steps.Count)] FAIL"
+        & $waitWhilePaused "[$($script:Fail.LastFailedStepNumber)/$($steps.Count)] FAIL"
         return $false
     }
 
@@ -2432,86 +1707,23 @@ function Invoke-Sequence {
     # steps) silently downgrades last_failure.json from v2 to a v0
     # crash payload, stripping failureClass/severity/suggested
     # Recoveries -- the exact fields a downstream remediator routes
-    # on. When $script:LastFailedAction was already captured by the
+    # on. When $script:Fail.LastFailedAction was already captured by the
     # foreach at L~2162 we resolve its registry entry; otherwise we
-    # emit an engine_crash classification so the schema shape is
-    # always v2 and the crash diagnostics live under .context.
+    # fall back to the canonical 'unknown' classification (the same
+    # fallback the per-step paths above use when a verb is unresolved)
+    # so the record stays schema-v2 AND passes the failureClass/severity
+    # enum validation in Test.EventSchema. The crash stays distinguishable
+    # via the "engine crash: ..." action label, the crashError field, and
+    # the .context.crash block -- a separate enum value carries no routing
+    # weight, since the remediation dispatcher already maps 'unknown' to
+    # pause-and-inspect.
     try {
-        $crashAction = if ($script:LastFailedAction) { [string]$script:LastFailedAction } else { 'script_error' }
-        $crashVerb   = if ($script:LastFailedAction) { Get-SequenceAction -Name $script:LastFailedAction } else { $null }
-        $crashClass  = if ($crashVerb) { [string]$crashVerb.FailureClass } else { 'engine_crash' }
-        $crashSev    = if ($crashVerb) { [string]$crashVerb.Severity }     else { 'fatal' }
-        # Two-step assignment so an empty SuggestedRecoveries does not
-        # collapse to $null via the if-pipeline flatten.
-        [string[]]$crashSugg = @('Inspect the crash origin/stack under .context; cycle continues unless StopOnFailure is set.')
-        if ($crashVerb -and $null -ne $crashVerb.SuggestedRecoveries) {
-            [string[]]$crashSugg = @($crashVerb.SuggestedRecoveries)
-        }
-        $crashLabel  = if ($script:LastFailureLabel) { [string]$script:LastFailureLabel } else { "engine crash: $($_.Exception.Message)" }
-        $crashDesc   = if ($script:LastFailureDescription) { [string]$script:LastFailureDescription } else { '(crash before step completion)' }
-        $crashStep   = if ($script:LastFailedStepNumber) { [int]$script:LastFailedStepNumber } else { 0 }
-        $crashInfo = [ordered]@{
-            schemaVersion = 2
-            stepNumber    = $crashStep
-            totalSteps    = [int]$steps.Count
-            action        = $crashLabel
-            description   = $crashDesc
-            vmName        = $VMName
-            guestKey      = $GuestKey
-            timestamp     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
-            failureClass        = $crashClass
-            severity            = $crashSev
-            suggestedRecoveries = $crashSugg
-            actionVerb          = $crashAction
-            context             = [ordered]@{
-                hostType              = $HostType
-                matchedFailurePattern = $script:WaitForTextMatchedFailurePattern
-                sequencePath          = $SequencePath
-                crash = [ordered]@{
-                    error  = "$_"
-                    origin = $_.InvocationInfo ? $_.InvocationInfo.PositionMessage : $null
-                    stack  = $_.ScriptStackTrace
-                }
-            }
-        } | ConvertTo-Json -Depth 6
-        # Atomic, best-effort: a reader must never see a truncated crash
-        # record. Write-YurunaStateFile returns $false (rather than
-        # throwing) on failure, matching the prior SilentlyContinue
-        # behavior while eliminating the partial-write window.
-        $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content $crashInfo -Confirm:$false
-        # Mirror the normal failure path's NDJSON emission. Without this,
-        # a streaming consumer following cycle.events.ndjson sees the
-        # last step_end but no step_failure -- the cycle silently goes
-        # quiet, indistinguishable from a clean exit on the wire. Same
-        # superset shape as the normal-path step_failure event (includes
-        # inner-verb fields when retry was in flight) so downstream
-        # joins on schema don't have to special-case engine_crash.
-        Send-CycleEventSafely -EventRecord @{
-            timestamp                = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-            event                    = 'step_failure'
-            stepNumber               = $crashStep
-            totalSteps               = [int]$steps.Count
-            actionVerb               = $crashAction
-            ok                       = $false
-            durationMs               = $null
-            failureClass             = $crashClass
-            severity                 = $crashSev
-            suggestedRecoveries      = $crashSugg
-            lastSucceededStepNumber  = [int]$script:LastSucceededStepNumber
-            innerActionVerb          = $script:LastInnerFailedAction
-            innerFailureClass        = $script:LastInnerFailureClass
-            innerSeverity            = $script:LastInnerSeverity
-            innerSuggestedRecoveries = @($script:LastInnerSuggestedRecoveries)
-            vmName                   = $VMName
-            guestKey                 = $GuestKey
-            hostType                 = $HostType
-            action                   = $crashLabel
-            description              = $crashDesc
-            sequencePath             = $SequencePath
-            failureScreenshotPath    = "failure_screenshot_${VMName}.png"
-            failureOcrPath           = "failure_ocr_${VMName}.txt"
-            crashError               = "$_"
-        }
+        $failRec = New-SequenceFailureRecord -Reason 'crash' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $steps.Count -CrashError $_
+        # Atomic, best-effort: a reader must never see a truncated crash record.
+        $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content ($failRec.File | ConvertTo-Json -Depth 6) -Confirm:$false
+        # Mirror the normal failure path NDJSON so a stream consumer does not see
+        # the cycle go silent (last step_end but no step_failure).
+        Send-CycleEventSafely -EventRecord $failRec.Event
     } catch {
         $writeErr = $_
         Write-Warning "Could not write last_failure.json: $($writeErr.Exception.Message)"
@@ -2550,206 +1762,10 @@ function Invoke-Sequence {
 # The catalog of built-in verb Handlers lives in
 # Test.SequenceHandler.psm1, which is imported -Global at module load so
 # its Register-SequenceAction side effects populate the same
-# Test.SequenceAction registry the engine dispatches against. The two
-# verbs below (retry, recoverFromSnapshot) stay in this module because
-# their Handler bodies coordinate $script:LastFailure* state with the
-# engine's foreach loop and recursive $invokeStepBlock; moving them out
-# would require lifting that engine-private state into a shared module.
+# Test.SequenceAction registry the engine dispatches against. That
+# catalog now includes retry and recoverFromSnapshot; the cross-module
+# failure state they coordinate lives in the shared Test.SequenceFailureState
+# store ($script:Fail), so this module stays the pure executor.
 
-Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false `
-    -FailureClass 'retry_exhausted' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
-    -Description 'Wrap inner steps with restart-on-failure semantics.' `
-    -FailureLabel { param($c)
-        $null = $c
-        # Use whatever the deepest inner step set on $script:LastFailureLabel
-        # (the recursive call already wrapped or set it). Fallback to a
-        # generic label when the inner never set one (empty steps block).
-        if ($script:LastFailureLabel) { [string]$script:LastFailureLabel } else { 'retry: no inner failure label captured' }
-    } `
-    -Handler {
-        param([hashtable]$c)
-        # `retry` re-runs inner steps from the top on any failure.
-        # Each attempt invokes $c.InvokeStepBlock recursively on the
-        # inner `steps:` array; the first attempt that runs every
-        # inner step cleanly wins. If all attempts fail, the deepest
-        # inner failure label is wrapped with a "retry exhausted
-        # (N attempts)" prefix so the operator sees both that retry
-        # gave up AND which inner step ran out of patience.
-        $maxAttempts = $c.Step.maxAttempts ? [int]$c.Step.maxAttempts : 3
-        $innerSteps  = @($c.Step.steps)
-        if ($innerSteps.Count -eq 0) {
-            Write-Warning "    [$($c.StepNum)/$($c.StepCount)] retry block has no inner steps; treating as failure."
-            $script:LastFailureLabel       = 'retry: empty steps block'
-            $script:LastFailureDescription = $c.Description
-            $script:LastFailedAction       = 'retry'
-            $script:LastFailedStepNumber   = $c.StepNum
-            return $false
-        }
-        $attemptOk = $false
-        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            # Refresh runner.stepHeartbeat per attempt. The engine
-            # already refreshes at step boundaries (top of
-            # $invokeStepBlock); a multi-attempt retry block runs as
-            # a SINGLE step from the watchdog's perspective and would
-            # blow past stepTimeoutMinutes without ever signalling
-            # proof-of-life. Per-attempt refresh keeps the watchdog
-            # aligned with reality.
-            try {
-                $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
-                [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
-            } catch {
-                Write-Verbose "runner.stepHeartbeat refresh (retry loop) failed: $($_.Exception.Message)"
-            }
-            Write-Information ("    [{0}/{1}] retry attempt {2}/{3}: {4}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts, $c.Description)
-            $attemptOk = & $c.InvokeStepBlock -Steps $innerSteps -ParentOrdinal $c.StepNum -ParentAction 'retry'
-            if ($attemptOk) {
-                Write-Information ("    [{0}/{1}] retry succeeded on attempt {2}/{3}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts)
-                break
-            }
-            if ($attempt -lt $maxAttempts) {
-                Write-Warning ("    [{0}/{1}] retry attempt {2}/{3} failed; restarting from step 1 of {4}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts, $innerSteps.Count)
-                # Back off before the next attempt. Re-running instantly
-                # burns all attempts in milliseconds and gives a transient
-                # fault (network blip, a service still coming up) no time to
-                # clear. Get-PollDelay is jittered + exponentially capped,
-                # so it also breaks lock-step when many guests retry at
-                # once. Refresh the heartbeat first so the watchdog stays
-                # aligned across the wait (mirrors the per-attempt refresh
-                # above).
-                try {
-                    $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
-                    [System.IO.File]::WriteAllText($stepHbFile, [DateTime]::UtcNow.ToString('o'))
-                } catch {
-                    Write-Verbose "runner.stepHeartbeat refresh (retry backoff) failed: $($_.Exception.Message)"
-                }
-                Start-Sleep -Milliseconds (Get-PollDelay -Attempt $attempt)
-            }
-        }
-        if (-not $attemptOk) {
-            # Capture the deepest inner verb's classification BEFORE the
-            # outer per-step block overwrites $script:LastFailedAction
-            # with 'retry'. Without this, v2's failureClass collapses to
-            # 'retry_exhausted' alone and a remediator can't distinguish
-            # the inner cause (OCR timeout vs host_io_blocked vs ...).
-            $innerVerbEntry = Get-SequenceAction -Name $script:LastFailedAction
-            $script:LastInnerFailedAction        = [string]$script:LastFailedAction
-            $script:LastInnerFailureClass        = if ($innerVerbEntry) { [string]$innerVerbEntry.FailureClass } else { 'unknown' }
-            $script:LastInnerSeverity            = if ($innerVerbEntry) { [string]$innerVerbEntry.Severity }     else { 'unknown' }
-            # [string[]] cast prevents the single-element unwrap so a
-            # downstream consumer of $script:LastInnerSuggestedRecoveries
-            # (innerSuggestedRecoveries field on step_failure NDJSON)
-            # always sees a JSON array. Two-step assignment so an empty
-            # SuggestedRecoveries does not collapse to $null via the
-            # if-pipeline flatten.
-            [string[]]$script:LastInnerSuggestedRecoveries = @()
-            if ($innerVerbEntry -and $null -ne $innerVerbEntry.SuggestedRecoveries) {
-                [string[]]$script:LastInnerSuggestedRecoveries = @($innerVerbEntry.SuggestedRecoveries)
-            }
-            $script:LastFailureLabel     = "retry exhausted ($maxAttempts attempts): $script:LastFailureLabel"
-            $script:LastFailedStepNumber = $c.StepNum
-            return $false
-        }
-        return $true
-    }
-# recoverFromSnapshot — declarative auto-recovery primitive.
-# Fires AFTER a prior step's failure when $script:LastFailedAction is
-# set and matches the trigger condition. Restores a known snapshot and
-# starts the VM, leaving the sequence to continue with a clean guest.
-Register-SequenceAction -Name 'recoverFromSnapshot' -HostIORequirement @() -OcrRequired $false `
-    -FailureClass 'snapshot_restore_failed' -Severity 'soft' -SuggestedRecoveries @('abort_cycle') `
-    -Description 'Auto-recovery: when the prior step failed, restore a snapshot and start the VM.' `
-    -FailureLabel { param($c) "recoverFromSnapshot: `"$(& $c.ExpandVariable $c.Step.id $c.Vars)`"" } `
-    -Handler {
-        param([hashtable]$c)
-        # No-op when the prior step succeeded -- this verb only fires on
-        # failure of an earlier step in the same sequence. $script:Last-
-        # FailedStepNumber is set by the engine's failure path.
-        $priorFailed = ($null -ne $script:LastFailedStepNumber -and $script:LastFailedStepNumber -ne 0)
-        if (-not $priorFailed) {
-            Write-Debug "      recoverFromSnapshot: no prior failure; skipping."
-            return $true
-        }
-        $snapId = & $c.ExpandVariable $c.Step.id $c.Vars
-        if (-not $snapId) { Write-Warning "      recoverFromSnapshot: missing required 'id' field."; return $false }
-        if (-not (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue) -or `
-            -not (Get-Command Start-VM -ErrorAction SilentlyContinue)) {
-            Write-Warning "      recoverFromSnapshot: Restore-VMDiskSnapshot or Start-VM not loaded; cannot recover."
-            return $false
-        }
-        # Pre-validation: confirm the snapshot exists before any restore.
-        # Restore-VMDiskSnapshot on a missing snapshot can leave the VM
-        # in an ambiguous state on some hypervisors (Hyper-V silently
-        # no-ops; KVM virsh returns non-zero late, AFTER it has stopped
-        # the domain). Fail-loud here so the operator sees the missing
-        # snapshot, not a stopped VM with no explanation.
-        if (Get-Command Test-VMDiskSnapshot -ErrorAction SilentlyContinue) {
-            $snapExists = $false
-            try { $snapExists = [bool](Test-VMDiskSnapshot -VMName $c.VMName -Id $snapId) }
-            catch {
-                Write-Warning "      recoverFromSnapshot: Test-VMDiskSnapshot threw ($($_.Exception.Message)); proceeding with restore attempt."
-                $snapExists = $true
-            }
-            if (-not $snapExists) {
-                Write-Warning "      recoverFromSnapshot: snapshot '$snapId' not found on $($c.VMName); aborting restore. Manual intervention required."
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    event        = 'snapshot_missing'
-                    vmName       = [string]$c.VMName
-                    snapshotId   = [string]$snapId
-                    handler      = 'recoverFromSnapshot'
-                    failureClass = 'snapshot_restore_failed'
-                    severity     = 'hard'
-                }
-                return $false
-            }
-        }
-        # Manifest identity check; same contract as loadDiskSnapshot.
-        # Missing manifest is warn-only (older snapshots may not have
-        # one); mismatch is a hard refuse.
-        if (Get-Command Test-SnapshotManifestMatch -ErrorAction SilentlyContinue) {
-            $check = Test-SnapshotManifestMatch -VMName $c.VMName -SnapshotId $snapId -HostType $c.HostType
-            if ($check.Status -eq 'mismatch') {
-                Write-Warning "      recoverFromSnapshot: manifest mismatch for '$snapId' on $($c.VMName); aborting restore. $($check.Violations -join '; ')"
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    event        = 'snapshot_manifest_mismatch'
-                    vmName       = [string]$c.VMName
-                    snapshotId   = [string]$snapId
-                    handler      = 'recoverFromSnapshot'
-                    violations   = @($check.Violations)
-                    failureClass = 'snapshot_restore_failed'
-                    severity     = 'hard'
-                }
-                return $false
-            } elseif ($check.Status -eq 'missing') {
-                Write-Warning "      recoverFromSnapshot: no manifest for '$snapId' on $($c.VMName); proceeding (legacy snapshot)."
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    event      = 'snapshot_manifest_missing'
-                    vmName     = [string]$c.VMName
-                    snapshotId = [string]$snapId
-                    handler    = 'recoverFromSnapshot'
-                }
-            }
-        }
-        Write-Information "      recoverFromSnapshot: prior step $script:LastFailedStepNumber failed; restoring '$snapId' on $($c.VMName)."
-        try { $restored = [bool](Restore-VMDiskSnapshot -VMName $c.VMName -Id $snapId -Confirm:$false) }
-        catch { Write-Warning "      recoverFromSnapshot: $($_.Exception.Message)"; return $false }
-        if (-not $restored) { return $false }
-        try {
-            $startRes = Start-VM -VMName $c.VMName -Confirm:$false
-            if ($startRes -is [hashtable] -and -not $startRes.success) {
-                Write-Warning "      recoverFromSnapshot: Start-VM returned failure: $($startRes.errorMessage)"
-                return $false
-            }
-        } catch { Write-Warning "      recoverFromSnapshot: Start-VM threw: $($_.Exception.Message)"; return $false }
-        # Clear the failed-step marker so downstream steps see a clean state.
-        $script:LastFailedStepNumber = 0
-        $script:LastFailureLabel     = $null
-        $script:LastFailedAction     = $null
-        return $true
-    }
-
-Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Resolve-SequencePath, Get-SequenceSearchPath, Get-SequenceMode, Get-SequenceModePath, Get-ProjectTestSearchDir, `
-    Find-ProjectSequenceFile, Read-SequenceFile, Send-Text, Send-Key, Send-Click, `
+Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, Get-PollDelay

@@ -30,9 +30,8 @@ served as JSON + a self-contained HTML page.
 
 ## How it gets onto the caching-proxy VM
 
-The caching-proxy VM's cloud-init `runcmd` (in both
-[host/windows.hyper-v/guest.caching-proxy/vmconfig/user-data](../../../host/windows.hyper-v/guest.caching-proxy/vmconfig/user-data)
-and [host/macos.utm/guest.caching-proxy/vmconfig/user-data](../../../host/macos.utm/guest.caching-proxy/vmconfig/user-data)):
+The caching-proxy VM's cloud-init `runcmd` (in 
+[user-data](../../../host/vmconfig/caching-proxy.base.user-data)):
 
 1. wgets `main.go`, `go.mod`, `caching-proxy-parser.service` from the
    harness's yuruna-repo HTTP server (with the GitHub raw fallback

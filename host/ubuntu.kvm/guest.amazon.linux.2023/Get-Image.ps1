@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e96
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,21 +60,12 @@ if (-not $qcow2Link) {
 }
 $downloadUrl = $sourceUrl + $qcow2Link
 
-function Test-AlreadyCurrent {
-    param([string]$Url, [string]$File, [string]$Sentinel)
-    if (-not (Test-Path -LiteralPath $File)) { return $false }
-    if (-not (Test-Path -LiteralPath $Sentinel)) { return $false }
-    $prior = Get-Content -LiteralPath $Sentinel -ErrorAction SilentlyContinue
-    if ($prior.Count -lt 3) { return $false }
-    if ($prior[1] -ne $Url) { return $false }
-    try {
-        $head = Invoke-WebRequest -Uri $Url -Method Head -ErrorAction Stop
-        $remoteLen = [int64]$head.Headers['Content-Length']
-    } catch { return $false }
-    return ([int64]$prior[2] -eq $remoteLen)
-}
+# Skip-if-same-source guard + sentinel writer come from the shared host module
+# so the 4-line (filename + URL + size + Last-Modified) format and the
+# noble->resolute URL-bump guard live in one place across every KVM guest.
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.HostDownload.psm1") -Force
 
-if (Test-AlreadyCurrent -Url $downloadUrl -File $baseImageFile -Sentinel $baseImageOrigin) {
+if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     Write-Output "Skipping download: $downloadUrl URL and size match prior run for $baseImageFile"
     exit 0
 }
@@ -85,7 +76,7 @@ Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # checksum policy. The KVM platform doesn't ship Save-CachedHttpUri
 # (yet) so this falls through to a direct Invoke-WebRequest -- still
 # centralized so a future cache addition lands in one place.
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $checksumLink = ($html.Links | Where-Object { $_.href -match '\.qcow2\.sha256$' } | Select-Object -First 1)
 $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink.href } else { $null }
 $downloaded = Save-ImageWithChecksum `
@@ -109,6 +100,6 @@ if (Test-Path -LiteralPath $baseImageFile) {
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
-Set-Content -Path $baseImageOrigin -Value @($qcow2Link, $downloadUrl, "$downloadedSize")
-Write-Output "Recorded source filename, URL, and byte count to: $baseImageOrigin"
+Write-ImageSentinel -SourceUrl $downloadUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+Write-Output "Recorded 4-line sentinel (filename, URL, byte count, Last-Modified) to: $baseImageOrigin"
 Write-Output "Download complete: $baseImageFile"

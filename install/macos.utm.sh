@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.05.29  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.06.05  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -167,12 +167,10 @@ if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then
   #   strongly correlates with mixed-ownership subdirs from the partial
   #   prior install -- so we treat it as a chown trigger too.
   # Repair signal #3: ANY of the standard write-target subdirs is
-  #   non-writable. The previous wild log surfaced
-  #     /opt/homebrew/etc/bash_completion.d
-  #     /opt/homebrew/lib/pkgconfig
-  #     /opt/homebrew/share/{aclocal,doc,info,locale,man,man/*,zsh,zsh/site-functions}
-  #   none of which a single writability check on $BREW_PREFIX catches.
-  #   Sample the brew install/upgrade write targets directly.
+  #   non-writable. A single writability check on $BREW_PREFIX does NOT
+  #   catch issues in subdirs like etc/bash_completion.d, lib/pkgconfig,
+  #   share/{aclocal,doc,info,locale,man,man/*,zsh,zsh/site-functions},
+  #   so sample the brew install/upgrade write targets directly.
   NEEDS_REPAIR=0
   if [[ ! -w "$BREW_PREFIX" ]]; then NEEDS_REPAIR=1; fi
   if [[ ! -d "$BREW_PREFIX/.git" ]]; then NEEDS_REPAIR=1; fi
@@ -192,9 +190,9 @@ if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then
   if [[ $NEEDS_REPAIR -eq 1 ]]; then
     BREW_OWNER="$(stat -f '%Su' "$BREW_PREFIX" 2>/dev/null || echo '?')"
     log "Homebrew prefix $BREW_PREFIX has ownership/state issues for $USER (top-level owner: $BREW_OWNER) -- transferring ownership recursively (sudo cached)."
-    # `|| true` so a stray protected file (rare but seen on some images)
-    # doesn't abort the install -- the chown is best-effort, the
-    # subsequent brew ops will surface anything still broken.
+    # `|| warn` so a stray protected file (rare but seen on some images)
+    # doesn't abort the install -- the chown is best-effort; subsequent
+    # brew ops will surface anything still broken.
     sudo chown -R "$USER":admin "$BREW_PREFIX" || warn "  chown -R reported errors; per-package brew ops below will surface anything still broken."
   fi
   # Skip the explicit `brew update` if the prefix isn't a git checkout

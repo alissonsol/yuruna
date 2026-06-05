@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -12,7 +12,6 @@ export NONINTERACTIVE=1
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -30,19 +29,16 @@ case "$ARCH" in
 esac
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-. /usr/local/lib/yuruna/yuruna_retry.sh
+. /usr/local/lib/yuruna/yuruna-retry.sh
 
-# ===== Install .NET SDK =====
 echo ""
-echo -e "\e[1;36m>>> Installing .NET SDK...\e[0m"
+echo -e "\e[1;36m==== .NET SDK ====\e[0m"
 # The dotnet-sdk package is available for both amd64 and arm64 via apt
 apt_retry sudo apt-get install -y dotnet-sdk-10.0
 dotnet --version
-echo -e "\e[1;32m<<< .NET SDK installation complete.\e[0m"
 
-# ===== Show installed versions =====
 echo ""
-echo "=== Installation Summary ==="
+echo "== Installation Summary =="
 echo "DotNet: $(dotnet --version)"
 echo "Git: $(git --version)"
 echo "PowerShell: $(pwsh --version)"

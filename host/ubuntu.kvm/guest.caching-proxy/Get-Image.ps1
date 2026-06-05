@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,40 +50,13 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# Skip-if-same-source guard. Inlined here -- the host.windows.hyper-v and
-# host.macos.utm Yuruna.Host.psm1 modules export a Test-DownloadAlreadyCurrent
-# helper, but the KVM Yuruna.Host.psm1 doesn't (same pattern as the KVM
-# ubuntu.server.24 Get-Image.ps1, which also inlines its own check). 4-line
-# sentinel records filename + URL + size + Last-Modified; any mismatch
-# forces a re-download. The 4-line format closes the noble->resolute
-# style URL-bump regression that a 3-line sentinel would silently miss.
+# Skip-if-same-source guard + sentinel writer come from the shared host module
+# (4-line filename + URL + size + Last-Modified format), so every KVM guest uses
+# one implementation and the noble->resolute URL-bump guard lives in one place.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
-function Test-AlreadyCurrent {
-    param([string]$Url, [string]$File, [string]$Sentinel)
-    if (-not (Test-Path -LiteralPath $File))     { return $false }
-    if (-not (Test-Path -LiteralPath $Sentinel)) { return $false }
-    $prior = @(Get-Content -LiteralPath $Sentinel -ErrorAction SilentlyContinue)
-    if ($prior.Count -lt 4) { return $false }
-    $expectedFileName = [System.IO.Path]::GetFileName(([System.Uri]$Url).LocalPath)
-    if ($prior[0] -ne $expectedFileName) { return $false }
-    if ($prior[1] -ne $Url)              { return $false }
-    try {
-        $head = Invoke-WebRequest -Uri $Url -Method Head -ErrorAction Stop
-        $remoteLen = [int64]$head.Headers['Content-Length']
-        $remoteLm  = $head.Headers['Last-Modified']
-        if ($remoteLm -is [System.Array]) { $remoteLm = $remoteLm[0] }
-        $remoteLm = [string]$remoteLm
-    } catch { return $false }
-    if ([int64]$prior[2] -ne $remoteLen) { return $false }
-    # Last-Modified is the strong signal: cloud-images.ubuntu.com bumps
-    # it on every rebuild. Compare only when the server actually returned
-    # a header (some CDNs strip it) -- otherwise the URL+size check above
-    # carries the skip decision.
-    if ($remoteLm -and $prior[3] -and ($prior[3] -ne $remoteLm)) { return $false }
-    return $true
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.HostDownload.psm1") -Force
 
-if (Test-AlreadyCurrent -Url $sourceUrl -File $baseImageFile -Sentinel $baseImageOrigin) {
+if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     $skipLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
     $msg = @(
         "Skipping download: source URL + size + Last-Modified all match the prior run for $baseImageFile."
@@ -106,7 +79,7 @@ Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # Save-CachedHttpUri so the helper falls through to a direct
 # Invoke-WebRequest, but the verification step still fires against
 # cloud-images.ubuntu.com's published SHA256SUMS.
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
 $downloaded = Save-ImageWithChecksum `
@@ -153,22 +126,10 @@ if (Test-Path -LiteralPath $baseImageFile) {
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
-$sourceFileName = [System.IO.Path]::GetFileName(([System.Uri]$sourceUrl).LocalPath)
-# Capture the upstream Last-Modified header after the download finishes so
-# the sentinel records WHAT THE SERVER SAID at the moment we fetched it.
-# cloud-images.ubuntu.com exposes Last-Modified consistently; some CDNs
-# strip it. Missing header -> empty string, and the next-run check
-# treats that as "no comparison possible" (URL + size still gate skip).
-$sourceLastModified = ''
-try {
-    $head = Invoke-WebRequest -Uri $sourceUrl -Method Head -ErrorAction Stop
-    $lm = $head.Headers['Last-Modified']
-    if ($lm -is [System.Array]) { $lm = $lm[0] }
-    $sourceLastModified = [string]$lm
-} catch {
-    Write-Verbose "Last-Modified HEAD probe failed (sentinel will record empty): $($_.Exception.Message)"
-}
-Set-Content -Path $baseImageOrigin -Value @($sourceFileName, $sourceUrl, "$downloadedSize", $sourceLastModified)
-Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
+# Write the 4-line sentinel (filename + URL + size + Last-Modified). The shared
+# writer HEAD-probes the upstream Last-Modified at fetch time and records an
+# empty 4th line when the server strips the header.
+Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+Write-Output "Recorded 4-line sentinel (filename, URL, byte count, Last-Modified) to: $baseImageOrigin"
 
 Write-Output "Download complete: $baseImageFile"

@@ -1,10 +1,9 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -22,22 +21,21 @@ case "$ARCH" in
 esac
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-. /usr/local/lib/yuruna/yuruna_retry.sh
+. /usr/local/lib/yuruna/yuruna-retry.sh
 
 echo ""
-echo -e "\e[1;36m>>> Installing Node.js...\e[0m"
+echo -e "\e[1;36m==== Node.js ====\e[0m"
 # Install Node.js 22+ (required for n8n)
 # NodeSource setup script auto-detects architecture
 wget -qO- "https://rpm.nodesource.com/setup_22.x${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo bash -
 dnf_retry sudo dnf -y install nodejs
-echo -e "\e[1;32m<<< Node.js installation complete.\e[0m"
 
 echo ""
-echo -e "\e[1;36m>>> Installing n8n...\e[0m"
+echo -e "\e[1;36m==== n8n ====\e[0m"
 sudo npm install -g n8n
-echo -e "\e[1;32m<<< n8n installation complete.\e[0m"
 
 echo ""
+echo "== Installation Summary =="
 echo "Node.js: $(node --version)"
 echo "npm: $(npm --version)"
 echo "n8n: $(n8n --version)"

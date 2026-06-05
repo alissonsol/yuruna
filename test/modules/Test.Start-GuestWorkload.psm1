@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,11 +18,12 @@
 
 # ── Start-GuestWorkload dispatcher ──────────────────────────────────────────
 #
-# Replaces the old per-OS Test-Workload.guest.*.ps1 extension scripts
-# with a generic dispatcher that runs a caller-supplied list of workload
-# sequence names via Invoke-SequenceByName. The cycle planner builds the
-# list by walking each top-level baseline chain and collecting every
-# entry whose name does not start with "start.".
+# Generic dispatcher that runs a caller-supplied list of workload
+# sequence names via Invoke-SequenceByName -- one entry point regardless
+# of the guest OS, in place of per-OS Test-Workload.guest.*.ps1
+# extension scripts. The cycle planner builds the list by walking each
+# top-level baseline chain and collecting every entry whose name does
+# not start with "start.".
 #
 # Naming convention (by design):
 #     Module filename = "Test.<exported-cmdlet>.psm1"
@@ -37,7 +38,12 @@
 Import-Module (Join-Path $PSScriptRoot "Test.YurunaDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 $script:EngineModule = Join-Path $PSScriptRoot "Invoke-Sequence.psm1"
 if (Test-Path $script:EngineModule) {
-    Import-Module $script:EngineModule -Force -Verbose:$false -ErrorAction SilentlyContinue
+    # -Global is load-bearing: a -Force import without it evicts Invoke-Sequence
+    # from the global session (the engine becomes private to this module's
+    # scope), so the runner's later guests crash with "Write-ProgressTick /
+    # Wait-ForText is not recognized". Same engine-import convention as
+    # Test.Prelude's Reset-SequenceRegistry.
+    Import-Module $script:EngineModule -Global -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
 }
 
 <#

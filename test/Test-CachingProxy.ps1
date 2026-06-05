@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,14 +44,14 @@ $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
 # Canonical path bundle + CachingProxy module kind. Loads the same trio
-# (Test.VMUtility, Test.CachingProxy, Test.Host) that the four caching-
+# (Test.VMUtility, Test.CachingProxy, Test.HostContract) that the four caching-
 # proxy scripts used to import inline:
 #   * Test.VMUtility -- Get-CachingProxyPort / Test-IpAddress, used by the
 #     port-probe block below and the env-var / -CacheIp branches that
 #     bypass Test-CachingProxyAvailable's transitive imports.
 #   * Test.CachingProxy -- Invoke-CachingProxyProbe (shared with the cycle-
 #     start gate in Invoke-TestInnerRunner.ps1).
-#   * Test.Host -- Invoke-LibvirtGroupReExecIfNeeded + Initialize-YurunaHost.
+#   * Test.HostContract -- Invoke-LibvirtGroupReExecIfNeeded + Initialize-YurunaHost.
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
 $ModulesDir = $paths.ModulesDir
@@ -79,7 +79,7 @@ function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:
 # nothing else the script does is meaningful without an IP to target.
 
 Write-Output ""
-Write-Output "=== Yuruna caching proxy probe ==="
+Write-Output "== Yuruna caching proxy probe =="
 
 $resolvedIp   = $null
 $resolvedFrom = $null
@@ -103,7 +103,7 @@ if ($CacheIp) {
     # Local discovery via the Yuruna.Host contract. The host driver knows
     # the per-platform quirks (Hyper-V ARP+KVP, UTM 192.168.64.1 gateway
     # rewrite) -- no point duplicating them here.
-    Import-Module (Join-Path $PSScriptRoot 'modules/Test.Host.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
     $RepoRoot = Split-Path -Parent $PSScriptRoot
     try {
         [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
@@ -140,6 +140,13 @@ Write-Output ""
 # PASS/WARN/FAIL classification (single source of truth in
 # Invoke-CachingProxyProbe).
 
+# Re-import Test.CachingProxy -Global -Force so Invoke-CachingProxyProbe
+# resolves: the local-discovery branch above calls Initialize-YurunaHost,
+# which cascades into the host module's nested non-global import of
+# Test.CachingProxy and evicts this script's view of it
+# (feedback_module_force_import_evicts_global). No-op for the -CacheIp and
+# env-var branches, which never load the host module.
+Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $probe = Invoke-CachingProxyProbe -CacheIp $resolvedIp
 foreach ($line in $probe.Lines) { Write-Output $line }
 $script:PassCount += $probe.PassCount
@@ -157,7 +164,7 @@ $httpPort  = $probe.HttpPort
 # doesn't show up by dumping env vars alone.
 
 Write-Output ""
-Write-Output "=== Host system-proxy check ==="
+Write-Output "== Host system-proxy check =="
 
 if ($IsMacOS) {
     try {
@@ -264,7 +271,7 @@ if (-not $effHost) {
 # === Summary ============================================================
 
 Write-Output ""
-Write-Output "=== Summary: $script:PassCount PASS, $script:WarnCount WARN, $script:FailCount FAIL ==="
+Write-Output "== Summary: $script:PassCount PASS, $script:WarnCount WARN, $script:FailCount FAIL =="
 
 if ($script:FailCount -gt 0) {
     Write-Output ""
@@ -290,8 +297,8 @@ if ($script:FailCount -gt 0) {
 
 if ($SetHostProxy) {
     Write-Output ""
-    Write-Output "=== Promoting to machine-wide host proxy ==="
-    Import-Module (Join-Path $PSScriptRoot 'modules/Test.Host.psm1') -Force
+    Write-Output "== Promoting to machine-wide host proxy =="
+    Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $PSScriptRoot))
     try {
         $removeParams = @{}

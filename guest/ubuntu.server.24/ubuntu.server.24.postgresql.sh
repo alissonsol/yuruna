@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -8,7 +8,6 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -26,10 +25,10 @@ case "$ARCH" in
 esac
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-. /usr/local/lib/yuruna/yuruna_retry.sh
+. /usr/local/lib/yuruna/yuruna-retry.sh
 
 echo ""
-echo -e "\e[1;36m>>> Installing PostgreSQL...\e[0m"
+echo -e "\e[1;36m==== PostgreSQL ====\e[0m"
 # Install prerequisites
 # PostgreSQL APT repository handles architecture automatically
 apt_retry sudo apt-get install -y postgresql-common
@@ -58,7 +57,6 @@ sudo pg_createcluster 18 main --start
 # Enable and start the PostgreSQL service
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
-echo -e "\e[1;32m<<< PostgreSQL installation complete.\e[0m"
 
 echo ""
 echo "PostgreSQL: $(psql --version)"

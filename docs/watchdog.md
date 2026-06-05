@@ -8,7 +8,7 @@ runner re-spawns the inner from a clean state.
 
 This page covers the file-on-disk protocol. For the rationale on
 splitting outer / inner, see
-[Test harness](test-harness.md#outer--inner-runner).
+[Test harness](./runner-outer-loop.md).
 
 ## Layout under `$YURUNA_RUNTIME_DIR`
 

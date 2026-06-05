@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,8 +67,8 @@ if (-not $ExplicitPrefix) {
 }
 if (-not $Prefix) { $Prefix = 'test-' }
 
-# === Import Test.Host (needed for Get-HostType on every platform) ===
-$hostModPath = Join-Path $ModulesDir "Test.Host.psm1"
+# === Import Test.HostContract (needed for Get-HostType on every platform) ===
+$hostModPath = Join-Path $ModulesDir "Test.HostContract.psm1"
 if (-not (Test-Path $hostModPath)) { Write-Error "Module not found: $hostModPath"; exit 1 }
 Import-Module -Name $hostModPath -Force
 
@@ -371,6 +371,16 @@ Write-Status "Removed $removedCount VM(s); $($survivors.Count) survivor(s)."
 if ($survivors.Count -gt 0) {
     foreach ($s in $survivors) { Write-Warning "  Survivor: $s" }
 }
+Write-Status ""
+
+# Release the per-cycle display surface this host attaches for screen-capture
+# (the Hyper-V usbmmidd virtual display). The cycle-start path attaches it via
+# Initialize-HostDisplay; tearing it down here cleans up a stale/duplicate
+# monitor left by a mid-cycle KVM switch so it doesn't linger once the machine
+# stops running tests. Dispatcher no-ops on hosts that attach nothing
+# (macOS/Linux) and never throws.
+Write-Status "Releasing host virtual display (if attached)..."
+Remove-HostDisplay -HostType $HostType
 Write-Status ""
 
 $cleanupScript = Join-Path -Path $RepoRoot -ChildPath (Get-HostFolder $HostType) -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"

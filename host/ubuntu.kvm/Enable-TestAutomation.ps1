@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,30 +50,18 @@ if (-not $IsLinux) {
     exit 1
 }
 
-# Prime sudo once up front so the systemctl + virsh net-* sequence below
-# doesn't re-prompt mid-run. Cross-folder import: this script lives at
-# host/ubuntu.kvm/; the helper is in test/modules/Test.Host.psm1 (two
-# levels up). Idempotent -- when the install wrapper (install/ubuntu.
-# kvm.sh) already cached sudo, Initialize-SudoCache returns silently
-# without printing the notice or re-prompting.
-$ScriptDir  = $PSScriptRoot
-$RepoRoot   = Split-Path -Parent (Split-Path -Parent $ScriptDir)
-$ModulePath = Join-Path $RepoRoot "test/modules/Test.Host.psm1"
-$savedVerbose = $global:VerbosePreference
-$global:VerbosePreference = "SilentlyContinue"
-Import-Module $ModulePath -Force
-$global:VerbosePreference = $savedVerbose
-[void](Initialize-SudoCache -Reasons @(
+# Shared bootstrap (Test.HostContract import + sudo prime + powershell-yaml +
+# PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
+# -SudoCacheReason keeps the sudo prompt EARLY (before the long install)
+# with a visible reason banner so the operator knows WHAT will need
+# elevation before they consent. When invoked via install/ubuntu.kvm.sh
+# (YURUNA_SUDO_PRIMED=1) Initialize-SudoCache returns silently.
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
+Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters -SudoCacheReason @(
     'systemctl enable + start libvirtd / virtlogd',
     'virsh net-{list,start,autostart} default'
-))
-
-# Cycle planner reads project/test/test.sequence.yml and every per-sequence
-# baseline via powershell-yaml. Missing here -> Resolve-CyclePlan throws ->
-# inner runner falls back to legacy guestSequence -> Start-GuestOS runs with
-# an empty sequence list and is recorded as "skipped" with no log trace.
-[void](Install-PowerShellYamlIfMissing @PSBoundParameters)
-[void](Install-PSScriptAnalyzerIfMissing @PSBoundParameters)
+)
 
 function Invoke-Step {
     # SupportsShouldProcess on the script-level param() does NOT propagate to

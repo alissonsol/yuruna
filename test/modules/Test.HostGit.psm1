@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,50 @@
 # Remove-Item fails, the wipe-and-re-clone of the project-under-test,
 # and the on-demand PSGallery installs (powershell-yaml,
 # PSScriptAnalyzer) the runner needs but pwsh 7 doesn't ship.
+
+function Get-GitUpstreamStatus {
+    <#
+    .SYNOPSIS
+        Classify a git working tree vs its upstream: no-tree / no-upstream /
+        up-to-date / ahead / behind / diverged.
+    .DESCRIPTION
+        Pure read-only -- does NOT fetch (each caller fetches its own way first,
+        with its own retry / offline policy), so the result reflects whatever
+        the local refs currently say. One comparison code path: Invoke-GitPull
+        maps the State to a pull/skip/error decision; Test-RepoFreshness
+        (Test.ConfigValidator) maps the same State to a PASS/WARN row.
+    .OUTPUTS
+        [hashtable] @{ State; Ahead; Behind; Local; Remote }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path (Join-Path $Path '.git'))) {
+        return @{ State = 'no-tree'; Ahead = 0; Behind = 0; Local = $null; Remote = $null }
+    }
+    $local = & git -C $Path rev-parse HEAD 2>$null
+    if ($local) { $local = "$local".Trim() }
+    $remote = & git -C $Path rev-parse '@{u}' 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $remote) {
+        return @{ State = 'no-upstream'; Ahead = 0; Behind = 0; Local = $local; Remote = $null }
+    }
+    $remote = "$remote".Trim()
+    if ($local -eq $remote) {
+        return @{ State = 'up-to-date'; Ahead = 0; Behind = 0; Local = $local; Remote = $remote }
+    }
+    # Count-based classification is equivalent to merge-base: behind == 0 iff
+    # remote is an ancestor of local (ahead), ahead == 0 iff local is an
+    # ancestor of remote (behind), both > 0 iff the histories diverged.
+    $behind = 0; $ahead = 0
+    $null = [int]::TryParse(("$(& git -C $Path rev-list --count "$local..$remote" 2>$null)").Trim(), [ref]$behind)
+    $null = [int]::TryParse(("$(& git -C $Path rev-list --count "$remote..$local" 2>$null)").Trim(), [ref]$ahead)
+    $state = if ($behind -gt 0 -and $ahead -eq 0) { 'behind' }
+             elseif ($ahead -gt 0 -and $behind -eq 0) { 'ahead' }
+             elseif ($ahead -gt 0 -and $behind -gt 0) { 'diverged' }
+             else { 'up-to-date' }
+    return @{ State = $state; Ahead = $ahead; Behind = $behind; Local = $local; Remote = $remote }
+}
 
 function Invoke-GitPull {
     <#
@@ -56,45 +100,39 @@ function Invoke-GitPull {
         Start-Sleep -Seconds $waitSeconds
     }
 
-    # Determine local vs remote HEAD positions
-    $local  = & git -C $RepoRoot rev-parse HEAD 2>$null
-    $remote = & git -C $RepoRoot rev-parse '@{u}' 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Information "No upstream tracking branch found; skipping ahead/behind check." -InformationAction Continue
-        return $true
-    }
-
-    if ($local -eq $remote) {
-        Write-Information "Local branch is up to date with remote." -InformationAction Continue
-        return $true
-    }
-
-    $mergeBase = & git -C $RepoRoot merge-base $local $remote 2>$null
-
-    if ($mergeBase -eq $remote) {
-        # Local ahead of remote — unpushed commits; fine
-        Write-Information "Local branch is ahead of remote. Proceeding with local changes." -InformationAction Continue
-        return $true
-    }
-
-    # Behind or diverged from remote
-    $behind = & git -C $RepoRoot rev-list --count "$local..$remote" 2>$null
-    if ($mergeBase -eq $local) {
-        # Local behind — safe to fast-forward pull
-        Write-Information "Local branch is behind remote by $behind commit(s). Pulling..." -InformationAction Continue
-        $pullOutput = & git -C $RepoRoot pull --ff-only 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Information "Pull succeeded: $pullOutput" -InformationAction Continue
+    # One shared comparison path (Get-GitUpstreamStatus); this function maps
+    # the State to a pull/skip/error action. The fetch above already ran, so
+    # the classifier reads fresh remote refs.
+    $st = Get-GitUpstreamStatus -Path $RepoRoot
+    switch ($st.State) {
+        'no-upstream' {
+            Write-Information "No upstream tracking branch found; skipping ahead/behind check." -InformationAction Continue
             return $true
         }
-        Write-Error "git pull --ff-only failed (exit $LASTEXITCODE): $pullOutput"
-        return $false
+        'up-to-date' {
+            Write-Information "Local branch is up to date with remote." -InformationAction Continue
+            return $true
+        }
+        'ahead' {
+            Write-Information "Local branch is ahead of remote. Proceeding with local changes." -InformationAction Continue
+            return $true
+        }
+        'behind' {
+            Write-Information "Local branch is behind remote by $($st.Behind) commit(s). Pulling..." -InformationAction Continue
+            $pullOutput = & git -C $RepoRoot pull --ff-only 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Information "Pull succeeded: $pullOutput" -InformationAction Continue
+                return $true
+            }
+            Write-Error "git pull --ff-only failed (exit $LASTEXITCODE): $pullOutput"
+            return $false
+        }
+        default {
+            # diverged (no-tree cannot reach here -- the fetch above already ran)
+            Write-Error "Local branch has diverged from remote ($($st.Ahead) ahead, $($st.Behind) behind). Rebase or merge manually."
+            return $false
+        }
     }
-
-    # Diverged — both sides have unique commits
-    $ahead = & git -C $RepoRoot rev-list --count "$remote..$local" 2>$null
-    Write-Error "Local branch has diverged from remote ($ahead ahead, $behind behind). Rebase or merge manually."
-    return $false
 }
 
 function Get-CurrentGitCommit {
@@ -442,7 +480,7 @@ function Install-PowerShellYamlIfMissing {
     Ensure the powershell-yaml module is available to the runner.
 .DESCRIPTION
     Test.SequencePlanner.Resolve-CyclePlan reads project/test/
-    test.sequence.yml and every per-sequence baseline file via
+    test.runner.yml and every per-sequence baseline file via
     Read-SequenceFile, which Import-Modules powershell-yaml on demand.
     pwsh 7 doesn't ship it, so on a freshly-imaged host the planner
     throws -- the inner runner's try/catch then falls back to the
@@ -525,4 +563,4 @@ function Install-PSScriptAnalyzerIfMissing {
     }
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing

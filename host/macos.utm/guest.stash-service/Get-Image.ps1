@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,10 +27,17 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 $sourceUrl = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img"
 $downloadDir = "$HOME/yuruna/image/stash-service"
 $baseImageName = "host.macos.utm.guest.stash-service"
-# Final artifact is RAW: standardized on raw so New-VM.ps1 can copy
-# the ready-to-boot disk directly into the .utm bundle without a
-# format-conversion step. Matches the caching-proxy UTM pipeline.
-$baseImageFile = Join-Path $downloadDir "$baseImageName.raw"
+# Final artifact is qcow2: UTM's QEMU backend boots qcow2 directly, so
+# no raw conversion is needed. qcow2 is also required for correctness on
+# macOS -- UTM attaches read-write disks with
+# discard=unmap,detect-zeroes=unmap, and QEMU's macOS file-posix backend
+# services those discards via fcntl(F_PUNCHHOLE), which rejects any
+# request not aligned to the APFS 4 KiB block size with EINVAL ("Invalid
+# argument"). A raw image punches holes at the guest's 512-byte discard
+# granularity and trips that; qcow2 only ever punches at its 64 KiB
+# cluster boundaries. Matches the caching-proxy UTM pipeline. See
+# feedback_macos-qemu-punchhole-alignment.md.
+$baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
@@ -54,7 +61,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
 
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
 $downloaded = Save-ImageWithChecksum `
@@ -77,29 +84,27 @@ if ($fileSize -lt 100MB) {
     exit 1
 }
 
-# === Convert qcow2 → raw ===
-$convertedFile = Join-Path $downloadDir "$baseImageName.converting.raw"
+# === Resize the qcow2 to 256 GB ===
+# No raw conversion: UTM's QEMU backend boots qcow2 directly, and qcow2
+# avoids the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits under
+# UTM's discard=unmap,detect-zeroes=unmap (see the header note and
+# feedback_macos-qemu-punchhole-alignment.md). Resize a staging copy of
+# the downloaded qcow2, then promote it in the finalize block below.
+$convertedFile = Join-Path $downloadDir "$baseImageName.staging.qcow2"
 Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
-Write-Output "Converting qcow2 to raw..."
-& qemu-img convert -f qcow2 -O raw $downloadFile $convertedFile
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "qemu-img convert failed. Install QEMU with: brew install qemu"
-    Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
-    exit 1
-}
+Copy-Item -LiteralPath $downloadFile -Destination $convertedFile
 
-# Resize to 256 GB (sparse on APFS: apparent size only; actual usage
-# grows on write).
-Write-Output "Resizing raw image to 256GB..."
-& qemu-img resize -f raw $convertedFile 256G
+# Resize to 256 GB (qcow2 grows on demand: apparent size only; actual
+# usage grows on write).
+Write-Output "Resizing qcow2 image to 256GB..."
+& qemu-img resize -f qcow2 $convertedFile 256G
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "qemu-img resize failed -- continuing with original size."
-    Write-Warning "Resize manually with: qemu-img resize -f raw '$baseImageFile' 256G"
+    Write-Warning "Resize manually with: qemu-img resize -f qcow2 '$baseImageFile' 256G"
 }
 
 # === Preserve previous and finalize ===
-$previousFile = Join-Path $downloadDir "$baseImageName.previous.raw"
+$previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {
     Move-Item -Path $baseImageFile -Destination $previousFile

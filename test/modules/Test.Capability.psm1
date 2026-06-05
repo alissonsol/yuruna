@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,12 +118,27 @@ function Get-HostCapabilityMatrix {
     if (Get-Command Get-EnabledOcrProvider -ErrorAction SilentlyContinue) {
         $ocr = @(Get-EnabledOcrProvider)
     }
+    # Recovery providers: whether a per-host VNC reconnect / fast-path
+    # screenshot provider is registered. The repair primitives work with zero
+    # providers (Repair-VncConnection clears the cached handle either way), so
+    # this surfaces the optional per-host layer, and makes the recovery wiring
+    # visible at cycle start instead of silently re-rotting into a no-op.
+    $vncReconnect = $false
+    if ($HostType -and (Get-Command Test-VncProviderAvailable -ErrorAction SilentlyContinue)) {
+        $vncReconnect = [bool](Test-VncProviderAvailable -HostType $HostType)
+    }
+    $screenshotProvider = $false
+    if ($HostType -and (Get-Command Test-ScreenshotProviderAvailable -ErrorAction SilentlyContinue)) {
+        $screenshotProvider = [bool](Test-ScreenshotProviderAvailable -HostType $HostType)
+    }
     $extensions = Get-CapabilityExtensionArea -RepoRoot $RepoRoot
     return @{
-        hostType   = $HostType
-        hostIO     = $hostIO
-        ocr        = $ocr
-        extensions = $extensions
+        hostType           = $HostType
+        hostIO             = $hostIO
+        ocr                = $ocr
+        vncReconnect       = $vncReconnect
+        screenshotProvider = $screenshotProvider
+        extensions         = $extensions
     }
 }
 
@@ -149,6 +164,9 @@ function Write-HostCapabilityBanner {
     Write-Information "  Host I/O:   $hostIO"
     $ocr = if ($Matrix.ocr.Count) { ($Matrix.ocr -join ', ') } else { '(none available)' }
     Write-Information "  OCR:        $ocr"
+    $vncR = if ($Matrix.vncReconnect) { 'per-host provider' } else { 'built-in (clear cached handle)' }
+    $ssR  = if ($Matrix.screenshotProvider) { 'fast-path provider' } else { 'legacy capture' }
+    Write-Information "  Recovery:   VNC reconnect ($vncR), screenshot ($ssR)"
     if ($Matrix.extensions.Keys.Count) {
         Write-Information '  Extensions:'
         foreach ($area in $Matrix.extensions.Keys) {

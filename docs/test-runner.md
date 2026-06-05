@@ -13,6 +13,21 @@ This document covers what to do **once per machine** before leaving
 the runner unattended. For the architecture of the loop itself see
 [Test harness — architecture](test-harness.md).
 
+## Why unattended cycles
+
+Continuous validation across hours or days catches intermittent
+failures — timing-sensitive UI hangs, transient network issues,
+cumulative resource leaks, upstream-mirror rate limits, OS auto-update
+windows — that a single interactive run misses. The unattended runner
+in this document trades human monitoring for coverage breadth: it
+runs against the same `guestSequence` every cycle, surfaces every
+fault through the same `last_failure.json` + NDJSON event channels,
+and absorbs each transient via the
+[failure-pause loop](runner-outer-loop.md#failure-pause-break-out-triggers)
+without operator intervention. The lab environment described below
+(test account, isolated network, no personal data) is what makes that
+unattended-by-design contract safe to leave running.
+
 ## Prepare the host
 
 **Do not run unattended test automation using a personal account.**
@@ -27,7 +42,7 @@ no access to personal data in the local machine.
   - Use the script `test/New-LocalTestUser.ps1` to create a local test account.
   - Reset the password to a known value. **Do not leave this information in open text files and sticky notes.**
   - Make the local test account a machine administrator.
-  - Login using the test account.
+  - Log in using the test account.
   - Execute the install script one-liners for your host, as per the [install](../install/README.md) instructions.
   - Run the `Enable-TestAutomation.ps1` script that ships under your host type:
 
@@ -64,8 +79,7 @@ operator can do happen on that first execution:
   blocking on a multi-gigabyte download mid-cycle.
   - **macOS and Windows base images must be downloaded manually.** 
   Due to limitations imposed by the image providers, the runner 
-  cannot fetch them. Follow the provided instructions and place 
-  images as per each `Get-Image.ps1` instructions.
+  cannot fetch them. Follow the instructions in each `Get-Image.ps1`.
 
 ## Run unattended
 

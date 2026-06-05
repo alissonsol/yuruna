@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42d8e9f0-a1b2-4c34-d567-8e9f0a1b2c34
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,7 +55,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImag
 # a visual banner Write-Warning but doesn't abort the download.
 $downloadFile = Join-Path $downloadDir "downloaded.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $checksumLink = ($html.Links | Where-Object { $_.href -match "\.qcow2\.sha256$" })
 $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink[0].href } else { $null }
 $downloaded = Save-ImageWithChecksum `

@@ -25,6 +25,26 @@ the registry pattern landed, each dispatcher held a hand-rolled
 `if/elseif` chain on `$HostType` and adding a new host required three
 edits across the same module.
 
+## Why the registry over inline dispatch
+
+The registry centralises the `(HostType, Action)` binding in one
+lookup table. Adding a new host or a new action verb is a single
+`Register-HostIOProvider` call; nothing in the dispatcher needs to
+change. Adding the same host across three separate `if/elseif` chains
+(one per action) used to be the source of "Send-Key works on the new
+host but Send-Text was forgotten" drift — the registry makes every
+pair enumerable at startup, so the
+[capability gate](capability-matrix.md) refuses cycles that reference
+an unwired backend rather than failing mid-step. The same pattern
+recurs across the workspace: [SequenceAction](handler-schema.md)
+(verb registry), [Component registry login](component-registry.md)
+and [Host-condition registry](host-condition-registry.md) (provider
+matrices), [Remediation dispatcher](remediation.md) (failure-class
+handlers). All five domains share the
+[`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) primitive
+and surface through `Get-YurunaRegistryDirectory` for autonomous
+tooling.
+
 ## Backends today
 
 | Host                 | `Send-Key`        | `Send-Text`       | `Send-Click`     |

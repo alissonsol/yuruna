@@ -1,0 +1,36 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Hyper-V overlay for caching-proxy.base.user-data.
+# Anchor sections in base-file order. Empty section = insert nothing at that anchor.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+  # NOTE: hyperv-daemons (hv_kvp_daemon) is installed via runcmd with
+  # `|| true`, not here. Its dep on linux-cloud-tools-$(uname -r) matching
+  # the running cloud-image kernel isn't always satisfiable until a fresh
+  # `apt-get update` lands, and a hard failure was aborting the ENTIRE
+  # packages phase (grafana/prometheus/squid included). If hv-kvp-daemon
+  # doesn't come up, Get-VMNetworkAdapter on the host returns empty and
+  # discovery falls back to ARP -- slower but works.
+# === YURUNA_OVERLAY_NIC_OFFLOAD ===
+# === YURUNA_OVERLAY_RUNCMD_NET ===
+  # Gateway IP discovered dynamically (Hyper-V Default Switch IP drifts across reboots;
+  # aliased to `hyperv-host` so access.log ops are readable without hardcoding the IP).
+  - |
+    GW=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3; exit}')
+    if [ -n "$GW" ] && ! grep -q "^${GW}[[:space:]]" /etc/hosts; then
+      echo "${GW} hyperv-host" >> /etc/hosts
+    fi
+# === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
+  # Install hyperv-daemons tolerantly (see packages: note). Re-run
+  # apt-get update because hyperv-daemons' linux-cloud-tools-$(uname -r)
+  # dep can show up after a refresh. If it still fails, discovery falls
+  # back to ARP -- don't abort the rest of runcmd.
+  - DEBIAN_FRONTEND=noninteractive apt-get update || true
+  # Single-quoted so YAML doesn't parse `yuruna:` inside the echo as a
+  # mapping key and abort runcmd with a shellify TypeError.
+  - 'DEBIAN_FRONTEND=noninteractive apt-get install -y hyperv-daemons || echo "yuruna: hyperv-daemons install failed - host IP discovery will fall back to ARP"'
+  # Start hv-kvp-daemon so the host can discover our IP. `|| true` because
+  # the service only exists if the install above succeeded.
+  - systemctl enable hv-kvp-daemon.service || true
+  - systemctl start hv-kvp-daemon.service || true
+# === YURUNA_OVERLAY_FIRMWARE_PKGS ===
+    for pkg in linux-firmware linux-generic-hwe-24.04 intel-microcode amd64-microcode firmware-sof-signed; do

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -921,4 +921,34 @@ function Assert-MacHostConditionSet {
     return $true
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet
+function Test-MacHostMinimum {
+    <#
+    .SYNOPSIS
+        macOS UTM quick-check for [Test-HostRequirement] (UTM.app
+        installed + utmctl on PATH). Emits actionable warnings on
+        failure and returns $false; emits nothing and returns $true
+        when both conditions are met.
+    .DESCRIPTION
+        Lighter than Assert-MacHostConditionSet (which also gates on
+        Accessibility / Screen Recording TCC grants + display-sleep
+        / screen-lock) -- this exists for one-off operator helpers
+        (Remove-OrphanedVMFiles.ps1 etc.) where the TCC + screen
+        checks would prompt unnecessarily during interactive
+        maintenance.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    $ok = $true
+    if (-not (Test-Path '/Applications/UTM.app')) {
+        Write-Warning "/Applications/UTM.app not found. Install UTM from https://mac.getutm.app."
+        $ok = $false
+    }
+    if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
+        Write-Warning "utmctl not found on PATH. The UTM.app bundle ships it at /Applications/UTM.app/Contents/MacOS/utmctl -- symlink it into /usr/local/bin or rerun host/macos.utm/Enable-TestAutomation.ps1."
+        $ok = $false
+    }
+    return $ok
+}
+
+Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum

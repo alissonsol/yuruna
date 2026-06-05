@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -284,7 +284,11 @@ re-run this installer.
     } else {
         $tmp = Join-Path $env:TEMP ("yuruna-windows-hyper-v-" + [guid]::NewGuid().ToString('N') + '.ps1')
         $u   = 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1'
-        Invoke-RestMethod $u | Set-Content -Path $tmp -Encoding UTF8
+        # WriteAllText + BOM-less UTF8 so the re-fetched copy stays byte-identical
+        # to the canonical no-BOM installer; Set-Content -Encoding UTF8 emits a BOM
+        # on PS5.1 that breaks the relaunched `irm | iex` at the param block.
+        $src = Invoke-RestMethod $u
+        [System.IO.File]::WriteAllText($tmp, $src, (New-Object System.Text.UTF8Encoding $false))
         try {
             & $pwshCmd.Source -NoProfile -ExecutionPolicy Bypass -File $tmp -SkipPreflight
             return

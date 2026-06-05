@@ -102,9 +102,6 @@ active: `http://localhost:8080/status/` (architecture in
   Action reference + per-host
   [Yuruna.Host](../host) contract notes (snapshot + rename behavior,
   screen I/O divergence): [Sequence actions](../docs/test-sequences.md).
-- Screenshot-based testing: train references with
-  `pwsh test/Train-Screenshots.ps1 -GuestKey <key>`. Capture commands
-  and `schedule.json` schema: [Test Runner](read.more.md).
 
 ## Logging
 

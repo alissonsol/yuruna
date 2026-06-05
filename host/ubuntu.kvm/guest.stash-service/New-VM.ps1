@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,17 +130,27 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # === Render user-data / meta-data ===
-$userDataTemplate = Join-Path $ScriptDir 'vmconfig/user-data'
+$baseUserData     = Join-Path $repoRoot 'host/vmconfig/stash-service.base.user-data'
+$overlayUserData  = Join-Path $repoRoot 'host/vmconfig/stash-service.kvm.overlay.yml'
 $metaDataTemplate = Join-Path $ScriptDir 'vmconfig/meta-data'
-foreach ($f in @($userDataTemplate, $metaDataTemplate)) {
+foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
         Write-Error "Template missing: $f"
         exit 1
     }
 }
-$userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
-    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
-    Replace('PASSWORD_PLACEHOLDER', $YurunaPassword)
+# Render user-data from the shared base + KVM overlay (host/vmconfig/
+# stash-service.*). The overlay is empty (no per-platform divergence today);
+# Build-CloudInitUserData resolves the SSH-key and password placeholders.
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+$userData = Build-CloudInitUserData `
+    -BasePath    $baseUserData `
+    -OverlayPath $overlayUserData `
+    -RepoRoot    $repoRoot `
+    -Replacement @{
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        PASSWORD_PLACEHOLDER           = $YurunaPassword
+    } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
 $seedDir = Join-Path $vmDir 'seed.src'
@@ -156,7 +166,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Output ""
-Write-Output "=== stash-service console/SSH login (available NOW) ==="
+Write-Output "== stash-service console/SSH login (available NOW) =="
 Write-Output "  user:     yuruna"
 Write-Output "  password: (in authentication vault under 'yuruna')"
 Write-Output "  If the wait below stalls or fails, open"
@@ -275,7 +285,7 @@ Accessing the VM for debugging:
 }
 
 Write-Output ""
-Write-Output "=== stash-service VM is READY ==="
+Write-Output "== stash-service VM is READY =="
 Write-Output "  VM:       $VMName"
 Write-Output "  IP:       $dockIp"
 Write-Output "  Network:  $networkName"

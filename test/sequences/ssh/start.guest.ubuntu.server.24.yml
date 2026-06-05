@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # SSH-driven equivalent of gui/start.guest.ubuntu.server.24.yml. Selected
 # automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.
@@ -10,7 +11,7 @@
 
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 42946cbc-c2ec-48e4-a4ba-8e25a71c1286
-sequenceRevision: 1
+sequenceRevision: 2
 
 description: "Ubuntu Server 24.04: OCR-dismiss GRUB, then drive everything else over SSH once cloud-init has finished bringing up sshd."
 baseline:
@@ -27,7 +28,16 @@ steps:
 
   - action: sshWaitReady
     timeoutSeconds: 2400
-    description: "Wait for SSH after autoinstall"
+    # Fast-fail OCR scan: if subiquity aborts (apt-get update exit 100,
+    # mirror 5xx, hash-sum mismatch) the installer drops to a shell and
+    # sshd never starts -- without this list we'd burn the full 2400 s.
+    # On match the step fails fast; the inner runner's yuruna_retry
+    # backoff then auto-retries the cycle on a fresh VM.
+    installerFailurePatterns:
+      - "install_fail.crash"
+      - "Press enter to start a shell"
+      - "An error occurred"
+    description: "Wait for SSH after autoinstall (fast-fail on subiquity crash)"
 
   - action: sshExec
     command: "whoami && hostname"

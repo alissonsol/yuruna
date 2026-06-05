@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,11 +138,11 @@ function Initialize-YurunaEntryPointModuleSet {
     )
     # Canonical per-kind module lists. Order matters where a downstream
     # module depends on an upstream one being already loaded with -Global
-    # (e.g. Test.Host imports Test.VMUtility as a side effect; later
+    # (e.g. Test.HostContract imports Test.VMUtility as a side effect; later
     # callers expect Test.VMUtility's exports to be in scope).
     $sets = @{
         Outer    = @(
-            'Test.SingleInstance.psm1', 'Test.Host.psm1', 'Test.YurunaDir.psm1',
+            'Test.SingleInstance.psm1', 'Test.HostContract.psm1', 'Test.YurunaDir.psm1',
             'Test.Config.psm1', 'Test.InnerSpawn.psm1',
             'Test.ConfigPreflight.psm1', 'Test.Capability.psm1',
             # Boot-time recovery sweep + atomic state-file helper + runner
@@ -154,7 +154,14 @@ function Initialize-YurunaEntryPointModuleSet {
             # cleanly; Test.RunnerState last so Initialize-RunnerState's
             # synthetic transitions reach a fully-loaded emit path.
             'Test.EventSchema.psm1', 'Test.StateFile.psm1',
-            'Test.Log.psm1', 'Test.Recovery.psm1', 'Test.RunnerState.psm1'
+            'Test.Log.psm1', 'Test.Recovery.psm1', 'Test.RunnerState.psm1',
+            # Watchdog + outer-loop body live in their own modules so
+            # the Start-Job heartbeat watcher and the cycle dispatcher
+            # are unit-testable independent of Invoke-TestRunner.ps1.
+            # Test.RunnerWatchdog before Test.RunnerOuterLoop because
+            # Invoke-RunnerOuterLoop calls Start-Watchdog / Stop-Watchdog
+            # at the cycle boundary.
+            'Test.RunnerWatchdog.psm1', 'Test.RunnerOuterLoop.psm1'
         )
         Inner    = @(
             # Inner has additional imports threaded through its cycle loop
@@ -166,10 +173,10 @@ function Initialize-YurunaEntryPointModuleSet {
             # bootstrap replaces 7+ inline Import-Module sites; the same
             # call inside the cycle-body re-import loop refreshes them all
             # in lockstep when a mid-run `git pull` lands. Order matches the
-            # inline call sites so dependency edges (Test.Host depends on
+            # inline call sites so dependency edges (Test.HostContract depends on
             # Test.VMUtility, etc.) are preserved.
             'Test.SingleInstance.psm1', 'Test.YurunaDir.psm1', 'Test.Backoff.psm1',
-            'Test.Extension.psm1', 'Test.Host.psm1', 'Test.Status.psm1',
+            'Test.Extension.psm1', 'Test.HostContract.psm1', 'Test.Status.psm1',
             'Test.Notify.psm1', 'Test.Provenance.psm1',
             'Test.Start-GuestOS.psm1', 'Test.Start-GuestWorkload.psm1',
             # Order: Test.EventSchema + Test.StateFile before Test.Log so
@@ -185,11 +192,21 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.SequencePlanner.psm1',
             'Test.CachingProxy.psm1', 'Test.Perf.psm1',
             'Test.HostIO.psm1', 'Test.Capability.psm1',
-            'Test.KeyCodeRegistry.psm1', 'Test.Transport.psm1'
+            'Test.KeyCodeRegistry.psm1', 'Test.Transport.psm1',
+            # Paired registry + bounded recovery primitives: Repair-VncConnection
+            # (clear a stale cached VNC handle so the next capture/send
+            # re-handshakes) and Repair-ScreenshotRing. Loaded so Wait-ForText's
+            # no-text self-heal can reach them and the capability banner can show
+            # which hosts have a reconnect provider.
+            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
         )
         Project  = @(
             'Test.Config.psm1', 'Test.YurunaDir.psm1',
-            'Test.ConfigPreflight.psm1', 'Test.Host.psm1', 'Test.InnerSpawn.psm1',
+            'Test.ConfigPreflight.psm1', 'Test.HostContract.psm1', 'Test.InnerSpawn.psm1',
+            # Test.SingleInstance lets Assert-NoOtherRunner see runner.pid so
+            # a Test-Project run refuses to race a live Invoke-TestRunner
+            # instead of silently overlapping it on the same runtime dir.
+            'Test.SingleInstance.psm1',
             # Test.Recovery is loaded so Test-Project can archive any stale
             # break-active.json left over from a prior Test-Sequence /
             # Invoke-TestRunner that crashed mid-break. Without this sweep,
@@ -203,7 +220,13 @@ function Initialize-YurunaEntryPointModuleSet {
         )
         Sequence = @(
             'Test.LogLevel.psm1', 'Test.Config.psm1', 'Test.SequenceAction.psm1',
-            'Test.HostIO.psm1', 'Test.Host.psm1',
+            'Test.HostIO.psm1', 'Test.HostContract.psm1',
+            # Test.SingleInstance is loaded so Assert-NoOtherRunner can read
+            # runner.pid + runner.start and refuse the run if a real
+            # Invoke-TestRunner already owns the runtime dir. Outer-runner
+            # takeover semantics live in the caller; this entry point only
+            # uses the read side of the contract.
+            'Test.SingleInstance.psm1',
             'Test.EventSchema.psm1', 'Test.StateFile.psm1',
             'Test.Log.psm1', 'Test.Remediation.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
@@ -221,13 +244,16 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Recovery.psm1',
             'Invoke-Sequence.psm1', 'Test.SequencePlanner.psm1',
             'Test.YurunaDir.psm1', 'Test.OcrEngine.psm1',
-            'Test.Tesseract.psm1', 'Test.ConfigPreflight.psm1'
+            'Test.Tesseract.psm1', 'Test.ConfigPreflight.psm1',
+            # Bounded recovery primitives reached by Wait-ForText's no-text
+            # self-heal (Repair-VncConnection / Repair-ScreenshotRing).
+            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
         )
         StatusService = @(
             # Modules the parent (non-detached-server) status-service
             # code needs: Test.YurunaDir for Initialize-YurunaRuntimeDir /
             # Initialize-YurunaLogDir, Test.VMUtility for IP / port helpers,
-            # Test.CachingProxy for state-file + probe helpers, Test.Host
+            # Test.CachingProxy for state-file + probe helpers, Test.HostContract
             # for Get-HostType + Initialize-YurunaHost. Test.PortOwner is
             # consumed later in the file (Resolve-PortOrphan) so it is
             # included here too -- one bootstrap pass loads every module
@@ -236,11 +262,11 @@ function Initialize-YurunaEntryPointModuleSet {
             # affected by this set.
             'Test.YurunaDir.psm1', 'Test.VMUtility.psm1',
             'Test.CachingProxy.psm1', 'Test.PortOwner.psm1',
-            'Test.Host.psm1'
+            'Test.HostContract.psm1'
         )
         CachingProxy = @(
             # Union of Start-/Stop-/Test-/Repair-CachingProxy.ps1 inline
-            # imports: Test.Host (for Initialize-YurunaHost, Get-HostType,
+            # imports: Test.HostContract (for Initialize-YurunaHost, Get-HostType,
             # Invoke-LibvirtGroupReExecIfNeeded, Add-PortMap / Remove-PortMap,
             # Test-CacheVMOnExternalNetwork, Remove-HostProxy / Set-HostProxy,
             # Initialize-SudoCache), Test.CachingProxy (Get-CachingProxyState-
@@ -252,7 +278,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # under host/<short>/modules/ and is loaded by Initialize-Yuruna-
             # Host via the contract layer -- not part of this set.
             'Test.VMUtility.psm1', 'Test.CachingProxy.psm1',
-            'Test.Host.psm1'
+            'Test.HostContract.psm1'
         )
     }
     foreach ($modName in $sets[$For]) {
@@ -342,4 +368,148 @@ function Wait-WithProgress {
     return $result
 }
 
-Export-ModuleMember -Function Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress
+function Initialize-SequenceEngineRegistry {
+    <#
+    .SYNOPSIS
+        Reset the per-shell sequence-action + host-I/O registries and
+        repopulate the action registry from Invoke-Sequence.psm1.
+    .DESCRIPTION
+        Test-Sequence is the only entry point that can be re-invoked
+        inside the same shell. The `$global:` registry anchors that
+        protect built-in handlers from `-Force` re-imports also keep
+        stale extension registrations alive across runs, so a renamed
+        verb today could be silently shadowed by a "myCustomAction"
+        registered yesterday in the same pwsh.
+        Clear-SequenceAction + Clear-HostIOProvider wipe the registries;
+        re-importing Invoke-Sequence.psm1 re-runs its module-load body,
+        which re-registers `retry` / `recoverFromSnapshot` AND triggers
+        Test.SequenceHandler.psm1 to register every other built-in verb
+        (waitForText, passwdPrompt, fetchAndExecute, ...). Without the
+        re-import the engine's per-step lookup fails with
+        "Unknown action 'retry' -- treating as failure." on the first
+        verb of the chain.
+        Host I/O providers are re-registered later via
+        Initialize-YurunaHost (per-host Test.HostIO.&lt;Host&gt;.psm1 loads
+        there), so Clear-HostIOProvider does not need a matching
+        refresh here.
+    .PARAMETER ModulesDir
+        Absolute path to test/modules/. Caller passes
+        $paths.ModulesDir from Initialize-YurunaEntryPoint.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'ShouldProcess gates each registry write; this attribute is for the wrapper.')]
+    param(
+        [Parameter(Mandatory)][string]$ModulesDir
+    )
+    if (-not $PSCmdlet.ShouldProcess('SequenceAction + HostIO registries', 'Reset + repopulate')) { return }
+    Clear-SequenceAction -Confirm:$false
+    Clear-HostIOProvider -Confirm:$false
+    Import-Module -Name (Join-Path $ModulesDir 'Invoke-Sequence.psm1') `
+        -Global -Force -DisableNameChecking -Verbose:$false
+}
+
+function Assert-NoOtherRunner {
+    <#
+    .SYNOPSIS
+        Return $false (and emit a banner) when a live Invoke-TestRunner
+        already owns runner.pid in the given runtime dir.
+    .DESCRIPTION
+        Invoke-TestRunner ([test/Invoke-TestRunner.ps1](../Invoke-TestRunner.ps1))
+        owns runner.pid for its whole lifetime and takes over an
+        OtherRunner via Stop-StaleRunner. The dev / project entry
+        points (Test-Sequence, Test-Project) need the opposite
+        contract: refuse to start so they do not interfere with a
+        cycle in progress.
+        Surfaces a banner naming the live runner's PID and the
+        caller, then returns $false so the caller can exit with the
+        canonical failure code.
+    .OUTPUTS
+        [bool] $true when the runtime dir is unowned or owned by us;
+        $false when an OtherRunner is live (caller should exit).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][string]$CallerName
+    )
+    if (-not (Get-Command Get-RunnerInstanceState -ErrorAction SilentlyContinue)) {
+        Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping no-other-runner check."
+        return $true
+    }
+    $runnerPidFile   = Join-Path $RuntimeDir 'runner.pid'
+    $runnerStartFile = Join-Path $RuntimeDir 'runner.start'
+    $state = Get-RunnerInstanceState -RunnerPidFile $runnerPidFile -RunnerStartFile $runnerStartFile
+    if ($state.status -ne 'OtherRunner') { return $true }
+    Write-Output ''
+    Write-Output '============================================='
+    Write-Output '  Another Invoke-TestRunner is already running'
+    Write-Output "  PID:    $($state.pid)"
+    Write-Output "  Caller: $CallerName refuses to interfere"
+    Write-Output '  Action: stop the existing runner first, or run'
+    Write-Output '          this from a different YURUNA_RUNTIME_DIR.'
+    Write-Output '============================================='
+    return $false
+}
+
+function Register-EntryPointCancelHandler {
+    <#
+    .SYNOPSIS
+        Register a CancelKeyPress handler that flips a shared shutdown
+        flag instead of letting Ctrl+C tear down the runspace mid-step.
+    .DESCRIPTION
+        Same shape as Invoke-TestRunner.ps1's handler -- callers poll
+        the returned hashtable['Requested'] at safe points (end of
+        step, finally block) and surrender voluntarily.
+        Register-ObjectEvent is used (not a raw .NET delegate) because
+        the handler must run on the pipeline thread; see
+        [[scriptblock_timer_callback]] for the threadpool-trap that
+        otherwise applies. Non-interactive sessions (no Console attached)
+        catch the registration failure and return a state whose
+        Requested flag never flips; the caller still gets a usable
+        hashtable so its `if ($state['Requested'])` guard does not
+        need a null check.
+    .OUTPUTS
+        [hashtable] Shared state with key 'Requested' = $false; flips
+        to $true on the next Ctrl+C.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [string]$SourceIdentifier = 'YurunaCancelKey'
+    )
+    $state = @{ Requested = $false }
+    try {
+        Unregister-Event -SourceIdentifier $SourceIdentifier -ErrorAction SilentlyContinue
+        Remove-Job -Name $SourceIdentifier -Force -ErrorAction SilentlyContinue
+        $null = Register-ObjectEvent -InputObject ([Console]) -EventName CancelKeyPress `
+            -SourceIdentifier $SourceIdentifier -MessageData $state -Action {
+                $Event.SourceEventArgs.Cancel = $true
+                $Event.MessageData['Requested'] = $true
+                Write-Warning "Shutdown requested (Ctrl+C). Will exit after the current step..."
+            }
+    } catch {
+        Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $($_.Exception.Message)"
+    }
+    return $state
+}
+
+function Unregister-EntryPointCancelHandler {
+    <#
+    .SYNOPSIS
+        Tear down the handler registered by Register-EntryPointCancelHandler.
+    .DESCRIPTION
+        Safe to call from any exit path (success, failure, mid-finally)
+        even when registration failed earlier -- both calls are
+        SilentlyContinue.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$SourceIdentifier = 'YurunaCancelKey'
+    )
+    Unregister-Event -SourceIdentifier $SourceIdentifier -ErrorAction SilentlyContinue
+    Remove-Job -Name $SourceIdentifier -Force -ErrorAction SilentlyContinue
+}
+
+Export-ModuleMember -Function Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler

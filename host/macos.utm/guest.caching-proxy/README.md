@@ -12,7 +12,7 @@ Scripts and config in this folder:
   (arm64, qcow2 → raw, resized to 512 GB sparse).
 - [New-VM.ps1](New-VM.ps1) — assembles the UTM bundle and seeds via
   cloud-init.
-- [vmconfig/user-data](vmconfig/user-data) — cloud-init: squid,
+- [vmconfig/user-data](../../vmconfig/caching-proxy.base.user-data) — cloud-init: squid,
   Prometheus + Grafana + squid-exporter, snapshot-cache tuning,
   `offline_mode` flip after prewarm.
 - [vmconfig/meta-data](vmconfig/meta-data) — cloud-init instance

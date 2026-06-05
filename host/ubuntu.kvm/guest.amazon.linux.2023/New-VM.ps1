@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,12 +127,13 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
 $yurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
-$yurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'yuruna_retry.sh')))
+$yurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'yuruna-retry.sh')))
 $yurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'fetch-and-execute.sh')))
+$yurunaNetworkB64    = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'yuruna-network.sh')))
 
 $userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName).
@@ -143,7 +144,8 @@ $userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
     Replace('YURUNA_HOST_IP_PLACEHOLDER', $hostIp).
     Replace('YURUNA_HOST_PORT_PLACEHOLDER', $hostPort).
     Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $yurunaRetryLibB64).
-    Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $yurunaFaeB64)
+    Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $yurunaFaeB64).
+    Replace('YURUNA_NETWORK_BASE64_PLACEHOLDER', $yurunaNetworkB64)
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName)
 

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,9 @@ Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExp
 # New-YurunaResultManifest and Test-YurunaResultManifestOk on the values
 # this module returns.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
+# Shared retry policy with the guest-side automation/yuruna-retry.sh.
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Force
 
 $globalVariables = [ordered]@{}
 
@@ -218,31 +221,37 @@ function Publish-ResourceListHelper {
             # overwrite -- the latest attempt is what matters.
             $tofuLogFile = Join-Path -Path $workFolder -ChildPath "tofu.stderr.log"
             Remove-Item -LiteralPath $tofuLogFile -Force -ErrorAction SilentlyContinue
+            # Exit-code sidecar (tofu.rc) next to tofu.stderr.log so the
+            # post-mortem diagnostic's rc-scan resolves the tofu outcome; the
+            # retry helper rewrites it on each init / apply / output pass.
+            $tofuRcFile = Join-Path -Path $workFolder -ChildPath "tofu.rc"
+            Remove-Item -LiteralPath $tofuRcFile -Force -ErrorAction SilentlyContinue
 
             Write-Debug "OpenTofu init"
-            # --- See https://yuruna.link/memory#why-tofu-init-retries-before-failing
-            $initMaxAttempts = 3
-            $initBackoffSeconds = @(5, 10)
-            for ($initAttempt = 1; $initAttempt -le $initMaxAttempts; $initAttempt++) {
-                $initLog = & tofu init -input=false 2>&1
-                $initExit = $LASTEXITCODE
-                Add-Content -LiteralPath $tofuLogFile -Value "=== tofu init -input=false (attempt $initAttempt/$initMaxAttempts, exit=$initExit) ==="
-                $initLog | ForEach-Object { Add-Content -LiteralPath $tofuLogFile -Value ([string]$_); Write-Verbose ([string]$_) }
-                if ($initExit -eq 0) { break }
-                if ($initAttempt -lt $initMaxAttempts) {
-                    $sleep = $initBackoffSeconds[$initAttempt - 1]
-                    Write-Information "-- tofu init failed (exit $initExit) for resource '$resourceName', retrying in ${sleep}s..."
-                    Start-Sleep -Seconds $sleep
-                }
-            }
-            if ($initExit -ne 0) {
+            # Exponential backoff with jitter shared with the guest-side
+            # automation/yuruna-retry.sh (Yuruna.Retry.psm1). Defaults
+            # (5 attempts, 10s initial delay, *=2, +/-25% jitter) widen
+            # the retry window past github.com's typical 5xx blip so a
+            # transient provider-download failure no longer fails the
+            # cycle. TF_PLUGIN_CACHE_DIR (set above) ensures every
+            # subsequent attempt and every subsequent cycle reads the
+            # already-fetched plugin from disk instead of redownloading.
+            # --- See https://yuruna.link/network#defining-yuruna-retry-lib
+            $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile
+            if (-not $retryResult.Success) {
                 Pop-Location
-                throw ("tofu init failed for resource '$resourceName' after $initMaxAttempts attempts (final exit $initExit). Inspect $tofuLogFile for the underlying error (often a 5xx from registry.opentofu.org or a provider checksum mismatch)." + (Get-TofuStderrTail $tofuLogFile))
+                throw ("tofu init failed for resource '$resourceName' after $($retryResult.Attempts) attempts (final exit $($retryResult.LastExit)). Inspect $tofuLogFile for the underlying error (often a 5xx from registry.opentofu.org or a provider checksum mismatch)." + (Get-TofuStderrTail $tofuLogFile))
             }
 
             Write-Debug "Executing tofu command from $workFolder"
             # --- See https://yuruna.link/memory#why-set-resource-uses-a-saved-planfile-for-apply
             $planFile = Join-Path -Path $workFolder -ChildPath "tofu.planfile"
+            # tofu plan and the saved-planfile apply are safe to re-run on a
+            # transient failure: plan is read-only, and a saved-planfile apply
+            # re-applies the same plan. The refreshing-apply fallback is NOT --
+            # it recomputes the plan, so a retry after a partial apply is not
+            # safely idempotent and must fail loudly.
+            $retryableTofu = $true
             if ($isInitialization) {
                 $resolvedCommand = "tofu plan -input=false -compact-warnings -out=`"$planFile`""
             }
@@ -254,22 +263,49 @@ function Publish-ResourceListHelper {
                     # Missing planfile: fall back to a refreshing apply.
                     Write-Verbose "Planfile not found at $planFile; falling back to refreshing apply."
                     $resolvedCommand = "tofu apply -input=false -auto-approve"
+                    $retryableTofu = $false
                 }
             }
-            $applyLog = Invoke-DynamicExpression -Command $resolvedCommand 2>&1
-            $applyExit = $LASTEXITCODE
-            Add-Content -LiteralPath $tofuLogFile -Value "=== $resolvedCommand (exit=$applyExit) ==="
-            $applyLog | ForEach-Object { Add-Content -LiteralPath $tofuLogFile -Value ([string]$_); Write-Verbose ([string]$_) }
+            # Retry on a transient signal only (a network blip reaching a
+            # provider / registry / data-source, or remote-state-backend lock
+            # contention); a real plan or null_resource provisioner error does
+            # not match the shared classifier and fails fast. Mirrors the
+            # tofu-init retry above and the helm/kubectl retry in
+            # Yuruna.Workload -- one Yuruna.Retry policy + classifier. The
+            # closures capture the command and predicate by value because the
+            # retry scriptblock runs in the Yuruna.Retry module scope, which
+            # cannot see this module's private Invoke-DynamicExpression import
+            # by name -- so capture its CommandInfo here and invoke it via &.
+            $dynExprCmd = Get-Command Invoke-DynamicExpression
+            $transientTest = Get-Command Test-YurunaTransientFailure
+            $applyBlock = { & $dynExprCmd -Command $resolvedCommand *>&1 }.GetNewClosure()
+            $applyShouldRetry = {
+                param($info)
+                if (-not $retryableTofu) { return $false }
+                return [bool](& $transientTest -Output $info.Output)
+            }.GetNewClosure()
+            $applyRetry = Invoke-WithYurunaRetry -Label $resolvedCommand -ScriptBlock $applyBlock -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $applyShouldRetry
+            $applyLog  = $applyRetry.LastOutput
+            $applyExit = $applyRetry.LastExit
+            $applyLog | ForEach-Object { Write-Verbose ([string]$_) }
             if ($applyExit -ne 0) {
                 Pop-Location
                 throw ("tofu command '$resolvedCommand' failed for resource '$resourceName' (exit $applyExit). Inspect $tofuLogFile for the underlying error (often a null_resource provisioner returning non-zero, or a data-source program failing)." + (Get-TofuStderrTail $tofuLogFile))
             }
 
             if (-Not $isInitialization) {
-                $jsonOutput = "$(tofu output -json)"
-                $outputExit = $LASTEXITCODE
-                Add-Content -LiteralPath $tofuLogFile -Value "=== tofu output -json (exit=$outputExit) ==="
-                Add-Content -LiteralPath $tofuLogFile -Value $jsonOutput
+                # `tofu output -json` crosses the network too (remote state
+                # backends) and hits the same lock / 5xx transients, so retry
+                # it on the shared classifier. The retry helper merges streams
+                # with 2>&1, so filter out ErrorRecords (stderr) before the
+                # parse -- a stray warning line must not corrupt the JSON.
+                $outputShouldRetry = {
+                    param($info)
+                    return [bool](& $transientTest -Output $info.Output)
+                }.GetNewClosure()
+                $outputRetry = Invoke-WithYurunaRetry -Label "tofu output -json ($resourceName)" -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $outputShouldRetry -ScriptBlock { & tofu output -json }
+                $outputExit = $outputRetry.LastExit
+                $jsonOutput = (@($outputRetry.LastOutput) | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ }) -join "`n"
                 if ($outputExit -ne 0) {
                     Pop-Location
                     throw ("tofu output -json failed for resource '$resourceName' (exit $outputExit). Inspect $tofuLogFile." + (Get-TofuStderrTail $tofuLogFile))
@@ -316,6 +352,25 @@ function Publish-ResourceList {
     # Unattended-mode signal: silences tofu's interactive hints and the
     # curses progress UI (the latter trips pwsh-on-Linux Write-Progress).
     Set-Item -Path Env:TF_IN_AUTOMATION -Value "1"
+
+    # On-disk provider cache shared across resources and cycles. Once
+    # `tofu init` has fetched a provider, subsequent inits reuse the
+    # cached plugin instead of round-tripping to github.com — guards
+    # against the registry-5xx-burst class where releases.github.com /
+    # registry.opentofu.org returns the same 5xx within a tight retry
+    # window, so a per-attempt retry loop cannot survive the burst but
+    # a cached plugin sidesteps it entirely. The cache is self-
+    # populating; nothing external (squid, network mirror) needs to be
+    # reachable. Operator can override the path via TF_PLUGIN_CACHE_DIR;
+    # otherwise it lives under the project's .yuruna/ tree so a
+    # `yuruna clear` purges it. plugin_cache_may_break_dependency_lock_file:
+    # harmless here because every resource is its own working dir with
+    # its own .terraform.lock.hcl.
+    if (-not $env:TF_PLUGIN_CACHE_DIR) {
+        $defaultPluginCache = Join-Path -Path $project_root -ChildPath ".yuruna/tofu-plugin-cache"
+        $null = New-Item -ItemType Directory -Force -Path $defaultPluginCache -ErrorAction SilentlyContinue
+        Set-Item -Path Env:TF_PLUGIN_CACHE_DIR -Value (Resolve-Path -LiteralPath $defaultPluginCache).Path
+    }
 
     $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"
     if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $resourcesFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }

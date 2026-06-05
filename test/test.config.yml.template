@@ -17,6 +17,14 @@ testCycle:
   recentDisplayCount: 30
   shouldStopOnFailure: false
   stepTimeoutMinutes: 45
+  # Default-off self-heal. When true, the outer failure-pause ends early
+  # (auto-retry) for a clearly-safe transient failure class (wait_timeout,
+  # instrumentation_failure, network_timeout, host_io_blocked) instead of
+  # waiting up to the failure-pause cap for a human commit. Capped per
+  # consecutive-failure streak so a deterministic failure still escalates to
+  # the normal wait-for-human pause after this many auto-retries.
+  autoRemediationEnabled: false
+  autoRemediationMaxAttemptsPerCycle: 2
 vmCommunication:
   characterDelayMs: 20
   keystrokeMechanism: GUI

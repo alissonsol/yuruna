@@ -1,4 +1,6 @@
 #cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
 # NoCloud user-data for Amazon Linux 2023 (parity with hyper-v / utm / kvm
 # siblings). Two users: ec2-user (cloud-image default) + USERNAME_PLACEHOLDER
@@ -29,13 +31,17 @@ write_files:
       blacklist hv_balloon
     permissions: '0644'
   # --- See https://yuruna.link/vmconfig#install-yuruna-lib
-  - path: /usr/local/lib/yuruna/yuruna_retry.sh
+  - path: /usr/local/lib/yuruna/yuruna-retry.sh
     encoding: base64
     content: YURUNA_RETRY_LIB_BASE64_PLACEHOLDER
     permissions: '0644'
   - path: /usr/local/lib/yuruna/fetch-and-execute.sh
     encoding: base64
     content: YURUNA_FAE_BASE64_PLACEHOLDER
+    permissions: '0755'
+  - path: /usr/local/lib/yuruna/yuruna-network.sh
+    encoding: base64
+    content: YURUNA_NETWORK_BASE64_PLACEHOLDER
     permissions: '0755'
 
 runcmd:
@@ -77,4 +83,4 @@ runcmd:
     EOF
   # --- See https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
   - timedatectl set-ntp true
-  - bash -c 'command -v curl >/dev/null 2>&1 && TZ=$(curl -s --max-time 5 https://ip-api.com/line?fields=timezone) && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check curl, network, or API)" >&2'
+  - bash -c 'command -v curl >/dev/null 2>&1 && TZ=$(curl -s --max-time 5 http://ip-api.com/line?fields=timezone) && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check curl, network, or API)" >&2'

@@ -1,10 +1,10 @@
 # Extensions API
 
-The harness defers three classes of swappable behavior to **extension
+The harness defers four classes of swappable behavior to **extension
 areas** under [`test/extension/`](../test/extension/) — authentication,
-notification transports, caching-proxy log parsing. An area is a
-directory with one or more `.psm1` files plus a small YAML config
-naming the active set.
+notification transports, caching-proxy log parsing, and host-side 
+artifact stashing. An area is a directory with one or more `.psm1` 
+files plus a small YAML config naming the active set.
 
 Loader: [`test/modules/Test.Extension.psm1`](../test/modules/Test.Extension.psm1).
 
@@ -82,7 +82,7 @@ $names = @(Get-ActiveExtensionName -Area 'authentication')
 $extName = $names[0]
 ```
 
-## Why `-Import-Extension` matches by absolute path
+## Why `Import-Extension` matches by absolute path
 
 When two areas ship a `default.psm1`, both modules register under the
 same PowerShell module name `'default'`. `Get-Module -Name default`

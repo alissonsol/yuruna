@@ -13,7 +13,7 @@ Scripts and config in this folder:
 - [New-VM.ps1](New-VM.ps1) — defines the libvirt domain
   (12 GB RAM / 4 vCPU) and seeds via cloud-init. Dedicated cache box
   sized so squid's `cache_mem` can take 75 % of RAM.
-- [vmconfig/user-data](vmconfig/user-data) — cloud-init: squid,
+- [vmconfig/user-data](../../vmconfig/caching-proxy.base.user-data) — cloud-init: squid,
   Prometheus + Grafana + squid-exporter, qemu-guest-agent,
   snapshot-cache tuning, `offline_mode` flip after prewarm.
 - [vmconfig/meta-data](vmconfig/meta-data) — cloud-init instance

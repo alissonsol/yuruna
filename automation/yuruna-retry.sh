@@ -1,10 +1,10 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # Single source of truth for retry wrappers used by guest provisioning
-# scripts. Sourced via /usr/local/lib/yuruna/yuruna_retry.sh after
+# scripts. Sourced via /usr/local/lib/yuruna/yuruna-retry.sh after
 # cloud-init deploys this file at install time.
 #
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib

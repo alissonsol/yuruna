@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     Mirrors the Ubuntu UTM New-VM.ps1 pattern, minus:
       * nested-virt preflight (squid needs no KVM)
       * installer ISO drive (cloud image is already bootable)
-      * blank qemu-img disk (we use the converted raw cloud image)
+      * blank qemu-img disk (we use the resized qcow2 cloud image)
 
 .PARAMETER VMName
     Name of the UTM VM. Default: caching-proxy
@@ -73,7 +73,7 @@ if (-not (Test-Path $utmPlist)) {
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.caching-proxy"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.raw"
+$baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 if (-not (Test-Path $baseImageFile)) {
     $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
     if (Test-Path -LiteralPath $getImageScript) {
@@ -106,10 +106,14 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # makes UTM provide a per-bundle pflash file automatically. No Swift
 # VZEFIVariableStore step required (that was the AVF-only path).
 
-# Copy the pre-built raw cloud image into the bundle as the boot disk.
-# Get-Image.ps1 already produced raw resized to 512 GB; no conversion here.
-$DiskImage = "$DataDir/disk.img"
-Write-Output "Copying cloud image into bundle as disk.img (sparse copy on APFS)..."
+# Copy the pre-built qcow2 cloud image into the bundle as the boot disk.
+# Get-Image.ps1 already produced a qcow2 resized to 512 GB; no conversion
+# here. qcow2 (not raw) is deliberate: UTM's QEMU backend boots it
+# directly and it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw
+# disk hits under UTM's discard=unmap,detect-zeroes=unmap -- see
+# Get-Image.ps1 and feedback_macos-qemu-punchhole-alignment.md.
+$DiskImage = "$DataDir/disk.qcow2"
+Write-Output "Copying cloud image into bundle as disk.qcow2 (sparse copy on APFS)..."
 # `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back
 # to Copy-Item if the destination isn't APFS (rare). Full path bypasses
 # the PowerShell `cp` alias for Copy-Item.
@@ -157,11 +161,19 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyStatePath
 
-# .Replace() (literal) rather than -replace (regex): keys can contain
-# characters regex would interpret. Cheap insurance.
-$UserData = (Get-Content -Raw (Join-Path $VmConfigDir "user-data")).
-    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
-    Replace('PASSWORD_PLACEHOLDER', $YurunaPassword)
+# Render user-data from the shared base + UTM overlay (host/vmconfig/
+# caching-proxy.*). Build-CloudInitUserData resolves the SSH-key and
+# password placeholders with literal .Replace(), so values with
+# regex-special characters are safe.
+Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+$UserData = Build-CloudInitUserData `
+    -BasePath    (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy.base.user-data') `
+    -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy.utm.overlay.yml') `
+    -RepoRoot    $_repoRootForExt `
+    -Replacement @{
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        PASSWORD_PLACEHOLDER           = $YurunaPassword
+    } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"
@@ -217,7 +229,21 @@ if (-not $BridgeInterface) {
     Write-Warning "Could not resolve default-route interface; falling back to 'en0' for VZ bridge."
     $BridgeInterface = 'en0'
 }
-Write-Output "Bridge interface: $BridgeInterface (cache VM will request DHCP on this LAN)"
+
+# Bridged QEMU networking is unreliable over Wi-Fi: the AP commonly drops
+# frames from the VM's locally-administered MAC, so a bridged cache never
+# gets a LAN DHCP lease. On a Wi-Fi-only default route build the cache on
+# UTM Shared NAT (192.168.64.x) instead -- the host and other Shared-NAT
+# UTM guests reach it directly, and Start-CachingProxy.ps1 exposes it to
+# the wider LAN via host port-forwarders. Ethernet keeps bridged (LAN-
+# direct, real client IPs).
+if (Test-MacDefaultRouteIsWiFi) {
+    $NetworkMode = 'Shared'
+    Write-Output "Default route is Wi-Fi ($BridgeInterface) -- bridged can't get a LAN lease over Wi-Fi; building the cache on UTM Shared NAT. Start-CachingProxy.ps1 will forward host ports to it for LAN access."
+} else {
+    $NetworkMode = 'Bridged'
+    Write-Output "Bridge interface: $BridgeInterface (cache VM will request DHCP on this LAN)"
+}
 
 # 12 GB RAM, 4 vCPU -- same sizing as the Hyper-V caching-proxy. This is
 # a DEDICATED cache VM (one job: serve the squid object cache to every
@@ -244,14 +270,23 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VM_NAME__',            $VMName `
     -replace '__VM_UUID__',            $VmUuid `
     -replace '__MAC_ADDRESS__',        $MacAddress `
-    -replace '__BRIDGE_INTERFACE__',   $BridgeInterface `
+    -replace '__NETWORK_MODE__',       $NetworkMode `
     -replace '__DISK_IDENTIFIER__',    $DiskId `
-    -replace '__DISK_IMAGE_NAME__',    'disk.img' `
+    -replace '__DISK_IMAGE_NAME__',    'disk.qcow2' `
     -replace '__SEED_IDENTIFIER__',    $SeedId `
     -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
     -replace '__VNC_DISPLAY__',        "$VncDisplay" `
     -replace '__CPU_COUNT__',          "$vmCores" `
     -replace '__MEMORY_SIZE__',        '12288'
+
+# Bridged mode needs the physical NIC name; Shared NAT carries no
+# BridgedInterface key (matches the sibling Shared templates, e.g.
+# guest.amazon.linux.2023), so drop the key/value entirely in that mode.
+if ($NetworkMode -eq 'Shared') {
+    $PlistContent = $PlistContent -replace "(?m)^[ \t]*<key>BridgedInterface</key>\r?\n[ \t]*<string>__BRIDGE_INTERFACE__</string>\r?\n", ''
+} else {
+    $PlistContent = $PlistContent -replace '__BRIDGE_INTERFACE__', $BridgeInterface
+}
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
@@ -270,11 +305,11 @@ Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 # LITERAL here-string (@'...'@) for the multi-line block. Shell snippets
 # below contain $(utmctl ...), "$ip", etc. — pass through verbatim, do
 # NOT let PowerShell evaluate. Placeholders like __VM_NAME__ are
-# substituted after the fact via .Replace(). (An earlier version tried
-# to escape $ with \$; \ is NOT a PowerShell string escape, so
-# `\$(utmctl ...)` actually ran utmctl mid-guidance.)
+# substituted after the fact via .Replace(). Backslash-escaping (\$)
+# does NOT work: \ is not a PowerShell string escape, so `\$(utmctl ...)`
+# inside a double-quoted/expandable string actually runs utmctl mid-guidance.
 Write-Output ""
-Write-Output "=== VM bundle created ==="
+Write-Output "== VM bundle created =="
 Write-Output "  Path:      $UtmDir"
 Write-Output "  Backend:   QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
 Write-Output ""

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456754
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,23 +69,11 @@
 param()
 
 $ErrorActionPreference = "Stop"
-# Cross-folder import: script lives under host/macos.utm/; delegated
-# module is at test/modules/Test.Host.psm1 (two levels up, then test/).
-# Same pattern as Test.New-VM.psm1 -> host/macos.utm/modules/Yuruna.Host.psm1.
-$ScriptDir = $PSScriptRoot
-$RepoRoot  = Split-Path -Parent (Split-Path -Parent $ScriptDir)
-$ModulePath = Join-Path $RepoRoot "test/modules/Test.Host.psm1"
-
-$savedVerbose = $global:VerbosePreference
-$global:VerbosePreference = "SilentlyContinue"
-Import-Module $ModulePath -Force
-$global:VerbosePreference = $savedVerbose
-
-# Cycle planner reads project/test/test.sequence.yml and every per-sequence
-# baseline via powershell-yaml. Missing here -> Resolve-CyclePlan throws ->
-# inner runner falls back to legacy guestSequence -> Start-GuestOS runs with
-# an empty sequence list and is recorded as "skipped" with no log trace.
-[void](Install-PowerShellYamlIfMissing @PSBoundParameters)
-[void](Install-PSScriptAnalyzerIfMissing @PSBoundParameters)
+# Shared bootstrap (Test.HostContract import + powershell-yaml +
+# PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
+# Rationale + ordering are documented there.
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
+Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters
 
 Set-MacHostConditionSet @PSBoundParameters

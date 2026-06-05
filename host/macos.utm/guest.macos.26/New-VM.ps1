@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42f2a3b4-c5d6-4e78-f901-2a3b4c5d6e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -464,9 +464,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK."
 
-# === Guidance ===
 Write-Output ""
-Write-Output "=== VM bundle created: $UtmDir ==="
+Write-Output "== VM bundle created: $UtmDir =="
 Write-Output ""
 
 # Reveal the freshly-built bundle in Finder, with '$VMName.utm' selected,

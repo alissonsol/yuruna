@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -197,12 +197,19 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $VmConfigDir = Join-Path $ScriptDir "vmconfig"
-$UserDataTemplate = Join-Path $VmConfigDir "user-data"
 $MetaDataTemplate = Join-Path $VmConfigDir "meta-data"
-if (-not (Test-Path $UserDataTemplate)) {
-    Write-Error "user-data template not found at '$UserDataTemplate'."
-    exit 1
+# user-data is the shared base + UTM overlay under host/vmconfig/.
+# Three Split-Path -Parent walks: guest.ubuntu.server.24/ -> macos.utm/
+# -> host/ -> <RepoRoot>. The merger's anchor contract is documented in
+# automation/Yuruna.CloudInitTemplate.psm1.
+$RepoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+$HostVmConfigDir = Join-Path $RepoRoot 'host/vmconfig'
+$BaseUserData    = Join-Path $HostVmConfigDir 'ubuntu.server.base.user-data'
+$OverlayUserData = Join-Path $HostVmConfigDir 'ubuntu.server.utm.overlay.yml'
+foreach ($p in @($BaseUserData, $OverlayUserData)) {
+    if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
 }
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
 # Load the SSH public key used by the test harness to drive the VM over SSH.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
@@ -336,6 +343,10 @@ $AptProxyBlock = @"
     primary:
       - arches: [default]
         uri: http://ports.ubuntu.com/ubuntu-ports$($AptProxyLine)
+    conf: |
+      Acquire::Retries "5";
+      Acquire::http::Timeout "120";
+      Acquire::https::Timeout "120";
 "@
 
 # Fetch the caching-proxy CA on the host so it can be base64-embedded in
@@ -388,16 +399,25 @@ if (Test-Path $YurunaTestConfig) {
 }
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+# Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
-$YurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
-$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna_retry.sh')))
-$YurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'fetch-and-execute.sh')))
-
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('HOSTNAME_PLACEHOLDER', $VMName).Replace('USERNAME_PLACEHOLDER', $Username).Replace('HASH_PLACEHOLDER', $PasswordHash).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('APT_PROXY_BLOCK_PLACEHOLDER', $AptProxyBlock).Replace('CACHING_PROXY_URL_PLACEHOLDER', $CachingProxyUrl).Replace('CA_CERT_BASE64_PLACEHOLDER', $CaCertBase64).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64)
-
-Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+$null = Build-CloudInitUserData `
+    -BasePath    $BaseUserData `
+    -OverlayPath $OverlayUserData `
+    -RepoRoot    $RepoRoot `
+    -OutputPath  "$SeedDir/user-data" `
+    -Replacement @{
+        HOSTNAME_PLACEHOLDER           = $VMName
+        USERNAME_PLACEHOLDER           = $Username
+        HASH_PLACEHOLDER               = $PasswordHash
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        APT_PROXY_BLOCK_PLACEHOLDER    = $AptProxyBlock
+        CACHING_PROXY_URL_PLACEHOLDER  = $CachingProxyUrl
+        CA_CERT_BASE64_PLACEHOLDER     = $CaCertBase64
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+    } -Confirm:$false
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $VMName
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline

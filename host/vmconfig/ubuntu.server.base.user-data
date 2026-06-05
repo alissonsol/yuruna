@@ -1,4 +1,6 @@
 #cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 autoinstall:
   version: 1
   # --- See https://yuruna.link/vmconfig#apt-proxy-block
@@ -14,6 +16,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
     hostname: HOSTNAME_PLACEHOLDER
     username: USERNAME_PLACEHOLDER
     password: "HASH_PLACEHOLDER"
+# === YURUNA_OVERLAY_NETWORK ===
   storage:
     # --- See https://yuruna.link/vmconfig#lvm-sizing-policy
     layout:
@@ -31,9 +34,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
       emit_keys_to_console: false
   # --- See https://yuruna.link/vmconfig#empty-interactive-sections
   interactive-sections: []
-  # --- See https://yuruna.link/vmconfig#disable-vt-blanking-on-the-live-installer-kernel
-  early-commands:
-    - setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true
+# === YURUNA_OVERLAY_EARLY_COMMANDS ===
   late-commands:
     # --- See https://yuruna.link/vmconfig#apt-cache-persist-proxy
     - |
@@ -138,22 +139,14 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- See https://yuruna.link/vmconfig#disable-motd
     - chmod -x /target/etc/update-motd.d/*
     - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
-    # --- See https://yuruna.link/vmconfig#consoleblank-kernel-cmdline
     - mkdir -p /target/etc/default/grub.d
-    - |
-      cat > /target/etc/default/grub.d/99-yuruna-consoleblank.cfg << 'GRUBCFG'
-      GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} consoleblank=0"
-      GRUBCFG
+# === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
     # --- See https://yuruna.link/vmconfig#console-quiet
     - |
       cat > /target/etc/default/grub.d/99-yuruna-console-quiet.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no"
       GRUBCFG
-    # --- See https://yuruna.link/vmconfig#console-fb-safe
-    - |
-      cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
-      GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"
-      GRUBCFG
+# === YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET ===
     # --- See https://yuruna.link/vmconfig#update-grub
     - curtin in-target --target=/target -- update-grub
     # --- See https://yuruna.link/vmconfig#console-hold-getty-until-cloud-init-signals-done
@@ -181,14 +174,64 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- See https://yuruna.link/vmconfig#install-yuruna-lib
     - mkdir -p /target/usr/local/lib/yuruna
     - |
-      printf '%s' "YURUNA_RETRY_LIB_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna_retry.sh
-      chmod 0644 /target/usr/local/lib/yuruna/yuruna_retry.sh
+      printf '%s' "YURUNA_RETRY_LIB_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-retry.sh
+      chmod 0644 /target/usr/local/lib/yuruna/yuruna-retry.sh
     - |
       printf '%s' "YURUNA_FAE_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/fetch-and-execute.sh
       chmod 0755 /target/usr/local/lib/yuruna/fetch-and-execute.sh
+    - |
+      printf '%s' "YURUNA_NETWORK_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-network.sh
+      chmod 0755 /target/usr/local/lib/yuruna/yuruna-network.sh
     # --- See https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
     - curtin in-target --target=/target -- timedatectl set-ntp true
-    - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "https://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'
+    - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'
     # --- See https://yuruna.link/vmconfig#quiet-post-install-reboot-teardown
     - umount -lf /cdrom || true
     - losetup -D || true
+  # --- See https://yuruna.link/vmconfig#error-commands-installer-log-upload
+  error-commands:
+    - |
+      set +e
+      HOST_IP="YURUNA_HOST_IP_PLACEHOLDER"
+      HOST_PORT="YURUNA_HOST_PORT_PLACEHOLDER"
+      if [ -z "$HOST_IP" ] || [ -z "$HOST_PORT" ]; then
+          echo "yuruna error-commands: no host coordinates baked in -- skipping log upload" >&2
+          exit 0
+      fi
+      VMNAME=$(hostname 2>/dev/null || echo unknown)
+      STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+      BUCKET="installer-fail/${VMNAME}/${STAMP}"
+      URL_BASE="http://${HOST_IP}:${HOST_PORT}/log-upload/${BUCKET}"
+      put_file() {
+          SRC="$1"
+          DEST="$2"
+          [ -r "$SRC" ] || return 0
+          if command -v curl >/dev/null 2>&1; then
+              curl --silent --show-error --fail --max-time 30 --noproxy '*' \
+                  --upload-file "$SRC" "${URL_BASE}/${DEST}" >/dev/null 2>&1 || \
+                  echo "yuruna error-commands: curl PUT failed for $SRC -> $DEST" >&2
+          else
+              wget --quiet --timeout=30 --no-proxy --method=PUT \
+                  --body-file="$SRC" -O /dev/null "${URL_BASE}/${DEST}" || \
+                  echo "yuruna error-commands: wget PUT failed for $SRC -> $DEST" >&2
+          fi
+      }
+      for SRC in \
+          /var/log/installer/subiquity-curtin-install.log \
+          /var/log/installer/subiquity-server-debug.log \
+          /var/log/installer/curtin-install/main.log \
+          /var/log/installer/autoinstall-user-data \
+          /var/log/installer/installer-journal.txt \
+          /var/log/cloud-init.log \
+          /var/log/cloud-init-output.log; do
+          DEST=$(basename "$SRC")
+          case "$DEST" in
+              *.log|*.txt|*.json|*.err|*.crash) ;;
+              *) DEST="${DEST}.log" ;;
+          esac
+          put_file "$SRC" "$DEST"
+      done
+      for CRASH in /var/crash/*.crash; do
+          [ -r "$CRASH" ] && put_file "$CRASH" "$(basename "$CRASH")"
+      done
+      exit 0

@@ -32,7 +32,7 @@
        below pin flex behavior that's unique to index.html's
        three-section layout. */
     .section-title.with-controls #sec-cycle-title,
-    .section-title.with-controls #sec-guests-title,
+    .section-title.with-controls #sec-sequences-title,
     .section-title.with-controls #sec-history-title {
       font-size: .6875rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: .07em; color: var(--fg-muted);
@@ -81,6 +81,35 @@
     .guest-action.paused {
       background: var(--paused-strong-bg); color: var(--fg-header); border-color: var(--paused-strong-border);
     }
+
+    /* A sequence card is the visual unit for one test.runner.yml entry; it
+       wraps the guest(s) that sequence drives. The nested guest blocks drop
+       their own card chrome (see .sequence-card .guest-card below) so the
+       sequence card reads as a single tile even with one guest. */
+    .sequence-card {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
+      padding: .875rem 1.125rem; margin-bottom: .75rem;
+    }
+    .sequence-card-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: .5rem;
+    }
+    .sequence-card-header > * + * { margin-left: 1rem; }
+    .sequence-name {
+      flex: 1; min-width: 0;
+      font-weight: 600; font-size: .9375rem; word-break: break-all;
+      font-family: var(--font-mono); color: var(--fg-primary);
+    }
+    .sequence-card .guest-card {
+      background: transparent; border: none; border-radius: 0;
+      padding: 0; margin: 0;
+    }
+    .sequence-card .guest-card + .guest-card {
+      margin-top: .625rem; padding-top: .625rem; border-top: 1px solid var(--border-soft);
+    }
+    /* Demote the guest key inside a sequence card to a sub-label — the
+       sequence name is the card's primary title. */
+    .sequence-card .guest-name { font-size: .8125rem; font-weight: 500; }
 
     /* Flexbox fallback for iOS 9 Safari (pre-grid). Each card claims
        half the row minus the inter-card gutter; the flex-wrap lets a
@@ -203,12 +232,12 @@
     </div>
   </section>
 
-  <section id="sec-guests" style="display:none">
+  <section id="sec-sequences" style="display:none">
     <div class="section-title with-controls">
-      <span id="sec-guests-title">Guests</span>
+      <span id="sec-sequences-title">Test sequences</span>
       <button id="step-pause-btn" class="meta-btn" type="button" disabled>Pause after step</button>
     </div>
-    <div id="guest-list"></div>
+    <div id="sequence-list"></div>
   </section>
 
   <section id="sec-history" style="display:none">
@@ -221,7 +250,7 @@
         <thead>
           <tr>
             <th scope="col">Cycle ID (UTC)</th><th scope="col">Duration</th>
-            <th scope="col">Guests</th><th scope="col">Commit</th>
+            <th scope="col">Sequences</th><th scope="col">Commit</th>
           </tr>
         </thead>
         <tbody id="history-body"></tbody>
@@ -237,7 +266,7 @@
 </main>
 
 <div id="footer-bar">
-  <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" aria-label="Host IP addresses">—</textarea></span>
+  <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Host IP addresses">—</textarea></span>
   <span>Loaded: <span id="last-loaded">—</span></span>
   <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
 </div>

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,14 +198,16 @@ if (Test-Path $YurunaTestConfig) {
 }
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna_retry.sh + fetch-and-execute.sh into the seed as base64-encoded
-# write_files entries. Eliminates the legacy network-dependent wget+wget
-# bootstrap and ensures both files are on disk before any guest script runs.
+# Bake yuruna-retry.sh + fetch-and-execute.sh + yuruna-network.sh into the seed
+# as base64-encoded write_files entries. Eliminates the legacy network-dependent
+# wget+wget bootstrap and ensures all three files are on disk before any guest
+# script runs.
 $YurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
-$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna_retry.sh')))
+$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna-retry.sh')))
 $YurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'fetch-and-execute.sh')))
+$YurunaNetworkB64    = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna-network.sh')))
 
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('USERNAME_PLACEHOLDER', $Username).Replace('PLAINTEXT_PASSWORD_PLACEHOLDER', $Password).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64)
+$UserData = (Get-Content -Raw $UserDataTemplate).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('USERNAME_PLACEHOLDER', $Username).Replace('PLAINTEXT_PASSWORD_PLACEHOLDER', $Password).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64).Replace('YURUNA_NETWORK_BASE64_PLACEHOLDER', $YurunaNetworkB64)
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"
@@ -227,7 +229,6 @@ if ($hostCores -lt 4) {
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 
-# Set display resolution to 1920x1080.
 # WARNING: The test harness OCR is calibrated for 1920x1080.
 # Changing this resolution may break automated screen-text detection
 # in waitForText sequence steps.

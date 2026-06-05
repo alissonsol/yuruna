@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -12,7 +12,6 @@ export NONINTERACTIVE=1
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -30,13 +29,12 @@ case "$ARCH" in
 esac
 
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-. /usr/local/lib/yuruna/yuruna_retry.sh
+. /usr/local/lib/yuruna/yuruna-retry.sh
 
-echo "=== Installing Kubernetes requirements for Ubuntu ==="
+echo "== Installing Kubernetes requirements for Ubuntu =="
 
-# ===== Basic Tools =====
 echo ""
-echo -e "\e[1;36m>>> Installing Basic Tools...\e[0m"
+echo -e "\e[1;36m==== Basic tools ====\e[0m"
 apt_retry sudo apt-get update -y
 apt_retry sudo apt-get install -y \
     ssh net-tools apt-transport-https curl git \
@@ -48,11 +46,9 @@ apt_retry sudo apt-get install -y \
 # Enable and start SSH
 sudo systemctl enable --now ssh
 sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status unknown"
-echo -e "\e[1;32m<<< Basic Tools installation complete.\e[0m"
 
-# ===== Docker =====
 echo ""
-echo -e "\e[1;36m>>> Installing Docker...\e[0m"
+echo -e "\e[1;36m==== Docker ====\e[0m"
 sudo install -m 0755 -d /etc/apt/keyrings
 curl_retry -fsSL "https://download.docker.com/linux/ubuntu/gpg${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
 sudo chmod a+r /etc/apt/keyrings/docker.asc
@@ -125,18 +121,14 @@ DOCKER_GROUP
 fi
 
 docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"
-echo -e "\e[1;32m<<< Docker installation complete.\e[0m"
 
-# ===== Disable Swap =====
 echo ""
-echo -e "\e[1;36m>>> Disabling swap...\e[0m"
+echo -e "\e[1;36m==== Swap disabled ====\e[0m"
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 sudo swapoff -a || true
-echo -e "\e[1;32m<<< Swap disabled.\e[0m"
 
-# ===== Verify Docker is Ready =====
 echo ""
-echo -e "\e[1;36m>>> Verifying Docker is up and running...\e[0m"
+echo -e "\e[1;36m==== Docker up ====\e[0m"
 DOCKER_WAIT_SECONDS=60
 DOCKER_READY=false
 for i in $(seq 1 "$DOCKER_WAIT_SECONDS"); do
@@ -171,16 +163,13 @@ if [ "$DOCKER_READY" = false ]; then
     echo ""
     exit 1
 fi
-echo -e "\e[1;32m<<< Docker is ready.\e[0m"
 
-# ===== Kubernetes =====
 echo ""
-echo -e "\e[1;36m>>> Installing Kubernetes...\e[0m"
+echo -e "\e[1;36m==== K8S ====\e[0m"
 # K8s repo + keyring already written next to the Docker source above so a
 # single apt-get update covers both.
 apt_retry sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
-# ===== Initialize Kubernetes Cluster =====
 
 # --- See https://yuruna.link/definition#defining-containerd-hoststoml-cache-mirror
 sudo mkdir -p /etc/containerd
@@ -216,9 +205,9 @@ sudo systemctl enable containerd
 sudo systemctl restart containerd
 
 # Pre-pull the kubeadm control-plane images through the zot mirror so the
-# subsequent `kubeadm init` lands fully cache-warm. Moved AFTER the
-# containerd mirror config above so the pulls actually use zot; the
-# previous placement (before containerd reconfig) bypassed cache.
+# subsequent `kubeadm init` lands fully cache-warm. Must run AFTER the
+# containerd mirror config above; otherwise the pulls bypass the cache
+# and hit upstream directly.
 # Best-effort: `kubeadm init` does its own pull check if this fails.
 sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to be run after kubeadm init"
 
@@ -307,15 +296,11 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kub
 
 # Rename kubectl context to docker-desktop
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
-echo -e "\e[1;32m<<< Kubernetes installation complete.\e[0m"
-
-# ===== Other Requirements =====
 
 # Helm (official install script)
 echo ""
-echo -e "\e[1;36m>>> Installing Helm...\e[0m"
+echo -e "\e[1;36m==== Helm ====\e[0m"
 curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash || true
-echo -e "\e[1;32m<<< Helm installation complete.\e[0m"
 
 # OpenTofu: deb install (primary) with standalone fallback, then verify.
 # The deb method fetches https://get.opentofu.org/opentofu.gpg; a transient
@@ -326,7 +311,7 @@ echo -e "\e[1;32m<<< Helm installation complete.\e[0m"
 # pulls the binary from github.com/opentofu/opentofu/releases and does not
 # touch get.opentofu.org, so it routes around the outage entirely.
 echo ""
-echo -e "\e[1;36m>>> Installing OpenTofu...\e[0m"
+echo -e "\e[1;36m==== OpenTofu ====\e[0m"
 curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
 if ! /tmp/install-opentofu.sh --install-method deb; then
@@ -339,7 +324,6 @@ if ! command -v tofu >/dev/null 2>&1; then
     echo "Downstream Set-Resource steps rely on 'tofu'; aborting early rather than failing silently at the ingress check."
     exit 1
 fi
-echo -e "\e[1;32m<<< OpenTofu installation complete ($(tofu version | head -1)).\e[0m"
 
 # mkcert: prefer the upstream binary from dl.filippo.io (302-redirector to
 # github.com/FiloSottile/mkcert releases). That endpoint can return transient
@@ -347,7 +331,7 @@ echo -e "\e[1;32m<<< OpenTofu installation complete ($(tofu version | head -1)).
 # k8s.website sequence. Retry 3x with backoff, then fall back to Ubuntu
 # universe's mkcert package, and only exit if both paths fail.
 echo ""
-echo -e "\e[1;36m>>> Installing mkcert...\e[0m"
+echo -e "\e[1;36m==== mkcert ====\e[0m"
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then
     MKCERT_ARCH="linux/amd64"
@@ -381,11 +365,9 @@ if [ -n "$MKCERT_ARCH" ]; then
     TARGET_USER="${SUDO_USER:-$USER}"
     sudo -u "$TARGET_USER" -H mkcert -install || true
 fi
-echo -e "\e[1;32m<<< mkcert installation complete.\e[0m"
 
-# ===== HTTPS Development Certificate =====
 echo ""
-echo -e "\e[1;36m>>> Creating HTTPS development certificate...\e[0m"
+echo -e "\e[1;36m==== HTTPS development certificate ====\e[0m"
 PFX_DIR="${REAL_HOME}/.aspnet/https"
 mkdir -p "$PFX_DIR"
 openssl req -x509 -newkey rsa:4096 -keyout "$PFX_DIR/aspnetapp.key" -out "$PFX_DIR/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>/dev/null
@@ -393,11 +375,9 @@ openssl pkcs12 -export -out "$PFX_DIR/aspnetapp.pfx" -inkey "$PFX_DIR/aspnetapp.
 rm -f "$PFX_DIR/aspnetapp.key" "$PFX_DIR/aspnetapp.crt"
 # Ensure the real user owns the certificate files (not root)
 chown -R "$REAL_USER:$REAL_USER" "$PFX_DIR"
-echo -e "\e[1;32m<<< HTTPS development certificate created at $PFX_DIR/aspnetapp.pfx\e[0m"
 
-# ===== Version Check =====
 echo ""
-echo "=== Installation Summary ==="
+echo "== Installation Summary =="
 docker --version
 git --version
 kubeadm version || true
@@ -408,7 +388,7 @@ tofu version | head -1 || true
 mkcert -version 2>/dev/null || echo "mkcert - run: mkcert -version"
 
 echo ""
-echo "=== Optional Steps ==="
+echo "== Optional Steps =="
 echo "Current hostname: $(hostnamectl hostname)"
 echo "1. Change hostname: sudo hostnamectl set-hostname [desired-hostname]"
 echo ""

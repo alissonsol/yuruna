@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42e9f8a7-b6c5-4d34-9281-3e4f5a6b7c93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,12 +90,18 @@ function Write-YurunaStateFileJson {
     .PARAMETER InputObject
         Anything ConvertTo-Json accepts (typically a hashtable).
     .PARAMETER Depth
-        ConvertTo-Json depth. Default 5 covers every Yuruna sidecar
-        today; raise when nesting hashtables of hashtables of arrays.
+        ConvertTo-Json depth. Default 10 gives headroom over the deepest
+        current sidecar. Objects nested deeper than -Depth serialize as
+        "@{...}" strings with NO error (the silent JSON depth-truncation
+        trap class), so keep this ahead of the payload's real nesting.
     .PARAMETER Compress
         Emit single-line JSON (default; matches the format on-wire
         consumers expect). Pass -Compress:$false for pretty-printed
         output during local debugging.
+    .PARAMETER WithBom
+        Write UTF-8 with a BOM. Default is no BOM (what JSON consumers
+        expect). Pass-through to Write-YurunaStateFile for the rare reader
+        that needs one.
     .OUTPUTS
         [bool] $true on success, $false on serialization or write failure.
     #>
@@ -106,8 +112,9 @@ function Write-YurunaStateFileJson {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)]$InputObject,
-        [int]$Depth = 5,
-        [bool]$Compress = $true
+        [int]$Depth = 10,
+        [bool]$Compress = $true,
+        [switch]$WithBom
     )
     $json = $null
     try {
@@ -121,7 +128,7 @@ function Write-YurunaStateFileJson {
         return $false
     }
     if (-not $PSCmdlet.ShouldProcess($Path, 'Atomic JSON state-file write')) { return $true }
-    return (Write-YurunaStateFile -Path $Path -Content $json -Confirm:$false)
+    return (Write-YurunaStateFile -Path $Path -Content $json -WithBom:$WithBom -Confirm:$false)
 }
 
 Export-ModuleMember -Function Write-YurunaStateFile, Write-YurunaStateFileJson

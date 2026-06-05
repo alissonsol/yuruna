@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42d2f4a5-b6c7-4890-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,16 @@
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Import.Yaml.psm1"
 Import-Module -Name $modulePath
+# Set-ExpandedResourcesOutput is the single source of the resources.output
+# env-push walk; the validator reuses it so its env state can't diverge
+# from the Component/Workload publishers. -Global -Force so the exported
+# function stays resolvable from any nested scope.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global -Force
+# Shared deployment-kind catalog: Confirm-WorkloadList resolves the
+# effective kind and the kinds phrase from it so detection and the error
+# text can't diverge from Publish-WorkloadList. -Global -Force per
+# feedback_module_force_import_evicts_global.md.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeploymentKind.psm1') -Global -Force
 
 function Confirm-FolderList {
     param (
@@ -97,11 +107,22 @@ function Confirm-ResourceList {
     if (!(Confirm-GlobalVariableList $yaml $resourcesFile)) { return $false; }
 
     if ($null -eq $yaml.resources) { Write-Information "Resources cannot be null or empty in file: $resourcesFile"; return $false; }
+    # Colliding resource names stage into the same .yuruna/<subfolder>/
+    # resources/<name> work folder, so the second tofu apply overwrites the
+    # first's template and carried-over state -- one resource is silently
+    # never created while the manifest reports only the last apply. Reject
+    # raw duplicates (copy-paste) and post-expansion collisions (distinct
+    # names that resolve to the same string). Ordinal because Set-Resource
+    # uses the expanded name verbatim as the path segment.
+    $seenResourceNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $seenResourceNamesExpanded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($resource in $yaml.resources) {
         $resourceName = $resource['name']
         if ([string]::IsNullOrEmpty($resourceName)) { Write-Information "Resource without name in file: $resourcesFile"; return $false; }
+        if (-not $seenResourceNames.Add($resourceName)) { Write-Information "Duplicate resource name '$resourceName' in file: $resourcesFile"; return $false; }
         $resourceNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($resourceName)
         if ([string]::IsNullOrEmpty($resourceNameExpanded)) { Write-Information "Resource '$resourceName' may expand to empty name in file: $resourcesFile"; }
+        elseif (-not $seenResourceNamesExpanded.Add($resourceNameExpanded)) { Write-Information "Duplicate resource name '$resourceNameExpanded' (expanded from '$resourceName') in file: $resourcesFile"; return $false; }
         $resourceTemplate = $resource['template']
         $templateProjectFolder = Join-Path -Path $project_root -ChildPath "resources/$resourceTemplate" -ErrorAction SilentlyContinue
         if (($null -eq $templateProjectFolder) -or (-Not (Test-Path -Path $templateProjectFolder))) {
@@ -140,26 +161,10 @@ function Confirm-ResourceOutputList {
     $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
 
     if ($null -eq $resourcesOutputYaml) { Write-Information "resources output cannot be null or empty in file: $resourcesOutputFile"; return $false; }
-    if ((-Not ($null -eq $resourcesOutputYaml)) -and (-Not ($null -eq  $resourcesOutputYaml.Keys))) {
-        foreach ($resource in $resourcesOutputYaml.Keys) {
-            if ($resource -eq "globalVariables") {
-                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                    $resourceKey = "$key"
-                    $value = $resourcesOutputYaml.$resource[$key]
-                    Write-Debug "globalVariables[$resourceKey] = $value"
-                    Set-Item -Path Env:$resourceKey -Value ${value}
-                }
-            }
-            else {
-                foreach ($key in $resourcesOutputYaml.$resource.Keys) {
-                    $resourceKey = "$resource.$key"
-                    $value = $resourcesOutputYaml.$resource[$key].value
-                    Write-Debug "resourcesOutput[$resourceKey] = $value"
-                    Set-Item -Path Env:$resourceKey -Value ${value}
-                }
-            }
-        }
-    }
+    # Validation is read-only: push RAW values (-NoExpand). Variable expansion
+    # is the publishers' job at publish time; the validator mirrors the
+    # Component publisher's -NoExpand debug pass and does not expand here.
+    Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -NoExpand -EmitDebug
 
     return $true;
 }
@@ -180,9 +185,19 @@ function Confirm-ComponentList {
     if (!(Confirm-GlobalVariableList $yaml $componentsFile)) { return $false; }
 
     if ($null -eq $yaml.components) { Write-Information "Components null or empty in file: $componentsFile"; }
+    # Two components sharing a project key build/tag/push to the same image
+    # identity (Publish-ComponentList derives the build folder and image off the
+    # expanded project), so the second overwrites the first. Reject raw + post-
+    # expansion duplicates, mirroring the resources.yml name dedup.
+    $seenProjects = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $seenProjectsExpanded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($component in $yaml.components) {
         $project = $component['project']
         if ([string]::IsNullOrEmpty($project)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return $false; }
+        if (-not $seenProjects.Add($project)) { Write-Information "Duplicate component project '$project' in file: $componentsFile"; return $false; }
+        $projectExpanded = $ExecutionContext.InvokeCommand.ExpandString($project)
+        if ([string]::IsNullOrEmpty($projectExpanded)) { Write-Information "Component project '$project' may expand to empty in file: $componentsFile"; }
+        elseif (-not $seenProjectsExpanded.Add($projectExpanded)) { Write-Information "Duplicate component project '$projectExpanded' (expanded from '$project') in file: $componentsFile"; return $false; }
         $buildPath = $component['buildPath']
         if ([string]::IsNullOrEmpty($buildPath)) { Write-Verbose "component.buildPath for $project is null in file: $componentsFile"; }
 
@@ -219,22 +234,39 @@ function Confirm-WorkloadList {
     if (!(Confirm-GlobalVariableList $yaml $workloadsFile)) { return $false; }
 
     if ($null -eq $yaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; }
+    # A chart deploys as a helm release <installName> into <context>; two
+    # chart deployments sharing both keys hit the same release, so the second
+    # silently upgrades over the first instead of installing a distinct
+    # workload. The helm install lands before any folder is reused, so this
+    # is defense-in-depth -- flagging it pre-flight turns a confusing
+    # in-cluster overwrite into a clear config error.
+    # Two workloads sharing a kube context collide: Publish-WorkloadList wipes
+    # .yuruna/<subfolder>/workloads/<context> at the start of EACH workload, so
+    # the second silently clobbers the first's staged charts/values. Reject raw
+    # copy-paste duplicates and post-expansion collisions (distinct raw contexts
+    # that resolve to the same string), mirroring the resources.yml name dedup.
+    $seenContexts = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $seenContextsExpanded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $seenWorkloadReleases = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($workload in $yaml.workloads) {
-        $contextName = $ExecutionContext.InvokeCommand.ExpandString($workload['context'])
+        $contextRaw = $workload['context']
+        $contextName = $ExecutionContext.InvokeCommand.ExpandString($contextRaw)
         if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return $false; }
+        if (-not $seenContexts.Add($contextRaw)) { Write-Information "Duplicate workload context '$contextRaw' in file: $workloadsFile"; return $false; }
+        if (-not $seenContextsExpanded.Add($contextName)) { Write-Information "Duplicate workload context '$contextName' (expanded from '$contextRaw') in file: $workloadsFile"; return $false; }
         $originalContext = kubectl config current-context
         kubectl config use-context $contextName *>&1 | Write-Verbose
         $currentContext = kubectl config current-context
         kubectl config use-context $originalContext *>&1 | Write-Verbose
         if ($currentContext -ne $contextName) { Write-Debug "K8S context not found: $contextName`nFile: $workloadsFile"; }
         foreach ($deployment in $workload.deployments) {
-            # valid deployments: chart, kubectl, helm, shell
-            $isChart = !([string]::IsNullOrEmpty($deployment['chart']))
-            $isKubectl = !([string]::IsNullOrEmpty($deployment['kubectl']))
-            $isHelm = !([string]::IsNullOrEmpty($deployment['helm']))
-            $isShell = !([string]::IsNullOrEmpty($deployment['shell']))
-            if (!($isChart -or $isKubectl -or $isHelm -or $isShell)) { Write-Information "context.deployment should be 'chart', 'kubectl', 'helm' or 'shell' in file: $workloadsFile"; return $false; }
-            if ($isChart) {
+            # Effective deployment kind + the kinds phrase come from the
+            # shared Yuruna.DeploymentKind catalog so a new kind is one
+            # Register-YurunaDeploymentKind line and the phrase can't
+            # diverge from the publisher.
+            $kind = Resolve-YurunaDeploymentKind -Deployment $deployment
+            if ($null -eq $kind) { Write-Information "context.deployment should be $(Get-YurunaDeploymentKindExpectedText) in file: $workloadsFile"; return $false; }
+            if ($kind.IsChart) {
                 $chartName = $deployment['chart'];
                 if ([string]::IsNullOrEmpty($chartName)) { Write-Information "context.chart cannot be null or empty in file: $workloadsFile"; return $false; }
                 $chartFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "workloads/$chartName") -ErrorAction SilentlyContinue
@@ -245,6 +277,8 @@ function Confirm-WorkloadList {
                 }
                 $installName = $deployment.variables['installName']
                 if ([string]::IsNullOrEmpty($installName)) { Write-Information "workload[$contextName]chart[$chartName]variables['installName'] cannot be null or empty in file: $workloadsFile"; return $false; }
+                $installNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($installName)
+                if (-not $seenWorkloadReleases.Add("$contextName`n$installNameExpanded")) { Write-Information "Duplicate workload release '$installNameExpanded' in context '$contextName' in file: $workloadsFile"; return $false; }
             }
             # For kubectl/helm/shell the null/empty check above is sufficient.
         }

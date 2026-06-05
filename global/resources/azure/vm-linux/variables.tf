@@ -41,5 +41,5 @@ variable "adminUsername" {
 }
 
 variable "sshPubFile" {
-  description = "ssh key par public file path"
+  description = "ssh key pair public file path"
 }

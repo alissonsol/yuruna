@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42de9c8b-f7a6-4b34-9182-3c4d5e6f7ab7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -151,7 +151,7 @@ function Save-ImageWithChecksum {
     if ($destDir -and -not (Test-Path -LiteralPath $destDir)) {
         New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
     }
-    Write-Output "Downloading $SourceUrl -> $DestPath"
+    Write-Information "Downloading $SourceUrl -> $DestPath" -InformationAction Continue
     try {
         if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
             Save-CachedHttpUri -Uri $SourceUrl -OutFile $DestPath
@@ -180,10 +180,10 @@ function Save-ImageWithChecksum {
         # without integrity check. Same accepting-policy as missing-entry.
         return $true
     }
-    Write-Output "Verifying SHA-256 against publisher checksum..."
+    Write-Information "Verifying SHA-256 against publisher checksum..." -InformationAction Continue
     $actual = (Get-FileHash -Path $DestPath -Algorithm SHA256).Hash
     if ($actual -ieq $expected) {
-        Write-Output "  checksum OK ($actual)"
+        Write-Information "  checksum OK ($actual)" -InformationAction Continue
         return $true
     }
     Write-Warning ('=' * 72)
@@ -205,4 +205,70 @@ function Save-ImageWithChecksum {
     }
 }
 
-Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine
+function Convert-Qcow2ToVhdx {
+    <#
+    .SYNOPSIS
+        Convert a qcow2/.img cloud image to a dynamic VHDX for Hyper-V and
+        resize it, clearing the NTFS sparse flag qemu-img leaves behind.
+    .DESCRIPTION
+        Hyper-V boots VHDX; the Ubuntu / AL cloud images ship qcow2. qemu-img
+        on Windows writes the VHDX through NTFS sparse files, leaving
+        FILE_ATTRIBUTE_SPARSE_FILE set so Resize-VHD then fails with
+        0xC03A001A ("must not be sparse") -- see feedback_qemu_img_vhdx_sparse.md.
+        This clears the flag, then resizes via Resize-VHD with a qemu-img
+        fallback. A resize failure is non-fatal (warned); a convert failure
+        cleans up the partial DestPath and returns $false. Native qemu-img
+        output is captured (never emitted) so it cannot pollute the [bool]
+        return.
+    .OUTPUTS
+        [bool] $true when the convert succeeded (DestPath is a usable VHDX),
+        $false when qemu-img is missing or the convert failed.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][string]$DestPath,
+        [Parameter(Mandatory)][long]$SizeBytes
+    )
+    $qemuImg = Get-Command qemu-img -ErrorAction SilentlyContinue
+    if (-not $qemuImg) {
+        foreach ($c in @("$env:ProgramFiles\qemu\qemu-img.exe", "${env:ProgramFiles(x86)}\qemu\qemu-img.exe")) {
+            if (Test-Path $c) { $qemuImg = $c; break }
+        }
+    }
+    if (-not $qemuImg) {
+        Write-Warning "qemu-img not found. Install QEMU for Windows (winget install SoftwareFreedomConservancy.QEMU) or add qemu-img to PATH."
+        return $false
+    }
+    Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
+    Write-Information "Converting qcow2 to VHDX..." -InformationAction Continue
+    $convertOut = & $qemuImg convert -f qcow2 -O vhdx -o subformat=dynamic $SourcePath $DestPath 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "qemu-img convert failed (exit $LASTEXITCODE): $convertOut"
+        Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+    # Clear the NTFS sparse flag qemu-img leaves set, else Resize-VHD fails
+    # with 0xC03A001A. See feedback_qemu_img_vhdx_sparse.md.
+    & fsutil sparse setflag $DestPath 0 2>&1 | Out-Null
+    # See https://yuruna.link/memory#why-cache-vhdx-uses-resize-vhd-instead-of-qemu-img-resize
+    $sizeGb = [math]::Round($SizeBytes / 1GB)
+    Write-Information "Resizing VHDX to ${sizeGb}GB..." -InformationAction Continue
+    $resized = $false
+    try {
+        Resize-VHD -Path $DestPath -SizeBytes $SizeBytes -ErrorAction Stop
+        $resized = $true
+    } catch {
+        Write-Warning "Resize-VHD failed: $($_.Exception.Message); falling back to qemu-img resize."
+        $resizeOut = & $qemuImg resize $DestPath "${sizeGb}G" 2>&1
+        if ($LASTEXITCODE -eq 0) { $resized = $true } else { Write-Warning "qemu-img resize failed: $resizeOut" }
+    }
+    if (-not $resized) {
+        Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img; the VM will have only the base cloud-image capacity."
+        Write-Warning "Resize manually: fsutil sparse setflag '$DestPath' 0; Resize-VHD -Path '$DestPath' -SizeBytes $SizeBytes"
+    }
+    return $true
+}
+
+Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Convert-Qcow2ToVhdx

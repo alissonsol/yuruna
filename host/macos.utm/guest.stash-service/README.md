@@ -11,7 +11,7 @@ Scripts and config in this folder:
   seeds via cloud-init.
 - [config.plist.template](config.plist.template) — UTM bundle
   config skeleton with placeholders substituted by `New-VM.ps1`.
-- [vmconfig/user-data](vmconfig/user-data) — minimal cloud-init:
+- [vmconfig/user-data](../../vmconfig/stash-service.base.user-data) — minimal cloud-init:
   `yuruna` user with the harness SSH key + a console password from
   the authentication vault.
 - [vmconfig/meta-data](vmconfig/meta-data) — cloud-init instance

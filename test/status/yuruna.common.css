@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.05.29
+  Version: 2026.06.05
   --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- See https://yuruna.link/definition#defining-the-status-page-header-anatomy
   --- See https://yuruna.link/definition#defining-the-status-page-mobile-dark-mode-hardening
@@ -228,9 +228,15 @@ button {
   width: .625rem; height: .625rem; border-radius: 50%;
   background: currentColor; display: inline-block; flex-shrink: 0;
 }
-#banner.running .dot {
-  -webkit-animation: pulse 1.4s ease-in-out infinite;
-          animation: pulse 1.4s ease-in-out infinite;
+/* prefers-reduced-motion: respect the OS-level accessibility hint so a
+   user who has set "Reduce motion" (vestibular disorder, focus mode,
+   battery saver on iOS) does not see a continuously pulsing dot. The
+   no-preference branch keeps the existing behavior unchanged. */
+@media (prefers-reduced-motion: no-preference) {
+  #banner.running .dot {
+    -webkit-animation: pulse 1.4s ease-in-out infinite;
+            animation: pulse 1.4s ease-in-out infinite;
+  }
 }
 @-webkit-keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
 @keyframes pulse         { 0%,100%{opacity:1} 50%{opacity:.25} }
@@ -244,10 +250,14 @@ button {
 @media (max-width: 600px) {
   .page-header {
     padding: .75rem max(.75rem, env(safe-area-inset-right)) .75rem max(.75rem, env(safe-area-inset-left));
-    row-gap: .35rem;
   }
   #header-machine {
     font-size: .7rem;
+    /* Flex `gap`/`row-gap` only lands in Safari 14.1 / iOS 14.5; this margin
+       reproduces the wrapped-row spacing on the older-iOS baseline.
+       #header-machine carries margin-left:auto so it is the child that wraps
+       to the second line when the title and machine info collide. */
+    margin-top: .35rem;
   }
 }
 
@@ -272,23 +282,26 @@ button {
   }
 }
 
-/* Responsive guest-card grid. iOS 9 Safari lacks grid; without the
+/* Responsive sequence/guest-card grid. iOS 9 Safari lacks grid; without the
    @supports guard the block-flow fallback (one card per row) kicks in
    automatically. Explicit -column-gap / -row-gap (NOT the shorthand
-   `gap:`) keeps Safari < 10.1 happy on devices that DO have grid. */
+   `gap:`) keeps Safari < 10.1 happy on devices that DO have grid. The list
+   holds .sequence-card in the per-sequence view and bare .guest-card in the
+   flat fallback, so both are reset here. */
 @supports (display: grid) {
-  #guest-list {
+  #sequence-list {
     display: grid;
     grid-template-columns: 1fr;
     -webkit-row-gap: .625rem; row-gap: .625rem;
   }
-  #guest-list > .guest-card { margin-bottom: 0; }
+  #sequence-list > .sequence-card,
+  #sequence-list > .guest-card { margin-bottom: 0; }
 }
 
 /* SVG perf charts: scale with the container instead of pinning to a
    fixed 1100 px <main>. viewBox preserves the chart's aspect ratio
-   when narrower. */
-svg.seq-chart { width: 100%; height: auto; max-width: 100%; }
+   when narrower. (`cycle-flame` is the per-cycle icicle on perf.html.) */
+svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
 
 /* Utility: hide without removing from the layout-tree-discovery pass.
    Pages that need flash-of-unstyled-content protection mark elements

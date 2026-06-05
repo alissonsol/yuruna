@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,7 +121,7 @@ $ConfigPath     = $paths.ConfigPath
 $env:YURUNA_CONFIG_PATH = $ConfigPath
 
 # Canonical Inner-kind module set: Test.SingleInstance, Test.YurunaDir,
-# Test.Extension, Test.Host, Test.Status, Test.Notify, Test.Provenance,
+# Test.Extension, Test.HostContract, Test.Status, Test.Notify, Test.Provenance,
 # Test.Start-GuestOS, Test.Start-GuestWorkload, Test.Log, Test.Sequence-
 # Planner, Test.CachingProxy, Test.Perf, Test.HostIO, Test.Capability,
 # Test.Transport. Replaces seven separate inline Import-Module sites that
@@ -338,17 +338,24 @@ if (Test-Path $yurunaLogModule) {
     Import-Module $yurunaLogModule -Global -Force
 }
 
-# The Inner kind import set covers Test.Host, Test.Status, Test.Notify,
+# Shared retry policy with automation/yuruna-retry.sh (Get-YurunaRetryBackoff).
+# Used by the post-cycle-failure backoff path in the cycle catch handler.
+# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+$yurunaRetryModule = Join-Path -Path $RepoRoot -ChildPath "automation" -AdditionalChildPath "Yuruna.Retry.psm1"
+if (Test-Path $yurunaRetryModule) {
+    Import-Module $yurunaRetryModule -Global -Force
+}
+
+# The Inner kind import set covers Test.HostContract, Test.Status, Test.Notify,
 # Test.Provenance, Test.Start-GuestOS, Test.Start-GuestWorkload, Test.Log,
 # Test.SequencePlanner, Test.CachingProxy, Test.Perf, Test.HostIO,
 # Test.Capability, Test.Transport (plus the early-bootstrap imports). The
-# initial pass ran at file top via Initialize-YurunaEntryPointModuleSet
-# -For Inner; this comment block is the historical-context marker for the
-# mid-cycle refresh below that re-runs the same helper to pick up a
-# `git pull` between cycles. Windows chains a fresh pwsh per cycle via
-# Start-Process so modules reload automatically there; the macOS in-process
-# loop reuses cached modules unless we explicitly force-reload, which means
-# a mid-run `git pull` would otherwise never propagate source changes.
+# file-top pass via Initialize-YurunaEntryPointModuleSet -For Inner is
+# repeated below to pick up a `git pull` between cycles. Windows chains
+# a fresh pwsh per cycle via Start-Process so modules reload automatically
+# there; the macOS in-process loop reuses cached modules unless we
+# explicitly force-reload, which means a mid-run `git pull` would otherwise
+# never propagate source changes.
 
 $global:VerbosePreference = $savedVerbose
 
@@ -410,12 +417,11 @@ function Copy-HashtableWithoutSecretNode {
 # Returns $true when $Current has the same nested node shape as $Template:
 # every dictionary node in the template is present as a dictionary, and
 # $Current carries no unexpected top-level keys ('secrets' excepted -- it
-# is added out-of-band by the notification-credentials path). A flat,
-# pre-nesting test.config.yml (vmBootDelaySeconds, frameworkRepoUrl, ...
-# at the root — historical flat-layout names that have since moved to
-# vmStart.bootDelaySeconds, repositories.frameworkUrl, etc.) fails both
-# tests. Leaf values are NOT compared -- only
-# container structure -- so any operator-set value passes.
+# is added out-of-band by the notification-credentials path). A flat
+# test.config.yml (vmBootDelaySeconds, frameworkRepoUrl, ... at the
+# root, where the current schema puts vmStart.bootDelaySeconds,
+# repositories.frameworkUrl, etc.) fails both tests. Leaf values are NOT
+# compared -- only container structure -- so any operator-set value passes.
 function Test-ConfigMatchesTemplateShape {
     param($Template, $Current)
     if ($Template -isnot [System.Collections.IDictionary]) { return $true }
@@ -491,17 +497,15 @@ Restarting the test will then proceed normally.
         exit $ExitFailure
     }
 
-    # Notification config has been split out of test.config.yml into
-    # test/status/extension/notification/transports.yml. The
-    # legacy keys secrets.resend and notification.toEmailAddress no
-    # longer live in test.config.yml. The merge (ConvertTo-MergedHashtable)
-    # drops template-orphan keys, so populated legacy values would vanish
-    # silently -- warn the operator to move them by hand before the
-    # merge takes effect. Soft migration: do NOT auto-move credentials
-    # across files.
-    # Live notification config (with secrets) now lives under
+    # Notification config (including secrets) lives at
     # test/status/extension/notification/transports.yml. The template
-    # still ships in-tree at test/extension/notification/transports.yml.template.
+    # ships in-tree at test/extension/notification/transports.yml.template.
+    # The legacy keys secrets.resend and notification.toEmailAddress in
+    # test.config.yml are no longer schema-valid. The merge
+    # (ConvertTo-MergedHashtable) drops template-orphan keys, so any
+    # populated legacy values would vanish silently -- warn the operator
+    # to move them by hand. Soft migration: do NOT auto-move credentials
+    # across files.
     $statusExtNotif  = Join-Path -Path (Split-Path -Parent $ConfigPath) `
                           -ChildPath 'status' `
                           -AdditionalChildPath 'extension', 'notification'
@@ -737,10 +741,10 @@ Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -D
 # -- the only requirement the runner actually depends on (it routes guest
 # installs through this port). The other probes (:3129 ssl-bump, :3000
 # Grafana, :80 + CA cert) still run for operator visibility, but failing
-# them does NOT reject the cache. An earlier revision keyed on full
-# probe Success (FailCount == 0), which rejected barebones-squid caches
-# that lacked Grafana/ssl-bump and silently destroyed
-# $env:YURUNA_CACHING_PROXY_IP for downstream code.
+# them does NOT reject the cache. Keying on full probe Success
+# (FailCount == 0) instead would reject barebones-squid caches that
+# lack Grafana/ssl-bump and silently destroy $env:YURUNA_CACHING_PROXY_IP
+# for downstream code.
 # Empty/whitespace in either source is treated as absent. If neither
 # source is set, the env var is left untouched and the original
 # local-discovery path in Test-CachingProxyAvailable below runs unchanged.
@@ -763,7 +767,7 @@ if ($envCacheIp -or $configCacheIp) {
             continue
         }
         Write-Output ""
-        Write-Output "=== Probing caching proxy at $($cand.Ip) (source: $($cand.Source)) ==="
+        Write-Output "== Probing caching proxy at $($cand.Ip) (source: $($cand.Source)) =="
         $probe = Invoke-CachingProxyProbe -CacheIp $cand.Ip
         foreach ($line in $probe.Lines) { Write-Output $line }
         Write-Output "  Summary: $($probe.PassCount) PASS, $($probe.WarnCount) WARN, $($probe.FailCount) FAIL"
@@ -868,7 +872,16 @@ if (-not (Assert-TesseractInstalled)) { exit 1 }
 $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
 if ($Config.statusService.isEnabled -and -not $NoServer) {
     $serverPort  = $Config.statusService.port ? [int]$Config.statusService.port : 8080
-    & $startScript -Port $serverPort -Restart
+    # No -Restart: Start-StatusService compares the running server's
+    # persisted server.sha against the current framework HEAD and skips
+    # the kill+relaunch when the code it has in memory is still current.
+    # Zero downtime in the no-change cycle (the common case after the
+    # outer's `git pull` was a no-op); an automatic restart kicks in
+    # only when `git pull` actually moved HEAD. An operator who wants
+    # to force a relaunch (e.g. after editing the server here-string
+    # without committing) invokes Start-StatusService.ps1 -Restart by
+    # hand -- the flag still has its original semantics.
+    & $startScript -Port $serverPort
 }
 
 # === Helper: strip everything under the top-level 'secrets' node before logging ===
@@ -1257,6 +1270,15 @@ while ($true) {
         break
     }
 
+    # Ensure a usable display surface for this cycle (e.g. attach a virtual
+    # display on a headless Hyper-V host) so screen-capture/OCR survives the
+    # physical monitor coming and going mid-run (KVM switch). Opt-in: the
+    # Hyper-V virtual display attaches only when YURUNA_VIRTUAL_DISPLAY is set.
+    # Idempotent and cheap — short-circuits when already present; no-op on
+    # hosts that need nothing (or when the opt-in is off). Never throws.
+    # See docs/host-hyperv.md.
+    Initialize-HostDisplay -HostType $HostType
+
     $CycleCount++
     $OverallPassed  = $true
     $FailedGuest    = $null
@@ -1362,16 +1384,13 @@ while ($true) {
             Write-Output ""
             $gitPullErr = "Git sync failed. Branch may have diverged, or network is unreachable."
             $gitPullCommit = (Get-CurrentGitCommit -RepoRoot $RepoRoot)
-            # EventData: bootstrap-stage failure -- no cycle folder yet,
-            # so Get-FailureEventData returns a minimal payload built
-            # from these scalars. Downstream extensions that route on
-            # failureClass see 'git_sync' instead of free-text grep.
-            # Built before Format-FailureMessage so the body's JSON
-            # trailer carries the same payload Send-Notification ships
-            # via -EventData -- one wire, one shape.
-            $bootstrapEventData = Get-FailureEventData `
+            # Bootstrap-stage failure -- no cycle folder yet, so the helper
+            # builds a minimal payload from these scalars. 'git_sync' /
+            # 'blocking' let extensions route on failureClass instead of
+            # free-text grep.
+            Send-CycleFailureNotification `
                 -HostType            $HostType `
-                -Hostname            (hostname) `
+                -SubjectSuffix       'GitPull' `
                 -GuestKey            '(bootstrap)' `
                 -StepName            'GitPull' `
                 -ErrorMessage        $gitPullErr `
@@ -1379,19 +1398,6 @@ while ($true) {
                 -GitCommit           $gitPullCommit `
                 -DefaultFailureClass 'git_sync' `
                 -DefaultSeverity     'blocking'
-            $body = Format-FailureMessage `
-                -HostType     $HostType `
-                -Hostname     (hostname) `
-                -GuestKey     "(bootstrap)" `
-                -StepName     "GitPull" `
-                -ErrorMessage $gitPullErr `
-                -CycleId      "(not yet assigned)" `
-                -GitCommit    $gitPullCommit `
-                -EventData    $bootstrapEventData
-            Send-Notification -EventCode    'cycle.failure' `
-                              -EventMessage "Yuruna Test: FAIL on $HostType / GitPull" `
-                              -EventNote    $body `
-                              -EventData    $bootstrapEventData
             exit $ExitFailure
         }
     } else {
@@ -1429,13 +1435,12 @@ while ($true) {
     }
     if (-not $cloneRes.success) {
         Write-Warning "Project clone failed: $($cloneRes.errorMessage). Retrying next cycle."
-        # EventData: bootstrap-stage failure -- no cycle folder yet, so
-        # Get-FailureEventData builds the payload from these scalars.
-        # Built before Format-FailureMessage so the body's JSON trailer
-        # carries the same payload Send-Notification ships via -EventData.
-        $bootstrapEventData = Get-FailureEventData `
+        # Bootstrap-stage failure -- no cycle folder yet, so the helper
+        # builds a minimal payload from these scalars. 'project_clone' /
+        # 'blocking' let extensions route on failureClass.
+        Send-CycleFailureNotification `
             -HostType            $HostType `
-            -Hostname            (hostname) `
+            -SubjectSuffix       'ProjectClone' `
             -GuestKey            '(bootstrap)' `
             -StepName            'ProjectClone' `
             -ErrorMessage        $cloneRes.errorMessage `
@@ -1443,19 +1448,6 @@ while ($true) {
             -GitCommit           $GitCommit `
             -DefaultFailureClass 'project_clone' `
             -DefaultSeverity     'blocking'
-        $body = Format-FailureMessage `
-            -HostType     $HostType `
-            -Hostname     (hostname) `
-            -GuestKey     "(bootstrap)" `
-            -StepName     "ProjectClone" `
-            -ErrorMessage $cloneRes.errorMessage `
-            -CycleId      "(not yet assigned)" `
-            -GitCommit    $GitCommit `
-            -EventData    $bootstrapEventData
-        Send-Notification -EventCode    'cycle.failure' `
-                          -EventMessage "Yuruna Test: FAIL on $HostType / ProjectClone" `
-                          -EventNote    $body `
-                          -EventData    $bootstrapEventData
         # Single-cycle runner: project-clone failure exits with the
         # generic "cycle failed" code so the outer Invoke-TestRunner's
         # backoff loop pauses (60-min cap, polled by new commits) before
@@ -1535,7 +1527,7 @@ while ($true) {
         & $startScript -Port $serverPort -Restart
     }
 
-    # Build per-cycle execution plan from project/test/test.sequence.yml.
+    # Build per-cycle execution plan from project/test/test.runner.yml.
     # Each plan entry is a (top-level workload, guest, sequence chain) tuple;
     # multiple top-levels can share a guest, so we dedupe to GuestList for
     # the parts of the cycle that operate per unique VM (folder check,
@@ -1572,18 +1564,25 @@ while ($true) {
         } else {
             # Inner message now embeds the offending file path (Read-SequenceFile
             # walks the YamlDotNet exception chain to surface file + line:col),
-            # so don't prefix with project/test/test.sequence.yml -- the actual
+            # so don't prefix with project/test/test.runner.yml -- the actual
             # failure may be in any sequence the planner walked to.
             Write-Warning "Could not resolve cycle plan - falling back to guestSequence: $($_.Exception.Message)"
         }
     }
     if ($plannerFatal) {
-        $GuestList = @()
+        $GuestList    = @()
+        $SequenceList = @()
     } elseif ($script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
-        $GuestList = Get-CyclePlanGuestList -Plan $script:CyclePlan
+        $GuestList    = Get-CyclePlanGuestList -Plan $script:CyclePlan
+        # Ordered top-level sequences (test.runner.yml entries) -> guest(s),
+        # for the dashboard's per-sequence cards. Empty on the legacy
+        # guestSequence path below, where the dashboard falls back to a flat
+        # per-guest list.
+        $SequenceList = Get-CyclePlanSequenceList -Plan $script:CyclePlan
         Write-Output "Cycle plan: $($script:CyclePlan.Count) entries across $($GuestList.Count) guest(s)."
     } else {
-        $GuestList = Get-GuestList -Config $Config
+        $GuestList    = Get-GuestList -Config $Config
+        $SequenceList = @()
     }
 
     # Cascade overrides for Test.Ssh.Get-GuestSshUser. The planner already
@@ -1638,6 +1637,7 @@ while ($true) {
             }
             Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
             $GuestList      = @()
+            $SequenceList   = @()
             $OverallPassed  = $false
             $FailedGuest    = "(capability gate)"
             $FailedStep     = "Test-CyclePlanCapability"
@@ -1710,6 +1710,7 @@ while ($true) {
         -RepoUrl        $Config.repositories.frameworkUrl `
         -GitCommits     $GitCommitsList `
         -GuestList      $GuestList `
+        -Sequences      $SequenceList `
         -StepNames      $StepNames
 
     # --- Seed per-guest provenance so the UI shows the actual ISO filename
@@ -1953,13 +1954,13 @@ while ($true) {
         # (shouldStopOnFailure=false path).
         if ($FailedGuests.Contains($GuestKey)) {
             Write-Output ""
-            Write-Output "=== $GuestKey (skipped — earlier failure) ==="
+            Write-Output "== $GuestKey (skipped — earlier failure) =="
             continue
         }
         $VMName = $VMNames[$GuestKey]
         $script:ActiveVMName = $VMName
         Write-Output ""
-        Write-Output "=== $GuestKey (VM: $VMName) ==="
+        Write-Output "== $GuestKey (VM: $VMName) =="
 
         # Eagerly create this guest's cycleGuestDataFolder so the
         # dashboard tile has a destination to link to from the start of
@@ -2000,10 +2001,7 @@ while ($true) {
         Remove-Item -LiteralPath $staleOcr    -Force -ErrorAction SilentlyContinue
 
         # --- Cleanup previous VM ---
-        $savedProgress = $global:ProgressPreference
-        $global:ProgressPreference = 'SilentlyContinue'
-        Remove-VM -VMName $VMName -Confirm:$false | Out-Null
-        $global:ProgressPreference = $savedProgress
+        Remove-GuestVMQuietly -VMName $VMName -SkipStop
 
         # --- New-VM ---
         Set-GuestVMName -GuestKey $GuestKey -VMName $VMName
@@ -2074,11 +2072,7 @@ while ($true) {
             # Mirrors the Start-GuestOS/Start-GuestWorkload failure branches;
             # Stop-VM and Remove-VM are both safe no-ops on an absent VM.
             Write-Output "  Cleaning up VM '$VMName' after failure..."
-            $savedProgress = $global:ProgressPreference
-            $global:ProgressPreference = 'SilentlyContinue'
-            Stop-VM -VMName $VMName -Confirm:$false | Out-Null
-            Remove-VM -VMName $VMName -Confirm:$false | Out-Null
-            $global:ProgressPreference = $savedProgress
+            Remove-GuestVMQuietly -VMName $VMName
             continue
         }
 
@@ -2125,11 +2119,7 @@ while ($true) {
             # 0x800705AA (insufficient system resources). Mirrors the
             # Start-GuestOS/Start-GuestWorkload failure branches.
             Write-Output "  Cleaning up VM '$VMName' after failure..."
-            $savedProgress = $global:ProgressPreference
-            $global:ProgressPreference = 'SilentlyContinue'
-            Stop-VM -VMName $VMName -Confirm:$false | Out-Null
-            Remove-VM -VMName $VMName -Confirm:$false | Out-Null
-            $global:ProgressPreference = $savedProgress
+            Remove-GuestVMQuietly -VMName $VMName
             continue
         }
 
@@ -2175,11 +2165,7 @@ while ($true) {
                 break
             }
             Write-Output "  Cleaning up VM '$VMName' after failure..."
-            $savedProgress = $global:ProgressPreference
-            $global:ProgressPreference = 'SilentlyContinue'
-            Stop-VM -VMName $VMName -Confirm:$false | Out-Null
-            Remove-VM -VMName $VMName -Confirm:$false | Out-Null
-            $global:ProgressPreference = $savedProgress
+            Remove-GuestVMQuietly -VMName $VMName
             continue
         }
 
@@ -2202,11 +2188,7 @@ while ($true) {
                 break
             }
             Write-Output "  Cleaning up VM '$VMName' after failure..."
-            $savedProgress = $global:ProgressPreference
-            $global:ProgressPreference = 'SilentlyContinue'
-            Stop-VM -VMName $VMName -Confirm:$false | Out-Null
-            Remove-VM -VMName $VMName -Confirm:$false | Out-Null
-            $global:ProgressPreference = $savedProgress
+            Remove-GuestVMQuietly -VMName $VMName
             continue
         }
         Write-Output "  $GuestKey New-VM.Resource: PASS"
@@ -2235,11 +2217,7 @@ while ($true) {
                     break
                 }
                 Write-Output "  Cleaning up VM '$VMName' after failure..."
-                $savedProgress = $global:ProgressPreference
-                $global:ProgressPreference = 'SilentlyContinue'
-                Stop-VM -VMName $VMName -Confirm:$false | Out-Null
-                Remove-VM -VMName $VMName -Confirm:$false | Out-Null
-                $global:ProgressPreference = $savedProgress
+                Remove-GuestVMQuietly -VMName $VMName
                 continue
             }
         }
@@ -2267,11 +2245,7 @@ while ($true) {
                     break
                 }
                 Write-Output "  Cleaning up VM '$VMName' after failure..."
-                $savedProgress = $global:ProgressPreference
-                $global:ProgressPreference = 'SilentlyContinue'
-                Stop-VM -VMName $VMName -Confirm:$false | Out-Null
-                Remove-VM -VMName $VMName -Confirm:$false | Out-Null
-                $global:ProgressPreference = $savedProgress
+                Remove-GuestVMQuietly -VMName $VMName
                 continue
             }
         }
@@ -2314,7 +2288,7 @@ while ($true) {
     $script:CycleFinalized = $true
 
     Write-Output ""
-    Write-Output "=== Cycle $CycleCount complete: $FinalStatus ==="
+    Write-Output "== Cycle $CycleCount complete: $FinalStatus =="
 
     if ($OverallPassed) {
         $ConsecutiveCrashes  = 0
@@ -2350,11 +2324,11 @@ while ($true) {
                 # established, so Get-FailureEventData reads schema-v2
                 # last_failure.json (failureClass/severity/suggested
                 # Recoveries from the verb registry) and augments with
-                # cycle/host context. Built before Format-FailureMessage
-                # so the body's JSON trailer carries the same payload
-                # Send-Notification ships via -EventData -- extensions
-                # that declare -EventData route on the structured
-                # payload; legacy ones still see it in the body.
+                # cycle/host context. Built here so it can be remediated
+                # below before Send-CycleFailureNotification ships it --
+                # the body's JSON trailer and the -EventData payload carry
+                # the same hashtable; extensions that declare -EventData
+                # route on it, legacy ones still see it in the body.
                 $inCycleEventData = Get-FailureEventData `
                     -HostType      $HostType `
                     -Hostname      (hostname) `
@@ -2364,19 +2338,31 @@ while ($true) {
                     -CycleId       $CycleId `
                     -GitCommit     $GitCommit `
                     -ProjectCommit $ProjectGitCommit
-                $body = Format-FailureMessage `
-                    -HostType     $HostType `
-                    -Hostname     (hostname) `
-                    -GuestKey     $FailedGuest `
-                    -StepName     $FailedStep `
-                    -ErrorMessage $FailureMessage `
-                    -CycleId      $CycleId `
-                    -GitCommit    $GitCommit `
-                    -EventData    $inCycleEventData
-                Send-Notification -EventCode    'cycle.failure' `
-                                  -EventMessage "Yuruna Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
-                                  -EventNote    $body `
-                                  -EventData    $inCycleEventData
+                # Close the self-heal observability loop: route the failure
+                # through the remediation dispatcher so it computes a recovery
+                # recommendation, emits the remediation_recommended NDJSON event
+                # (internally, via Send-CycleEventSafely), and logs the next
+                # step. Advisory only -- the dispatcher never acts. Pass the
+                # in-memory payload so a cycle-boundary wipe of last_failure.json
+                # can't route this on a stale file. Auto-applying a
+                # recommendation is a separate, default-off feature that needs a
+                # per-cycle attempt cap and a class allow-list before it can act.
+                if (Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) {
+                    $remediation = Invoke-Remediation -FailureRecord $inCycleEventData
+                    if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }
+                }
+                # Payload was built and remediated on above; pass it
+                # pre-built so the helper ships the exact same hashtable
+                # (no second Get-FailureEventData, no remediation reorder).
+                Send-CycleFailureNotification `
+                    -HostType      $HostType `
+                    -SubjectSuffix "$FailedGuest / $FailedStep" `
+                    -GuestKey      $FailedGuest `
+                    -StepName      $FailedStep `
+                    -ErrorMessage  $FailureMessage `
+                    -CycleId       $CycleId `
+                    -GitCommit     $GitCommit `
+                    -EventData     $inCycleEventData
                 $AlertArmed           = $false
                 $ConsecutiveSuccesses = 0
                 Write-Output "  Notification sent. Alert suppressed until $SuccessesBeforeRearm consecutive successes or runner restart."
@@ -2419,11 +2405,7 @@ while ($true) {
         if ($script:ActiveVMName) {
             try {
                 Write-Output "  Cycle-restart cleanup: stopping VM '$($script:ActiveVMName)'..."
-                $savedProgress = $global:ProgressPreference
-                $global:ProgressPreference = 'SilentlyContinue'
-                Stop-VM -VMName $script:ActiveVMName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-                Remove-VM -VMName $script:ActiveVMName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-                $global:ProgressPreference = $savedProgress
+                Remove-GuestVMQuietly -VMName $script:ActiveVMName -BestEffort
             } catch { Write-Warning "  Cycle-restart VM cleanup failed: $_" }
             $script:ActiveVMName = $null
         }
@@ -2471,11 +2453,7 @@ while ($true) {
     if ($script:ActiveVMName) {
         try {
             Write-Output "  Emergency cleanup: stopping VM '$($script:ActiveVMName)'..."
-            $savedProgress = $global:ProgressPreference
-            $global:ProgressPreference = 'SilentlyContinue'
-            Stop-VM -VMName $script:ActiveVMName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-            Remove-VM -VMName $script:ActiveVMName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-            $global:ProgressPreference = $savedProgress
+            Remove-GuestVMQuietly -VMName $script:ActiveVMName -BestEffort
         } catch { Write-Warning "  Emergency VM cleanup failed: $_" }
         $script:ActiveVMName = $null
     }
@@ -2495,6 +2473,30 @@ while ($true) {
         break
     }
     Write-Output "  Will retry next cycle ($ConsecutiveCrashes/$MaxConsecutiveCrashes consecutive errors)."
+
+    # yuruna_retry-style auto-retry backoff: capped exponential with jitter.
+    # Applied on top of the existing inter-cycle delay so a transient failure
+    # (subiquity restore_apt_config exit 100, github.com 5xx during tofu init,
+    # ...) cools the retry off long enough for the upstream blip to pass
+    # without saturating MaxConsecutiveCrashes. Same policy as
+    # automation/yuruna-retry.sh: base doubles each consecutive crash,
+    # capped at MaxDelaySeconds. Skipped when Get-YurunaRetryBackoff is
+    # unavailable (early-bootstrap path before Yuruna.Retry imports).
+    if (Get-Command Get-YurunaRetryBackoff -ErrorAction SilentlyContinue) {
+        $autoRetryBase = 30 * [Math]::Pow(2, [Math]::Max(0, $ConsecutiveCrashes - 1))
+        $autoRetryBase = [int][Math]::Min($autoRetryBase, 300)
+        $backoffSeconds = Get-YurunaRetryBackoff -BaseDelay $autoRetryBase -MaxDelay 300 -JitterFraction 0.25
+        Write-Output "  Auto-retry backoff (yuruna_retry pattern): sleeping ${backoffSeconds}s before next cycle (consecutiveCrashes=$ConsecutiveCrashes)."
+        $backoffDeadline = [DateTime]::UtcNow.AddSeconds($backoffSeconds)
+        while ([DateTime]::UtcNow -lt $backoffDeadline -and -not $script:ShutdownState['Requested']) {
+            try {
+                [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o'))
+            } catch {
+                Write-Verbose "stepHeartbeat refresh during auto-retry backoff failed: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 1
+        }
+    }
     }  # end if (-not $script:CycleRestartHandled)
   }
 
@@ -2609,7 +2611,11 @@ while ($true) {
         $exitReason = Wait-WithProgress -Activity "[cycle $CycleCount] inter-cycle delay" `
             -TotalSeconds $effectiveDelay -PollSeconds 1 -Id $delayId -Test {
                 if ($script:ShutdownState['Requested']) { return 'shutdown' }
-                if (Test-Path $cyclePauseFlagFile)     { return 'pause' }
+                # A cycle-pause armed during the wait does NOT cut the countdown
+                # short: the operator asked to pause "after the cycleDelaySeconds",
+                # so the wait runs to completion and the post-delay gate below
+                # honors the pause before the next cycle. Shutdown and restart
+                # still break the wait early.
                 if (Test-Path $cycleRestartFlagFile) {
                     Remove-Item $cycleRestartFlagFile -Force -ErrorAction SilentlyContinue
                     return 'restart'
@@ -2621,6 +2627,34 @@ while ($true) {
         }
         Write-Output "[cycle $CycleCount] cycleDelaySeconds wait complete -- exiting inner; outer will respawn. (local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
         Write-InnerLog "[cycle $CycleCount] cycleDelaySeconds wait complete -- entering exit path"
+    }
+
+    # Cycle-pause counterpart to the "Cycle-pause back-channel" gate above: a
+    # pause armed via the status UI DURING the cycleDelaySeconds wait is honored
+    # here -- after the wait runs to completion, before we exit the inner, so the
+    # outer respawns the next cycle only once resumed. This is what makes the
+    # UI's now-enabled "Pause after cycle" button take effect right after the
+    # inter-cycle delay. Gated on $effectiveDelay so it only fires when a wait
+    # actually ran; with no inter-cycle delay the pre-delay gate above is the
+    # sole cycle boundary. Mirrors that gate's wait loop -- keep the heartbeat-
+    # refresh / resume / shutdown handling in sync.
+    if (($effectiveDelay -gt 0) -and (Test-Path $cyclePauseFlagFile) -and (-not $script:ShutdownState['Requested'])) {
+        Write-Output "Cycle pause armed during inter-cycle delay. Pausing before next cycle; waiting for resume..."
+        $postDelayPauseAttempt = 1
+        while ((Test-Path $cyclePauseFlagFile) -and (-not $script:ShutdownState['Requested'])) {
+            try {
+                [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o'))
+            } catch {
+                Write-Verbose "runner.stepHeartbeat refresh during cycle pause failed: $($_.Exception.Message)"
+            }
+            Start-Sleep -Milliseconds (Get-PollDelay -Attempt $postDelayPauseAttempt)
+            $postDelayPauseAttempt++
+        }
+        if ($script:ShutdownState['Requested']) {
+            Write-Output "Shutdown requested during cycle pause. Exiting cycle loop."
+            break
+        }
+        Write-Output "Cycle pause released. Resuming."
     }
 
     # Single-cycle runner: the per-cycle pwsh respawn lives in the outer
@@ -2640,12 +2674,12 @@ Write-InnerLog "post-loop cleanup: Unregister-Event/Remove-Job complete"
 # Persist gating state so the next single-cycle inner respawn picks
 # up the correct (Armed | Fired) phase. Writes are best-effort.
 try {
-    @{
+    $null = Write-YurunaStateFileJson -Path $GatingFile -Depth 4 -Compress:$false -WithBom -Confirm:$false -InputObject @{
         consecutiveFailures  = $ConsecutiveFailures
         consecutiveSuccesses = $ConsecutiveSuccesses
         alertArmed           = $AlertArmed
         savedAt              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    } | ConvertTo-Json -Depth 4 | Set-Content -Path $GatingFile -Encoding utf8BOM
+    }
 } catch {
     Write-Verbose "Gating-state save failed (best-effort, ignoring): $($_.Exception.Message)"
 }
@@ -2726,8 +2760,9 @@ if (-not $OverallPassed -and $FailedGuest) {
         # EventData: post-loop alert (shouldStopOnFailure path). Same
         # contract as the in-cycle handler above -- read schema-v2
         # last_failure.json from the cycle folder, augment with cycle/
-        # host context, ship via both Format-FailureMessage's JSON
-        # trailer (body) and Send-Notification's -EventData.
+        # host context, remediate below, then ship via
+        # Send-CycleFailureNotification (its body JSON trailer and
+        # -EventData both carry this payload).
         $postLoopEventData = Get-FailureEventData `
             -HostType      $HostType `
             -Hostname      (hostname) `
@@ -2737,19 +2772,26 @@ if (-not $OverallPassed -and $FailedGuest) {
             -CycleId       $CycleId `
             -GitCommit     $GitCommit `
             -ProjectCommit $ProjectGitCommit
-        $body = Format-FailureMessage `
-            -HostType     $HostType `
-            -Hostname     (hostname) `
-            -GuestKey     $FailedGuest `
-            -StepName     $FailedStep `
-            -ErrorMessage $FailureMessage `
-            -CycleId      $CycleId `
-            -GitCommit    $GitCommit `
-            -EventData    $postLoopEventData
-        Send-Notification -EventCode    'cycle.failure' `
-                          -EventMessage "Yuruna Test: FAIL on $HostType / $FailedGuest / $FailedStep" `
-                          -EventNote    $body `
-                          -EventData    $postLoopEventData
+        # Advisory remediation dispatch (same as the in-cycle path). Skip the
+        # planner-abort case (FailedGuest '(planner)' / PlannerFatal): a
+        # duplicate-sequence config error is never auto-remediable and would
+        # only route to operator_intervention_required.
+        if ((Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) -and $FailedGuest -ne '(planner)') {
+            $remediation = Invoke-Remediation -FailureRecord $postLoopEventData
+            if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }
+        }
+        # Payload built + (planner-guarded) remediated above; pass it
+        # pre-built so the helper ships the same hashtable without
+        # rebuilding or reordering remediation.
+        Send-CycleFailureNotification `
+            -HostType      $HostType `
+            -SubjectSuffix "$FailedGuest / $FailedStep" `
+            -GuestKey      $FailedGuest `
+            -StepName      $FailedStep `
+            -ErrorMessage  $FailureMessage `
+            -CycleId       $CycleId `
+            -GitCommit     $GitCommit `
+            -EventData     $postLoopEventData
         # Disarm so a shouldStopOnFailure stream (this block fires only when
         # shouldStopOnFailure broke before the in-cycle inline handler could
         # update gating state) doesn't re-alert on every outer respawn.
@@ -2768,12 +2810,12 @@ if (-not $OverallPassed -and $FailedGuest) {
 # captures the in-cycle inline handler's state; this second write covers
 # the shouldStopOnFailure path.
 try {
-    @{
+    $null = Write-YurunaStateFileJson -Path $GatingFile -Depth 4 -Compress:$false -WithBom -Confirm:$false -InputObject @{
         consecutiveFailures  = $ConsecutiveFailures
         consecutiveSuccesses = $ConsecutiveSuccesses
         alertArmed           = $AlertArmed
         savedAt              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    } | ConvertTo-Json -Depth 4 | Set-Content -Path $GatingFile -Encoding utf8BOM
+    }
 } catch {
     Write-Verbose "Final gating-state save failed (best-effort, ignoring): $($_.Exception.Message)"
 }

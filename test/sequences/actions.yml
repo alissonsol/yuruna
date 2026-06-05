@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../schemas/actions.schema.yml
 
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Consolidated catalog of actions available in sequence files
 # (start.guest.*.yml, workload.guest.*.yml under sequences/gui/ and
@@ -88,6 +89,15 @@ actions:
     Type a text string, wait, then press Enter. Parameters: text
     (string), sensitive (boolean, masks output), charDelayMs (number,
     default 50), delaySeconds (number, default 2).
+
+  networkRelease: >
+    Release the guest DHCP lease / network resources at end of sequence so
+    the address returns to the pool instead of lingering until lease expiry
+    (keeps a churning fleet from exhausting a shared LAN's DHCP pool). gui
+    mode types `bash /usr/local/lib/yuruna/yuruna-network.sh release` on the
+    guest console for Ubuntu / Amazon Linux guests; Windows.11 is a no-op
+    reminder (TODO). Parameters: text (string, optional override of the typed
+    command), charDelayMs (number, default 50).
 
   passwdPrompt: >
     Like waitForAndEnter, but `text` is always treated as sensitive
@@ -179,7 +189,19 @@ actions:
     (handshakes to an authenticated shell, not just TCP/22).
     Parameters: timeoutSeconds (number,
     default = vmCommunication.timeoutSeconds), pollSeconds
-    (number, default = vmCommunication.pollSeconds).
+    (number, default = vmCommunication.pollSeconds),
+    installerFailurePatterns (string or string-array of anti-patterns;
+    when set, the wait is chunked and the guest framebuffer is OCR'd
+    between chunks — matching any pattern aborts the wait immediately
+    with a fail label that names the matched pattern). Canonical use
+    is subiquity's 'install_fail.crash' / 'Press enter to start a
+    shell' / 'An error occurred' so a crashed install fails the cycle
+    in ~30 s instead of consuming the full timeoutSeconds for an sshd
+    that will never come up. Pairs with the yuruna_retry exp-backoff
+    auto-retry in Invoke-TestInnerRunner: a transient installer flake
+    fails fast, then the next cycle auto-retries on a fresh VM. When
+    omitted (default) the action retains its original single-shot
+    Wait-SshReady contract with no OCR overhead.
 
   tapOn: >
     Wait for a button label to appear on the VM screen via OCR, then

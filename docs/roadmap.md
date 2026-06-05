@@ -28,8 +28,7 @@ infrastructure and audit items in parallel.
 ## Recently completed (audit-cycle outcomes, 2026-05)
 
 ✓ Critical / High / Medium audit batch — all 35 items resolved or
-  verified as false positives. See [opportunities.md](opportunities.md)
-  for the closed-issues breakdown.
+  verified as false positives.
 
 ✓ Autonomous-remediation infrastructure — failure-class dispatcher
   (R-4), NDJSON schema validator (R-7), cycle correlation IDs (R-8),
@@ -45,11 +44,11 @@ infrastructure and audit items in parallel.
   6/9 candidate Get-Image scripts wired), log rotation primitive
   (R-10).
 
-🚧 Sequence verb-handler split (H-10) — `Invoke-Sequence.psm1`
-  is ~2,461 lines after the M-3 key-code extraction. Final split
-  of the inline `retry` / `recoverFromSnapshot` handlers stays
-  deferred pending the comment-to-markdown migration that will
-  reduce the file's explanatory-comment footprint substantially.
+✓ Sequence verb-handler split (H-10) — all 19 verbs are now
+  registry handlers in `Test.SequenceHandler.psm1`. The final two
+  (`retry` / `recoverFromSnapshot`) moved once their failure state
+  was lifted into the shared `Test.SequenceFailureState` store, so
+  `Invoke-Sequence.psm1` is now purely the executor.
 
 Back to [Yuruna](../README.md)
 

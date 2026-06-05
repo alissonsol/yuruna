@@ -208,7 +208,7 @@ bootstrap. Each installer now installs `powershell-yaml` (CurrentUser
 scope, `-Force -AllowClobber` to auto-trust PSGallery on a fresh box).
 `Install-PowerShellYamlIfMissing` (defined in
 [test/modules/Test.HostGit.psm1](../test/modules/Test.HostGit.psm1)
-and re-exported via `Test.Host`) is still called from
+and re-exported via `Test.HostContract`) is still called from
 `Enable-TestAutomation.ps1` as a safety net for manual-clone
 bootstraps.
 
@@ -390,7 +390,7 @@ reset function — a bare `[int]` cast on values with the high bit set
 throws `OverflowException`.
 
 The corresponding reset action lives in
-[test/modules/Test.Host.psm1](../test/modules/Test.Host.psm1)
+[test/modules/Test.HostContract.psm1](../test/modules/Test.HostContract.psm1)
 `Set-WindowsHostConditionSet`, called by
 [host/windows.hyper-v/Enable-TestAutomation.ps1](../host/windows.hyper-v/Enable-TestAutomation.ps1).
 It writes 100% to all three sources and emits per-monitor status lines
@@ -405,7 +405,7 @@ action"). Changes take effect after the operator signs out and back in
 The install-side reader and the module-side reset deliberately
 duplicate the three-source logic rather than share a module function:
 the install preflight runs **before** the repo is cloned, so it cannot
-`Import-Module Test.Host`. The shared knowledge is in this section,
+`Import-Module Test.HostContract`. The shared knowledge is in this section,
 not in code.
 
 ---

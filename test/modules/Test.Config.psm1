@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,15 +84,27 @@ function Read-TestConfig {
     param(
         [Parameter(Mandatory)][string]$Path,
         [switch]$NoCache,
-        [switch]$ThrowOnError
+        [switch]$ThrowOnError,
+        # Freshness triple already computed by the caller (Read-TestConfigOrSnapshot
+        # computes it to compare against the snapshot envelope). When all three are
+        # supplied, skip recomputing the 64 KB SHA-256 a second time on fallthrough.
+        [string]$KnownResolvedPath,
+        [object]$KnownMtime,
+        [string]$KnownHash
     )
     if (-not (Test-Path -LiteralPath $Path)) {
         if ($ThrowOnError) { throw "Config file not found: $Path" }
         return $null
     }
-    $resolved = (Resolve-Path -LiteralPath $Path).Path
-    $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
-    $hash     = Get-TestConfigContentHash -Path $resolved
+    if ($KnownResolvedPath -and $KnownMtime -and $KnownHash) {
+        $resolved = $KnownResolvedPath
+        $mtime    = [datetime]$KnownMtime
+        $hash     = $KnownHash
+    } else {
+        $resolved = (Resolve-Path -LiteralPath $Path).Path
+        $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+        $hash     = Get-TestConfigContentHash -Path $resolved
+    }
     if (-not $NoCache -and $script:TestConfigCache.ContainsKey($resolved)) {
         $entry = $script:TestConfigCache[$resolved]
         if ($entry.Mtime -eq $mtime -and $entry.Hash -eq $hash) { return $entry.Config }
@@ -244,6 +256,7 @@ function Read-TestConfigOrSnapshot {
         [switch]$NoCache,
         [switch]$ThrowOnError
     )
+    $known = $null
     if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
         $snapshotPath = Get-TestConfigSnapshotPath
         if (Test-Path -LiteralPath $snapshotPath) {
@@ -251,6 +264,9 @@ function Read-TestConfigOrSnapshot {
                 $resolved = (Resolve-Path -LiteralPath $Path).Path
                 $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
                 $hash     = Get-TestConfigContentHash -Path $resolved
+                # Source freshness triple; reuse it on the fallback parse below so
+                # the 64 KB SHA-256 is computed at most once per call.
+                $known    = @{ Path = $resolved; Mtime = $mtime; Hash = $hash }
                 $raw      = Get-Content -Raw -LiteralPath $snapshotPath -ErrorAction Stop
                 $envelope = $raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
                 if ($envelope -is [System.Collections.IDictionary] `
@@ -264,6 +280,10 @@ function Read-TestConfigOrSnapshot {
                 Write-Verbose "Read-TestConfigOrSnapshot: snapshot read fell through ($($_.Exception.Message)); using full parse."
             }
         }
+    }
+    if ($known) {
+        return (Read-TestConfig -Path $Path -NoCache:$NoCache -ThrowOnError:$ThrowOnError `
+            -KnownResolvedPath $known.Path -KnownMtime $known.Mtime -KnownHash $known.Hash)
     }
     return (Read-TestConfig -Path $Path -NoCache:$NoCache -ThrowOnError:$ThrowOnError)
 }

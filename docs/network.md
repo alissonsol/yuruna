@@ -58,7 +58,7 @@ remaining budget.
 In both cases adjacent cycles passed with the same code on the same
 host. The flap lasted less than the package manager's own in-process
 retry window (librepo) or curl's default no-retry behavior, so the
-script reported failed even though the network was healthy a few
+script failed even though the network was healthy a few
 seconds later.
 
 The same pattern applies to apt: transient mirror flakes, DNS bounces
@@ -66,15 +66,15 @@ on first-boot DHCP, `Hash Sum mismatch` from a half-refreshed mirror
 (see [squid dep11 LM-factor trap in memory.md](memory.md)).
 
 **Library.** All three retry wrappers live in
-[automation/yuruna_retry.sh](../automation/yuruna_retry.sh) — single
+[automation/yuruna-retry.sh](../automation/yuruna-retry.sh) — single
 source of truth. The library is deployed to every supported guest by
 cloud-init's `write_files:` (base64-encoded) at install time, landing
-at `/usr/local/lib/yuruna/yuruna_retry.sh` before any provisioning
+at `/usr/local/lib/yuruna/yuruna-retry.sh` before any provisioning
 script runs. Guest scripts source it after their arch-detection block:
 
 ```
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-. /usr/local/lib/yuruna/yuruna_retry.sh
+. /usr/local/lib/yuruna/yuruna-retry.sh
 ```
 
 The library exports four functions:
@@ -140,6 +140,8 @@ Install-Module powershell-yaml with pwsh_retry?`](memory.md#why-ubuntu--al2023-g
 `--retry-connrefused` is supported on every shipped guest OS
 (present since curl 7.52, December 2016). Ubuntu 24/26, Amazon
 Linux 2023, and macOS 26 all ship newer.
+
+Back to [Yuruna](../README.md)
 
 ---
 

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,9 @@ $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
 Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking
+# Shared per-guest provisioning helper (the New-VM.ps1 child-runner) that
+# all three drivers carried in duplicate.
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
 
 # Per-guest base image paths -- single table keeps Get-ImagePath, Get-Image,
 # and the per-guest Get-Image.ps1 scripts in agreement. A typo or new guest
@@ -90,6 +93,8 @@ function Get-VirshDomState {
     Create a guest VM by running the per-guest New-VM.ps1 script.
 #>
 function New-VM {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
+        Justification = 'ShouldProcess is delegated to Invoke-PerGuestNewVm, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
@@ -101,47 +106,11 @@ function New-VM {
         # per-guest script declares -Username (introspected below).
         [string]$Username
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) {
-        return @{ success = $false; errorMessage = 'WhatIf' }
-    }
-    $scriptPath = Join-Path $RepoRoot (Join-Path 'host/ubuntu.kvm' (Join-Path $GuestKey 'New-VM.ps1'))
-    if (-not (Test-Path $scriptPath)) {
-        return @{ success = $false; errorMessage = "New-VM.ps1 not found at: $scriptPath" }
-    }
-    $childArgs = @('-VMName', $VMName)
-    $scriptAcceptsProxy    = $false
-    $scriptAcceptsUsername = $false
-    try {
-        $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
-        if ($cmdInfo.Parameters) {
-            $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyUrl')
-            $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
-        }
-    } catch {
-        $scriptAcceptsProxy    = $false
-        $scriptAcceptsUsername = $false
-    }
-    if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
-        $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
-    }
-    if ($PSBoundParameters.ContainsKey('Username') -and $Username -and $scriptAcceptsUsername) {
-        $childArgs += @('-Username', $Username)
-    } elseif ($PSBoundParameters.ContainsKey('Username') -and $Username -and -not $scriptAcceptsUsername) {
-        Write-Verbose "Cascaded -Username '$Username' NOT forwarded: $scriptPath does not declare a -Username parameter."
-    }
-    Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
-    $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
-    $exitCode = $LASTEXITCODE
-    foreach ($line in $output) {
-        $text = "$line".TrimEnd()
-        if ($text -ne '' -and $text -notmatch '^\s*\d+%\s+complete') {
-            Write-Information $text
-        }
-    }
-    if ($exitCode -ne 0) {
-        return @{ success = $false; errorMessage = "New-VM.ps1 exited with code $exitCode" }
-    }
-    return @{ success = $true; errorMessage = $null }
+    # Thin wrapper over the shared per-guest runner; the host subdir is the
+    # only platform variable. Splatting $PSBoundParameters preserves the
+    # conditional -CachingProxyUrl/-Username forwarding (the runner checks
+    # ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
+    Invoke-PerGuestNewVm -HostSubdir 'host/ubuntu.kvm' @PSBoundParameters
 }
 
 <#
@@ -549,6 +518,8 @@ function Restart-VMConsole {
     Run the per-guest Get-Image.ps1 to download or refresh the base image.
 #>
 function Get-Image {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
+        Justification = 'ShouldProcess is delegated to Invoke-GetImage, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
@@ -556,27 +527,13 @@ function Get-Image {
         [Parameter(Mandatory)][string]$RepoRoot,
         [switch]$Force
     )
-    if (-not $PSCmdlet.ShouldProcess($GuestKey, 'Download / refresh base image')) {
-        return @{ success = $false; skipped = $false; errorMessage = 'WhatIf' }
-    }
-    $scriptPath = Join-Path $RepoRoot (Join-Path 'host/ubuntu.kvm' (Join-Path $GuestKey 'Get-Image.ps1'))
-    if (-not (Test-Path $scriptPath)) {
-        return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 not found at: $scriptPath" }
-    }
-    if (-not $Force) {
-        $imagePath = Get-ImagePath -GuestKey $GuestKey
-        if ($imagePath -and (Test-Path $imagePath)) {
-            Write-Information "Image exists, skipping download: $imagePath"
-            return @{ success = $true; skipped = $true; errorMessage = $null }
-        }
-    }
-    Write-Information "Running: $scriptPath"
-    & pwsh -NoProfile -File $scriptPath 2>&1 | ForEach-Object { Write-Information ([string]$_) }
-    $code = $LASTEXITCODE
-    if ($code -ne 0) {
-        return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 exited with code $code" }
-    }
-    return @{ success = $true; skipped = $false; errorMessage = $null }
+    # Thin wrapper over the shared runner. The host subdir and the image-path
+    # table (Get-ImagePath, injected as a CommandInfo resolved in THIS driver's
+    # scope) are the platform variables. Unlike win/mac, this driver logs via
+    # the bare Information stream rather than Write-GetImageLine, so the writer
+    # is injected too -- `& (Get-Command Write-Information) $line` binds $line to
+    # -MessageData positionally, identical to an inline `Write-Information $line`.
+    Invoke-GetImage -HostSubdir 'host/ubuntu.kvm' -ResolveImagePath (Get-Command Get-ImagePath) -WriteLine (Get-Command Write-Information) @PSBoundParameters
 }
 
 <#
@@ -772,13 +729,9 @@ function Wait-VMIp {
         [int]$TimeoutSeconds = 30,
         [int]$PollSeconds    = 3
     )
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        $candidate = Get-VMIp -VMName $VMName
-        if ($candidate) { return [string]$candidate }
-        Start-Sleep -Seconds $PollSeconds
-    }
-    return $null
+    # Get-Command runs in THIS driver's scope, so the shared poller resolves
+    # our Get-VMIp; a bare name would resolve in the shared module's scope.
+    Invoke-WaitVmIp @PSBoundParameters -ResolveVmIp (Get-Command Get-VMIp)
 }
 
 <#
@@ -1921,10 +1874,10 @@ function Test-CachingProxyAvailable {
         return $null
     }
     # 1500 ms matches test/Test-CachingProxy.ps1's CLI probe so a
-    # cache that answers the standalone smoke test also answers here;
-    # the earlier 500 ms left a window where a momentarily busy squid
-    # would miss the runner's single bootstrap probe and silently
-    # strand the whole inner cycle.
+    # cache that answers the standalone smoke test also answers here.
+    # Tighter timeouts (~500 ms) leave a window where a momentarily
+    # busy squid misses the runner's single bootstrap probe and
+    # silently strands the whole inner cycle.
     if (Test-TcpReachable -TargetHost $stateIp -Port $httpPort -TimeoutMs 1500) {
         return "http://${stateIp}:${httpPort}"
     }

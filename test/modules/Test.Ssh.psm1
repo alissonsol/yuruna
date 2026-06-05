@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,10 +100,11 @@ System.String. Absolute path to the private key file.
         throw "ssh-keygen not found on PATH. Install OpenSSH client."
     }
 
-    # Reject keys created with the legacy quoting bug: an earlier -N '""'
-    # encrypted the key with the literal 2-char passphrase "", which fails
-    # silently under BatchMode=yes after "Server accepts key". If the
-    # existing key won't load with an empty passphrase, regenerate.
+    # Reject keys carrying the legacy-quoting regression: -N '""' passed
+    # to ssh-keygen on Windows PowerShell encrypts the key with the
+    # literal 2-char passphrase "", which fails silently under
+    # BatchMode=yes after "Server accepts key". If the existing key won't
+    # load with an empty passphrase, regenerate.
     if (Test-Path $script:SshKeyPath -PathType Leaf) {
         $probe = & $sshKeygen -y -P '' -f $script:SshKeyPath 2>&1
         if ($LASTEXITCODE -ne 0) {

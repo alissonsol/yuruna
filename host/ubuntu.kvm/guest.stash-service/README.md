@@ -8,7 +8,7 @@ Scripts and config in this folder:
   (amd64 qcow2, resized to 256 GB sparse).
 - [New-VM.ps1](New-VM.ps1) — defines the libvirt domain (8 GB RAM /
   4 vCPU) and seeds via cloud-init NoCloud ISO.
-- [vmconfig/user-data](vmconfig/user-data) — minimal cloud-init:
+- [vmconfig/user-data](../../vmconfig/stash-service.base.user-data) — minimal cloud-init:
   `yuruna` user with the harness SSH key + a console password from
   the authentication vault.
 - [vmconfig/meta-data](vmconfig/meta-data) — cloud-init instance

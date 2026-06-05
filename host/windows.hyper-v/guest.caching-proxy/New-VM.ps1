@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,12 +185,19 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyStatePath
 
-# Substitute SSH key and password placeholders. .Replace() (literal)
-# rather than -replace (regex) because keys can contain regex-special
-# chars (ssh-rsa base64 usually doesn't — cheap insurance).
-$UserData = (Get-Content -Raw (Join-Path $vmConfigDir "user-data")).
-    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).
-    Replace('PASSWORD_PLACEHOLDER', $YurunaPassword)
+# Render user-data from the shared base + Hyper-V overlay
+# (host/vmconfig/caching-proxy.*). Build-CloudInitUserData resolves the
+# SSH-key and password placeholders with literal .Replace(), so values
+# carrying regex-special chars are safe.
+Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+$UserData = Build-CloudInitUserData `
+    -BasePath    (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy.base.user-data') `
+    -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy.hyperv.overlay.yml') `
+    -RepoRoot    $_repoRootForExt `
+    -Replacement @{
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        PASSWORD_PLACEHOLDER           = $YurunaPassword
+    } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"
@@ -203,7 +210,7 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 # via vmconnect — without the password they'd have to dig seed.iso off
 # disk. The final "ready" banner reprints the same credentials.
 Write-Output ""
-Write-Output "=== caching-proxy console/SSH login (available NOW) ==="
+Write-Output "== caching-proxy console/SSH login (available NOW) =="
 Write-Output "  user:     yuruna"
 Write-Output "  password: $PasswordFile"
 Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VMName'"
@@ -428,7 +435,7 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
     if ($connected) {
         Write-Progress -Activity $portActivity -Completed
         Write-Output ""
-        Write-Output "=== caching-proxy is READY ==="
+        Write-Output "== caching-proxy is READY =="
         Write-Output "  VM:        $VMName"
         Write-Output "  IP:        $cacheIp"
         Write-Output "  Proxy:     http://${cacheIp}:${cacheHttpPort}"

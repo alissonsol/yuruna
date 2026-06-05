@@ -5,14 +5,27 @@ pointing a test host at a remote cache, preflighting before a run.
 Cache-VM concepts (setup, config, HTTPS/SSL-bump, monitoring, credentials,
 `YurunaCacheContent`) are in [Caching](caching.md).
 
+## Why a separate cache VM
+
+Back-to-back test cycles hammer Ubuntu CDN endpoints (the
+`archive.ubuntu.com`, `security.ubuntu.com`, GitHub container
+registries, k8s artifact mirrors) on every fresh-VM install. Without a
+cache between the test guests and the CDN, a typical cycle hits 429
+"Too Many Requests" responses within minutes and stretches each
+install from ~2 min (warm cache) to ~30 min (live) or fails outright
+when an upstream mirror rate-limits the test-lab egress IP. The
+caching proxy VM lives on the same host network as the test guests
+and serves the same bytes from disk on every cycle; only the cache VM
+contacts the CDN, so the test guests stay network-isolated and the
+upstream rate limit applies once per cache miss rather than once per
+guest install.
+
 ## Severity policy
 
-Silent fallback-to-CDN can't mask a 429:
-
-- **No cache VM registered / not running** → **WARNING**, proceed to CDN.
-- **Cache VM running but `:3128` unreachable** → **ERROR**, exit 1.
-
-No changes to `test.config.yml` or sequences are needed.
+Preflight severity — WARNING when no cache VM is registered/running,
+ERROR when one is running but `:3128` is unreachable — is documented once
+in [Caching → Severity policy](caching.md#severity-policy). No changes to
+`test.config.yml` or sequences are needed.
 
 ## Serving remote clients
 

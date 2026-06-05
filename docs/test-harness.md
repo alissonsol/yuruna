@@ -19,7 +19,6 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 | `Test-Sequence.ps1`                                | Dev helper: single sequence, any start/stop step |
 | `Test-TesseractOcr.ps1`                            | OCR sanity check via Tesseract (open-source; independent of WinRT) |
 | `Test-WinRtOcr.ps1`                                | OCR sanity check via WinRT — also demonstrates the modern-pwsh "closed access" issue |
-| `Train-Screenshots.ps1`                            | Interactive reference-screenshot capture |
 
 ## Cycle
 
@@ -58,7 +57,7 @@ contract](#yurunahost-contract) below.
 
 | Module | Purpose |
 |--------|---------|
-| `Test.Host`            | Platform detection, git, host-condition guards, `Initialize-YurunaHost` dispatcher |
+| `Test.HostContract`    | Platform detection, git, host-condition guards, `Initialize-YurunaHost` dispatcher |
 | `Test.HostIO`          | Per-host I/O provider registry for `Send-Key` / `Send-Text` / `Send-Click` — see [Host I/O registry](host-io.md) |
 | `Test.SequenceAction`  | Per-verb metadata registry (FailureLabel + capability requirements) consumed by the engine and the capability gate |
 | `Test.SequenceHandler` | Catalog of built-in verb Handler scriptblocks — see [Sequence engine layering](#sequence-engine-layering) |
@@ -72,7 +71,6 @@ contract](#yurunahost-contract) below.
 | `Test.ConfigValidator` | `Test-AgainstSchema`, `Test-IsSet`, `Test-RepoFreshness` — pieces of `Test-Config.ps1` reusable by future check scripts |
 | `Test.PortOwner`       | `Get-PortListenerPid` (Windows HTTP.sys + Unix lsof) + `Resolve-PortOrphan` for the status-service port |
 | `Test.Status`          | `status.json` lifecycle |
-| `Test.StatusService`    | Status HTTP server start/stop |
 | `Test.Extension`       | Loader for the pluggable extension areas under `test/extension/<area>/` (authentication, notification) — see [Extensions API](extensions-api.md) |
 | `Test.Notify`          | Thin dispatcher to the active notification extension(s) (`Send-Notification -EventCode -EventMessage -EventNote`); default extension delivers email via Resend |
 | `Test.Log` / `Test.YurunaDir` | Transcript and state directories |
@@ -85,7 +83,7 @@ contract](#yurunahost-contract) below.
 
 ### Yuruna.Host contract
 
-`Initialize-YurunaHost` (in `Test.Host`) imports the matching driver
+`Initialize-YurunaHost` (in `Test.HostContract`) imports the matching driver
 based on host type:
 
 | Host type | Driver |
@@ -111,7 +109,7 @@ contracts whose behavior diverges in operationally significant ways
 [Sequence actions and host contracts](test-sequences.md#yurunahost-contract).
 
 Per-cycle dispatch is YAML-driven: each cycle reads
-`project/test/test.sequence.yml` to get the top-level workload sequence
+`project/test/test.runner.yml` to get the top-level workload sequence
 names, walks each sequence's `baseline` field (object keyed by guest
 OS) to derive a dependency-ordered chain, and dispatches each chain
 entry through [`modules/Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1).
@@ -189,18 +187,37 @@ prefixes.
 
 ## Self-healing extension points
 
-The harness exposes three registries that the operator, a project,
+The harness exposes five registries that the operator, a project,
 or a future recovery loop can extend without forking the framework.
-Each is enumerated at startup by the [capability matrix](capability-matrix.md):
+Each is enumerated at startup by the [capability matrix](capability-matrix.md);
+all five share the
+[`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) primitive
+and surface through `Get-YurunaRegistryDirectory`:
 
 - [OCR providers](ocr.md) — `Register-OcrProvider`
 - [Host I/O registry](host-io.md) — `Register-HostIOProvider`
 - Sequence actions — `Register-SequenceAction` (see
   [`Test.SequenceAction.psm1`](../test/modules/Test.SequenceAction.psm1))
+- [Component registry login](component-registry.md) — `Register-CredentialProvider`
+- [Host-condition registry](host-condition-registry.md) — `Register-HostConditionProvider`
 
-Plus the file-based [Extensions API](extensions-api.md) under
+Plus the [remediation dispatcher](remediation.md) (`Register-RecoveryHandler`,
+failure-class to recommendation), and the file-based
+[Extensions API](extensions-api.md) under
 `test/extension/<area>/` for authentication, notification transports,
 and caching-proxy log parsing.
+
+The runner lifecycle itself is observable through the explicit
+[runner state machine](runner-state.md) (`Set-RunnerState` at every
+cycle boundary; NDJSON `runner_state_transition` events). The
+operational outer-runner loop and its heartbeat-watchdog are split
+into [Test.RunnerOuterLoop](runner-outer-loop.md) and
+[Test.RunnerWatchdog](runner-watchdog.md) so both can be unit-tested
+independently of the entry-point script.
+
+Cloud-init seed rendering goes through the
+[cloud-init template pipeline](cloud-init-template.md) — shared base
++ per-host overlay + placeholder safety net.
 
 ## Sequence engine layering
 
@@ -231,14 +248,20 @@ operator-facing host-prep; the `Assert-*` gates run every test cycle.
 Pure detection / VM-name derivation lives in `Test.HostDetection.psm1`.
 
 Per-platform implementations live in sibling modules
-(`Test.HostCondition.Mac.psm1`, `Test.HostCondition.Windows.psm1`),
-imported `-Global -Force` so the facade can re-export their function
-names. The Linux stub (`Set-LinuxHostConditionSet`) and the platform
-dispatcher (`Assert-HostConditionSet`) live in the facade because
-Linux has no third sibling and the dispatcher knows the platform-
-routing rules. The facade preserves the 10-name public export
-surface, so existing callers can `Import-Module Test.HostCondition`
-and resolve names exactly as before.
+(`Test.HostCondition.Mac.psm1`, `Test.HostCondition.Windows.psm1`,
+`Test.HostCondition.Linux.psm1`), imported `-Global -Force` so the
+facade can re-export their function names. Each sibling exports a
+matched triplet: `Set-<Platform>HostConditionSet` (Enable-TestAutomation
+side), `Assert-<Platform>HostConditionSet` (long-running runner gate),
+and `Test-<Platform>HostMinimum` (quick check for one-off helpers).
+The facade calls `New-YurunaRegistry` and then registers each
+platform's triplet via `Register-HostConditionProvider`, so
+`Assert-HostConditionSet`, `Test-ElevationRequired`, and
+`Test-HostRequirement` are pure registry lookups -- the old `switch
+($HostType)` chains are gone. Adding a new host is one
+`Register-HostConditionProvider` call; existing callers can keep
+`Import-Module Test.HostCondition` and resolve names exactly as
+before.
 
 ## State sidecars
 
@@ -296,6 +319,18 @@ Per-guest value shape (backward-compatible):
 
 The dashboard reads `.status` off the object form and falls back to
 the whole value as a string, so both shapes still render.
+
+Each history entry also carries a `sequenceSummary` array —
+`[{ name, status, folderUrl }]`, one element per test.runner.yml
+sequence the cycle ran, in runner-list order. The dashboard's "Recent
+Cycles" table renders one button per element, linking `folderUrl` to
+that sequence's results folder (the driven guest's per-VM folder for a
+1:1 sequence; the cycle folder when a sequence fans out to more than
+one guest). `status` is the worst of the sequence's guests
+(`fail > running > pass > skipped > pending`). The field is `[]` on
+the legacy `guestSequence` path (no sequences) and absent from rows
+recorded before it existed; the dashboard falls back to per-guest
+pills from `guestSummary` in both cases.
 
 Each history entry also carries its own `gitCommits` snapshot so a
 row written months ago still links to the right framework + project

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,17 +26,16 @@
 # ===== Ensure running as Administrator =====
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
-    Write-Output "╔════════════════════════════════════════════════════════════╗"
-    Write-Output "║  This script requires elevation (Run as Administrator)    ║"
-    Write-Output "║  Right-click PowerShell and select 'Run as Administrator' ║"
-    Write-Output "╚════════════════════════════════════════════════════════════╝"
+    Write-Output "=============================================================="
+    Write-Output "|  This script requires elevation (Run as Administrator)    |"
+    Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
+    Write-Output "=============================================================="
     Write-Output ""
     exit 1
 }
 
-Write-Output "=== Installing Kubernetes requirements for Windows 11 ==="
+Write-Output "== Installing Kubernetes requirements for Windows 11 =="
 
-# ===== Basic Tools =====
 Write-Output ""
 Write-Output ">>> Installing Basic Tools (Git, OpenSSH)..."
 winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
@@ -46,16 +45,15 @@ Start-Service sshd -ErrorAction SilentlyContinue
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
 Write-Output "<<< Basic Tools installation complete."
 
-# ===== PowerShell 7 (check) =====
 Write-Output ""
 Write-Output ">>> Checking for PowerShell 7..."
 $pwshPath = Get-Command pwsh -ErrorAction SilentlyContinue
 if (-not $pwshPath) {
     Write-Output ""
-    Write-Output "╔════════════════════════════════════════════════════════════╗"
-    Write-Output "║  PowerShell 7 is required but not installed.              ║"
-    Write-Output "║  Run windows.11.update.ps1 first to install it.          ║"
-    Write-Output "╚════════════════════════════════════════════════════════════╝"
+    Write-Output "=============================================================="
+    Write-Output "|  PowerShell 7 is required but not installed.              |"
+    Write-Output "|  Run windows.11.update.ps1 first to install it.          |"
+    Write-Output "=============================================================="
     Write-Output ""
     exit 1
 }
@@ -133,7 +131,7 @@ winget install --id FiloSottile.mkcert --accept-source-agreements --accept-packa
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
 # Generate the HTTPS development certificate first. This auto-creates the mkcert root CA
-# (rootCA.pem) on first run without triggering any dialog — only 'mkcert -install' does that.
+# (rootCA.pem) on first run without triggering any dialog -- only 'mkcert -install' does that.
 Write-Output ""
 Write-Output ">>> Creating HTTPS development certificate..."
 $pfxDir = Join-Path $env:USERPROFILE ".aspnet\https"
@@ -176,12 +174,10 @@ if (Test-Path $rootCert) {
 }
 Write-Output "<<< mkcert installation complete."
 
-# ===== Refresh PATH =====
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
-# ===== Version Check =====
 Write-Output ""
-Write-Output "=== Installation Summary ==="
+Write-Output "== Installation Summary =="
 try { git --version } catch { Write-Output "Git: restart terminal to verify" }
 try { docker --version } catch { Write-Output "Docker: restart required" }
 try { kubectl version --client 2>$null } catch { Write-Output "kubectl: restart terminal to verify" }
@@ -194,7 +190,7 @@ try { aws --version 2>$null } catch { Write-Output "AWS CLI: restart terminal to
 try { gcloud --version 2>$null | Select-Object -First 1 } catch { Write-Output "Google Cloud SDK: restart terminal to verify" }
 
 Write-Output ""
-Write-Output "=== Optional Steps ==="
+Write-Output "== Optional Steps =="
 Write-Output "1. Restart the computer to complete Docker Desktop setup"
 Write-Output "2. Enable Kubernetes in Docker Desktop Settings"
 Write-Output "3. Terminal restart may be needed for PATH changes to take effect"

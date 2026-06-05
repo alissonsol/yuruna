@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,11 +42,11 @@ Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -For
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
 $RepoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
-# Same module set as Start-CachingProxy: Test.Host (for Get-HostType /
+# Same module set as Start-CachingProxy: Test.HostContract (for Get-HostType /
 # Initialize-YurunaHost), Test.VMUtility (host-agnostic helpers),
 # Test.CachingProxy reuse not needed here (stash VM is independent of
 # the cache).
-Import-Module (Join-Path $ModulesDir 'Test.Host.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Global -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 $HostType = Get-HostType
@@ -67,7 +67,7 @@ if (-not (Test-Path -LiteralPath $newVm)) {
 # creates the new one, and (Hyper-V + KVM) starts it. UTM only builds
 # the bundle -- registration + start lives below.
 Write-Output ""
-Write-Output "=== Bringing up '$VMName' on $HostType ==="
+Write-Output "== Bringing up '$VMName' on $HostType =="
 & pwsh -NoProfile -File $newVm -VMName $VMName
 $rc = $LASTEXITCODE
 if ($rc -ne 0) {
@@ -108,7 +108,7 @@ if ($HostType -eq 'host.macos.utm') {
 }
 
 Write-Output ""
-Write-Output "=== stash-service start: complete ==="
+Write-Output "== stash-service start: complete =="
 Write-Output "  VM:       $VMName"
 Write-Output "  Host:     $HostType"
 Write-Output ""

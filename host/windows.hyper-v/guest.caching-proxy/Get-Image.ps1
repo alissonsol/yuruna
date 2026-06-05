@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,12 +47,12 @@ if (!(Test-Path -Path $downloadDir)) {
 #   * $baseImageFile exists
 #   * the sentinel records the same filename, URL, byte count, AND
 #     Last-Modified date as a fresh HEAD probe of $sourceUrl
-# Any mismatch -- including a stale 3-line sentinel from before the
-# Last-Modified field was added -- forces a re-download. The only way
-# to force a re-download manually is to delete or rename $baseImageFile
-# (or $baseImageOrigin). The original 3-line format was vulnerable to
-# a noble->resolute style URL bump being silently skipped if the
-# sentinel happened to be out of sync; the 4-line format closes that.
+# Any mismatch -- including a legacy 3-line sentinel that lacks the
+# Last-Modified field -- forces a re-download. The only way to force a
+# re-download manually is to delete or rename $baseImageFile (or
+# $baseImageOrigin). The 4-line sentinel guards against the silent-skip
+# regression class where a noble->resolute style URL bump matches the
+# byte count by coincidence.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {
@@ -81,7 +81,7 @@ Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # on the cloud-image basename. Note: this script PROVISIONS the
 # squid cache, so on a first-run host the cache doesn't exist yet
 # and the helper falls through to a direct Invoke-WebRequest.
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
 $downloaded = Save-ImageWithChecksum `
@@ -107,58 +107,15 @@ if ($fileSize -lt 100MB) {
     exit 1
 }
 
-# === Convert qcow2 to VHDX ===
-# The Ubuntu cloud image is in qcow2 format (.img); Hyper-V needs VHDX.
-$qemuImg = Get-Command qemu-img -ErrorAction SilentlyContinue
-if (-not $qemuImg) {
-    $candidates = @(
-        "$env:ProgramFiles\qemu\qemu-img.exe",
-        "${env:ProgramFiles(x86)}\qemu\qemu-img.exe"
-    )
-    foreach ($c in $candidates) {
-        if (Test-Path $c) { $qemuImg = $c; break }
-    }
-}
-if (-not $qemuImg) {
-    Write-Error "qemu-img not found. Install QEMU for Windows (winget install SoftwareFreedomConservancy.QEMU) or add qemu-img to PATH."
-    Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    exit 1
-}
-
+# === Convert qcow2 to VHDX + resize ===
+# The shared Convert-Qcow2ToVhdx (Yuruna.Image) owns qemu-img discovery, the
+# convert, the NTFS sparse-flag clear, and the Resize-VHD/qemu-img resize
+# fallback (feedback_qemu_img_vhdx_sparse.md), so the trap fix lives once.
 $convertedFile = Join-Path $downloadDir "$baseImageName.converting.vhdx"
-Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
-Write-Output "Converting qcow2 to VHDX..."
-& $qemuImg convert -f qcow2 -O vhdx -o subformat=dynamic $downloadFile $convertedFile
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "qemu-img convert failed (exit code $LASTEXITCODE)"
+if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $convertedFile -SizeBytes 512GB)) {
+    Write-Error "qcow2 to VHDX conversion failed for the download"
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
     exit 1
-}
-
-# qemu-img on Windows writes the output VHDX through NTFS sparse files,
-# which leaves FILE_ATTRIBUTE_SPARSE_FILE set on the file. Resize-VHD
-# then fails with 0xC03A001A ("Virtual hard disk files ... must not be
-# sparse"). Clear the flag before resizing.
-& fsutil sparse setflag $convertedFile 0 | Out-Null
-
-# --- See https://yuruna.link/memory#why-cache-vhdx-uses-resize-vhd-instead-of-qemu-img-resize
-Write-Output "Resizing VHDX to 512GB..."
-$resized = $false
-try {
-    Resize-VHD -Path $convertedFile -SizeBytes 512GB -ErrorAction Stop
-    $resized = $true
-} catch {
-    Write-Warning "Resize-VHD failed: $($_.Exception.Message)"
-    Write-Output "  Falling back to qemu-img resize..."
-    & $qemuImg resize $convertedFile 512G
-    if ($LASTEXITCODE -eq 0) { $resized = $true }
-}
-if (-not $resized) {
-    Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img."
-    Write-Warning "The cache VM will have only ~3.5 GB of disk — enough for 1-2"
-    Write-Warning "Ubuntu Server installs before squid fills it up."
-    Write-Warning "Resize manually with: fsutil sparse setflag '$baseImageFile' 0; Resize-VHD -Path '$baseImageFile' -SizeBytes 512GB"
 }
 
 # === Preserve previous and finalize ===

@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.05.29
+  Version: 2026.06.05
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.05.29';
+  var VERSION = '2026.06.05';
 
   // fetch shim for Safari iOS 9.x. (Target support for Yuruna UI).
   if (!window.fetch) {
@@ -56,8 +56,14 @@
     }
   }
 
+  // Escapes the five HTML-significant characters. Quotes are included so the
+  // same helper is safe in attribute context (title="...", href="..."); a value
+  // carrying a quote would otherwise break out of the attribute and corrupt the
+  // row. &#39; (not &apos;) for the apostrophe so it resolves on legacy parsers.
   function escHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   var STATUS_CLASSES = ['idle','running','pass','fail','skipped','pending','paused','stopped'];
@@ -361,12 +367,6 @@
       el.rows = Math.min(2, Math.max(1, el.value.split('\n').length));
     }
 
-    function setBannerTextLocal(statusText) {
-      var el = document.getElementById('banner-text');
-      if (!el) return;
-      el.textContent = statusText || '';
-    }
-
     function applyCachingProxyBanner() {
       var linkEl = document.getElementById('banner-cp');
       var noEl   = document.getElementById('banner-cp-noproxy');
@@ -552,17 +552,6 @@
       return rec.gitCommit || null;
     }
 
-    function pauseBannerTextLocal(stepPaused, cyclePaused, status, actionData) {
-      var stepEffective  = stepPaused &&
-        !!(actionData && actionData.line && /Paused \(waiting for resume\)/.test(actionData.line));
-      var cycleEffective = cyclePaused && status !== 'running';
-      if (stepEffective)  return 'Test paused';
-      if (stepPaused)     return 'Test will pause (after current step)';
-      if (cycleEffective) return 'Test paused';
-      if (cyclePaused)    return 'Test will pause (after current cycle)';
-      return null;
-    }
-
     function guestActionHtml(g, actionData, paused, breakData) {
       if (!actionData || !actionData.line) return '';
       if (g.status !== 'running') return '';
@@ -590,6 +579,128 @@
         .then(function() { loadStatus(); });
     }
 
+    // Rank for rolling a sequence's guests up to one aggregate badge. Mirrors
+    // the collapseVmPrep step-rank above so the dashboard ranks statuses the
+    // same way everywhere: fail > running > pass > skipped > pending.
+    var GUEST_STATUS_RANK = { fail: 5, running: 4, pass: 3, skipped: 2, pending: 1 };
+    function aggregateStatus(statuses) {
+      var best = 'pending', bestRank = 0;
+      for (var i = 0; i < statuses.length; i++) {
+        var s = statuses[i] || 'pending';
+        var r = GUEST_STATUS_RANK[s] || 0;
+        if (r > bestRank) { bestRank = r; best = s; }
+      }
+      return best;
+    }
+
+    // Render one guest's block (header + step pills + action + error). Shared
+    // by the per-sequence cards (nested, ctx.hideTopLevel === true) and the
+    // flat fallback list (standalone card, top-level sub-line shown). ctx
+    // carries the live { data, actionData, stepPaused, breakData } scope.
+    function renderGuestBlock(g, ctx) {
+      var data = ctx.data;
+      var stepsArr = collapseVmPrep(g.steps || []);
+      var steps    = stepsArr.map(pill).join('');
+      var firstStartedAt = stepsArr[0] ? stepsArr[0].startedAt : null;
+      var lastFinishedAt = stepsArr.length ? stepsArr[stepsArr.length - 1].finishedAt : null;
+      var dur            = fmtDuration(firstStartedAt, lastFinishedAt);
+      var errStep = null;
+      for (var i = 0; i < stepsArr.length; i++) {
+        if (stepsArr[i].errorMessage) { errStep = stepsArr[i]; break; }
+      }
+      var errHtml = errStep ? ('<div class="guest-error">' + escHtml(errStep.errorMessage) + '</div>') : '';
+      var actHtml = guestActionHtml(g, ctx.actionData, ctx.stepPaused, ctx.breakData);
+      var metaParts = ' · ';
+      if (g.status === 'running' && g.vmName) {
+        metaParts = 'VM: ' + escHtml(g.vmName);
+      } else if (g.status && g.status !== 'running' && g.status !== 'pending' && dur !== '—') {
+        metaParts = 'Duration: ' + dur;
+      }
+      // The sequence card already names the top-level sequence, so the
+      // per-guest top-level sub-line is suppressed when nested.
+      var topLevelStr = (g.topLevel || '').replace(/^\s+|\s+$/g, '');
+      var topHtml = (!ctx.hideTopLevel && topLevelStr)
+        ? ('<div class="guest-toplevel">' + escHtml(topLevelStr) + '</div>')
+        : '';
+      // Live cycle: derive the per-guest folder URL from the current
+      // cycleFolderUrl (Set-CycleFolderUrl flips its suffix at the
+      // Stop-LogFile rename, so this always matches the on-disk path).
+      // g.failureArtifacts records the post-rename URL; using it mid-cycle
+      // 404s while the folder is still `<base>.incomplete/<VMName>/`.
+      var folderUrl = (data.cycleFolderUrl && g.vmName)
+        ? (data.cycleFolderUrl + g.vmName + '/')
+        : (g.failureArtifacts || '');
+      var titleHtml = folderUrl
+        ? ('<a href="' + escHtml(folderUrl) + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="color:inherit;text-decoration:underline dotted">' + escHtml(g.guestKey) + '</a>')
+        : escHtml(g.guestKey);
+      // The sequence card already carries one aggregate status badge in its
+      // header; a guest nested under it (ctx.hideStatusBadge) would just
+      // repeat that status, so the per-guest badge is suppressed there. The
+      // flat fallback list (no sequence card) still shows it — there it is
+      // the only status indicator. The guest-name link preserves the
+      // results-folder pivot in both layouts.
+      var badgeColHtml = '';
+      if (!ctx.hideStatusBadge) {
+        var badgeHtml = folderUrl
+          ? ('<a href="' + escHtml(folderUrl) + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="text-decoration:none">' + badge(g.status) + '</a>')
+          : badge(g.status);
+        badgeColHtml = '<div>' + badgeHtml + '</div>';
+      }
+      return '<div class="guest-card">' +
+        '<div class="guest-card-header">' +
+          '<div class="left">' +
+            '<div class="guest-name">' + titleHtml + '</div>' +
+            '<div class="guest-meta">' + metaParts + '</div>' +
+          '</div>' +
+          badgeColHtml +
+        '</div>' +
+        topHtml +
+        '<div class="steps">' + steps + '</div>' +
+        actHtml +
+        errHtml +
+      '</div>';
+    }
+
+    // Recent-Cycles "Sequences" cell: one badge per sequence the cycle ran,
+    // each linking to that sequence's results folder. History rows recorded
+    // before sequenceSummary existed carry only guestSummary, so fall back to
+    // one badge per guest there — old rows still render with their original
+    // per-guest pills.
+    function historySummaryCell(h, guestToSeq) {
+      var seqs = h.sequenceSummary;
+      if (seqs && seqs.length) {
+        return seqs.map(function(s) {
+          var status = (s && s.status) || '';
+          var name   = (s && s.name) || '';
+          var folder = (s && s.folderUrl) || '';
+          var pill   = '<span class="badge ' + cls(status) + '">' + escHtml(name) + '</span>';
+          if (folder) {
+            return '<a href="' + escHtml(folder) + '" target="_blank" title="Open results folder for ' + escHtml(name) + '" style="text-decoration:none">' + pill + '</a>';
+          }
+          return pill;
+        }).join(' ');
+      }
+      // Legacy fallback: rows recorded before sequenceSummary existed carry
+      // only guestSummary (keyed by guest). Relabel each pill with the
+      // sequence name(s) that drive that guest in the CURRENT cycle plan
+      // (guestToSeq) so the column reads as sequences even for old rows — the
+      // link still targets the per-guest folder. A guest the current plan no
+      // longer references degrades to its bare guest key.
+      var gs = h.guestSummary || {};
+      return Object.keys(gs).map(function(k) {
+        var v        = gs[k];
+        var status   = (typeof v === 'string') ? v : (v && v.status) || '';
+        var debugUrl = (typeof v === 'object' && v) ? v.failureArtifacts : '';
+        var seqNames = guestToSeq && guestToSeq[k];
+        var label    = (seqNames && seqNames.length) ? seqNames.join(' + ') : k.replace('guest.','');
+        var pillHtml = '<span class="badge ' + cls(status) + '">' + escHtml(label) + '</span>';
+        if (debugUrl) {
+          return '<a href="' + escHtml(debugUrl) + '" target="_blank" title="Open results folder for ' + escHtml(label) + '" style="text-decoration:none">' + pillHtml + '</a>';
+        }
+        return pillHtml;
+      }).join(' ');
+    }
+
     function renderStatus(data, actionData, breakData, runnerStatus) {
       var noData = document.getElementById('no-data');
       var banner = document.getElementById('banner');
@@ -614,10 +725,10 @@
 
       if (!data || (!liveCycleId && !hasGuests && !hasHistory)) {
         banner.className = runnerStopped ? 'stopped' : 'idle';
-        setBannerTextLocal(runnerStopped ? BANNER.stopped : BANNER.idle);
+        setBannerText(runnerStopped ? BANNER.stopped : BANNER.idle);
         updatePauseButton('step',  false, false);
         updatePauseButton('cycle', false, false);
-        var ids = ['sec-cycle','sec-guests','sec-history'];
+        var ids = ['sec-cycle','sec-sequences','sec-history'];
         for (var i = 0; i < ids.length; i++) {
           var s = document.getElementById(ids[i]);
           if (s) s.style.display = 'none';
@@ -630,19 +741,27 @@
       var status = data.overallStatus || 'idle';
       var stepPaused  = !!data.stepPaused;
       var cyclePaused = !!data.cyclePaused;
-      var pauseText = pauseBannerTextLocal(stepPaused, cyclePaused, status, actionData);
+      var pauseText = pauseBannerText(stepPaused, cyclePaused, status, actionData);
       var anyPaused = pauseText !== null;
       var effective = anyPaused ? 'paused' : cls(status);
       if (runnerStopped) {
         banner.className = 'stopped';
-        setBannerTextLocal(BANNER.stopped);
+        setBannerText(BANNER.stopped);
       } else {
         banner.className = effective;
-        setBannerTextLocal(pauseText !== null ? pauseText : (BANNER[status] || status));
+        setBannerText(pauseText !== null ? pauseText : (BANNER[status] || status));
       }
       var cycleActive = (status === 'running') || anyPaused;
+      // The cycle-pause button stays live BETWEEN cycles too: while the runner
+      // is alive but the current cycle has already finished (the
+      // cycleDelaySeconds inter-cycle wait), arming it pauses the runner right
+      // after that wait, before the next cycle starts. runnerStatus.running is
+      // the same liveness signal the "stopped" banner uses above. Step-pause
+      // has no step to attach to between cycles, so it keeps the cycle-scoped
+      // rule.
+      var runnerAlive = !!(runnerStatus && runnerStatus.running);
       updatePauseButton('step',  stepPaused,  cycleActive);
-      updatePauseButton('cycle', cyclePaused, cycleActive);
+      updatePauseButton('cycle', cyclePaused, cycleActive || runnerAlive);
 
       if (liveCycleId) {
         document.getElementById('sec-cycle').style.display = '';
@@ -658,78 +777,64 @@
         document.getElementById('cycle-images-refresh').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';
       }
 
-      var guests = data.guests || [];
-      if (guests.length) {
-        document.getElementById('sec-guests').style.display = '';
-        document.getElementById('guest-list').innerHTML = guests.map(function(g) {
-          var stepsArr = collapseVmPrep(g.steps || []);
-          var steps    = stepsArr.map(pill).join('');
-          var firstStartedAt = stepsArr[0] ? stepsArr[0].startedAt : null;
-          var lastFinishedAt = stepsArr.length ? stepsArr[stepsArr.length - 1].finishedAt : null;
-          var dur            = fmtDuration(firstStartedAt, lastFinishedAt);
-          var errStep = null;
-          for (var i = 0; i < stepsArr.length; i++) {
-            if (stepsArr[i].errorMessage) { errStep = stepsArr[i]; break; }
-          }
-          var errHtml = errStep ? ('<div class="guest-error">' + escHtml(errStep.errorMessage) + '</div>') : '';
-          var actHtml = guestActionHtml(g, actionData, stepPaused, breakData);
-          var metaParts = ' · ';
-          if (g.status === 'running' && g.vmName) {
-            metaParts = 'VM: ' + escHtml(g.vmName);
-          } else if (g.status && g.status !== 'running' && g.status !== 'pending' && dur !== '—') {
-            metaParts = 'Duration: ' + dur;
-          }
-          var topLevelStr = (g.topLevel || '').replace(/^\s+|\s+$/g, '');
-          var topHtml = topLevelStr
-            ? ('<div class="guest-toplevel">' + escHtml(topLevelStr) + '</div>')
-            : '';
-          // Live cycle: derive the per-guest folder URL from the
-          // current cycleFolderUrl (Set-CycleFolderUrl flips its
-          // suffix at the Stop-LogFile rename, so this always
-          // matches the on-disk path). g.failureArtifacts records the
-          // post-rename URL; using it mid-cycle 404s while the folder
-          // is still `<base>.incomplete/<VMName>/`.
-          var folderUrl = (data.cycleFolderUrl && g.vmName)
-            ? (data.cycleFolderUrl + g.vmName + '/')
-            : (g.failureArtifacts || '');
-          var titleHtml = folderUrl
-            ? ('<a href="' + folderUrl + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="color:inherit;text-decoration:underline dotted">' + escHtml(g.guestKey) + '</a>')
-            : escHtml(g.guestKey);
-          var badgeHtml = folderUrl
-            ? ('<a href="' + folderUrl + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="text-decoration:none">' + badge(g.status) + '</a>')
-            : badge(g.status);
-          return '<div class="guest-card">' +
-            '<div class="guest-card-header">' +
-              '<div class="left">' +
-                '<div class="guest-name">' + titleHtml + '</div>' +
-                '<div class="guest-meta">' + metaParts + '</div>' +
-              '</div>' +
-              '<div>' + badgeHtml + '</div>' +
+      // Primary view: one card per test.runner.yml sequence (in list order),
+      // nesting the guest(s) that sequence drives. Falls back to a flat
+      // per-guest list when status.json carries no `sequences` (legacy
+      // guestSequence path, or the brief pre-Initialize "running" window).
+      var sequences = data.sequences || [];
+      var guests    = data.guests || [];
+      var ctx = { data: data, actionData: actionData, stepPaused: stepPaused, breakData: breakData };
+      var secSeq  = document.getElementById('sec-sequences');
+      var listSeq = document.getElementById('sequence-list');
+      if (sequences.length) {
+        secSeq.style.display = '';
+        var guestsByKey = {};
+        for (var gi = 0; gi < guests.length; gi++) { guestsByKey[guests[gi].guestKey] = guests[gi]; }
+        listSeq.innerHTML = sequences.map(function(seq) {
+          var gkeys    = seq.guests || [];
+          var statuses = [];
+          var blocks   = gkeys.map(function(gk) {
+            // A sequence can reference a guest that isn't in guests[] yet
+            // (pending before its lifecycle starts); synthesize a placeholder.
+            var g = guestsByKey[gk] || { guestKey: gk, status: 'pending', steps: [] };
+            statuses.push(g.status);
+            return renderGuestBlock(g, {
+              data: data, actionData: actionData, stepPaused: stepPaused,
+              breakData: breakData, hideTopLevel: true, hideStatusBadge: true
+            });
+          }).join('');
+          return '<div class="sequence-card">' +
+            '<div class="sequence-card-header">' +
+              '<div class="sequence-name">' + escHtml(seq.name) + '</div>' +
+              '<div>' + badge(aggregateStatus(statuses)) + '</div>' +
             '</div>' +
-            topHtml +
-            '<div class="steps">' + steps + '</div>' +
-            actHtml +
-            errHtml +
+            blocks +
           '</div>';
         }).join('');
+      } else if (guests.length) {
+        secSeq.style.display = '';
+        listSeq.innerHTML = guests.map(function(g) { return renderGuestBlock(g, ctx); }).join('');
+      } else {
+        secSeq.style.display = 'none';
       }
 
       var history = data.history || [];
       if (history.length) {
         document.getElementById('sec-history').style.display = '';
+        // Map guestKey -> [sequence names] from the CURRENT cycle plan so
+        // legacy history rows (guestSummary only, no sequenceSummary) can
+        // still label their pills with sequence names. Empty when the live
+        // doc carries no sequences[] (legacy guestSequence path), in which
+        // case those rows degrade to bare guest keys.
+        var guestToSeq = {};
+        (data.sequences || []).forEach(function(seq) {
+          (seq.guests || []).forEach(function(gk) {
+            if (!guestToSeq[gk]) { guestToSeq[gk] = []; }
+            if (guestToSeq[gk].indexOf(seq.name) === -1) { guestToSeq[gk].push(seq.name); }
+          });
+        });
         document.getElementById('history-body').innerHTML = history.map(function(h) {
-          var gs = h.guestSummary || {};
-          var guestPills = Object.keys(gs).map(function(k) {
-            var v        = gs[k];
-            var status   = (typeof v === 'string') ? v : (v && v.status) || '';
-            var debugUrl = (typeof v === 'object' && v) ? v.failureArtifacts : '';
-            var label    = k.replace('guest.','');
-            var pillHtml = '<span class="badge ' + cls(status) + '">' + label + '</span>';
-            if (debugUrl) {
-              return '<a href="' + debugUrl + '" target="_blank" title="Open debug folder for ' + label + '" style="text-decoration:none">' + pillHtml + '</a>';
-            }
-            return pillHtml;
-          }).join(' ');
+          var summaryCell = historySummaryCell(h, guestToSeq);
           var hCycleId    = h.cycleId || h.runId;
           // Legacy entries (recorded before Complete-Run started
           // stripping the suffix) saved the in-progress `.incomplete/`
@@ -750,7 +855,7 @@
           return '<tr>' +
             '<td class="mono"><span class="badge ' + statusCls + '">' + hCycleCell + '</span></td>' +
             '<td>' + fmtDuration(h.startedAt, h.finishedAt) + '</td>' +
-            '<td>' + guestPills + '</td>' +
+            '<td>' + summaryCell + '</td>' +
             '<td class="mono">' + commitCell + '</td>' +
           '</tr>';
         }).join('');
@@ -830,10 +935,16 @@
     Yuruna.populateHeader({ href: 'index.html', label: '← Status' });
     startBannerPolling();
 
-    var CHART_W = 720, CHART_H = 260;
-    var MARGIN  = { top: 12, right: 16, bottom: 28, left: 56 };
-    var PLOT_W  = CHART_W - MARGIN.left - MARGIN.right;
-    var PLOT_H  = CHART_H - MARGIN.top  - MARGIN.bottom;
+    // Icicle geometry. Each cycle is one horizontal icicle: time runs along
+    // x (CHART_W viewBox units, shared scale across the shown cycles so a
+    // slower cycle's bar is visibly longer), hierarchy depth runs down y
+    // (BAND_H per level). MAX_CYCLES caps how many recent cycles a sequence
+    // shows.
+    var CHART_W    = 760;
+    var BAND_H     = 15;
+    var ROW_PAD    = 3;
+    var AXIS_H     = 18;
+    var MAX_CYCLES = 10;
     var STEP_PALETTE = [
       '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
       '#ec4899', '#14b8a6', '#f97316', '#6366f1',
@@ -869,9 +980,224 @@
       return STEP_PALETTE[h % STEP_PALETTE.length];
     }
 
+    // Turn a fetchAndExecute step's checkpoints (each an {name, offsetMs} point
+    // measured from the step's start) into contiguous phase sub-segments that
+    // fill the step's duration. The slice before the first checkpoint is the
+    // fetch/preamble '(setup)'; the slice after the last checkpoint runs to the
+    // step's end (it absorbs the completion-marker + POST tail). Returns null
+    // when there is nothing renderable.
+    function normalizeCheckpoints(checkpoints, sms) {
+      var pts = [];
+      for (var i = 0; i < checkpoints.length; i++) {
+        var c = checkpoints[i];
+        if (!c) continue;
+        var off = +c.offsetMs;
+        if (!isFinite(off)) continue;
+        if (off < 0) off = 0;
+        if (off > sms) off = sms;
+        pts.push({ off: off, name: (c.name == null ? '' : ('' + c.name)) });
+      }
+      if (!pts.length) return null;
+      pts.sort(function(a, b) { return a.off - b.off; });
+      var segs = [];
+      if (pts[0].off > 0) segs.push({ lo: 0, hi: pts[0].off, label: '(setup)' });
+      for (var k = 0; k < pts.length; k++) {
+        var lo = pts[k].off;
+        var hi = (k + 1 < pts.length) ? pts[k + 1].off : sms;
+        if (hi <= lo) continue;   // zero-width phase (two markers at the same ms)
+        segs.push({ lo: lo, hi: hi, label: pts[k].name || '(unnamed)' });
+      }
+      return segs.length ? segs : null;
+    }
+
     var staleCycleCount = 0;
 
-    function buildStackedChart(seqName, cycles) {
+    // Reconstruct one cycle's step hierarchy as a flat list of placed nodes
+    // (each { name, kind, outcome, lo, hi (ms from the cycle's first step),
+    // depth, ... }). Nesting is derived by TIME CONTAINMENT: a step whose
+    // [start,end] window sits inside another's becomes its child, one level
+    // deeper — so a retry parent that wraps two passwdPrompt children shows
+    // the children nested INSIDE it rather than stacked on top (the stacking
+    // is what double-counted the nested time). fetchAndExecute checkpoints
+    // (phase markers) become a further child level so the per-phase split is
+    // preserved. Returns { fallback:true } when the cycle's steps lack usable
+    // epoch-ms windows (degraded/old data) so the caller draws one gray bar.
+    function buildFlame(cyc) {
+      var raw = (cyc && cyc.steps) ? cyc.steps : [];
+      var timed = [];
+      for (var i = 0; i < raw.length; i++) {
+        var st = raw[i];
+        var s = st.startedMs, e = st.endedMs;
+        if (typeof s !== 'number' || typeof e !== 'number' || e < s) continue;
+        timed.push({ st: st, start: s, end: e });
+      }
+      if (raw.length === 0 || timed.length !== raw.length) {
+        return { fallback: true, spanMs: Math.max(1, +((cyc && cyc.durationMs)) || 0) };
+      }
+      // Container before contained: earliest start first, then longer span
+      // first so a parent is on the stack before its children are visited.
+      timed.sort(function(a, b) { return (a.start - b.start) || (b.end - a.end); });
+      var t0 = timed[0].start;
+      var t1 = t0;
+      for (var m = 0; m < timed.length; m++) { if (timed[m].end > t1) t1 = timed[m].end; }
+      var spanMs = Math.max(1, t1 - t0);
+
+      var stack = [];   // open ancestors: { end }
+      var nodes = [];
+      var maxDepth = 0;
+      for (var k = 0; k < timed.length; k++) {
+        var x = timed[k];
+        // Drop ancestors that closed before x starts, then any that end before
+        // x ends (siblings / partial overlap — x is not inside them).
+        while (stack.length && stack[stack.length - 1].end <= x.start) { stack.pop(); }
+        while (stack.length && stack[stack.length - 1].end <  x.end)   { stack.pop(); }
+        var depth = stack.length;
+        if (depth > maxDepth) maxDepth = depth;
+        nodes.push({
+          name: x.st.name || '', kind: x.st.kind || '', outcome: x.st.outcome || '',
+          lo: x.start - t0, hi: x.end - t0, depth: depth,
+          durationMs: +x.st.durationMs || 0, parentAction: x.st.parentAction || ''
+        });
+        stack.push({ end: x.end });
+        // fetchAndExecute checkpoints -> one nested level of phase segments.
+        var sms = x.end - x.start;
+        var cks = (x.st.kind === 'fetchAndExecute' && x.st.checkpoints && x.st.checkpoints.length && sms > 0)
+          ? normalizeCheckpoints(x.st.checkpoints, sms) : null;
+        if (cks) {
+          var cdepth = depth + 1;
+          if (cdepth > maxDepth) maxDepth = cdepth;
+          for (var ci = 0; ci < cks.length; ci++) {
+            var sub = cks[ci];
+            nodes.push({
+              name: sub.label, kind: 'checkpoint', outcome: x.st.outcome || '',
+              lo: (x.start - t0) + sub.lo, hi: (x.start - t0) + sub.hi, depth: cdepth,
+              durationMs: sub.hi - sub.lo, isCkpt: true
+            });
+          }
+        }
+      }
+      return { fallback: false, nodes: nodes, spanMs: spanMs, maxDepth: maxDepth };
+    }
+
+    function flameLabel(name, widthUnits) {
+      if (widthUnits <= 34) return '';
+      var maxChars = Math.floor((widthUnits - 6) / 5.0);
+      if (maxChars < 3) return '';
+      var nm = name || '';
+      return (nm.length > maxChars) ? (nm.slice(0, Math.max(1, maxChars - 1)) + '…') : nm;
+    }
+
+    // One cycle row: a clickable timestamp + wall-clock duration above the
+    // cycle's horizontal icicle. pxPerMs / plotDepth are shared across the
+    // sequence's shown cycles so bars are comparable and rows are uniform.
+    function renderCycleRow(cyc, flame, pxPerMs, plotDepth, cycleLinks) {
+      var row = document.createElement('div');
+      row.className = 'cycle-row';
+
+      var head = document.createElement('div');
+      head.className = 'cycle-row-head';
+      var when  = fmtDateLocal(cyc.cycleStartedAtUtc) || (cyc.cycleId || '');
+      var label = when.replace(/^\d{4}-/, '').replace(/:\d{2}Z?$/, '');   // MM-DD HH:MM
+      var url   = (cycleLinks && cyc.cycleId) ? cycleLinks[cyc.cycleId] : '';
+      var failCount = +cyc.failCount || 0;
+      var whenEl;
+      if (url) {
+        whenEl = document.createElement('a');
+        whenEl.setAttribute('href', url);
+        whenEl.setAttribute('target', '_blank');
+        whenEl.setAttribute('title', 'Open cycle data folder');
+        whenEl.className = 'cycle-link';
+      } else {
+        whenEl = document.createElement('span');
+        whenEl.className = 'cycle-link nolink';
+        whenEl.setAttribute('title', 'No cycle folder recorded for this cycle');
+      }
+      whenEl.textContent = label;
+      head.appendChild(whenEl);
+
+      var durEl = document.createElement('span');
+      durEl.className = 'cycle-dur' + (failCount > 0 ? ' fail' : '');
+      durEl.textContent = fmtSec(flame.spanMs) + (failCount > 0 ? ' ✕' : '');
+      head.appendChild(durEl);
+      row.appendChild(head);
+
+      var plotH = (plotDepth + 1) * BAND_H + ROW_PAD * 2;
+      var svg = svgEl('svg', {
+        'class': 'cycle-flame',
+        'viewBox': '0 0 ' + CHART_W + ' ' + plotH,
+        'preserveAspectRatio': 'xMinYMid meet'
+      });
+
+      if (flame.fallback) {
+        staleCycleCount++;
+        var fr = svgEl('rect', {
+          'class': 'flame-cell fallback',
+          x: 0, y: ROW_PAD, width: Math.max(2, flame.spanMs * pxPerMs), height: BAND_H
+        });
+        var ft = svgEl('title', {});
+        ft.textContent = '(no per-step timing)\nDuration: ' + fmtSec(flame.spanMs);
+        fr.appendChild(ft);
+        svg.appendChild(fr);
+        row.appendChild(svg);
+        return row;
+      }
+
+      for (var i = 0; i < flame.nodes.length; i++) {
+        var nd = flame.nodes[i];
+        var x = nd.lo * pxPerMs;
+        var w = Math.max(1, (nd.hi - nd.lo) * pxPerMs);
+        var y = ROW_PAD + nd.depth * BAND_H;
+        var isFail = (nd.outcome === 'fail');
+        var rect = svgEl('rect', {
+          'class': 'flame-cell' + (nd.isCkpt ? ' ckpt' : '') + (isFail ? ' fail' : ''),
+          x: x, y: y, width: w, height: BAND_H - 1,
+          fill: stepColor(nd.name)
+        });
+        var title = svgEl('title', {});
+        title.textContent =
+          (nd.isCkpt ? '▸ ' : '') + (nd.name || '(unnamed)') + '\n' +
+          (nd.isCkpt ? '' : ('Kind: ' + (nd.kind || '?') + '\n')) +
+          'Duration: ' + fmtSec(nd.durationMs) + '\n' +
+          (nd.outcome ? ('Outcome: ' + nd.outcome + '\n') : '') +
+          (nd.parentAction ? ('Within: ' + nd.parentAction + '\n') : '') +
+          'Cycle: ' + fmtDateLocal(cyc.cycleStartedAtUtc);
+        rect.appendChild(title);
+        svg.appendChild(rect);
+        var lbl = flameLabel(nd.name, w);
+        if (lbl) {
+          var txt = svgEl('text', { 'class': 'flame-label', x: x + 3, y: y + BAND_H - 4 });
+          txt.textContent = lbl;
+          svg.appendChild(txt);
+        }
+      }
+      row.appendChild(svg);
+      return row;
+    }
+
+    // Shared seconds axis, drawn once under a sequence's cycle rows (every
+    // row uses the same pxPerMs, so one axis describes them all).
+    function buildAxisRow(maxSpan, pxPerMs) {
+      var row = document.createElement('div');
+      row.className = 'axis-row';
+      var svg = svgEl('svg', {
+        'class': 'cycle-flame',
+        'viewBox': '0 0 ' + CHART_W + ' ' + AXIS_H,
+        'preserveAspectRatio': 'xMinYMid meet'
+      });
+      svg.appendChild(svgEl('line', { 'class': 'flame-axis-line', x1: 0, y1: 1, x2: maxSpan * pxPerMs, y2: 1 }));
+      var ticks = [0, 0.25, 0.5, 0.75, 1];
+      for (var i = 0; i < ticks.length; i++) {
+        var ms = maxSpan * ticks[i];
+        var anchor = (i === 0) ? 'start' : (i === ticks.length - 1 ? 'end' : 'middle');
+        var t = svgEl('text', { 'class': 'flame-axis-text', x: ms * pxPerMs, y: AXIS_H - 5, 'text-anchor': anchor });
+        t.textContent = fmtSec(ms);
+        svg.appendChild(t);
+      }
+      row.appendChild(svg);
+      return row;
+    }
+
+    function buildSeqCard(seqName, cycles, cycleLinks) {
       var card = document.createElement('div');
       card.className = 'seq-card';
 
@@ -880,147 +1206,50 @@
       nameEl.textContent = seqName;
       card.appendChild(nameEl);
 
+      // Payload arrives oldest-first; show the most-recent MAX_CYCLES newest
+      // at the top.
+      var shown = cycles.slice().reverse().slice(0, MAX_CYCLES);
+
+      var totalFails = 0;
+      for (var i = 0; i < shown.length; i++) { if ((shown[i].failCount || 0) > 0) totalFails++; }
+
       var metaEl = document.createElement('div');
       metaEl.className = 'seq-meta';
-      var totalCycles = cycles.length;
-      var totalFails  = 0;
-      for (var i = 0; i < cycles.length; i++) {
-        if ((cycles[i].failCount || 0) > 0) totalFails++;
-      }
-      metaEl.textContent = totalCycles + ' cycle' + (totalCycles === 1 ? '' : 's')
-        + (totalFails > 0 ? ' (' + totalFails + ' with failures)' : '');
+      metaEl.textContent =
+        'latest ' + shown.length + ' of ' + cycles.length + ' cycle' + (cycles.length === 1 ? '' : 's')
+        + (totalFails > 0 ? ' · ' + totalFails + ' with failures' : '');
       card.appendChild(metaEl);
 
-      var svg = svgEl('svg', {
-        'class': 'seq-chart',
-        'viewBox': '0 0 ' + CHART_W + ' ' + CHART_H,
-        'preserveAspectRatio': 'xMidYMid meet'
-      });
-      card.appendChild(svg);
-
-      if (cycles.length === 0) {
-        var empty = svgEl('text', {
-          x: CHART_W / 2, y: CHART_H / 2,
-          'text-anchor': 'middle', 'class': 'axis-text'
-        });
-        empty.textContent = '(no data)';
-        svg.appendChild(empty);
+      if (shown.length === 0) {
+        var none = document.createElement('div');
+        none.className = 'seq-meta';
+        none.textContent = '(no data)';
+        card.appendChild(none);
         return card;
       }
 
-      var maxMs = 0;
-      for (var j = 0; j < cycles.length; j++) {
-        var dm = +cycles[j].durationMs || 0;
-        if (dm > maxMs) maxMs = dm;
+      // Shared scale: widest span + deepest hierarchy across the shown cycles.
+      var flames = [];
+      var maxSpan = 1, maxDepth = 0;
+      for (var c = 0; c < shown.length; c++) {
+        var fl = buildFlame(shown[c]);
+        flames.push(fl);
+        if (fl.spanMs > maxSpan) maxSpan = fl.spanMs;
+        if (!fl.fallback && fl.maxDepth > maxDepth) maxDepth = fl.maxDepth;
       }
-      var spanY = Math.max(1, maxMs);
+      var pxPerMs = CHART_W / maxSpan;
 
-      function yOf(ms) { return MARGIN.top + PLOT_H - (PLOT_H * (ms / spanY)); }
-
-      var yTicks = [0, spanY * 0.25, spanY * 0.5, spanY * 0.75, spanY];
-      for (var yi = 0; yi < yTicks.length; yi++) {
-        var yMs = yTicks[yi];
-        var yPx = yOf(yMs);
-        svg.appendChild(svgEl('line', {
-          'class': 'grid',
-          x1: MARGIN.left, x2: MARGIN.left + PLOT_W,
-          y1: yPx, y2: yPx
-        }));
-        var ylabel = svgEl('text', {
-          'class': 'axis-text',
-          x: MARGIN.left - 6, y: yPx + 3,
-          'text-anchor': 'end'
-        });
-        ylabel.textContent = fmtSec(yMs);
-        svg.appendChild(ylabel);
+      var rowsWrap = document.createElement('div');
+      rowsWrap.className = 'cycle-rows';
+      for (var r = 0; r < shown.length; r++) {
+        rowsWrap.appendChild(renderCycleRow(shown[r], flames[r], pxPerMs, maxDepth, cycleLinks));
       }
-
-      svg.appendChild(svgEl('line', {
-        'class': 'axis',
-        x1: MARGIN.left, x2: MARGIN.left + PLOT_W,
-        y1: MARGIN.top + PLOT_H, y2: MARGIN.top + PLOT_H
-      }));
-      svg.appendChild(svgEl('line', {
-        'class': 'axis',
-        x1: MARGIN.left, x2: MARGIN.left,
-        y1: MARGIN.top, y2: MARGIN.top + PLOT_H
-      }));
-
-      var n         = cycles.length;
-      var slotWidth = PLOT_W / n;
-      var barWidth  = Math.max(2, slotWidth * 0.75);
-
-      for (var c = 0; c < n; c++) {
-        var cyc = cycles[c];
-        var slotCenter = MARGIN.left + (c + 0.5) * slotWidth;
-        var barX = slotCenter - barWidth / 2;
-        var hasStepDetail = !!(cyc.steps && cyc.steps.length > 0);
-        if (!hasStepDetail) { staleCycleCount++; }
-        var steps = hasStepDetail ? cyc.steps : [{
-          ordinal: 0, occurrence: 1, name: '(no step detail)', kind: '',
-          durationMs: +cyc.durationMs || 0, outcome: cyc.failCount ? 'fail' : 'pass'
-        }];
-
-        var accumulatedMs = 0;
-        for (var s = 0; s < steps.length; s++) {
-          var st = steps[s];
-          var sms = +st.durationMs || 0;
-          var yTop    = yOf(accumulatedMs + sms);
-          var yBottom = yOf(accumulatedMs);
-          var segHeight = Math.max(0, yBottom - yTop);
-          var isFail = (st.outcome === 'fail');
-          var segClass = 'seg' + (isFail ? ' fail' : '') + (hasStepDetail ? '' : ' fallback');
-          var fill = hasStepDetail ? stepColor(st.name) : undefined;
-          var attrs = {
-            'class': segClass,
-            x: barX, y: yTop,
-            width: barWidth, height: segHeight
-          };
-          if (fill) { attrs.fill = fill; }
-          var rect = svgEl('rect', attrs);
-          var title = svgEl('title', {});
-          title.textContent =
-            '[' + (st.ordinal || '?') + (st.occurrence > 1 ? '.' + st.occurrence : '') + '] ' + (st.name || '') + '\n' +
-            'Kind: ' + (st.kind || '?') + '\n' +
-            'Duration: ' + fmtSec(sms) + '\n' +
-            'Outcome: ' + (st.outcome || '?') + '\n' +
-            'Cycle: ' + fmtDateLocal(cyc.cycleStartedAtUtc);
-          rect.appendChild(title);
-          svg.appendChild(rect);
-          accumulatedMs += sms;
-        }
-        svg.appendChild(svgEl('rect', {
-          'class': 'bar-outline',
-          x: barX, y: yOf(accumulatedMs),
-          width: barWidth, height: yOf(0) - yOf(accumulatedMs)
-        }));
-      }
-
-      var firstC = cycles[0];
-      var lastC  = cycles[n - 1];
-      var midC   = cycles[Math.floor(n / 2)];
-      var labels = (n === 1)
-        ? [{ c: firstC, anchor: 'middle', cx: MARGIN.left + slotWidth * 0.5 }]
-        : [
-            { c: firstC, anchor: 'start', cx: MARGIN.left + slotWidth * 0.5 },
-            { c: midC,   anchor: 'middle', cx: MARGIN.left + (Math.floor(n / 2) + 0.5) * slotWidth },
-            { c: lastC,  anchor: 'end',    cx: MARGIN.left + (n - 0.5) * slotWidth }
-          ];
-      for (var li = 0; li < labels.length; li++) {
-        var ll = labels[li];
-        var xlabel = svgEl('text', {
-          'class': 'axis-text',
-          x: ll.cx, y: MARGIN.top + PLOT_H + 16,
-          'text-anchor': ll.anchor
-        });
-        xlabel.textContent = fmtDateLocal(ll.c.cycleStartedAtUtc);
-        svg.appendChild(xlabel);
-      }
-
+      card.appendChild(rowsWrap);
+      card.appendChild(buildAxisRow(maxSpan, pxPerMs));
       return card;
     }
 
-    function renderAggregates(payload) {
+    function renderAggregates(payload, cycleLinks) {
       var meta = document.getElementById('perf-message');
       var body = document.getElementById('perf-body');
       body.innerHTML = '';
@@ -1039,28 +1268,45 @@
         meta.className = 'perf-message';
         return;
       }
-      var limitNote = payload.recentLimit
-        ? ' · latest ' + payload.recentLimit + ' cycle' + (payload.recentLimit === 1 ? '' : 's')
-        : '';
       meta.textContent = names.length + ' sequence' + (names.length === 1 ? '' : 's')
-        + limitNote
+        + ' · latest ' + MAX_CYCLES + ' cycles each'
         + ' · generated ' + (payload.generatedAtUtc || 'unknown');
       meta.className = 'perf-message';
       for (var i = 0; i < names.length; i++) {
-        body.appendChild(buildStackedChart(names[i], sequences[names[i]] || []));
+        body.appendChild(buildSeqCard(names[i], sequences[names[i]] || [], cycleLinks));
       }
       if (staleCycleCount > 0) {
         var warn = document.createElement('div');
         warn.className = 'stale-banner';
         warn.innerHTML =
-          '<strong>' + staleCycleCount + ' cycle' + (staleCycleCount === 1 ? '' : 's') + ' lack step detail</strong> ' +
-          '— their bars are drawn as a single gray segment. ' +
-          'This almost always means the detached status-service process predates the ' +
-          '<code>/control/perf-aggregates</code> step-detail change. Restart it with: ' +
+          '<strong>' + staleCycleCount + ' cycle' + (staleCycleCount === 1 ? '' : 's') + ' lack per-step timing</strong> ' +
+          '— drawn as a single gray bar. ' +
+          'This usually means the detached status-service process predates the ' +
+          '<code>/control/perf-aggregates</code> icicle change. Restart it with: ' +
           '<code>pwsh test/Stop-StatusService.ps1 ; pwsh test/Start-StatusService.ps1</code>' +
           ', then reload this page.';
         body.insertBefore(warn, body.firstChild);
       }
+    }
+
+    // cycleId -> cycle-folder URL, joined from status.json so each icicle row
+    // can deep-link to that cycle's data folder. The .incomplete / .aborted
+    // lifecycle suffix is stripped the same way index.html's history rows do.
+    function buildCycleLinks(statusDoc) {
+      var map = {};
+      if (!statusDoc) return map;
+      function strip(u) {
+        return u ? u.replace(/\.incomplete(\/?)$/, '$1').replace(/\.aborted\.[^/]+(\/?)$/, '$1') : u;
+      }
+      var hist = statusDoc.history || [];
+      for (var i = 0; i < hist.length; i++) {
+        var h = hist[i];
+        var id = h.cycleId || h.runId;
+        if (id && h.cycleFolderUrl) { map[id] = strip(h.cycleFolderUrl); }
+      }
+      var liveId = statusDoc.cycleId || statusDoc.runId;
+      if (liveId && statusDoc.cycleFolderUrl && !map[liveId]) { map[liveId] = strip(statusDoc.cycleFolderUrl); }
+      return map;
     }
 
     function loadAggregates(recalculate) {
@@ -1076,13 +1322,19 @@
       }
       var opts = { cache: 'no-store' };
       if (recalculate) { opts.method = 'POST'; }
-      fetch('control/perf-aggregates', opts)
-        .then(function(r) {
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          return r.json();
-        })
-        .then(function(payload) {
-          renderAggregates(payload);
+      // Two independent fetches: the aggregates drive the icicles; status.json
+      // supplies the cycleId -> folder map that makes each row's timestamp a
+      // deep link. A status.json miss only costs the links, not the charts.
+      var aggP = fetch('control/perf-aggregates', opts).then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+      var statusP = fetch('runtime/status.json?_=' + Date.now(), { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        ['catch'](function() { return null; });
+      Promise.all([aggP, statusP])
+        .then(function(results) {
+          renderAggregates(results[0], buildCycleLinks(results[1]));
         })
         ['catch'](function(e) {
           meta.textContent = 'Could not load aggregates: ' + (e.message || e);
@@ -1423,10 +1675,19 @@
       input.className = 'tree-input string';
       input.value = value;
       input.spellcheck = false;
+      // Mobile-keyboard hints: tree-input strings are hostnames / IPs /
+      // identifiers, not prose. Suppress autocorrect's "did you mean"
+      // word-swap (iOS Safari corrupts hostnames otherwise) and the
+      // sentence-case bump.
+      input.setAttribute('autocorrect', 'off');
+      input.setAttribute('autocapitalize', 'off');
 
       var refreshHint = null;
       if (key === 'cachingProxyIP') {
         input.placeholder = 'e.g. 192.168.1.42 (empty = no external cache)';
+        // url inputmode gives mobile keyboards the dot + digits row first,
+        // matching the IPv4 / IPv6 / FQDN values this field accepts.
+        input.inputMode = 'url';
         refreshHint = function() {
           var v = input.value.trim();
           if (v === '' || isIpAddressLike(v)) {
@@ -1477,6 +1738,12 @@
         envInput.className = 'tree-input string cache-ip-envinput';
         envInput.readOnly = true;
         envInput.spellcheck = false;
+        // Read-only display field — suppress the mobile OSK on tap-to-
+        // focus and the autocorrect / autocapitalize hints that would
+        // never apply.
+        envInput.inputMode = 'none';
+        envInput.setAttribute('autocorrect', 'off');
+        envInput.setAttribute('autocapitalize', 'off');
         envInput.tabIndex = -1;
         envInput.value = '(loading…)';
         envInput.title = 'Process-environment value the status server inherited at startup. Read-only here; export it in the shell that launches Invoke-TestRunner.ps1 (or set vmStart.cachingProxyIP above) to take effect.';

@@ -144,7 +144,7 @@ shared NAT) — `--no-proxy` is added to wget for the same reason
 external fetches.
 
 On fetch failure, the script prints the distinct
-`FETCH AND EXECUTE FAILED:` marker so the GUI harness's
+`NONZERO SCRIPT EXIT:` marker so the GUI harness's
 `FailurePattern` detection fires. Previously this branch printed the
 legacy success marker (with the rationale "so the harness doesn't
 hang") — but that lied to the harness about completion status. The
@@ -154,7 +154,7 @@ surfacing the actual failure category (couldn't fetch the script).
 **Inner-script failure.** Under `set -euo pipefail`, the first
 non-zero command aborts the script; the failing command's output is
 printed above the failure block. The end-tag block (see "end tags"
-below) emits the same `FETCH AND EXECUTE FAILED:` marker on this path
+below) emits the same `NONZERO SCRIPT EXIT:` marker on this path
 too — so the harness can't confuse an inner-script failure with a
 pass.
 
@@ -174,7 +174,7 @@ this script's output, not the predecessor's.
 keystroke harness can tell them apart via OCR:
 
 - On success: `FETCHED AND EXECUTED:`
-- On failure: `FETCH AND EXECUTE FAILED:`
+- On failure: `NONZERO SCRIPT EXIT:`
 
 Previously a single `FETCHED AND EXECUTED:` marker was printed
 regardless of `$rc`, so the harness's wait-for-text matched on
@@ -186,11 +186,76 @@ reach a website that was never deployed).
 The success marker keeps its exact shape so existing
 `waitPattern: "FETCHED AND EXECUTED:"` sequences still match. The
 engine's `fetchAndExecute` action passes
-`"FETCH AND EXECUTE FAILED:"` as a `FailurePattern` to
+`"NONZERO SCRIPT EXIT:"` as a `FailurePattern` to
 `Wait-ForText`, so failure is detected at the same OCR-poll cadence
 as success. The SSH harness uses the exit code (unchanged).
 
+The failure marker deliberately avoids the words "fetch" and "execute".
+`Test-OCRMatch` is fuzzy, so a failure marker containing those words
+fuzzy-matches the echoed `fetch-and-execute.sh …` command line on the
+first OCR poll — aborting a healthy run in seconds, before any script
+output appears. The rare token `NONZERO` cannot collide with a command
+or with normal `dnf`/`git`/PowerShell output. Keep the wrapper marker
+(`automation/fetch-and-execute.sh`) and the handler's auto-derived
+`FailurePattern` (`Test.SequenceHandler.psm1`) in sync.
+
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
+
+### Defining fetch-and-execute checkpoints
+
+A fetched script can mark phase boundaries so the perf graph shows
+*where* the time inside a `fetchAndExecute` step went, not just how
+long the whole step took. The convention is a single output line that
+**starts with four equals signs**:
+
+```bash
+echo "==== Installing base packages ===="
+# ... work ...
+echo -e "\e[1;36m==== Configuring services ====\e[0m"   # color is fine
+```
+
+The checkpoint name is the text after the leading `====`, up to a
+trailing `====` or the end of the line, trimmed. Any line of output that
+does not begin with the four-equals marker is ignored, so checkpoints
+cost nothing to scripts that don't use them. The marker test is
+ANSI-tolerant: a colorized line (e.g. `echo -e "\e[1;36m==== … ===="`)
+has its leading color escapes peeled off before the column-0 test, and
+any escapes left inside the captured name are stripped out, so the
+phase name shows clean. The `====` must still be the first *visible*
+characters on the line — only ANSI color codes may precede it.
+
+**How they are collected.** `fetch-and-execute.sh` runs the fetched
+script with the bash xtrace profiler enabled to a dedicated descriptor
+(`BASH_XTRACEFD`), so a full timestamped command trace becomes a
+guest-local artifact without polluting the visible console. Each
+checkpoint line is read off the script's live stdout and stamped with
+bash's high-resolution `EPOCHREALTIME` clock — the same clock the
+profiler's `PS4` uses — then turned into an offset in milliseconds from
+the script's start. Profiling needs `EPOCHREALTIME` (bash ≥ 5); set
+`EXEC_PROFILE=0` to opt out, or `EXEC_KEEP_PROFILE=1` to keep the raw
+trace file for debugging.
+
+**How they reach the host.** When the script was fetched from the host
+(not the GitHub fallback), the wrapper POSTs the collected checkpoints to
+`control/perf-checkpoints` on the status service **before** printing the
+completion marker, so the data is on disk while the host's step window is
+still open. The POST is best-effort: a failed or skipped POST never
+changes the exit code or the end-tag markers above. The status service
+host-stamps the arrival time and writes one sidecar JSON under
+`status/perf/checkpoints/`.
+
+**How they are attached.** `control/perf-aggregates` joins each sidecar
+to the `fetchAndExecute` step whose `[startedAtUtc, endedAtUtc]` window
+contains the sidecar's host-stamped arrival time. Both sides of that
+comparison are host-clock, so guest/host clock skew cannot break the
+match. `perf.html` then subdivides that step's bar segment into one
+sub-segment per phase — the slice before the first checkpoint is the
+fetch/preamble `(setup)`, and the slice after the last checkpoint runs to
+the step's end. Steps without checkpoints render unchanged.
+
+Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
+[`test/Start-StatusService.ps1`](../test/Start-StatusService.ps1),
+[`test/status/yuruna.common.js`](../test/status/yuruna.common.js).
 
 ### Defining the two-source scheme for framework and project URLs
 
@@ -594,7 +659,7 @@ Touch targets reach the iOS HIG / Material Design floor: every
 `min-height: 2.75rem` and `min-width: 2.75rem` (44 px / 48 dp) from
 the `.yuruna-touchable` rule so a phone-sized finger can hit them.
 
-`@media (max-width: 480px)` collapses the page header to a vertical
+`@media (max-width: 600px)` collapses the page header to a vertical
 stack and trims side padding so the dashboard reads on a 375 px
 portrait phone without horizontal scrolling.
 
@@ -856,6 +921,18 @@ Page-specific behavior:
   pending`, so a single failure inside the trio surfaces even if the
   other two passed. The combined pill carries the earliest-start /
   latest-finish timestamps so the duration reading stays meaningful.
+- **Sequence cards (Latest Cycle).** When `status.json` carries
+  `sequences[]`, the "Test sequences" section renders one card per
+  entry, in runner-list order, nesting the guest(s) that sequence
+  drives. The card header shows the sequence name plus ONE aggregate
+  status badge (`fail > running > pass > skipped > pending` over its
+  guests). The nested guest blocks deliberately omit their own status
+  badge — for the common one-guest sequence it would just repeat the
+  card's badge — but keep the guest-name link to the results folder.
+  The flat fallback list (no `sequences[]`: legacy `guestSequence`
+  path, or the brief pre-`Initialize-StatusDocument` window) renders
+  each guest as a standalone card WITH its badge, since there it is the
+  only status indicator.
 - **Log file URL resolution.** Two layouts are supported: new
   (per-cycle folder via `cycleFolderUrl`, HTML log lives inside with
   the same base name) and legacy flat
@@ -870,10 +947,25 @@ Page-specific behavior:
   cannot inject markup. `gitCommits[0]` is the framework SHA (used
   to build the per-cycle log URL); subsequent entries are project
   repos and additional layers.
-- **History row guest pills.** `guestSummary[k]` can be a bare string
-  ("pass"/"fail" — very old rows) or an object
-  `{ status, failureArtifacts }`. When `failureArtifacts` is set the
-  pill is wrapped in an `<a href>` to the per-guest cycle folder.
+- **Recent Cycles sequence buttons.** The "Sequences" column renders
+  one badge per entry in the row's `sequenceSummary`
+  (`[{ name, status, folderUrl }]`), each wrapped in an `<a href>` to
+  that sequence's results folder — the driven guest's per-VM folder
+  for a 1:1 sequence, or the cycle folder when a sequence fans out to
+  more than one guest. `status` is the worst of the sequence's guests
+  (`fail > running > pass > skipped > pending`), matching the Latest
+  Cycle sequence-card badge. Rows recorded before `sequenceSummary`
+  existed — and the legacy `guestSequence` path, which has no
+  sequences — carry only `guestSummary`, so the renderer falls back to
+  one badge per guest there: `guestSummary[k]` can be a bare string
+  ("pass"/"fail" — very old rows) or `{ status, failureArtifacts }`,
+  and when `failureArtifacts` is set that pill links to the per-guest
+  cycle folder. In that fallback the pill is still *labeled* with the
+  sequence name(s) that drive its guest in the CURRENT cycle plan
+  (`status.json.sequences[]`, joined with " + " when a guest serves
+  more than one), so the column reads as sequences even for old rows;
+  a guest the current plan no longer references degrades to its bare
+  guest key.
 - **`#cycle-timestamp`, `#cycle-started`, `#cycle-commit`,
   `#cycle-images-refresh`.** The four "Latest Cycle" meta-cards
   (`#cycle-timestamp` holds the UTC cycle identifier shown under the
@@ -933,7 +1025,7 @@ Page-specific behavior:
   per-keystroke — a valid-looking prefix like `192.168.7.4` en route
   to `192.168.7.46` would lock the field on the partial value. While
   the probe is in flight the input is disabled and re-focused
-  afterwards. Out-of-order responses are dropped via an `latestId`
+  afterwards. Out-of-order responses are dropped via a `latestId`
   counter so a stale response from probe-N-1 can't overwrite the
   fresh mark from probe-N.
 - **Env-var mirror.** Beneath the editable `vmStart.cachingProxyIP`
@@ -958,9 +1050,10 @@ Page-specific behavior:
 ### Defining the status-page perf chart
 
 [`test/status/perf.html`](../test/status/perf.html). Per-sequence
-stacked-bar chart of cycle durations, broken down by step. One bar
-per cycle (chronological); segments stacked in execution order; color
-per step. Subsystems covered:
+**icicle / flame graph**: one horizontal icicle per cycle (latest 10,
+newest first), time on the x-axis (shared scale across the shown
+cycles, so a slower cycle's bar reads as wider) and step-hierarchy
+depth on the y-axis. Subsystems covered:
 [banner state](#defining-the-status-page-banner),
 [header anatomy](#defining-the-status-page-header-anatomy),
 [cache policy](#defining-the-status-page-cache-policy),
@@ -969,43 +1062,64 @@ per step. Subsystems covered:
 Page-specific behavior:
 
 - **Aggregation.** Server endpoint `/control/perf-aggregates` (GET =
-  cached, POST = recompute) scans
-  `test/status/perf/cycles/*.jsonl`. Each cycle bucket holds the
-  full step list (`{ordinal, occurrence, name, kind, durationMs,
-  outcome}`) plus the per-cycle totals (`durationMs`, `stepCount`,
-  `failCount`). Steps sorted by `(ordinal, occurrence)` so the
-  rendered stack matches execution order. Cache lives in the
-  detached server's memory; endpoint edits in
+  cached, POST = recompute) scans `test/status/perf/cycles/*.jsonl`.
+  Each cycle bucket holds the full step list — `{ordinal, occurrence,
+  name, kind, durationMs, outcome, parentOrdinal, parentAction,
+  startedMs, endedMs}` — plus the per-cycle totals (`durationMs`,
+  `stepCount`, `failCount`). `startedMs` / `endedMs` are
+  epoch-millisecond INTEGERS, not ISO strings, so the browser never
+  has to parse a .NET `'o'`-format (7-digit fractional) timestamp.
+  fetchAndExecute steps additionally keep the ISO `startedAtUtc` /
+  `endedAtUtc` window the checkpoint-sidecar join matches against.
+  Cache lives in the detached server's memory; endpoint edits in
   `Start-StatusService.ps1` require a server restart to take effect.
-- **Recent-cycle cap.** Bounded by the same
-  `testCycle.recentDisplayCount` that bounds `status.json.history[]`
-  (the "Recent Cycles" list on the dashboard). Server reads the
-  value from `test/test.config.yml` per-recompute; default 30 if
-  missing or invalid. Files are sorted name-descending and clipped
-  to the top N before the scan — ISO-8601 filename prefixes mean
-  lexical order matches chronological order.
-- **Stable per-step palette.** `stepColor(name)` djb2-hashes the
-  step name and maps to a 16-color palette. Idempotent across page
-  loads, so the same step always gets the same color across cycles
-  — a regression in step X surfaces as "the magenta band got
-  taller" rather than as a position-counted shift. 16 colors mean
-  collisions are possible on sequences with > 16 distinct step
-  names, but adjacent stacked segments rarely share a color by
-  chance (consecutive ordinals have different names).
+- **Hierarchy by time containment.** The page builds each cycle's step
+  tree from the `[startedMs, endedMs]` windows: a step whose window
+  sits inside another's becomes its child, one level deeper. A `retry`
+  parent therefore renders as a single bar with its child steps nested
+  INSIDE it — not as a separate bar stacked on top of the children.
+  (Stacking double-counted the nested time: the retry bar re-added its
+  children's durations, inflating the cycle total.) The wall-clock
+  duration shown per cycle is the span `max(end) − min(start)`, not the
+  sum of every step's duration.
+- **fetchAndExecute checkpoints** become a further nested level: each
+  guest-pushed phase marker is a child segment under its step, so the
+  per-phase breakdown is preserved inside the icicle.
+- **Cycle data link.** Each row's timestamp links to that cycle's
+  results folder. perf.html fetches `runtime/status.json` alongside the
+  aggregates and joins `cycleId` → `cycleFolderUrl` (lifecycle suffix
+  stripped, as the history rows do). A miss (cycle older than
+  `history[]`, or status.json unavailable) drops only the link, not the
+  chart.
+- **Most-recent-10 display.** The page shows the latest `MAX_CYCLES`
+  (10) cycles per sequence, newest first, regardless of how many the
+  server returns. The server still scans up to
+  `testCycle.recentDisplayCount` (default 30, from
+  `test/test.config.yml` — the same cap that bounds
+  `status.json.history[]`); files are sorted name-descending (ISO-8601
+  filename prefixes make lexical order chronological) and clipped to
+  that N before the scan.
+- **Stable per-step palette.** `stepColor(name)` djb2-hashes the step
+  name to a 16-color palette. Idempotent across page loads, so the same
+  step always gets the same color across cycles — a regression in step
+  X surfaces as "the magenta bar got wider" rather than as a position
+  shift. Collisions are possible past 16 distinct step names, but
+  adjacent cells rarely share a color by chance.
+- **Cell labels + tooltips.** A cell wide enough gets an in-cell label
+  (dark glyphs with a white halo via `paint-order: stroke`, legible on
+  any palette color AND on touch devices, which never get the hover
+  `<title>`). The `<title>` carries the full name / kind / duration /
+  outcome / enclosing action.
 - **Failed steps.** Same fill color as the success case (so the
-  color-identity invariant survives) but with a red 1.5 px stroke
-  around the segment. The whole-bar outline (`.bar-outline`) uses a
-  faint gray border so very thin segments stay visible.
-- **Fallback for missing step detail.** If a cycle bucket lacks a
-  non-empty `steps[]`, the renderer draws ONE gray segment for the
-  cycle's total duration AND increments `staleCycleCount`. After
-  the chart pass, if `staleCycleCount > 0` an amber `.stale-banner`
-  is inserted above all charts explaining that the detached
-  status-service process predates the step-detail endpoint change
-  and how to restart it. Gray fallback color is distinct from any
-  palette color so the broken state is visually obvious.
-- **Recalculate button.** Right-aligned in the banner area. POSTs
-  to `/control/perf-aggregates`; server invalidates the cache and
+  color-identity invariant survives) with a red 1.5 px stroke; the
+  row's duration label turns red and gets a ✕.
+- **Fallback for missing step timing.** A cycle whose steps lack usable
+  `startedMs` / `endedMs` is drawn as ONE gray bar and increments
+  `staleCycleCount`; after the pass, `staleCycleCount > 0` inserts an
+  amber `.stale-banner` explaining that the detached status-service
+  process predates the icicle endpoint change and how to restart it.
+- **Recalculate button.** Right-aligned in the banner area. POSTs to
+  `/control/perf-aggregates`; server invalidates the cache and
   recomputes. Page re-renders with the fresh payload.
 
 ---
@@ -1087,7 +1201,7 @@ Conventions:
   `boot_recovery_completed` NDJSON event with the archived /
   cleared counts.
 
-## Cycle folder lifecycle (R-2)
+## Cycle folder lifecycle
 
 A cycle's on-disk folder transitions through three named states.
 Discovery + boot recovery use the folder name to classify a cycle

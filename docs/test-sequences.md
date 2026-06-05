@@ -246,7 +246,7 @@ Revert the VM to a previously saved disk-only snapshot via the
 [`Restore-VMDiskSnapshot`](#restore-vmdisksnapshot) contract, then start
 the VM so the next step interacts with a live guest. The host driver
 stops the VM first if running, restores the disk, and the sequence
-engine then calls [`Start-VM`](#start-vm) (Hyper-V / KVM / UTM all
+engine then calls [`Start-VM`](#other-contract-surface) (Hyper-V / KVM / UTM all
 implement the contract). No RAM-state is restored — guest boots fresh
 from the snapshot disk, so re-DHCP and SSH re-handshake are expected
 (gate downstream consumers on `sshWaitReady`, and on-screen consumers
@@ -441,7 +441,7 @@ or proxy plumbing don't talk to Hyper-V / virsh / utmctl directly —
 they go through a per-host driver under
 [`host/<short-host>/modules/Yuruna.Host.psm1`](../host). The driver
 exports a fixed surface; the engine resolves the active driver via
-`Initialize-YurunaHost` (in [`Test.Host`](../test/modules/Test.Host.psm1)).
+`Initialize-YurunaHost` (in [`Test.HostContract`](../test/modules/Test.HostContract.psm1)).
 See [Test harness — architecture](test-harness.md#yurunahost-contract) for the full list.
 
 Below are the contract functions whose **per-host behavior diverges in

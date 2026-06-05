@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,32 +42,13 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# Skip-if-same-source guard. 4-line sentinel: filename + URL + size +
-# Last-Modified. Same shape as the caching-proxy KVM Get-Image; KVM
-# Yuruna.Host.psm1 doesn't yet export Test-DownloadAlreadyCurrent.
+# Skip-if-same-source guard + sentinel writer come from the shared host module
+# (4-line filename + URL + size + Last-Modified format), so every KVM guest
+# uses one implementation.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
-function Test-AlreadyCurrent {
-    param([string]$Url, [string]$File, [string]$Sentinel)
-    if (-not (Test-Path -LiteralPath $File))     { return $false }
-    if (-not (Test-Path -LiteralPath $Sentinel)) { return $false }
-    $prior = @(Get-Content -LiteralPath $Sentinel -ErrorAction SilentlyContinue)
-    if ($prior.Count -lt 4) { return $false }
-    $expectedFileName = [System.IO.Path]::GetFileName(([System.Uri]$Url).LocalPath)
-    if ($prior[0] -ne $expectedFileName) { return $false }
-    if ($prior[1] -ne $Url)              { return $false }
-    try {
-        $head = Invoke-WebRequest -Uri $Url -Method Head -ErrorAction Stop
-        $remoteLen = [int64]$head.Headers['Content-Length']
-        $remoteLm  = $head.Headers['Last-Modified']
-        if ($remoteLm -is [System.Array]) { $remoteLm = $remoteLm[0] }
-        $remoteLm = [string]$remoteLm
-    } catch { return $false }
-    if ([int64]$prior[2] -ne $remoteLen) { return $false }
-    if ($remoteLm -and $prior[3] -and ($prior[3] -ne $remoteLm)) { return $false }
-    return $true
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.HostDownload.psm1") -Force
 
-if (Test-AlreadyCurrent -Url $sourceUrl -File $baseImageFile -Sentinel $baseImageOrigin) {
+if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     $skipLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
     $msg = @(
         "Skipping download: source URL + size + Last-Modified all match the prior run for $baseImageFile."
@@ -85,7 +66,7 @@ if (Test-AlreadyCurrent -Url $sourceUrl -File $baseImageFile -Sentinel $baseImag
 
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Image.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
 $downloaded = Save-ImageWithChecksum `
@@ -124,17 +105,9 @@ if (Test-Path -LiteralPath $baseImageFile) {
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
-$sourceFileName = [System.IO.Path]::GetFileName(([System.Uri]$sourceUrl).LocalPath)
-$sourceLastModified = ''
-try {
-    $head = Invoke-WebRequest -Uri $sourceUrl -Method Head -ErrorAction Stop
-    $lm = $head.Headers['Last-Modified']
-    if ($lm -is [System.Array]) { $lm = $lm[0] }
-    $sourceLastModified = [string]$lm
-} catch {
-    Write-Verbose "Last-Modified HEAD probe failed (sentinel will record empty): $($_.Exception.Message)"
-}
-Set-Content -Path $baseImageOrigin -Value @($sourceFileName, $sourceUrl, "$downloadedSize", $sourceLastModified)
-Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
+# Write the 4-line sentinel (filename + URL + size + Last-Modified) via the
+# shared writer, which HEAD-probes the upstream Last-Modified at fetch time.
+Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+Write-Output "Recorded 4-line sentinel (filename, URL, byte count, Last-Modified) to: $baseImageOrigin"
 
 Write-Output "Download complete: $baseImageFile"

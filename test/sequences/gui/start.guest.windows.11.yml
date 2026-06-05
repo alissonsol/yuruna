@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=../../schemas/sequence.schema.yml
 
+# LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM installation.
 # See possible actions in the actions.yml file.
@@ -15,7 +16,7 @@ baseline:
 steps:
   - action: waitForSeconds
     seconds: 3
-    description: "Wait for UEFI + vmconnect init"
+    description: "Pause before UEFI + vmconnect init"
 
   - action: pressKey
     name: Enter
@@ -23,7 +24,7 @@ steps:
 
   - action: waitForSeconds
     seconds: 5
-    description: "Retry in case Enter was early"
+    description: "Pause before retrying"
 
   - action: pressKey
     name: Enter

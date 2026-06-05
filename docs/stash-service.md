@@ -10,6 +10,18 @@ Operationally, the Stash Service mirrors the existing
 independently of other services, and provisions on top of an Ubuntu
 Server image.
 
+## Why a separate service VM
+
+Test guests are stateless by design — every cycle recreates them
+from the base image — so any diagnostic artifact a guest produces
+(screenshots, system logs, memory dumps, crash captures) has to leave
+the guest before the cycle teardown wipes the disk. The stash VM is
+the persistent host-side store every guest can `scp` to. Running it
+as its own VM (rather than as a host-side daemon) keeps two
+properties: the stash does not compete for resources with the test
+guests it serves, and a multi-cycle history survives even when the
+test harness on the host is restarted or upgraded.
+
 ## Cross-host layout
 
 | File / folder | Role |
@@ -91,16 +103,17 @@ Recorded during initial implementation; the spec leaves these open.
 
 ## Security posture
 
-Per [Spec §11](#security-posture-from-spec): intentionally open —
-any username, any password, any public key are accepted by the
-custom SSH server (when implemented). Designed to run on a trusted
-network alongside other Yuruna test infrastructure. Network ACLs,
-rate limiting, file scanning are not in scope.
+Intentionally open — any username, any password, any public key are
+accepted by the custom SSH server (when implemented).
+Designed to run on a trusted network alongside other Yuruna test infrastructure.
+Network ACLs, rate limiting, file scanning are not in scope.
 
 The console user (`yuruna`) on the VM itself is a normal Linux
 account whose password lives in the authentication vault. The
 custom stash daemon (not yet implemented) is a separate auth
 surface that accepts any credentials.
+
+Back to [Yuruna](../README.md)
 
 ---
 

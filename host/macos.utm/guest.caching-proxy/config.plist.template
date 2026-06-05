@@ -155,7 +155,14 @@
 		<key>UsbSharing</key>
 		<false/>
 	</dict>
-	<!-- Bridged QEMU networking. The cache VM gets a real LAN IP via the
+	<!-- Network mode is chosen by New-VM.ps1 via __NETWORK_MODE__. 'Bridged'
+	     on an Ethernet default route gives the cache a LAN-direct IP (real
+	     client IPs, as the description below covers). 'Shared' (UTM NAT,
+	     192.168.64.x) is used on a Wi-Fi default route where bridging can't
+	     obtain a LAN lease; Start-CachingProxy.ps1 then forwards host ports
+	     to the NAT IP for LAN access, and New-VM.ps1 drops the
+	     BridgedInterface key in that mode.
+	     Bridged QEMU networking. The cache VM gets a real LAN IP via the
 	     LAN's DHCP, so remote hosts reach it at <cache-lan-ip>:3128
 	     directly. This is the macOS equivalent of the Hyper-V "Yuruna-
 	     External" vSwitch path: no host-side TCP forwarder is needed and
@@ -179,7 +186,7 @@
 			<key>MacAddress</key>
 			<string>__MAC_ADDRESS__</string>
 			<key>Mode</key>
-			<string>Bridged</string>
+			<string>__NETWORK_MODE__</string>
 			<key>BridgedInterface</key>
 			<string>__BRIDGE_INTERFACE__</string>
 			<key>PortForward</key>

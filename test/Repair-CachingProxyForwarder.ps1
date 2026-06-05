@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,7 +76,7 @@ Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -For
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
 $RepoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
-# CachingProxy kind loads Test.VMUtility + Test.CachingProxy + Test.Host
+# CachingProxy kind loads Test.VMUtility + Test.CachingProxy + Test.HostContract
 # with -Global -Force, so the trio is in scope for the rest of the
 # script.
 Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
@@ -100,20 +100,20 @@ if ($CacheIp -and -not (Test-IpAddress $CacheIp)) {
 }
 
 # === Step 1: tear down legacy shared-NAT forwarders ========================
-# After upgrading from the shared-NAT path the cache lives directly on
-# the LAN. Any pwsh forwarder.<port>.pid subprocess left running from
-# the old code is now noise -- it binds 0.0.0.0:<port> on this Mac,
-# tunnels to a stale 192.168.64.X IP that may have been reassigned, and
-# blocks anything else (this very script's verification probes; a remote
-# host that points YURUNA_CACHING_PROXY_IP back at the Mac instead of
-# the cache) from reusing those ports. No-op on a fresh install.
+# The cache lives directly on the LAN now. Any pwsh forwarder.<port>.pid
+# subprocess left behind from the legacy shared-NAT layout is noise --
+# it binds 0.0.0.0:<port> on this Mac, tunnels to a stale 192.168.64.X
+# IP that may have been reassigned, and blocks anything else (this very
+# script's verification probes; a remote host that points
+# YURUNA_CACHING_PROXY_IP back at the Mac instead of the cache) from
+# reusing those ports. No-op on a fresh install.
 Write-Output ""
-Write-Output "=== Step 1: tear down any legacy host-side forwarders ==="
+Write-Output "== Step 1: tear down any legacy host-side forwarders =="
 [void](Remove-PortMap -Confirm:$false)
 
 # === Step 2: locate + verify the cache =====================================
 Write-Output ""
-Write-Output "=== Step 2: locate the cache VM on the LAN ==="
+Write-Output "== Step 2: locate the cache VM on the LAN =="
 if ($CacheIp) {
     $tcp = [System.Net.Sockets.TcpClient]::new()
     $reachable = $false
@@ -150,7 +150,7 @@ if ($CacheIp) {
 # === Step 3: summarize =====================================================
 Write-Output ""
 Write-Output "================================================================="
-Write-Output "=== caching-proxy REACHABLE (LAN-direct) ==="
+Write-Output "== caching-proxy REACHABLE (LAN-direct) =="
 Write-Output "================================================================="
 Write-Output "  VM IP:       $CacheIp"
 Write-Output "  Proxy URL:   $foundUrl"

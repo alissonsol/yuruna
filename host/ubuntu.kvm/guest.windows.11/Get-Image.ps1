@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e9a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,21 +93,12 @@ Write-Output "Windows 11 ISO present: $winIso"
 # -- virtio-win ISO: Fedora's hosted bundle (signed) ----------------------
 $virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso'
 
-function Test-AlreadyCurrent {
-    param([string]$Url, [string]$File, [string]$Sentinel)
-    if (-not (Test-Path -LiteralPath $File)) { return $false }
-    if (-not (Test-Path -LiteralPath $Sentinel)) { return $false }
-    $prior = Get-Content -LiteralPath $Sentinel -ErrorAction SilentlyContinue
-    if ($prior.Count -lt 3) { return $false }
-    if ($prior[1] -ne $Url) { return $false }
-    try {
-        $head = Invoke-WebRequest -Uri $Url -Method Head -ErrorAction Stop
-        $remoteLen = [int64]$head.Headers['Content-Length']
-    } catch { return $false }
-    return ([int64]$prior[2] -eq $remoteLen)
-}
+# Skip-if-same-source guard + sentinel writer come from the shared host module
+# (4-line filename + URL + size + Last-Modified format), so every KVM guest
+# uses one implementation.
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.HostDownload.psm1") -Force
 
-if (Test-AlreadyCurrent -Url $virtioUrl -File $virtioIso -Sentinel $virtioOrigin) {
+if (Test-DownloadAlreadyCurrent -SourceUrl $virtioUrl -BaseImageFile $virtioIso -OriginFile $virtioOrigin) {
     Write-Output "Skipping virtio-win download: URL and size match prior run for $virtioIso"
 } else {
     $tmp = Join-Path $downloadDir 'virtio-win.iso.part'
@@ -119,7 +110,7 @@ if (Test-AlreadyCurrent -Url $virtioUrl -File $virtioIso -Sentinel $virtioOrigin
         Move-Item -Path $virtioIso -Destination (Join-Path $downloadDir 'virtio-win.previous.iso') -Force
     }
     Move-Item -Path $tmp -Destination $virtioIso
-    Set-Content -Path $virtioOrigin -Value @('virtio-win.iso', $virtioUrl, "$size")
+    Write-ImageSentinel -SourceUrl $virtioUrl -OriginFile $virtioOrigin -SizeBytes $size -Confirm:$false
     Write-Output "Download complete: $virtioIso"
 }
 

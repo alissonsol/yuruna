@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,6 +144,19 @@ function Get-RegisteredFailureClass {
     return @($script:RemediationRegistry.Store[0].Keys)
 }
 
+function Get-RecoveryRecommendationName {
+    <#
+    .SYNOPSIS
+        The canonical recovery-recommendation vocabulary. Every handler's
+        `Recommendation` and every verb's SuggestedRecoveries hint must be one
+        of these, so the dispatch contract type-checks end to end -- a verb
+        suggesting a token the dispatcher can't route on is a contract gap.
+    #>
+    [OutputType([string[]])]
+    param()
+    return $script:RecommendationEnum
+}
+
 function Clear-RecoveryHandler {
     <#
     .SYNOPSIS
@@ -268,6 +281,14 @@ function Invoke-Remediation {
     if (-not $result.Contains('Actions'))        { $result['Actions']        = @() }
     if (-not $result.Contains('AutoApply'))      { $result['AutoApply']      = $false }
     if (-not $result.Contains('HandledBy'))      { $result['HandledBy']      = "builtin/$failureClass" }
+    # Output-side contract check: a handler (most likely an external one) that
+    # returns a Recommendation outside the canonical vocabulary would emit a
+    # token no caller can route on. Coerce to operator_intervention_required so
+    # the loop always lands on a known recommendation.
+    if ($script:RecommendationEnum -notcontains [string]$result['Recommendation']) {
+        Write-Warning "Invoke-Remediation: handler for '$failureClass' returned Recommendation '$($result['Recommendation'])' outside the recovery vocabulary; coercing to operator_intervention_required."
+        $result['Recommendation'] = 'operator_intervention_required'
+    }
     $result['FailureClass'] = $failureClass
     $result['Severity']     = $severity
     $result['Source']       = $source
@@ -465,4 +486,4 @@ function Register-BuiltinRecoveryHandler {
 # registry primitive's Register being a last-writer-wins map.
 Register-BuiltinRecoveryHandler -Confirm:$false
 
-Export-ModuleMember -Function Register-RecoveryHandler, Get-RecoveryHandler, Get-RegisteredFailureClass, Clear-RecoveryHandler, Invoke-Remediation, Register-BuiltinRecoveryHandler
+Export-ModuleMember -Function Register-RecoveryHandler, Get-RecoveryHandler, Get-RegisteredFailureClass, Clear-RecoveryHandler, Invoke-Remediation, Register-BuiltinRecoveryHandler, Get-RecoveryRecommendationName

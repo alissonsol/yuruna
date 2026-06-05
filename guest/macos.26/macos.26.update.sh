@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -13,7 +13,6 @@ set -euo pipefail
 # script exists for the eventual sequence that runs against a
 # Setup-Assistant-completed guest.
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -27,7 +26,6 @@ case "$ARCH" in
     ;;
 esac
 
-# ===== Ensure PowerShell is installed =====
 # Installed as early as possible so that even if a later step in this
 # script aborts under `set -euo pipefail`, the host-side failure
 # diagnostic (which shells back into the guest as `pwsh -NoProfile ...`)
@@ -39,7 +37,7 @@ esac
 # curl and installer are in base macOS; this step does not depend on
 # Command Line Developer Tools being installed first.
 echo ""
-echo -e "\e[1;36m>>> Ensuring PowerShell is installed...\e[0m"
+echo -e "\e[1;36m==== PowerShell ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
   # Resolve the latest-stable release tag via HEAD-follow of /releases/latest.
   # Avoids the 60/hr unauthenticated GitHub API rate limit.
@@ -60,23 +58,19 @@ if ! command -v pwsh >/dev/null 2>&1; then
   rm -f "$PKG_PATH"
 fi
 pwsh --version
-echo -e "\e[1;32m<<< PowerShell ready.\e[0m"
 
-# ===== Install powershell-yaml module =====
 # So the in-guest sequence planner (when one exists for macOS 26) can
 # read YAML sequence files. Same contract
-# Test.Host.Install-PowerShellYamlIfMissing applies on the host side.
-# No || swallow: with set -e, an Install-Module failure now aborts the
-# script - and the trailing Import-Module check guards against the
-# case where the manifest landed but the module won't load (which
+# Test.HostContract.Install-PowerShellYamlIfMissing applies on the host side.
+# No || swallow: with set -e, an Install-Module failure aborts the
+# script. The trailing Import-Module check guards against the case
+# where the manifest landed but the module won't load (which
 # Install-Module reports as success).
 echo ""
-echo -e "\e[1;36m>>> Installing PowerShell module: powershell-yaml...\e[0m"
+echo -e "\e[1;36m==== powershell-yaml ====\e[0m"
 sudo pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force"
 sudo pwsh -NoProfile -Command "Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v' | Out-Null"
-echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e[0m"
 
-# ===== Early yuruna framework extraction (host-side diagnostic prereq) =====
 # The host's failure-path diagnostic shells back as
 # `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
 # If a later step in this script stalls the cycle watchdog fires, the
@@ -87,7 +81,7 @@ echo -e "\e[1;32m<<< PowerShell module: powershell-yaml installation complete.\e
 # section below, which needs `git` from the Command Line Developer
 # Tools install that runs before it.
 echo ""
-echo -e "\e[1;36m>>> Pre-fetching yuruna framework tarball (for diagnostic availability)...\e[0m"
+echo -e "\e[1;36m==== yuruna framework tarball ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory | awk '/^NFSHomeDirectory:/ {print $2}')
 if [ -r /etc/yuruna/host.env ]; then
@@ -101,7 +95,7 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ] && [ ! -d "$RE
     mkdir -p "$REAL_HOME/yuruna"
     if curl -fsSL "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
-      echo -e "\e[1;32m<<< Yuruna framework available at $REAL_HOME/yuruna (early extract).\e[0m"
+      echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
     else
       rm -rf "$REAL_HOME/yuruna"
       echo "yuruna: early tarball fetch failed."
@@ -111,7 +105,6 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ] && [ ! -d "$RE
   fi
 fi
 
-# ===== Disable services that may suspend the machine =====
 # Mirrors the host-side Set-MacHostConditionSet contract for the guest.
 # pmset on a VZ guest behaves the same as on a Mac mini; sudo is
 # required. The test extension `authentication` rotates the guest
@@ -120,26 +113,23 @@ fi
 echo "TESTHACK: Disabling display + system sleep on the guest."
 sudo pmset -a displaysleep 0 sleep 0 disksleep 0 || true
 
-# ===== Update system packages =====
 # `softwareupdate -l` lists available updates; `-i -a` installs every
 # pending one and reboots when needed. `--agree-to-license` keeps the
 # step non-interactive for sequences that drive the workload.
 echo ""
-echo -e "\e[1;36m>>> Listing pending macOS updates...\e[0m"
+echo -e "\e[1;36m==== macOS update list ====\e[0m"
 sudo softwareupdate -l || true
 
 echo ""
-echo -e "\e[1;36m>>> Applying pending macOS updates...\e[0m"
+echo -e "\e[1;36m==== macOS updates ====\e[0m"
 sudo softwareupdate -i -a --agree-to-license || true
-echo -e "\e[1;32m<<< macOS updates complete.\e[0m"
 
-# ===== Ensure Git is installed =====
 # Provides /usr/bin/git, /usr/bin/swift, and the rest of the developer
 # toolchain that subsequent yuruna workload scripts depend on. macOS
 # ships git via the Command Line Developer Tools, not as a standalone
 # package, so the on-demand install path is the canonical install.
 echo ""
-echo -e "\e[1;36m>>> Ensuring Command Line Developer Tools are installed...\e[0m"
+echo -e "\e[1;36m==== Developer Tools CLI ====\e[0m"
 if ! xcode-select -p >/dev/null 2>&1; then
   # Trigger the on-demand install path used by every fresh macOS box.
   # `softwareupdate` then picks the published label and installs it
@@ -155,15 +145,9 @@ if ! xcode-select -p >/dev/null 2>&1; then
   sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
 fi
 xcode-select -p || true
-echo -e "\e[1;32m<<< Command Line Developer Tools ready.\e[0m"
 
-# ===== Materialize the yuruna framework and project repos =====
 # --- See https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
-# curl instead of wget here (base macOS lacks wget). python3 from
-# CLDT services the JSON parse below. The $REAL_HOME/yuruna existence
-# guard is a no-op when the early-extract block above already
-# succeeded; the git-clone fallback covers the no-host-server case
-# now that CLDT has installed git.
+echo -e "\e[1;32m==== yuruna framework and project repos ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
 if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then

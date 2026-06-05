@@ -57,17 +57,36 @@
     .seq-meta {
       font-size: .6875rem; color: var(--fg-muted); margin-bottom: .65rem;
     }
-    /* viewBox-driven aspect-ratio scaling: shared common.css adds
-       width:100% / height:auto. The 260 px stays as a max so wide
-       viewports don't stretch the chart vertically out of proportion. */
-    .seq-chart { width: 100%; max-height: 260px; display: block; }
-    .seq-chart .axis      { stroke: var(--fg-faint); stroke-width: 1; }
-    .seq-chart .grid      { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 2; }
-    .seq-chart .axis-text { fill: var(--fg-muted); font-size: 10px; font-family: var(--font-mono); }
-    .seq-chart .seg            { stroke: rgba(0,0,0,.18); stroke-width: 0.5; }
-    .seq-chart .seg.fail       { stroke: var(--fail-fg); stroke-width: 1.5; }
-    .seq-chart .seg.fallback   { fill: var(--border-input); stroke: var(--fg-muted); stroke-width: 0.5; }
-    .seq-chart .bar-outline    { fill: none; stroke: var(--border-input); stroke-width: 0.5; }
+    /* Each cycle is one row: a clickable timestamp + wall-clock duration,
+       then the cycle's horizontal icicle below it. All rows in a card share
+       one x-scale (CHART_W viewBox units) so a slower cycle's bar reads as
+       wider; each SVG scales to the card width via its viewBox. */
+    .cycle-rows { margin-top: .15rem; }
+    .cycle-row  { margin-bottom: .45rem; }
+    .cycle-row-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      font-family: var(--font-mono); font-size: .6875rem; margin-bottom: .1rem;
+    }
+    .cycle-link { color: var(--link-strong); text-decoration: underline dotted; }
+    .cycle-link.nolink { color: var(--fg-muted); text-decoration: none; cursor: default; }
+    .cycle-dur { color: var(--fg-muted); }
+    .cycle-dur.fail { color: var(--fail-fg); font-weight: 600; }
+    .cycle-flame { width: 100%; height: auto; display: block; }
+    .cycle-flame .flame-cell          { stroke: rgba(0,0,0,.22); stroke-width: .5; }
+    .cycle-flame .flame-cell.ckpt     { stroke: rgba(255,255,255,.55); stroke-width: .5; }
+    .cycle-flame .flame-cell.fail     { stroke: var(--fail-fg); stroke-width: 1.5; }
+    .cycle-flame .flame-cell.fallback { fill: var(--border-input); stroke: var(--fg-muted); stroke-width: .5; }
+    /* Dark glyphs with a white halo (paint-order: stroke draws the halo
+       behind the fill) stay legible on any palette colour — and on touch
+       devices, which never get the hover <title> tooltip. */
+    .cycle-flame .flame-label {
+      fill: #1b1b1b; font-size: 9px; font-family: var(--font-mono);
+      paint-order: stroke; stroke: rgba(255,255,255,.85); stroke-width: 2px;
+      stroke-linejoin: round; pointer-events: none;
+    }
+    .axis-row { margin-top: .1rem; }
+    .cycle-flame .flame-axis-line { stroke: var(--fg-faint); stroke-width: 1; }
+    .cycle-flame .flame-axis-text { fill: var(--fg-muted); font-size: 9px; font-family: var(--font-mono); }
 
     .stale-banner {
       background: var(--warn-bg); color: var(--warn-fg);

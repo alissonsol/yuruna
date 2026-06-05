@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.05.29
+<#PSScriptInfo
+.VERSION 2026.06.05
 .GUID 4295730e-1cff-47df-b4d6-b3fd3578c818
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,18 +26,22 @@
 # every keystroke until the cache is invalidated.
 #
 # This registry's recovery primitive Repair-VncConnection forces the
-# next call to re-handshake. Invoked from Send-TextVNC's catch block
-# (or proactively by a future recovery-coordinator that observes a
-# string of keystroke failures).
+# next call to re-handshake. Invoked from Wait-ForText's bounded no-text
+# self-heal (several consecutive polls with no OCR text is a likely sign
+# the cached handle is feeding frozen frames) and available to any
+# host_io_blocked recovery path.
+#
+# Storage is delegated to the shared Test.Registry primitive
+# (New-YurunaRegistry) so there is one registry mechanism across the
+# harness and this domain shows up in the cross-domain introspection
+# directory (Get-YurunaRegistryDirectory/Summary). The
+# $global:YurunaVncProviders anchor name is reused as the backing store
+# so registrations stay cross-module-eviction-safe and survive -Force
+# re-imports.
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-    Justification = 'Cross-module-eviction-safe anchor.')]
-param()
+Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
 
-if (-not $global:YurunaVncProviders) {
-    $global:YurunaVncProviders = [ordered]@{}
-}
-$script:Providers = $global:YurunaVncProviders
+$script:Reg = New-YurunaRegistry -Name 'VncProvider' -AnchorVar 'YurunaVncProviders' -Comparer 'OrdinalIgnoreCase'
 
 function Register-VncProvider {
     <#
@@ -50,13 +54,11 @@ function Register-VncProvider {
         or an AppleScript window-focus state) after Disconnect-VNC.
     #>
     [CmdletBinding()]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter',
-        '', Justification = 'Parameters land in the registry, not used by the function body.')]
     param(
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)][scriptblock]$Reconnect
     )
-    $script:Providers[$HostType] = $Reconnect
+    & $script:Reg.Register $HostType $Reconnect
 }
 
 function Test-VncProviderAvailable {
@@ -71,7 +73,7 @@ function Test-VncProviderAvailable {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$HostType)
-    return [bool]$script:Providers.Contains($HostType)
+    return [bool](& $script:Reg.Has $HostType)
 }
 
 function Get-VncProviderMatrix {
@@ -87,7 +89,7 @@ function Get-VncProviderMatrix {
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param()
     $out = [ordered]@{}
-    foreach ($h in $script:Providers.Keys) { $out[$h] = $true }
+    foreach ($h in (& $script:Reg.GetMatrix).Keys) { $out[$h] = $true }
     return $out
 }
 
@@ -116,9 +118,9 @@ function Repair-VncConnection {
     if (Get-Command Disconnect-VNC -ErrorAction SilentlyContinue) {
         try { Disconnect-VNC -VMName $VMName } catch { Write-Verbose "Disconnect-VNC threw: $($_.Exception.Message)" }
     }
-    if ($HostType -and $script:Providers.Contains($HostType)) {
+    if ($HostType -and (& $script:Reg.Has $HostType)) {
         try {
-            return [bool](& $script:Providers[$HostType] $VMName)
+            return [bool](& (& $script:Reg.Get $HostType) $VMName)
         } catch {
             $vncErr = $_
             Write-Verbose "VNC reconnect threw: $($vncErr.Exception.Message)"
@@ -146,14 +148,14 @@ function Clear-VncProvider {
         Drop every registered VNC provider.
     .DESCRIPTION
         Tests-only: production code relies on -Force re-import to
-        refresh registrations. Resets both the script-local and global
-        anchor so the registry is observably empty.
+        refresh registrations. The primitive's Clear rebinds the backing
+        store AND updates the global anchor so the registry is observably
+        empty.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if ($PSCmdlet.ShouldProcess('Test.VncProvider registry', 'Clear all providers')) {
-        $script:Providers = [ordered]@{}
-        $global:YurunaVncProviders = $script:Providers
+        & $script:Reg.Clear
     }
 }
 

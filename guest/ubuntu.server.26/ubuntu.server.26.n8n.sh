@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.05.29
+# Version: 2026.06.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -8,7 +8,6 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
-# ===== Detect architecture =====
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -26,7 +25,7 @@ case "$ARCH" in
 esac
 
 echo ""
-echo -e "\e[1;36m>>> Installing NVM and Node.js...\e[0m"
+echo -e "\e[1;36m==== NVM and Node.js ====\e[0m"
 # Install NVM, Node.js, and n8n
 # NVM and npm handle architecture automatically
 bash << 'EOF'
@@ -40,9 +39,8 @@ wget -qO- "https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh${Yuru
 nvm install 22
 
 echo ""
-echo -e "\e[1;36m>>> Installing n8n...\e[0m"
+echo -e "\e[1;36m==== n8n ====\e[0m"
 npm install -g n8n
-echo -e "\e[1;32m<<< n8n installation complete.\e[0m"
 EOF
 
 # Make node, npm, and n8n available to all users by symlinking to /usr/local/bin
@@ -52,9 +50,9 @@ if [ -n "$NVM_BIN" ]; then
     sudo ln -sf "$NVM_BIN/npm" /usr/local/bin/npm
     sudo ln -sf "$NVM_BIN/n8n" /usr/local/bin/n8n
 fi
-echo -e "\e[1;32m<<< NVM and Node.js installation complete.\e[0m"
 
 echo ""
+echo "== Installation Summary =="
 bash -c '
     export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"

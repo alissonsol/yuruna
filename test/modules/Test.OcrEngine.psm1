@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.05.29
+.VERSION 2026.06.05
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,6 +106,23 @@ function Invoke-OcrProvider {
     return (& $provider.Invoke $ImagePath)
 }
 
+# Process-lifetime memo of the resolved enabled-provider list. Key is the raw
+# $env:YURUNA_OCR_ENGINES value (the platform branch is invariant within a
+# process), so an operator changing the env var still re-resolves. Without it the
+# availability probes (Test-OcrProviderAvailable -> & $provider.IsAvailable) run
+# on every OCR poll; mirrors the Find-Tesseract path cache in Test.Tesseract.psm1.
+$script:EnabledOcrProviderCache = $null
+$script:EnabledOcrProviderCacheKey = $null
+
+function Clear-EnabledOcrProviderCache {
+    <#
+    .SYNOPSIS
+        Drops the memoized enabled-provider list (test seam / env-change hook).
+    #>
+    $script:EnabledOcrProviderCache = $null
+    $script:EnabledOcrProviderCacheKey = $null
+}
+
 function Get-EnabledOcrProvider {
     <#
     .SYNOPSIS
@@ -123,6 +140,10 @@ function Get-EnabledOcrProvider {
         fallbacks invoked only when the primary's text didn't match.
     #>
     $envVal = $env:YURUNA_OCR_ENGINES
+    $cacheKey = if ($null -eq $envVal) { '<unset>' } else { [string]$envVal }
+    if (($script:EnabledOcrProviderCacheKey -eq $cacheKey) -and ($null -ne $script:EnabledOcrProviderCache)) {
+        return $script:EnabledOcrProviderCache
+    }
     $requested = if ($envVal) {
         $envVal -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     } elseif ($IsMacOS) {
@@ -164,16 +185,22 @@ function Get-EnabledOcrProvider {
             # Structured drop signal so a remediator notices the OCR
             # surface is degraded (e.g. tesseract uninstalled by an OS
             # update) without having to diff -Verbose logs.
-            Send-CycleEventSafely -EventRecord @{
-                timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                event        = 'ocr_provider_unavailable'
-                provider     = [string]$name
-                requested    = @($requested)
-                failureClass = 'instrumentation_failure'
-                severity     = 'soft'
+            # Guard: Test.OcrEngine does not import Test.Log, so in a degraded
+            # context where the logger is absent this event must not throw.
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event        = 'ocr_provider_unavailable'
+                    provider     = [string]$name
+                    requested    = @($requested)
+                    failureClass = 'instrumentation_failure'
+                    severity     = 'soft'
+                }
             }
         }
     }
+    $script:EnabledOcrProviderCacheKey = $cacheKey
+    $script:EnabledOcrProviderCache = $available
     return $available
 }
 
@@ -203,14 +230,18 @@ function Invoke-AllEnabledOcr {
             # Structured failure signal so a remediator routes on
             # `event=ocr_provider_failed` (vs the silent empty-string
             # results entry that downstream waitForText consumers see).
-            Send-CycleEventSafely -EventRecord @{
-                timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                event        = 'ocr_provider_failed'
-                provider     = [string]$name
-                imagePath    = [string]$ImagePath
-                error        = $ocrErr.Exception.Message
-                failureClass = 'instrumentation_failure'
-                severity     = 'soft'
+            # Guard: Test.OcrEngine does not import Test.Log, so in a degraded
+            # context where the logger is absent this event must not throw.
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event        = 'ocr_provider_failed'
+                    provider     = [string]$name
+                    imagePath    = [string]$ImagePath
+                    error        = $ocrErr.Exception.Message
+                    failureClass = 'instrumentation_failure'
+                    severity     = 'soft'
+                }
             }
         }
     }
@@ -219,7 +250,16 @@ function Invoke-AllEnabledOcr {
 
 # ── Built-in provider: Tesseract ────────────────────────────────────────────
 
-Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force -Verbose:$false
+# -Global is mandatory: a bare -Force re-import of an already-global
+# Test.Tesseract yanks it out of the global session into this module's
+# private scope (legacy module-eviction regression class). Because this
+# line re-runs every time Test.OcrEngine is re-imported -- and the
+# Invoke-Sequence -> Test.OcrMatch -> Test.OcrEngine chain re-imports it
+# on each Initialize-SequenceEngineRegistry -- the eviction would leave
+# Tesseract's exports (Assert-TesseractInstalled, ...) invisible to the
+# entry-point's global scope even though Test.OcrEngine's own exports
+# stay resolvable. Keep -Global so Tesseract stays globally visible.
+Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force -Global -Verbose:$false
 
 Register-OcrProvider -Name 'tesseract' `
     -Invoke {
@@ -365,6 +405,110 @@ while ($null -ne ($imagePath = [Console]::In.ReadLine())) {
 $script:WinRtOcrWorkerScriptPath = $null
 $script:WinRtOcrWorker = $null
 
+# Win32 Job Object bound to this pwsh process. Anything we
+# AssignProcessToJobObject into this job is killed by the OS when the
+# last handle to the job closes -- and the only handle exists in our
+# process, so process exit (orderly, crash, watchdog kill, Ctrl+C)
+# tears the worker down without relying on managed shutdown hooks.
+# OnRemove handles the graceful path; the job covers everything else.
+if ($IsWindows -and -not ('YurunaWinRtOcrJob' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class YurunaWinRtOcrJob
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string lpName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(
+        IntPtr hJob, int infoClass, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    private const int JobObjectExtendedLimitInformation = 9;
+    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+
+    private static readonly object _gate = new object();
+    private static IntPtr _job = IntPtr.Zero;
+
+    private static IntPtr EnsureJob()
+    {
+        if (_job != IntPtr.Zero) return _job;
+        lock (_gate)
+        {
+            if (_job != IntPtr.Zero) return _job;
+            IntPtr job = CreateJobObject(IntPtr.Zero, null);
+            if (job == IntPtr.Zero)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed");
+
+            var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            int size = Marshal.SizeOf(info);
+            IntPtr buf = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(info, buf, false);
+                if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, buf, (uint)size))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed");
+                }
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+            _job = job;
+            return _job;
+        }
+    }
+
+    public static void Assign(IntPtr processHandle)
+    {
+        IntPtr job = EnsureJob();
+        if (!AssignProcessToJobObject(job, processHandle))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed");
+    }
+}
+'@
+}
+
 function Get-WinRtOcrWorkerScriptPath {
     if ($script:WinRtOcrWorkerScriptPath -and (Test-Path $script:WinRtOcrWorkerScriptPath)) {
         return $script:WinRtOcrWorkerScriptPath
@@ -404,6 +548,18 @@ function Start-WinRtOcrWorker {
     $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
     $psi.StandardErrorEncoding  = [System.Text.UTF8Encoding]::new($false)
     $p = [System.Diagnostics.Process]::Start($psi)
+
+    # Bind to the parent-owned Job Object before reading any output.
+    # If this fails we can't guarantee the worker dies with us, so we
+    # kill what we just spawned and throw -- Invoke-WinRtOcr's outer
+    # catch falls back to one-shot for the affected call. Better a
+    # slower call than an orphaned powershell.exe surviving Ctrl+C.
+    try {
+        [YurunaWinRtOcrJob]::Assign($p.Handle)
+    } catch {
+        try { $p.Kill() } catch { $null = $_ }
+        throw "WinRT OCR worker job-bind failed: $($_.Exception.Message)"
+    }
 
     # Block until the worker prints __YURUNA_READY__. Cold-start cost
     # (~150-300 ms) is paid here, on the first OCR call, instead of
@@ -853,6 +1009,7 @@ Export-ModuleMember -Function @(
     'Test-OcrProviderAvailable'
     'Invoke-OcrProvider'
     'Get-EnabledOcrProvider'
+    'Clear-EnabledOcrProviderCache'
     'Invoke-AllEnabledOcr'
     'Invoke-WinRtOcr'
     'Invoke-MacVisionOcr'

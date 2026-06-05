@@ -66,6 +66,18 @@ falls back to the one-shot path for that call (the next call
 respawns). The module's `OnRemove` handler closes stdin and waits up
 to 2 s before `Kill()` so a re-import doesn't leak the worker.
 
+**Ctrl+C / abrupt-exit safety.** On spawn, the worker is bound to a
+Win32 Job Object created with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and
+owned by the parent pwsh process. Console Ctrl+C, watchdog kill, or
+any other path that terminates the parent (orderly exit, crash,
+`TerminateProcess`) closes the only handle to that job, and the OS
+kills the worker as a side effect. The graceful `OnRemove` path
+remains in place; the job is the safety net for everything that
+bypasses it. Job binding is best-effort: if `AssignProcessToJobObject`
+fails the spawned worker is killed and the call falls back to the
+one-shot path, so a degraded environment never leaks an orphaned
+worker.
+
 ## Why the Vision Swift script is so opinionated
 
 Two non-obvious transforms protect every macOS UTM screenshot before

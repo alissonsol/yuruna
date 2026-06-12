@@ -85,8 +85,10 @@ the outer. Tightening helps on hosts where genuine slow steps complete
 under, say, 20 min; loosening protects against a known-slow first-run
 image-build step.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

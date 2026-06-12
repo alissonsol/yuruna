@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,11 +62,11 @@ switch ($arch) {
 
 $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 
-# ubuntu.kvm's Yuruna.Host.psm1 does not ship Save-CachedHttpUri /
-# Test-DownloadAlreadyCurrent (the caching-proxy plumbing is currently
-# macOS/Windows-only). Yuruna.UbuntuImage.psm1 falls through to
-# Invoke-WebRequest + its inline same-source guard when those names
-# aren't on the command table.
+# The KVM host driver ships Save-CachedHttpUri + Test-DownloadAlreadyCurrent;
+# Save-UbuntuServerImage feature-detects them and routes the ISO download
+# through the squid cache (with the shared 4-line same-source guard) when a
+# cache is reachable, else downloads direct.
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.UbuntuImage.psm1') -Force
 
 try {

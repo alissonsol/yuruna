@@ -12,8 +12,10 @@ Thanks to everyone who has contributed to developing, testing, and improving yur
 - [Sanket Kamble](https://github.com/akrine)
 - [Seth Eliot](https://github.com/setheliot)
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

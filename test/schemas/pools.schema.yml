@@ -1,0 +1,139 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/pools.schema.yml
+title: Yuruna pool definitions
+description: >
+  The slow-changing pool INTENT, authored by the operator (pool admin CLI) and
+  pulled by each runner over the LAN from the bare git repo on the caching-proxy.
+  `members[]` (a list of stable hostIds) is the SINGLE source of truth for which
+  host belongs to which pool: a runner finds its own pool by locating its hostId
+  here; the aggregator labels each host's telemetry by the same mapping.
+  `desiredState` gates the runner (run/paused/drain); `testSets` drives test-set
+  execution; `config` overrides the per-host testCycle knobs; `gating` is the
+  advisory pool alert/quorum policy the aggregator + host notifier act on.
+
+type: object
+required: [schemaVersion, pools]
+additionalProperties: false
+
+properties:
+
+  schemaVersion:
+    type: integer
+    const: 1
+    description: Schema contract version. Bump only on a breaking shape change.
+
+  pools:
+    type: array
+    description: All pools defined for this LAN. One file holds every pool.
+    items: { $ref: "#/$defs/pool" }
+
+$defs:
+
+  pool:
+    type: object
+    required: [poolId]
+    additionalProperties: false
+    properties:
+
+      poolId:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+        description: >
+          DNS-label-safe pool identifier. This is the Loki/Prometheus label
+          value and is IMMUTABLE once telemetry has accumulated under it --
+          renaming it forks the history.
+
+      displayName:
+        type: string
+        description: Human-friendly label shown on the dashboard. Default "".
+
+      members:
+        type: array
+        description: >
+          Stable hostIds (42-prefixed 32-hex, from runtime/host.uuid) in this
+          pool. The single source of truth for membership; order is not
+          significant. A host learns its own pool by finding its hostId here.
+        items:
+          type: string
+          pattern: "^42[0-9a-fA-F]{30}$"
+
+      testSets:
+        type: array
+        description: >
+          Test-sets assigned to this pool (authored now; executed in a later
+          phase). Each names a test-set manifest (test-set.schema.yml).
+        items:
+          type: object
+          required: [name]
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+              pattern: "^[a-z0-9][a-z0-9._-]*$"
+              description: Test-set manifest name (filename stem).
+            order:
+              type: integer
+              minimum: 0
+              description: Execution order within the pool. Default 0.
+            cycleStrategy:
+              type: string
+              enum: [all, round-robin, single]
+              description: How the pool distributes this test-set's sequences across members. Default "all".
+
+      config:
+        type: object
+        description: >
+          Per-pool overrides of the testCycle.* knobs. The runner's outer loop merges
+          config.testCycle over each host's test.config.yml (override WINS: pool >
+          config > default), so a pool can engage auto-remediation or tighten the step
+          timeout fleet-wide without editing every host.
+        additionalProperties: false
+        properties:
+          testCycle:
+            type: object
+            description: Overrides mirroring the test.config.yml testCycle block.
+            additionalProperties: true
+
+      gating:
+        type: object
+        description: >
+          Advisory pool alert/quorum policy. The aggregator computes a `degraded` flag
+          when the healthy-member fraction stays below the threshold for the sustained
+          window, latches an alert with poll-count hysteresis, and the host-side notifier
+          delivers it. Advisory only: no host reads it to gate a cycle. Authoring an
+          (even empty) gating block opts the pool into alerting; a pool with no gating is
+          observed via the gauges but never paged.
+        additionalProperties: false
+        properties:
+          failuresBeforeAlert:
+            type: integer
+            minimum: 1
+            description: Consecutive degraded polls before a pool alert fires. Default 3.
+          successesBeforeRearm:
+            type: integer
+            minimum: 1
+            description: Consecutive non-degraded polls before the alert re-arms. Default 2.
+          quorum:
+            type: object
+            additionalProperties: false
+            properties:
+              healthyThreshold:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: Fraction of members that must be healthy. Default 0.5.
+              degradedAfterMinutes:
+                type: integer
+                minimum: 0
+                description: Minutes below the threshold before the pool is "degraded". Default 30.
+
+      desiredState:
+        type: string
+        enum: [run, paused, drain]
+        description: >
+          The ONLY field a runner acts on today (pulled intent, mirroring the
+          local control.cycle-restart flag). run = cycle normally; paused = finish
+          the in-flight cycle then hold; drain = stop after the current cycle.
+          Default "run" when absent.

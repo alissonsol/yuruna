@@ -64,8 +64,10 @@ Restart-Computer
 
 Read more: [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md).
 
-Back to [macOS UTM](../README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

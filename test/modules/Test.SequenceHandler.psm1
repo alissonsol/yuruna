@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,20 +159,32 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
         $markerName = ".yuruna-break-{0:D3}.lock" -f [int]$c.StepNum
         $markerPath = Join-Path $diagFolder $markerName
         $reason = & $c.ExpandVariable $c.Step.reason $c.Vars
-        $breakSnapshotId = & $c.ExpandVariable $c.Step.id $c.Vars
+        # `id` is a pure label (shown in the marker file + status UI). It does NOT
+        # by itself trigger a snapshot restore: a break id legitimately matches a
+        # real snapshot name (e.g. the workload's requiresSnapshot / loadDiskSnapshot
+        # id) for traceability without meaning "rewind to it". Restore-on-Continue
+        # is opt-in via `restoreOnContinue: true`, so a plain breakpoint just pauses
+        # and resumes in place -- the usual breakpoint semantics.
+        $breakSnapshotId   = & $c.ExpandVariable $c.Step.id $c.Vars
+        $restoreOnContinue = ($c.Step.restoreOnContinue -eq $true)
+        $resumeDesc = if ($restoreOnContinue -and $breakSnapshotId) {
+            "restores snapshot '$breakSnapshotId', restarts the VM, then resumes"
+        } else {
+            "resumes the sequence in place (no snapshot restore)"
+        }
         $bodyLines = @(
             "Yuruna sequence breakpoint",
             "VM:       $($c.VMName)",
             "GuestKey: $($c.GuestKey)",
             "Step:     $($c.StepNum)/$($c.StepCount)",
             "Reason:   $(if ($reason) { $reason } else { '(no reason supplied)' })",
-            "Snapshot: $(if ($breakSnapshotId) { $breakSnapshotId } else { '(none -- Continue resumes without snapshot restore)' })",
+            "Label:    $(if ($breakSnapshotId) { $breakSnapshotId } else { '(none)' })",
+            "On Continue: $resumeDesc",
             "",
             "To resume:",
-            "  - Click 'Continue' in the status UI (http://localhost:8080/status/)",
-            "    which restores the snapshot above (if set), starts the VM,",
-            "    then deletes the marker; or",
-            "  - Delete this file manually:",
+            "  - Click 'Continue' in the status UI (http://localhost:8080/status/),",
+            "    which $resumeDesc; or",
+            "  - Delete this file manually (always resumes in place):",
             "      Remove-Item -LiteralPath '$markerPath'",
             "    or, on a POSIX shell:",
             "      rm `"$markerPath`""
@@ -193,6 +205,7 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
                     stepNum    = [int]$c.StepNum
                     stepCount  = [int]$c.StepCount
                     snapshotId = $breakSnapshotId
+                    restoreOnContinue = [bool]$restoreOnContinue
                     reason     = if ($reason) { [string]$reason } else { '' }
                     markerPath = [string]$markerPath
                     startedAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -262,22 +275,27 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
             Start-Sleep -Milliseconds $breakPollMs
         }
         if ($resumedVia -eq 'continue-button') {
-            if ($breakSnapshotId) {
-                if (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue) {
-                    # Probe before restoring: a `break: id:` with no preceding
-                    # saveDiskSnapshot step is a "label-only" breakpoint -- the
-                    # operator named the resume point but no snapshot was ever
-                    # saved. Restoring would warn "no checkpoint" + "continuing
-                    # anyway" on every Continue for those sequences. Test the
-                    # snapshot exists first; restore only when present, else
-                    # treat the id as a label and resume the VM in place.
+            # Default: a plain breakpoint resumes in place -- it never touches the
+            # VM, matching the usual breakpoint meaning. Snapshot-restore + VM
+            # restart happen ONLY when the step opted in with `restoreOnContinue:
+            # true`; the `id` alone is just a label. Marker-file delete also always
+            # resumes in place (it never reaches this branch).
+            if ($restoreOnContinue) {
+                if (-not $breakSnapshotId) {
+                    Write-Warning "    [break/continue] restoreOnContinue is set but the step has no 'id'; nothing to restore -- resuming in place."
+                } elseif (-not (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue)) {
+                    Write-Warning "    [break/continue] Restore-VMDiskSnapshot not loaded; cannot restore snapshot '$breakSnapshotId'."
+                } else {
+                    # Probe before restoring: restoreOnContinue with an id that
+                    # names no actual snapshot is a no-op resume-in-place, not a
+                    # noisy "no checkpoint / continuing anyway" warning every click.
                     $snapPresent = $false
                     if (Get-Command Test-VMDiskSnapshot -ErrorAction SilentlyContinue) {
                         try { $snapPresent = [bool](Test-VMDiskSnapshot -VMName $c.VMName -Id $breakSnapshotId) }
                         catch { $null = $_ }
                     }
                     if (-not $snapPresent) {
-                        Write-Information "    [break/continue] No snapshot '$breakSnapshotId' on $($c.VMName); resuming in place." -InformationAction Continue
+                        Write-Information "    [break/continue] restoreOnContinue set but no snapshot '$breakSnapshotId' on $($c.VMName); resuming in place." -InformationAction Continue
                     } else {
                         Write-Information "    [break/continue] Restoring snapshot '$breakSnapshotId' on $($c.VMName)..." -InformationAction Continue
                         try {
@@ -290,24 +308,25 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
                             if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
                             Write-Warning "    [break/continue] Restore-VMDiskSnapshot threw: $($_.Exception.Message). Continuing anyway."
                         }
+                        # Restore-VMDiskSnapshot stops the VM to swap the disk, so
+                        # bring it back up. Only needed on this path -- a plain
+                        # breakpoint leaves the VM running and must not restart it.
+                        if (Get-Command Start-VM -ErrorAction SilentlyContinue) {
+                            Write-Information "    [break/continue] Starting $($c.VMName)..." -InformationAction Continue
+                            try {
+                                $startRes = Start-VM -VMName $c.VMName -Confirm:$false
+                                if ($startRes -is [hashtable] -and -not $startRes.success) {
+                                    Write-Warning "    [break/continue] Start-VM returned failure: $($startRes.errorMessage). Continuing anyway."
+                                }
+                            } catch {
+                                if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
+                                Write-Warning "    [break/continue] Start-VM threw: $($_.Exception.Message). Continuing anyway."
+                            }
+                        } else {
+                            Write-Warning "    [break/continue] Start-VM not loaded; VM remains stopped after restore."
+                        }
                     }
-                } else {
-                    Write-Warning "    [break/continue] Restore-VMDiskSnapshot not loaded; cannot restore snapshot '$breakSnapshotId'."
                 }
-            }
-            if (Get-Command Start-VM -ErrorAction SilentlyContinue) {
-                Write-Information "    [break/continue] Starting $($c.VMName)..."
-                try {
-                    $startRes = Start-VM -VMName $c.VMName -Confirm:$false
-                    if ($startRes -is [hashtable] -and -not $startRes.success) {
-                        Write-Warning "    [break/continue] Start-VM returned failure: $($startRes.errorMessage). Continuing anyway."
-                    }
-                } catch {
-                    if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
-                    Write-Warning "    [break/continue] Start-VM threw: $($_.Exception.Message). Continuing anyway."
-                }
-            } else {
-                Write-Warning "    [break/continue] Start-VM not loaded; VM remains stopped."
             }
             Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
         }
@@ -817,9 +836,13 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
         }
 
         # Slow path: chunked SSH wait + OCR scan between chunks. Reset the
-        # cross-function signal so a prior step's match can't leak into
-        # this step's failure label (same contract as Wait-ForText).
+        # cross-function signals so a prior step can't leak into this step's
+        # failure label (same contract as Wait-ForText). The cause slots are
+        # populated ONLY at the failure branch below, so a successful wait leaves
+        # them empty and cannot leak its sought-pattern set forward.
         $script:Fail.WaitForTextMatchedFailurePattern = $null
+        $script:Fail.WaitForTextOcrTail        = $null
+        $script:Fail.WaitForTextPatternsSought = [string[]]@()
 
         # Test.OcrEngine + Test.YurunaDir + Test.Log live alongside this
         # module; Import-Module -Force is cheap once warm. -Global on all
@@ -887,6 +910,10 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
                 $failOcrPath = Join-Path $logDir "failure_ocr_$($c.VMName).txt"
                 Set-Content -Path $failOcrPath -Value $result.AnyText -Force -ErrorAction SilentlyContinue
                 Write-Information "      Failure OCR text saved: $failOcrPath"
+                # Bounded tail + the sought patterns into causeDetail (set on
+                # failure only, so a successful wait can't leak them).
+                $script:Fail.WaitForTextOcrTail = if ($result.AnyText.Length -le 1200) { $result.AnyText } else { $result.AnyText.Substring($result.AnyText.Length - 1200) }
+                $script:Fail.WaitForTextPatternsSought = [string[]]@($installerFailPatterns)
             }
             return $false
         }

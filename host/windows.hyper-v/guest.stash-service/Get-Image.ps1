@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 
 # === Configuration ===
 # Ubuntu 24.04 LTS (Noble Numbat). Pinned per the stash-service spec
-# (§3.1: default image ubuntu.server.24). Separate from the
+# (section 3.1: default image ubuntu.server.24). Separate from the
 # caching-proxy image, which tracks the latest LTS for the long-lived
 # cache box.
 $sourceUrl = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
@@ -76,7 +76,8 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath    $downloadFile `
     -ChecksumUrl "$sourceDir/SHA256SUMS" `
     -ChecksumTargetFileName $sourceBaseName `
-    -OnMismatch  'WarnAndContinue' `
+    -OnMismatch  'WarnAndDelete' `
+    -VerifyUbuntuSignature `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $sourceUrl"

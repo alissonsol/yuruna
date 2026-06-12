@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,6 +78,11 @@ try {
 $script:DefaultCharDelayMs      = 20
 $script:DefaultVncPort          = 5900
 $script:DefaultKeystrokeMechanism = "GUI"
+# Independence default: under keystrokeMechanism=SSH, a missing ssh/ sequence is
+# a hard error, NOT a silent run on the gui/ (OCR) sibling. Set
+# vmCommunication.allowGuiFallback=true to opt back into the legacy degrade-to-GUI
+# behavior. Keeps the SSH and GUI mechanisms independent by default.
+$script:AllowGuiFallback        = $false
 # Default poll interval for wait-style actions (waitForText, passwdPrompt,
 # fetchAndExecute, ...). A step's own `pollSeconds` overrides this; when the
 # step omits it, this global value (vmCommunication.pollSeconds) is used.
@@ -164,6 +169,7 @@ if ($_cfg) {
     if ($_comm.characterDelayMs)   { $script:DefaultCharDelayMs        = [int]$_comm.characterDelayMs }
     if ($_comm.vncPort)            { $script:DefaultVncPort            = [int]$_comm.vncPort }
     if ($_comm.keystrokeMechanism) { $script:DefaultKeystrokeMechanism = [string]$_comm.keystrokeMechanism }
+    if ($null -ne $_comm.allowGuiFallback) { $script:AllowGuiFallback  = [bool]$_comm.allowGuiFallback }
     if ($_comm.pollSeconds)        { $script:DefaultPollSeconds        = [int]$_comm.pollSeconds }
     if ($_comm.timeoutSeconds)     { $script:DefaultTimeoutSeconds     = [int]$_comm.timeoutSeconds }
     # 0 disables the ring buffer; we still accept it as a configured value.
@@ -175,7 +181,34 @@ if ($_cfg) {
 # YURUNA_LOG_LEVEL. The engine keeps $script:DefaultKeystrokeMechanism for its
 # own direct read in Invoke-Sequence.
 $env:YURUNA_KEYSTROKE_MECHANISM = $script:DefaultKeystrokeMechanism
+# Mirror the gui-fallback policy too, so Get-SequenceMode's sibling resolver in
+# Test.SequenceResolve (foreign $script: scope) gates the gui/ fallback on the
+# same value the engine reads directly below.
+$env:YURUNA_ALLOW_GUI_FALLBACK = if ($script:AllowGuiFallback) { 'true' } else { 'false' }
 Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
+
+# Phase 4: per-guest keystroke mechanism. The pool runner switches GUI<->SSH per
+# guest (test-set perGuestOverrides.keystrokeMechanism). Both reads of the
+# mechanism -- the engine's direct $script:DefaultKeystrokeMechanism (path
+# resolution below) AND Get-SequenceMode's $env:YURUNA_KEYSTROKE_MECHANISM (the
+# foreign-scope mirror) -- MUST move together, so the setter writes both. The
+# getter returns the live value so the caller can capture the cycle baseline and
+# restore it between guests. No-op on the single-host path (never called).
+function Get-DefaultKeystrokeMechanism {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return [string]$script:DefaultKeystrokeMechanism
+}
+
+function Set-EngineKeystrokeMechanism {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Sets a transient per-guest dispatch knob (engine var + env mirror); no -WhatIf semantics for an in-loop mode switch.')]
+    param([Parameter(Mandatory)][string]$Value)
+    $script:DefaultKeystrokeMechanism = $Value
+    $env:YURUNA_KEYSTROKE_MECHANISM   = $Value
+}
 
 # Shared engine for executing interaction sequences from YAML files.
 # Action catalog, variable substitution, and on-failure artifact layout
@@ -542,6 +575,43 @@ function Save-OcrSidecar {
 
 # ── Action: waitForText ──────────────────────────────────────────────────────
 
+function Get-OcrDegradationGrace {
+    <#
+    .SYNOPSIS
+        How many seconds of deadline grace Wait-ForText grants after a
+        capture-feed self-heal, so a *recovering* feed gets a fair window to
+        deliver the pattern instead of timing out mid-recovery (the false
+        ocr_timeout). Pure + bounded: returns 0 once the per-wait grace cap is
+        exhausted, so a genuinely dead feed still times out.
+    .PARAMETER Action
+        'console-restart' (frozen-feed reconnect) or 'ring-repair' (no-text
+        VNC-handle reset). A console restart needs a full fresh frame-delivery
+        window to prove the relaunched viewer is live; a ring repair is lighter,
+        so half the window suffices.
+    .PARAMETER AlreadyGrantedSeconds
+        Grace already granted in this wait (the running total).
+    .PARAMETER MaxGrantSeconds
+        Per-wait cap on total grace (keeps a dead feed bounded).
+    .PARAMETER BaseWindowSeconds
+        The frozen-feed detection window (the natural full grace unit).
+    .OUTPUTS
+        [int] seconds to add to the deadline (>= 0).
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('console-restart','ring-repair')][string]$Action,
+        [Parameter(Mandatory)][int]$AlreadyGrantedSeconds,
+        [Parameter(Mandatory)][int]$MaxGrantSeconds,
+        [Parameter(Mandatory)][int]$BaseWindowSeconds
+    )
+    if ($MaxGrantSeconds -le 0 -or $AlreadyGrantedSeconds -ge $MaxGrantSeconds) { return 0 }
+    if ($BaseWindowSeconds -lt 0) { $BaseWindowSeconds = 0 }
+    $want = if ($Action -eq 'console-restart') { $BaseWindowSeconds } else { [int][math]::Ceiling($BaseWindowSeconds / 2.0) }
+    $remaining = $MaxGrantSeconds - $AlreadyGrantedSeconds
+    return [int][math]::Max(0, [math]::Min($want, $remaining))
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -584,9 +654,14 @@ function Wait-ForText {
         # instead of the opaque timeout message.
         [string[]]$FailurePattern = @()
     )
-    # Reset the cross-function signal so a prior call's match can't leak
-    # into the next Wait-ForText invocation.
+    # Reset the cross-function signals so a prior call can't leak into the next
+    # Wait-ForText invocation. Like WaitForTextMatchedFailurePattern, the cause
+    # slots are populated ONLY at the failure return points below (not at entry),
+    # so a SUCCESSFUL wait leaves them empty and cannot leak its sought-pattern
+    # set into a later non-wait step's failure record.
     $script:Fail.WaitForTextMatchedFailurePattern = $null
+    $script:Fail.WaitForTextOcrTail        = $null
+    $script:Fail.WaitForTextPatternsSought = [string[]]@()
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
     # Display label uses first pattern for log messages
@@ -671,6 +746,16 @@ function Wait-ForText {
     $consoleRestarts        = 0
     $frozenFeedSeconds      = 45
     $maxConsoleRestarts     = 2
+    # F6 degradation-trend: the two self-heals above are reactive at a fixed
+    # threshold. Once the feed has proven flaky (a console restart fired), drop
+    # the freeze threshold so the next stall is caught sooner -- acting on the
+    # trend rather than re-waiting the full window. And grant the deadline a
+    # bounded grace per self-heal so a feed that IS recovering isn't killed
+    # mid-recovery by the original deadline (the false ocr_timeout); the cap
+    # keeps a dead feed bounded. Each proactive action emits an F3 `degradation`
+    # event so a degraded-but-passing wait is queryable, not silent.
+    $deadlineGrantedSeconds  = 0
+    $maxDeadlineGrantSeconds = [math]::Min([int]$TimeoutSeconds, 120)
 
     # Seed the ring-buffer queue once with anything already on disk from
     # earlier Wait-ForText calls in this guest run (the screensDir persists
@@ -806,6 +891,14 @@ function Wait-ForText {
                         Write-Verbose "      Wait-ForText: no OCR text for 4 polls; self-heal repair $ringRepairs/2 (clear VNC handle + screenshot ring)."
                         if (Get-Command Repair-VncConnection -ErrorAction SilentlyContinue) { [void](Repair-VncConnection -VMName $VMName -HostType $HostType -Confirm:$false) }
                         if (Get-Command Repair-ScreenshotRing -ErrorAction SilentlyContinue) { [void](Repair-ScreenshotRing -VMName $VMName -Confirm:$false) }
+                        # F6: grant bounded grace so the reset feed can deliver
+                        # text before the deadline, and record the degradation.
+                        $grace = Get-OcrDegradationGrace -Action 'ring-repair' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
+                        if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
+                        if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+                            Send-YurunaDegradation -Dependency 'capture-feed' -Primary 'ocr-text-feed' -Fallback 'vnc-handle-reset' `
+                                -Reason "no OCR text 4 polls seeking '$patternLabel'; repair $ringRepairs/2, deadline +${grace}s"
+                        }
                     }
                 }
 
@@ -836,12 +929,25 @@ function Wait-ForText {
                             $frameUnchangedSinceUtc = [DateTime]::UtcNow
                         } elseif ($frameUnchangedSinceUtc) {
                             $frozenSecs = [int]([DateTime]::UtcNow - $frameUnchangedSinceUtc).TotalSeconds
-                            if ($frozenSecs -ge $frozenFeedSeconds -and $consoleRestarts -lt $maxConsoleRestarts) {
+                            # F6 trend-aware threshold: the first stall waits the
+                            # full window, but once a restart has fired the feed
+                            # is known-flaky, so catch the next stall at half the
+                            # window instead of re-waiting the full one.
+                            $effectiveFreezeThreshold = if ($consoleRestarts -gt 0) { [int][math]::Ceiling($frozenFeedSeconds / 2.0) } else { $frozenFeedSeconds }
+                            if ($frozenSecs -ge $effectiveFreezeThreshold -and $consoleRestarts -lt $maxConsoleRestarts) {
                                 $consoleRestarts++
-                                Write-Warning "      Wait-ForText: capture feed frozen (byte-identical ${frozenSecs}s) while still seeking '$patternLabel' -- forcing console reconnect (repair $consoleRestarts/$maxConsoleRestarts)."
+                                # F6: grant bounded grace so the relaunched viewer
+                                # can deliver a fresh frame before the deadline.
+                                $grace = Get-OcrDegradationGrace -Action 'console-restart' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
+                                if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
+                                Write-Warning "      Wait-ForText: capture feed frozen (byte-identical ${frozenSecs}s, threshold ${effectiveFreezeThreshold}s) while still seeking '$patternLabel' -- forcing console reconnect (repair $consoleRestarts/$maxConsoleRestarts, deadline +${grace}s)."
                                 if (Get-Command Restart-VMConsole -ErrorAction SilentlyContinue) {
                                     try { [void](Restart-VMConsole -VMName $VMName -Confirm:$false) }
                                     catch { Write-Verbose "      Restart-VMConsole failed: $($_.Exception.Message)" }
+                                }
+                                if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+                                    Send-YurunaDegradation -Dependency 'capture-feed' -Primary 'live-framebuffer' -Fallback 'console-reconnect' `
+                                        -Reason "frozen ${frozenSecs}s (threshold ${effectiveFreezeThreshold}s) seeking '$patternLabel'; restart $consoleRestarts/$maxConsoleRestarts, deadline +${grace}s"
                                 }
                                 # Re-arm: give the relaunched viewer a fresh full
                                 # $frozenFeedSeconds window to deliver an updated
@@ -873,6 +979,10 @@ function Wait-ForText {
                             $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
                             Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
                             Write-Information "      Failure OCR text saved: $failOcrPath"
+                            # Bounded tail + the sought patterns into causeDetail (set
+                            # on failure only, so a successful wait can't leak them).
+                            $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
+                            $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
                         }
                         return $false
                     }
@@ -893,9 +1003,18 @@ function Wait-ForText {
             $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
             Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
             Write-Information "      Failure OCR text saved: $failOcrPath"
+            # Bounded tail + the sought patterns into causeDetail (set on failure
+            # only, so a successful wait can't leak them).
+            $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
+            $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
         }
 
-        Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s"
+        if ($deadlineGrantedSeconds -gt 0) {
+            $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
+            Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s (+${deadlineGrantedSeconds}s degradation grace; waited ~${waited}s)"
+        } else {
+            Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s"
+        }
         return $false
     } finally {
         # Note: $screensDir is intentionally NOT cleared here — it survives
@@ -995,6 +1114,40 @@ function Invoke-SequenceByName {
     return ($result -eq $true)
 }
 
+# Slice a sequence's steps to an optional 1-based window. A whole-sequence
+# window (StartStep <= 1 and StopStep <= 0) returns the steps unchanged; an
+# out-of-range window returns an empty array. Invoke-Sequence uses this so the
+# chain runner can run a step range via -StartStep / -StopStep without writing a
+# sliced temp YAML -- the returned slice renumbers 1..N exactly as the temp file
+# did, so step numbering, totals, and PASS/FAIL logging are identical for a
+# windowed run.
+function Select-SequenceStepWindow {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [object[]]$Steps = @(),
+        [int]$StartStep = 1,
+        [int]$StopStep = 0
+    )
+    if ($StartStep -le 1 -and $StopStep -le 0) { return $Steps }
+    $total = $Steps.Count
+    $from  = [Math]::Max(1, $StartStep)
+    $to    = if ($StopStep -gt 0) { [Math]::Min($StopStep, $total) } else { $total }
+    if ($total -eq 0 -or $from -gt $total -or $from -gt $to) { return @() }
+    return @($Steps[($from - 1)..($to - 1)])
+}
+
+# The VM name in effect when the most recent Invoke-Sequence returned, including
+# a mid-sequence saveDiskSnapshot rename. Chain callers read this after each
+# sequence so the next one targets the renamed VM -- one shared mechanism for
+# both the inner runner's Start-Guest* loops and Test-Sequence's chain runner.
+function Get-SequenceFinishedVMName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return [string]$script:SequenceFinishedVMName
+}
+
 <#
 .SYNOPSIS
     Executes an interaction sequence from a YAML file against a VM.
@@ -1020,12 +1173,26 @@ function Invoke-Sequence {
         # `username: yauser1`. The `${username}` placeholder fails to
         # resolve and the literal string ends up as a vault key.
         [System.Collections.IDictionary]$EffectiveVariables,
-        [switch]$ShowSensitive
+        [switch]$ShowSensitive,
+        # Optional 1-based step window over this sequence's steps (StopStep 0 =
+        # run to the end). The chain runner passes a per-entry local window so a
+        # `-StartStep` / `-StopStep` debug run needs no temp-file slicing;
+        # default (1, 0) runs the whole sequence unchanged.
+        [int]$StartStep = 1,
+        [int]$StopStep = 0
     )
     # $ShowSensitive is consumed inside $invokeStepBlock via dynamic scoping
     # (see comment block at the scriptblock definition). Touched here as
     # $null = ... so PSReviewUnusedParameter sees a body-level reference.
     $null = $ShowSensitive
+
+    # Surfaced VM name for chain-rename propagation. A mid-sequence
+    # saveDiskSnapshot renames the live VM (test-X -> <id>); the engine tracks
+    # that internally (below) but the change is local to the step scriptblock, so
+    # chain callers (Invoke-TestSequenceChain, Start-GuestOS / Start-GuestWorkload)
+    # read Get-SequenceFinishedVMName after this returns to target the renamed VM
+    # in the next sequence. Seeded to the passed name; updated on $ctx.NewVMName.
+    $script:SequenceFinishedVMName = $VMName
 
     # ── SSH variant selection ──────────────────────────────────────────────
     # Sequences live in mode-specific subfolders: sequences/gui/ and
@@ -1043,6 +1210,25 @@ function Invoke-Sequence {
         if ($sshVariant -and (Test-Path $sshVariant)) {
             Write-Information "    keystrokeMechanism=SSH → using SSH variant: $(Split-Path -Leaf $sshVariant)"
             $SequencePath = $sshVariant
+        } else {
+            # SSH mechanism selected but no ssh/ sibling exists. Record the
+            # degradation either way (best-effort: Send-YurunaDegradation can be
+            # out of scope on the test-start extension import path, where the
+            # parent runner's global modules don't propagate -- see the nested-
+            # scope note at Initialize-YurunaLogDir).
+            $leaf = Split-Path -Leaf $SequencePath
+            if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+                Send-YurunaDegradation -Dependency 'keystroke-mechanism' -Primary 'ssh-sequence' `
+                    -Fallback 'gui-sequence' -Reason "no ssh variant for $leaf"
+            }
+            if (-not $script:AllowGuiFallback) {
+                # Independent mechanisms (the default): do NOT silently run the
+                # gui/ (OCR) sibling under an SSH config. Fail loudly so an
+                # SSH-only host doesn't get an OCR sequence it cannot drive.
+                Write-Warning "    keystrokeMechanism=SSH: no ssh/ variant for '$leaf' and vmCommunication.allowGuiFallback=false -- not falling back to gui/. Add sequences/ssh/$leaf or set allowGuiFallback: true."
+                return $false
+            }
+            Write-Information "    keystrokeMechanism=SSH: no ssh/ variant for '$leaf'; allowGuiFallback=true -- running the gui/ sequence."
         }
     }
 
@@ -1155,7 +1341,12 @@ function Invoke-Sequence {
     }
 
     Write-Information "    Sequence: $($sequence.description)"
-    $steps = @($sequence.steps)
+    # Apply the optional step window (default = whole sequence). Slicing here
+    # (rather than the caller writing a sliced temp YAML) is what lets the chain
+    # runner drive a step range with -StartStep / -StopStep on the real file.
+    # @() guards the single-step case: PowerShell unwraps a one-element return,
+    # so without it a 1-step window would arrive as a bare step, not an array.
+    $steps = @(Select-SequenceStepWindow -Steps @($sequence.steps) -StartStep $StartStep -StopStep $StopStep)
 
     # Per-step perf logging. Set-PerfSequenceContext / Set-PerfGuestContext
     # are silent no-ops when Test.Perf is not loaded OR when Start-PerfCycle
@@ -1474,6 +1665,9 @@ function Invoke-Sequence {
             if ($ctx.NewVMName) {
                 $VMName = [string]$ctx.NewVMName
                 $vars['vmName'] = $VMName
+                # Surface to module scope so chain callers see the rename after
+                # this sequence returns ($VMName here is scriptblock-local).
+                $script:SequenceFinishedVMName = $VMName
             }
         } else {
             Write-Warning "Unknown action '$($step.action)' -- treating as failure."
@@ -1629,6 +1823,11 @@ function Invoke-Sequence {
     # failure on step 1 surfaces as "no step succeeded" rather than
     # carrying a leftover value from a prior sequence's run.
     $script:Fail.LastSucceededStepNumber       = 0
+    # Cause slots reset per sequence so a prior sequence's OCR tail / sought
+    # patterns can't leak into a non-wait step's failure record that fails before
+    # any wait runs (the wait functions also reset them at entry).
+    $script:Fail.WaitForTextOcrTail            = $null
+    $script:Fail.WaitForTextPatternsSought     = [string[]]@()
     $result = & $invokeStepBlock -Steps $steps
     if (-not $result) {
         # Build the schema-v2 failure record once; New-SequenceFailureRecord
@@ -1768,4 +1967,6 @@ function Invoke-Sequence {
 # store ($script:Fail), so this module stays the pure executor.
 
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
-    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, Get-PollDelay
+    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, Get-PollDelay, `
+    Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
+    Get-DefaultKeystrokeMechanism, Set-EngineKeystrokeMechanism

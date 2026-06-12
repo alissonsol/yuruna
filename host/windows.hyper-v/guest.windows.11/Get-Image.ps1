@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,8 +24,14 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 $baseImageName      = "host.windows.hyper-v.guest.windows.11"
 $defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
 
-# Fido settings (change these to download a different edition/language)
-$fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1"
+# Fido settings (change these to download a different edition/language).
+# Fido is pinned to a tagged release (not the moving `master` ref) and its
+# script hash is verified before execution: Fido.ps1 runs with this script's
+# privileges, so an unpinned moving ref is an unchecked remote-code hop.
+# Refresh on a new Fido release: bump the tag in the URL and replace the hash
+# with the new file's (Get-FileHash -Algorithm SHA256).Hash.
+$fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1"
+$fidoSha256     = "24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13"
 $languageFilter = "English"
 
 # Manual download fallback
@@ -67,14 +73,14 @@ if (Test-Path -LiteralPath $defaultBaseFile) {
 
 # --- Elevation check --------------------------------------------------------
 # Get-VMHost, BITS, and writing under ProgramData all need admin. When we
-# don't have it, the only way forward is a manual download — print the
+# don't have it, the only way forward is a manual download -- print the
 # fallback instructions instead of a terse "please run as admin" so the
 # operator sees the same guidance whether called directly or from
 # Invoke-TestRunner (which runs the script non-elevated and forwards its
 # exit code up).
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "Not elevated — cannot query Hyper-V or write to $defaultDownloadDir."
+    Write-Warning "Not elevated -- cannot query Hyper-V or write to $defaultDownloadDir."
     Show-ManualDownloadInstruction -TargetPath $defaultBaseFile -TargetDir $defaultDownloadDir
     exit 1
 }
@@ -137,6 +143,13 @@ try {
     Write-Output "  URL: $fidoUrl"
     Invoke-WebRequest -Uri $fidoUrl -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
     Unblock-File $fidoScript
+    # Verify the pinned Fido.ps1 before running it; a hash mismatch means the
+    # tagged content changed or the fetch was tampered, so fall back to the
+    # manual download (caught below) instead of executing unverified code.
+    $fidoActual = (Get-FileHash -LiteralPath $fidoScript -Algorithm SHA256).Hash
+    if ($fidoActual -ine $fidoSha256) {
+        throw "Fido.ps1 hash mismatch (pinned v1.70): expected $fidoSha256, got $fidoActual"
+    }
     Write-Output "  Done."
 
     Write-Output "[Step 2/3] Retrieving Windows 11 ISO download URL..."

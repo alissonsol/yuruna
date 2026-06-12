@@ -1,0 +1,27 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Hyper-V overlay for amazon.linux.2023.base.user-data.
+# Anchor sections in base-file order. An empty section deletes the anchor line.
+# === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
+  # --- See https://yuruna.link/vmconfig#hyperv_fb-framebuffer-pin
+  - grubby --update-kernel=ALL --args="video=hyperv_fb:1024x768" || true
+# === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
+  - grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true
+  # --- See https://yuruna.link/vmconfig#headless-host-reboot-on-framebuffer-collapse
+  - |
+    if [ -r /sys/class/graphics/fb0/virtual_size ]; then
+      VS=$(cat /sys/class/graphics/fb0/virtual_size)
+      W=${VS%,*}
+      if [ -n "$W" ] && [ "$W" -lt 800 ]; then
+        echo "yuruna: hyperv_fb collapsed (virtual_size=${VS}); flagging reboot to apply new cmdline" >&2
+        touch /run/yuruna-needs-reboot
+      fi
+    fi
+# === YURUNA_OVERLAY_POWER_STATE ===
+
+# --- See https://yuruna.link/vmconfig#headless-host-reboot-on-framebuffer-collapse
+power_state:
+  delay: now
+  mode: reboot
+  message: "Yuruna: rebooting to apply video=hyperv_fb:1024x768 cmdline (headless host)."
+  condition: ["/bin/sh", "-c", "test -f /run/yuruna-needs-reboot"]

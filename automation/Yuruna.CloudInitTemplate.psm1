@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,8 +158,8 @@ function Get-YurunaGuestScriptBase64 {
     <#
     .SYNOPSIS
         Read the guest-side shell scripts every cloud-init seed bakes in via
-        base64 -- yuruna-retry.sh, fetch-and-execute.sh, and yuruna-network.sh
-        -- and return them as a hashtable keyed by purpose.
+        base64 -- yuruna-retry.sh, yuruna-versions.sh, fetch-and-execute.sh,
+        and yuruna-network.sh -- and return them as a hashtable keyed by purpose.
     .DESCRIPTION
         All six New-VM.ps1 scripts (3 platforms x {24, 26}) used to
         duplicate the `[Convert]::ToBase64String([File]::ReadAllBytes(...))`
@@ -170,22 +170,24 @@ function Get-YurunaGuestScriptBase64 {
         Absolute path to the repository root. The scripts live under
         $RepoRoot/automation/.
     .OUTPUTS
-        [hashtable] @{ RetryLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>' }
+        [hashtable] @{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>' }
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$RepoRoot)
     $automationDir = Join-Path $RepoRoot 'automation'
     $retryPath     = Join-Path $automationDir 'yuruna-retry.sh'
+    $versionsPath  = Join-Path $automationDir 'yuruna-versions.sh'
     $faePath       = Join-Path $automationDir 'fetch-and-execute.sh'
     $networkPath   = Join-Path $automationDir 'yuruna-network.sh'
-    foreach ($p in @($retryPath, $faePath, $networkPath)) {
+    foreach ($p in @($retryPath, $versionsPath, $faePath, $networkPath)) {
         if (-not (Test-Path -LiteralPath $p)) {
             throw "Get-YurunaGuestScriptBase64: required guest script missing: $p"
         }
     }
     return @{
         RetryLib        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($retryPath))
+        VersionsLib     = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($versionsPath))
         FetchAndExecute = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($faePath))
         NetworkLib      = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($networkPath))
     }
@@ -261,10 +263,10 @@ function Build-CloudInitUserData {
         chain them by hand. Caller still owns the per-platform
         $BasePath / $OverlayPath choice and the per-cycle replacement
         values (VMName, Username, password hash, host IP / port, ...).
-        The YURUNA_RETRY_LIB_BASE64_PLACEHOLDER, YURUNA_FAE_BASE64_PLACEHOLDER,
-        and YURUNA_NETWORK_BASE64_PLACEHOLDER entries are populated
-        automatically -- a caller that passes them in -Replacement will override
-        the auto-populated values, but this is rarely what you want.
+        The YURUNA_RETRY_LIB_BASE64_PLACEHOLDER, YURUNA_VERSIONS_BASE64_PLACEHOLDER,
+        YURUNA_FAE_BASE64_PLACEHOLDER, and YURUNA_NETWORK_BASE64_PLACEHOLDER entries
+        are populated automatically -- a caller that passes them in -Replacement
+        will override the auto-populated values, but this is rarely what you want.
     .PARAMETER BasePath
         Absolute path to the shared base user-data template (e.g.
         $RepoRoot/host/vmconfig/ubuntu.server.base.user-data).
@@ -303,6 +305,9 @@ function Build-CloudInitUserData {
     foreach ($key in $Replacement.Keys) { $fullReplacement[$key] = $Replacement[$key] }
     if (-not $fullReplacement.ContainsKey('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_RETRY_LIB_BASE64_PLACEHOLDER'] = $b64.RetryLib
+    }
+    if (-not $fullReplacement.ContainsKey('YURUNA_VERSIONS_BASE64_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_VERSIONS_BASE64_PLACEHOLDER'] = $b64.VersionsLib
     }
     if (-not $fullReplacement.ContainsKey('YURUNA_FAE_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_FAE_BASE64_PLACEHOLDER'] = $b64.FetchAndExecute

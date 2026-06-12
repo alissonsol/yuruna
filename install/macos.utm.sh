@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.06.05  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.06.12  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -10,7 +10,7 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
+YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.12}"
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -114,8 +114,26 @@ fi
 # -- Homebrew --------------------------------------------------------------
 if ! command -v brew >/dev/null 2>&1; then
   log "Installing Homebrew"
-  NONINTERACTIVE=1 /bin/bash -c \
-    "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  # Pin Homebrew's bootstrap to a known commit and verify its SHA-256 before
+  # running it -- the upstream one-liner pipes the moving HEAD straight to bash.
+  # Homebrew/install publishes no tags or signatures, so a pinned commit + a
+  # content hash is the available control. Refresh on a Homebrew installer
+  # update: set HOMEBREW_INSTALL_COMMIT to the new Homebrew/install HEAD and
+  # HOMEBREW_INSTALL_SHA256 to `shasum -a 256` of that install.sh.
+  HOMEBREW_INSTALL_COMMIT='280cbc9adffcbdef15dd1c9d991ef2d1dd7cfc9c'
+  HOMEBREW_INSTALL_SHA256='f3e91784ffeda32bc397de7acc1154724cc47522a459c9ac656cca176eeba457'
+  hb_tmp="$(mktemp)"
+  if ! curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/${HOMEBREW_INSTALL_COMMIT}/install.sh" -o "$hb_tmp"; then
+    rm -f "$hb_tmp"
+    die "Could not download the pinned Homebrew installer (commit $HOMEBREW_INSTALL_COMMIT)."
+  fi
+  hb_actual="$(shasum -a 256 "$hb_tmp" | cut -d' ' -f1)"
+  if [[ "$hb_actual" != "$HOMEBREW_INSTALL_SHA256" ]]; then
+    rm -f "$hb_tmp"
+    die "Homebrew install.sh SHA-256 mismatch (pinned $HOMEBREW_INSTALL_COMMIT): expected $HOMEBREW_INSTALL_SHA256, got $hb_actual. If Homebrew updated its installer, refresh the pin in install/macos.utm.sh."
+  fi
+  NONINTERACTIVE=1 /bin/bash "$hb_tmp"
+  rm -f "$hb_tmp"
 fi
 
 if [[ -x /opt/homebrew/bin/brew ]]; then

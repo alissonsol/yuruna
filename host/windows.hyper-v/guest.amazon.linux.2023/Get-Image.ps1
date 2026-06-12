@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42d7e8f9-a0b1-4c23-d456-7e8f9a0b1c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,6 @@
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
-# Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
 	Write-Output "Please run this script as Administrator."
@@ -61,10 +60,10 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImag
 
 # === Retrieve and process the files ===
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download
-# through Save-CachedHttpUri when available + applies the warn-only
-# checksum policy used for Ubuntu ISOs. Missing checksum file is
-# silent-pass; mismatch surfaces as a visual banner Write-Warning
-# but keeps the file (operator decision).
+# through Save-CachedHttpUri when available + verifies SHA-256 against
+# the publisher checksum. A MISSING upstream checksum is a soft pass;
+# a genuine mismatch deletes the tampered file and fails the run
+# (WarnAndDelete), so unverified bytes never reach the base image.
 $downloadFile = Join-Path $downloadDir "downloaded.zip"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
@@ -75,7 +74,7 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath   $downloadFile `
     -ChecksumUrl $checksumUrl `
     -ChecksumTargetFileName $zipLink `
-    -OnMismatch 'WarnAndContinue' `
+    -OnMismatch 'WarnAndDelete' `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $downloadUrl"
@@ -86,7 +85,7 @@ if (-not $downloaded) {
 # Test-DownloadAlreadyCurrent will compare against on the next run.
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
-# Extract the .vhdx file from the zip — write to a temp path first so the
+# Extract the .vhdx file from the zip -- write to a temp path first so the
 # previous image is only replaced after a successful extraction.
 $extractedFile = Join-Path $downloadDir "$baseImageName.downloading.vhdx"
 Remove-Item $extractedFile -Force -ErrorAction SilentlyContinue

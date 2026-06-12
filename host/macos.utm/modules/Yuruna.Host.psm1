@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,16 +30,20 @@ $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Pat
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test/modules'
 $script:HostFolder     = Join-Path $script:RepoRoot 'host/macos.utm'
 
-Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking
-Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking
-Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking
-# Shared squid download / TLS-bump stack — single source of truth across host drivers.
+# These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
+# mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
+# EVICTS the global copy other modules call via qualified names (e.g.
+# Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
+Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
+# Shared squid download / TLS-bump stack -- single source of truth across host drivers.
 # The X509 chain-validation callback lives here verbatim; per-driver cache-host
 # discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
-Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
 # Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
 # the Get-Image log-line writer) that all three drivers carried in duplicate.
-Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # === macOS/UTM host helpers =================================================
 
 <#
@@ -859,7 +863,7 @@ function Assert-NoConcurrentUtmVm {
         $running = @($running | Where-Object { $_ -ne $ExceptVmName })
     }
     if ($running.Count -eq 0) { return $true }
-    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning "==================================================================="
     Write-Warning " One or more UTM VMs are currently running:"
     foreach ($vm in $running) { Write-Warning "   - $vm" }
     Write-Warning ""
@@ -874,7 +878,7 @@ function Assert-NoConcurrentUtmVm {
         Write-Warning ""
         Write-Warning " (Excluding the cycle's target VM '$ExceptVmName' from this check.)"
     }
-    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning "==================================================================="
     return $false
 }
 
@@ -1177,7 +1181,7 @@ public static class YurunaVncPixels {
 .SYNOPSIS
     Read exactly $Count bytes from $Stream into a fresh byte[]. Uses
     Stream.ReadExactly (.NET 7+) so the read loop runs inside the runtime
-    instead of being driven from PowerShell — measured against a 1920x1080
+    instead of being driven from PowerShell -- measured against a 1920x1080
     QEMU VNC capture (7.9 MB payload), the runtime-side loop completes
     in ~150 ms while the PowerShell-side equivalent took ~10.6 s because
     QEMU's RFB encoder emits the pixel rect in many small frames and
@@ -1267,7 +1271,7 @@ function Get-VncScreenshot {
                 # loop. Without this fast path, a 1080-row loop of
                 # [Array]::Copy in PowerShell takes ~10 s on a 1920x1080
                 # framebuffer because each iteration pays scriptblock
-                # dispatch overhead — the bytes arrive in <50 ms, the
+                # dispatch overhead -- the bytes arrive in <50 ms, the
                 # loop is the bottleneck.
                 $stream.ReadExactly($fb, 0, $rectBytes)
             } else {
@@ -2107,7 +2111,10 @@ function Send-Text {
     # it for sequence execution).
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        Import-Module $invokeSequence -Force -DisableNameChecking
+        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
+        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
+        # refresh it in place instead.
+        Import-Module $invokeSequence -Force -DisableNameChecking -Global
         # Module-qualified call avoids re-entering OUR Send-Text.
         return [bool](Invoke-Sequence\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
@@ -2757,3 +2764,17 @@ $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' -ExportedFunctio
     'Test-CachingProxyAvailable','Get-CachingProxyVMIp','Get-HostLanPrefix',
     'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
 )
+
+# Load-time guard for the cache-download wrapper precedence. The image helpers
+# (Save-ImageWithChecksum / Save-UbuntuServerImage) feature-detect Save-CachedHttpUri
+# BY NAME and invoke it with only -Uri/-OutFile, so this driver's 2-param wrapper
+# must win the command-table slot over the shared 3-param
+# Yuruna.HostDownload\Save-CachedHttpUri. If an import-order change flips that
+# precedence the cache-discovery closure is dropped and downloads silently bypass
+# the squid cache (direct, no error) -- surface that regression loudly here.
+$__yurunaCacheDownloadCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue
+if (-not $__yurunaCacheDownloadCmd) {
+    Write-Warning "Yuruna.Host (macos.utm): Save-CachedHttpUri is not on the command table after load; image downloads cannot route through the squid cache."
+} elseif ($__yurunaCacheDownloadCmd.Parameters.ContainsKey('ResolveCacheHostIp')) {
+    Write-Warning "Yuruna.Host (macos.utm): Save-CachedHttpUri resolves to the shared Yuruna.HostDownload implementation (mandatory -ResolveCacheHostIp), not this driver's cache-injecting wrapper; image downloads will silently bypass the squid cache. Check module import order."
+}

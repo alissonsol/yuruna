@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42b1e7d3-c9a4-4f82-a571-6c8d3e5f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,15 +31,15 @@
     here pin the codename in the path to stay aligned.
 #>
 
-# Save-CachedHttpUri and Test-DownloadAlreadyCurrent are exported from
-# the per-host Yuruna.Host.psm1 (currently macOS/UTM and Windows/Hyper-V
-# only). When a caller has imported one of those, Save-UbuntuServerImage
-# routes downloads through the squid cache (HTTPS via :3129 with
-# per-process trust of the freshly-fetched yuruna CA, HTTP via :3128;
-# fall-through to direct Invoke-WebRequest when no cache is reachable).
-# On platforms whose Yuruna.Host.psm1 doesn't ship these helpers (KVM),
-# Save-UbuntuServerImage falls back to a direct Invoke-WebRequest and an
-# inline same-source guard.
+# Save-CachedHttpUri and Test-DownloadAlreadyCurrent are exported from each
+# per-host Yuruna.Host.psm1 driver (all three: KVM, macOS/UTM, Windows/Hyper-V).
+# When a caller has imported its driver, Save-UbuntuServerImage routes downloads
+# through the squid cache (HTTPS via the SSL-bump port with per-process trust of
+# the freshly-fetched yuruna CA, HTTP via the proxy port; fall-through to direct
+# Invoke-WebRequest when no cache is reachable) and reads/writes the shared
+# 4-line sentinel. A bare caller that imports only this module (no host driver)
+# falls back to a direct Invoke-WebRequest with the inline 3-line same-source
+# guard.
 
 function Write-UbuntuImageExceptionDetail {
     param($Record)
@@ -61,7 +61,7 @@ function Get-UbuntuServerImageManifestUrl {
         amd64 stable ISOs live on releases.ubuntu.com (it is amd64-only);
         arm64 stable ISOs live on cdimage.ubuntu.com/releases/<codename>/release.
         Dailies for both arches live on cdimage.ubuntu.com under
-        ubuntu-server/<codename>/daily-live/current — always with the
+        ubuntu-server/<codename>/daily-live/current -- always with the
         codename in the path so the URL keeps working after the rolling
         codename-less path advances to a newer release.
     #>
@@ -241,6 +241,34 @@ function Test-UbuntuServerImageChecksum {
         [Parameter(Mandatory)][string]$DownloadFile
     )
     Write-Information "Verifying download integrity..." -InformationAction Continue
+    # Best-effort: authenticate the SHA256SUMS via its detached GPG signature
+    # before trusting any hash parsed from it. The verifier lives in
+    # Yuruna.Image; import it on demand (that module isn't loaded in the ISO
+    # path) and capture it as a CommandInfo so it resolves against its defining
+    # module. gpg/keyserver absent or no .gpg -> 'unverified' (proceed on hash);
+    # a definitively bad/foreign signature -> fail like a hash mismatch.
+    $sigVerifier = Get-Command Test-PublishedChecksumSignature -ErrorAction SilentlyContinue
+    if (-not $sigVerifier) {
+        $imgMod = Join-Path $PSScriptRoot 'Yuruna.Image.psm1'
+        if (Test-Path -LiteralPath $imgMod) {
+            Import-Module $imgMod -ErrorAction SilentlyContinue
+            $sigVerifier = Get-Command Test-PublishedChecksumSignature -ErrorAction SilentlyContinue
+        }
+    }
+    if ($sigVerifier) {
+        switch (& $sigVerifier -ChecksumUrl $ChecksumUrl) {
+            'good'       { Write-Information "Checksum signature OK (pinned Ubuntu key)." -InformationAction Continue }
+            'unverified' { Write-Warning "SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only." }
+            'bad'        {
+                Write-Warning ('=' * 72)
+                Write-Warning "  SHA256SUMS GPG SIGNATURE INVALID"
+                Write-Warning "  Source   : $ChecksumUrl"
+                Write-Warning "  Failed verification against the pinned Ubuntu signing keys."
+                Write-Warning ('=' * 72)
+                return $false
+            }
+        }
+    }
     try {
         $checksumContent = (Invoke-WebRequest -Uri $ChecksumUrl -ErrorAction Stop).Content
     } catch {
@@ -370,8 +398,9 @@ function Save-UbuntuServerImage {
     New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
 
     # Same-source guard: prefer the host-shipped Test-DownloadAlreadyCurrent
-    # (which uses the same sentinel format), fall back to the bundled
-    # Test-UbuntuServerImageAlreadyCurrent so KVM doesn't need a cache module.
+    # (4-line sentinel; the writer below matches it), fall back to the bundled
+    # Test-UbuntuServerImageAlreadyCurrent (3-line) for a bare caller with no
+    # host driver imported.
     $alreadyCurrent = $false
     if (Get-Command -Name Test-DownloadAlreadyCurrent -ErrorAction SilentlyContinue) {
         $alreadyCurrent = Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin
@@ -399,22 +428,16 @@ function Save-UbuntuServerImage {
     $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
     if (-not (Test-UbuntuServerImageChecksum -ChecksumUrl $checksumUrl -IsoFileName $isoFileName -DownloadFile $downloadFile)) {
-        # Warn-only on checksum mismatch by policy (see docs/install.md):
-        # publisher SHA256SUMS files have occasionally lagged the mirror
-        # by minutes and a hard abort would block the entire test cycle
-        # waiting on an external publisher. The banner above is loud
-        # enough to spot in scrollback; the operator can re-run with the
-        # ISO already present to retry verification once the publisher
-        # catches up. Missing-checksum (Test-...Checksum returns $true)
-        # is handled silently per the same policy.
-        Write-Warning ('=' * 72)
-        Write-Warning "  CONTINUING WITH UNVERIFIED IMAGE BY POLICY"
-        Write-Warning "  File     : $isoFileName"
-        Write-Warning "  Source   : $sourceUrl"
-        Write-Warning "  Verify manually before relying on this build for production:"
-        Write-Warning "    Get-FileHash -Path '$downloadFile' -Algorithm SHA256"
-        Write-Warning "    Invoke-WebRequest -Uri '$checksumUrl' | Select-Object -ExpandProperty Content"
-        Write-Warning ('=' * 72)
+        # Hard-fail on a genuine checksum MISMATCH: a present-and-wrong
+        # publisher hash is corruption or tamper, never benign, so the
+        # downloaded ISO is deleted and the refresh aborts rather than
+        # promoting unverified bytes to the base image. A MISSING upstream
+        # checksum or a transient SHA256SUMS fetch failure stays a soft pass
+        # (publisher mirrors occasionally lag by minutes) -- that path
+        # returns $true from Test-UbuntuServerImageChecksum and never reaches
+        # here. The mismatch banner is printed above.
+        Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+        throw "Image checksum mismatch for $isoFileName (see banner above): the downloaded ISO did not match the publisher SHA256SUMS. Deleted the bad download and aborted; re-run once the publisher checksum catches up."
     }
 
     $previousFile = Join-Path $DownloadDir "$BaseImageName.previous.iso"
@@ -425,7 +448,18 @@ function Save-UbuntuServerImage {
     }
     Move-Item -Path $downloadFile -Destination $baseImageFile
 
-    Set-Content -Path $baseImageOrigin -Value @($isoFileName, $sourceUrl, "$downloadedSize")
+    # Write the sentinel in the SAME format the skip-guard above reads back: when
+    # the host driver ships the 4-line Test-DownloadAlreadyCurrent reader, emit the
+    # matching 4-line sentinel (filename + URL + size + Last-Modified) via
+    # Write-ImageSentinel; otherwise keep the bundled 3-line shape that
+    # Test-UbuntuServerImageAlreadyCurrent reads. An asymmetric writer/reader pair
+    # never matches, so the within-script skip-guard would re-download every
+    # forced refresh.
+    if (Get-Command -Name Test-DownloadAlreadyCurrent -ErrorAction SilentlyContinue) {
+        Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+    } else {
+        Set-Content -Path $baseImageOrigin -Value @($isoFileName, $sourceUrl, "$downloadedSize")
+    }
     Write-Information "Recorded source filename, URL, and byte count to: $baseImageOrigin" -InformationAction Continue
     Write-Information "Download complete: $baseImageFile" -InformationAction Continue
     return 'downloaded'

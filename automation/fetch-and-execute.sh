@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.05
+# Version: 2026.06.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -43,7 +43,11 @@ fi
 
 clear
 
-echo "fetch-and-execute: $FILE_PATH"
+# Heads-up before the download. Worded WITHOUT "fetch"/"execute": the host OCR
+# FailurePattern matcher is fuzzy and those words also appear in the typed
+# command line, so a message carrying them would widen the false-match surface
+# -- the same reason the failure marker below avoids them.
+echo "About to download and run project code: $FILE_PATH"
 
 # --- See https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
 # Resolve the base URL once (host status server, else the GitHub fallback) and

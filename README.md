@@ -63,6 +63,7 @@ After the guest OS is up, test workloads:
 
 ## Read More
 
+- [Host pools](docs/pool-admin.md) — run several hosts as one pool and assign already-developed test sequences to them.
 - [Hosts](host/README.md) · [Guests](guest/README.md) ·
   [Kubernetes Deployment](docs/kubernetes.md) · [Yuruna Requirements](docs/requirements.md)
 - [FAQ](docs/faq.md) · [Contributing](CONTRIBUTING.md) · [Roadmap](docs/roadmap.md) ·
@@ -74,3 +75,5 @@ After the guest OS is up, test workloads:
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12

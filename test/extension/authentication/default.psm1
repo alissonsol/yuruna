@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -531,6 +531,32 @@ function Set-Password {
     }
 }
 
+<#
+.SYNOPSIS
+    Read-only: does vault.yml already hold a non-empty password under VaultKey?
+.DESCRIPTION
+    Peeks the vault WITHOUT auto-generating or creating anything, so a caller can
+    distinguish "a real credential is already stored" from "calling Get-Password
+    here would silently mint a junk random password". poolStorage's loud-fail
+    pre-check uses this to refuse mounting an SMB share with an auto-generated
+    password the NAS would reject. Never writes; returns $false for a missing
+    vault, missing key, or empty password.
+#>
+function Test-VaultEntry {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VaultKey)
+    $key = $VaultKey
+    return (Invoke-WithVaultLock -Action {
+        $vault = Read-VaultUnlocked
+        if (-not $vault.Contains('users')) { return $false }
+        if (-not $vault.users.Contains($key)) { return $false }
+        $entry = $vault.users[$key]
+        if (-not ($entry -is [System.Collections.IDictionary])) { return $false }
+        return -not [string]::IsNullOrEmpty([string]$entry['password'])
+    })
+}
+
 Export-ModuleMember -Function `
     Initialize-VaultConnection, `
     New-RandomPassword, `
@@ -538,6 +564,7 @@ Export-ModuleMember -Function `
     Get-LocalOsPassword, `
     Get-LoginCredential, `
     Get-EffectiveUser, `
+    Test-VaultEntry, `
     Read-UsersConfig, `
     Reset-UsersConfigCache, `
     Set-Password

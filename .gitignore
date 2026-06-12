@@ -431,3 +431,4 @@ Fido.ps1
 .bazel-cache
 .bazelrc.user
 MODULE.bazel.lock
+test/extension/pool-aggregator/pool-aggregator.exe

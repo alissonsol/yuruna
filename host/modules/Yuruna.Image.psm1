@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42de9c8b-f7a6-4b34-9182-3c4d5e6f7ab7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,6 +67,18 @@
 # match a different mirror layout.
 $script:DefaultChecksumPattern = '^([0-9a-fA-F]{64})\s+\*?{0}\s*$'
 
+# Pinned PRIMARY-key fingerprints that sign Ubuntu's published SHA256SUMS:
+# the CD Image key signs the ISO mirrors (releases.ubuntu.com / cdimage),
+# the UEC Image key signs the cloud images; cloud-images.ubuntu.com is
+# dual-signed by both. These are the trust anchor for the best-effort GPG
+# authentication in Test-PublishedChecksumSignature. Refresh on an Ubuntu
+# signing-key rotation: verify a fresh SHA256SUMS.gpg with `gpg --verify` and
+# update the fingerprints here (same discipline as the usbmmidd SHA-256 pin).
+$script:UbuntuImageSignerFingerprint = @(
+    '843938DF228D22F7B3742BC0D94AA3F0EFE21092'  # Ubuntu CD Image Automatic Signing Key (2012)
+    'D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81'  # UEC Image Automatic Signing Key
+)
+
 function Get-ImageChecksumLine {
     <#
     .SYNOPSIS
@@ -102,6 +114,85 @@ function Get-ImageChecksumLine {
     return $m.Groups[1].Value
 }
 
+function Test-PublishedChecksumSignature {
+    <#
+    .SYNOPSIS
+        Best-effort detached-GPG authentication of a published SHA256SUMS
+        file against a pinned set of signing-key fingerprints.
+    .DESCRIPTION
+        Authenticates the SHA256SUMS that the hash check trusts. GPG is a
+        BONUS here, never a hard dependency, so a missing tool, a missing
+        signature, or an unreachable keyserver can NEVER brick a download --
+        those degrade to 'unverified' and the caller proceeds on the hash
+        alone. Only a signature that is present, checkable, and definitively
+        wrong returns 'bad'.
+
+          'unverified' - gpg absent, no detached .gpg published / fetch failed,
+                         keyserver unreachable, or the pinned key can't be
+                         obtained. Caller proceeds on the hash (with a warning).
+          'bad'        - signature present + key available but BAD, or a good
+                         signature from a key OUTSIDE the pinned set (tamper).
+          'good'       - a valid signature from a pinned key.
+
+        The pinned public keys are imported from a repo-bundled keyring into a
+        throwaway homedir (offline; no dirmngr/keyserver, which is unreliable
+        under a custom --homedir on Windows). The pinned FINGERPRINT set is the
+        trust anchor: a signature counts as 'good' only when VALIDSIG names one
+        of the pinned fingerprints, so swapping the bundled key file alone
+        cannot pass verification.
+    .OUTPUTS
+        [string] 'good' | 'bad' | 'unverified'
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$ChecksumUrl,
+        [string]$SignatureUrl,
+        [string[]]$AllowedFingerprint = $script:UbuntuImageSignerFingerprint,
+        [string]$KeyringPath = (Join-Path $PSScriptRoot 'keys/ubuntu-image-signing-keys.asc')
+    )
+    $gpgCmd = Get-Command gpg -ErrorAction SilentlyContinue
+    if (-not $gpgCmd) { return 'unverified' }
+    if (-not (Test-Path -LiteralPath $KeyringPath)) { return 'unverified' }
+    if (-not $SignatureUrl) { $SignatureUrl = "$ChecksumUrl.gpg" }
+    $allow = @($AllowedFingerprint | ForEach-Object { ($_ -replace '\s', '').ToUpperInvariant() })
+    if ($allow.Count -eq 0) { return 'unverified' }
+
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-gpg-' + [Guid]::NewGuid().ToString('N'))
+    $sumsFile = Join-Path $work 'SHA256SUMS'
+    $sigFile  = Join-Path $work 'SHA256SUMS.gpg'
+    try {
+        New-Item -ItemType Directory -Path $work -Force -ErrorAction Stop | Out-Null
+        try {
+            Invoke-WebRequest -Uri $ChecksumUrl  -OutFile $sumsFile -ErrorAction Stop
+            Invoke-WebRequest -Uri $SignatureUrl -OutFile $sigFile  -ErrorAction Stop
+        } catch {
+            return 'unverified'
+        }
+        # Import the bundled pinned public keys into the throwaway keyring
+        # (offline -- no dirmngr/keyserver, which is unreliable under a custom
+        # --homedir on Windows). The pinned fingerprint set is still the trust
+        # anchor: a signature is 'good' only if VALIDSIG names a pinned fpr.
+        & $gpgCmd.Source --homedir $work --batch --quiet --import $KeyringPath 2>$null
+        $status = & $gpgCmd.Source --homedir $work --batch --status-fd 1 --verify $sigFile $sumsFile 2>$null
+        if ($status | Where-Object { $_ -match '^\[GNUPG:\] BADSIG ' }) { return 'bad' }
+        # VALIDSIG carries the signing-key fpr and (last field) the primary-key
+        # fpr; collect every 40-hex token so a subkey signature still matches
+        # via its primary, and intersect with the pinned set.
+        $validFprs = @($status |
+            Where-Object { $_ -match '^\[GNUPG:\] VALIDSIG ' } |
+            ForEach-Object { [regex]::Matches($_, '[0-9A-Fa-f]{40}') } |
+            ForEach-Object { $_.Value.ToUpperInvariant() })
+        if ($validFprs.Count -eq 0) { return 'unverified' }
+        foreach ($f in $allow) { if ($validFprs -contains $f) { return 'good' } }
+        return 'bad'
+    } catch {
+        return 'unverified'
+    } finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Save-ImageWithChecksum {
     <#
     .SYNOPSIS
@@ -129,6 +220,13 @@ function Save-ImageWithChecksum {
           - 'WarnAndContinue'  (default) emit banner, return $true
           - 'WarnAndDelete'    emit banner, delete file, return $false
           - 'Throw'            emit banner, throw an exception
+    .PARAMETER VerifyUbuntuSignature
+        When set and a -ChecksumUrl is used, best-effort authenticate the
+        published SHA256SUMS via its detached GPG signature against the pinned
+        Ubuntu signing keys (Test-PublishedChecksumSignature) before trusting
+        the hash. A definitively bad/foreign signature is treated like a
+        mismatch (subject to -OnMismatch); gpg/keyserver/signature-absent
+        degrades to a warning and proceeds on the hash.
     .OUTPUTS
         [bool] $true when the download landed successfully (regardless
         of checksum outcome under WarnAndContinue); $false when the
@@ -144,7 +242,8 @@ function Save-ImageWithChecksum {
         [string]$ChecksumTargetFileName,
         [string]$ChecksumPattern = $script:DefaultChecksumPattern,
         [ValidateSet('WarnAndContinue','WarnAndDelete','Throw')]
-        [string]$OnMismatch = 'WarnAndContinue'
+        [string]$OnMismatch = 'WarnAndContinue',
+        [switch]$VerifyUbuntuSignature
     )
     if (-not $PSCmdlet.ShouldProcess($DestPath, "Download $SourceUrl with checksum policy $OnMismatch")) { return $true }
     $destDir = Split-Path -Parent $DestPath
@@ -179,6 +278,26 @@ function Save-ImageWithChecksum {
         # No checksum source supplied at all -- caller chose to download
         # without integrity check. Same accepting-policy as missing-entry.
         return $true
+    }
+    if ($VerifyUbuntuSignature -and $ChecksumUrl) {
+        switch (Test-PublishedChecksumSignature -ChecksumUrl $ChecksumUrl) {
+            'good'       { Write-Information "  SHA256SUMS GPG signature OK (pinned Ubuntu key)" -InformationAction Continue }
+            'unverified' { Write-Warning "Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only." }
+            'bad'        {
+                Write-Warning ('=' * 72)
+                Write-Warning "  SHA256SUMS GPG SIGNATURE INVALID"
+                Write-Warning "  Checksum : $ChecksumUrl"
+                Write-Warning "  The published checksum file failed signature verification against"
+                Write-Warning "  the pinned Ubuntu signing keys -- treating the source as tampered."
+                Write-Warning "  Policy   : $OnMismatch"
+                Write-Warning ('=' * 72)
+                switch ($OnMismatch) {
+                    'WarnAndContinue' { }
+                    'WarnAndDelete'   { Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue; return $false }
+                    'Throw'           { throw "SHA256SUMS GPG signature invalid for $ChecksumUrl" }
+                }
+            }
+        }
     }
     Write-Information "Verifying SHA-256 against publisher checksum..." -InformationAction Continue
     $actual = (Get-FileHash -Path $DestPath -Algorithm SHA256).Hash
@@ -271,4 +390,4 @@ function Convert-Qcow2ToVhdx {
     return $true
 }
 
-Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Convert-Qcow2ToVhdx
+Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature

@@ -29,7 +29,7 @@ and places seed + VHDX there.
 
 - Start from Hyper-V Manager. Default credentials: `ec2-user` /
   `amazonlinux` (override in
-  [vmconfig/user-data](./vmconfig/user-data)). Upgrade if prompted by
+  [host/vmconfig/amazon.linux.2023.base.user-data](../../vmconfig/amazon.linux.2023.base.user-data)). Upgrade if prompted by
   `dnf check-release-update`.
 - `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh`
   installs the GUI and tools (cloud-init seeded `fetch-and-execute.sh`
@@ -46,8 +46,10 @@ Contribution opportunity. The
 path was tested ([TightVNC](https://www.tightvnc.com/download.php) client)
 but 1920×1080 settings produced 1024×768.
 
-Back to [Amazon Linux guest (Hyper-V)](README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

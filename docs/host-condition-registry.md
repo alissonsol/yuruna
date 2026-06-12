@@ -114,8 +114,10 @@ use.
 - [Host I/O registry](host-io.md) — the older two-level registry that established the pattern.
 - [macOS host](host-macos.md), [Hyper-V host](host-hyperv.md) — per-platform deep dives.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

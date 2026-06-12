@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -377,6 +377,52 @@ function Clear-GuestSshUserOverride {
     }
 }
 
+function Get-SshReadinessFailureCause {
+<#
+.SYNOPSIS
+Classifies why Wait-SshReady exhausted its budget into one discriminator the
+operator (and any remediator) can route on, instead of a single generic
+network_timeout.
+.DESCRIPTION
+Pure: derives the cause from the final probe error text and whether a real
+guest IP was ever discovered. "Reached-sshd" evidence in the error (Permission
+denied / Connection refused / host-key) ranks ABOVE the IP-discovery signal:
+on a host where the bare VM name resolves, ssh reaches sshd without
+Get-GuestAddress ever returning a discovered IP, so there the auth/refused
+reason is the true cause -- not "ip_not_discovered".
+.PARAMETER IpDiscovered
+$true if Get-GuestAddress returned a real, validated IPv4 during the wait.
+.PARAMETER LastError
+The final probe's combined stdout+stderr (or the probe-timeout note).
+.OUTPUTS
+System.String -- one of: auth_denied, connection_refused, host_key_changed,
+probe_timeout, ip_not_discovered, name_unresolved, network_unreachable,
+handshake_failed.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [bool]$IpDiscovered,
+        [string]$LastError
+    )
+    $e = if ($LastError) { $LastError } else { '' }
+    # 1. Evidence we reached sshd -- the true cause regardless of IP discovery.
+    if ($e -match 'Permission denied|publickey|Too many authentication')     { return 'auth_denied' }
+    if ($e -match 'Connection refused')                                      { return 'connection_refused' }
+    if ($e -match 'Host key verification failed|REMOTE HOST IDENTIFICATION') { return 'host_key_changed' }
+    if ($e -match 'probe timed out')                                         { return 'probe_timeout' }
+    # 2. Never reached sshd. No discovered IP => the host-side discovery layer
+    #    (KVP integration services / DHCP lease / utmctl ip-address) never
+    #    answered -- the recoverable lateness class, distinct from an sshd or
+    #    auth fault (feedback_get_guestaddress_no_polling,
+    #    feedback_hyperv_external_vswitch_arp_discovery).
+    if (-not $IpDiscovered)                                                  { return 'ip_not_discovered' }
+    # 3. A real IP, but the network path to it never came up.
+    if ($e -match 'Could not resolve|Name or service not known|nodename nor servname') { return 'name_unresolved' }
+    if ($e -match 'No route to host|Connection timed out|Operation timed out|timed out') { return 'network_unreachable' }
+    return 'handshake_failed'
+}
+
 function Wait-SshReady {
 <#
 .SYNOPSIS
@@ -411,6 +457,10 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     $lastError  = ''
     $attempts   = 0
     $lastTarget = ''
+    # Did host-side discovery ever hand us a real IP? Separates the recoverable
+    # "KVP/DHCP/utmctl never reported an address" wait from a genuine sshd/auth
+    # fault when the gate fails (drives Get-SshReadinessFailureCause below).
+    $ipEverDiscovered = $false
     # Per-probe wall-clock cap. ConnectTimeout=5 only bounds TCP setup; if
     # the SSH banner / kex_exchange_identification stalls (or the post-
     # handshake session goes half-dead -- TCP ESTABLISHED both ends, no
@@ -446,6 +496,10 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         if ($target -ne $lastTarget) {
             Write-Debug "  sshWaitReady target: $user@$target (from VMName '$VMName')"
             $lastTarget = $target
+        }
+        # A real discovered IP (not the Get-GuestAddress VMName fallback).
+        if (-not $ipEverDiscovered -and $target -and $target -ne $VMName -and (Test-IpAddress $target)) {
+            $ipEverDiscovered = $true
         }
         $psi = [System.Diagnostics.ProcessStartInfo]::new()
         $psi.FileName               = 'ssh'
@@ -509,52 +563,71 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         Start-Sleep -Seconds $thisPollSeconds
     }
 
-    # Failure path: dump everything we can for diagnostics.
+    # Failure path. Classify WHY before dumping diagnostics, so the dumps and
+    # the operator guidance target the actual cause.
+    $cause = Get-SshReadinessFailureCause -IpDiscovered $ipEverDiscovered -LastError $lastError
     Write-Warning "SSH did not become ready within ${TimeoutSeconds}s (${attempts} attempts): $user@$lastTarget"
+    Write-Warning "  cause         : $cause (ipDiscovered=$ipEverDiscovered)"
     Write-Warning "  last ssh error: $lastError"
     Write-Warning "  private key   : $key"
 
-    # 1. Local public key + fingerprint
-    try {
-        $pubPath = "$key.pub"
-        if (Test-Path $pubPath) {
-            $pubLine = (Get-Content -Raw $pubPath).Trim()
-            Write-Warning "  local pubkey  : $pubLine"
-            $fp = & ssh-keygen -lf $pubPath 2>&1
-            Write-Warning "  fingerprint   : $fp"
-        }
-    } catch { Write-Warning "  pubkey dump failed: $_" }
-
-    # 2. Private-key ACL (Windows OpenSSH strict-mode rejection diagnostic)
-    if ($IsWindows) {
+    if ($cause -eq 'ip_not_discovered') {
+        # Never resolved a guest IP and never reached sshd: a host-side
+        # discovery wait (KVP integration services / DHCP lease / utmctl
+        # ip-address still empty), not an sshd or auth fault. The pubkey / ACL
+        # / verbose-handshake dumps below diagnose sshd+auth, so against the
+        # bare VM-name fallback they would only echo DNS failures -- skip them
+        # and point at the real fix instead.
+        Write-Warning "  guest IP was never discovered within the budget -- the host-side"
+        Write-Warning "  discovery layer (KVP / DHCP lease / utmctl) did not report an"
+        Write-Warning "  address. This is a discovery wait, not an sshd/auth failure:"
+        Write-Warning "  extend the budget or repair discovery (e.g. active ARP probe on a"
+        Write-Warning "  Hyper-V External vSwitch) before debugging sshd."
+    } else {
+        # We reached (or could resolve) a host: dump the sshd/auth diagnostics.
+        # 1. Local public key + fingerprint
         try {
-            $aclLines = (& icacls $key 2>&1) -split "`r?`n" | Where-Object { $_.Trim() }
-            foreach ($l in $aclLines) { Write-Warning "  acl: $l" }
-        } catch { Write-Warning "  icacls failed: $_" }
-    }
+            $pubPath = "$key.pub"
+            if (Test-Path $pubPath) {
+                $pubLine = (Get-Content -Raw $pubPath).Trim()
+                Write-Warning "  local pubkey  : $pubLine"
+                $fp = & ssh-keygen -lf $pubPath 2>&1
+                Write-Warning "  fingerprint   : $fp"
+            }
+        } catch { Write-Warning "  pubkey dump failed: $_" }
 
-    # 3. One verbose handshake so the actual reason is in the log.
-    Write-Warning "  --- verbose handshake follows ---"
-    try {
-        $vout = & ssh -v -i $key `
-            -o BatchMode=yes `
-            -o StrictHostKeyChecking=no `
-            -o UserKnownHostsFile=/dev/null `
-            -o GlobalKnownHostsFile=/dev/null `
-            -o ConnectTimeout=5 `
-            "$user@$lastTarget" "echo yuruna-ssh-ready" 2>&1
-        foreach ($line in (($vout | Out-String) -split "`r?`n")) {
-            if ($line.Trim()) { Write-Warning "    [ssh -v] $($line.TrimEnd())" }
+        # 2. Private-key ACL (Windows OpenSSH strict-mode rejection diagnostic)
+        if ($IsWindows) {
+            try {
+                $aclLines = (& icacls $key 2>&1) -split "`r?`n" | Where-Object { $_.Trim() }
+                foreach ($l in $aclLines) { Write-Warning "  acl: $l" }
+            } catch { Write-Warning "  icacls failed: $_" }
         }
-    } catch { Write-Warning "  verbose dump failed: $_" }
-    Write-Warning "  --- end verbose handshake ---"
+
+        # 3. One verbose handshake so the actual reason is in the log.
+        Write-Warning "  --- verbose handshake follows ---"
+        try {
+            $vout = & ssh -v -i $key `
+                -o BatchMode=yes `
+                -o StrictHostKeyChecking=no `
+                -o UserKnownHostsFile=/dev/null `
+                -o GlobalKnownHostsFile=/dev/null `
+                -o ConnectTimeout=5 `
+                "$user@$lastTarget" "echo yuruna-ssh-ready" 2>&1
+            foreach ($line in (($vout | Out-String) -split "`r?`n")) {
+                if ($line.Trim()) { Write-Warning "    [ssh -v] $($line.TrimEnd())" }
+            }
+        } catch { Write-Warning "  verbose dump failed: $_" }
+        Write-Warning "  --- end verbose handshake ---"
+    }
 
     # Surface the failure as a structured NDJSON event so an autonomous
     # remediator routes on `event=ssh_handshake_failed` without having to
-    # regex-parse the Write-Warning stream. lastError carries the final
-    # probe output (cookie of root-cause keywords: "Permission denied",
-    # "Connection refused", "Host key verification failed"); attempts /
-    # timeout pin down whether the gate was time- or attempt-bounded.
+    # regex-parse the Write-Warning stream. `cause` is the granular
+    # discriminator (ip_not_discovered vs auth_denied vs connection_refused
+    # ...) whose remediations differ; `ipDiscovered` says whether the wait
+    # ever saw a real address. lastError carries the final probe output;
+    # attempts / timeout pin down whether the gate was time- or attempt-bounded.
     Send-CycleEventSafely -EventRecord @{
         timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
         event            = 'ssh_handshake_failed'
@@ -566,6 +639,8 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         pollSeconds      = [int]$PollSeconds
         probeCapSeconds  = [int]$probeCapSeconds
         lastError        = [string]$lastError
+        cause            = [string]$cause
+        ipDiscovered     = [bool]$ipEverDiscovered
         failureClass     = 'network_timeout'
         severity         = 'soft'
     }
@@ -686,4 +761,4 @@ System.String IPv4 on success, $null on timeout.
     return $null
 }
 
-Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Wait-SshReady, Invoke-GuestSsh, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp
+Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Wait-SshReady, Get-SshReadinessFailureCause, Invoke-GuestSsh, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp

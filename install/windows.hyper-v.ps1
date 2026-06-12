@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git\yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
-    [string]$YurunaBranch = 'main',
+    [string]$YurunaBranch = '2026.06.12',
     [switch]$SkipPreflight
 )
 
@@ -192,6 +192,42 @@ if (-not $SkipPreflight) {
     Test-DisplayScaling
 }
 
+# -- Single-fetch materialization (irm|iex path) ---------------------------
+# Under `irm | iex` there is no $PSCommandPath, so the elevation and PS7
+# relaunches below would each RE-FETCH the installer from the moving ref --
+# extra unverified swings, two of them in the elevated context (the Rank-4
+# threat). Instead fetch the source ONCE here to a BOM-less temp file and
+# relaunch via -File, so every child runs from that one file with a real
+# $PSCommandPath and never re-fetches. Byte-true IRM-to-temp (not
+# ScriptBlock.ToString(), whose PS5.1 round-trip fidelity is unverified), so
+# the materialized bytes match the canonical installer.
+#
+# Sweep stale materialization temps left by a crashed prior run (>1h old; the
+# age guard never touches a concurrent run's fresh temp).
+Get-ChildItem -LiteralPath $env:TEMP -Filter 'yuruna-windows-hyper-v-*.ps1' -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+
+if (-not $PSCommandPath) {
+    $installerUrl = 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1'
+    $matTmp = Join-Path $env:TEMP ('yuruna-windows-hyper-v-' + [guid]::NewGuid().ToString('N') + '.ps1')
+    Write-Step 'Materializing installer to a temp file (single fetch; relaunches use -File)'
+    $src = Invoke-RestMethod $installerUrl
+    # BOM-less UTF-8: Set-Content -Encoding UTF8 emits a BOM on PS5.1 that breaks
+    # the relaunched -File at the param block (feedback_bootstrap_installer_no_bom).
+    [System.IO.File]::WriteAllText($matTmp, $src, (New-Object System.Text.UTF8Encoding $false))
+    $currentShellExe = $null
+    try { $currentShellExe = (Get-Process -Id $PID).Path } catch { $currentShellExe = $null }
+    if (-not $currentShellExe) { $currentShellExe = 'powershell.exe' }
+    # Preflight already ran in this iex process, so the -File child skips it.
+    $matArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$matTmp`"", '-SkipPreflight')
+    if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $matArgs += @('-YurunaDir',    "`"$YurunaDir`"") }
+    if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $matArgs += @('-YurunaRepo',   "`"$YurunaRepo`"") }
+    if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $matArgs += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    & $currentShellExe $matArgs
+    return
+}
+
 # -- Elevation announcement + self-relaunch --------------------------------
 $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent())
@@ -216,23 +252,14 @@ if (-not $isAdmin) {
     $currentShellExe = $null
     try { $currentShellExe = (Get-Process -Id $PID).Path } catch { $currentShellExe = $null }
     if (-not $currentShellExe) { $currentShellExe = 'powershell.exe' }
-    if ($PSCommandPath) {
-        $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"", '-SkipPreflight')
-        if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
-        if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
-        if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
-        Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList $argList
-    } else {
-        $bootstrap = @"
-`$ErrorActionPreference='Stop'
-`$u='https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1'
-`$src = Invoke-RestMethod `$u
-`$sb  = [scriptblock]::Create(`$src)
-& `$sb -SkipPreflight
-"@
-        Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList @(
-            '-NoProfile','-ExecutionPolicy','Bypass','-Command', $bootstrap)
-    }
+    # $PSCommandPath is always set here (the materialization gate above relaunches
+    # the irm|iex case via -File), so the elevated child runs from a file and
+    # never re-fetches in the elevated context.
+    $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"", '-SkipPreflight')
+    if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
+    if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
+    if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList $argList
     return
 }
 
@@ -274,28 +301,14 @@ re-run this installer.
 '@
     }
     Write-Step "  Re-executing under $($pwshCmd.Source)"
-    if ($PSCommandPath) {
-        $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"", '-SkipPreflight')
-        if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
-        if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
-        if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
-        & $pwshCmd.Source $argList
-        return
-    } else {
-        $tmp = Join-Path $env:TEMP ("yuruna-windows-hyper-v-" + [guid]::NewGuid().ToString('N') + '.ps1')
-        $u   = 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1'
-        # WriteAllText + BOM-less UTF8 so the re-fetched copy stays byte-identical
-        # to the canonical no-BOM installer; Set-Content -Encoding UTF8 emits a BOM
-        # on PS5.1 that breaks the relaunched `irm | iex` at the param block.
-        $src = Invoke-RestMethod $u
-        [System.IO.File]::WriteAllText($tmp, $src, (New-Object System.Text.UTF8Encoding $false))
-        try {
-            & $pwshCmd.Source -NoProfile -ExecutionPolicy Bypass -File $tmp -SkipPreflight
-            return
-        } finally {
-            Remove-Item -Path $tmp -Force -ErrorAction SilentlyContinue
-        }
-    }
+    # $PSCommandPath is always set here (materialization gate above) -- relaunch
+    # from the file under pwsh, never re-fetch.
+    $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"", '-SkipPreflight')
+    if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
+    if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
+    if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    & $pwshCmd.Source $argList
+    return
 }
 
 # -- Stop running Yuruna processes -----------------------------------------
@@ -870,4 +883,13 @@ $script:InstallSucceeded = $true
             Start-Sleep -Seconds 60
         }
     }
+}
+
+# -- Clean up the single-fetch materialization temp ------------------------
+# Only the final stage reaches here (relaunch stages return earlier). When this
+# run arrived via the irm|iex materialization gate, $PSCommandPath is that temp
+# file -- remove it now. A crash before this point leaves it for the >1h sweep
+# at the next run's top.
+if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -match '^yuruna-windows-hyper-v-[0-9a-fA-F]{32}\.ps1$') {
+    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }

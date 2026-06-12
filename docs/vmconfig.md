@@ -22,8 +22,9 @@ host needs an exception or addition.
 
 ## How user-data is rendered
 
-Each `host/<host>/guest.<guest>/New-VM.ps1` reads
-`vmconfig/user-data` as a template and substitutes the following
+Each `host/<host>/guest.<guest>/New-VM.ps1` merges the shared
+`host/vmconfig/<guest>.base.user-data` with its per-host overlay (via
+`Build-CloudInitUserData`) and substitutes the following
 placeholders before handing the result to `genisoimage` (KVM),
 `hdiutil makehybrid` (macos.utm) or to the cloud-init NoCloud
 datasource (Hyper-V):
@@ -96,6 +97,15 @@ cache.
 omitted when no caching-proxy is reachable. Pinning primary + disabling
 geoip skips the `geoip.ubuntu.com` HTTPS lookup that otherwise adds
 seconds to mirror election.
+
+`primary:` (not curtin's `sources_list:` template): the server squashfs
+ships a Deb822 `/etc/apt/sources.list.d/ubuntu.sources` already pointing
+at the archive, and curtin's `modifymirrors` rewrites that URI in place —
+so one `primary:` pin yields a single fully-rewritten source and apt
+fetches indexes once. A `sources_list:` block instead writes a *second*
+apt config beside the existing `ubuntu.sources`, doubling every per-suite
+index fetch on noble; on resolute's curtin (subiquity snap 7227) it aborts
+`subiquity/Mirror/cmd-apt-config` with exit 1 and drops to a recovery shell.
 
 `String.Replace()` is substring-based, so the literal token
 `APT_PROXY_BLOCK_PLACEHOLDER` must not appear inside any other comment
@@ -265,8 +275,8 @@ loopback+conntrack so netfilter-persistent has a valid file to load
 
 Anchor: `pin-ipv4-dhcp-refuse-ipv6-ra`
 
-The autoinstall `network:` block in
-`host/macos.utm/guest.ubuntu.server.{24,26}/vmconfig/user-data` pins
+The autoinstall `network:` block in the shared
+`host/vmconfig/ubuntu.server.base.user-data` pins
 the primary NIC (`match: name: "en*"`) to `dhcp4: true; dhcp6: false;
 accept-ra: false`. The glob (rather than a literal `enp0s1`) survives
 the 26.04 guest's NIC model switch from `virtio-net-pci` (`enp0s1`)
@@ -615,7 +625,7 @@ status line and never matches `Current password:`.
 Anchor: `console-fb-safe`
 
 ```
-# host/ubuntu.kvm/guest.ubuntu.server.{24,26}/vmconfig/user-data
+# host/vmconfig/ubuntu.server.kvm.overlay.yml (YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET)
 - |
   cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
   GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"
@@ -883,8 +893,10 @@ first successful run.
   there's a real dependency, but please document why in a one-line
   comment beside the out-of-order step.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

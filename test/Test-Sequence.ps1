@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,6 +81,11 @@ param(
     [switch]$ShowSensitive,
 
     [switch]$NoConfigGate,
+
+    # Skip the built-in HTTP status server, matching Invoke-TestRunner /
+    # Invoke-TestInnerRunner. Without it, an enabled statusService is started
+    # (restarted) so the dashboard tracks this run.
+    [switch]$NoServer,
 
     # Three-state: omitted -> read from test.config.yml.logLevel;
     # explicit value -> override (wins over YAML). Single-pass resolution
@@ -195,11 +200,10 @@ if (-not $cloneRes.success) {
 }
 
 # === Ensure status server is running (restart to pick up any changes) ===
+# Shared gate (Test.Prelude) so isEnabled / -NoServer / port / restart match the
+# inner runner. -Restart: a re-invoked Test-Sequence must pick up edits.
 $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
-if ($Config.statusService.isEnabled) {
-    $serverPort = $Config.statusService.port ? [int]$Config.statusService.port : 8080
-    & $startScript -Port $serverPort -Restart
-}
+$null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer -Restart
 
 # === Detect host ===
 # HostType is resolved BEFORE sequence resolution so Resolve-SequencePath can
@@ -661,14 +665,12 @@ foreach ($entry in $ChainEntries) {
 Write-Output ""
 
 # === Run each chain entry that overlaps the requested step range ===
-# Per-entry slice + temp-file + Invoke-Sequence + mid-chain rename
-# detection lives in Test.SequenceRunner.psm1 (Invoke-TestSequenceChain).
-# The $tempFiles list + finally cleanup remain in this script so a
-# pre-call exception (failing module-resolution, control-C) still sweeps
-# the slice files. A mid-chain saveDiskSnapshot rename surfaces via the
-# returned finishedVmName so this script's outer $VMName tracks the
-# rename for the post-run banner.
-$tempFiles = New-Object System.Collections.Generic.List[string]
+# Per-entry step-window run + mid-chain rename detection lives in
+# Test.SequenceRunner.psm1 (Invoke-TestSequenceChain); it runs each entry's real
+# file via Invoke-Sequence -StartStep/-StopStep, so there are no slice temp
+# files to sweep. A mid-chain saveDiskSnapshot rename surfaces via the returned
+# finishedVmName so this script's outer $VMName tracks the rename for the
+# post-run banner.
 # Outcome tracker for the finally{} -- script-scope so a mid-try exit
 # captures the right disposition before Stop-LogFile emits cycle_end.
 # 'unknown' is the safe default if control bails before either of the
@@ -676,6 +678,12 @@ $tempFiles = New-Object System.Collections.Generic.List[string]
 $script:TestSequenceOutcome = 'unknown'
 $script:TestSequenceReason  = ''
 try {
+    # Pass the planner's List[object] straight through -- do NOT wrap in @().
+    # Resolve-TestSequencePlan always returns chainEntries as a List (an IList),
+    # which binds directly to the IList parameter. Wrapping a generic List in @()
+    # yields an array that a Mandatory [IList]/[object[]] parameter rejects with
+    # "Argument types do not match" (a PowerShell @()-over-List binding quirk), so
+    # the wrap would break the very single-entry warm path it appears to protect.
     $result = Invoke-TestSequenceChain `
         -ChainEntries $ChainEntries `
         -ChainPlan $ChainPlan `
@@ -686,8 +694,6 @@ try {
         -HostType $HostType `
         -GuestKey $GuestKey `
         -VMName $VMName `
-        -RequiredSnapshotId $requiredSnapshotId `
-        -TempFiles $tempFiles `
         -SequenceName $SequenceName `
         -ShowSensitive:$ShowSensitive
     if (-not $result.ok) {
@@ -699,9 +705,6 @@ try {
     $script:TestSequenceOutcome = 'pass'
     exit $ExitOk
 } finally {
-    foreach ($tf in $tempFiles) {
-        Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue
-    }
     # Ctrl+C cleanup: stop the VM so an interrupted run does not orphan
     # a half-baked guest holding host CPU + memory. Normal completion
     # leaves the VM running so the dev can ssh in and iterate. The disk

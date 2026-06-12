@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,6 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 $commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
 
-# Inform and check for elevation
 Write-Verbose "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
 	Write-Output "Please run this script as Administrator."
@@ -133,9 +132,18 @@ if (!(Test-Path -Path $vhdxFile)) {
 	Write-Verbose "Target VHDX already exists: $vhdxFile -- leaving as is."
 }
 
-$vmConfigDir = Join-Path $PSScriptRoot "vmconfig"
-$MetaDataTemplate = Join-Path $vmConfigDir "meta-data"
-$UserDataTemplate = Join-Path $vmConfigDir "user-data"
+# user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
+# byte-identical across the three host platforms). Anchor contract:
+# automation/Yuruna.CloudInitTemplate.psm1.
+$repoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$hostVmConfigDir = Join-Path $repoRoot 'host/vmconfig'
+$baseUserData    = Join-Path $hostVmConfigDir 'amazon.linux.2023.base.user-data'
+$overlayUserData = Join-Path $hostVmConfigDir 'amazon.linux.2023.hyperv.overlay.yml'
+$MetaDataTemplate = Join-Path $hostVmConfigDir 'amazon.linux.2023.meta-data'
+foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
+    if (-not (Test-Path -LiteralPath $f)) { Write-Error "Template missing: $f"; exit 1 }
+}
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
 # Generate cloud-init seed ISO. 4-digit entropy is weak by design (10k
 # cases) but enough to defeat the deterministic-path symlink trap: an
@@ -197,17 +205,20 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna-retry.sh + fetch-and-execute.sh + yuruna-network.sh into the seed
-# as base64-encoded write_files entries. Eliminates the legacy network-dependent
-# wget+wget bootstrap and ensures all three files are on disk before any guest
-# script runs.
-$YurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
-$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna-retry.sh')))
-$YurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'fetch-and-execute.sh')))
-$YurunaNetworkB64    = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna-network.sh')))
-
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('USERNAME_PLACEHOLDER', $Username).Replace('PLAINTEXT_PASSWORD_PLACEHOLDER', $Password).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64).Replace('YURUNA_NETWORK_BASE64_PLACEHOLDER', $YurunaNetworkB64)
+# Build-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
+# fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
+# write_files entries, then resolves the per-cycle placeholders below.
+$UserData = Build-CloudInitUserData `
+    -BasePath    $baseUserData `
+    -OverlayPath $overlayUserData `
+    -RepoRoot    $repoRoot `
+    -Replacement @{
+        USERNAME_PLACEHOLDER           = $Username
+        PLAINTEXT_PASSWORD_PLACEHOLDER = $Password
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+    } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"

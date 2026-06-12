@@ -156,8 +156,10 @@ cmdlet (notably Hyper-V on Windows).
 No edit to `Invoke-Sequence.psm1` is required for the registry path —
 the engine discovers the registration via `$global:YurunaSequenceActions`.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

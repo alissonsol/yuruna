@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     triggers the current/new/retype dialog.
 
     Workflow:
-      1. Build seed.iso from vmconfig/user-data + meta-data (CIDATA volume).
+      1. Build seed.iso from host/vmconfig/ubuntu.server.base.user-data + meta-data (CIDATA volume).
          Subiquity scans CD/DVD drives for cidata at boot and consumes the
          autoinstall config from there.
       2. Create a fresh empty 32 G qcow2 disk -- subiquity installs onto it.
@@ -185,11 +185,9 @@ if (Test-Path -LiteralPath $cfg) {
 }
 
 # -- Build the autoinstall apt block --------------------------------------
-# Always emit `geoip: false` + a pinned primary mirror, even when no
-# caching-proxy is reachable -- subiquity's default `geoip: true` fires an
-# HTTPS lookup to geoip.ubuntu.com that adds seconds to mirror election.
-# Pinning primary makes the election deterministic. Format / placement
-# match the hyper-v variant.
+# Always emit `geoip: false` + a pinned `primary:` mirror (deterministic
+# election; `primary:` not `sources_list:`).
+# --- See https://yuruna.link/vmconfig#apt-proxy-block
 $AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
 $AptProxyBlock = @"
   apt:
@@ -229,11 +227,10 @@ if ($CachingProxyUrl) {
 }
 
 # -- Render user-data / meta-data ------------------------------------------
-# user-data is the shared base + KVM overlay under host/vmconfig/. The
-# meta-data file stays per-guest for now. Three Split-Path -Parent walks:
-# guest.ubuntu.server.24/ -> ubuntu.kvm/ -> host/ -> <RepoRoot>. Anchor
-# contract: automation/Yuruna.CloudInitTemplate.psm1.
-$metaDataTemplate = Join-Path $ScriptDir 'vmconfig/meta-data'
+# user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
+# byte-identical across the three host platforms; ubuntu.server.24 and .26
+# share one file). Anchor contract: automation/Yuruna.CloudInitTemplate.psm1.
+$metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/ubuntu.server.meta-data'
 $repoRoot         = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 $hostVmConfigDir  = Join-Path $repoRoot 'host/vmconfig'
 $baseUserData     = Join-Path $hostVmConfigDir 'ubuntu.server.base.user-data'
@@ -246,13 +243,12 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 # --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
-# write_files entries. Eliminates the legacy network-dependent wget+wget
-# bootstrap and ensures both files are on disk before any guest script runs.
-# Build-CloudInitUserData reads + base64-encodes the two scripts from
-# $repoRoot/automation/, populates YURUNA_RETRY_LIB_BASE64_PLACEHOLDER /
-# YURUNA_FAE_BASE64_PLACEHOLDER, then renders the merged template with
-# the per-cycle replacements below.
+# Bake the guest-side lib scripts into the seed as base64-encoded write_files
+# entries. Eliminates the legacy network-dependent wget+wget bootstrap and
+# ensures the files are on disk before any guest script runs.
+# Build-CloudInitUserData reads + base64-encodes the scripts under
+# $repoRoot/automation/, populates their *_BASE64_PLACEHOLDER tokens, then
+# renders the merged template with the per-cycle replacements below.
 $userData = Build-CloudInitUserData `
     -BasePath    $baseUserData `
     -OverlayPath $overlayUserData `
@@ -287,7 +283,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # -- Create empty install target -------------------------------------------
 # Fresh 64 G qcow2; subiquity will partition + install onto it. Paired with
-# sizing-policy: all in vmconfig/user-data so the root LV consumes the
+# sizing-policy: all in host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the
 # whole PV instead of subiquity's default ~50% server heuristic that left
 # kubelet's image filesystem at ~14 GiB and tripped ephemeral-storage
 # eviction during the website test.

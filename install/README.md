@@ -50,6 +50,54 @@ the same script, but the process-substitution form keeps the script as
 a real file argument for bash, which sidesteps a stdin/sudo-prompt
 edge case some Ubuntu terminals trip on.
 
+> The one-liners above are the **convenience path** and are **UNVERIFIED** by
+> construction (a single pipe runs the bytes before anything can check them).
+> They fetch the moving `refs/heads/main`. For a tagged release, prefer the
+> **verified** path below.
+
+## Verified install (signed release)
+
+> Available for published release **tags**. The signing artifacts
+> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.06.12`;
+> until that tag is cut, use the convenience one-liners above.
+
+A tagged release publishes, next to each installer:
+
+- `install/install.sha256` — SHA-256 of the three installers, and
+- `install/install.sha256.sig` — a detached RSA signature of that manifest,
+
+verifiable against the bundled public key `install/keys/yuruna-release-signing.pub`
+(`.pem` for `openssl`, `.xml` for Windows PowerShell). This defends a compromised
+CDN/mirror or a moved ref — not just same-channel corruption. **First confirm the
+key fingerprint out-of-band** (see [install/keys/README.md](keys/README.md)):
+
+```
+SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef4571c5c337
+```
+
+**Windows Hyper-V** (PowerShell 5.1+; uses .NET, no extra tooling):
+
+```
+$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.06.12'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
+'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
+$k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
+if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
+$h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); if(-not(Select-String -Path "$t\install.sha256" -SimpleMatch $h)){throw 'INSTALLER HASH MISMATCH -- do not run'}
+& "$t\windows.hyper-v.ps1"
+```
+
+**macOS UTM / Ubuntu KVM** (uses `openssl`, present on both):
+
+```
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.06.12'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
+t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")"; done
+openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
+grep -qF "$(sha256sum "$t/$(basename "$S")" | cut -d' ' -f1)" "$t/install.sha256" || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
+bash "$t/$(basename "$S")"
+```
+
+The detached signature is produced at release time by `tools/Update-YurunaReleasePins.ps1`.
+
 Each link in the table above goes to the per-host README with the
 post-install steps (group membership, screen-saver settings, TCC
 grants, etc.).
@@ -69,8 +117,10 @@ once per host to authenticate. The installer cannot do this for you:
 authentication requires an interactive web flow (or a personal-access
 token paste) that the operator has to drive.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

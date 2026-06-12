@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@ if (-not $IsLinux) {
 
 # === Configuration ===
 # Ubuntu 24.04 LTS (Noble Numbat). Pinned per the stash-service spec
-# (§3.1: default image ubuntu.server.24).
+# (section 3.1: default image ubuntu.server.24).
 $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $imgArch = 'amd64' }
@@ -42,11 +42,12 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# Skip-if-same-source guard + sentinel writer come from the shared host module
-# (4-line filename + URL + size + Last-Modified format), so every KVM guest
-# uses one implementation.
+# The KVM host driver brings the skip-if-same-source guard + sentinel writer
+# (Test-DownloadAlreadyCurrent / Write-ImageSentinel, the shared 4-line filename +
+# URL + size + Last-Modified format) AND the cache-aware Save-CachedHttpUri
+# wrapper that routes this download through the squid cache.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
-Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.HostDownload.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     $skipLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
@@ -74,7 +75,8 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath    $downloadFile `
     -ChecksumUrl "$sourceDir/SHA256SUMS" `
     -ChecksumTargetFileName $sourceBaseName `
-    -OnMismatch  'WarnAndContinue' `
+    -OnMismatch  'WarnAndDelete' `
+    -VerifyUbuntuSignature `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $sourceUrl"

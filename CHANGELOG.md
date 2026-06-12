@@ -4,6 +4,27 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.06.12
+
+- **Multi-host pool harness.** Test hosts can run as a named **pool** sharing
+  sequences and reporting under one `poolId`, driven by a read-only intent store
+  with no central dispatcher (default-off, falls back to standalone). A
+  self-discovering aggregator feeds the **Yuruna Pool** Grafana dashboard. See
+  [pool-admin.md](docs/pool-admin.md).
+- **poolStorage (ypsp) NAS replication.** Pool observability data replicates to a
+  NAS share over SMB on Windows, Ubuntu, and macOS — async, fail-fast, atomic,
+  hardware-fingerprinted identity. See [pool-storage.md](docs/pool-storage.md).
+- **Signed installer integrity.** The three platform installers gain a SHA-256
+  manifest with a detached release signature, verified against a committed
+  RSA-4096 key, plus in-guest hash checks and an ASCII/BOM pre-commit gate. See
+  [install.md](docs/install.md).
+- **Converged cloud-init.** AL2023 and Ubuntu guests collapse drifting per-platform
+  `user-data`/`meta-data` into one shared base plus per-host overlays; orphaned
+  anchors throw at merge time. See [cloud-init-template.md](docs/cloud-init-template.md).
+- **Actionable failure telemetry.** First-failure records carry a shared taxonomy,
+  copy-paste repro command, classified-cause enrichment, and remediation routing.
+  See [failure-schema.md](docs/failure-schema.md).
+
 ## 2026.06.05
 
 - **Multi-registry login for component pushes.** Adds ECR, GAR, Docker Hub, and generic Docker login alongside azurecr; the registryLogin phase now shares the build/tag/push log capture.
@@ -29,8 +50,10 @@ tagged release.
 
 - **Initial release.** First release with working hosts and guests.
 
-Back to [Yuruna](README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](README.md)

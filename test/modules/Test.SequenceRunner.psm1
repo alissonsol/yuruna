@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42f2c5e4-b9a0-4367-cd15-4e6f9b3c2d51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,8 +101,14 @@ function Resolve-TestSequencePlan {
         if (-not $path) {
             $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $name -HostType $HostType -RepoRoot $RepoRoot
             Write-Error "Chain prereq not found: $name (referenced via baseline of $SequenceName)"
-            Write-Output "Searched (no match):"
-            foreach ($p in $searched) { Write-Output "  $p" }
+            # Status via Write-Information, never Write-Output: this function's
+            # return value is captured (`$plan = Resolve-TestSequencePlan`), so a
+            # Write-Output string would join the returned hashtable into an array
+            # (the pipeline-pollution trap). A later `$plan.chainEntries` member
+            # access would then enumerate and unwrap a single warm-path entry to a
+            # bare object, failing the chain runner's [IList] binding.
+            Write-Information "Searched (no match):" -InformationAction Continue
+            foreach ($p in $searched) { Write-Information "  $p" -InformationAction Continue }
             return @{
                 chainEntries       = $null
                 chainPlan          = $ChainPlan
@@ -127,9 +133,9 @@ function Resolve-TestSequencePlan {
     $ChainTotalSteps = $globalCount
 
     if ($ChainPlan.fullChain.Count -gt 1) {
-        Write-Output "Chain: $($ChainPlan.fullChain -join ' -> ')"
+        Write-Information "Chain: $($ChainPlan.fullChain -join ' -> ')" -InformationAction Continue
     } else {
-        Write-Output "Chain: $($ChainPlan.fullChain[0]) (no baseline prereqs declared)"
+        Write-Information "Chain: $($ChainPlan.fullChain[0]) (no baseline prereqs declared)" -InformationAction Continue
     }
 
     # === requiresSnapshot warm-path probe =======================================
@@ -162,7 +168,7 @@ function Resolve-TestSequencePlan {
             Write-Verbose "Test-VMDiskSnapshot threw ($($_.Exception.Message)); assuming cold path."
         }
         if ($snapPresent) {
-            Write-Output "requiresSnapshot: snapshot '$requiredSnapshotId' present on persisted VM '$requiredSnapshotId' -- skipping baseline chain (warm path)."
+            Write-Information "requiresSnapshot: snapshot '$requiredSnapshotId' present on persisted VM '$requiredSnapshotId' -- skipping baseline chain (warm path)." -InformationAction Continue
             $warmPath = $true
             # Drop every prereq; keep only the top-level entry and rebase its
             # globalStart to 1 so -StartStep / -StopStep index into the
@@ -172,7 +178,7 @@ function Resolve-TestSequencePlan {
             [void]$ChainEntries.Add($topLevelEntry)
             $ChainTotalSteps = $topLevelEntry.stepCount
         } else {
-            Write-Output "requiresSnapshot: snapshot '$requiredSnapshotId' not on host -- running full baseline chain (cold path; VM will be renamed to '$requiredSnapshotId' at saveDiskSnapshot)."
+            Write-Information "requiresSnapshot: snapshot '$requiredSnapshotId' not on host -- running full baseline chain (cold path; VM will be renamed to '$requiredSnapshotId' at saveDiskSnapshot)." -InformationAction Continue
         }
     }
 
@@ -192,18 +198,13 @@ function Invoke-TestSequenceChain {
     .SYNOPSIS
         Run the requested step range across the planned chain entries.
     .DESCRIPTION
-        Mirror of the inline "Run each chain entry" foreach block in
-        Test-Sequence.ps1. For each chain entry, intersects its global
-        step range with the operator's requested range, slices the
-        entry's steps list, writes a temp YAML containing only the slice
-        + the entry's other top-level keys (variables, requiresSnapshot,
-        ...), and calls Invoke-Sequence with the chain plan's
-        effectiveVariables. Detects mid-chain saveDiskSnapshot renames
-        and returns the final VM name so the caller can update its
-        outer $VMName.
-
-        $tempFiles cleanup is the caller's responsibility -- the caller
-        owns the finally{} that also stops the transcript.
+        For each chain entry, intersects its global step range with the
+        operator's requested range and runs that local step window against
+        the entry's real file via Invoke-Sequence -StartStep / -StopStep
+        (no temp-YAML slicing -- Invoke-Sequence windows the steps itself
+        through Select-SequenceStepWindow). Passes the chain plan's
+        effectiveVariables, detects mid-chain saveDiskSnapshot renames, and
+        returns the final VM name so the caller can update its outer $VMName.
     .PARAMETER ChainEntries
         Planner-built entries: each a [pscustomobject] with name, path,
         sequence, stepCount, globalStart.
@@ -226,13 +227,8 @@ function Invoke-TestSequenceChain {
     .PARAMETER GuestKey
         Forwarded to Invoke-Sequence.
     .PARAMETER VMName
-        Initial VM name. Updated locally on mid-chain rename.
-    .PARAMETER RequiredSnapshotId
-        From Resolve-TestSequencePlan; used to detect mid-chain
-        saveDiskSnapshot renames.
-    .PARAMETER TempFiles
-        Caller-owned IList<string> that this function appends slice
-        temp-file paths to. The caller's finally{} sweeps the list.
+        Initial VM name. Updated locally on a mid-chain rename, picked up from
+        Get-SequenceFinishedVMName after each entry.
     .PARAMETER ShowSensitive
         Forwarded to Invoke-Sequence verbatim.
     #>
@@ -260,18 +256,18 @@ function Invoke-TestSequenceChain {
         [Parameter(Mandatory=$true)][string]$GuestKey,
         [Parameter(Mandatory=$true)][string]$VMName,
 
-        [string]$RequiredSnapshotId = $null,
-
-        [Parameter(Mandatory=$true)]
-        [System.Collections.IList]$TempFiles,
-
         [string]$SequenceName = '',
 
         [switch]$ShowSensitive
     )
 
-    Write-Output "Running steps $StartStep to $EffectiveStop..."
-    Write-Output ""
+    # Progress goes through Write-Information, never Write-Output: the caller
+    # captures this function's return (`$result = Invoke-TestSequenceChain`), so a
+    # Write-Output string would join the returned hashtable into an array (the
+    # pipeline-pollution trap) -- `$result.ok` then survives only by member-
+    # enumeration luck and the operator loses the progress lines into `$result`.
+    Write-Information "Running steps $StartStep to $EffectiveStop..." -InformationAction Continue
+    Write-Information "" -InformationAction Continue
 
     foreach ($entry in $ChainEntries) {
         $thisStart = $entry.globalStart
@@ -281,64 +277,49 @@ function Invoke-TestSequenceChain {
         $sliceStart = [Math]::Max($StartStep, $thisStart)
         $sliceEnd   = [Math]::Min($EffectiveStop, $thisEnd)
         if ($sliceStart -gt $sliceEnd) {
-            Write-Output "Skipping (no steps in requested range): $($entry.name)"
+            Write-Information "Skipping (no steps in requested range): $($entry.name)" -InformationAction Continue
             continue
         }
 
-        # Convert global -> local 1-based indices for this entry's slice.
+        # Convert global -> local 1-based indices for this entry's window.
         $localStart = $sliceStart - $thisStart + 1
         $localEnd   = $sliceEnd   - $thisStart + 1
 
-        $allSteps   = @($entry.sequence.steps)
-        $slicedSteps = $allSteps[($localStart - 1)..($localEnd - 1)]
+        Write-Information "" -InformationAction Continue
+        Write-Information "--- $($entry.name): local steps $localStart-$localEnd of $($entry.stepCount) (global $sliceStart-$sliceEnd) ---" -InformationAction Continue
 
-        # Same top-level-keys-except-steps copy the original did; chain
-        # entries are each their own sequence dictionary.
-        $trimmedSequence = [ordered]@{}
-        foreach ($key in $entry.sequence.Keys) {
-            if ($key -ne 'steps') { $trimmedSequence[$key] = $entry.sequence[$key] }
-        }
-        $trimmedSequence['steps'] = $slicedSteps
-
-        $tempFile = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.yml'
-        $trimmedSequence | ConvertTo-Yaml | Set-Content -Path $tempFile -Encoding UTF8
-        [void]$TempFiles.Add($tempFile)
-
-        Write-Output ""
-        Write-Output "--- $($entry.name): local steps $localStart-$localEnd of $($entry.stepCount) (global $sliceStart-$sliceEnd) ---"
-
-        # -ShowSensitive defaults OFF to match Invoke-TestRunner's masking;
-        # the operator opts in with the switch when local debugging actually
-        # needs the cleartext values rendered.
-        $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $tempFile -EffectiveVariables $ChainPlan.effectiveVariables -ShowSensitive:$ShowSensitive
+        # Run the entry's real file with the local step window. Invoke-Sequence
+        # slices internally (Select-SequenceStepWindow), so there is no temp YAML
+        # to write or sweep, and the perf row + SSH-variant resolution see the
+        # real sequence path instead of a random temp name. -ShowSensitive
+        # defaults OFF to match Invoke-TestRunner's masking; the operator opts in
+        # for cleartext during local debugging.
+        $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $entry.path -EffectiveVariables $ChainPlan.effectiveVariables -ShowSensitive:$ShowSensitive -StartStep $localStart -StopStep $localEnd
         if ($ok -ne $true) {
             Write-Warning "Sequence failed: $($entry.name)"
-            Write-Output ""
-            Write-Output "To reproduce with full diagnostics:"
-            Write-Output "  pwsh test/Test-Sequence.ps1 -SequenceName `"$SequenceName`" -StartStep $sliceStart -logLevel Debug"
+            Write-Information "" -InformationAction Continue
+            Write-Information "To reproduce with full diagnostics:" -InformationAction Continue
+            Write-Information "  pwsh test/Test-Sequence.ps1 -SequenceName `"$SequenceName`" -StartStep $sliceStart -logLevel Debug" -InformationAction Continue
             return @{ ok = $false; finishedVmName = $VMName }
         }
 
-        # Detect a mid-chain saveDiskSnapshot rename. The engine updates
-        # its internal $VMName when Save-VMDiskSnapshot succeeds (test-X
-        # -> <id>), but this script's outer $VMName is passed by value
-        # and is now stale. Without this swap the next entry would target
-        # the old, now-absent VM. Only fires when requiresSnapshot was
-        # declared, so non-snapshot chains keep their existing behavior.
-        if ($RequiredSnapshotId -and $VMName -ne $RequiredSnapshotId) {
-            if ((Get-VMState -VMName $VMName) -eq 'absent' -and
-                (Get-VMState -VMName $RequiredSnapshotId) -ne 'absent') {
-                Write-Output "VM renamed mid-chain: '$VMName' -> '$RequiredSnapshotId'; subsequent entries will target '$RequiredSnapshotId'."
-                $VMName = $RequiredSnapshotId
-            }
+        # Pick up a mid-chain saveDiskSnapshot rename (test-X -> <id>) the engine
+        # performed: Invoke-Sequence's $VMName update is scriptblock-local, so it
+        # surfaces the final name via Get-SequenceFinishedVMName. Reading it here
+        # -- the same mechanism the inner runner's Start-Guest* loops use -- keeps
+        # subsequent entries on the renamed VM instead of the now-absent original.
+        $finishedVmName = Get-SequenceFinishedVMName
+        if ($finishedVmName -and $finishedVmName -ne $VMName) {
+            Write-Information "VM renamed mid-chain: '$VMName' -> '$finishedVmName'; subsequent entries will target '$finishedVmName'." -InformationAction Continue
+            $VMName = $finishedVmName
         }
     }
 
-    Write-Output ""
+    Write-Information "" -InformationAction Continue
     if ($StopStep -ne 0 -and $EffectiveStop -lt $ChainTotalSteps) {
-        Write-Output "Chain stopped after step $EffectiveStop of $ChainTotalSteps. VM '$VMName' left running for inspection."
+        Write-Information "Chain stopped after step $EffectiveStop of $ChainTotalSteps. VM '$VMName' left running for inspection." -InformationAction Continue
     } else {
-        Write-Output "Chain completed successfully ($ChainTotalSteps step(s) across $($ChainPlan.fullChain.Count) sequence(s))."
+        Write-Information "Chain completed successfully ($ChainTotalSteps step(s) across $($ChainPlan.fullChain.Count) sequence(s))." -InformationAction Continue
     }
 
     return @{ ok = $true; finishedVmName = $VMName }

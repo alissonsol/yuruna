@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.06.05
+  Version: 2026.06.12
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.06.05';
+  var VERSION = '2026.06.12';
 
   // fetch shim for Safari iOS 9.x. (Target support for Yuruna UI).
   if (!window.fetch) {
@@ -368,8 +368,8 @@
     }
 
     function applyCachingProxyBanner() {
-      var linkEl = document.getElementById('banner-cp');
-      var noEl   = document.getElementById('banner-cp-noproxy');
+      var linkEl = document.getElementById('banner-dash');
+      var noEl   = document.getElementById('banner-dash-noproxy');
       if (!linkEl || !noEl) return;
       var m = cachingProxyHtml.match(/href="([^"]+)"/i);
       if (m && m[1]) {
@@ -494,7 +494,7 @@
       return out;
     }
 
-    function logFileUrl(cycleId, hostname, gitCommit, cycleFolderUrl) {
+    function logFileUrl(cycleId, hostKey, gitCommit, cycleFolderUrl) {
       if (cycleFolderUrl) {
         var trimmed = cycleFolderUrl.replace(/\/+$/, '');
         var parts = trimmed.split('/');
@@ -510,19 +510,21 @@
       // Fallback hierarchy when status.json lacks cycleFolderUrl (e.g.
       // crashed before Start-LogFile populated it). Keeps the link
       // clickable so the operator can pivot into the log dir instead of
-      // being silently stuck with a non-actionable cycle id.
-      if (cycleId && hostname && gitCommit) {
-        return 'log/' + cycleId.replace(/:/g, '-') + '.' + hostname + '.' + gitCommit + '.html';
+      // being silently stuck with a non-actionable cycle id. hostKey is
+      // the hostId (callers pass hostId, falling back to hostname for a
+      // legacy status.json) -- the cycleFolder's hostname-free 4th segment.
+      if (cycleId && hostKey && gitCommit) {
+        return 'log/' + cycleId.replace(/:/g, '-') + '.' + hostKey + '.' + gitCommit + '.html';
       }
-      if (cycleId && hostname) {
-        // Mirror Format-CycleFolderBaseName: <padded>.<cycleDate>.<cycleTime>.<hostname>
+      if (cycleId && hostKey) {
+        // Mirror Format-CycleFolderBaseName: <padded>.<cycleDate>.<cycleTime>.<hostId>
         // We lack the padded counter, so degrade to a directory link the
         // server's index/listing can resolve to the actual cycle folder.
         var iso = String(cycleId);
         var d = (iso.length >= 10) ? iso.substring(0, 10) : '';
         var t = (iso.length >= 19) ? iso.substring(11, 19).replace(/:/g, '-') : '';
         if (d && t) {
-          return 'log/?prefix=' + d + '.' + t + '.' + hostname;
+          return 'log/?prefix=' + d + '.' + t + '.' + hostKey;
         }
       }
       return 'log/';
@@ -561,11 +563,15 @@
       var actionCls = (waitingForResume || atBreak) ? 'guest-action paused' : 'guest-action';
       var html = '<div class="' + actionCls + '">' + escHtml(actionData.line);
       if (atBreak) {
-        var snapHint = breakData.snapshotId
-          ? (' (loadDiskSnapshot id="' + escHtml(breakData.snapshotId) + '")')
-          : ' (no snapshot to restore)';
+        // restoreOnContinue (opt-in) decides what Continue does. A plain
+        // breakpoint resumes in place; the id alone is just a label, so the
+        // tooltip must not promise a restore the handler will not perform.
+        var willRestore = !!(breakData.restoreOnContinue && breakData.snapshotId);
+        var btnTitle = willRestore
+          ? ('Restore snapshot id ' + escHtml(breakData.snapshotId) + ', restart the VM, then resume the sequence')
+          : 'Resume the sequence in place (no snapshot restore)';
         html += ' <button id="break-continue-btn" class="meta-btn paused-active" type="button"' +
-                ' title="Restore snapshot' + snapHint.replace(/"/g,'&quot;') + ', start the VM, then resume the sequence">Continue</button>';
+                ' title="' + btnTitle + '">Continue</button>';
       }
       html += '</div>';
       return html;
@@ -768,13 +774,37 @@
         var liveCommits = gitCommitsForRender(data, data.repoUrl);
         document.getElementById('cycle-commit').innerHTML = renderCommitLinks(liveCommits);
         var cycleIdLabel = (liveCycleId || '—').slice(0, 19).replace('T', ' T');
-        var cycleLogUrl  = logFileUrl(liveCycleId, data.hostname, primaryShaForLog(data), data.cycleFolderUrl);
+        var cycleLogUrl  = logFileUrl(liveCycleId, (data.hostId || data.hostname), primaryShaForLog(data), data.cycleFolderUrl);
         var cycleCell = cycleLogUrl
           ? ('<a href="' + cycleLogUrl + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + cycleIdLabel + '</a>')
           : cycleIdLabel;
         document.getElementById('cycle-timestamp').innerHTML = '<span class="badge ' + cls(status) + '">' + cycleCell + '</span>';
         document.getElementById('cycle-started').textContent  = fmtDate(data.startedAt);
         document.getElementById('cycle-images-refresh').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';
+        // Classified failure cause for the live cycle (data.lastFailure), set by
+        // Set-LastFailureSummary at failure time. Every interpolated value is
+        // escHtml'd (attribute- and text-safe). Hidden when the cycle has no
+        // failure (passing cycle / pre-failure window).
+        var fcEl = document.getElementById('cycle-failure');
+        if (fcEl) {
+          var lf = data.lastFailure;
+          if (lf && lf.failureClass) {
+            var parts = ['<span class="badge fail">' + escHtml(lf.failureClass) + '</span>'];
+            if (lf.severity) { parts.push('severity: ' + escHtml(lf.severity)); }
+            if (lf.sequenceName) { parts.push('sequence: ' + escHtml(lf.sequenceName) + (lf.stepNumber ? ' (step ' + escHtml(String(lf.stepNumber)) + ')' : '')); }
+            if (lf.errorMessage) { parts.push(escHtml(lf.errorMessage)); }
+            var fcHtml = parts.join(' &middot; ');
+            if (lf.reproCommand) { fcHtml += '<div class="repro"><code>' + escHtml(lf.reproCommand) + '</code></div>'; }
+            if (lf.relPath && data.cycleFolderUrl && lf.vmName) {
+              fcHtml += '<div><a href="' + escHtml(data.cycleFolderUrl + lf.vmName + '/' + lf.relPath) + '">last_failure.json</a></div>';
+            }
+            fcEl.innerHTML = fcHtml;
+            fcEl.style.display = '';
+          } else {
+            fcEl.style.display = 'none';
+            fcEl.innerHTML = '';
+          }
+        }
       }
 
       // Primary view: one card per test.runner.yml sequence (in list order),
@@ -845,7 +875,7 @@
                 .replace(/\.incomplete(\/?)$/, '$1')
                 .replace(/\.aborted\.[^/]+(\/?)$/, '$1')
             : h.cycleFolderUrl;
-          var hLogUrl     = logFileUrl(hCycleId, h.hostname, primaryShaForLog(h), hCycleFolderUrl);
+          var hLogUrl     = logFileUrl(hCycleId, (h.hostId || h.hostname), primaryShaForLog(h), hCycleFolderUrl);
           var hCycleLabel = (hCycleId || '—').slice(0, 19).replace('T', ' <wbr>T');
           var hCycleCell  = hLogUrl
             ? ('<a href="' + hLogUrl + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + hCycleLabel + '</a>')

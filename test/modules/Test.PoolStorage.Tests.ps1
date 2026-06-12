@@ -1,0 +1,346 @@
+<#PSScriptInfo
+.VERSION 2026.06.12
+.GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test pool storage smb pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Pester coverage for the pure (no-I/O) parts of Test.PoolStorage.psm1: the
+    config accessor (off/on cases), SMB path normalization, and the Linux
+    credentials-file body. The actual mount/copy are integration-verified on a
+    real share (they touch the OS network stack).
+#>
+
+$here       = Split-Path -Parent $PSCommandPath
+$modulePath = Join-Path $here 'Test.PoolStorage.psm1'
+Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
+
+function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
+function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+function Assert-Null { param($Actual, [string]$Because = '') if ($null -ne $Actual) { throw "Expected null got [$Actual]. $Because" } }
+
+# Build a ledger object the way Read-PoolStorageLedger would (replicated map +
+# scalar status), for the pure pending/merge tests.
+function Get-TestLedger { param([string[]]$Replicated = @()) $r = [ordered]@{}; foreach ($n in $Replicated) { $r[$n] = '2026-06-10T00:00:00Z' }; return [ordered]@{ replicated = $r } }
+
+Describe 'Get-PoolStorageUncPath (SMB path normalization)' {
+    It 'normalizes a Windows UNC input to either style' {
+        Assert-Equal '\\srv\work' (Get-PoolStorageUncPath -Path '\\srv\work' -Style windows) 'win<-win'
+        Assert-Equal '//srv/work' (Get-PoolStorageUncPath -Path '\\srv\work' -Style unix) 'unix<-win'
+    }
+    It 'normalizes a unix //share input to either style' {
+        Assert-Equal '\\srv\work' (Get-PoolStorageUncPath -Path '//srv/work' -Style windows) 'win<-unix'
+        Assert-Equal '//srv/work' (Get-PoolStorageUncPath -Path '//srv/work' -Style unix) 'unix<-unix'
+    }
+    It 'handles a multi-segment share path' {
+        Assert-Equal '\\srv\work\sub' (Get-PoolStorageUncPath -Path '//srv/work/sub' -Style windows) 'multi win'
+        Assert-Equal '//srv/work/sub' (Get-PoolStorageUncPath -Path '\\srv\work\sub' -Style unix) 'multi unix'
+    }
+}
+
+Describe 'Test-PoolStorageMountMatch (anchored mount detection)' {
+    It 'matches our share at our exact mount point (Linux)' {
+        $l = '//srv/work on /mnt/ypsp type cifs (rw,relatime,vers=3.0)'
+        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work') 'linux exact'
+    }
+    It 'matches our share at our exact mount point (macOS, strips user@)' {
+        $l = '//yurunanet@srv/work on /Users/u/Shares/ypsp (smbfs, nodev, nosuid)'
+        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/Users/u/Shares/ypsp' -NetworkPath '//srv/work') 'macos exact'
+    }
+    It 'rejects a DIFFERENT share at the same mount point (share-suffix collision)' {
+        $l = '//srv/work2 on /mnt/ypsp type cifs (rw)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'work2 != work'
+    }
+    It 'rejects a server-name-suffix collision' {
+        $l = '//other-srv/work on /mnt/ypsp type cifs (rw)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'other-srv != srv'
+    }
+    It 'rejects our share at a DIFFERENT mount point' {
+        $l = '//srv/work on /mnt/ypsp type cifs (rw)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/other' -NetworkPath '//srv/work')) 'point mismatch'
+    }
+    It 'rejects a mount-point prefix collision' {
+        $l = '//srv/work on /mnt/ypsp2 type cifs (rw)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'ypsp2 != ypsp'
+    }
+    It 'accepts a Windows-style NetworkPath form (normalized)' {
+        $l = '//srv/work on /mnt/ypsp type cifs (rw)'
+        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '\\srv\work') 'win-form normalized'
+    }
+    It 'returns false on empty or null mount output' {
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @() -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'empty'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines $null -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'null'
+    }
+}
+
+Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
+    It 'returns null when replicate is false' {
+        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $false; networkPath = '//srv/work'; networkUser = 'u'; localPath = '/mnt/ypsp' } }
+        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'replicate false -> off'
+    }
+    It 'with -IgnoreReplicate returns the object even when replicate is false (pre-validation)' {
+        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $false; networkPath = '//srv/work'; networkUser = 'u'; localPath = '/mnt/ypsp' } }
+        $r = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate
+        Assert-True ($null -ne $r) 'object returned despite replicate false'
+        Assert-Equal $false $r.Replicate 'Replicate field reflects the real flag'
+        Assert-Equal '//srv/work' $r.NetworkPath 'paths normalized'
+    }
+    It 'with -IgnoreReplicate still returns null when a path is empty' {
+        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $false; networkPath = '//srv/work'; networkUser = 'u'; localPath = '' } }
+        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate) 'incomplete -> still null'
+    }
+    It 'returns null when the poolStorage section is absent' {
+        Assert-Null (Get-YurunaPoolStorageConfig -Config ([ordered]@{ statusService = [ordered]@{ port = 8080 } })) 'no section -> off'
+    }
+    It 'returns null when replicate is true but a required path is empty' {
+        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = '//srv/work'; networkUser = 'u'; localPath = '' } }
+        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'empty localPath -> off'
+    }
+    It 'returns the trimmed config object when fully set' {
+        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = ' //srv/work '; networkUser = ' yurunanet '; localPath = ' /mnt/ypsp ' } }
+        $r = Get-YurunaPoolStorageConfig -Config $cfg
+        Assert-True ($null -ne $r) 'object returned'
+        Assert-Equal '//srv/work' $r.NetworkPath 'networkPath trimmed'
+        Assert-Equal 'yurunanet'  $r.NetworkUser 'networkUser trimmed'
+        Assert-Equal '/mnt/ypsp'  $r.LocalPath   'localPath trimmed'
+        Assert-True $r.Replicate 'replicate true'
+    }
+    It 'expands a leading ~ in localPath to $HOME' {
+        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = '//srv/work'; networkUser = 'u'; localPath = '~/Shares/ypsp' } }
+        $r = Get-YurunaPoolStorageConfig -Config $cfg
+        Assert-Equal (Join-Path $HOME 'Shares/ypsp') $r.LocalPath '~ -> $HOME'
+    }
+    It 'leaves a non-tilde path untouched (a bare ~ in the middle is not expanded)' {
+        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = '//srv/work'; networkUser = 'u'; localPath = '/mnt/a~b' } }
+        $r = Get-YurunaPoolStorageConfig -Config $cfg
+        Assert-Equal '/mnt/a~b' $r.LocalPath 'mid-path ~ untouched'
+    }
+    It 'returns null (never hangs on a Mandatory-param prompt) with no -Config and no YURUNA_CONFIG_PATH' {
+        # Regression: the no-Config fallback must resolve a concrete path before
+        # calling Read-TestConfig, never invoke it by-name with $Path omitted.
+        $saved = $env:YURUNA_CONFIG_PATH
+        try {
+            $env:YURUNA_CONFIG_PATH = ''
+            Assert-Null (Get-YurunaPoolStorageConfig) 'no path -> off, not a prompt'
+        } finally {
+            $env:YURUNA_CONFIG_PATH = $saved
+        }
+    }
+}
+
+Describe 'Get-PoolStorageServerName (server extraction)' {
+    It 'extracts the host from a Windows UNC path' {
+        Assert-Equal 'srv' (Get-PoolStorageServerName -NetworkPath '\\srv\work') 'win UNC'
+        Assert-Equal 'srv' (Get-PoolStorageServerName -NetworkPath '\\srv\work\sub') 'win UNC multi'
+    }
+    It 'extracts the host from a unix //share path' {
+        Assert-Equal 'srv' (Get-PoolStorageServerName -NetworkPath '//srv/work') 'unix'
+        Assert-Equal '192.168.1.5' (Get-PoolStorageServerName -NetworkPath '//192.168.1.5/work') 'ip'
+    }
+    It 'strips a user@ prefix (macOS smbfs form)' {
+        Assert-Equal 'srv' (Get-PoolStorageServerName -NetworkPath '//yurunanet@srv/work') 'user@host'
+    }
+    It 'returns empty for a path with no server' {
+        Assert-Equal '' (Get-PoolStorageServerName -NetworkPath '//') 'no host'
+    }
+}
+
+Describe 'Get-PoolStorageCycleIdentity (stable identity, no duplicate replication)' {
+    It 'strips the .incomplete suffix' {
+        Assert-Equal '000001.2026-06-10.12-00-00.42abc' (Get-PoolStorageCycleIdentity -Name '000001.2026-06-10.12-00-00.42abc.incomplete') 'incomplete -> base'
+    }
+    It 'strips the .aborted.<UTC> suffix' {
+        Assert-Equal '000001.2026-06-10.12-00-00.42abc' (Get-PoolStorageCycleIdentity -Name '000001.2026-06-10.12-00-00.42abc.aborted.2026-06-10T13-00-00Z') 'aborted -> base'
+    }
+    It 'leaves a bare base name unchanged' {
+        Assert-Equal '000001.2026-06-10.12-00-00.42abc' (Get-PoolStorageCycleIdentity -Name '000001.2026-06-10.12-00-00.42abc') 'bare unchanged'
+    }
+    It 'all three lifecycle forms collapse to ONE identity (no duplicate)' {
+        $a = Get-PoolStorageCycleIdentity -Name '000007.d.t.h.incomplete'
+        $b = Get-PoolStorageCycleIdentity -Name '000007.d.t.h'
+        $c = Get-PoolStorageCycleIdentity -Name '000007.d.t.h.aborted.2026-06-10T13-00-00Z'
+        Assert-True (($a -eq $b) -and ($b -eq $c)) 'one identity across the lifecycle'
+    }
+    It 'accepts a full path leaf' {
+        Assert-Equal '000002.d.t.h' (Get-PoolStorageCycleIdentity -Name '/var/log/000002.d.t.h.incomplete') 'path leaf stripped'
+    }
+}
+
+Describe 'Get-PoolStoragePendingSet (backlog, oldest-first)' {
+    It 'returns all local cycles when the ledger is empty, oldest-first' {
+        $names = @('000003.d.t.h', '000001.d.t.h', '000002.d.t.h')
+        $p = Get-PoolStoragePendingSet -LocalNames $names -Ledger (Get-TestLedger)
+        Assert-Equal '000001.d.t.h,000002.d.t.h,000003.d.t.h' ($p -join ',') 'sorted ascending'
+    }
+    It 'excludes cycles already in the ledger' {
+        $names = @('000001.d.t.h', '000002.d.t.h', '000003.d.t.h')
+        $p = Get-PoolStoragePendingSet -LocalNames $names -Ledger (Get-TestLedger -Replicated @('000001.d.t.h', '000002.d.t.h'))
+        Assert-Equal '000003.d.t.h' ($p -join ',') 'only the un-replicated one'
+    }
+    It 'filters non-cycle names and dedupes' {
+        $names = @('000001.d.t.h', 'history.2026-06-10', '000001.d.t.h', 'notacycle')
+        $p = Get-PoolStoragePendingSet -LocalNames $names -Ledger (Get-TestLedger)
+        Assert-Equal '000001.d.t.h' ($p -join ',') 'regex-filtered + deduped'
+    }
+    It 'returns empty for empty or null input' {
+        Assert-Equal 0 (@(Get-PoolStoragePendingSet -LocalNames @() -Ledger (Get-TestLedger)).Count) 'empty'
+        Assert-Equal 0 (@(Get-PoolStoragePendingSet -LocalNames $null -Ledger (Get-TestLedger)).Count) 'null'
+    }
+}
+
+Describe 'Merge-PoolStorageLedger (commit + prune + status)' {
+    It 'adds newly committed cycles with the timestamp' {
+        $m = Merge-PoolStorageLedger -Ledger (Get-TestLedger) -Committed @('000001.d.t.h') -NowUtc '2026-06-10T12:00:00Z'
+        Assert-Equal '2026-06-10T12:00:00Z' $m.replicated['000001.d.t.h'] 'committed with utc'
+    }
+    It 'is idempotent re-adding an existing cycle' {
+        $base = Get-TestLedger -Replicated @('000001.d.t.h')
+        $m = Merge-PoolStorageLedger -Ledger $base -Committed @('000001.d.t.h') -NowUtc '2026-06-10T13:00:00Z'
+        Assert-Equal 1 $m.replicated.Count 'still one entry'
+    }
+    It 'prunes replicated entries no longer present locally' {
+        $base = Get-TestLedger -Replicated @('000001.d.t.h', '000002.d.t.h')
+        $m = Merge-PoolStorageLedger -Ledger $base -LocalNames @('000002.d.t.h')
+        Assert-Equal '000002.d.t.h' (($m.replicated.Keys) -join ',') 'gone-local pruned'
+    }
+    It 'merges scalar status fields' {
+        $m = Merge-PoolStorageLedger -Ledger (Get-TestLedger) -Status @{ lastConnectOk = $false; lastError = 'x' }
+        Assert-Equal $false $m['lastConnectOk'] 'status carried'
+        Assert-Equal 'x' $m['lastError'] 'status carried'
+    }
+}
+
+Describe 'Test-PoolStorageVaultDecision (loud-fail gate)' {
+    It 'proceeds when a non-empty vaultKey is mapped (no auto-gen)' {
+        Assert-True (Test-PoolStorageVaultDecision -VaultKey 'smb.x' -EntryExists $false) 'vaultKey set'
+    }
+    It 'proceeds when an entry already exists under the empty-vaultKey path' {
+        Assert-True (Test-PoolStorageVaultDecision -VaultKey '' -EntryExists $true) 'entry exists'
+    }
+    It 'bails when empty vaultKey AND no entry (would mint junk)' {
+        Assert-True (-not (Test-PoolStorageVaultDecision -VaultKey '' -EntryExists $false)) 'would auto-gen -> bail'
+    }
+}
+
+Describe 'Get-PoolStorageHostFolderPath (per-host destination root)' {
+    # A pscustomobject of the shape Get-YurunaPoolStorageConfig returns.
+    function Get-TestPoolConfig { param([string]$LocalPath = '/mnt/ypsp') [pscustomobject]@{ Replicate = $true; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $LocalPath } }
+    It 'joins localPath and hostId' {
+        $cfg = Get-TestPoolConfig
+        Assert-Equal (Join-Path '/mnt/ypsp' '4212abc') (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') 'host root = localPath/hostId'
+    }
+    It 'is the PARENT of the cycle destination Copy-PoolStorageCycle writes (no drift)' {
+        # Copy-PoolStorageCycle writes <localPath>/<HostId>/<CycleName>/; the gate
+        # pre-flight must target exactly that host root, or it would create/verify
+        # the wrong folder and pass while the real copy still fails.
+        $cfg       = Get-TestPoolConfig
+        $hostRoot  = Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc'
+        $cycleDest = Join-Path $cfg.LocalPath (Join-Path '4212abc' '000001.d.t.h')
+        Assert-Equal $hostRoot (Split-Path -Parent $cycleDest) 'host root is the cycle-dest parent'
+    }
+}
+
+Describe 'Initialize-PoolStorageHostFolder (-WhatIf is a no-I/O no-op)' {
+    It 'neither mounts nor creates the folder under -WhatIf' {
+        # A localPath that does not exist: under -WhatIf the function must return
+        # before any mount/create, so the path is never brought into being.
+        $fake = Join-Path ([System.IO.Path]::GetTempPath()) 'ypsp-whatif-should-not-exist'
+        $cfg  = [pscustomobject]@{ Replicate = $true; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $fake }
+        $r = Initialize-PoolStorageHostFolder -Config $cfg -HostId '4212abc' -WhatIf
+        Assert-True (-not $r.ok) 'whatif -> not ok'
+        Assert-True (-not (Test-Path -LiteralPath $fake)) 'whatif created nothing on disk'
+    }
+}
+
+Describe 'Get-PoolStorageDrainOrder (hybrid newest + oldest, recency)' {
+    # 30 cycles, oldest-first (zero-padded so lexical == chronological).
+    function Get-NSeq { param([int]$N) 1..$N | ForEach-Object { '{0:D6}.d.t.h' -f $_ } }
+    It 'returns the list unchanged when it fits in one run' {
+        $p = @(Get-NSeq 5)
+        Assert-Equal ($p -join ',') ((Get-PoolStorageDrainOrder -PendingOldestFirst $p -Max 100) -join ',') 'fits -> unchanged'
+    }
+    It 'includes the NEWEST cycles when the backlog exceeds Max (recency win)' {
+        $p = @(Get-NSeq 30)                                   # 000001..000030
+        $order = @(Get-PoolStorageDrainOrder -PendingOldestFirst $p -Max 10 -NewestShare 3)
+        Assert-Equal 10 $order.Count 'copies exactly Max'
+        Assert-True ($order -contains '000030.d.t.h') 'newest is scheduled this run'
+        Assert-True ($order -contains '000001.d.t.h') 'oldest still backfills'
+        # 7 oldest (000001..000007) + 3 newest (000028..000030); no overlap.
+        Assert-True ($order -contains '000007.d.t.h') 'oldest window = Max - NewestShare'
+        Assert-True (-not ($order -contains '000008.d.t.h')) 'gap between the two windows'
+        # Newest come FIRST so they commit before a later old-cycle stall.
+        Assert-Equal '000028.d.t.h' $order[0] 'newest batch leads the run'
+        Assert-Equal '000001.d.t.h' $order[3] 'oldest backfill follows the newest batch'
+    }
+    It 'never overlaps the head/tail windows (no duplicates)' {
+        $p = @(Get-NSeq 12)
+        $order = @(Get-PoolStorageDrainOrder -PendingOldestFirst $p -Max 12 -NewestShare 5)
+        Assert-Equal 12 $order.Count 'all 12 (fits) -> unchanged, no dup'
+        $order = @(Get-PoolStorageDrainOrder -PendingOldestFirst $p -Max 11 -NewestShare 5)
+        Assert-Equal 11 ($order | Sort-Object -Unique).Count 'no duplicates across windows'
+    }
+    It 'returns distinct well-formed names when NewestShare is 1 (single-element slice)' {
+        # Regression: a single-element newest/oldest slice must NOT unwrap to a
+        # scalar and string-concatenate (which would fuse 000030+000001 and drop a
+        # real cycle). Exercises newestCount==1 over a backlog > Max.
+        $p = @(Get-NSeq 30)
+        $order = @(Get-PoolStorageDrainOrder -PendingOldestFirst $p -Max 5 -NewestShare 1)
+        Assert-Equal 5 $order.Count 'exactly Max distinct entries'
+        Assert-Equal 5 ($order | Sort-Object -Unique).Count 'all distinct, none fused'
+        foreach ($n in $order) { Assert-True ($n -match '^\d{6}\.d\.t\.h$') "well-formed name: $n" }
+        Assert-Equal '000030.d.t.h' $order[0] 'the single newest leads the run'
+        Assert-Equal '000001.d.t.h' $order[1] 'oldest backfill follows'
+    }
+    It 'handles NewestShare >= Max (oldest window empty, no $null fusion)' {
+        $p = @(Get-NSeq 30)
+        $order = @(Get-PoolStorageDrainOrder -PendingOldestFirst $p -Max 3 -NewestShare 10)
+        Assert-Equal 3 $order.Count 'all 3 from the newest window'
+        Assert-Equal '000028.d.t.h,000029.d.t.h,000030.d.t.h' (($order | Sort-Object) -join ',') 'the 3 newest'
+    }
+    It 'handles empty / null / zero Max safely' {
+        Assert-Equal 0 (@(Get-PoolStorageDrainOrder -PendingOldestFirst @() -Max 10).Count) 'empty'
+        Assert-Equal 0 (@(Get-PoolStorageDrainOrder -PendingOldestFirst $null -Max 10).Count) 'null'
+        Assert-Equal 0 (@(Get-PoolStorageDrainOrder -PendingOldestFirst (Get-NSeq 5) -Max 0).Count) 'max 0'
+    }
+}
+
+Describe 'Get-PoolStorageHealthWarning (loud-fail surfacing logic)' {
+    It 'returns null when replicate is off (even with a failing ledger)' {
+        $led = [ordered]@{ lastConnectOk = $false; pendingCount = 5; lastError = 'x' }
+        Assert-Null (Get-PoolStorageHealthWarning -Ledger $led -Replicate $false) 'replicate off -> silent'
+    }
+    It 'returns null for a fresh ledger with no recorded attempt' {
+        Assert-Null (Get-PoolStorageHealthWarning -Ledger ([ordered]@{ replicated = [ordered]@{} }) -Replicate $true) 'no attempt yet -> null'
+    }
+    It 'warns when the last drain could not connect' {
+        $led = [ordered]@{ lastConnectOk = $false; pendingCount = 12; lastError = 'server unreachable: nas:445' }
+        $w = Get-PoolStorageHealthWarning -Ledger $led -Replicate $true
+        Assert-True ($w -match 'FAILING' -and $w -match '12' -and $w -match 'unreachable') 'connect-fail warning carries count + cause'
+    }
+    It 'warns when connected but copied 0 with a backlog (write/permission stall)' {
+        $led = [ordered]@{ lastConnectOk = $true; lastCopied = 0; pendingCount = 30; lastError = '' }
+        $w = Get-PoolStorageHealthWarning -Ledger $led -Replicate $true
+        Assert-True ($w -match 'copied 0' -and $w -match '30') 'stall warning'
+    }
+    It 'is SILENT on a healthy mid-backlog drain (copied > 0)' {
+        $led = [ordered]@{ lastConnectOk = $true; lastCopied = 100; pendingCount = 524; lastError = '' }
+        Assert-Null (Get-PoolStorageHealthWarning -Ledger $led -Replicate $true) 'draining normally -> no noise'
+    }
+    It 'is SILENT when fully caught up (pending 0, copied 0)' {
+        $led = [ordered]@{ lastConnectOk = $true; lastCopied = 0; pendingCount = 0; lastError = '' }
+        Assert-Null (Get-PoolStorageHealthWarning -Ledger $led -Replicate $true) 'caught up -> no noise'
+    }
+}

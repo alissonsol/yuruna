@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a3d6f5-c0b1-4478-de26-5f7a0c4d3e62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,4 +95,42 @@ function Initialize-YurunaRuntimeDir {
     return $env:YURUNA_RUNTIME_DIR
 }
 
-Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir
+function Get-YurunaHostId {
+    <#
+    .SYNOPSIS
+        Stable per-host identity (distinct from hostname; survives rename),
+        persisted in $env:YURUNA_RUNTIME_DIR/host.uuid. 42-prefixed for visual
+        filtering in unified pool logs.
+    .DESCRIPTION
+        The multi-host pool harness joins cross-host telemetry on
+        (hostId, runId, cycleId); hostname can collide and rename, so a persisted
+        UUID is the durable key. Shares the one host.uuid file -- same path, same
+        42-prefixed format -- with Test.Perf's Get-PerfHostUuid; the file is the
+        single source of truth, created once early in the single outer-runner
+        process. Removing the runtime dir re-keys the host, matching the rest of
+        that folder's state. Process entry points cache the value on
+        $global:__YurunaHostId at script top (the same pattern as
+        $global:__YurunaRunId) so the NDJSON hot path reads a global, not the disk.
+    .OUTPUTS
+        System.String -- the host UUID, or $null if the runtime dir is unwritable.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $runtimeDir = Initialize-YurunaRuntimeDir
+    if (-not $runtimeDir) { return $null }
+    $uuidFile = Join-Path $runtimeDir 'host.uuid'
+    if (Test-Path -LiteralPath $uuidFile) {
+        try {
+            $existing = ([System.IO.File]::ReadAllText($uuidFile)).Trim()
+            if ($existing) { return $existing }
+        } catch { Write-Verbose "Get-YurunaHostId: read failed, regenerating: $($_.Exception.Message)" }
+    }
+    # 42-prefixed (matches Get-PerfHostUuid): '42' + 30 hex = 32 chars.
+    $id = '42' + ([Guid]::NewGuid().ToString('N')).Substring(2, 30)
+    try { [System.IO.File]::WriteAllText($uuidFile, $id, [System.Text.UTF8Encoding]::new($false)) }
+    catch { $null = $_ }
+    return $id
+}
+
+Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir, Get-YurunaHostId

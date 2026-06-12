@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,7 @@ if (-not $IsLinux) {
 # Ubuntu 26.04 LTS (Resolute Raccoon). Matches the windows.hyper-v and
 # macos.utm caching-proxy guests so a cache rebuilt on any host produces
 # the same Squid 7.x baseline. `unattended-upgrades` (enabled in
-# vmconfig/user-data) keeps pulling security patches automatically so
+# host/vmconfig/caching-proxy.base.user-data) keeps pulling security patches automatically so
 # the long-lived cache box stays inside the supported window between
 # rebuilds.
 $arch = (& uname -m).Trim()
@@ -50,11 +50,12 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# Skip-if-same-source guard + sentinel writer come from the shared host module
-# (4-line filename + URL + size + Last-Modified format), so every KVM guest uses
-# one implementation and the noble->resolute URL-bump guard lives in one place.
+# The KVM host driver brings the skip-if-same-source guard + sentinel writer
+# (Test-DownloadAlreadyCurrent / Write-ImageSentinel, the shared 4-line filename +
+# URL + size + Last-Modified format with the noble->resolute URL-bump guard) AND
+# the cache-aware Save-CachedHttpUri wrapper.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
-Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.HostDownload.psm1") -Force
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     $skipLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
@@ -75,10 +76,12 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download and
-# applies the warn-only SHA-256 policy. KVM doesn't export
-# Save-CachedHttpUri so the helper falls through to a direct
-# Invoke-WebRequest, but the verification step still fires against
-# cloud-images.ubuntu.com's published SHA256SUMS.
+# verifies SHA-256 against cloud-images.ubuntu.com's published
+# SHA256SUMS (a genuine mismatch deletes the file and fails; a missing
+# checksum is a soft pass). It feature-detects the driver's Save-CachedHttpUri
+# wrapper and routes through the squid cache when one is reachable. This guest
+# IS the cache, so on a first build no cache exists and the fetch goes direct;
+# when an older cache VM is still up its image refresh can route through it.
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
@@ -87,7 +90,8 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath    $downloadFile `
     -ChecksumUrl "$sourceDir/SHA256SUMS" `
     -ChecksumTargetFileName $sourceBaseName `
-    -OnMismatch  'WarnAndContinue' `
+    -OnMismatch  'WarnAndDelete' `
+    -VerifyUbuntuSignature `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $sourceUrl"
@@ -105,7 +109,7 @@ if ($downloadedSize -lt 100MB) {
 # size only -- actual disk consumption stays low until squid starts
 # caching. Sized for squid's `cache_dir ufs /var/spool/squid 393216 16
 # 256` (= 384 GB) + ~128 GB OS/logs/headroom. The `maximum_object_size
-# 65 GB` directive in vmconfig/user-data lets the proxy cache files
+# 65 GB` directive in host/vmconfig/caching-proxy.base.user-data lets the proxy cache files
 # like the macOS install image (~18 GB) and other multi-GB blobs end-
 # to-end instead of bypassing them direct to CDN.
 Write-Output "Resizing qcow2 to 512GB..."

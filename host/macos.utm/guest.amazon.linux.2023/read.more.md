@@ -46,8 +46,10 @@ Install the GUI with `sudo dnf groupinstall -y "Desktop"`.
 - Apple Virtualization gives better clock sync and EFI persistence
   than QEMU.
 
-Back to [Amazon Linux guest (UTM)](README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

@@ -85,8 +85,10 @@ without warranty of any kind. This policy describes how the
 maintainers handle reports; it does not extend the warranty or
 liability terms of the license.
 
-Back to [Yuruna](README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](README.md)

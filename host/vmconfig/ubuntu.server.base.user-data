@@ -177,6 +177,9 @@ APT_PROXY_BLOCK_PLACEHOLDER
       printf '%s' "YURUNA_RETRY_LIB_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-retry.sh
       chmod 0644 /target/usr/local/lib/yuruna/yuruna-retry.sh
     - |
+      printf '%s' "YURUNA_VERSIONS_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-versions.sh
+      chmod 0644 /target/usr/local/lib/yuruna/yuruna-versions.sh
+    - |
       printf '%s' "YURUNA_FAE_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/fetch-and-execute.sh
       chmod 0755 /target/usr/local/lib/yuruna/fetch-and-execute.sh
     - |

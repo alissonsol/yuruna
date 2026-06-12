@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e96
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,10 +60,12 @@ if (-not $qcow2Link) {
 }
 $downloadUrl = $sourceUrl + $qcow2Link
 
-# Skip-if-same-source guard + sentinel writer come from the shared host module
-# so the 4-line (filename + URL + size + Last-Modified) format and the
-# noble->resolute URL-bump guard live in one place across every KVM guest.
-Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.HostDownload.psm1") -Force
+# The KVM host driver brings the skip-if-same-source guard + sentinel writer
+# (Test-DownloadAlreadyCurrent / Write-ImageSentinel, the 4-line filename + URL +
+# size + Last-Modified format shared across every KVM guest, with the
+# noble->resolute URL-bump guard) AND the cache-aware Save-CachedHttpUri wrapper
+# that routes this download through the squid cache.
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 
 if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     Write-Output "Skipping download: $downloadUrl URL and size match prior run for $baseImageFile"
@@ -72,10 +74,11 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImag
 
 $downloadFile = Join-Path $downloadDir 'downloaded.qcow2'
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-# Save-ImageWithChecksum (Yuruna.Image.psm1) applies the warn-only
-# checksum policy. The KVM platform doesn't ship Save-CachedHttpUri
-# (yet) so this falls through to a direct Invoke-WebRequest -- still
-# centralized so a future cache addition lands in one place.
+# Save-ImageWithChecksum (Yuruna.Image.psm1) verifies SHA-256 against
+# the publisher checksum (a genuine mismatch deletes the file and fails;
+# a missing upstream checksum is a soft pass). It feature-detects the
+# driver's Save-CachedHttpUri wrapper and routes the fetch through the
+# squid cache when one is reachable, else downloads direct.
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $checksumLink = ($html.Links | Where-Object { $_.href -match '\.qcow2\.sha256$' } | Select-Object -First 1)
 $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink.href } else { $null }
@@ -84,7 +87,7 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath   $downloadFile `
     -ChecksumUrl $checksumUrl `
     -ChecksumTargetFileName $qcow2Link `
-    -OnMismatch 'WarnAndContinue' `
+    -OnMismatch 'WarnAndDelete' `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $downloadUrl"

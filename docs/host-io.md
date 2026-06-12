@@ -156,8 +156,10 @@ parse. The `Read-TestConfig` mtime check short-circuits the parse when
 the file is unchanged, but the function call + `Test-Path` + `Get-Item`
 still cost ~1-2 ms each, which compounds across 8+ re-imports per step.
 
-Back to [Test harness](test-harness.md) · [Capability matrix](capability-matrix.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

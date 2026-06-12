@@ -16,3 +16,10 @@
 
 [rebase]
 	autoStash = true
+
+[core]
+	# Activate the repo-tracked git hooks. tools/githooks/pre-commit runs the
+	# ASCII/no-BOM gate (test/Test-AsciiNoBom.ps1) so a BOM/non-ASCII byte can't
+	# land in a byte-parsed bootstrap script. Path is relative to the worktree
+	# root. See CONTRIBUTING.md; opt out per the include note above.
+	hooksPath = tools/githooks

@@ -98,8 +98,10 @@ kubectl config current-context
 - [Yuruna Frequently Asked Questions](faq.md), [Yuruna Workarounds](workarounds.md), [Yuruna Resources Clean Up](cleanup.md)
 - [Yuruna Website example](../project/example/website/), [Yuruna References](references.md)
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

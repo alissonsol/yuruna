@@ -41,8 +41,10 @@ Those instructions are too long and unreliable to automate yet. Until
 they stabilize, ask an AI assistant for the current recipe for
 (macOS UTM + ARM64 host) or (Windows Hyper-V host).
 
-[Troubleshooting](../../docs/guest-windows-11.md) · Back to [Guests](../README.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

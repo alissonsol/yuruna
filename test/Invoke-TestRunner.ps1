@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,8 @@
 .PARAMETER logLevel             Error|Warning|Information|Verbose|Debug (forwarded)
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = '$global:__YurunaHostId is the cross-host pool-identity channel; set at script top so NDJSON events + status.json carry hostId for pool joins.')]
 param(
     [string]$ConfigPath        = $null,
     [switch]$NoGitPull,
@@ -145,6 +147,10 @@ Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSComman
 # and the status server agree on the on-disk track + log paths every cycle.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
+# Stable per-host pool identity, cached on the process global so NDJSON events
+# (Write-CycleNdjsonEvent) and status.json carry hostId for cross-host joins.
+# Set at script top (not inside a function) -- same pattern as $global:__YurunaRunId.
+$global:__YurunaHostId = Get-YurunaHostId
 
 # Boot-time recovery sweep. Resolves the stale-state classes a prior
 # crash left behind: orphan `.incomplete` cycle-folder markers,

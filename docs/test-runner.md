@@ -9,6 +9,11 @@ creating a fresh VM, driving its sequences, and recording results — in
 a loop that is meant to run for hours or days without an operator
 present.
 
+See [test-config.md](test-config.md) for the `test.config.yml` parameter
+reference, including the optional `poolStorage` NAS replication tier and how to
+set its SMB password in the vault; [pool-storage.md](pool-storage.md) covers that
+tier's architecture and operations.
+
 This document covers what to do **once per machine** before leaving
 the runner unattended. For the architecture of the loop itself see
 [Test harness — architecture](test-harness.md).
@@ -97,11 +102,8 @@ guard, and the failure-pause back-off all live in
 
 ---
 
-Back to [Yuruna Contributing](../CONTRIBUTING.md) ·
-[Test harness — architecture](test-harness.md)
-
-Back to [Yuruna](../README.md).
-
----
-
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

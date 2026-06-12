@@ -121,22 +121,36 @@ bring-up cycle next time and re-run only the last few steps".
 Writes `.yuruna-break-<NNN>.lock` under the per-guest
 `cycleGuestDataFolder` and busy-waits for one of two resume signals:
 
-- **Manual** — operator deletes the marker file. Sequence just resumes
-  in place: no snapshot restore, no VM restart. The VM stays exactly
-  as it was when the break fired, so the operator's mid-pause edits
-  carry forward. Use this when you want to inspect or fix something
-  on the live guest before continuing.
+By default a `break` is a plain breakpoint: on either resume signal the
+sequence picks up at the next step **in place** — no snapshot restore,
+no VM restart. The `id` field is a label only (shown in the marker file
+and the status UI); it does NOT trigger a restore, even when it matches
+a real snapshot name such as the workload's `requiresSnapshot` /
+[`loadDiskSnapshot`](#loaddisksnapshot) `id`.
+
+- **Manual** — operator deletes the marker file. Always resumes in
+  place. The VM stays exactly as it was when the break fired, so the
+  operator's mid-pause edits carry forward. Use this when you want to
+  inspect or fix something on the live guest before continuing.
 - **UI Continue** — operator clicks the **Continue** button rendered on
   the status page (`http://localhost:8080/status/`) for the running
   guest's card. The button POSTs to `/control/break-continue`; the
-  action consumes the flag, calls
+  action consumes the flag and resumes. By default this also resumes in
+  place; only when the step set `restoreOnContinue: true` (and `id`
+  names an existing snapshot) does it call
   [`Restore-VMDiskSnapshot`](#restore-vmdisksnapshot) with `break.id`
-  (skipped silently when `id` is not set), then
-  [`Start-VM`](#yurunahost-contract) (snapshot restore always leaves
-  the VM stopped), then resumes. Use this when you want every Continue
-  to start from the same known-good disk state — i.e. the
-  resume-from-step-N use case where you're iterating on the steps
-  after the break.
+  then [`Start-VM`](#yurunahost-contract) (snapshot restore always
+  leaves the VM stopped) before resuming.
+
+#### restoreOnContinue (opt-in rewind)
+
+Set `restoreOnContinue: true` on a `break` to make UI Continue rewind
+the disk to `break.id` and restart the VM before resuming — the
+**resume-from-known-good-state** use case where you're iterating on the
+steps after a checkpoint (pair it with a prior
+[`saveDiskSnapshot`](#savedisksnapshot) `-Id <same>`). Without it, the
+`id` is purely a label and Continue resumes in place. Marker-delete
+always resumes in place regardless of this flag.
 
 The Continue button is driven by `/runtime/break-active.json`, a sidecar
 the action writes on entry and removes on exit. Not a failure — the
@@ -161,15 +175,15 @@ curl -fsS -X POST http://localhost:8080/control/break-continue
 #   pwsh: Set-Content -Path "$env:YURUNA_RUNTIME_DIR/control.break-continue" -Value (Get-Date -Format o)
 #   bash: date -u +%FT%TZ > "$YURUNA_RUNTIME_DIR/control.break-continue"
 
-# Marker-delete (resumes WITHOUT snapshot restore -- different
-# semantics; see "Manual" above).
+# Marker-delete (always resumes in place; see "Manual" above).
 rm "$(cat <cycleGuestDataFolder>/.yuruna-break-NNN.lock | grep marker | ...)"
 ```
 
-Both the HTTP and direct-write paths trigger the snapshot-restore +
-`Start-VM` flow the UI button does — they're indistinguishable to the
-sequence. The marker-delete path is intentionally different (no
-restore) and matches the "Manual" branch above.
+The HTTP and direct-write paths behave exactly like the UI Continue
+button — indistinguishable to the sequence — so they honor
+`restoreOnContinue` the same way: in place by default, snapshot-restore +
+`Start-VM` only when the step opted in. The marker-delete path always
+resumes in place.
 
 Login after a snapshot-restore is **the sequence author's
 responsibility** — the guest boots fresh from the snapshot disk and
@@ -592,11 +606,8 @@ are NOT in `Yuruna.Host`'s exports and remain safe unqualified.
 
 ---
 
-Back to [Test harness](test-harness.md) · [Test Modules](../test/modules/README.md) ·
-[Yuruna Test](../test/README.md)
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
 
 Back to [Yuruna](../README.md)
-
----
-
-Copyright (c) 2019-2026 by Alisson Sol et al.

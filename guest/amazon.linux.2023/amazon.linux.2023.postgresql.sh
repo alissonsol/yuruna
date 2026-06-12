@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.05
+# Version: 2026.06.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -42,7 +42,6 @@ dnf_retry sudo dnf install -y postgresql17-server postgresql17-contrib
 sudo rm -rf /var/lib/pgsql/data/ 2>/dev/null || true
 sudo /usr/bin/postgresql-setup --initdb
 
-# Enable and start the PostgreSQL service
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
 

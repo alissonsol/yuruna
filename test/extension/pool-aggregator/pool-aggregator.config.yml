@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../../schemas/extension-config.schema.json
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Active provider for the pool-aggregator extension. Single-provider area;
+# the Go source under main.go is fetched + built into the caching-proxy VM
+# (the pool services host) via that VM's cloud-init user-data.
+active:
+  - default

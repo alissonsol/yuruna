@@ -12,17 +12,19 @@ Scripts and config in this folder:
   (arm64, qcow2 → raw, resized to 512 GB sparse).
 - [New-VM.ps1](New-VM.ps1) — assembles the UTM bundle and seeds via
   cloud-init.
-- [vmconfig/user-data](../../vmconfig/caching-proxy.base.user-data) — cloud-init: squid,
-  Prometheus + Grafana + squid-exporter, snapshot-cache tuning,
-  `offline_mode` flip after prewarm.
-- [vmconfig/meta-data](vmconfig/meta-data) — cloud-init instance
-  metadata.
+- [host/vmconfig/caching-proxy.base.user-data](../../vmconfig/caching-proxy.base.user-data) — shared
+  cloud-init base (+ per-host overlay): squid, Prometheus + Grafana + squid-exporter,
+  snapshot-cache tuning, `offline_mode` flip after prewarm.
+- [host/vmconfig/caching-proxy.meta-data](../../vmconfig/caching-proxy.meta-data) — shared
+  cloud-init instance metadata.
 - [config.plist.template](config.plist.template) — UTM VM template
   (Apple Virtualization, 12 GB RAM / 4 vCPU; dedicated cache box sized
   so squid's `cache_mem` can take 75 % of RAM).
 
-Back to [macOS UTM Host Setup](../README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

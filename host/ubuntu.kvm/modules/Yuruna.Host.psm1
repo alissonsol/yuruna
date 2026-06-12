@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,12 +41,22 @@ $script:VirshUri       = 'qemu:///system'
 $script:VmRootDir      = Join-Path $HOME 'yuruna/vms'
 $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
 
-Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking
-Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking
-Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking
+# These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
+# mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
+# EVICTS the global copy other modules call via qualified names (e.g.
+# Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
+Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
 # Shared per-guest provisioning helper (the New-VM.ps1 child-runner) that
 # all three drivers carried in duplicate.
-Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
+# Shared squid download / TLS-bump stack -- single source of truth across host
+# drivers. The X509 chain-validation callback lives there verbatim; this driver's
+# cache-host discovery is injected via the -ResolveCacheHostIp scriptblock (see the
+# Save-CachedHttpUri wrapper below). This also puts Test-DownloadAlreadyCurrent /
+# Write-ImageSentinel on the table for the per-guest Get-Image.ps1 scripts.
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
 
 # Per-guest base image paths -- single table keeps Get-ImagePath, Get-Image,
 # and the per-guest Get-Image.ps1 scripts in agreement. A typo or new guest
@@ -586,7 +596,10 @@ function Send-Text {
     # Send-Text calls should usually use -Mechanism ssh on Linux guests.
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        Import-Module $invokeSequence -Force -DisableNameChecking
+        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
+        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
+        # refresh it in place instead.
+        Import-Module $invokeSequence -Force -DisableNameChecking -Global
         return [bool](Invoke-Sequence\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
     Write-Warning "Send-Text -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
@@ -1921,6 +1934,58 @@ function Get-CachingProxyVMIp {
     return (Get-VMIp -VMName 'yuruna-caching-proxy')
 }
 
+<#
+.SYNOPSIS
+    Returns the IP of a reachable caching-proxy VM (probed on the squid HTTP
+    port), or $null when no cache is currently usable. Injected as the
+    -ResolveCacheHostIp closure into the shared Save-CachedHttpUri so KVM image
+    downloads route through the squid cache.
+.DESCRIPTION
+    Discovery order (same shape as the macOS / Hyper-V drivers):
+      1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote-cache override.
+      2. Get-CachingProxyVMIp -- the cache VM's recorded IP (state file written
+         by Start-CachingProxy.ps1), or a live libvirt domifaddr query for the
+         by-name VM.
+    The chosen IP is returned only if it answers the squid HTTP port, so a stale
+    state entry or a stopped cache VM falls through to $null and the caller
+    downloads direct. The host reaches the cache VM's libvirt-NAT (192.168.122.x)
+    or bridged-LAN address directly, so the same IP also serves :80 (CA fetch)
+    and the SSL-bump port for the HTTPS path -- no loopback forwarder is needed
+    here (unlike macOS, where Apple Virtualization NAT requires one).
+.OUTPUTS
+    [string] IPv4 like '192.168.122.42', or $null.
+#>
+function Resolve-CacheHostIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $httpPort = Get-CachingProxyPort -Scheme http
+    if ($Env:YURUNA_CACHING_PROXY_IP) {
+        $externIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
+        if ((Test-IpAddress $externIp) -and (Test-CachingProxyPort -IpAddress $externIp -Port $httpPort -TimeoutMs 500)) {
+            return $externIp
+        }
+        return $null
+    }
+    $ip = Get-CachingProxyVMIp
+    if ($ip -and (Test-IpAddress $ip) -and (Test-CachingProxyPort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
+        return $ip
+    }
+    return $null
+}
+
+# Thin driver-local wrapper over the shared download stack. The closure binds
+# this driver's Resolve-CacheHostIp (libvirt/state-file cache discovery) so the
+# shared module stays platform-agnostic while still reaching KVM-specific lookup.
+function Save-CachedHttpUri {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile
+    )
+    Yuruna.HostDownload\Save-CachedHttpUri -Uri $Uri -OutFile $OutFile -ResolveCacheHostIp { Resolve-CacheHostIp }
+}
+
 # === Host config ============================================================
 
 <#
@@ -2119,6 +2184,7 @@ Export-ModuleMember -Function `
     Get-ExternalNetwork, New-ExternalNetwork, New-YurunaExternalNetwork, Get-YurunaExternalNetworkPlan, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
     Test-CachingProxyAvailable, Get-CachingProxyVMIp, `
+    Test-DownloadAlreadyCurrent, Test-CachingProxyPort, Resolve-CacheHostIp, Save-CachedHttpUri, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization
 
 # Contract-coverage assertion: warns at load time if the export block
@@ -2137,3 +2203,17 @@ $null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' -ExportedFuncti
     'Test-CachingProxyAvailable','Get-CachingProxyVMIp',
     'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
 )
+
+# Load-time guard for the cache-download wrapper precedence. The image helpers
+# (Save-ImageWithChecksum / Save-UbuntuServerImage) feature-detect Save-CachedHttpUri
+# BY NAME and invoke it with only -Uri/-OutFile, so this driver's 2-param wrapper
+# must win the command-table slot over the shared 3-param
+# Yuruna.HostDownload\Save-CachedHttpUri. If an import-order change flips that
+# precedence the cache-discovery closure is dropped and downloads silently bypass
+# the squid cache (direct, no error) -- surface that regression loudly here.
+$__yurunaCacheDownloadCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue
+if (-not $__yurunaCacheDownloadCmd) {
+    Write-Warning "Yuruna.Host (ubuntu.kvm): Save-CachedHttpUri is not on the command table after load; image downloads cannot route through the squid cache."
+} elseif ($__yurunaCacheDownloadCmd.Parameters.ContainsKey('ResolveCacheHostIp')) {
+    Write-Warning "Yuruna.Host (ubuntu.kvm): Save-CachedHttpUri resolves to the shared Yuruna.HostDownload implementation (mandatory -ResolveCacheHostIp), not this driver's cache-injecting wrapper; image downloads will silently bypass the squid cache. Check module import order."
+}

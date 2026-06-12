@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42e0d1c8-9b3a-4f52-8c61-7d2e4a9b0f33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,15 +243,28 @@ function Save-CachedHttpUri {
     .SYNOPSIS
         Download $Uri to $OutFile, routing through the squid cache when one is
         reachable (HTTP proxy, or HTTPS via the SSL-bump path), else direct.
-        -ResolveCacheHostIp is the driver-supplied cache-IP discovery closure.
+        -ResolveCacheHostIp is the driver-supplied cache-IP discovery closure;
+        omit it (or pass $null) to download direct with no cache lookup.
     #>
     [CmdletBinding()]
     [OutputType([void])]
     param(
         [Parameter(Mandatory)][string]$Uri,
         [Parameter(Mandatory)][string]$OutFile,
-        [Parameter(Mandatory)][scriptblock]$ResolveCacheHostIp
+        [scriptblock]$ResolveCacheHostIp
     )
+    # A platform that imports this shared module only for the sentinel/skip
+    # helpers ships no driver wrapper to bind its own Resolve-CacheHostIp, so the
+    # closure arrives $null: with no discovery there is no cache to route through,
+    # download direct. The closure stays optional (not mandatory) on purpose --
+    # the image helpers feature-detect this command by name and invoke it with
+    # just -Uri/-OutFile, and a mandatory closure would make that by-name call
+    # bind against a missing mandatory parameter, which stalls on an interactive
+    # prompt instead of falling through to a direct fetch.
+    if (-not $ResolveCacheHostIp) {
+        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -ErrorAction Stop
+        return
+    }
     $cfg = Get-CacheProxyForHostDownload -Uri $Uri -ResolveCacheHostIp $ResolveCacheHostIp
     if (-not $cfg) {
         Invoke-WebRequest -Uri $Uri -OutFile $OutFile -ErrorAction Stop

@@ -1,0 +1,17 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+#
+# Example guest-to-hypervisor compatibility rules. Validates against
+# test/schemas/guests.compatibility.schema.yml. Authored now; the pool-planner
+# enforces these in a later phase.
+schemaVersion: 1
+rules:
+  - guestKey: guest.amazon.linux.2023
+    hypervisors: [hyper-v, kvm, utm]
+  - guestKey: guest.ubuntu.server.24
+    hypervisors: [hyper-v, kvm, utm]
+  - guestKey: guest.ubuntu.server.26
+    hypervisors: [hyper-v, kvm, utm]
+  - guestKey: guest.windows.11
+    hypervisors: [hyper-v]
+    notes: The Windows 11 guest is Hyper-V only in this harness.

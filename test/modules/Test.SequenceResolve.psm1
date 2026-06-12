@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,6 +109,21 @@ function Read-SequenceFile {
 function Get-SequenceMode {
     if ($env:YURUNA_KEYSTROKE_MECHANISM -eq "SSH") { return "ssh" }
     return "gui"
+}
+
+<#
+.SYNOPSIS
+    Whether a missing ssh/ sequence may fall back to its gui/ sibling.
+.DESCRIPTION
+    Reads $env:YURUNA_ALLOW_GUI_FALLBACK (mirrored from
+    vmCommunication.allowGuiFallback by Invoke-Sequence, like
+    YURUNA_KEYSTROKE_MECHANISM). Default is $false: under keystrokeMechanism=SSH
+    the gui/ and ssh/ mechanisms are INDEPENDENT, so a missing ssh/ sequence is a
+    resolution miss (hard error upstream), not a silent run on the OCR sibling
+    that an SSH-only host could not drive.
+#>
+function Test-GuiFallbackAllowed {
+    return ($env:YURUNA_ALLOW_GUI_FALLBACK -eq 'true')
 }
 
 <#
@@ -257,7 +272,9 @@ function Resolve-SequencePath {
     # the catch around Resolve-CyclePlan in Invoke-TestInnerRunner.ps1).
     if ($RepoRoot) {
         $modeOrder = @($mode)
-        if ($mode -ne 'gui') { $modeOrder += 'gui' }
+        # gui/ fallback only when explicitly allowed -- otherwise the mechanisms
+        # are independent and a missing ssh/ sequence must not resolve to gui/.
+        if ($mode -ne 'gui' -and (Test-GuiFallbackAllowed)) { $modeOrder += 'gui' }
         foreach ($searchMode in $modeOrder) {
             if ($hostShort) {
                 $hit = Find-ProjectSequenceFile -RepoRoot $RepoRoot -Mode $searchMode -FileName "$Name.$hostShort.yml"
@@ -275,7 +292,8 @@ function Resolve-SequencePath {
     }
     $modePath = Join-Path (Join-Path $SequencesDir $mode) "$Name.yml"
     if (Test-Path $modePath) { return $modePath }
-    if ($mode -ne 'gui') {
+    # gui/ fallback only when explicitly allowed (independent mechanisms by default).
+    if ($mode -ne 'gui' -and (Test-GuiFallbackAllowed)) {
         if ($hostShort) {
             $hostGuiPath = Join-Path (Join-Path $SequencesDir 'gui') "$Name.$hostShort.yml"
             if (Test-Path $hostGuiPath) { return $hostGuiPath }
@@ -320,7 +338,9 @@ function Get-SequenceSearchPath {
     $paths = New-Object System.Collections.Generic.List[string]
     if ($RepoRoot) {
         $modeOrder = @($mode)
-        if ($mode -ne 'gui') { $modeOrder += 'gui' }
+        # gui/ fallback only when explicitly allowed -- otherwise the mechanisms
+        # are independent and a missing ssh/ sequence must not resolve to gui/.
+        if ($mode -ne 'gui' -and (Test-GuiFallbackAllowed)) { $modeOrder += 'gui' }
         foreach ($searchMode in $modeOrder) {
             foreach ($d in (Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode $searchMode)) {
                 if ($hostShort) { [void]$paths.Add((Join-Path $d "$Name.$hostShort.yml")) }
@@ -330,11 +350,11 @@ function Get-SequenceSearchPath {
     }
     if ($hostShort) { [void]$paths.Add((Join-Path (Join-Path $SequencesDir $mode) "$Name.$hostShort.yml")) }
     [void]$paths.Add((Join-Path (Join-Path $SequencesDir $mode) "$Name.yml"))
-    if ($mode -ne 'gui') {
+    if ($mode -ne 'gui' -and (Test-GuiFallbackAllowed)) {
         if ($hostShort) { [void]$paths.Add((Join-Path (Join-Path $SequencesDir 'gui') "$Name.$hostShort.yml")) }
         [void]$paths.Add((Join-Path (Join-Path $SequencesDir 'gui') "$Name.yml"))
     }
     return $paths.ToArray()
 }
 
-Export-ModuleMember -Function Read-SequenceFile, Get-SequenceMode, Get-SequenceModePath, Get-ProjectTestSearchDir, Find-ProjectSequenceFile, Resolve-SequencePath, Get-SequenceSearchPath
+Export-ModuleMember -Function Read-SequenceFile, Get-SequenceMode, Get-SequenceModePath, Test-GuiFallbackAllowed, Get-ProjectTestSearchDir, Find-ProjectSequenceFile, Resolve-SequencePath, Get-SequenceSearchPath

@@ -113,8 +113,10 @@ account whose password lives in the authentication vault. The
 custom stash daemon (not yet implemented) is a separate auth
 surface that accepts any credentials.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

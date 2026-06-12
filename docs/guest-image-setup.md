@@ -73,8 +73,8 @@ pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
 
 What `New-VM.ps1` does is host-dependent:
 
-- **virt-install (KVM)** — renders `vmconfig/user-data` +
-  `vmconfig/meta-data` with the per-cycle SSH key
+- **virt-install (KVM)** — renders the shared `host/vmconfig/` user-data
+  (base + per-host overlay) + meta-data with the per-cycle SSH key
   (`test/status/ssh/yuruna_ed25519`, auto-generated when missing),
   builds a CIDATA seed ISO with `genisoimage`, allocates an empty
   qcow2 install target, and runs `virt-install` against
@@ -193,8 +193,10 @@ virsh -c qemu:///system undefine <VMName> --remove-all-storage
 The image cache under `~/yuruna/image/<GUEST>.env/` is preserved
 across deletes so the next `New-VM.ps1` doesn't have to re-download.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

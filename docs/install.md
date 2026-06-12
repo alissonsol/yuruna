@@ -41,6 +41,25 @@ existing-checkout logic further down can recognize the remote a previous
 run cloned from — and skip a pull that would just stall waiting for
 GitHub credentials this run doesn't have.
 
+### Release pinning + signed integrity
+
+`VERSION` (bare CalVer, e.g. `2026.06.12`) is the source of truth for releases.
+At release time `tools/Update-YurunaReleasePins.ps1` flips the three installers'
+`YURUNA_BRANCH` default from `main` to the release tag (pinning the clone),
+regenerates `install/install.sha256`, signs it (`install/install.sha256.sig`,
+RSA-4096), and runs the ASCII/no-BOM gate as a hard precondition — so the
+per-release work is just: bump `VERSION`, run the script, cut the tag. The
+existing clone/checkout/pull logic handles a CalVer tag transparently (detached
+checkout + no-op `--ff-only` pull), so pinning is only that default flip; opt
+back onto a moving branch with `YURUNA_BRANCH=main` / `-YurunaBranch main`.
+
+The convenience one-liners stay on `refs/heads/main` (latest, UNVERIFIED). The
+**verified** install path — download the installer + `install.sha256` + `.sig`
++ the bundled public key, verify the signature (`openssl` on macOS/Linux, .NET
+on Windows PowerShell), then the hash, then run — is documented in
+[install/README.md](../install/README.md); the signing-key fingerprint is in
+[install/keys/README.md](../install/keys/README.md).
+
 ### System-requirements preflight
 
 Tested baselines:
@@ -637,8 +656,10 @@ just updated. Don't use `id -nG` here: it reflects the stale live
 group set of THIS shell and would force the direct-pwsh fallback on
 the first run.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

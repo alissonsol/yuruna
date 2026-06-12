@@ -51,8 +51,10 @@ install.
 - [Ubuntu Server 26.04](guest.ubuntu.server.26/README.md)
 - [Windows 11](guest.windows.11/README.md)
 
-Back to [Hosts](../README.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

@@ -127,8 +127,10 @@ Hyper-V-specific — it stems from Hyper-V's per-VM virtual-account ACE model.
 KVM and macOS/UTM grant guest file access differently and do not accumulate
 per-VM ACEs on shared images.
 
-Back to [Windows Hyper-V Host Setup](../host/windows.hyper-v/README.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

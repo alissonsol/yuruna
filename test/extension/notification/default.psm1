@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456812
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,7 +69,10 @@ function Send-EmailViaResend {
         subject = $Subject
         html    = "<pre>$([System.Net.WebUtility]::HtmlEncode($BodyText))</pre>"
     } | ConvertTo-Json
-    Invoke-RestMethod -Uri 'https://api.resend.com/emails' -Method Post -Headers $headers -Body $body -Verbose:$false -Debug:$false | Out-Null
+    # -TimeoutSec bounds the call so a stalled Resend endpoint can't wedge a caller
+    # (the file-spool pool notifier runs as an unattended cycle-end hook; an unbounded
+    # POST there is the "outer-loop hook must be subprocess-bounded" trap class).
+    Invoke-RestMethod -Uri 'https://api.resend.com/emails' -Method Post -Headers $headers -Body $body -TimeoutSec 30 -Verbose:$false -Debug:$false | Out-Null
 }
 
 <#
@@ -80,8 +83,18 @@ function Send-Notification {
     param(
         [Parameter(Mandatory)][string]$EventCode,
         [Parameter(Mandatory)][string]$EventMessage,
-        [string]$EventNote = ''
+        [string]$EventNote = '',
+        # Optional structured failure payload (schema-v2 shape). The Test.Notify
+        # forward gate ships it only to extensions that DECLARE this parameter;
+        # the Resend email transport delivers the human EventNote (which already
+        # carries the JSON trailer from Format-FailureMessage), so this is
+        # accepted for the gate + a future webhook/richer transport that routes
+        # on $EventData.failureClass without regex-parsing the body.
+        [hashtable]$EventData = $null
     )
+    # Accepted-but-unused by the email path today; reference it so the param
+    # surface is intentional (and PSReviewUnusedParameter stays quiet).
+    Write-Verbose "Send-Notification: EventData $(if ($EventData) { "present (failureClass=$($EventData['failureClass']))" } else { 'none' })"
     $cfg = Read-NotificationConfig
     $subs = @()
     if ($cfg.Contains('subscribers') -and $cfg.subscribers -and $cfg.subscribers.Contains($EventCode)) {
@@ -91,6 +104,9 @@ function Send-Notification {
         Write-Verbose "No subscribers for event '$EventCode'; nothing to send."
         return
     }
+    $attempted = 0
+    $delivered = 0
+    $lastError = $null
     foreach ($sub in $subs) {
         try {
             switch ($sub.transport) {
@@ -99,8 +115,10 @@ function Send-Notification {
                         Write-Verbose "Subscriber for '$EventCode' has empty address; skipping."
                         continue
                     }
+                    $attempted++
                     Send-EmailViaResend -ResendCfg $cfg.transports.resend `
                         -ToAddress $sub.address -Subject $EventMessage -BodyText $EventNote
+                    $delivered++
                     Write-Information "Notification '$EventCode' delivered to $($sub.address)" -InformationAction Continue
                 }
                 default {
@@ -108,8 +126,19 @@ function Send-Notification {
                 }
             }
         } catch {
-            Write-Warning "Notification delivery failed for '$EventCode' -> $($sub.address): $($_.Exception.Message)"
+            $lastError = $_.Exception.Message
+            Write-Warning "Notification delivery failed for '$EventCode' -> $($sub.address): $lastError"
         }
+    }
+    # Surface a TOTAL delivery failure to the dispatcher so its delivery ledger
+    # (notification.delivery.json) records 'fail' rather than a false 'ok'. The
+    # dispatcher's sync + async branches both catch this, so it never crashes a
+    # caller -- it just makes the recorded outcome honest, which the file-spool pool
+    # notifier keys on to retry (vs dropping) an undelivered message. A partial
+    # success (>=1 delivered) still counts as delivered; skipped subscribers (no
+    # address / unknown transport) are not delivery attempts.
+    if ($attempted -gt 0 -and $delivered -eq 0) {
+        throw "Notification '$EventCode': all $attempted delivery attempt(s) failed. Last error: $lastError"
     }
 }
 

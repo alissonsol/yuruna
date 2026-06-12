@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
 .DESCRIPTION
     Builds a lightweight Ubuntu Server cloud-image VM that runs Squid on
     port 3128. Guest VMs that set their HTTP proxy to this VM's IP will
-    transparently cache every cacheable HTTP response — including the
+    transparently cache every cacheable HTTP response -- including the
     .deb packages the Ubuntu installer fetches during its kernel install
     step, which was previously uncached and caused intermittent 429
     failures from security.ubuntu.com.
@@ -59,7 +59,6 @@ $global:ProgressPreference    = "SilentlyContinue"
 $commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
 
-# Inform and check for elevation
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -67,7 +66,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # Assert-HyperVEnabled (Yuruna.Host.psm1) calls dism.exe directly instead
-# of Get-WindowsOptionalFeature — avoids the "Class not registered" COM
+# of Get-WindowsOptionalFeature -- avoids the "Class not registered" COM
 # failure that breaks first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
@@ -129,7 +128,8 @@ Write-Output "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
 
 # === Generate cloud-init seed ISO ===
-$vmConfigDir = Join-Path $PSScriptRoot "vmconfig"
+# meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
+$hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 # 4-digit entropy is weak by design (10k cases) but enough to defeat
 # the deterministic-path symlink trap: an attacker dropping a symlink
 # at %TEMP%\seed_<VMName>\ before New-VM runs can't predict the
@@ -138,9 +138,9 @@ $SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
-Copy-Item -Path (Join-Path $vmConfigDir "meta-data") -Destination "$SeedDir/meta-data"
+Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy.meta-data') -Destination "$SeedDir/meta-data"
 
-# Load the yuruna test-harness SSH public key — same module the Ubuntu
+# Load the yuruna test-harness SSH public key -- same module the Ubuntu
 # Desktop guest uses; one keypair grants passwordless access to every VM
 # (including this cache VM, for debugging squid/cloud-init).
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
@@ -185,6 +185,89 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyStatePath
 
+# === Pick a vSwitch (BEFORE building user-data) ===
+# Prefer the Yuruna External vSwitch (bridged to the host's primary physical
+# NIC) so the cache VM gets a real LAN IP via DHCP and remote LAN clients
+# reach it directly. Fall back to the built-in Default Switch when no External
+# vSwitch can be created. Resolved here (not just before VM-create) because
+# Get-GuestReachableHostIp below derives the seed's host IP from the switch
+# topology (Default Switch = 172.x gateway; External = host LAN IP).
+$switchName = Get-OrCreateYurunaExternalSwitch
+if (-not $switchName) {
+    Write-Output "WARNING: External vSwitch unavailable -- falling back to 'Default Switch'."
+    Write-Output "  Cache VM will not be reachable from LAN by its own IP, and remote"
+    Write-Output "  clients routed via netsh portproxy will appear as the host's"
+    Write-Output "  vEthernet IP in squid's access.log (see docs/caching.md)."
+    $switchName = 'Default Switch'
+}
+
+# Yuruna host (status server) IP+port baked into the seed so the cache VM's
+# cloud-init build block fetches collector/parser source from the LOCAL host
+# working tree (/yuruna-repo/) instead of public github -- a rebuild never
+# waits on the private->public mirror. Empty values make the build fall back
+# to github. Start-CachingProxy.ps1 ensures the status server is running.
+$YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$YurunaTestConfig = Join-Path $_repoRootForExt 'test/test.config.yml'
+$tc = $null
+if (Test-Path $YurunaTestConfig) {
+    try {
+        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
+        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
+    } catch { Write-Verbose "test.config.yml parse failed: $_" }
+}
+
+# poolStorage (ypsp) service replication: bake the networkUser credential, the share
+# path (unix form), and this host's id so the proxy can rsync its observability data
+# to the NAS. Resolved here on the host (poolStorage config + vault).
+# REPLICATE stays false unless poolStorage is configured AND networkUser has a vault
+# password, so an empty credential is never baked. networkUser is the single NAS
+# account used for every storage connection (host drain + this guest mount alike).
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.YurunaDir.psm1')   -Force
+$ypspCfg = $null
+if ($tc) { try { $ypspCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypsp config: $_" } }
+$ypspHostId = ''
+try { $ypspHostId = [string](Get-YurunaHostId) } catch { $ypspHostId = '' }
+if (-not $ypspHostId) { $ypspHostId = 'unknown-host' }
+$ypspUser    = if ($ypspCfg) { [string]$ypspCfg.NetworkUser } else { '' }
+$ypspNetPath = if ($ypspCfg) { Get-PoolStorageUncPath -Path $ypspCfg.NetworkPath -Style unix } else { '' }
+# Refuse to bake a value containing a single quote: it would unbalance the guest's
+# single-quoted, sourced /etc/yuruna/ypsp.env and could strand the guest's runcmd.
+if (($ypspNetPath -match "'") -or ($ypspUser -match "'")) {
+    Write-Warning "poolStorage: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
+    $ypspUser = ''; $ypspNetPath = ''
+}
+$ypspPwd = ''
+# Gate Get-Password on the read-only vault-readiness check so a networkUser that was
+# set in config but never Set-Password'd does NOT auto-generate + persist a junk
+# credential (and bake it). Mirrors the host-side drain's loud-fail.
+if ($ypspCfg -and $ypspUser -and (Test-PoolStorageVaultReady -Config $ypspCfg -WarningAction SilentlyContinue)) {
+    try { $ypspPwd = [string](Get-Password -Username $ypspUser) } catch { Write-Verbose "ypsp networkUser password: $_" }
+}
+$ypspReplicate = if ($ypspCfg -and $ypspUser -and $ypspPwd) { 'true' } else { 'false' }
+
+# Pool push-ingest shared bearer (Phase 6): resolve the operator-supplied token that
+# gates the aggregator's POST /ingest, mirroring the ypsp loud-fail gate. Read it ONLY
+# when the operator declared a vaultKey for 'pool-auth-token' AND populated it
+# (Test-VaultEntry) -- an empty vaultKey means push is DISABLED, so do NOT call
+# Get-Password then (it would auto-generate a per-host random token and break the
+# shared-token model). Bake EMPTY when disabled/unset -> the aggregator refuses /ingest.
+$poolAuthToken = ''
+try {
+    $paEff = Get-EffectiveUser -LogicalUser 'pool-auth-token'
+    if ($paEff.vaultKey -and (Test-VaultEntry -VaultKey $paEff.vaultKey)) {
+        $poolAuthToken = [string](Get-Password -Username 'pool-auth-token')
+    }
+} catch { Write-Verbose "pool auth token: $($_.Exception.Message)" }
+# Refuse a token carrying a newline or quote: it would corrupt the baked token file or
+# the runner's bearer header.
+if ($poolAuthToken -match '[\r\n''"]') {
+    Write-Warning "pool.auth.token contains a newline or quote character; refusing to bake (push disabled)."
+    $poolAuthToken = ''
+}
+
 # Render user-data from the shared base + Hyper-V overlay
 # (host/vmconfig/caching-proxy.*). Build-CloudInitUserData resolves the
 # SSH-key and password placeholders with literal .Replace(), so values
@@ -197,6 +280,14 @@ $UserData = Build-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $YurunaPassword
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YPSP_REPLICATE_PLACEHOLDER     = $ypspReplicate
+        YPSP_NETWORK_PATH_PLACEHOLDER  = $ypspNetPath
+        YPSP_NETWORK_USER_PLACEHOLDER  = $ypspUser
+        YPSP_PASSWORD_PLACEHOLDER      = $ypspPwd
+        YPSP_HOST_ID_PLACEHOLDER       = $ypspHostId
+        POOL_AUTH_TOKEN_PLACEHOLDER    = $poolAuthToken
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
@@ -207,7 +298,7 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 # Surface credentials BEFORE the long VM-create/boot/cloud-init wait.
 # If anything in those 20-35 minutes fails (cloud-init stall, apt rate-
 # limit, yuruna.conf parse error), the operator needs to console-login
-# via vmconnect — without the password they'd have to dig seed.iso off
+# via vmconnect -- without the password they'd have to dig seed.iso off
 # disk. The final "ready" banner reprints the same credentials.
 Write-Output ""
 Write-Output "== caching-proxy console/SSH login (available NOW) =="
@@ -217,35 +308,17 @@ Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VM
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# === Pick a vSwitch ===
-# Prefer the Yuruna External vSwitch (bridged to the host's primary
-# physical NIC) so the cache VM gets a real LAN IP via DHCP and remote
-# LAN clients reach it directly — squid sees the actual client IP at
-# TCP level with no host-side forwarder in the path. Fall back to the
-# built-in Default Switch when no External vSwitch can be created
-# (no LAN, Wi-Fi-only host, etc.); cache still works for local
-# Default-Switch guests, but LAN clients will see the host's vEthernet
-# IP for every request (the documented netsh-portproxy gap).
-$switchName = Get-OrCreateYurunaExternalSwitch
-if (-not $switchName) {
-    Write-Output "WARNING: External vSwitch unavailable — falling back to 'Default Switch'."
-    Write-Output "  Cache VM will not be reachable from LAN by its own IP, and remote"
-    Write-Output "  clients routed via netsh portproxy will appear as the host's"
-    Write-Output "  vEthernet IP in squid's access.log (see docs/caching.md)."
-    $switchName = 'Default Switch'
-}
-
 # === Create and configure Hyper-V VM ===
 # 12 GB RAM, 4 vCPU. This is a DEDICATED cache VM (one job: serve the
 # squid object cache to every guest), so the memory budget is sized
 # around squid's `cache_mem 9 GB` (= 75 % of VM RAM, per the
-# vmconfig/user-data tuning). Empirically a 1 GB cache_mem on this
+# host/vmconfig/caching-proxy.base.user-data tuning). Empirically a 1 GB cache_mem on this
 # VM put squid's RSS at ~2 GB during active cycles (sslcrtd children +
 # connection buffers + in-RAM hot objects = ~1 GB beyond cache_mem),
 # so 9 GB cache_mem implies ~10 GB peak squid + ~1.5 GB for the rest
 # of the stack (apache, grafana, prometheus, loki, promtail,
 # squid-exporter, caching-proxy-parser, systemd, page cache). 12 GB
-# leaves ~500 MB of OS headroom. 4 vCPU stays — caching is I/O- and
+# leaves ~500 MB of OS headroom. 4 vCPU stays -- caching is I/O- and
 # memory-bound, not CPU-bound; raising vCPU count without raising RAM
 # wouldn't help. Swap is masked in user-data, so an OOM event is
 # unrecoverable; if you tune cache_mem upward, raise the VM total
@@ -274,14 +347,14 @@ Hyper-V\Start-VM -Name $VMName
 
 Write-Output "Waiting for VM to obtain an IP address..."
 Write-Output "  (first boot runs cloud-init: apt update + install squid + hyperv-daemons;"
-Write-Output "   this can take 5-15 minutes on a slow connection — be patient)"
+Write-Output "   this can take 5-15 minutes on a slow connection -- be patient)"
 
 # Discover the cache VM's IP via Get-CacheVmCandidateIp (Yuruna.Host.psm1,
 # KVP+ARP). Same primitive called by consumers (ubuntu guests) and
 # Start-CachingProxy.ps1's summary, so producer and consumers never see
 # different answers about which IPs belong to this VM.
 #
-# No :3128 probe in this loop — squid isn't listening yet (cloud-init is
+# No :3128 probe in this loop -- squid isn't listening yet (cloud-init is
 # what we're waiting for). A later loop ("Waiting for squid to listen on
 # port 3128") takes $cacheCandidateIps and tiebreaks stale vs live ARP
 # entries by picking whichever answers squid.
@@ -307,12 +380,12 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
         # On Yuruna-External, the host is no longer the DHCP server so
         # the cache VM's lease never lands in the host's ARP cache
         # passively. KVP would eventually populate IPAddresses but only
-        # after cloud-init's runcmd starts hv_kvp_daemon — that's 5-15
+        # after cloud-init's runcmd starts hv_kvp_daemon -- that's 5-15
         # minutes of "not discovered yet" while the VM is fine. Active-
         # probe the subnet (parallel ICMP sweep, ~5s) to ARP-resolve
         # every host on the LAN; the cache VM appears in
         # Get-NetNeighbor on the next iteration. Default-Switch path
-        # doesn't need this — Hyper-V's NAT populates ARP at DHCP time.
+        # doesn't need this -- Hyper-V's NAT populates ARP at DHCP time.
         if ($i -eq 0) {
             $cacheVmOnExternalSwitch = (($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
                                           Select-Object -First 1).SwitchName -eq 'Yuruna-External')
@@ -342,7 +415,7 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
 
     # Single-line progress: elapsed, CPU%, VHDX size + heartbeat status.
     # VHDX growth means cloud-init is making progress (apt unpacking).
-    # Heartbeat = Hyper-V's view of integration services — "OK" means
+    # Heartbeat = Hyper-V's view of integration services -- "OK" means
     # the VM is alive and the kernel is healthy even if KVP hasn't
     # started; "Lost Communication" / "No Contact" means the VM may be
     # frozen, panicked, or networking-broken.
@@ -376,7 +449,7 @@ never reported an IP via Hyper-V KVP. Exiting with failure so guest
 installs won't silently fall back to direct CDN access and 429.
 
 If the VM is on the Yuruna-External vSwitch and the host is on Wi-Fi:
-the AP probably refused to forward the cache VM's DHCP request — this
+the AP probably refused to forward the cache VM's DHCP request -- this
 is a known Hyper-V-on-Wi-Fi limitation. Use a wired connection, or
 remove the Yuruna-External vSwitch (Remove-VMSwitch -Name 'Yuruna-External')
 to fall back to Default Switch on the next New-VM.ps1 run.
@@ -408,12 +481,12 @@ idempotent and will rebuild the VM cleanly.
 Write-Output "Cache VM candidate IP(s): $($cacheCandidateIps -join ', ')"
 Write-Output "Waiting for squid to listen on port 3128 (up to 15 minutes)..."
 Write-Output "  (cloud-init installs squid + apache2 + squid-cgi, then pre-warms"
-Write-Output "   the cache by pulling linux-firmware through the local proxy —"
+Write-Output "   the cache by pulling linux-firmware through the local proxy --"
 Write-Output "   squid binds :3128 before pre-warm starts, so port response"
 Write-Output "   usually happens 3-5 minutes in on a responsive mirror.)"
 
 $portActivity = "Waiting for squid on :3128 (candidates: $($cacheCandidateIps -join ', '))"
-$portMaxIterations = 360  # 360 * 2.5s = 15 minutes — matches the cloud-init budget we advertise
+$portMaxIterations = 360  # 360 * 2.5s = 15 minutes -- matches the cloud-init budget we advertise
 $portStartTime = Get-Date
 
 for ($i = 0; $i -lt $portMaxIterations; $i++) {
@@ -444,7 +517,7 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
         Write-Output "  Console/SSH login:"
         Write-Output "    user:     yuruna"
         Write-Output "    password: $PasswordFile"
-        Write-Output "    (also embedded in the seed.iso's user-data — chpasswd)"
+        Write-Output "    (also embedded in the seed.iso's user-data -- chpasswd)"
         Write-Output ""
         Write-Output "Pre-warm may still be running in the background (pulling"
         Write-Output "linux-firmware and the HWE kernel meta through the local"
@@ -513,7 +586,7 @@ Common patterns you'll see there:
                                   rebuilds the VM cleanly).
   * 'Unable to locate package' -> a package name changed on the mirror;
                                   report the specific name so it can be
-                                  fixed in vmconfig/user-data.
+                                  fixed in host/vmconfig/caching-proxy.base.user-data.
   * 'Could not resolve'        -> DNS broken inside the VM. Check
                                   'resolvectl status' and netplan config.
   * Nothing obvious            -> run the fuller diagnostic block below.

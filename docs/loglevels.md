@@ -76,8 +76,10 @@ would replay each tick, making the transcript unreadable. The cascade
 silences it past Information so operators running with `-logLevel
 Verbose` see clean, line-oriented output.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

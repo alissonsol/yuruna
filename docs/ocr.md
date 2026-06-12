@@ -120,8 +120,10 @@ The capability gate fails the cycle when a sequence references an
 OCR-requiring action (`waitForText`, `passwdPrompt`, ...) and no
 provider's `IsAvailable` returns `$true`.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

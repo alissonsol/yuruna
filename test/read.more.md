@@ -22,7 +22,8 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `vmImage.refreshHours` | `24` | Hours between automatic re-downloads |
 | `vmImage.alwaysRedownload` | `false` | Force re-download even if image exists |
 | `vmCommunication.characterDelayMs` | `20` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences/ overrides this default) |
-| `vmCommunication.keystrokeMechanism` | `"GUI"` | `"GUI"` keystroke injection, `"SSH"` over ssh. Selects `sequences/gui/` or `sequences/ssh/`; SSH falls back to `gui/`. Any other value normalized to `"GUI"` |
+| `vmCommunication.allowGuiFallback` | `false` | When `false` (default) `gui/` and `ssh/` are **independent** mechanisms: under `keystrokeMechanism="SSH"` a missing `ssh/` sequence is a hard error, never a silent run on the OCR `gui/` sibling (which an SSH-only host could not drive). Set `true` to restore the legacy degrade-to-`gui/` behavior |
+| `vmCommunication.keystrokeMechanism` | `"GUI"` | `"GUI"` keystroke injection (OCR), `"SSH"` over ssh. Selects `sequences/gui/` or `sequences/ssh/` as independent mechanisms (see `allowGuiFallback`). Any other value normalized to `"GUI"` |
 | `vmCommunication.pollSeconds` | `5` | Default poll interval (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `waitForAndEnter`, `sshWaitReady`, …). A step's own `pollSeconds` overrides this default |
 | `vmCommunication.timeoutSeconds` | `180` | Default timeout (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `fetchAndExecute`, `sshExec`, `sshWaitReady`, …). A step's own `timeoutSeconds` overrides this default |
 | `vmCommunication.vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`host/macos.utm/modules/Yuruna.Host.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
@@ -233,7 +234,9 @@ form is shell-tab-completion friendly and supplies the top-level file
 directly (useful when `yuruna-project` is mounted as a sibling working
 tree, not cloned under `<RepoRoot>/project/`), skipping mode/host-variant
 resolution. Both forms still walk the baseline chain. Name form
-resolves against `keystrokeMechanism`, falling back to `gui/`.
+resolves against `keystrokeMechanism`; under `"SSH"` it falls back to
+`gui/` only when `vmCommunication.allowGuiFallback: true` (otherwise the
+mechanisms are independent and a missing `ssh/` sequence is an error).
 Missing sequence → listing from `sequences/gui/` and `sequences/ssh/`.
 When the path form points to a generic `.yml` and a
 `<name>.<hostShort>.yml` sibling exists, Test-Sequence warns -- the
@@ -317,8 +320,10 @@ its `baseline` to declare prerequisites, then reference the top-level
 sequence from the `project/test/test.runner.yml` `sequences` list. Full
 architecture: [Test Modules ...](modules/README.md).
 
-Back to [Test runner](README.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

@@ -41,8 +41,10 @@ enables Remote Desktop. Default credentials: `User` / `password`
 - VM is unactivated until a key is provided.
 - Enhanced Session Mode is available by default for Windows guests.
 
-Back to [Windows 11 guest (Hyper-V)](README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

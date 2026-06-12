@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,8 +128,9 @@ $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
-$VmConfigDir = Join-Path $ScriptDir "vmconfig"
-Copy-Item -Path (Join-Path $VmConfigDir "meta-data") -Destination "$SeedDir/meta-data"
+# meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
+$hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
+Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy.meta-data') -Destination "$SeedDir/meta-data"
 
 # yuruna test-harness SSH public key (same module the Ubuntu Server
 # guest uses). One keypair grants passwordless access to every VM,
@@ -161,6 +162,86 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyStatePath
 
+# Yuruna host (status server) IP+port baked into the seed so the cache VM's
+# cloud-init build block fetches collector/parser source from the LOCAL host
+# working tree (/yuruna-repo/) instead of public github -- a rebuild never
+# waits on the private->public mirror. The reachable host address is
+# topology-aware and mirrors the NetworkMode decision below: a wired (Ethernet)
+# default route makes the cache VM bridged (LAN IP), reaching the host at its
+# LAN address (Get-BestHostIp); a Wi-Fi default route makes it UTM Shared NAT,
+# reaching the host at the VZ gateway (Get-GuestReachableHostIp = 192.168.64.1).
+# Test-MacDefaultRouteIsWiFi is idempotent (called again below).
+# $env:YURUNA_GUEST_REACHABLE_HOST_IP overrides. Empty -> github fallback.
+# Start-CachingProxy.ps1 starts the status server.
+Import-Module (Join-Path $_repoRootForExt 'host/macos.utm/modules/Yuruna.Host.psm1') -Force
+if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
+    $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
+} elseif (Test-MacDefaultRouteIsWiFi) {
+    $YurunaHostIp = Get-GuestReachableHostIp   # Wi-Fi -> Shared NAT: VZ gateway
+} else {
+    $YurunaHostIp = Get-BestHostIp             # Ethernet -> bridged: host LAN IP
+}
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$YurunaTestConfig = Join-Path $_repoRootForExt 'test/test.config.yml'
+$tc = $null
+if (Test-Path $YurunaTestConfig) {
+    try {
+        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
+        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
+    } catch { Write-Verbose "test.config.yml parse failed: $_" }
+}
+
+# poolStorage (ypsp) service replication: bake the networkUser credential, the share
+# path (unix form), and this host's id so the proxy can rsync its observability data
+# to the NAS. Resolved here on the host (poolStorage config + vault).
+# REPLICATE stays false unless poolStorage is configured AND networkUser has a vault
+# password, so an empty credential is never baked. networkUser is the single NAS
+# account used for every storage connection (host drain + this guest mount alike).
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.YurunaDir.psm1')   -Force
+$ypspCfg = $null
+if ($tc) { try { $ypspCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypsp config: $_" } }
+$ypspHostId = ''
+try { $ypspHostId = [string](Get-YurunaHostId) } catch { $ypspHostId = '' }
+if (-not $ypspHostId) { $ypspHostId = 'unknown-host' }
+$ypspUser    = if ($ypspCfg) { [string]$ypspCfg.NetworkUser } else { '' }
+$ypspNetPath = if ($ypspCfg) { Get-PoolStorageUncPath -Path $ypspCfg.NetworkPath -Style unix } else { '' }
+# Refuse to bake a value containing a single quote: it would unbalance the guest's
+# single-quoted, sourced /etc/yuruna/ypsp.env and could strand the guest's runcmd.
+if (($ypspNetPath -match "'") -or ($ypspUser -match "'")) {
+    Write-Warning "poolStorage: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
+    $ypspUser = ''; $ypspNetPath = ''
+}
+$ypspPwd = ''
+# Gate Get-Password on the read-only vault-readiness check so a networkUser that was
+# set in config but never Set-Password'd does NOT auto-generate + persist a junk
+# credential (and bake it). Mirrors the host-side drain's loud-fail.
+if ($ypspCfg -and $ypspUser -and (Test-PoolStorageVaultReady -Config $ypspCfg -WarningAction SilentlyContinue)) {
+    try { $ypspPwd = [string](Get-Password -Username $ypspUser) } catch { Write-Verbose "ypsp networkUser password: $_" }
+}
+$ypspReplicate = if ($ypspCfg -and $ypspUser -and $ypspPwd) { 'true' } else { 'false' }
+
+# Pool push-ingest shared bearer (Phase 6): resolve the operator-supplied token that
+# gates the aggregator's POST /ingest, mirroring the ypsp loud-fail gate. Read it ONLY
+# when the operator declared a vaultKey for 'pool-auth-token' AND populated it
+# (Test-VaultEntry) -- an empty vaultKey means push is DISABLED, so do NOT call
+# Get-Password then (it would auto-generate a per-host random token and break the
+# shared-token model). Bake EMPTY when disabled/unset -> the aggregator refuses /ingest.
+$poolAuthToken = ''
+try {
+    $paEff = Get-EffectiveUser -LogicalUser 'pool-auth-token'
+    if ($paEff.vaultKey -and (Test-VaultEntry -VaultKey $paEff.vaultKey)) {
+        $poolAuthToken = [string](Get-Password -Username 'pool-auth-token')
+    }
+} catch { Write-Verbose "pool auth token: $($_.Exception.Message)" }
+# Refuse a token carrying a newline or quote: it would corrupt the baked token file or
+# the runner's bearer header.
+if ($poolAuthToken -match '[\r\n''"]') {
+    Write-Warning "pool.auth.token contains a newline or quote character; refusing to bake (push disabled)."
+    $poolAuthToken = ''
+}
+
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
 # caching-proxy.*). Build-CloudInitUserData resolves the SSH-key and
 # password placeholders with literal .Replace(), so values with
@@ -173,6 +254,14 @@ $UserData = Build-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $YurunaPassword
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YPSP_REPLICATE_PLACEHOLDER     = $ypspReplicate
+        YPSP_NETWORK_PATH_PLACEHOLDER  = $ypspNetPath
+        YPSP_NETWORK_USER_PLACEHOLDER  = $ypspUser
+        YPSP_PASSWORD_PLACEHOLDER      = $ypspPwd
+        YPSP_HOST_ID_PLACEHOLDER       = $ypspHostId
+        POOL_AUTH_TOKEN_PLACEHOLDER    = $poolAuthToken
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
@@ -248,7 +337,7 @@ if (Test-MacDefaultRouteIsWiFi) {
 # 12 GB RAM, 4 vCPU -- same sizing as the Hyper-V caching-proxy. This is
 # a DEDICATED cache VM (one job: serve the squid object cache to every
 # guest), so the memory budget is sized around squid's `cache_mem 9 GB`
-# (= 75 % of VM RAM, per the vmconfig/user-data tuning). Empirically a
+# (= 75 % of VM RAM, per the host/vmconfig/caching-proxy.base.user-data tuning). Empirically a
 # 1 GB cache_mem put squid's RSS at ~2 GB during active cycles
 # (sslcrtd children + connection buffers + in-RAM hot objects = ~1 GB
 # beyond cache_mem), so 9 GB cache_mem implies ~10 GB peak squid +
@@ -303,7 +392,7 @@ Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # === Guidance ===
 # LITERAL here-string (@'...'@) for the multi-line block. Shell snippets
-# below contain $(utmctl ...), "$ip", etc. — pass through verbatim, do
+# below contain $(utmctl ...), "$ip", etc. -- pass through verbatim, do
 # NOT let PowerShell evaluate. Placeholders like __VM_NAME__ are
 # substituted after the fact via .Replace(). Backslash-escaping (\$)
 # does NOT work: \ is not a PowerShell string escape, so `\$(utmctl ...)`
@@ -316,11 +405,11 @@ Write-Output ""
 Write-Output "  Console/SSH login:"
 Write-Output "    user:     yuruna"
 Write-Output "    password: $PasswordFile"
-Write-Output "    (also embedded in the seed.iso's user-data — chpasswd)"
+Write-Output "    (also embedded in the seed.iso's user-data -- chpasswd)"
 $guidance = @'
 
-Next steps (any guest consumer will ERROR — not silently fall back
-to direct CDN — if it finds this VM but can't reach port 3128, so
+Next steps (any guest consumer will ERROR -- not silently fall back
+to direct CDN -- if it finds this VM but can't reach port 3128, so
 verify all three checks below before starting guest installs):
 
   1. Register with UTM:
@@ -332,8 +421,8 @@ verify all three checks below before starting guest installs):
 
   3. Find the VM's IP. `utmctl ip-address` does NOT work for Apple
      Virtualization VMs (returns "Operation not supported by the
-     backend") — use one of these instead:
-     a) Easiest — look in the UTM window for __VM_NAME__; the Linux
+     backend") -- use one of these instead:
+     a) Easiest -- look in the UTM window for __VM_NAME__; the Linux
         console prints "eth0: <ip>" at the login prompt after DHCP.
      b) Apple's shared-NAT DHCP leases (usually user-readable):
           awk -F'[ =]' '/name=__VM_NAME__/{found=1} found && /ip_address/{print $NF; exit}' \
@@ -356,7 +445,7 @@ If step 4 reports 'squid DOWN' after 15 minutes, access the VM:
   * SSH:         ssh yuruna@$ip   (uses the yuruna harness key
                                    at test/status/ssh/yuruna_ed25519; passwordless)
 
-Then — REAL apt/cloud-init errors live in the output log, not in
+Then -- REAL apt/cloud-init errors live in the output log, not in
 'cloud-init status'. Run this FIRST:
   sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' \
     /var/log/cloud-init-output.log | head -40

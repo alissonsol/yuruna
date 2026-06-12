@@ -30,8 +30,10 @@ Run `amazon.linux.2023.update.sh` first.
 The Kubernetes workload (`k8s`) is intentionally out of scope for
 Amazon Linux 2023; use one of the Ubuntu Server guests for `k8s`.
 
-[Troubleshooting](../../docs/guest-amazon-linux.md) · Back to [Guests](../README.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

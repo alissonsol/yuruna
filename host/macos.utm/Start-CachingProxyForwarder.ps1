@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,9 +24,9 @@
     Originally written for macOS UTM (Apple Virtualization shared-NAT
     isolates guest-to-guest traffic so guests can't reach a sibling VM
     directly), this is now also used on Windows when source-IP
-    preservation matters — e.g. for squid:3128/3129 with PROXY protocol,
+    preservation matters -- e.g. for squid:3128/3129 with PROXY protocol,
     where netsh portproxy would lose the real client IP at the NAT hop.
-    Pure PowerShell (TcpListener + runspace pool per connection) — no
+    Pure PowerShell (TcpListener + runspace pool per connection) -- no
     brew/socat/HAProxy dependency, runs anywhere pwsh runs.
 
     On macOS: typically launched detached by Start-CachingProxy.ps1 to
@@ -52,7 +52,7 @@
 
 .PARAMETER VMPort
     TCP port to connect to on the cache VM. Defaults to -Port (same on
-    both sides — the common case for proxy/Grafana/etc.). Set explicitly
+    both sides -- the common case for proxy/Grafana/etc.). Set explicitly
     when the host port differs from the VM port (e.g. 8022 on the host
     forwarding to 22 on the VM for SSH, to avoid colliding with the
     host's own sshd on :22).
@@ -66,7 +66,7 @@
     the host's NAT-side IP for every forwarded connection.
 
     Only enable this against an upstream that explicitly speaks PROXY
-    protocol — sending the header to a vanilla TCP listener corrupts
+    protocol -- sending the header to a vanilla TCP listener corrupts
     the stream (squid without accept-proxy-protocol will reply with
     400 Bad Request and close).
 
@@ -124,7 +124,7 @@ $ErrorActionPreference = "Stop"
 
 # Pin log path to script scope so Write-ForwarderLog accesses it
 # explicitly (and PSScriptAnalyzer's PSReviewUnusedParameter sees
-# $LogFile as consumed — the helper function is invisible to that check).
+# $LogFile as consumed -- the helper function is invisible to that check).
 $script:ForwarderLogFile = $LogFile
 
 function Write-ForwarderLog {
@@ -177,7 +177,7 @@ $workerScript = {
         # PROXY v1: text line, must be the FIRST bytes on the upstream
         # connection (before any TLS handshake or HTTP request line).
         # Format: `PROXY TCP4 <src_ip> <dst_ip> <src_port> <dst_port>\r\n`
-        # IPv6 clients fall back to `PROXY UNKNOWN\r\n` — squid still
+        # IPv6 clients fall back to `PROXY UNKNOWN\r\n` -- squid still
         # accepts but doesn't get a source-IP override.
         if ($sendProxyV1) {
             try {
@@ -195,7 +195,7 @@ $workerScript = {
                 $us.Write($bytes, 0, $bytes.Length)
                 $us.Flush()
             } catch {
-                # If the header write fails the upstream is unusable —
+                # If the header write fails the upstream is unusable --
                 # let the catch below tear the pair down.
                 throw
             }
@@ -228,7 +228,7 @@ try {
         [void]$ps.BeginInvoke()
     }
 } finally {
-    # Shutdown-path cleanup: best-effort. Errors here are irrelevant —
+    # Shutdown-path cleanup: best-effort. Errors here are irrelevant --
     # the process is exiting and the OS reclaims sockets/fds.
     try { $listener.Stop() } catch { $null = $_ }
     try { $pool.Close(); $pool.Dispose() } catch { $null = $_ }

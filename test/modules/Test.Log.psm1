@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,19 +91,27 @@ function Get-CycleFolderIdentity {
 function Format-CycleFolderBaseName {
 <#
 .SYNOPSIS
-    Builds the cycleFolder base name: "000001.YYYY-MM-DD.HH-mm-ss.HOSTNAME".
+    Builds the cycleFolder base name: "000001.YYYY-MM-DD.HH-mm-ss.HOSTID".
 .DESCRIPTION
     Single source of truth for the format so Start-LogFile, the per-guest
     folder helper, and the dashboard JS all produce identical strings.
-    CycleNumber is zero-padded to 6 digits per spec; CycleId is parsed
-    as an ISO-8601 UTC timestamp and split into date + time-with-dashes
-    (colons can't appear in filenames on Windows/macOS volumes).
+    The 4th segment is the stable per-host hostId (runtime/host.uuid), NOT
+    the hostname: the cycleFolder name surfaces in the pool aggregator's
+    cycleFolderUrl (the dashboard deep-link + /api/v1/pool-status), which
+    must stay hostname-free so the unauthenticated pool view discloses no
+    hostnames. CycleNumber is zero-padded to 6 digits per spec; CycleId is
+    parsed as an ISO-8601 UTC timestamp and split into date + time-with-
+    dashes (colons can't appear in filenames on Windows/macOS volumes).
 #>
     [OutputType([string])]
     param(
         [Parameter(Mandatory)] [int]$CycleNumber,
         [Parameter(Mandatory)] [string]$CycleId,
-        [Parameter(Mandatory)] [string]$Hostname
+        # Optional: empty/missing yields the 'unknown-host' placeholder
+        # below. A Mandatory string param would REJECT an empty string,
+        # which a one-shot caller with no host identity legitimately
+        # produces -- and would throw mid-cycle in Start-LogFile.
+        [string]$HostId = ''
     )
     $padded = '{0:D6}' -f $CycleNumber
     # CycleId is "2026-05-11T16:24:39Z" -- index 0..9 is the date,
@@ -112,7 +120,12 @@ function Format-CycleFolderBaseName {
     # yields a usable folder name with whatever the substring produces.
     $cycleDate = if ($CycleId.Length -ge 10) { $CycleId.Substring(0,10) } else { 'unknown-date' }
     $cycleTime = if ($CycleId.Length -ge 19) { ($CycleId.Substring(11,8) -replace ':','-') } else { 'unknown-time' }
-    return "$padded.$cycleDate.$cycleTime.$Hostname"
+    # 4th segment: the opaque hostId (keeps the name hostname-free). The
+    # 'unknown-host' placeholder only applies to a one-shot caller with no
+    # host identity established; it preserves the 4-segment shape that the
+    # rotation/recovery patterns (^\d{6}\..+\..+\..+) require.
+    $hostSeg = if ([string]::IsNullOrWhiteSpace($HostId)) { 'unknown-host' } else { $HostId }
+    return "$padded.$cycleDate.$cycleTime.$hostSeg"
 }
 
 function Get-LogDir {
@@ -232,7 +245,7 @@ function Start-LogFile {
         [Parameter(Mandatory)] [string]$Hostname,
         # Monotonic cycle counter (1, 2, 3, ...). Defaults to 0 for
         # callers without cycle context (Test-Sequence.ps1); the
-        # resulting folder is 000000.YYYY-MM-DD.HH-mm-ss.HOSTNAME which
+        # resulting folder is 000000.YYYY-MM-DD.HH-mm-ss.HOSTID which
         # is still unique-per-invocation thanks to the timestamp.
         [int]$CycleNumber = 0
     )
@@ -245,7 +258,15 @@ function Start-LogFile {
     } catch {
         Write-Warning "Cycle-log rotation failed (non-fatal; cycle continues): $($_.Exception.Message)"
     }
-    $cycleBase = Format-CycleFolderBaseName -CycleNumber $CycleNumber -CycleId $CycleId -Hostname $Hostname
+    # The cycleFolder name carries the opaque hostId (hostname-free; see
+    # Format-CycleFolderBaseName), resolved from the runner-set global with a
+    # fresh-read fallback so one-shot drivers still produce a usable name.
+    $folderHostId = if ($global:__YurunaHostId) {
+        [string]$global:__YurunaHostId
+    } elseif (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) {
+        [string](Get-YurunaHostId)
+    } else { '' }
+    $cycleBase = Format-CycleFolderBaseName -CycleNumber $CycleNumber -CycleId $CycleId -HostId $folderHostId
     # Allocate the cycle folder with a `.incomplete` suffix so a
     # crashed cycle is visible at the folder-name level (in addition to
     # the in-folder marker file). Stop-LogFile renames to the bare
@@ -575,6 +596,24 @@ function Stop-LogFile {
             "</pre></body></html>" | Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
         }
         if ($global:__YurunaCycleFolder) {
+            # Archive the cycle's last_failure.json (when any) into the cycle
+            # folder BEFORE the manifest sweep, so the full schema-v2 record --
+            # matched pattern, label, OCR tail, repro, inner cause -- persists
+            # with the cycle for post-hoc analysis, not just the flattened
+            # step_failure event in cycle.events.ndjson. The engine/infra paths
+            # write it to $env:YURUNA_LOG_DIR (the log root, shared across
+            # cycles); Write-CycleManifest already classifies last_failure.json
+            # as kind 'failure', so the copied file is catalogued automatically.
+            # Only on a non-pass outcome: a passing cycle has no failure of its
+            # own, so any last_failure.json present is stale from an earlier cycle.
+            if ($Outcome -ne 'pass' -and $env:YURUNA_LOG_DIR) {
+                $srcFailure = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+                if (Test-Path -LiteralPath $srcFailure) {
+                    $dstFailure = Join-Path $global:__YurunaCycleFolder 'last_failure.json'
+                    try { Copy-Item -LiteralPath $srcFailure -Destination $dstFailure -Force -ErrorAction Stop }
+                    catch { Write-Verbose "Stop-LogFile: could not archive last_failure.json: $($_.Exception.Message)" }
+                }
+            }
             Write-CycleManifest -CycleFolder $global:__YurunaCycleFolder -Confirm:$false
             # Drop the `.incomplete` marker last, after cycle_end + manifest
             # have landed. Order matters: a crash AFTER manifest but BEFORE
@@ -675,6 +714,15 @@ function Write-CycleNdjsonEvent {
     if (-not $EventRecord.Contains('runId') -and $global:__YurunaRunId) {
         $EventRecord['runId'] = [string]$global:__YurunaRunId
     }
+    # hostId stamps the STABLE per-host identity (persisted in runtime/host.uuid;
+    # distinct from hostname, which can collide/rename across a pool). With
+    # (hostId, runId, cycleId) a pool consumer joins events to a cycle on a
+    # specific host without trusting hostname uniqueness. Set on $global at the
+    # process entry point (Get-YurunaHostId), so this mirrors the runId stamp:
+    # conditional, and a no-op when unset (standalone Test-Sequence, tests).
+    if (-not $EventRecord.Contains('hostId') -and $global:__YurunaHostId) {
+        $EventRecord['hostId'] = [string]$global:__YurunaHostId
+    }
     try {
         $json = $EventRecord | ConvertTo-Json -Compress -Depth 5
         Add-Content -LiteralPath $path -Value $json -Encoding utf8NoBOM -ErrorAction Stop
@@ -769,4 +817,86 @@ function Send-CycleEventSafely {
     }
 }
 
-Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Get-CycleGuestDataFolder, Get-CycleScreenDir, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, Invoke-CycleLogRotation
+function New-YurunaDegradationRecord {
+    <#
+    .SYNOPSIS
+        Builds the `degradation` event hashtable. Pure -- separated from the
+        emitter so the field contract is unit-testable without an open cycle
+        event stream.
+    .OUTPUTS
+        [hashtable] the event record for Send-CycleEventSafely.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure builder: constructs and returns the degradation record; changes no system state.')]
+    param(
+        [Parameter(Mandatory)][string]$Dependency,
+        [Parameter(Mandatory)][string]$Primary,
+        [Parameter(Mandatory)][string]$Fallback,
+        [string]$Reason = '',
+        [ValidateSet('soft','hard')][string]$Severity = 'soft',
+        [string]$Timestamp
+    )
+    if (-not $Timestamp) { $Timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") }
+    return @{
+        timestamp  = $Timestamp
+        event      = 'degradation'
+        dependency = [string]$Dependency
+        primary    = [string]$Primary
+        fallback   = [string]$Fallback
+        reason     = [string]$Reason
+        severity   = [string]$Severity
+    }
+}
+
+function Send-YurunaDegradation {
+    <#
+    .SYNOPSIS
+        Records that the harness fell back from a primary mechanism to a lesser
+        alternative and is CONTINUING in a degraded mode -- the observability
+        contract for graceful degradation.
+    .DESCRIPTION
+        Emits a structured `degradation` event onto cycle.events.ndjson so a
+        degraded-but-passing cycle is first-class and queryable, instead of a
+        silent (or merely Write-Verbose) fallback that reads as a clean pass.
+        Distinct from the *_failed / *_unavailable events: those report a
+        capability that BROKE; a degradation reports one that was unavailable
+        and was WORKED AROUND, the cycle proceeding.
+
+        Thin wrapper over Send-CycleEventSafely (schema-validated, never throws,
+        no-ops when the cycle event stream isn't open), so a degradation can
+        never fail a cycle. Also writes one Write-Information breadcrumb so the
+        fallback is visible in the console log without each call site repeating
+        the line.
+    .PARAMETER Dependency
+        The subsystem/capability that degraded (e.g. 'keystroke-mechanism',
+        'capture-feed', 'caching-proxy').
+    .PARAMETER Primary
+        The preferred mechanism that was unavailable (e.g. 'ssh-sequence').
+    .PARAMETER Fallback
+        The lesser alternative actually taken (e.g. 'gui-sequence').
+    .PARAMETER Reason
+        Short human reason for the fallback.
+    .PARAMETER Severity
+        'soft' (default) -- work continues degraded; 'hard' -- proceeding but a
+        material capability is lost (degradation is soft by nature, so rarely).
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'Append-only telemetry pass-through; no destructive operation.')]
+    param(
+        [Parameter(Mandatory)][string]$Dependency,
+        [Parameter(Mandatory)][string]$Primary,
+        [Parameter(Mandatory)][string]$Fallback,
+        [string]$Reason = '',
+        [ValidateSet('soft','hard')][string]$Severity = 'soft'
+    )
+    Send-CycleEventSafely -EventRecord (New-YurunaDegradationRecord `
+        -Dependency $Dependency -Primary $Primary -Fallback $Fallback `
+        -Reason $Reason -Severity $Severity)
+    $suffix = if ($Reason) { " ($Reason)" } else { '' }
+    Write-Information "  [degradation] ${Dependency}: ${Primary} -> ${Fallback}${suffix}"
+}
+
+Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Get-CycleGuestDataFolder, Get-CycleScreenDir, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

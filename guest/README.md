@@ -37,8 +37,10 @@ Available workloads are listed in each guest folder's `README.md`
 [../docs/](../docs/) (see `code.md`, `kubernetes.md`, `n8n.md`,
 `openclaw.md`, `postgresql.md`).
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42d5e8a2-b1c4-4f09-a6d3-7e8f0a1b2c3d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,6 +59,13 @@ function Initialize-SequenceFailureStateStore {
     # Cross-function anti-pattern signal; reset per-step inside Wait-ForText
     # and sshWaitReady, cleared here too so a sequence starts clean.
     $Store['WaitForTextMatchedFailurePattern'] = $null
+    # Runtime cause signal captured at the wait/OCR failure site: the freshest
+    # full-screen OCR text (bounded tail) and the patterns the wait was seeking.
+    # Lets a consumer see WHAT was on screen vs WHAT was sought, not just the
+    # verb-static failureClass. [string[]] empty (never $null) so the NDJSON
+    # field always renders as a JSON array, same guard as the inner-recovery slot.
+    $Store['WaitForTextOcrTail']        = $null
+    $Store['WaitForTextPatternsSought'] = [string[]]@()
 }
 
 $script:SeqFailReg = New-YurunaRegistry -Name 'SequenceFailureState'
@@ -138,6 +145,10 @@ function New-SequenceFailureRecord {
     }
 
     $matchedFailPattern = $fail.WaitForTextMatchedFailurePattern
+    # Runtime cause signal (empty-array guard mirrors innerSuggestedRecoveries so
+    # patternsSought never collapses to $null via the if-pipeline flatten).
+    $ocrTail = if ($fail.WaitForTextOcrTail) { [string]$fail.WaitForTextOcrTail } else { '' }
+    [string[]]$patternsSought = @($fail.WaitForTextPatternsSought)
     $stepNumber = if ($fail.LastFailedStepNumber) { [int]$fail.LastFailedStepNumber } else { 0 }
     if ($Reason -eq 'crash') {
         $label = if ($fail.LastFailureLabel) { [string]$fail.LastFailureLabel } else { "engine crash: $($CrashError.Exception.Message)" }
@@ -149,6 +160,53 @@ function New-SequenceFailureRecord {
         $desc  = $fail.LastFailureDescription
     }
 
+    # --- Actionability enrichment (schema v2, additive) -----------------------
+    # sequenceName: first-class failing-sequence identity. The record otherwise
+    # carried only the path (nested under context); a remediator routing or a
+    # repro builder needs the bare name.
+    $sequenceName = if ($SequencePath) { [System.IO.Path]::GetFileNameWithoutExtension($SequencePath) } else { '' }
+
+    # classificationSource: lets a consumer tell a genuinely-unknown cause from
+    # one that is 'unknown' only because the failing verb has no registry entry,
+    # or one synthesized from a crash / hard-block OCR pattern. Drives a
+    # fix-the-registration vs. escalate decision instead of blind retry.
+    $classificationSource =
+        if ($Reason -eq 'crash')     { 'crash' }
+        elseif ($matchedFailPattern) { 'pattern-match' }
+        elseif ($verbEntry)          { 'verb-registry' }
+        else                         { 'unresolved-verb' }
+
+    # repro: a copy-paste command that re-runs the failing sequence (and its
+    # baseline chain) to reproduce the failure deterministically. The command
+    # deliberately OMITS -StartStep: stepNumber is file-local (1-based within
+    # this sequence file), but Test-Sequence's -StartStep is chain-GLOBAL, so a
+    # naive -StartStep would mis-target a leaf that still has an unbuilt
+    # baseline. The file-local failing step is exposed as resumeFromStep
+    # (advisory; valid as -StartStep on the warm / no-baseline path). Contract
+    # in docs/failure-schema.md.
+    # Strip characters that would break out of the double-quoted repro arguments
+    # ('"', backtick, '$') or split the command line (CR/LF). The repro is
+    # surfaced for copy-paste and for an autonomous remediator to run, so a
+    # hostile or malformed VM/guest name must not become an execution hazard.
+    # Identifiers are normally quote-free, so this only ever changes pathological
+    # names; the data fields (sequenceName, vmName, guestKey) keep the real value.
+    $shellSafe = { param([string]$v) ($v -replace '[`"$\r\n]', '') }
+    $reproCommand = ''
+    if ($sequenceName) {
+        $reproParts = @('pwsh test/Test-Sequence.ps1', "-SequenceName `"$(& $shellSafe $sequenceName)`"")
+        if ($GuestKey) { $reproParts += "-GuestKey `"$(& $shellSafe $GuestKey)`"" }
+        if ($VMName)   { $reproParts += "-VMName `"$(& $shellSafe $VMName)`"" }
+        $reproParts += '-logLevel Debug'
+        $reproCommand = $reproParts -join ' '
+    }
+    $repro = [ordered]@{
+        command        = $reproCommand
+        runnerScript   = 'test/Test-Sequence.ps1'
+        entrypoint     = 'Test-Sequence'
+        sequenceName   = $sequenceName
+        resumeFromStep = $stepNumber
+    }
+
     $tsFile        = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
     $tsEvent       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     $failScreenName = "failure_screenshot_${VMName}.png"
@@ -157,6 +215,7 @@ function New-SequenceFailureRecord {
     if ($Reason -eq 'crash') {
         $file = [ordered]@{
             schemaVersion = 2
+            reason        = $Reason
             stepNumber    = $stepNumber
             totalSteps    = [int]$TotalSteps
             action        = $label
@@ -164,10 +223,21 @@ function New-SequenceFailureRecord {
             vmName        = $VMName
             guestKey      = $GuestKey
             timestamp     = $tsFile
-            failureClass        = $failureClass
-            severity            = $severity
-            suggestedRecoveries = $suggested
-            actionVerb          = $actionName
+            failureClass         = $failureClass
+            severity             = $severity
+            suggestedRecoveries  = $suggested
+            actionVerb           = $actionName
+            classificationSource = $classificationSource
+            sequenceName         = $sequenceName
+            repro                = $repro
+            # Replay boundary + inner cause also on crash records: a crash after
+            # step N began still has a safe-to-replay-past boundary and, if it
+            # bubbled through an exhausted retry, an inner cause worth routing on.
+            lastSucceededStepNumber = [int]$fail.LastSucceededStepNumber
+            innerActionVerb          = $fail.LastInnerFailedAction
+            innerFailureClass        = $fail.LastInnerFailureClass
+            innerSeverity            = $fail.LastInnerSeverity
+            innerSuggestedRecoveries = @($fail.LastInnerSuggestedRecoveries)
             context             = [ordered]@{
                 hostType              = $HostType
                 matchedFailurePattern = $matchedFailPattern
@@ -182,6 +252,7 @@ function New-SequenceFailureRecord {
     } else {
         $file = [ordered]@{
             schemaVersion = 2
+            reason        = $Reason
             stepNumber    = $stepNumber
             totalSteps    = [int]$TotalSteps
             action        = $label
@@ -189,10 +260,13 @@ function New-SequenceFailureRecord {
             vmName        = $VMName
             guestKey      = $GuestKey
             timestamp     = $tsFile
-            failureClass        = $failureClass
-            severity            = $severity
-            suggestedRecoveries = $suggested
-            actionVerb          = $actionName
+            failureClass         = $failureClass
+            severity             = $severity
+            suggestedRecoveries  = $suggested
+            actionVerb           = $actionName
+            classificationSource = $classificationSource
+            sequenceName         = $sequenceName
+            repro                = $repro
             lastSucceededStepNumber = [int]$fail.LastSucceededStepNumber
             innerActionVerb            = $fail.LastInnerFailedAction
             innerFailureClass          = $fail.LastInnerFailureClass
@@ -205,6 +279,12 @@ function New-SequenceFailureRecord {
                 cycleFolder           = $LogDir
                 failureScreenshotPath = $failScreenName
                 failureOcrPath        = $failOcrName
+                # What was on screen vs what was sought at the wait/OCR failure
+                # site -- the runtime cause behind a verb-static failureClass.
+                causeDetail           = [ordered]@{
+                    ocrTail        = $ocrTail
+                    patternsSought = $patternsSought
+                }
             }
         }
     }
@@ -214,6 +294,7 @@ function New-SequenceFailureRecord {
     $eventRecord = @{
         timestamp               = $tsEvent
         event                   = 'step_failure'
+        reason                  = $Reason
         stepNumber              = $stepNumber
         totalSteps              = [int]$TotalSteps
         actionVerb              = $actionName
@@ -221,6 +302,7 @@ function New-SequenceFailureRecord {
         durationMs              = $null
         failureClass            = $failureClass
         severity                = $severity
+        classificationSource    = $classificationSource
         suggestedRecoveries     = $suggested
         lastSucceededStepNumber = [int]$fail.LastSucceededStepNumber
         innerActionVerb            = $fail.LastInnerFailedAction
@@ -232,7 +314,12 @@ function New-SequenceFailureRecord {
         hostType                = $HostType
         action                  = $label
         description             = $desc
+        sequenceName            = $sequenceName
         sequencePath            = $SequencePath
+        matchedFailurePattern   = $matchedFailPattern
+        causeOcrTail            = $ocrTail
+        causePatternsSought     = $patternsSought
+        reproCommand            = $reproCommand
         failureScreenshotPath   = $failScreenName
         failureOcrPath          = $failOcrName
     }
@@ -241,4 +328,84 @@ function New-SequenceFailureRecord {
     return @{ File = $file; Event = $eventRecord }
 }
 
-Export-ModuleMember -Function Get-SequenceFailureState, New-SequenceFailureRecord
+function New-InfraFailureRecord {
+    <#
+    .SYNOPSIS
+        Build a schema-v2 failure record for a host-side infra stage (GitPull,
+        ProjectClone, Resolve-CyclePlan, New-VM, Start-VM, ...) that has no
+        sequence/$script:Fail slot state to read.
+    .DESCRIPTION
+        Infra stages fail before (or outside) the sequence engine, so they never
+        populate the shared failure-state slots New-SequenceFailureRecord reads.
+        This sibling builds the same File + Event shape from scalars so an infra
+        failure lands on disk as last_failure.json and on the event stream as a
+        step_failure the remediation dispatcher can route on. reason='infra' and
+        classificationSource='infra-stage' distinguish it; failureClass MUST be a
+        canonical value (see Test.FailureTaxonomy). The contract is documented in
+        docs/failure-schema.md.
+    .OUTPUTS
+        Hashtable with File ([ordered]) and Event ([hashtable]) keys.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure builder: constructs and returns the infra failure record; changes no system state.')]
+    param(
+        [Parameter(Mandatory)][string]$Stage,
+        [Parameter(Mandatory)][string]$FailureClass,
+        [string]$Severity = 'hard',
+        [AllowEmptyString()][string]$VMName = '',
+        [AllowEmptyString()][string]$GuestKey = '',
+        [AllowEmptyString()][string]$HostType = '',
+        [AllowEmptyString()][string]$ErrorMessage = ''
+    )
+    # Two-step [string[]] guard so the empty recoveries list never collapses to
+    # $null (the typed-array-cast-if-empty trap); the NDJSON field stays an array.
+    [string[]]$suggested = @()
+    $tsFile  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+    $tsEvent = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    $file = [ordered]@{
+        schemaVersion        = 2
+        reason               = 'infra'
+        stepNumber           = 0
+        totalSteps           = 0
+        action               = $Stage
+        description          = $ErrorMessage
+        vmName               = $VMName
+        guestKey             = $GuestKey
+        timestamp            = $tsFile
+        failureClass         = $FailureClass
+        severity             = $Severity
+        suggestedRecoveries  = $suggested
+        actionVerb           = $Stage
+        classificationSource = 'infra-stage'
+        sequenceName         = ''
+        context              = [ordered]@{
+            hostType = $HostType
+            stage    = $Stage
+        }
+    }
+    $eventRecord = @{
+        timestamp            = $tsEvent
+        event                = 'step_failure'
+        reason               = 'infra'
+        stepNumber           = 0
+        totalSteps           = 0
+        actionVerb           = $Stage
+        ok                   = $false
+        durationMs           = $null
+        failureClass         = $FailureClass
+        severity             = $Severity
+        classificationSource = 'infra-stage'
+        suggestedRecoveries  = $suggested
+        vmName               = $VMName
+        guestKey             = $GuestKey
+        hostType             = $HostType
+        action               = $Stage
+        description          = $ErrorMessage
+        sequenceName         = ''
+    }
+    return @{ File = $file; Event = $eventRecord }
+}
+
+Export-ModuleMember -Function Get-SequenceFailureState, New-SequenceFailureRecord, New-InfraFailureRecord

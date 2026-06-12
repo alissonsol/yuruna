@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42b9c0d1-e2f3-4a56-b789-0c1d2e3f4a57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,8 +29,14 @@ $spiceImageFile = Join-Path $downloadDir $spiceImageName
 # UTM Guest Tools ISO (includes SPICE + VirtIO drivers for ARM64 Windows)
 $spiceDownloadUrl = "https://getutm.app/downloads/utm-guest-tools-latest.iso"
 
-# Fido settings (change these to download a different edition/language)
-$fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1"
+# Fido settings (change these to download a different edition/language).
+# Fido is pinned to a tagged release (not the moving `master` ref) and its
+# script hash is verified before execution: Fido.ps1 runs with this script's
+# privileges, so an unpinned moving ref is an unchecked remote-code hop.
+# Refresh on a new Fido release: bump the tag in the URL and replace the hash
+# with the new file's (Get-FileHash -Algorithm SHA256).Hash.
+$fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1"
+$fidoSha256 = "24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13"
 $languageFilter = "English"
 
 # Manual download fallback
@@ -94,6 +100,13 @@ if (-not $windowsOk) {
         Write-Output "  URL: $fidoUrl"
         Invoke-WebRequest -Uri $fidoUrl -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
         Unblock-File $fidoScript
+        # Verify the pinned Fido.ps1 before running it; a hash mismatch means the
+        # tagged content changed or the fetch was tampered, so fall back to the
+        # manual download (caught below) instead of executing unverified code.
+        $fidoActual = (Get-FileHash -LiteralPath $fidoScript -Algorithm SHA256).Hash
+        if ($fidoActual -ine $fidoSha256) {
+            throw "Fido.ps1 hash mismatch (pinned v1.70): expected $fidoSha256, got $fidoActual"
+        }
         Write-Output "  Done."
 
         Write-Output "[Step 2/3] Retrieving Windows 11 ARM64 ISO download URL..."
@@ -247,6 +260,6 @@ if ($windowsOk -and $spiceOk) {
     Write-Output "== All images ready =="
     exit 0
 } else {
-    Write-Output "== Some images are missing — see manual download instructions above =="
+    Write-Output "== Some images are missing -- see manual download instructions above =="
     exit 1
 }

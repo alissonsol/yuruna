@@ -94,6 +94,13 @@ visible; only errors are shown if you set it to `Error`). See
 active: `http://localhost:8080/status/` (architecture in
 [Test harness](../docs/test-harness.md)).
 
+## Host pools
+
+Run several hosts as one **pool** that share assigned test sequences and report
+together. Default-off — a host with no `pool` config runs standalone. To create a pool
+and assign already-developed test sequences to it, see the operator guide
+[Pool admin](../docs/pool-admin.md).
+
 ## Sequences and screenshots
 
 - Test sequences are YAML under `test/sequences/` (framework-generic)
@@ -111,8 +118,10 @@ Each cycle writes `test/status/log/{cycleId}.{hostname}.{gitCommit}.html`
 
 Read more: [Test Runner](read.more.md).
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

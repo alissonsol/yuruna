@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -206,13 +206,93 @@ $PasswordFile = Get-CachingProxyStatePath
 # === Render user-data / meta-data ===
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/caching-proxy.base.user-data'
 $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/caching-proxy.kvm.overlay.yml'
-$metaDataTemplate = Join-Path $ScriptDir 'vmconfig/meta-data'
+$metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/caching-proxy.meta-data'
 foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
         Write-Error "Template missing: $f"
         exit 1
     }
 }
+# Yuruna host (status server) IP+port baked into the seed so the cache VM's
+# cloud-init build block fetches collector/parser source from the LOCAL host
+# working tree (/yuruna-repo/) instead of public github -- a rebuild never
+# waits on the private->public mirror. The reachable host address is
+# topology-aware: on the bridged 'yuruna-external' network the cache VM gets a
+# LAN IP and reaches the host at its LAN address (Get-BestHostIp); on the NAT
+# 'default' network it reaches the host at the libvirt gateway
+# (Get-GuestReachableHostIp = 192.168.122.1). $env:YURUNA_GUEST_REACHABLE_HOST_IP
+# overrides both. Empty value -> github fallback. Start-CachingProxy.ps1 starts
+# the status server. Get-ExternalNetwork is an idempotent read (called again
+# below for the virt-install network).
+Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
+if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
+    $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
+} elseif ((Get-ExternalNetwork) -eq 'default') {
+    $YurunaHostIp = Get-GuestReachableHostIp   # NAT 'default': libvirt gateway
+} else {
+    $YurunaHostIp = Get-BestHostIp             # bridged 'yuruna-external': host LAN IP
+}
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
+$tc = $null
+if (Test-Path $YurunaTestConfig) {
+    try {
+        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
+        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
+    } catch { Write-Verbose "test.config.yml parse failed: $_" }
+}
+
+# poolStorage (ypsp) service replication: bake the networkUser credential, the share
+# path (unix form), and this host's id so the proxy can rsync its observability data
+# to the NAS. Resolved here on the host (poolStorage config + vault).
+# REPLICATE stays false unless poolStorage is configured AND networkUser has a vault
+# password, so an empty credential is never baked. networkUser is the single NAS
+# account used for every storage connection (host drain + this guest mount alike).
+Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1') -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')   -Force
+$ypspCfg = $null
+if ($tc) { try { $ypspCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypsp config: $_" } }
+$ypspHostId = ''
+try { $ypspHostId = [string](Get-YurunaHostId) } catch { $ypspHostId = '' }
+if (-not $ypspHostId) { $ypspHostId = 'unknown-host' }
+$ypspUser    = if ($ypspCfg) { [string]$ypspCfg.NetworkUser } else { '' }
+$ypspNetPath = if ($ypspCfg) { Get-PoolStorageUncPath -Path $ypspCfg.NetworkPath -Style unix } else { '' }
+# Refuse to bake a value containing a single quote: it would unbalance the guest's
+# single-quoted, sourced /etc/yuruna/ypsp.env and could strand the guest's runcmd.
+if (($ypspNetPath -match "'") -or ($ypspUser -match "'")) {
+    Write-Warning "poolStorage: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
+    $ypspUser = ''; $ypspNetPath = ''
+}
+$ypspPwd = ''
+# Gate Get-Password on the read-only vault-readiness check so a networkUser that was
+# set in config but never Set-Password'd does NOT auto-generate + persist a junk
+# credential (and bake it). Mirrors the host-side drain's loud-fail.
+if ($ypspCfg -and $ypspUser -and (Test-PoolStorageVaultReady -Config $ypspCfg -WarningAction SilentlyContinue)) {
+    try { $ypspPwd = [string](Get-Password -Username $ypspUser) } catch { Write-Verbose "ypsp networkUser password: $_" }
+}
+$ypspReplicate = if ($ypspCfg -and $ypspUser -and $ypspPwd) { 'true' } else { 'false' }
+
+# Pool push-ingest shared bearer (Phase 6): resolve the operator-supplied token that
+# gates the aggregator's POST /ingest, mirroring the ypsp loud-fail gate. Read it ONLY
+# when the operator declared a vaultKey for 'pool-auth-token' AND populated it
+# (Test-VaultEntry) -- an empty vaultKey means push is DISABLED, so do NOT call
+# Get-Password then (it would auto-generate a per-host random token and break the
+# shared-token model). Bake EMPTY when disabled/unset -> the aggregator refuses /ingest.
+$poolAuthToken = ''
+try {
+    $paEff = Get-EffectiveUser -LogicalUser 'pool-auth-token'
+    if ($paEff.vaultKey -and (Test-VaultEntry -VaultKey $paEff.vaultKey)) {
+        $poolAuthToken = [string](Get-Password -Username 'pool-auth-token')
+    }
+} catch { Write-Verbose "pool auth token: $($_.Exception.Message)" }
+# Refuse a token carrying a newline or quote: it would corrupt the baked token file or
+# the runner's bearer header.
+if ($poolAuthToken -match '[\r\n''"]') {
+    Write-Warning "pool.auth.token contains a newline or quote character; refusing to bake (push disabled)."
+    $poolAuthToken = ''
+}
+
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # caching-proxy.*). Build-CloudInitUserData resolves the SSH-key and
 # password placeholders with literal .Replace(), so regex-special chars
@@ -225,6 +305,14 @@ $userData = Build-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $YurunaPassword
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YPSP_REPLICATE_PLACEHOLDER     = $ypspReplicate
+        YPSP_NETWORK_PATH_PLACEHOLDER  = $ypspNetPath
+        YPSP_NETWORK_USER_PLACEHOLDER  = $ypspUser
+        YPSP_PASSWORD_PLACEHOLDER      = $ypspPwd
+        YPSP_HOST_ID_PLACEHOLDER       = $ypspHostId
+        POOL_AUTH_TOKEN_PLACEHOLDER    = $poolAuthToken
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
@@ -314,7 +402,7 @@ if ($LASTEXITCODE -eq 0) {
 
 # 12 GB RAM, 4 vCPU -- same sizing as the Hyper-V + macOS UTM squid-
 # cache (matched explicitly so a cache rebuilt on any host has the
-# same `cache_mem 9 GB` headroom in vmconfig/user-data). This is a
+# same `cache_mem 9 GB` headroom in host/vmconfig/caching-proxy.base.user-data). This is a
 # DEDICATED cache VM (one job: serve the squid object cache); the
 # memory budget is sized around squid's `cache_mem 9 GB` (= 75 % of
 # VM RAM). Empirically a 1 GB cache_mem put squid's RSS at ~2 GB
@@ -559,7 +647,7 @@ Common patterns:
                                   rebuilds the VM cleanly).
   * 'Unable to locate package' -> a package name changed on the mirror;
                                   report the specific name so it can be
-                                  fixed in vmconfig/user-data.
+                                  fixed in host/vmconfig/caching-proxy.base.user-data.
   * 'Could not resolve'        -> DNS broken inside the VM. Check
                                   'resolvectl status' and netplan config.
 

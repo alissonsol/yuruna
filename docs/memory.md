@@ -288,7 +288,7 @@ dynamic, so 512 GB is the APPARENT size only — actual disk consumption
 stays low until squid starts caching (or unattended-upgrades pulls a
 kernel). The `cache_dir` budget was bumped up from 128 GB so squid
 can hold the macOS install image (~18 GB) plus other multi-GB objects
-with breathing room — see `vmconfig/user-data` and the
+with breathing room — see `host/vmconfig/caching-proxy.base.user-data` and the
 `maximum_object_size 65 GB` directive.
 
 Prefer Hyper-V's native `Resize-VHD`: `qemu-img` reports
@@ -941,8 +941,8 @@ Source:
 
 ---
 
-Back to [Yuruna](../README.md)
-
----
-
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

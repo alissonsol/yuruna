@@ -1,0 +1,340 @@
+{
+  "uid": "yuruna-pool",
+  "title": "Yuruna Pool",
+  "tags": ["yuruna", "pool"],
+  "schemaVersion": 39,
+  "version": 2,
+  "editable": true,
+  "refresh": "30s",
+  "timezone": "browser",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "pool",
+        "type": "constant",
+        "query": "default",
+        "current": { "text": "default", "value": "default" },
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Hosts reachable",
+      "description": "Pool hosts that answered their own status server (/runtime/status.json) on the most recent poll. Driven by yuruna_pool_hosts_reachable from the pool-aggregator.",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(yuruna_pool_hosts_reachable) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Hosts total",
+      "description": "Distinct pool hosts seen within the last 24h, keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator.",
+      "gridPos": { "h": 4, "w": 3, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(yuruna_pool_hosts_total) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Failing now",
+      "description": "Hosts whose current cycle status is 'fail' right now (yuruna_pool_host_status == 3). Green when zero; red when one or more hosts are failing.",
+      "gridPos": { "h": 4, "w": 3, "x": 7, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "count(yuruna_pool_host_status{pool=~\"$pool\"} == 3) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Hosts in incident",
+      "description": "Hosts with an OPEN per-host incident -- >= N failed cycles within the trailing M-minute window (default 3 in 2h): one host stuck in a fail-burst. Resolves once the window clears of fails. Driven by yuruna_pool_incidents_active. Green when zero; red when any.",
+      "gridPos": { "h": 4, "w": 4, "x": 10, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(yuruna_pool_incidents_active) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Pool-wide incident",
+      "description": "A CROSS-HOST (systemic) incident: >= K distinct hosts failed within a short window (default 3 hosts in 15m), pointing at a shared cause (the proxy, the network, a bad commit) rather than one flaky host. Driven by yuruna_pool_wide_incident. Green = healthy; red = pool-wide incident active. See the Incidents drill-down panel for the affected hosts.",
+      "gridPos": { "h": 4, "w": 4, "x": 14, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(yuruna_pool_wide_incident) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "none", "color": "green", "index": 0 } } } ], "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Failed cycles",
+      "description": "Cycles that finished 'fail' across the whole pool within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any.",
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 0 },
+      "datasource": { "type": "loki", "uid": "yuruna-loki" },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({pool=~\"$pool\"} | json | overallStatus=\"fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "decimals": 0, "noValue": "0", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Collector",
+      "description": "Health of the pool-aggregator itself -- the service on this proxy that polls every host and feeds this whole dashboard. Shows ONE value: 'up' (green) = it is running and reporting; 'down' (red) = it is not reporting, so every other panel here may be stale. Driven by yuruna_pool_collector_up.",
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(yuruna_pool_collector_up) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "down", "color": "red", "index": 0 }, "1": { "text": "up", "color": "green", "index": 1 } } } ] }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Pool hosts",
+      "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Host ID links to that host's own status page; Last cycle links to the cycle folder. Artifacts never leave the generating host.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+      "targets": [
+        { "refId": "A", "expr": "yuruna_pool_host_info{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "B", "expr": "time() - yuruna_pool_host_last_seen_seconds{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "C", "expr": "sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=\"pass\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
+        { "refId": "D", "expr": "sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=\"fail\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "pool": true, "hostname": true, "Value #A": true, "__name__": true, "job": true, "instance": true },
+            "renameByName": {
+              "hostId": "Host ID",
+              "hostType": "Type",
+              "status": "Status",
+              "cycleId": "Last cycle",
+              "Value #B": "Last seen",
+              "Value #C": "Pass",
+              "Value #D": "Fail"
+            },
+            "indexByName": {
+              "hostId": 0,
+              "Value #D": 1,
+              "Value #C": 2,
+              "hostType": 3,
+              "Value #B": 4,
+              "cycleId": 5,
+              "status": 6,
+              "baseUrl": 7,
+              "cycleFolderUrl": 8
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "left", "cellOptions": { "type": "auto" } } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Status" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "basic" } },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": {
+                    "pass": { "color": "#16a34a", "index": 0 },
+                    "fail": { "color": "#dc2626", "index": 1 },
+                    "running": { "color": "#2563eb", "index": 2 },
+                    "idle": { "text": "not running", "color": "#6b7280", "index": 3 },
+                    "unreachable": { "color": "#374151", "index": 4 }
+                  } }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Host ID" },
+            "properties": [
+              { "id": "custom.width", "value": 330 },
+              { "id": "custom.align", "value": "right" },
+              { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8})(.{4})(.{4})(.{4})(.{12})$", "result": { "text": "$1-$2-$3-$4-$5" } } } ] },
+              { "id": "links", "value": [ { "title": "Open host status page", "url": "${__data.fields.baseUrl}", "targetBlank": true } ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Type" },
+            "properties": [ { "id": "custom.width", "value": 180 } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last cycle" },
+            "properties": [
+              { "id": "custom.width", "value": 180 },
+              { "id": "links", "value": [ { "title": "Open cycle folder", "url": "${__data.fields.baseUrl}/${__data.fields.cycleFolderUrl}", "targetBlank": true } ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last seen" },
+            "properties": [ { "id": "unit", "value": "s" }, { "id": "decimals", "value": 0 }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Pass" },
+            "properties": [ { "id": "unit", "value": "short" }, { "id": "decimals", "value": 0 }, { "id": "noValue", "value": "0" }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Fail" },
+            "properties": [ { "id": "unit", "value": "short" }, { "id": "decimals", "value": 0 }, { "id": "noValue", "value": "0" }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 }, { "id": "custom.cellOptions", "value": { "type": "color-text" } }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [ { "color": "text", "value": null }, { "color": "red", "value": 1 } ] } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "baseUrl" },
+            "properties": [ { "id": "custom.hidden", "value": true } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "cycleFolderUrl" },
+            "properties": [ { "id": "custom.hidden", "value": true } ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Status", "desc": true } ] }
+    },
+    {
+      "id": 7,
+      "type": "state-timeline",
+      "title": "Cycle outcome over time (host × time)",
+      "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator observed at that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "transformations": [
+        { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12}).*", "renamePattern": "$1-$2-$3-$4-$5" } }
+      ],
+      "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "unreachable", "color": "#374151", "index": 0 },
+              "1": { "text": "running", "color": "#2563eb", "index": 1 },
+              "2": { "text": "pass", "color": "#16a34a", "index": 2 },
+              "3": { "text": "fail", "color": "#dc2626", "index": 3 },
+              "4": { "text": "not running", "color": "#6b7280", "index": 4 }
+            } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "#374151", "value": null }, { "color": "#2563eb", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#dc2626", "value": 3 }, { "color": "#6b7280", "value": 4 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Drill-down: incidents & cycle events",
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "panels": [
+        {
+          "id": 13,
+          "type": "logs",
+          "title": "Incidents (open / resolved)",
+          "description": "Incident lifecycle: a host opens an incident at >= N failed cycles within the trailing M-minute window (default 3 in 2h) and resolves once that window clears. Each line carries incidentId, host, failCount and (on resolve) peakFails + durationSec, plus the incident's failure class ON the object: per-host dominantClass + classHistogram, and the pinned same-class on pool-wide incidents (a cross-host incident now requires the SAME class). Driven by the pool-aggregator's incident correlation; src=incident in Loki.",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=\"$pool\", src=\"incident\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
+          "id": 15,
+          "type": "table",
+          "title": "Failures by class & severity (window)",
+          "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool.",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "sum by (failureClass, severity) (count_over_time({pool=\"$pool\", src=\"event\"} | json | event=\"step_failure\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "transformations": [
+            { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "failureClass": "Failure class", "severity": "Severity", "Value": "Count", "Value #A": "Count" } } }
+          ],
+          "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Count", "desc": true } ] }
+        },
+        {
+          "id": 10,
+          "type": "logs",
+          "title": "Recent step failures across the pool (which step failed)",
+          "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 40 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=\"$pool\", src=\"event\"} | json | event=\"step_failure\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
+          "id": 11,
+          "type": "logs",
+          "title": "Cycle event stream across the pool (all steps)",
+          "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleId=... or event=step_end.",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
+          "id": 9,
+          "type": "logs",
+          "title": "Cycle status transitions across the pool (24h)",
+          "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleId, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": true, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
+          "id": 16,
+          "type": "table",
+          "title": "Incidents by failure class (window)",
+          "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class now carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count.",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "transformations": [
+            { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "dominantClass": "Failure class", "Value": "Incidents", "Value #A": "Incidents" } } }
+          ],
+          "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Incidents", "desc": true } ] }
+        }
+      ]
+    }
+  ]
+}

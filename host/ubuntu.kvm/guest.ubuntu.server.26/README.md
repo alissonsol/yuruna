@@ -21,7 +21,8 @@ pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
 
 `New-VM.ps1`:
 
-1. Renders `vmconfig/user-data` and `vmconfig/meta-data` with hostname,
+1. Renders the shared `host/vmconfig/ubuntu.server.base.user-data` (+ KVM overlay)
+   and `host/vmconfig/ubuntu.server.meta-data` with hostname,
    harness SSH public key (auto-generated under
    `test/status/ssh/yuruna_ed25519` if missing), password hash, optional
    `CachingProxyUrl`, and the host's coordinates for the dev iteration
@@ -62,8 +63,10 @@ ssh -i ../../../test/status/ssh/yuruna_ed25519 yuuser26@<ip>
 virt-viewer --connect qemu:///system <vmname>        # graphical console
 ```
 
-Back to [Ubuntu KVM](../README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,7 +101,14 @@ function Read-TestConfig {
         $mtime    = [datetime]$KnownMtime
         $hash     = $KnownHash
     } else {
-        $resolved = (Resolve-Path -LiteralPath $Path).Path
+        # Resolve-Path can return $null for a path that Test-Path (above) confirms
+        # exists -- observed on macOS. Fall back to the input path (already absolute
+        # and existing) so the hash + read never receive a null Path, which would
+        # otherwise fail Get-TestConfigContentHash's Mandatory -Path bind with a
+        # cryptic "Cannot bind argument to parameter 'Path'" that masquerades as a
+        # YAML parse error at the call site.
+        $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue).Path
+        if ([string]::IsNullOrEmpty($resolved)) { $resolved = $Path }
         $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
         $hash     = Get-TestConfigContentHash -Path $resolved
     }
@@ -164,7 +171,12 @@ function Get-TestConfigSnapshotPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $runtimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { $env:TEMP }
+    # $env:TEMP is Windows-only -- it is $null on macOS/Linux, which would make the
+    # Join-Path below throw "Cannot bind argument to parameter 'Path'" whenever a
+    # standalone caller (e.g. Test-Config.ps1) reads a config without
+    # YURUNA_RUNTIME_DIR set. [IO.Path]::GetTempPath() resolves the temp dir on
+    # every platform.
+    $runtimeDir = if (-not [string]::IsNullOrWhiteSpace($env:YURUNA_RUNTIME_DIR)) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
     return (Join-Path $runtimeDir '.test.config.snapshot.json')
 }
 
@@ -203,17 +215,21 @@ function Publish-TestConfigSnapshot {
         [Parameter(Mandatory)][datetime]$SourceMtime,
         [Parameter(Mandatory)][string]$SourceHash
     )
-    $dest = Get-TestConfigSnapshotPath
-    if (-not $PSCmdlet.ShouldProcess($dest, 'Publish test.config.yml snapshot')) { return $dest }
-    $envelope = [ordered]@{
-        sourcePath   = [string]$SourcePath
-        sourceMtime  = $SourceMtime.ToString('o')
-        sourceHash   = [string]$SourceHash
-        publishedAt  = (Get-Date).ToUniversalTime().ToString('o')
-        publisherPid = $PID
-        config       = $Config
-    }
+    # Snapshot publish is strictly best-effort: a consumer that can't read it just
+    # re-parses the YAML. So the WHOLE body (path resolution included) is wrapped --
+    # it must never raise into Read-TestConfig and turn a clean parse into a failure.
+    $dest = $null
     try {
+        $dest = Get-TestConfigSnapshotPath
+        if (-not $PSCmdlet.ShouldProcess($dest, 'Publish test.config.yml snapshot')) { return $dest }
+        $envelope = [ordered]@{
+            sourcePath   = [string]$SourcePath
+            sourceMtime  = $SourceMtime.ToString('o')
+            sourceHash   = [string]$SourceHash
+            publishedAt  = (Get-Date).ToUniversalTime().ToString('o')
+            publisherPid = $PID
+            config       = $Config
+        }
         $json = $envelope | ConvertTo-Json -Depth 32 -Compress
         $tmp  = "$dest.tmp"
         [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))

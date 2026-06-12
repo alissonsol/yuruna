@@ -1,0 +1,41 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+[Unit]
+Description=Yuruna pool-aggregator (read-only multi-host pool view)
+Documentation=https://yuruna.link/pool-aggregator
+After=network-online.target squid.service loki.service prometheus.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=proxy
+Group=proxy
+# -tls-cert/-tls-key activate HTTPS on :9400 (proxy-CA leaf minted in cloud-init);
+# absent/empty -> plain HTTP. -auth-token-file gates POST /ingest; absent/empty ->
+# /ingest disabled. All three flags are always present and self-gate on the files, so
+# an unconfigured proxy degrades to the plain-HTTP, no-ingest Phase-5 behavior.
+ExecStart=/usr/local/bin/pool-aggregator -tls-cert /etc/squid/ssl_cert/pool-aggregator.crt -tls-key /etc/squid/ssl_cert/pool-aggregator.key -auth-token-file /etc/yuruna/pool-auth.token
+Restart=on-failure
+RestartSec=5
+# Auto-discovers pool members by reading the squid access log (proxy owns it,
+# 0640 -- the unit only needs to read it), probing each recent client IP's
+# status server, and pushing to Loki on loopback; serves :9400 (HTTPS when the
+# leaf is present) including the authenticated POST /ingest push surface. The only
+# disk reads are the squid log + the TLS leaf + the auth token; state is in memory.
+ReadOnlyPaths=/var/log/squid
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

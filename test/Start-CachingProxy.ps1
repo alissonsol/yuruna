@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -413,6 +413,27 @@ if ($LASTEXITCODE -ne 0) {
 if (-not (Test-Path $ImageFile)) {
     Write-Error "Get-Image.ps1 exited 0 but '$ImageFile' is still missing."
     exit 1
+}
+
+# === Step 2.5: ensure the host status service is up =========================
+# The cache VM's cloud-init build block fetches the collector + parser source
+# from the LOCAL host working tree (http://<host>:<port>/yuruna-repo/) rather
+# than the public github mirror -- this repo is the source of truth. That needs
+# the status server running on this host when the guest builds (~20-35 min into
+# first boot). Start it now (detached; it persists past this script's exit) so a
+# standalone cache rebuild fetches local source. Honors statusService.isEnabled;
+# if disabled, the guest build falls back to github (the collector may be absent,
+# but the inlined Grafana dashboards still deploy).
+Write-Output ""
+Write-Output "== Step 2.5: host status service (serves the local repo to the cache VM) =="
+Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
+$cpStatusScript = Join-Path $PSScriptRoot 'Start-StatusService.ps1'
+$cpConfig = Read-TestConfig -Path (Join-Path $PSScriptRoot 'test.config.yml')
+$cpStatusDecision = Start-YurunaStatusServiceIfEnabled -Config $cpConfig -StartScript $cpStatusScript
+if ($cpStatusDecision.ShouldStart) {
+    Write-Output "  status server up on :$($cpStatusDecision.Port) -- the cache VM will build from http://<host>:$($cpStatusDecision.Port)/yuruna-repo/"
+} else {
+    Write-Output "  statusService disabled (test.config.yml) -- the cache VM will fall back to github for collector/parser source."
 }
 
 # === Step 3: create the VM ==================================================

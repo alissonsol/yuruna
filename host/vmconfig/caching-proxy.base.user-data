@@ -138,6 +138,14 @@ packages:
   # first-boot `apt-get -y upgrade` at the end of runcmd applies the
   # backlog that exists between the cloud image's build date and now.
   - unattended-upgrades
+  # cifs-utils + sqlite3 back the optional poolStorage (ypsp) service replication:
+  # the ypsp-replicate.timer mounts the NAS share over SMB3 (cifs) and uses
+  # sqlite3's online .backup to copy Grafana's live grafana.db consistently. Both
+  # are tiny Ubuntu-main packages with no kernel-version dependency, so they stay
+  # top-level (failure surfaces in the package phase, not mid-runcmd); the timer is
+  # only enabled when the seed was built with replication configured.
+  - cifs-utils
+  - sqlite3
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
   # === YURUNA_OVERLAY_NIC_OFFLOAD ===
@@ -184,6 +192,24 @@ write_files:
           Require ip 172.16.0.0/12
           Require ip 192.168.0.0/16
       </Location>
+  # Pool intent store (Phase 3): serve the bare git repo READ-ONLY over the LAN
+  # via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull
+  # http://<proxy>/pool-intent.git to learn pool membership + desiredState. The
+  # repo holds only NON-SECRET intent (pools.yml / test-sets / guests.compatibility);
+  # writes go through the admin CLI on the proxy (a local/file:// path), never this
+  # HTTP route. RFC1918 only, mirroring the cachemgr access policy.
+  - path: /etc/apache2/conf-available/yuruna-pool-intent.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      Alias /pool-intent.git /var/lib/yuruna/pool-intent.git
+      <Directory /var/lib/yuruna/pool-intent.git>
+          Options +Indexes
+          Require ip 127.0.0.1
+          Require ip 10.0.0.0/8
+          Require ip 172.16.0.0/12
+          Require ip 192.168.0.0/16
+      </Directory>
   # Drop-in overrides on top of Ubuntu's stock /etc/squid/squid.conf.
   # conf.d files include after the main config so same-named directives
   # here win. Keeping this a drop-in (not a full replacement) means future
@@ -463,7 +489,13 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
-      ARGS="--web.listen-address=127.0.0.1:9090"
+      # 30d retention (was the implicit 15d default) so the dashboard's
+      # metric-driven panels (the host x time timeline + tiles) span a month;
+      # the 2GB size cap is a disk safety net (evicts oldest first if metric
+      # cardinality ever grows). NOTE: /var/lib/prometheus is on the VM root
+      # fs, so a VM REBUILD still resets history -- surviving rebuilds needs a
+      # persistent data volume (a separate follow-up).
+      ARGS="--web.listen-address=127.0.0.1:9090 --storage.tsdb.retention.time=30d --storage.tsdb.retention.size=2GB"
   - path: /etc/prometheus/prometheus.yml
     permissions: '0644'
     owner: root:root
@@ -493,9 +525,23 @@ write_files:
           metrics_path: /squid-meta
           static_configs:
             - targets: ['localhost:80']
-  # --- Loki: loopback-only (same 0.0.0.0 default as Prometheus). 7d retention caps disk
-  # for a "last 100 requests" UX. Pre-written here because cloud-init's --force-confold
-  # preserves it through package upgrades.
+        # pool-aggregator: the multi-host pool view's collector. Exposes yuruna_pool_*
+        # on :9400. Served over HTTPS (proxy-CA leaf) when the leaf is present; the
+        # LOOPBACK scrape uses insecure_skip_verify (the connection never leaves the
+        # host, so peer authentication is moot) -- this works whether the leaf SAN lists
+        # localhost or only IPs, and degrades to a visible scrape failure (not a hang) if
+        # the aggregator ever falls back to plain HTTP.
+        - job_name: pool-aggregator
+          scheme: https
+          tls_config:
+            insecure_skip_verify: true
+          static_configs:
+            - targets: ['localhost:9400']
+  # --- Loki: loopback-only (same 0.0.0.0 default as Prometheus). Tiered retention:
+  # 30d for transitions (src=cycle) + incidents (src=incident) -- the dashboard's
+  # count_over_time Pass/Fail + incident history span a month -- and 7d for per-step
+  # events (src=event), the recent-focused drill-down (caps disk). Pre-written here
+  # because cloud-init's --force-confold preserves it through package upgrades.
   - path: /etc/loki/config.yml
     permissions: '0644'
     owner: root:root
@@ -527,7 +573,15 @@ write_files:
               prefix: index_
               period: 24h
       limits_config:
-        retention_period: 168h
+        # Default 30d (transitions src=cycle + incidents src=incident: the
+        # count_over_time Pass/Fail source + incident history). Per-step events
+        # (src=event) keep the shorter 7d window below -- "24h hot + longer
+        # aggregate history" per the retention design.
+        retention_period: 720h
+        retention_stream:
+          - selector: '{src="event"}'
+            priority: 1
+            period: 168h
       compactor:
         working_directory: /var/lib/loki/compactor
         retention_enabled: true
@@ -991,6 +1045,7 @@ write_files:
       # 6) Stable identity, then strip import-only fields.
       d['uid'] = 'yuruna-zot-official'
       d['title'] = 'Zot (official, Grafana ID 20501)'
+      d['tags'] = sorted(set((d.get('tags') or []) + ['yuruna']))
       for k in ('id', '__inputs', '__elements', '__requires'):
           d.pop(k, None)
       json.dump(d, sys.stdout, indent=2)
@@ -1008,6 +1063,369 @@ write_files:
           updateIntervalSeconds: 30
           options:
             path: /var/lib/grafana/dashboards
+  # --- Yuruna host (status server) coordinates. Baked into the seed by the
+  # platform New-VM.ps1 (Get-GuestReachableHostIp + statusService.port). The
+  # runcmd build block below sources this to fetch the collector + parser
+  # source from the LOCAL host working tree (http://IP:PORT/yuruna-repo/) --
+  # the host repo is the source of truth, so a rebuild never waits on the
+  # private->public github mirror. Same resolution as fetch-and-execute.sh.
+  # Empty IP/PORT (coordinates unavailable, e.g. status service disabled)
+  # make the build fall back to github.
+  - path: /etc/yuruna/host.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
+      YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+  # --- Yuruna Pool dashboard (Phase 1). INLINED (like squid.json) so it deploys
+  # from the local user-data -- independent of the pool-aggregator binary build
+  # AND of any GitHub fetch/mirror -- and therefore shows from first boot ("No
+  # data" until the collector is up). Keep in sync with the lintable canonical
+  # copy at test/extension/pool-aggregator/grafana-pool-dashboard.json.
+  - path: /var/lib/grafana/dashboards/pool.json
+    permissions: '0644'
+    owner: root:root
+    content: |
+      {
+        "uid": "yuruna-pool",
+        "title": "Yuruna Pool",
+        "tags": ["yuruna", "pool"],
+        "schemaVersion": 39,
+        "version": 2,
+        "editable": true,
+        "refresh": "30s",
+        "timezone": "browser",
+        "time": { "from": "now-24h", "to": "now" },
+        "templating": {
+          "list": [
+            {
+              "name": "pool",
+              "type": "constant",
+              "query": "default",
+              "current": { "text": "default", "value": "default" },
+              "hide": 2
+            }
+          ]
+        },
+        "panels": [
+          {
+            "id": 1,
+            "type": "stat",
+            "title": "Hosts reachable",
+            "description": "Pool hosts that answered their own status server (/runtime/status.json) on the most recent poll. Driven by yuruna_pool_hosts_reachable from the pool-aggregator.",
+            "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "sum(yuruna_pool_hosts_reachable) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "value" },
+            "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] }
+          },
+          {
+            "id": 2,
+            "type": "stat",
+            "title": "Hosts total",
+            "description": "Distinct pool hosts seen within the last 24h, keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator.",
+            "gridPos": { "h": 4, "w": 3, "x": 4, "y": 0 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "sum(yuruna_pool_hosts_total) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+            "fieldConfig": { "defaults": {}, "overrides": [] }
+          },
+          {
+            "id": 3,
+            "type": "stat",
+            "title": "Failing now",
+            "description": "Hosts whose current cycle status is 'fail' right now (yuruna_pool_host_status == 3). Green when zero; red when one or more hosts are failing.",
+            "gridPos": { "h": 4, "w": 3, "x": 7, "y": 0 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "count(yuruna_pool_host_status{pool=~\"$pool\"} == 3) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+          },
+          {
+            "id": 12,
+            "type": "stat",
+            "title": "Hosts in incident",
+            "description": "Hosts with an OPEN per-host incident -- >= N failed cycles within the trailing M-minute window (default 3 in 2h): one host stuck in a fail-burst. Resolves once the window clears of fails. Driven by yuruna_pool_incidents_active. Green when zero; red when any.",
+            "gridPos": { "h": 4, "w": 4, "x": 10, "y": 0 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "sum(yuruna_pool_incidents_active) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+          },
+          {
+            "id": 14,
+            "type": "stat",
+            "title": "Pool-wide incident",
+            "description": "A CROSS-HOST (systemic) incident: >= K distinct hosts failed within a short window (default 3 hosts in 15m), pointing at a shared cause (the proxy, the network, a bad commit) rather than one flaky host. Driven by yuruna_pool_wide_incident. Green = healthy; red = pool-wide incident active. See the Incidents drill-down panel for the affected hosts.",
+            "gridPos": { "h": 4, "w": 4, "x": 14, "y": 0 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "sum(yuruna_pool_wide_incident) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+            "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "none", "color": "green", "index": 0 } } } ], "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+          },
+          {
+            "id": 4,
+            "type": "stat",
+            "title": "Failed cycles",
+            "description": "Cycles that finished 'fail' across the whole pool within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any.",
+            "gridPos": { "h": 4, "w": 3, "x": 18, "y": 0 },
+            "datasource": { "type": "loki", "uid": "yuruna-loki" },
+            "targets": [
+              { "refId": "A", "expr": "sum(count_over_time({pool=~\"$pool\"} | json | overallStatus=\"fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+            "fieldConfig": { "defaults": { "decimals": 0, "noValue": "0", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+          },
+          {
+            "id": 5,
+            "type": "stat",
+            "title": "Collector",
+            "description": "Health of the pool-aggregator itself -- the service on this proxy that polls every host and feeds this whole dashboard. Shows ONE value: 'up' (green) = it is running and reporting; 'down' (red) = it is not reporting, so every other panel here may be stale. Driven by yuruna_pool_collector_up.",
+            "gridPos": { "h": 4, "w": 3, "x": 21, "y": 0 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "sum(yuruna_pool_collector_up) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+            "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "down", "color": "red", "index": 0 }, "1": { "text": "up", "color": "green", "index": 1 } } } ] }, "overrides": [] }
+          },
+          {
+            "id": 6,
+            "type": "table",
+            "title": "Pool hosts",
+            "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Host ID links to that host's own status page; Last cycle links to the cycle folder. Artifacts never leave the generating host.",
+            "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
+            "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+            "targets": [
+              { "refId": "A", "expr": "yuruna_pool_host_info{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+              { "refId": "B", "expr": "time() - yuruna_pool_host_last_seen_seconds{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+              { "refId": "C", "expr": "sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=\"pass\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
+              { "refId": "D", "expr": "sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=\"fail\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+            ],
+            "transformations": [
+              { "id": "merge", "options": {} },
+              {
+                "id": "organize",
+                "options": {
+                  "excludeByName": { "Time": true, "pool": true, "hostname": true, "Value #A": true, "__name__": true, "job": true, "instance": true },
+                  "renameByName": {
+                    "hostId": "Host ID",
+                    "hostType": "Type",
+                    "status": "Status",
+                    "cycleId": "Last cycle",
+                    "Value #B": "Last seen",
+                    "Value #C": "Pass",
+                    "Value #D": "Fail"
+                  },
+                  "indexByName": {
+                    "hostId": 0,
+                    "Value #D": 1,
+                    "Value #C": 2,
+                    "hostType": 3,
+                    "Value #B": 4,
+                    "cycleId": 5,
+                    "status": 6,
+                    "baseUrl": 7,
+                    "cycleFolderUrl": 8
+                  }
+                }
+              }
+            ],
+            "fieldConfig": {
+              "defaults": { "custom": { "align": "left", "cellOptions": { "type": "auto" } } },
+              "overrides": [
+                {
+                  "matcher": { "id": "byName", "options": "Status" },
+                  "properties": [
+                    { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "basic" } },
+                    {
+                      "id": "mappings",
+                      "value": [
+                        { "type": "value", "options": {
+                          "pass": { "color": "#16a34a", "index": 0 },
+                          "fail": { "color": "#dc2626", "index": 1 },
+                          "running": { "color": "#2563eb", "index": 2 },
+                          "idle": { "text": "not running", "color": "#6b7280", "index": 3 },
+                          "unreachable": { "color": "#374151", "index": 4 }
+                        } }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "Host ID" },
+                  "properties": [
+                    { "id": "custom.width", "value": 330 },
+                    { "id": "custom.align", "value": "right" },
+                    { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8})(.{4})(.{4})(.{4})(.{12})$", "result": { "text": "$1-$2-$3-$4-$5" } } } ] },
+                    { "id": "links", "value": [ { "title": "Open host status page", "url": "${__data.fields.baseUrl}", "targetBlank": true } ] }
+                  ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "Type" },
+                  "properties": [ { "id": "custom.width", "value": 180 } ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "Last cycle" },
+                  "properties": [
+                    { "id": "custom.width", "value": 180 },
+                    { "id": "links", "value": [ { "title": "Open cycle folder", "url": "${__data.fields.baseUrl}/${__data.fields.cycleFolderUrl}", "targetBlank": true } ] }
+                  ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "Last seen" },
+                  "properties": [ { "id": "unit", "value": "s" }, { "id": "decimals", "value": 0 }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 } ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "Pass" },
+                  "properties": [ { "id": "unit", "value": "short" }, { "id": "decimals", "value": 0 }, { "id": "noValue", "value": "0" }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 } ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "Fail" },
+                  "properties": [ { "id": "unit", "value": "short" }, { "id": "decimals", "value": 0 }, { "id": "noValue", "value": "0" }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 }, { "id": "custom.cellOptions", "value": { "type": "color-text" } }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [ { "color": "text", "value": null }, { "color": "red", "value": 1 } ] } } ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "baseUrl" },
+                  "properties": [ { "id": "custom.hidden", "value": true } ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "cycleFolderUrl" },
+                  "properties": [ { "id": "custom.hidden", "value": true } ]
+                }
+              ]
+            },
+            "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Status", "desc": true } ] }
+          },
+          {
+            "id": 7,
+            "type": "state-timeline",
+            "title": "Cycle outcome over time (host × time)",
+            "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator observed at that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID.",
+            "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "transformations": [
+              { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12}).*", "renamePattern": "$1-$2-$3-$4-$5" } }
+            ],
+            "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+            "fieldConfig": {
+              "defaults": {
+                "color": { "mode": "thresholds" },
+                "mappings": [
+                  { "type": "value", "options": {
+                    "0": { "text": "unreachable", "color": "#374151", "index": 0 },
+                    "1": { "text": "running", "color": "#2563eb", "index": 1 },
+                    "2": { "text": "pass", "color": "#16a34a", "index": 2 },
+                    "3": { "text": "fail", "color": "#dc2626", "index": 3 },
+                    "4": { "text": "not running", "color": "#6b7280", "index": 4 }
+                  } }
+                ],
+                "thresholds": { "mode": "absolute", "steps": [ { "color": "#374151", "value": null }, { "color": "#2563eb", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#dc2626", "value": 3 }, { "color": "#6b7280", "value": 4 } ] }
+              },
+              "overrides": []
+            }
+          },
+          {
+            "id": 8,
+            "type": "row",
+            "title": "Drill-down: incidents & cycle events",
+            "collapsed": true,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+            "panels": [
+              {
+                "id": 13,
+                "type": "logs",
+                "title": "Incidents (open / resolved)",
+                "description": "Incident lifecycle: a host opens an incident at >= N failed cycles within the trailing M-minute window (default 3 in 2h) and resolves once that window clears. Each line carries incidentId, host, failCount and (on resolve) peakFails + durationSec, plus the incident's failure class ON the object: per-host dominantClass + classHistogram, and the pinned same-class on pool-wide incidents (a cross-host incident now requires the SAME class). Driven by the pool-aggregator's incident correlation; src=incident in Loki.",
+                "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+                "datasource": { "type": "loki", "uid": "yuruna-loki" },
+                "targets": [
+                  { "refId": "A", "expr": "{pool=\"$pool\", src=\"incident\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                ],
+                "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+              },
+              {
+                "id": 15,
+                "type": "table",
+                "title": "Failures by class & severity (window)",
+                "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool.",
+                "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+                "datasource": { "type": "loki", "uid": "yuruna-loki" },
+                "targets": [
+                  { "refId": "A", "expr": "sum by (failureClass, severity) (count_over_time({pool=\"$pool\", src=\"event\"} | json | event=\"step_failure\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                ],
+                "transformations": [
+                  { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "failureClass": "Failure class", "severity": "Severity", "Value": "Count", "Value #A": "Count" } } }
+                ],
+                "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Count", "desc": true } ] }
+              },
+              {
+                "id": 10,
+                "type": "logs",
+                "title": "Recent step failures across the pool (which step failed)",
+                "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts.",
+                "gridPos": { "h": 9, "w": 24, "x": 0, "y": 40 },
+                "datasource": { "type": "loki", "uid": "yuruna-loki" },
+                "targets": [
+                  { "refId": "A", "expr": "{pool=\"$pool\", src=\"event\"} | json | event=\"step_failure\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                ],
+                "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+              },
+              {
+                "id": 11,
+                "type": "logs",
+                "title": "Cycle event stream across the pool (all steps)",
+                "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleId=... or event=step_end.",
+                "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
+                "datasource": { "type": "loki", "uid": "yuruna-loki" },
+                "targets": [
+                  { "refId": "A", "expr": "{pool=\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                ],
+                "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+              },
+              {
+                "id": 9,
+                "type": "logs",
+                "title": "Cycle status transitions across the pool (24h)",
+                "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleId, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above.",
+                "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
+                "datasource": { "type": "loki", "uid": "yuruna-loki" },
+                "targets": [
+                  { "refId": "A", "expr": "{pool=\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                ],
+                "options": { "showTime": true, "showLabels": true, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+              },
+              {
+                "id": 16,
+                "type": "table",
+                "title": "Incidents by failure class (window)",
+                "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class now carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count.",
+                "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
+                "datasource": { "type": "loki", "uid": "yuruna-loki" },
+                "targets": [
+                  { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                ],
+                "transformations": [
+                  { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "dominantClass": "Failure class", "Value": "Incidents", "Value #A": "Incidents" } } }
+                ],
+                "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Incidents", "desc": true } ] }
+              }
+            ]
+          }
+        ]
+      }
   # --- Minimal squid dashboard: panels show "No data" gracefully if metric names drift between exporter releases.
   - path: /var/lib/grafana/dashboards/squid.json
     permissions: '0644'
@@ -1016,6 +1434,7 @@ write_files:
       {
         "uid": "yuruna-squid",
         "title": "Yuruna Caching Proxy",
+        "tags": ["yuruna"],
         "schemaVersion": 39,
         "version": 1,
         "refresh": "30s",
@@ -1413,6 +1832,120 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
+  # --- poolStorage (ypsp) service replication: config + SMB credential + the timer-
+  # driven rsync of observability data to the NAS. All values are baked by New-VM.ps1
+  # from the host's poolStorage config + vault (empty / REPLICATE=false when off).
+  - path: /etc/yuruna/ypsp.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YPSP_REPLICATE='YPSP_REPLICATE_PLACEHOLDER'
+      YPSP_NETWORK_PATH='YPSP_NETWORK_PATH_PLACEHOLDER'
+      YPSP_NETWORK_USER='YPSP_NETWORK_USER_PLACEHOLDER'
+      YPSP_HOST_ID='YPSP_HOST_ID_PLACEHOLDER'
+      YPSP_MOUNT='/mnt/ypsp'
+  # cifs credentials (0600 root). The networkUser account -- the single NAS account,
+  # ACL-scoped storage-only by the operator (write access to the share, nothing else).
+  - path: /etc/yuruna/ypsp.cifs.cred
+    permissions: '0600'
+    owner: root:root
+    content: |
+      username=YPSP_NETWORK_USER_PLACEHOLDER
+      password=YPSP_PASSWORD_PLACEHOLDER
+  # pool auth token: the shared bearer that gates the aggregator's POST /ingest push
+  # surface. Baked by New-VM from the operator-set vault entry (pool.auth.token), or
+  # EMPTY when unconfigured -> the aggregator disables /ingest (never an unauthenticated
+  # write route). The aggregator trims surrounding whitespace. Mode 0640 root:proxy so
+  # the proxy-run aggregator can read it but it is not world-readable.
+  - path: /etc/yuruna/pool-auth.token
+    permissions: '0640'
+    owner: root:proxy
+    content: |
+      POOL_AUTH_TOKEN_PLACEHOLDER
+  - path: /usr/local/bin/ypsp-replicate.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/sh
+      # yuruna poolStorage (ypsp) service replication. Best-effort, never fails the
+      # timer: mount the optional NAS share over cifs and rsync the caching-proxy's
+      # observability data into <share>/<hostId>/services/caching-proxy/. Squid + zot
+      # (rebuildable caches) and promtail (tail cursor) are intentionally excluded. A
+      # status breadcrumb is published to /var/www/html/ypsp-status (Apache serves it)
+      # so "configured but not replicating" (e.g. a NAT proxy that can't reach the LAN
+      # NAS) is visible without SSH.
+      set -u
+      ENVF=/etc/yuruna/ypsp.env
+      [ -r "$ENVF" ] || exit 0
+      . "$ENVF"
+      [ "${YPSP_REPLICATE:-false}" = "true" ] || exit 0
+      [ -n "${YPSP_NETWORK_PATH:-}" ] && [ -n "${YPSP_HOST_ID:-}" ] || exit 0
+      MOUNT="${YPSP_MOUNT:-/mnt/ypsp}"
+      STATUS=/var/www/html/ypsp-status
+      mkdir -p "$MOUNT" 2>/dev/null || true
+      # mountpoint -q tests whether $MOUNT is ITSELF a mount (exact). findmnt
+      # --target would resolve a plain dir to its enclosing '/' mount and always
+      # report "mounted", silently skipping the mount and writing to the local root fs.
+      if ! mountpoint -q "$MOUNT" 2>/dev/null; then
+        timeout 60 mount -t cifs "$YPSP_NETWORK_PATH" "$MOUNT" -o credentials=/etc/yuruna/ypsp.cifs.cred,vers=3.0,uid=0,gid=0,iocharset=utf8,nofail >/dev/null 2>&1 || true
+      fi
+      MOUNTED=0
+      mountpoint -q "$MOUNT" 2>/dev/null && MOUNTED=1
+      RC_LOKI=skip; RC_PROM=skip; RC_GRAF=skip
+      if [ "$MOUNTED" = "1" ]; then
+        DEST="$MOUNT/$YPSP_HOST_ID/services/caching-proxy"
+        for svc in loki prometheus; do
+          [ -d "/var/lib/$svc" ] || continue
+          mkdir -p "$DEST/$svc" 2>/dev/null || continue
+          timeout 600 rsync -a --timeout=120 "/var/lib/$svc/" "$DEST/$svc/" >/dev/null 2>&1
+          rc=$?
+          logger -t ypsp "rsync $svc rc=$rc"
+          if [ "$svc" = loki ]; then RC_LOKI=$rc; else RC_PROM=$rc; fi
+        done
+        if [ -d /var/lib/grafana ]; then
+          mkdir -p "$DEST/grafana" 2>/dev/null || true
+          timeout 600 rsync -a --timeout=120 --exclude grafana.db --exclude 'grafana.db-wal' --exclude 'grafana.db-shm' /var/lib/grafana/ "$DEST/grafana/" >/dev/null 2>&1
+          rc=$?
+          if [ -f /var/lib/grafana/grafana.db ] && command -v sqlite3 >/dev/null 2>&1; then
+            if timeout 120 sqlite3 /var/lib/grafana/grafana.db ".backup '/tmp/ypsp-grafana.db'" >/dev/null 2>&1; then
+              timeout 120 cp -f /tmp/ypsp-grafana.db "$DEST/grafana/grafana.db" >/dev/null 2>&1 || rc=1
+              rm -f /tmp/ypsp-grafana.db 2>/dev/null || true
+            else
+              rc=1
+            fi
+          fi
+          logger -t ypsp "grafana rc=$rc"
+          RC_GRAF=$rc
+        fi
+      fi
+      printf 'last_attempt=%s mounted=%s rc_loki=%s rc_prometheus=%s rc_grafana=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MOUNTED" "$RC_LOKI" "$RC_PROM" "$RC_GRAF" > "$STATUS" 2>/dev/null || true
+      exit 0
+  - path: /etc/systemd/system/ypsp-replicate.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Yuruna poolStorage (ypsp) service replication to NAS
+      After=network-online.target loki.service prometheus.service grafana-server.service
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/ypsp-replicate.sh
+      StandardOutput=journal
+      StandardError=journal
+  - path: /etc/systemd/system/ypsp-replicate.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Run Yuruna ypsp service replication hourly
+      [Timer]
+      OnBootSec=5m
+      OnUnitActiveSec=1h
+      AccuracySec=1m
+      Unit=ypsp-replicate.service
+      [Install]
+      WantedBy=timers.target
 runcmd:
   # === YURUNA_OVERLAY_RUNCMD_NET ===
   # Stop the squid apt's postinst started: it's FATAL (yuruna.conf references ca.pem before
@@ -1444,6 +1977,32 @@ runcmd:
       chmod 700 "$CA_DIR"
       chmod 600 "$CA_DIR/ca.key"
       chmod 644 "$CA_DIR/ca.pem"
+    fi
+  # --- pool-aggregator TLS leaf: mint a server cert for the aggregator's :9400 surface
+  # (metrics + ingest), signed by the squid CA above (reused -- no new CA), so the LAN
+  # hop is encrypted + authenticated. Idempotent (no rotate). SAN carries the proxy's
+  # LAN IP (runners connect by IP) + 127.0.0.1 (loopback Prometheus). Key stays
+  # proxy:proxy 600 (the aggregator runs as proxy). Best-effort: a mint failure leaves
+  # no leaf and the aggregator falls back to plain HTTP.
+  - |
+    set -e
+    CA_DIR=/etc/squid/ssl_cert
+    LEAF="$CA_DIR/pool-aggregator"
+    if [ -f "$CA_DIR/ca.pem" ] && [ ! -f "$LEAF.crt" ]; then
+      LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+      [ -n "$LAN_IP" ] || LAN_IP=127.0.0.1
+      SAN="subjectAltName=IP:${LAN_IP},IP:127.0.0.1"
+      openssl req -new -newkey rsa:2048 -sha256 -nodes \
+        -keyout "$LEAF.key" -out "$LEAF.csr" \
+        -subj "/CN=yuruna-pool-aggregator" -addext "$SAN"
+      printf '%s\n' "$SAN" > "$LEAF.ext"
+      openssl x509 -req -in "$LEAF.csr" -sha256 -days 3650 \
+        -CA "$CA_DIR/ca.pem" -CAkey "$CA_DIR/ca.key" -CAcreateserial \
+        -extfile "$LEAF.ext" -out "$LEAF.crt"
+      rm -f "$LEAF.csr" "$LEAF.ext"
+      chown proxy:proxy "$LEAF.key" "$LEAF.crt"
+      chmod 600 "$LEAF.key"
+      chmod 644 "$LEAF.crt"
     fi
   # security_file_certgen's `-c` is create-new and errors if the DB
   # already exists, so the existence check guards re-runs. DB holds leaf
@@ -1481,6 +2040,10 @@ runcmd:
   # (the host switch/bridge/NAT), so trust distribution works without an
   # extra cachemgr-style `Require ip` dropin.
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
+  # Publish the SAME CA under a pool-specific name so a runner can pin the
+  # pool-aggregator's TLS leaf (it is signed by this CA) without coupling to the squid
+  # CA filename. Public cert only; the key never leaves /etc/squid/ssl_cert.
+  - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-pool-ca.crt
   - systemctl enable apache2
   - systemctl restart apache2
   # --- Pre-warm the cache ---
@@ -1582,17 +2145,41 @@ runcmd:
     else
         echo "== YURUNA: squid-exporter build failed -- Grafana squid panels will stay empty until the binary is provided by hand =="
     fi
+    # Resolve where to fetch yuruna repo source from. Prefer the LOCAL host
+    # status server (the live working tree at /yuruna-repo/, served by
+    # test/Start-StatusService.ps1 on the deploying host) so the build NEVER
+    # depends on the public github mirror -- the host repo is the source of
+    # truth. Fall back to github raw only when the host is unreachable. Same
+    # resolution as automation/fetch-and-execute.sh. --no-proxy is required on
+    # the host path: the host IP is private and this VM's own squid is in
+    # offline_mode, so routing the fetch through a proxy would fail.
+    YR_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
+    YR_FLAGS=""
+    YR_SRC="github"
+    if [ -r /etc/yuruna/host.env ]; then
+      . /etc/yuruna/host.env
+      YR_HOST="${YURUNA_HOST_IP:-}"
+      YR_PORT="${YURUNA_HOST_PORT:-}"
+      if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://${YR_HOST}:${YR_PORT}/livecheck"; then
+        YR_BASE="http://${YR_HOST}:${YR_PORT}/yuruna-repo/"
+        YR_FLAGS="--no-proxy"
+        YR_SRC="local host status server (http://${YR_HOST}:${YR_PORT})"
+        echo "yuruna: building monitoring services from LOCAL host repo ${YR_BASE} -- no github dependency"
+      else
+        echo "== YURUNA: host status server unreachable (host.env IP='${YR_HOST:-unset}' port='${YR_PORT:-unset}'); falling back to github. Ensure the status service runs on the deploying host (Start-CachingProxy / Start-StatusService) so a rebuild fetches the local working tree. =="
+      fi
+    else
+      echo "== YURUNA: /etc/yuruna/host.env absent -- no host coordinates in the seed; falling back to github for source fetch =="
+    fi
     # caching-proxy-parser: in-memory tail-and-serve for the dashboard's
     # "Recent 100 requests" view; replaces the loki+promtail pipeline.
-    # Source under test/extension/caching-proxy-parser/ in the yuruna
-    # repo; pinned to `main` because the extension is intentionally
-    # minimal and tracks the harness it ships with.
+    # Source under test/extension/caching-proxy-parser/ in the yuruna repo.
     mkdir -p /opt/caching-proxy-parser
     cd /opt/caching-proxy-parser
-    CPP_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/test/extension/caching-proxy-parser"
     CPP_OK=1
     for f in main.go go.mod caching-proxy-parser.service; do
-      wget --no-cache --timeout=15 --tries=3 -q -O "$f" "${CPP_BASE}/$f" || CPP_OK=0
+      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-parser/$f" || CPP_OK=0
+      if [ ! -s "$f" ]; then CPP_OK=0; echo "== YURUNA: caching-proxy-parser source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-parser/$f (source=${YR_SRC}) =="; fi
     done
     if [ "$CPP_OK" -eq 1 ] && /usr/bin/go build -o caching-proxy-parser . ; then
         install -m 0755 caching-proxy-parser /usr/local/bin/caching-proxy-parser
@@ -1601,8 +2188,31 @@ runcmd:
     else
         echo "== YURUNA: caching-proxy-parser build failed -- Recent 100 requests view will be unavailable =="
     fi
+    # pool-aggregator: read-only multi-host pool view (Phase 1). Source under
+    # test/extension/pool-aggregator/ in the yuruna repo. The Grafana dashboard
+    # ships inline via write_files (does NOT depend on this build).
+    mkdir -p /opt/pool-aggregator
+    cd /opt/pool-aggregator
+    PA_OK=1
+    for f in main.go go.mod pool-aggregator.service; do
+      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/pool-aggregator/$f" || PA_OK=0
+      # An empty file (404 from the chosen source, or a stale/incomplete mirror)
+      # is caught here so the cause is obvious in /var/log/cloud-init-output.log
+      # instead of a generic "build failed".
+      if [ ! -s "$f" ]; then PA_OK=0; echo "== YURUNA: pool-aggregator source '$f' empty/missing from ${YR_BASE}test/extension/pool-aggregator/$f (source=${YR_SRC}) =="; fi
+    done
+    # NOTE: the Yuruna Pool dashboard is NOT fetched here -- it ships inline via
+    # write_files (/var/lib/grafana/dashboards/pool.json) so it deploys even if
+    # this collector build fails or the host repo is unreachable.
+    if [ "$PA_OK" -eq 1 ] && /usr/bin/go build -o pool-aggregator . ; then
+        install -m 0755 pool-aggregator /usr/local/bin/pool-aggregator
+        install -m 0644 pool-aggregator.service /etc/systemd/system/pool-aggregator.service
+        echo "yuruna: pool-aggregator built and installed at /usr/local/bin/pool-aggregator"
+    else
+        echo "== YURUNA: pool-aggregator build failed -- pool COLLECTOR unavailable (the Yuruna Pool dashboard still deploys; it shows 'No data' until the collector is up). Source attempted: ${YR_SRC}. =="
+    fi
     cd /
-    rm -rf /root/go /opt/caching-proxy-parser
+    rm -rf /root/go /opt/caching-proxy-parser /opt/pool-aggregator
   # Reclaim ~400 MB: Go toolchain is only needed for the builds above;
   # both squid-exporter and caching-proxy-parser are static binaries.
   - DEBIAN_FRONTEND=noninteractive apt-get purge -y golang-go || true
@@ -1626,6 +2236,37 @@ runcmd:
   # if the build above failed); `|| true` keeps the rest of runcmd
   # going so loki+promtail+grafana still come up.
   - systemctl enable --now caching-proxy-parser.service || true
+  # pool-aggregator: read-only pool view (Phase 1). Soft-fail like the parser --
+  # the binary may be absent if the build above failed; prometheus already has
+  # the pool-aggregator scrape job (it just reads 'down' until the daemon is up).
+  - systemctl enable --now pool-aggregator.service || true
+  # --- Yuruna pool intent store (Phase 3): a bare git repo pooled hosts clone +
+  # pull READ-ONLY over HTTP (the yuruna-pool-intent apache conf) to learn pool
+  # membership + desiredState. The admin CLI (run on the proxy) pushes intent
+  # here. Seeded with an empty, schema-valid pools.yml on 'main' so the first
+  # clone is non-empty + deterministic. The post-update hook keeps the dumb-HTTP
+  # info current on every push. Idempotent (re-run skips an existing repo) and
+  # soft-fail (each fallible step is `|| true`) so it can never abort the phase.
+  - |
+    INTENT_GIT=/var/lib/yuruna/pool-intent.git
+    if [ ! -d "$INTENT_GIT/refs" ]; then
+      install -d -o www-data -g www-data /var/lib/yuruna || true
+      git init --bare --initial-branch=main "$INTENT_GIT" || true
+      TMP_SEED=$(mktemp -d)
+      git -C "$TMP_SEED" init -q --initial-branch=main || true
+      printf 'schemaVersion: 1\npools: []\n' > "$TMP_SEED/pools.yml"
+      git -C "$TMP_SEED" add -A || true
+      git -C "$TMP_SEED" -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent' || true
+      git -C "$TMP_SEED" push -q "$INTENT_GIT" HEAD:main || true
+      rm -rf "$TMP_SEED"
+      printf '#!/bin/sh\nexec git update-server-info\n' > "$INTENT_GIT/hooks/post-update"
+      chmod +x "$INTENT_GIT/hooks/post-update" || true
+      git -C "$INTENT_GIT" update-server-info || true
+      chown -R www-data:www-data "$INTENT_GIT" || true
+      echo "yuruna: pool intent store seeded at $INTENT_GIT"
+    fi
+    a2enconf yuruna-pool-intent || true
+    systemctl reload apache2 || systemctl restart apache2 || true
   - systemctl enable grafana-server.service
   - systemctl restart grafana-server.service
   # Wait for grafana-server to bind :3000 and dump journal if it doesn't.
@@ -1677,6 +2318,19 @@ runcmd:
   - systemctl enable --now loki.service
   - systemctl enable --now promtail.service
   - systemctl restart loki.service promtail.service
+  # poolStorage (ypsp) service replication: enable the timer only when the seed was
+  # built with replication configured (REPLICATE=true). Read it with an exact-line
+  # grep, NOT by sourcing -- sourcing a malformed value would abort the whole runcmd
+  # phase (a `.`-parse error fires before any `|| true`). Block scalar dodges the
+  # colon-space YAML trap; grep dodges the source-time abort.
+  - |
+    if grep -qx "YPSP_REPLICATE='true'" /etc/yuruna/ypsp.env 2>/dev/null; then
+      systemctl daemon-reload
+      systemctl enable --now ypsp-replicate.timer || true
+      echo "yuruna ypsp: service replication timer enabled"
+    else
+      echo "yuruna ypsp: service replication disabled in seed (timer not enabled)"
+    fi
   # Verify promtail picked up BOTH supplementary groups. The drop-in
   # writes "SupplementaryGroups=proxy zot"; failing on either keeps the
   # corresponding Recent-100 panel empty. Without explicit per-group

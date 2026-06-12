@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 # Ubuntu 26.04 LTS (Resolute Raccoon), arm64 cloud image -- macOS UTM
 # runs on Apple Silicon via Apple Virtualization. Moved up from 24.04
 # LTS (Noble Numbat) so the cache VM stays inside the supported-LTS
-# window and `unattended-upgrades` (enabled in vmconfig/user-data)
+# window and `unattended-upgrades` (enabled in host/vmconfig/caching-proxy.base.user-data)
 # keeps pulling security patches automatically rather than going EOL
 # mid-cycle.
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-arm64.img"
@@ -76,10 +76,11 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download
-# through Save-CachedHttpUri when available + applies the warn-only
-# SHA-256 policy against cloud-images.ubuntu.com's published
-# SHA256SUMS file. This script PROVISIONS the squid cache, so on
-# a first-run host the helper falls through to a direct fetch.
+# through Save-CachedHttpUri when available + verifies SHA-256 against
+# cloud-images.ubuntu.com's published SHA256SUMS (a genuine mismatch
+# deletes the file and fails; a missing checksum is a soft pass). This
+# script PROVISIONS the squid cache, so on a first-run host the helper
+# falls through to a direct fetch.
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
@@ -88,7 +89,8 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath    $downloadFile `
     -ChecksumUrl "$sourceDir/SHA256SUMS" `
     -ChecksumTargetFileName $sourceBaseName `
-    -OnMismatch  'WarnAndContinue' `
+    -OnMismatch  'WarnAndDelete' `
+    -VerifyUbuntuSignature `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $sourceUrl"
@@ -118,7 +120,7 @@ Copy-Item -LiteralPath $downloadFile -Destination $convertedFile
 
 # Resize to 512 GB (qcow2 grows on demand: apparent 512 GB, actual only
 # what the guest has written). Sized for squid's 384 GB cache_dir + ~128
-# GB OS/logs/headroom -- see vmconfig/user-data `cache_dir ufs
+# GB OS/logs/headroom -- see host/vmconfig/caching-proxy.base.user-data `cache_dir ufs
 # /var/spool/squid 393216` and the `maximum_object_size 65 GB` directive
 # that lets the proxy cache files like the macOS install image (~18 GB)
 # and other multi-GB blobs end-to-end instead of bypassing them direct to
@@ -126,7 +128,7 @@ Copy-Item -LiteralPath $downloadFile -Destination $convertedFile
 Write-Output "Resizing qcow2 image to 512GB..."
 & qemu-img resize -f qcow2 $convertedFile 512G
 if ($LASTEXITCODE -ne 0) {
-    Write-Warning "qemu-img resize failed — continuing with original size."
+    Write-Warning "qemu-img resize failed -- continuing with original size."
     Write-Warning "The cache VM will only have the base cloud-image capacity (~2.5 GB)"
     Write-Warning "which fills up after 1-2 installs. Resize manually with:"
     Write-Warning "  qemu-img resize -f qcow2 '$baseImageFile' 512G"

@@ -129,10 +129,10 @@ the bundle with UTM and start the VM.
 pwsh ~/git/yuruna/test/Invoke-TestRunner.ps1
 ```
 
-[Guest VMs](README.md#next-create-a-guest-vm) ·
-[Troubleshooting](../../docs/host-macos.md) ·
-Back to [UTM setup](README.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

@@ -143,8 +143,10 @@ UTM rejected the `config.plist`. Diagnose:
 - Virtual TPM 2.0 satisfies Windows 11's TPM requirement.
 - x86/x64 apps run via Windows' built-in ARM64 emulation.
 
-Back to [Windows 11 guest (UTM)](README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,6 +231,53 @@ function Invoke-Remediation {
     if (-not $failureClass) { $failureClass = 'unknown' }
     $severity = if ($FailureRecord.Contains('severity')) { [string]$FailureRecord['severity'] } else { 'unknown' }
     $suggested = if ($FailureRecord.Contains('suggestedRecoveries')) { @($FailureRecord['suggestedRecoveries']) } else { @() }
+
+    # Read a field from the record's top level, falling back to its nested
+    # `context` block: last_failure.json keeps sequencePath / matchedFailurePattern
+    # under context, while an inline engine record has them flat. One lookup
+    # covers both shapes.
+    $recField = {
+        param($Name)
+        if ($FailureRecord.Contains($Name) -and $FailureRecord[$Name]) { return $FailureRecord[$Name] }
+        if ($FailureRecord.Contains('context') -and ($FailureRecord['context'] -is [System.Collections.IDictionary]) -and
+            $FailureRecord['context'].Contains($Name) -and $FailureRecord['context'][$Name]) {
+            return $FailureRecord['context'][$Name]
+        }
+        return $null
+    }
+
+    # Inner-cause routing. An exhausted `retry` reports the outer class
+    # 'retry_exhausted', which masks the deepest verb's actionable cause the
+    # record preserved in innerFailureClass. Route on the inner class when it is
+    # present AND has its own registered handler, so the recommendation targets
+    # the real failure instead of the generic retry wrapper. Severity /
+    # suggestedRecoveries follow the routed class; the outer class is preserved as
+    # $routedFromClass (surfaced as RoutedFromFailureClass / outerFailureClass) so
+    # the audit trail still shows the masking.
+    $routedFromClass = $null
+    $innerClass = if ($FailureRecord.Contains('innerFailureClass') -and $FailureRecord['innerFailureClass']) { [string]$FailureRecord['innerFailureClass'] } else { '' }
+    # Skip a self-equal inner class ($innerClass -ne $failureClass): routing to
+    # the same class is a no-op that would only emit a misleading "routed" audit.
+    if ($failureClass -eq 'retry_exhausted' -and $innerClass -and $innerClass -ne $failureClass -and (Get-RecoveryHandler -FailureClass $innerClass)) {
+        $routedFromClass = $failureClass
+        $failureClass    = $innerClass
+        # Severity follows the routed class: use the recorded innerSeverity, else
+        # 'unknown'. Never inherit the outer value -- it is the retry wrapper's
+        # severity, not the inner cause's, so pairing it with the inner class
+        # would desync the (class, severity) the consumer routes/gates on.
+        $severity = if ($FailureRecord.Contains('innerSeverity') -and $FailureRecord['innerSeverity']) { [string]$FailureRecord['innerSeverity'] } else { 'unknown' }
+        if ($FailureRecord.Contains('innerSuggestedRecoveries')) {
+            $suggested = @($FailureRecord['innerSuggestedRecoveries'])
+        }
+    }
+
+    $reproField   = & $recField 'repro'
+    $reproCommand = if ($reproField -is [System.Collections.IDictionary] -and $reproField.Contains('command')) {
+        [string]$reproField['command']
+    } elseif ($FailureRecord.Contains('reproCommand')) {
+        [string]$FailureRecord['reproCommand']
+    } else { '' }
+
     $ctx = @{
         Failure = $FailureRecord
         Context = @{
@@ -242,6 +289,15 @@ function Invoke-Remediation {
             severity             = $severity
             suggestedRecoveries  = $suggested
             failureClass         = $failureClass
+            # Enriched routing context (forwarded so a handler can act/repro
+            # without re-reading last_failure.json). Empty string, never $null,
+            # so a handler can string-test without a null guard.
+            outerFailureClass     = if ($routedFromClass) { $routedFromClass } else { '' }
+            sequenceName          = [string](& $recField 'sequenceName')
+            sequencePath          = [string](& $recField 'sequencePath')
+            matchedFailurePattern = [string](& $recField 'matchedFailurePattern')
+            innerFailureClass     = $innerClass
+            reproCommand          = $reproCommand
         }
     }
     $handler = Get-RecoveryHandler -FailureClass $failureClass
@@ -292,6 +348,9 @@ function Invoke-Remediation {
     $result['FailureClass'] = $failureClass
     $result['Severity']     = $severity
     $result['Source']       = $source
+    # When the dispatcher routed past a retry wrapper to the inner cause, keep
+    # the outer class visible so the audit trail shows what was masked.
+    if ($routedFromClass) { $result['RoutedFromFailureClass'] = $routedFromClass }
     # Emit a NDJSON breadcrumb so a stream consumer follows the
     # dispatcher's decision. Schema-validated through Send-CycleEventSafely.
     # Optional context fields (vmName / guestKey / hostType / actionVerb)
@@ -308,7 +367,8 @@ function Invoke-Remediation {
             autoApply      = [bool]$result['AutoApply']
             source         = [string]$source
         }
-        foreach ($key in @('vmName', 'guestKey', 'hostType', 'actionVerb')) {
+        if ($routedFromClass) { $emit['outerFailureClass'] = [string]$routedFromClass }
+        foreach ($key in @('vmName', 'guestKey', 'hostType', 'actionVerb', 'sequenceName')) {
             $val = $ctx.Context[$key]
             if ($val) { $emit[$key] = [string]$val }
         }
@@ -465,6 +525,45 @@ function Register-BuiltinRecoveryHandler {
             Recommendation = 'retry_immediately'
             Rationale      = "instrumentation_failure on $($c.Context.vmName): takeScreenshot / saveSystemDiagnostic failed transiently. The cycle's observable state is unaffected; one immediate retry typically clears it."
             Actions        = @('Re-attempt the failing instrumentation step.')
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'provisioning_failure' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'retry_with_backoff'
+            Rationale      = "provisioning_failure on $($c.Context.vmName): the host hypervisor could not define / boot / reach-running the VM. Often transient (insufficient-resources right after a prior teardown, KVP/IP late to populate) and clears on the next cycle after a backoff."
+            Actions        = @(
+                'Confirm the prior cycle freed host CPU / memory (no orphaned VM holding resources)',
+                'Check the host hypervisor service + free disk for the VM store',
+                'Retry the cycle; if it reproduces deterministically, treat as operator_intervention_required'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'bootstrap_sync' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = "bootstrap_sync on $($c.Context.vmName): a git fetch/clone of the framework or project repo failed for a non-network reason (divergence, auth, or a dirty working tree). A pure network blip is classified upstream as network_timeout and retried; this class is the non-transient remainder."
+            Actions        = @(
+                'Inspect the framework + project repo working trees for divergence or local edits',
+                'Verify the git remote credentials / token are still valid',
+                'Reconcile the repo, then re-run the cycle'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'plan_invalid' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = "plan_invalid on $($c.Context.vmName): the cycle plan is ambiguous or unsatisfiable (duplicate sequence, a backend the host lacks, or a missing host/<host>/<guest> folder). A config error, not auto-remediable."
+            Actions        = @(
+                'Inspect project/test/test.runner.yml for duplicate or malformed entries',
+                'Confirm the host/<host>/<guest> folder exists for every planned guest',
+                'Confirm the host provides every backend the plan requires, then re-run'
+            )
         }
     }
 

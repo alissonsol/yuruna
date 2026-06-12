@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.05
+# Version: 2026.06.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Probe localhost HTTP and print the status line.

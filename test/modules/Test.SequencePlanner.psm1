@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,6 +119,110 @@ function Add-CyclePrereqChainEntry {
     [void]$Chain.Add($SequenceName)
 }
 
+# Shared per-top-level entry builder for Resolve-CyclePlan (legacy) AND
+# Resolve-TestSetCyclePlan (pool, Phase 4). Resolves one top-level sequence into
+# one (topLevel, guestKey, chain, cascade) entry per supported guest OS and
+# appends them to $Entries. The two callers differ only in the SOURCE of the
+# top-level list and in the optional Phase-4 args:
+#   -PerGuestOverrides: per-guestKey {keystrokeMechanism, username, variables}
+#       layered ON TOP of the chain cascade (override wins); keystrokeMechanism is
+#       tagged on the entry for the runner to thread per guest.
+#   -RestrictGuests: when set, only guestKeys in this list are emitted (the
+#       pool-planner host filter -- a host skips guests it cannot run).
+# A missing top-level throws PlannerFatal (a typo must abort, not silently skip);
+# an unresolvable prereq is warned + skipped. Keeping ONE code path means the
+# variable cascade, PlannerFatal propagation, and entry shape never drift between
+# the single-host and pool planners.
+function Add-CyclePlanEntriesForTopLevel {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[Object]]$Entries,
+        [Parameter(Mandatory)][string]$TopName,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [string]$HostType,
+        [string]$SourceLabel = '',
+        [AllowNull()]$PerGuestOverrides,
+        [AllowNull()][string[]]$RestrictGuests
+    )
+    $topPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $TopName -HostType $HostType -RepoRoot $RepoRoot
+    if (-not $topPath) {
+        $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $TopName -HostType $HostType -RepoRoot $RepoRoot
+        $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+        throw "PlannerFatal: missing sequence '$TopName'$(if ($SourceLabel) { " $SourceLabel" })`nSearched (no match):`n$list"
+    }
+    $topSeq = Read-SequenceFile -Path $topPath
+    if (-not $topSeq.baseline) {
+        Write-Warning "Top-level sequence has no baseline (no supported guest OS declared): $TopName"
+        return
+    }
+    foreach ($osKey in $topSeq.baseline.Keys) {
+        $guestKey = "guest.$osKey"
+        # Pool-planner host filter (Phase 4): a host emits only the guests it can run.
+        if ($null -ne $RestrictGuests -and ($RestrictGuests -notcontains $guestKey)) { continue }
+        $chain   = New-Object System.Collections.Generic.List[string]
+        $visited = [System.Collections.Generic.HashSet[string]]::new()
+        try {
+            Add-CyclePrereqChainEntry -SequenceName $TopName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -OsKey $osKey -Chain $chain -Visited $visited
+        } catch {
+            # PlannerFatal (duplicate project sequence file) MUST propagate.
+            if ($_.Exception.Message -like 'PlannerFatal:*') { throw }
+            Write-Warning "Skipping $TopName / $osKey - $($_.Exception.Message)"
+            continue
+        }
+        $startSeqs = New-Object System.Collections.Generic.List[string]
+        $workSeqs  = New-Object System.Collections.Generic.List[string]
+        foreach ($s in $chain) {
+            if ($s -match '^start\.') { [void]$startSeqs.Add($s) } else { [void]$workSeqs.Add($s) }
+        }
+        # Cascade variables top-down across the chain (first non-empty from the top wins).
+        $effectiveVars = [ordered]@{}
+        for ($i = $chain.Count - 1; $i -ge 0; $i--) {
+            $sName = $chain[$i]
+            $sPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $sName -HostType $HostType -RepoRoot $RepoRoot
+            if (-not $sPath) { continue }
+            try { $sSeq = Read-SequenceFile -Path $sPath } catch { continue }
+            if (-not $sSeq.variables) { continue }
+            foreach ($vk in $sSeq.variables.Keys) {
+                if ($effectiveVars.Contains($vk)) { continue }   # higher level already won
+                $vv = $sSeq.variables[$vk]
+                if ($null -eq $vv) { continue }
+                if ($vv -is [string] -and -not $vv.Trim()) { continue }
+                $effectiveVars[$vk] = $vv
+            }
+        }
+        # Phase 4 per-guest overrides layer ON TOP of the cascade (override wins).
+        # keystrokeMechanism is tagged on the entry (not a variable) so the runner
+        # can switch the dispatch mode for this guest's VM lifecycle.
+        $guestKsm = $null
+        if ($PerGuestOverrides -is [System.Collections.IDictionary] -and $PerGuestOverrides.Contains($guestKey)) {
+            $ov = $PerGuestOverrides[$guestKey]
+            if ($ov -is [System.Collections.IDictionary]) {
+                if ($ov.Contains('variables') -and $ov['variables'] -is [System.Collections.IDictionary]) {
+                    foreach ($vk in $ov['variables'].Keys) { $effectiveVars[$vk] = $ov['variables'][$vk] }
+                }
+                if ($ov.Contains('username') -and -not [string]::IsNullOrWhiteSpace([string]$ov['username'])) {
+                    $effectiveVars['username'] = [string]$ov['username']
+                }
+                if ($ov.Contains('keystrokeMechanism') -and -not [string]::IsNullOrWhiteSpace([string]$ov['keystrokeMechanism'])) {
+                    $guestKsm = ([string]$ov['keystrokeMechanism']).ToUpperInvariant()
+                }
+            }
+        }
+        $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
+        $Entries.Add([pscustomobject]@{
+            topLevel            = $TopName
+            guestKey            = $guestKey
+            fullChain           = @($chain.ToArray())
+            startSequences      = @($startSeqs.ToArray())
+            workloadSequences   = @($workSeqs.ToArray())
+            effectiveVariables  = $effectiveVars
+            effectiveUsername   = $effectiveUsername
+            keystrokeMechanism  = $guestKsm
+        })
+    }
+}
+
 <#
 .SYNOPSIS
     Resolves the cycle baseline into ordered (topLevel, guestKey, fullChain) entries.
@@ -148,93 +252,55 @@ function Resolve-CyclePlan {
     )
     $cycleCfg = Get-CycleConfig -RepoRoot $RepoRoot
     $entries = New-Object System.Collections.Generic.List[Object]
+    $srcLabel = "(referenced in the runner sequences list at $(Get-CycleConfigPath -RepoRoot $RepoRoot))"
     foreach ($raw in $cycleCfg.sequences) {
         # Accept entries written with or without an extension. Older project
         # configs sometimes spell sequences as `<name>.json`; the migration
         # to `.yml` shouldn't break those clones.
         $topName = ([string]$raw) -replace '\.(ya?ml|json)$',''
-        $topPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $topName -HostType $HostType -RepoRoot $RepoRoot
-        if (-not $topPath) {
-            # Throw PlannerFatal so the runner aborts the cycle (via the
-            # !!!!! banner branch in Invoke-TestInnerRunner.ps1's catch)
-            # instead of warn-and-continue with a fake "resolved to <last
-            # attempted path>" pointer. A typo in the sequences list must
-            # abort rather than silently skip the entry: a skipped entry
-            # leaves operators chasing an empty cycle, so the searched
-            # locations are spelled out and the cycle stops on the spot.
-            $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $topName -HostType $HostType -RepoRoot $RepoRoot
-            $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
-            throw "PlannerFatal: runner sequences list references missing sequence: $topName (in $(Get-CycleConfigPath -RepoRoot $RepoRoot))`nSearched (no match):`n$list"
-        }
-        $topSeq = Read-SequenceFile -Path $topPath
-        if (-not $topSeq.baseline) {
-            Write-Warning "Top-level sequence has no baseline (no supported guest OS declared): $topName"
-            continue
-        }
-        foreach ($osKey in $topSeq.baseline.Keys) {
-            $guestKey = "guest.$osKey"
-            $chain   = New-Object System.Collections.Generic.List[string]
-            $visited = [System.Collections.Generic.HashSet[string]]::new()
-            try {
-                Add-CyclePrereqChainEntry -SequenceName $topName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -OsKey $osKey -Chain $chain -Visited $visited
-            } catch {
-                # PlannerFatal (duplicate project sequence file) MUST propagate.
-                # Per the message-prefix marker pattern, every intervening catch
-                # has to re-throw or the cycle keeps running on an ambiguous plan.
-                if ($_.Exception.Message -like 'PlannerFatal:*') { throw }
-                Write-Warning "Skipping $topName / $osKey - $($_.Exception.Message)"
-                continue
-            }
-            $startSeqs = New-Object System.Collections.Generic.List[string]
-            $workSeqs  = New-Object System.Collections.Generic.List[string]
-            foreach ($s in $chain) {
-                if ($s -match '^start\.') { [void]$startSeqs.Add($s) } else { [void]$workSeqs.Add($s) }
-            }
-            # --- Cascade variables top-down across the chain --------------
-            # `effectiveVariables` is a flattened {key: value} map computed
-            # by walking the chain from TOP (the workload sequence; last
-            # entry of $chain because the chain is dependency-ordered
-            # deepest-first) down to the baseline. For each key declared
-            # under any sequence's `variables:` block, the FIRST non-empty
-            # value encountered from the top wins -- so a workload's
-            # `username: webuser` overrides the baseline's `username:
-            # yuuser26` end-to-end, and the same propagation applies to
-            # any other variable a workload chooses to redefine.
-            #
-            # The runner injects this map as the sequence's variable scope
-            # when running each sequence in the chain (overriding the
-            # sequence-local `variables:` block); the planner also exposes
-            # `effectiveUsername` as a convenience shortcut for the
-            # `New-VM -Username` call site, which needs the OS account
-            # name BEFORE any sequence runs.
-            $effectiveVars = [ordered]@{}
-            for ($i = $chain.Count - 1; $i -ge 0; $i--) {
-                $sName = $chain[$i]
-                $sPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $sName -HostType $HostType -RepoRoot $RepoRoot
-                if (-not $sPath) { continue }
-                try { $sSeq = Read-SequenceFile -Path $sPath } catch { continue }
-                if (-not $sSeq.variables) { continue }
-                foreach ($vk in $sSeq.variables.Keys) {
-                    if ($effectiveVars.Contains($vk)) { continue }   # higher level already won
-                    $vv = $sSeq.variables[$vk]
-                    if ($null -eq $vv) { continue }
-                    if ($vv -is [string] -and -not $vv.Trim()) { continue }
-                    $effectiveVars[$vk] = $vv
-                }
-            }
-            $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
-            $entries.Add([pscustomobject]@{
-                topLevel            = $topName
-                guestKey            = $guestKey
-                fullChain           = @($chain.ToArray())
-                startSequences      = @($startSeqs.ToArray())
-                workloadSequences   = @($workSeqs.ToArray())
-                effectiveVariables  = $effectiveVars
-                effectiveUsername   = $effectiveUsername
-            })
-        }
+        Add-CyclePlanEntriesForTopLevel -Entries $entries -TopName $topName -RepoRoot $RepoRoot `
+            -SequencesDir $SequencesDir -HostType $HostType -SourceLabel $srcLabel
     }
     # Wrap in @() at return so a single entry doesn't unwrap to scalar.
+    return ,@($entries.ToArray())
+}
+
+<#
+.SYNOPSIS
+    Phase 4: resolve a POOL test-set manifest's sequences[] into the same cycle-plan
+    entry shape Resolve-CyclePlan produces, applying per-guest overrides + the
+    pool-planner host filter.
+.DESCRIPTION
+    The pool counterpart of Resolve-CyclePlan: instead of the single
+    test.runner.yml sequences list, it iterates a test-set manifest's
+    `sequences[]`. Each entry carries the same fields (plus `keystrokeMechanism`
+    from perGuestOverrides). -PerGuestOverrides layers {keystrokeMechanism,
+    username, variables} on top of the chain cascade (override wins).
+    -RestrictGuests limits emitted guests to those the host can run (the
+    pool-planner filter, computed by the caller). Reuses every Resolve-CyclePlan
+    building block via Add-CyclePlanEntriesForTopLevel, so the variable cascade,
+    PlannerFatal propagation, and entry shape never drift from the single-host path.
+#>
+function Resolve-TestSetCyclePlan {
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [string]$HostType,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Sequences,
+        [string]$SetName = '',
+        [AllowNull()]$PerGuestOverrides,
+        [AllowNull()][string[]]$RestrictGuests
+    )
+    $entries = New-Object System.Collections.Generic.List[Object]
+    $srcLabel = "(referenced in test-set '$SetName')"
+    foreach ($raw in $Sequences) {
+        $topName = ([string]$raw) -replace '\.(ya?ml|json)$',''
+        Add-CyclePlanEntriesForTopLevel -Entries $entries -TopName $topName -RepoRoot $RepoRoot `
+            -SequencesDir $SequencesDir -HostType $HostType -SourceLabel $srcLabel `
+            -PerGuestOverrides $PerGuestOverrides -RestrictGuests $RestrictGuests
+    }
     return ,@($entries.ToArray())
 }
 
@@ -327,6 +393,11 @@ function Get-CyclePlanSequencesForGuest {
     # surfaced separately because every guest needs one for New-VM.
     $mergedVars     = [ordered]@{}
     $mergedUsername = ''
+    # Phase 4: per-guest keystrokeMechanism (set only on pool/test-set plans). First
+    # non-null across this guest's entries wins -- same first-appearance rule as
+    # effectiveUsername. $null on the legacy single-host path (the field is absent
+    # or null there), so the runner inherits the global default.
+    $mergedKsm      = $null
     foreach ($e in $Plan) {
         if ($e.guestKey -ne $GuestKey) { continue }
         foreach ($s in $e.fullChain) {
@@ -341,12 +412,14 @@ function Get-CyclePlanSequencesForGuest {
             }
         }
         if (-not $mergedUsername -and $e.effectiveUsername) { $mergedUsername = $e.effectiveUsername }
+        if (-not $mergedKsm -and ($e.PSObject.Properties.Name -contains 'keystrokeMechanism') -and $e.keystrokeMechanism) { $mergedKsm = $e.keystrokeMechanism }
     }
     return @{
         startSequences      = @($start.ToArray())
         workloadSequences   = @($work.ToArray())
         effectiveVariables  = $mergedVars
         effectiveUsername   = $mergedUsername
+        keystrokeMechanism  = $mergedKsm
     }
 }
 
@@ -501,4 +574,4 @@ function Resolve-NamedSequenceChain {
     }
 }
 
-Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain
+Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Resolve-TestSetCyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain

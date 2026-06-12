@@ -88,8 +88,10 @@ in-file slice is a convenience.
 - [Remediation dispatcher](remediation.md) — what to do AFTER a `fault`.
 - [Outer-loop dispatcher](runner-outer-loop.md) — the caller that emits every transition.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

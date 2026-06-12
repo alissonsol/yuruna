@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,7 +114,7 @@ foreach ($line in $utmOutput) {
 }
 
 # Read VM UUID from a bundle's config.plist. utmctl list may only return
-# running VMs; UUID-based `utmctl status` works for stopped VMs too —
+# running VMs; UUID-based `utmctl status` works for stopped VMs too --
 # without this, a stopped service VM (e.g. caching-proxy) is misclassified
 # as orphaned and deleted by the -Force cleanup path.
 #
@@ -122,7 +122,7 @@ foreach ($line in $utmOutput) {
 #   * UTM stores the UUID at Information.UUID, not a top-level key.
 #   * `-convert json` fails outright on these bundles because config.plist
 #     contains a <data> blob (MachineIdentifier) that JSON can't represent
-#     — plutil exits 1 and ConvertFrom-Json throws, so the whole function
+#     -- plutil exits 1 and ConvertFrom-Json throws, so the whole function
 #     used to silently return $null and the orphan check fell through.
 function Get-UTMBundleUUID {
     param([string]$BundlePath)
@@ -242,7 +242,7 @@ Write-CleanupMessage ("Total size to be freed: {0:N2} GB" -f ($totalSize / 1GB))
 Write-CleanupMessage ""
 
 if ($Force) {
-    Write-CleanupMessage "Force mode enabled — skipping confirmation."
+    Write-CleanupMessage "Force mode enabled -- skipping confirmation."
 } else {
     $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
     if ($confirmation -ne "YES") {
@@ -272,7 +272,7 @@ foreach ($item in $orphanedItems) {
             if ($LASTEXITCODE -eq 0) { $stillRegistered = $true }
         }
         if ($stillRegistered) {
-            Write-Warning "  Skipped: $($item.Path) — VM still registered in UTM. Remove it from UTM first."
+            Write-Warning "  Skipped: $($item.Path) -- VM still registered in UTM. Remove it from UTM first."
             $errors++
             continue
         }

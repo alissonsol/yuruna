@@ -13,14 +13,16 @@ Scripts and config in this folder:
 - [New-VM.ps1](New-VM.ps1) — creates the Hyper-V VM (12 GB RAM /
   4 vCPU) and seeds via cloud-init. Dedicated cache box sized so
   squid's `cache_mem` can take 75 % of RAM.
-- [vmconfig/user-data](../../vmconfig/caching-proxy.base.user-data) — cloud-init: squid,
-  Prometheus + Grafana + squid-exporter, snapshot-cache tuning,
-  `offline_mode` flip after prewarm.
-- [vmconfig/meta-data](vmconfig/meta-data) — cloud-init instance
-  metadata.
-
-Back to [Windows Hyper-V Host Setup](../README.md) · [Yuruna](../../../README.md)
+- [host/vmconfig/caching-proxy.base.user-data](../../vmconfig/caching-proxy.base.user-data) — shared
+  cloud-init base (+ per-host overlay): squid, Prometheus + Grafana + squid-exporter,
+  snapshot-cache tuning, `offline_mode` flip after prewarm.
+- [host/vmconfig/caching-proxy.meta-data](../../vmconfig/caching-proxy.meta-data) — shared
+  cloud-init instance metadata.
 
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

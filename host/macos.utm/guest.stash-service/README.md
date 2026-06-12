@@ -11,14 +11,16 @@ Scripts and config in this folder:
   seeds via cloud-init.
 - [config.plist.template](config.plist.template) — UTM bundle
   config skeleton with placeholders substituted by `New-VM.ps1`.
-- [vmconfig/user-data](../../vmconfig/stash-service.base.user-data) — minimal cloud-init:
-  `yuruna` user with the harness SSH key + a console password from
-  the authentication vault.
-- [vmconfig/meta-data](vmconfig/meta-data) — cloud-init instance
-  metadata.
-
-Back to [macOS UTM Host Setup](../README.md) · [Yuruna](../../../README.md)
+- [host/vmconfig/stash-service.base.user-data](../../vmconfig/stash-service.base.user-data) — shared
+  minimal cloud-init base (+ per-host overlay): `yuruna` user with the harness SSH
+  key + a console password from the authentication vault.
+- [host/vmconfig/stash-service.meta-data](../../vmconfig/stash-service.meta-data) — shared
+  cloud-init instance metadata.
 
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

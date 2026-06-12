@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.05
+# Version: 2026.06.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -29,7 +29,6 @@ esac
 
 echo ""
 echo -e "\e[1;36m==== PostgreSQL ====\e[0m"
-# Install prerequisites
 # PostgreSQL APT repository handles architecture automatically
 apt_retry sudo apt-get install -y postgresql-common
 
@@ -54,7 +53,6 @@ if sudo pg_lsclusters -h 2>/dev/null | grep -q '18'; then
 fi
 sudo pg_createcluster 18 main --start
 
-# Enable and start the PostgreSQL service
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
 

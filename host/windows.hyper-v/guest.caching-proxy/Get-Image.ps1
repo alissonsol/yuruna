@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # === Configuration ===
 # Ubuntu 26.04 LTS (Resolute Raccoon). Moved up from 24.04 LTS (Noble
 # Numbat) so the cache VM stays inside the supported-LTS window and
-# `unattended-upgrades` (enabled in vmconfig/user-data) keeps pulling
+# `unattended-upgrades` (enabled in host/vmconfig/caching-proxy.base.user-data) keeps pulling
 # security patches automatically rather than going EOL mid-cycle.
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img"
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
@@ -75,12 +75,13 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.img"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the fetch
-# through Save-CachedHttpUri when available + applies the warn-only
-# SHA-256 policy. cloud-images.ubuntu.com publishes SHA256SUMS in
-# the parent codename directory; the helper parses it and matches
-# on the cloud-image basename. Note: this script PROVISIONS the
-# squid cache, so on a first-run host the cache doesn't exist yet
-# and the helper falls through to a direct Invoke-WebRequest.
+# through Save-CachedHttpUri when available + verifies SHA-256 against
+# the publisher checksum. cloud-images.ubuntu.com publishes SHA256SUMS
+# in the parent codename directory; the helper parses it and matches
+# on the cloud-image basename. A genuine mismatch deletes the file and
+# fails the run; a missing checksum is a soft pass. Note: this script
+# PROVISIONS the squid cache, so on a first-run host the cache doesn't
+# exist yet and the helper falls through to a direct Invoke-WebRequest.
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $sourceDir = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/'))
 $sourceBaseName = $sourceUrl.Substring($sourceUrl.LastIndexOf('/') + 1)
@@ -89,13 +90,14 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath    $downloadFile `
     -ChecksumUrl "$sourceDir/SHA256SUMS" `
     -ChecksumTargetFileName $sourceBaseName `
-    -OnMismatch  'WarnAndContinue' `
+    -OnMismatch  'WarnAndDelete' `
+    -VerifyUbuntuSignature `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $sourceUrl"
     exit 1
 }
-# Capture the HTTP-download size BEFORE qcow2→vhdx conversion; the
+# Capture the HTTP-download size BEFORE qcow2->vhdx conversion; the
 # .vhdx at $baseImageFile is the converted+resized artifact, not the
 # bytes Test-DownloadAlreadyCurrent will compare against next run.
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length

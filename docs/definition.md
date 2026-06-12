@@ -971,14 +971,15 @@ Page-specific behavior:
   (`#cycle-timestamp` holds the UTC cycle identifier shown under the
   "Cycle ID (UTC)" label). The
   static `#sec-cycle-title` label sits to the LEFT in the section
-  header; caching-proxy state has been moved out of the title and
-  lives in the right-aligned `#banner-cp-row` instead.
-- **Per-page caching-proxy label.** Right-aligned `#banner-cp-row`
+  header; the dashboards link sits in the right-aligned
+  `#banner-dash-row` instead.
+- **Per-page dashboards label.** Right-aligned `#banner-dash-row`
   inside `#banner`, transparent background. Parses
   `runtime/caching-proxy.txt` for a `<a href="...">` — if present,
-  renders **`Caching Proxy`** anchor to that URL (typically the
-  Grafana cachemgr dashboard); otherwise renders text **`No Caching
-  Proxy`**. `&amp;` in the file is unescaped to `&` before
+  renders a **`Dashboards`** anchor to that URL (the Grafana
+  dashboards browse page filtered by the `yuruna` tag, served from
+  the same host as the caching proxy); otherwise renders text **`No
+  dashboard server`**. `&amp;` in the file is unescaped to `&` before
   `setAttribute('href', ...)` so the browser hits the actual URL on
   click.
 
@@ -1213,8 +1214,11 @@ in O(1) without opening any file inside it:
 | `<base>/`                   | Cleanly closed                              | `Stop-LogFile` rename |
 | `<base>.aborted.<UTC>/`     | Boot-recovered crash; folder + content preserved as forensics | R-5 boot sweep |
 
-Where `<base>` is the canonical `NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTNAME`
-shape from `Format-CycleFolderBaseName`.
+Where `<base>` is the canonical `NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTID`
+shape from `Format-CycleFolderBaseName` — the 4th segment is the opaque
+per-host `hostId` (not the hostname), so the cycle-folder name (and the
+pool dashboard's `cycleFolderUrl` deep-link derived from it) discloses no
+hostnames.
 
 ### Defining the cycle folder identity
 
@@ -1619,8 +1623,8 @@ back from memory.
 
 ---
 
-Back to [Yuruna](../README.md)
-
----
-
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

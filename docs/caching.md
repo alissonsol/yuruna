@@ -65,7 +65,7 @@ cacheable response (`.deb` packages, ISO metadata, firmware blobs,
 anything fetched over plain HTTP). First install populates; subsequent
 installs hit LAN speed. This is a *dedicated* VM — the memory budget
 is sized so squid's hot-object LRU takes 75 % of RAM (per the
-`cache_mem` directive in vmconfig/user-data); the rest covers apache,
+`cache_mem` directive in host/vmconfig/caching-proxy.base.user-data); the rest covers apache,
 grafana, prometheus, loki, promtail, squid-exporter,
 caching-proxy-parser, the kernel, and page cache.
 
@@ -196,10 +196,11 @@ Squid is tuned as a **replayable snapshot**: once an object lands, it
 stays; the cache keeps serving when origin is unreachable. Fully
 populated = guest installs with zero internet.
 
-Config lives in
-`host/{windows.hyper-v,macos.utm,ubuntu.kvm}/guest.caching-proxy/vmconfig/user-data`
-(identical settings in all three; per-host templating swaps only the
-arch-specific package list).
+Config lives in the shared
+[`host/vmconfig/caching-proxy.base.user-data`](../host/vmconfig/caching-proxy.base.user-data)
+plus the per-host `caching-proxy.{hyperv,kvm,utm}.overlay.yml` (the overlay
+swaps only the arch-specific package list; New-VM merges them via
+`Build-CloudInitUserData`).
 
 ### Never release unless needed
 
@@ -258,7 +259,7 @@ cached responses without the install scripts having to know about
 the proxy.
 
 Source: the `refresh_pattern` block in
-[`host/{ubuntu.kvm,windows.hyper-v,macos.utm}/guest.caching-proxy/vmconfig/user-data`](../host/vmconfig/caching-proxy.base.user-data).
+[`host/vmconfig/caching-proxy.base.user-data`](../host/vmconfig/caching-proxy.base.user-data).
 
 ### offline_mode
 
@@ -773,8 +774,8 @@ Only the public cert is exposed — `ca.key` never leaves the VM.
 Platforms differ because Apple VZ's shared-NAT blocks guest↔guest
 traffic — a UTM guest can't reach the cache VM IP directly.
 
-**Hyper-V (in-install wget):** when `New-VM.ps1` injected a proxy,
-`vmconfig/user-data` `late-commands`:
+**Hyper-V (in-install wget):** when `New-VM.ps1` injected a proxy, the
+`host/vmconfig/ubuntu.server.base.user-data` `late-commands`:
 
 1. Derive cache host from proxy URL (strip `http://` and `:3128`).
 2. `wget http://<cache>/yuruna-squid-ca.crt` into
@@ -843,8 +844,10 @@ package surfaces but the older docs do not:
 Always run `squid -k parse` before `squid -k reconfigure` to surface
 these at deploy time rather than after a restart that fails to bind.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

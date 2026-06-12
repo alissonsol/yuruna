@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,7 +60,9 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters -SudoCacheReason @(
     'systemctl enable + start libvirtd / virtlogd',
-    'virsh net-{list,start,autostart} default'
+    'virsh net-{list,start,autostart} default',
+    'create the poolStorage SMB mount point (localPath) when its parent is root-owned',
+    'read host hardware fingerprint (/sys/class/dmi product_uuid + board_serial) to register/reclaim this host pool identity'
 )
 
 function Invoke-Step {
@@ -125,6 +127,57 @@ foreach ($d in @($imgDir, $vmDir)) {
     if (-not (Test-Path -LiteralPath $d)) {
         Invoke-Step -Description "mkdir -p $d" -Action {
             New-Item -ItemType Directory -Force -Path $d | Out-Null
+        }
+    }
+}
+
+# -- poolStorage SMB mount point (optional NAS replication target) ---------
+# poolStorage (test.config.yml) mounts an SMB share at localPath. The test
+# runner runs UNPRIVILEGED; when localPath sits under a root-owned parent
+# (e.g. /mnt/ypsp under /mnt 0755 root:root), Connect-YurunaPoolStorage's own
+# New-Item cannot create the directory and the mount is never even attempted
+# -- a reachable NAS that silently never replicates. Pre-create the mount
+# point here, where this host-setup script can elevate, owned by the runner so
+# the unprivileged mount path finds it already present and writable. The
+# mount.cifs helper itself comes from cifs-utils (install/ubuntu.kvm.sh).
+$cfgPath = Join-Path $RepoRoot 'test/test.config.yml'
+if (Test-Path -LiteralPath $cfgPath) {
+    $modulesDir = Join-Path $RepoRoot 'test/modules'
+    Import-Module (Join-Path $modulesDir 'Test.Config.psm1')      -Force
+    Import-Module (Join-Path $modulesDir 'Test.PoolStorage.psm1') -Force
+    $poolCfg = $null
+    try {
+        $poolConfigDoc = Read-TestConfig -Path $cfgPath
+        # -IgnoreReplicate: prepare the mount point even before the operator
+        # flips replicate to true, as long as localPath is set -- mirrors the
+        # connection-param pre-flight in Test-Config.ps1. Returns $null (skip)
+        # when networkPath / networkUser / localPath are not all populated.
+        if ($poolConfigDoc) {
+            $poolCfg = Get-YurunaPoolStorageConfig -Config $poolConfigDoc -IgnoreReplicate -WarningAction SilentlyContinue
+        }
+    } catch {
+        Write-Warning "poolStorage mount-point setup: could not read $cfgPath ($($_.Exception.Message)); skipping."
+    }
+    if ($poolCfg -and -not [string]::IsNullOrWhiteSpace($poolCfg.LocalPath)) {
+        $mountPoint = $poolCfg.LocalPath
+        if (Test-Path -LiteralPath $mountPoint) {
+            Write-Output "poolStorage mount point already exists: $mountPoint"
+        } else {
+            Invoke-Step -Description "create poolStorage mount point $mountPoint (owned by $env:USER)" -Action {
+                # Try unprivileged first (a localPath under $HOME needs no sudo);
+                # fall back to sudo for a root-owned parent like /mnt, handing
+                # ownership to the runner so the later unprivileged mount can
+                # create + reach the directory.
+                try {
+                    New-Item -ItemType Directory -Force -Path $mountPoint -ErrorAction Stop | Out-Null
+                } catch {
+                    $grp = (& id -gn).Trim()
+                    & sudo install -d -o $env:USER -g $grp $mountPoint
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Warning "Could not create poolStorage mount point '$mountPoint'. Create it manually: sudo install -d -o $env:USER -g $grp '$mountPoint'."
+                    }
+                }
+            }
         }
     }
 }
@@ -200,6 +253,18 @@ foreach ($grp in @('libvirt','kvm')) {
         # under the wrapper: every virsh call in this script is sudo'd.
         Write-Output "  '$grp' membership is in /etc/group; this shell's group set is stale. Log out and back in (or 'newgrp $grp') before the next interactive pwsh call so virsh / virt-install work without sudo."
     }
+}
+
+# -- poolStorage host-identity setup + reimage reclaim (interactive) ---------
+# Offer to configure poolStorage (NAS replication) and, on a host with no local
+# pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
+# Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
+# loads its own sibling dependencies (config/vault/mount); sudo is primed above so
+# the privileged fingerprint read + mount work without a second prompt. The
+# host fingerprint read is included in the -SudoCacheReason banner above.
+if (-not $WhatIfPreference) {
+    Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostIdentity.psm1') -Force
+    Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }
 
 Write-Output "Yuruna host configuration applied."

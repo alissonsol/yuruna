@@ -2,8 +2,6 @@
 
 This is the **Yuruna License**, based on the [MIT License](https://opensource.org/license/mit/).
 
-Copyright (c) 2019-2026 by Alisson Sol et al.
-
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -44,5 +42,11 @@ By executing any part of the Software with administrator or root permissions,
 you acknowledge this risk and accept full responsibility for the outcome.
 Review the code, take backups, and test in an isolated environment before
 running anything privileged against systems you cannot afford to lose.
+
+---
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
 
 Back to [Yuruna](README.md)

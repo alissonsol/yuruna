@@ -186,8 +186,10 @@ key is treated as "macOS no longer surfaces it under that name", not
 as a verification failure. The precheck also prevents a second sudo
 prompt when the bash prelude already applied the values.
 
-Back to [macOS UTM Host Setup](../host/macos.utm/README.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

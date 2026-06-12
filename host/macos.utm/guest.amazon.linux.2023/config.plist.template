@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
 <!-- Yuruna VM config · https://yuruna.link/vmconfig -->
 <!-- QEMU backend (not Apple Virtualization) so we can pass -vnc to QEMU.
      QEMU's built-in RFB server gives the test harness focus-independent
@@ -92,18 +94,18 @@
 		     `datasource_list: [ Ec2, None ]`, so without this serial the
 		     CIDATA seed.iso is mounted but never scanned: cloud-init
 		     fails Ec2 IMDS probing (no 169.254.169.254 here), falls
-		     through to None, and skips user-data entirely -- yauser1 is
+		     through to None, and skips user-data entirely - yauser1 is
 		     never created, chpasswd never runs, ssh_pwauth never flips,
 		     and the console-rotation flow gets `Login incorrect` even
 		     for the exact vault password. cloud-init's NoCloud datasource
 		     explicitly probes DMI system-serial for `ds=nocloud[-net]`
-		     and turns itself on regardless of datasource_list -- that's
+		     and turns itself on regardless of datasource_list - that's
 		     the override path documented in cloud-init's NoCloud docs.
 		     The Hyper-V AL2023 variant doesn't need this because its
 		     image ships NoCloud already in datasource_list.
 		     SCHEMA: UTM's AdditionalArguments wants plain-string argv
 		     tokens; do not switch to {Argument:"..."} form (UTM v118
-		     drops the bundle on next launch -- see
+		     drops the bundle on next launch - see
 		     feedback_utm_qemu_additional_arguments_schema). -->
 		<key>AdditionalArguments</key>
 		<array>
@@ -187,7 +189,7 @@
 		     seed and falls through to the next datasource. virtio-blk-pci
 		     comes up synchronously with PCI enumeration in the kernel's
 		     early-bringup pass, so the CD is addressable before
-		     systemd-udev-trigger gates `local-fs.target` -- by the time
+		     systemd-udev-trigger gates `local-fs.target` - by the time
 		     cloud-init-local.service starts, the by-label symlink is
 		     already there. ImageType=CD keeps it as a read-only optical
 		     device (virtio-blk with media=cdrom on the QEMU side), which

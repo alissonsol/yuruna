@@ -1,3 +1,5 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
 [Unit]
 Description=Yuruna caching-proxy-parser (in-memory last-100 squid requests)
 Documentation=https://yuruna.link/caching-proxy-parser

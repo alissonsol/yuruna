@@ -418,8 +418,10 @@ log-stream visibility is controlled by [Log levels](loglevels.md).
 | `0` | All guests passed (runner was interrupted or completed) |
 | `1` | One or more guests failed, or pre-flight error |
 
-Back to [Yuruna Test ...](../test/README.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

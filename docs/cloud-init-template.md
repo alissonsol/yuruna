@@ -21,12 +21,12 @@ contributor memory.
 | Stage | Function | Inputs | Output |
 |---|---|---|---|
 | 1. **Merge** | `Merge-CloudInitUserData` | shared base + per-host overlay (one of `hyperv` / `kvm` / `utm`) | Resolved template with anchors substituted, still carrying `*_PLACEHOLDER` tokens |
-| 2. **Base64-encode** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,fetch-and-execute.sh}` | `@{ RetryLib = '<base64>'; FetchAndExecute = '<base64>' }` |
+| 2. **Base64-encode** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,yuruna-versions.sh,fetch-and-execute.sh,yuruna-network.sh}` | `@{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>' }` |
 | 3. **Resolve** | `Resolve-CloudInitPlaceholder` | Merged template + replacement hashtable | Final user-data string |
 
 `Build-CloudInitUserData` is the high-level wrapper every per-guest
 `New-VM.ps1` calls — it chains the three stages, auto-populates the
-two `YURUNA_*_BASE64_PLACEHOLDER` entries from the guest scripts, and
+`YURUNA_*_BASE64_PLACEHOLDER` entries from the guest scripts, and
 optionally writes the result to `-OutputPath` (UTF-8 without BOM, LF
 line endings — the cloud-init contract).
 
@@ -38,7 +38,7 @@ line endings — the cloud-init contract).
 | `host/vmconfig/ubuntu.server.hyperv.overlay.yml` | Per-host overlay: `hv_balloon` denylist + `hyperv_fb` framebuffer pin. |
 | `host/vmconfig/ubuntu.server.kvm.overlay.yml` | Per-host overlay: VT-blanking early-command + `consoleblank=0` + fb-safe GRUB cmdline. |
 | `host/vmconfig/ubuntu.server.utm.overlay.yml` | Per-host overlay: `network:` block pinning IPv4 DHCP and refusing IPv6 RA. |
-| `automation/yuruna-retry.sh`, `automation/fetch-and-execute.sh` | Guest-side helper scripts baked into the seed as base64 `write_files` entries. |
+| `automation/yuruna-retry.sh`, `automation/yuruna-versions.sh`, `automation/fetch-and-execute.sh`, `automation/yuruna-network.sh` | Guest-side helper scripts baked into the seed as base64 `write_files` entries. `yuruna-versions.sh` holds the pinned dependency versions and is sourced by `yuruna-retry.sh`. |
 
 ## Anchor contract
 
@@ -84,7 +84,7 @@ autoinstall with a confusing diagnostic.
 | `CACHING_PROXY_URL_PLACEHOLDER` | Detected caching-proxy URL (or empty) |
 | `CA_CERT_BASE64_PLACEHOLDER` | Caching-proxy CA cert (or empty) |
 | `YURUNA_HOST_IP_PLACEHOLDER` / `YURUNA_HOST_PORT_PLACEHOLDER` | Host coordinates the guest writes to `/etc/yuruna/host.env` |
-| `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` |
+| `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` |
 
 ## Adding a new placeholder
 
@@ -121,8 +121,10 @@ guests trip on CR-sensitive shell heredocs in the rendered
 - [Network](network.md) — caching proxy + `YURUNA_HOST_IP` injection.
 - [VM config](vmconfig.md) — per-anchor URLs (`#hv_balloon-denylist`, `#hyperv_fb-framebuffer-pin`, `#pin-ipv4-dhcp-refuse-ipv6-ra`, ...) the comment-anchor URLs in the base file reach.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

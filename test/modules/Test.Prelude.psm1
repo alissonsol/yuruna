@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,7 +133,7 @@ function Initialize-YurunaEntryPointModuleSet {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
         '', Justification = 'Module-import side effects only; the operator has no -WhatIf intent here.')]
     param(
-        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxy')][string]$For,
+        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxy','PoolAdmin')][string]$For,
         [Parameter(Mandatory)][string]$ModulesDir
     )
     # Canonical per-kind module lists. Order matters where a downstream
@@ -153,7 +153,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # before Test.RunnerState so state-transition emits land
             # cleanly; Test.RunnerState last so Initialize-RunnerState's
             # synthetic transitions reach a fully-loaded emit path.
-            'Test.EventSchema.psm1', 'Test.StateFile.psm1',
+            'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1',
             'Test.Log.psm1', 'Test.Recovery.psm1', 'Test.RunnerState.psm1',
             # Watchdog + outer-loop body live in their own modules so
             # the Start-Job heartbeat watcher and the cycle dispatcher
@@ -161,7 +161,12 @@ function Initialize-YurunaEntryPointModuleSet {
             # Test.RunnerWatchdog before Test.RunnerOuterLoop because
             # Invoke-RunnerOuterLoop calls Start-Watchdog / Stop-Watchdog
             # at the cycle boundary.
-            'Test.RunnerWatchdog.psm1', 'Test.RunnerOuterLoop.psm1'
+            'Test.RunnerWatchdog.psm1', 'Test.RunnerOuterLoop.psm1',
+            # Test.PoolSync: the optional, default-off pool-intent PULL the outer
+            # loop calls (Get-Command-gated) at each cycle start. Leaf; loaded so
+            # Invoke-RunnerOuterLoop resolves Sync-YurunaPoolIntent /
+            # Resolve-YurunaPoolDesiredState when a pool is configured.
+            'Test.PoolSync.psm1'
         )
         Inner    = @(
             # Inner has additional imports threaded through its cycle loop
@@ -176,6 +181,20 @@ function Initialize-YurunaEntryPointModuleSet {
             # inline call sites so dependency edges (Test.HostContract depends on
             # Test.VMUtility, etc.) are preserved.
             'Test.SingleInstance.psm1', 'Test.YurunaDir.psm1', 'Test.Backoff.psm1',
+            # Test.ConfigSync (test.config.yml <-> template overlay) is leaf
+            # apart from Get-EntryPointExitCode (Test.Prelude, always loaded)
+            # and powershell-yaml; loaded early so the cycle-start
+            # Update-TestConfigFromTemplate call resolves it.
+            'Test.ConfigSync.psm1',
+            # Test.RunnerInnerLoop holds the inner runner's per-cycle helpers
+            # (Write-InnerLog, working-tree-drift guard, caching-proxy
+            # reachability probe). Leaf at load time; its functions resolve
+            # git / sockets / env at call time.
+            'Test.RunnerInnerLoop.psm1',
+            # Test.RunnerHeartbeat: the threadpool runner.heartbeat timer
+            # (compiled C# helper). Leaf; the [type] guard makes the per-cycle
+            # -Force re-import a no-op.
+            'Test.RunnerHeartbeat.psm1',
             'Test.Extension.psm1', 'Test.HostContract.psm1', 'Test.Status.psm1',
             'Test.Notify.psm1', 'Test.Provenance.psm1',
             'Test.Start-GuestOS.psm1', 'Test.Start-GuestWorkload.psm1',
@@ -186,12 +205,17 @@ function Initialize-YurunaEntryPointModuleSet {
             # Test.RunnerState after Test.Log so their module-load Send-
             # CycleEventSafely calls resolve cleanly. Test.SnapshotManifest
             # depends on Test.StateFile; Test.LogRotation is leaf.
-            'Test.EventSchema.psm1', 'Test.StateFile.psm1', 'Test.Log.psm1',
+            'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1', 'Test.Log.psm1',
             'Test.Recovery.psm1', 'Test.Remediation.psm1', 'Test.RunnerState.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.SequencePlanner.psm1',
             'Test.CachingProxy.psm1', 'Test.Perf.psm1',
             'Test.HostIO.psm1', 'Test.Capability.psm1',
+            # Test.PoolPlanner (Phase 4): resolve a pool's test-sets into this
+            # host's runnable cycle plan. After Test.SequencePlanner + Test.Capability
+            # (it calls Resolve-TestSetCyclePlan + Test-CyclePlanCapabilityFromPlan at
+            # runtime); leaf at load time.
+            'Test.PoolPlanner.psm1',
             'Test.KeyCodeRegistry.psm1', 'Test.Transport.psm1',
             # Paired registry + bounded recovery primitives: Repair-VncConnection
             # (clear a stale cached VNC handle so the next capture/send
@@ -227,7 +251,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # takeover semantics live in the caller; this entry point only
             # uses the read side of the contract.
             'Test.SingleInstance.psm1',
-            'Test.EventSchema.psm1', 'Test.StateFile.psm1',
+            'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1',
             'Test.Log.psm1', 'Test.Remediation.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.Backoff.psm1',
@@ -279,6 +303,16 @@ function Initialize-YurunaEntryPointModuleSet {
             # Host via the contract layer -- not part of this set.
             'Test.VMUtility.psm1', 'Test.CachingProxy.psm1',
             'Test.HostContract.psm1'
+        )
+        PoolAdmin = @(
+            # The pool admin CLI (New-Pool / Add-HostToPool / ... / Test-PoolIntent):
+            # Test.YurunaDir for the runtime dir (default clone path), Test.Config
+            # for Read-TestConfig (Get-YurunaPoolConfig path resolution),
+            # Test.ConfigValidator for Test-AgainstSchema (it pulls Test.Output +
+            # Test.HostGit), and Test.PoolSync for Get-YurunaPoolConfig + the
+            # bounded, credential-prompt-proof Invoke-PoolSyncGit the CLI shares.
+            'Test.YurunaDir.psm1', 'Test.Config.psm1',
+            'Test.ConfigValidator.psm1', 'Test.PoolSync.psm1', 'Test.PoolAdmin.psm1'
         )
     }
     foreach ($modName in $sets[$For]) {
@@ -512,4 +546,64 @@ function Unregister-EntryPointCancelHandler {
     Remove-Job -Name $SourceIdentifier -Force -ErrorAction SilentlyContinue
 }
 
-Export-ModuleMember -Function Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler
+function Resolve-StatusServiceStart {
+    <#
+    .SYNOPSIS
+        Decide whether the built-in HTTP status server should start this run and
+        on which port, from test.config.yml's statusService node plus the
+        caller's -NoServer switch.
+    .DESCRIPTION
+        Pure decision: the single source of the gating + port-resolution rules
+        the entry points share (the inner runner, Test-Sequence, Test-Project).
+        Keeping it separate from the invocation makes the gate unit-testable.
+    .OUTPUTS
+        [hashtable] @{ ShouldStart = [bool]; Port = [int] }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$Config,
+        [switch]$NoServer
+    )
+    $svc     = if ($Config -is [System.Collections.IDictionary]) { $Config['statusService'] } else { $null }
+    $enabled = [bool]($svc -is [System.Collections.IDictionary] -and $svc['isEnabled'])
+    $port    = if ($svc -is [System.Collections.IDictionary] -and $svc['port']) { [int]$svc['port'] } else { 8080 }
+    return @{ ShouldStart = ($enabled -and -not $NoServer); Port = $port }
+}
+
+function Start-YurunaStatusServiceIfEnabled {
+    <#
+    .SYNOPSIS
+        Start (or restart) the status server when statusService.isEnabled and
+        -NoServer was not requested -- the one gate the entry-point trio shares
+        so they honor isEnabled, -NoServer, the port, and the restart policy
+        identically.
+    .DESCRIPTION
+        -Restart forces a kill+relaunch (Test-Sequence and the inner runner's
+        per-cycle refresh, which must pick up file/config changes). Omitting it
+        lets Start-StatusService.ps1 compare the running server's persisted
+        server.sha against the current framework HEAD and skip the relaunch when
+        the code in memory is still current -- zero downtime on the common
+        no-change cycle (the inner runner's startup path).
+    .OUTPUTS
+        [hashtable] the Resolve-StatusServiceStart decision (ShouldStart, Port).
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Thin gate over Start-StatusService.ps1, which owns its own start/restart/compare-and-skip semantics; -WhatIf here would only duplicate that.')]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$Config,
+        [Parameter(Mandatory)][string]$StartScript,
+        [switch]$NoServer,
+        [switch]$Restart
+    )
+    $decision = Resolve-StatusServiceStart -Config $Config -NoServer:$NoServer
+    if ($decision.ShouldStart) {
+        if ($Restart) { & $StartScript -Port $decision.Port -Restart }
+        else          { & $StartScript -Port $decision.Port }
+    }
+    return $decision
+}
+
+Export-ModuleMember -Function Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler, Resolve-StatusServiceStart, Start-YurunaStatusServiceIfEnabled

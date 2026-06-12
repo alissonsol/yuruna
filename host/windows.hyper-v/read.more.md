@@ -135,10 +135,10 @@ See [Hosts — ...](../README.md#optional-squid-cache-vm) and
 pwsh $HOME\git\yuruna\test\Invoke-TestRunner.ps1
 ```
 
-[Guest VMs](README.md#next-create-a-guest-vm) ·
-[Troubleshooting](../../docs/host-hyperv.md) ·
-Back to [Hyper-V setup](README.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

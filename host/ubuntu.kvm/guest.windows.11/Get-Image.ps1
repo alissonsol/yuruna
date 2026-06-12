@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e9a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,10 +93,13 @@ Write-Output "Windows 11 ISO present: $winIso"
 # -- virtio-win ISO: Fedora's hosted bundle (signed) ----------------------
 $virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso'
 
-# Skip-if-same-source guard + sentinel writer come from the shared host module
-# (4-line filename + URL + size + Last-Modified format), so every KVM guest
-# uses one implementation.
-Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.HostDownload.psm1") -Force
+# The KVM host driver brings the skip-if-same-source guard + sentinel writer
+# (Test-DownloadAlreadyCurrent / Write-ImageSentinel, the shared 4-line filename +
+# URL + size + Last-Modified format) AND the cache-aware Save-CachedHttpUri
+# wrapper used for the virtio-win download below. (The Windows ISO is a manual
+# download -- Microsoft serves it only via short-lived signed URLs -- so it
+# cannot route through the cache.)
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 
 if (Test-DownloadAlreadyCurrent -SourceUrl $virtioUrl -BaseImageFile $virtioIso -OriginFile $virtioOrigin) {
     Write-Output "Skipping virtio-win download: URL and size match prior run for $virtioIso"
@@ -104,7 +107,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $virtioUrl -BaseImageFile $virtioIso 
     $tmp = Join-Path $downloadDir 'virtio-win.iso.part'
     Remove-Item $tmp -Force -ErrorAction SilentlyContinue
     Write-Output "Downloading $virtioUrl"
-    Invoke-WebRequest -Uri $virtioUrl -OutFile $tmp -ErrorAction Stop
+    Save-CachedHttpUri -Uri $virtioUrl -OutFile $tmp
     $size = (Get-Item -LiteralPath $tmp).Length
     if (Test-Path -LiteralPath $virtioIso) {
         Move-Item -Path $virtioIso -Destination (Join-Path $downloadDir 'virtio-win.previous.iso') -Force

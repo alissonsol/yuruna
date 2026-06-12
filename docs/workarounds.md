@@ -86,8 +86,10 @@ already serves `.10`. Fix when it bites: replace the string sort in
 or grab the version from `releases.ubuntu.com/<codename>/SHA256SUMS`
 ordering. One edit in the shared module covers every per-guest caller.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

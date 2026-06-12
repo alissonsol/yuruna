@@ -120,8 +120,10 @@ the force-touch is harmless when the wipe succeeded.
 - [Runner state machine](runner-state.md) — enum + transition table.
 - [Remediation dispatcher](remediation.md) — what runs *after* a `fault`.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

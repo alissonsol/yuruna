@@ -135,8 +135,10 @@ $matrix.extensions    # ordered dict: area -> [active...]
 Used by future health-checks, CI smoke tests, and the upcoming
 `/control/capability` endpoint on the status server.
 
-Back to [Test harness](test-harness.md) · [Host I/O](host-io.md) · [OCR providers](ocr.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

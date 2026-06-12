@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456703
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -276,6 +276,16 @@ Time:     $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')) UTC
     if ($EventData.Contains('suggestedRecoveries')) {
         $suggested = @($EventData['suggestedRecoveries']) -join ', '
     }
+    # Repro command: in last_failure.json it is the nested repro.command; a flat
+    # event-shaped payload carries it as reproCommand. Surface it prominently so
+    # an operator (or LLM remediator) reading the body has a copy-paste rerun
+    # without digging through the JSON dump below.
+    $reproCmd = ''
+    if ($EventData.Contains('repro') -and ($EventData['repro'] -is [System.Collections.IDictionary]) -and $EventData['repro'].Contains('command')) {
+        $reproCmd = [string]$EventData['repro']['command']
+    } elseif ($EventData.Contains('reproCommand')) {
+        $reproCmd = [string]$EventData['reproCommand']
+    }
     $jsonDump = ''
     try {
         $jsonDump = $EventData | ConvertTo-Json -Depth 6
@@ -285,11 +295,13 @@ Time:     $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')) UTC
     $trailer = @"
 
 --- yuruna-failure-summary ---
-failureClass:        $(& $get 'failureClass')
-severity:            $(& $get 'severity')
-actionVerb:          $(& $get 'actionVerb')
-cycleFolderUrl:      $(& $get 'cycleFolderUrl')
-suggestedRecoveries: $suggested
+failureClass:         $(& $get 'failureClass')
+classificationSource: $(& $get 'classificationSource')
+severity:             $(& $get 'severity')
+actionVerb:           $(& $get 'actionVerb')
+cycleFolderUrl:       $(& $get 'cycleFolderUrl')
+suggestedRecoveries:  $suggested
+repro:                $reproCmd
 
 --- yuruna-failure-json ---
 $jsonDump

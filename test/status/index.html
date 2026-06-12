@@ -15,17 +15,17 @@
   <style>
     body { padding-bottom: 3rem; }
 
-    #banner-cp-row {
+    #banner-dash-row {
       margin-left: auto; flex: 0 0 auto;
       font-size: .75rem;
       background: transparent;
     }
-    #banner-cp,
-    #banner-cp-noproxy {
+    #banner-dash,
+    #banner-dash-noproxy {
       color: rgba(255,255,255,.92);
     }
-    #banner-cp { text-decoration: underline dotted; }
-    #banner-cp:hover { text-decoration: underline; }
+    #banner-dash { text-decoration: underline dotted; }
+    #banner-dash:hover { text-decoration: underline; }
 
     /* .section-title / .meta-btn / .no-data chrome lives in
        yuruna.common.css (shared with perf.html). The per-id rules
@@ -212,8 +212,8 @@
 <div id="banner" class="idle">
   <span class="dot"></span>
   <span id="banner-text">Loading…</span>
-  <span id="banner-cp-row">
-    <a id="banner-cp" class="hidden" href="#" target="_blank" rel="noopener">Caching Proxy</a><span id="banner-cp-noproxy" class="hidden">No Caching Proxy</span>
+  <span id="banner-dash-row">
+    <a id="banner-dash" class="hidden" href="#" target="_blank" rel="noopener">Dashboards</a><span id="banner-dash-noproxy" class="hidden">No dashboard server</span>
   </span>
 </div>
 
@@ -230,6 +230,8 @@
       <div class="meta-card"><div class="label">Commit</div><div class="value" id="cycle-commit">—</div></div>
       <div class="meta-card"><div class="label">Images refresh</div><div class="value" id="cycle-images-refresh">—</div></div>
     </div>
+    <!-- Classified failure cause for the live cycle; populated/shown by renderStatus from data.lastFailure. -->
+    <div id="cycle-failure" class="cycle-failure" style="display:none"></div>
   </section>
 
   <section id="sec-sequences" style="display:none">

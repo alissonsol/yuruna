@@ -141,8 +141,10 @@ Install-Module powershell-yaml with pwsh_retry?`](memory.md#why-ubuntu--al2023-g
 (present since curl 7.52, December 2016). Ubuntu 24/26, Amazon
 Linux 2023, and macOS 26 all ship newer.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

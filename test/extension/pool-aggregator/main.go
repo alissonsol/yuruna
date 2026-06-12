@@ -1,0 +1,1954 @@
+// LICENSEURI https://yuruna.link/license
+// Copyright (c) 2019-2026 by Alisson Sol et al.
+
+// pool-aggregator: read-only multi-host pool view for the Yuruna test harness.
+//
+// Runs on the caching-proxy machine (the pool services host). It needs NO host
+// list: it AUTO-DISCOVERS pool members from the squid access log -- every host
+// that pulls packages/images through the proxy shows up there -- then probes
+// each recent client IP's status server (/runtime/status.json) and keeps the
+// ones that answer. Discovery yields IPs, but IDENTITY is the stable hostId
+// (Phase 0's runtime/host.uuid), so the design is robust to a DHCP-served LAN:
+//   * a host that changes IP simply reappears at the new IP and resolves to the
+//     SAME hostId (one pool member, not two);
+//   * one host that cycles through many IPs over a short (e.g. 30-min) DHCP
+//     lease collapses to a single hostId;
+//   * no DNS dependency -- everything keys off IPs seen in the log + hostId.
+// A host is kept alive in the view (re-probing its last-known IP) for hostTTL
+// even when momentarily idle, so a between-cycles host doesn't blink out.
+//
+// On a transition it ships a line to Loki ({pool,hostId,cycleId}, ingest-clock
+// stamped) and bumps Prometheus counters; Grafana renders the 24h pool view and
+// deep-links back to each host's OWN status server. Read-only: killing it leaves
+// every runner testing unaffected.
+//
+// Built + installed from the caching-proxy cloud-init user-data; see
+// test/extension/pool-aggregator/README.md. Stdlib-only (a static binary, no Go
+// toolchain at runtime) and cross-platform (no host-specific syscalls) so the
+// harness Windows toolchain builds + vets it identically to the Linux target.
+
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/subtle"
+	"crypto/tls"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+const (
+	defaultListenAddr  = ":9400"
+	defaultSquidLog    = "/var/log/squid/yuruna_access.log"
+	defaultLokiURL     = "http://127.0.0.1:3100/loki/api/v1/push"
+	defaultPool        = "default"
+	defaultStatusPort  = 8080
+	defaultInterval    = 30 * time.Second
+	defaultDiscoverWin = 35 * time.Minute   // just over a 30-min DHCP lease
+	defaultHostTTL     = 24 * time.Hour     // keep a hostId in the view this long after last contact
+	defaultRehydrate   = 7 * 24 * time.Hour // restore cycle counts from Loki on startup over this trailing window
+	probeTimeout       = 3 * time.Second    // LAN status probe (refused is instant; filtered times out)
+	pushTimeout        = 10 * time.Second
+	maxProbe           = 8          // bounded concurrent probes per tick
+	logTailBytes       = 512 * 1024 // bytes scanned from EOF for recent client IPs
+	seenTTL            = 25 * time.Hour
+	eventsFile         = "cycle.events.ndjson" // per-cycle NDJSON event log on each host
+	maxEventFetch      = 4 << 20               // bytes read from a host's events file per poll
+	maxEventPush       = 1000                  // NDJSON lines shipped per host per poll (catch-up is bounded)
+	defaultIncidentN   = 3                     // failed cycles within the window to open an incident
+	defaultIncidentWin = 2 * time.Hour         // trailing window for the N-failures-in-M-minutes rule
+	defaultCrossN      = 3                     // distinct hosts failing within crossWin to open a pool-wide incident
+	defaultCrossWin    = 15 * time.Minute      // window for cross-host "failing together" correlation
+	// Pool gating defaults (mirror test/schemas/pools.schema.yml gating.*): the
+	// advisory degraded/alert policy a pool inherits when it authors a partial (or
+	// no) gating block. degradedAfter is the sustained-below-threshold window;
+	// failures/successes are the poll-count alert hysteresis.
+	defaultFailuresBeforeAlert  = 3
+	defaultSuccessesBeforeRearm = 2
+	defaultHealthyThreshold     = 0.5
+	defaultDegradedAfter        = 30 * time.Minute
+)
+
+// squid yuruna logformat: field 1 = %ts.%03tu (epoch.ms), field 3 = %>a (client
+// IP). Capture both; the response-time field (%6tr) sits between them.
+var clientIPRE = regexp.MustCompile(`^(\d+\.\d+)\s+\S+\s+(\S+)`)
+
+// hostStatus mirrors the subset of each host's /runtime/status.json the pool
+// view needs. Unknown fields ignored; missing fields tolerated.
+type hostStatus struct {
+	HostId string `json:"hostId"`
+	Host   string `json:"host"` // hostType, e.g. host.windows.hyper-v
+	// Hostname is deliberately NOT parsed or emitted (json:"-"): the pool view --
+	// including the unauthenticated /api/v1/pool-status JSON snapshot, which
+	// serializes this struct -- is hostname-free, so it stays safe to expose
+	// without auth. Hosts are identified by hostId; the hostname lives only on the
+	// host's own (separately authenticated) status page. The field is retained
+	// (not deleted) to document that status.json carries a hostname we drop.
+	Hostname       string `json:"-"`
+	CycleId        string `json:"cycleId"`
+	OverallStatus  string `json:"overallStatus"`
+	StartedAt      string `json:"startedAt"`
+	FinishedAt     string `json:"finishedAt"`
+	CycleFolderUrl string `json:"cycleFolderUrl"`
+	// LastFailure is parsed DELIBERATELY NARROW: only the machine-routable
+	// failureClass + severity, never the host's richer lastFailure (errorMessage,
+	// vmName, reproCommand, relPath) which would leak host detail onto the
+	// unauthenticated /api/v1/pool-status this struct serializes. status.json sets
+	// lastFailure at failure time (Test.Status Set-LastFailureSummary); null on pass.
+	LastFailure struct {
+		FailureClass string `json:"failureClass"`
+		Severity     string `json:"severity"`
+	} `json:"lastFailure"`
+}
+
+// failClassOf returns the (terminal-fail) cycle's failure class, defaulting to
+// "unknown" when status.json carries no classified lastFailure.
+func (s *hostStatus) failClassOf() string {
+	if s == nil || s.LastFailure.FailureClass == "" {
+		return "unknown"
+	}
+	return s.LastFailure.FailureClass
+}
+
+// hostView is a discovered pool member, keyed by the stable hostId.
+type hostView struct {
+	HostId         string      `json:"hostId"`
+	CurrentIP      string      `json:"currentIp"`
+	BaseURL        string      `json:"baseUrl"`
+	Reachable      bool        `json:"reachable"`
+	LastSeenUnixMs int64       `json:"lastSeenUnixMs"`
+	LastError      string      `json:"lastError,omitempty"`
+	Status         *hostStatus `json:"status,omitempty"`
+	// PoolId is the pool this host advertises in its registration record, which
+	// the runner derived from pools.yml members[] (the single source of truth).
+	// Empty until learned; the aggregator then falls back to the -pool flag.
+	PoolId string `json:"poolId,omitempty"`
+}
+
+// eventCursor tracks how far a host's current-cycle NDJSON event file has been
+// shipped to Loki, so a poll only forwards new lines. Reset when the cycleId
+// changes (a new cycle = a new file).
+type eventCursor struct {
+	cycleId string
+	offset  int64 // bytes of the events file already shipped
+}
+
+// failRec is one in-window failed cycle: when it failed + its failure class.
+// Replaces the bare fail-time slice so an incident can carry a class histogram.
+type failRec struct {
+	t     time.Time
+	class string // failureClass; "unknown" when the cycle had no classified lastFailure
+}
+
+// incidentState is an open per-host incident: the host has had >= incidentN
+// failed cycles within the trailing incidentWin. It resolves once that window
+// empties of fails.
+type incidentState struct {
+	id        string
+	startedAt time.Time // earliest fail in the window when the incident opened
+	peak      int       // most concurrent in-window fails seen during the incident
+	// peakClassHist is the failure-class histogram captured at the moment `peak`
+	// was last (re)assigned -- so the resolve line (when the window has aged to ~0)
+	// still reports the breakdown the incident peaked at. dominantClass = argmax
+	// (lexical tiebreak), the headline class for metrics + display.
+	peakClassHist map[string]int
+	dominantClass string
+}
+
+// poolIncidentState is the single open pool-wide (cross-host) incident: >= crossN
+// distinct hosts failed within crossWin WITH THE SAME failure class -- a systemic
+// signal (shared cause), not unrelated single-host churn.
+type poolIncidentState struct {
+	id        string
+	startedAt time.Time
+	peakHosts int    // most distinct same-class affected hosts seen during the incident
+	class     string // the triggering class, PINNED at open; resolve is evaluated against it
+}
+
+// gatingPolicy is a pool's authored alerting policy (from pools.yml `gating`,
+// carried per-host in host.registration.json). Missing fields are filled from the
+// schema defaults at parse time, so a partial block is always complete here.
+type gatingPolicy struct {
+	FailuresBeforeAlert  int           // consecutive degraded polls before the alert fires
+	SuccessesBeforeRearm int           // consecutive non-degraded polls before it re-arms
+	HealthyThreshold     float64       // fraction of members that must be healthy
+	DegradedAfter        time.Duration // sustained below-threshold window before "degraded"
+}
+
+func defaultGatingPolicy() gatingPolicy {
+	return gatingPolicy{
+		FailuresBeforeAlert:  defaultFailuresBeforeAlert,
+		SuccessesBeforeRearm: defaultSuccessesBeforeRearm,
+		HealthyThreshold:     defaultHealthyThreshold,
+		DegradedAfter:        defaultDegradedAfter,
+	}
+}
+
+// poolGateState is the per-pool advisory degraded/alert latch. READ-SIDE ONLY: no
+// runner consumes it (consensus-gated control is deferred) -- it drives alerting
+// (the host-side notifier reads yuruna_pool_alert_active) + dashboard de-noise,
+// never a cycle decision. degraded latches when the healthy fraction stays below
+// the threshold for >= DegradedAfter (wall-clock); the alert fires/re-arms on a
+// poll-count hysteresis so a single flapping poll neither pages nor clears.
+type poolGateState struct {
+	belowSince     time.Time // zero = currently at/above threshold
+	degraded       bool
+	authored       bool // the pool advertised a gating block -> eligible to ALERT (not just observe)
+	alertFired     bool
+	consecDegraded int
+	consecHealthy  int
+	alertID        string
+	alertStartedAt time.Time
+	// last* snapshot the most recent poll's computation so handleMetrics emits
+	// gauges consistent with the latch decision (same poll), without recomputing.
+	lastFraction  float64
+	lastHealthy   int
+	lastTotal     int
+	lastThreshold float64
+}
+
+type poolState struct {
+	mu           sync.Mutex
+	pool         string
+	statusPort   int
+	incidentN    int                  // open an incident at >= this many fails within incidentWin
+	incidentWin  time.Duration        // trailing window for the fail-burst rule
+	crossN       int                  // distinct hosts failing within crossWin to open a pool-wide incident
+	crossWin     time.Duration        // window for cross-host "failing together"
+	hosts        map[string]*hostView // keyed by hostId
+	seen         map[string]string    // hostId|cycleId -> last overallStatus pushed
+	seenAt       map[string]time.Time
+	counted      map[string]bool // hostId|cycleId counted as terminal
+	pass         map[string]int64
+	fail         map[string]int64
+	failWindow   map[string][]failRec      // hostId -> in-window fails (ascending by .t), for incident correlation
+	incident     map[string]*incidentState // hostId -> active incident (absent = none)
+	poolIncident *poolIncidentState        // single active pool-wide incident (nil = none)
+	gating       map[string]gatingPolicy   // pool -> authored gating policy (key present = authored)
+	poolGate     map[string]*poolGateState // pool -> advisory degraded/alert latch
+	last         time.Time
+	// Phase 6 push-ingest: the shared bearer token gating POST /ingest (empty ->
+	// ingest disabled, never an unauthenticated write route), plus the Loki push URL
+	// + client the handler needs (set once in main before the server starts; not
+	// mutated under mu).
+	authToken  string
+	lokiURL    string
+	httpClient *http.Client
+	// eventCur is touched ONLY by the single poll goroutine (in tailEvents and
+	// the post-unlock prune below), never by the HTTP handlers, so it needs no
+	// lock -- unlike the fields above, which mu guards against handler reads.
+	eventCur map[string]*eventCursor // keyed by hostId
+}
+
+func newPoolState(pool string, statusPort int) *poolState {
+	return &poolState{
+		pool: pool, statusPort: statusPort, incidentN: defaultIncidentN, incidentWin: defaultIncidentWin,
+		crossN: defaultCrossN, crossWin: defaultCrossWin,
+		hosts: map[string]*hostView{}, seen: map[string]string{}, seenAt: map[string]time.Time{},
+		counted: map[string]bool{}, pass: map[string]int64{}, fail: map[string]int64{},
+		failWindow: map[string][]failRec{}, incident: map[string]*incidentState{},
+		gating: map[string]gatingPolicy{}, poolGate: map[string]*poolGateState{},
+		eventCur: map[string]*eventCursor{},
+	}
+}
+
+// poolFor returns the host's advertised poolId (derived by the runner from
+// pools.yml members[]) when known, else the aggregator's -pool flag default. This
+// is the per-host telemetry label, so each host's data accumulates under its real
+// pool from first probe. MUST be called with s.mu held (reads s.hosts).
+func (s *poolState) poolFor(hostID string) string {
+	if hv := s.hosts[hostID]; hv != nil && hv.PoolId != "" {
+		return hv.PoolId
+	}
+	return s.pool
+}
+
+func isTerminal(status string) bool { return status == "pass" || status == "fail" }
+
+// statusLabel folds reachability + overallStatus into one value for the
+// dashboard's per-host table (a string cell); statusCode is the numeric twin
+// for the state-timeline panel. Derived from the same source so they never
+// disagree. Mapping: unreachable=0, running=1, pass=2, fail=3, idle=4 (reachable
+// but no/other cycle status).
+func (hv *hostView) statusLabel() string {
+	if hv == nil || !hv.Reachable {
+		return "unreachable"
+	}
+	if hv.Status == nil {
+		return "idle"
+	}
+	switch hv.Status.OverallStatus {
+	case "running", "pass", "fail":
+		return hv.Status.OverallStatus
+	default:
+		return "idle"
+	}
+}
+
+func (hv *hostView) statusCode() int {
+	switch hv.statusLabel() {
+	case "running":
+		return 1
+	case "pass":
+		return 2
+	case "fail":
+		return 3
+	case "idle":
+		return 4
+	default: // unreachable
+		return 0
+	}
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// recentClientIPs reads the tail of the squid access log and returns the
+// distinct, valid client IPs whose log timestamp is within `window`. Bounded to
+// the last logTailBytes so it stays cheap regardless of log size.
+func recentClientIPs(logPath string, window time.Duration, now time.Time) []string {
+	f, err := os.Open(logPath)
+	if err != nil {
+		log.Printf("squid log %s: %v", logPath, err)
+		return nil
+	}
+	defer f.Close()
+	skipPartial := false
+	if fi, statErr := f.Stat(); statErr == nil && fi.Size() > logTailBytes {
+		if _, err := f.Seek(fi.Size()-logTailBytes, io.SeekStart); err == nil {
+			skipPartial = true // first line after a mid-file seek may be truncated
+		}
+	}
+	cutoff := float64(now.Add(-window).Unix())
+	set := map[string]bool{}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if skipPartial {
+			skipPartial = false
+			continue
+		}
+		m := clientIPRE.FindStringSubmatch(sc.Text())
+		if m == nil {
+			continue
+		}
+		if ts, _ := strconv.ParseFloat(m[1], 64); ts < cutoff {
+			continue
+		}
+		if net.ParseIP(m[2]) != nil {
+			set[m[2]] = true
+		}
+	}
+	return sortedKeys(set)
+}
+
+// pollOnce discovers + refreshes the pool. Candidate IPs = recent squid-log
+// client IPs UNION the last-known IP of every host already in the view (so an
+// idle host stays live). Each candidate is probed for /runtime/status.json;
+// responders are keyed by their stable hostId. Hosts not refreshed this tick are
+// marked unreachable but kept until hostTTL.
+func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now time.Time) {
+	cand := map[string]bool{}
+	for _, ip := range recentClientIPs(squidLog, defaultDiscoverWin, now) {
+		cand[ip] = true
+	}
+	s.mu.Lock()
+	for _, h := range s.hosts {
+		if h.CurrentIP != "" {
+			cand[h.CurrentIP] = true
+		}
+	}
+	s.mu.Unlock()
+
+	type probeResult struct {
+		ip     string
+		st     *hostStatus
+		regOK  bool          // host.registration.json was fetched + parsed this poll
+		poolID string        // poolId from the registration record ("" = unpooled/not-yet-derived)
+		gating *gatingPolicy // authored gating policy from the record (nil = pool did not author one)
+	}
+	ips := sortedKeys(cand)
+	results := make([]*probeResult, len(ips))
+	sem := make(chan struct{}, maxProbe)
+	var wg sync.WaitGroup
+	for i, ip := range ips {
+		wg.Add(1)
+		go func(i int, ip string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			base := fmt.Sprintf("http://%s:%d", ip, s.statusPort)
+			if st, err := fetchStatus(client, base); err == nil && st != nil && st.HostId != "" {
+				pr := &probeResult{ip: ip, st: st}
+				// Best-effort: learn the host's pool + gating policy from its
+				// registration record. A transient miss keeps the prior poolId +
+				// gating (handled at apply time).
+				if pid, g, rerr := fetchRegistration(client, base); rerr == nil {
+					pr.regOK, pr.poolID, pr.gating = true, pid, g
+				}
+				results[i] = pr
+			}
+		}(i, ip)
+	}
+	wg.Wait()
+
+	s.mu.Lock()
+	refreshed := map[string]bool{}
+	for _, r := range results {
+		if r == nil {
+			continue // not a pool member (no status server / no hostId)
+		}
+		hid := r.st.HostId
+		base := fmt.Sprintf("http://%s:%d", r.ip, s.statusPort)
+		hv := s.hosts[hid]
+		if hv == nil {
+			hv = &hostView{HostId: hid}
+			s.hosts[hid] = hv
+		}
+		hv.CurrentIP, hv.BaseURL, hv.Reachable, hv.LastError = r.ip, base, true, ""
+		hv.LastSeenUnixMs = now.UnixMilli()
+		hv.Status = r.st
+		// Update the advertised poolId only when the registration probe succeeded,
+		// so a transient registration miss never wipes a known pool (and a host that
+		// genuinely left a pool clears it: its record now carries poolId="").
+		if r.regOK {
+			hv.PoolId = r.poolID
+			// Gating is a pool-level property all members advertise identically;
+			// record it whenever a member carries one (last-writer-wins, they agree).
+			// A member that omits it does NOT delete a peer's authored gating -- so an
+			// older/lagging runner can't silently disable a pool's alerting. Removing
+			// gating from pools.yml therefore takes effect on the aggregator's next
+			// restart (the gauges still observe; only the page is suppressed).
+			if r.poolID != "" && r.gating != nil {
+				s.gating[r.poolID] = *r.gating
+			}
+		}
+		refreshed[hid] = true
+		if r.st.CycleId != "" {
+			key := hid + "|" + r.st.CycleId
+			s.seenAt[key] = now
+			if s.seen[key] != r.st.OverallStatus {
+				s.seen[key] = r.st.OverallStatus
+				pushLoki(client, lokiURL, s.poolFor(hid), r.st, base, now)
+			}
+			if isTerminal(r.st.OverallStatus) && !s.counted[key] {
+				s.counted[key] = true
+				if r.st.OverallStatus == "pass" {
+					s.pass[hid]++
+				} else {
+					s.fail[hid]++
+					// status.json carries lastFailure (failureClass) in the same doc that
+					// flipped overallStatus to "fail" (Complete-Run flushes both), so the
+					// class is available at count time; "unknown" when unclassified.
+					s.failWindow[hid] = append(s.failWindow[hid], failRec{t: now, class: r.st.failClassOf()}) // ascending: polls are chronological
+				}
+			}
+		}
+	}
+	var deleted []string
+	for hid, hv := range s.hosts {
+		if !refreshed[hid] {
+			hv.Reachable = false
+			if now.UnixMilli()-hv.LastSeenUnixMs > defaultHostTTL.Milliseconds() {
+				delete(s.hosts, hid)
+				deleted = append(deleted, hid)
+			}
+		}
+	}
+	for k, t := range s.seenAt {
+		if now.Sub(t) > seenTTL {
+			delete(s.seenAt, k)
+			delete(s.seen, k)
+			delete(s.counted, k)
+		}
+	}
+	// Snapshot the event-tail targets while holding the lock; the fetch+push
+	// itself runs unlocked below so a slow host can't stall the handlers.
+	type evTarget struct{ hostID, baseURL, cycleID, cycleFolderURL, poolLabel string }
+	var targets []evTarget
+	for hid, hv := range s.hosts {
+		if hv.Reachable && hv.Status != nil && hv.Status.CycleId != "" && hv.Status.CycleFolderUrl != "" {
+			// Capture the pool label here under the lock; tailEvents runs unlocked.
+			targets = append(targets, evTarget{hid, hv.BaseURL, hv.Status.CycleId, hv.Status.CycleFolderUrl, s.poolFor(hid)})
+		}
+	}
+	// Incident correlation: prune fail windows and open/resolve per-host
+	// incidents; the Loki open/resolve events are pushed after the unlock.
+	incEvents := s.evaluateIncidents(now)
+	// Pool gating: compute each pool's advisory degraded/alert latch (read-side;
+	// drives alerting + dashboard de-noise, never a cycle). Runs AFTER incidents so
+	// "healthy" can exclude a host currently in an open incident.
+	gateEvents := s.evaluatePoolGate(now)
+	s.last = now
+	s.mu.Unlock()
+
+	// Phase 2: tail each reachable host's current-cycle NDJSON events into Loki.
+	// eventCur is only touched here (single poll goroutine), so no lock needed.
+	for _, hid := range deleted {
+		delete(s.eventCur, hid)
+	}
+	for _, ev := range incEvents {
+		pushIncident(client, lokiURL, ev.poolLabel, ev)
+	}
+	for _, ev := range gateEvents {
+		pushIncident(client, lokiURL, ev.poolLabel, ev)
+	}
+	for _, t := range targets {
+		s.tailEvents(client, lokiURL, t.poolLabel, t.hostID, t.baseURL, t.cycleID, t.cycleFolderURL, now)
+	}
+}
+
+func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/runtime/status.json", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status.json HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	var st hostStatus
+	if err := json.Unmarshal(body, &st); err != nil {
+		return nil, fmt.Errorf("status.json parse: %w", err)
+	}
+	return &st, nil
+}
+
+// fetchRegistration reads poolId + the optional gating policy from
+// /runtime/host.registration.json (the runner derives both from pools.yml, the
+// single source of truth). Returns ("", nil, err) on any failure; the caller keeps
+// the prior poolId/gating on a transient miss and falls back to the -pool flag when
+// never learned. poolId may be "" for an unpooled host -- that is a successful read,
+// not an error. The returned gating is nil when the pool authored none (so the pool
+// is observed via gauges but never paged); a partial block is completed with the
+// schema defaults.
+func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/runtime/host.registration.json", nil)
+	if err != nil {
+		return "", nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, fmt.Errorf("host.registration.json HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", nil, err
+	}
+	// Pointers distinguish "field absent" from "authored as zero" so a partial
+	// gating block fills only the missing knobs from the defaults.
+	var reg struct {
+		PoolID string `json:"poolId"`
+		Gating *struct {
+			FailuresBeforeAlert  *int `json:"failuresBeforeAlert"`
+			SuccessesBeforeRearm *int `json:"successesBeforeRearm"`
+			Quorum               *struct {
+				HealthyThreshold     *float64 `json:"healthyThreshold"`
+				DegradedAfterMinutes *int     `json:"degradedAfterMinutes"`
+			} `json:"quorum"`
+		} `json:"gating"`
+	}
+	if err := json.Unmarshal(body, &reg); err != nil {
+		return "", nil, fmt.Errorf("host.registration.json parse: %w", err)
+	}
+	if reg.Gating == nil {
+		return reg.PoolID, nil, nil
+	}
+	g := defaultGatingPolicy()
+	if reg.Gating.FailuresBeforeAlert != nil && *reg.Gating.FailuresBeforeAlert > 0 {
+		g.FailuresBeforeAlert = *reg.Gating.FailuresBeforeAlert
+	}
+	if reg.Gating.SuccessesBeforeRearm != nil && *reg.Gating.SuccessesBeforeRearm > 0 {
+		g.SuccessesBeforeRearm = *reg.Gating.SuccessesBeforeRearm
+	}
+	if reg.Gating.Quorum != nil {
+		if reg.Gating.Quorum.HealthyThreshold != nil && *reg.Gating.Quorum.HealthyThreshold >= 0 && *reg.Gating.Quorum.HealthyThreshold <= 1 {
+			g.HealthyThreshold = *reg.Gating.Quorum.HealthyThreshold
+		}
+		if reg.Gating.Quorum.DegradedAfterMinutes != nil && *reg.Gating.Quorum.DegradedAfterMinutes >= 0 {
+			g.DegradedAfter = time.Duration(*reg.Gating.Quorum.DegradedAfterMinutes) * time.Minute
+		}
+	}
+	return reg.PoolID, &g, nil
+}
+
+// pushLoki POSTs one cycle-status transition to Loki. Labels are strictly
+// {pool,hostId,cycleId} (low cardinality); the variable fields -- including the
+// CURRENT baseURL for the dashboard's drill-down deep-link -- live in the line.
+// The value timestamp is the proxy-side INGEST clock, not the host cycleId.
+func pushLoki(client *http.Client, lokiURL, pool string, st *hostStatus, baseURL string, ingest time.Time) {
+	// hostname is omitted and cycleFolderUrl is NOT carried here: no dashboard
+	// panel reads the folder URL off the transition line (the table's cycle-folder
+	// deep-link reads cycleFolderUrl from yuruna_pool_host_info). baseUrl is the
+	// host IP (no hostname); the cycle-folder name itself is the opaque hostId.
+	m := map[string]string{
+		"hostId": st.HostId, "hostType": st.Host,
+		"cycleId": st.CycleId, "overallStatus": st.OverallStatus,
+		"startedAt": st.StartedAt, "finishedAt": st.FinishedAt,
+		"baseUrl": baseURL,
+	}
+	if st.OverallStatus == "fail" {
+		// failureClass is carried on the fail transition so a restart's
+		// rehydrateFromLoki can restore each fail's class into the fail window.
+		m["failureClass"] = st.failClassOf()
+	}
+	line, _ := json.Marshal(m)
+	payload := map[string]any{"streams": []map[string]any{{
+		"stream": map[string]string{"pool": pool, "hostId": st.HostId, "cycleId": st.CycleId, "src": "cycle"},
+		"values": [][]string{{fmt.Sprintf("%d", ingest.UnixNano()), string(line)}},
+	}}}
+	buf, _ := json.Marshal(payload)
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
+	if err != nil {
+		log.Printf("loki push build: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("loki push: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode/100 != 2 {
+		log.Printf("loki push HTTP %d", resp.StatusCode)
+	}
+}
+
+// rehydrateFromLoki seeds the in-memory cycle counters (and the seen/counted
+// dedup maps) from Loki at startup so a collector restart RESUMES its pass/fail
+// counts instead of resetting to zero. Loki is the durable record of terminal
+// transitions (one pushed line per transition, retained ~7d), so this makes the
+// Prometheus counters a Loki-backed projection: from Prometheus's view the
+// counter resumes at its prior value (no reset), keeping BOTH the table's raw
+// counts and the 24h increase() tile correct across a restart -- no dashboard
+// change required. Querying terminal lines also restores `seen` for already-
+// terminal cycles, so a host still reporting a finished cycle is not re-pushed
+// or double-counted. Best-effort: on any Loki error the collector starts with
+// empty counts (prior behavior) and rebuilds as cycles complete.
+func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
+	queryURL := strings.TrimSuffix(lokiPushURL, "push") + "query_range"
+	params := url.Values{}
+	params.Set("query", fmt.Sprintf(`{pool=%q} | json | overallStatus=~"pass|fail"`, pool))
+	params.Set("start", strconv.FormatInt(now.Add(-window).UnixNano(), 10))
+	params.Set("end", strconv.FormatInt(now.UnixNano(), 10))
+	params.Set("limit", "5000")
+	params.Set("direction", "backward") // most-recent first: if capped, keep the freshest transitions
+
+	client := &http.Client{Timeout: pushTimeout}
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
+	if err != nil {
+		log.Printf("rehydrate: build request: %v", err)
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("rehydrate: Loki query: %v (starting with empty counts)", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		log.Printf("rehydrate: Loki HTTP %d: %s (starting with empty counts)", resp.StatusCode, strings.TrimSpace(string(body)))
+		return
+	}
+	var lr struct {
+		Data struct {
+			Result []struct {
+				Values [][2]string `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&lr); err != nil {
+		log.Printf("rehydrate: parse Loki response: %v", err)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	restored, capped := 0, 0
+	for _, st := range lr.Data.Result {
+		capped += len(st.Values)
+		for _, v := range st.Values {
+			var e struct {
+				HostId        string `json:"hostId"`
+				CycleId       string `json:"cycleId"`
+				OverallStatus string `json:"overallStatus"`
+				FailureClass  string `json:"failureClass"`
+			}
+			if json.Unmarshal([]byte(v[1]), &e) != nil || e.HostId == "" || e.CycleId == "" {
+				continue
+			}
+			key := e.HostId + "|" + e.CycleId
+			s.seen[key] = e.OverallStatus
+			evTime := now
+			if ns, perr := strconv.ParseInt(v[0], 10, 64); perr == nil {
+				evTime = time.Unix(0, ns)
+			}
+			s.seenAt[key] = evTime
+			if isTerminal(e.OverallStatus) && !s.counted[key] {
+				s.counted[key] = true
+				if e.OverallStatus == "pass" {
+					s.pass[e.HostId]++
+				} else {
+					s.fail[e.HostId]++
+					// Seed the incident fail-window with recent fails so an
+					// incident in progress at restart is reconstructed (with its class;
+					// "unknown" for legacy lines that predate the failureClass field).
+					if evTime.After(now.Add(-s.incidentWin)) {
+						cls := e.FailureClass
+						if cls == "" {
+							cls = "unknown"
+						}
+						s.failWindow[e.HostId] = append(s.failWindow[e.HostId], failRec{t: evTime, class: cls})
+					}
+				}
+				restored++
+			}
+		}
+	}
+	// The query returns newest-first; sort each seeded window ascending (the live
+	// append path is already chronological) for correct pruning + peak math.
+	// Open incidents are NOT reconstructed here -- they are restored from the
+	// authoritative incident feed (rehydrateIncidentsFromLoki) so their original
+	// id + startedAt survive, including incidents currently below the open
+	// threshold whose hysteresis state the fail window alone can't recover.
+	for _, fw := range s.failWindow {
+		sort.Slice(fw, func(i, j int) bool { return fw[i].t.Before(fw[j].t) })
+	}
+	if restored > 0 {
+		log.Printf("rehydrate: restored %d terminal cycle counts from Loki (window=%s)", restored, window)
+	}
+	if capped >= 5000 {
+		log.Printf("rehydrate: WARNING hit the 5000-line query cap; counts older than the most recent 5000 transitions may be undercounted")
+	}
+}
+
+// rehydrateIncidentsFromLoki restores OPEN incidents from the authoritative
+// incident lifecycle feed ({pool,src=incident}) on startup, so a restart keeps
+// each incident's ORIGINAL id + startedAt -- the eventual incident_resolved then
+// pairs with its open line and reports the true duration. An incident is
+// restored whenever the LATEST lifecycle line for a host is incident_open
+// (regardless of the current fail count, so a sub-threshold-but-still-open
+// incident survives the restart). Best-effort: any Loki error leaves incidents
+// empty and they simply re-open on the next qualifying fail burst.
+func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
+	queryURL := strings.TrimSuffix(lokiPushURL, "push") + "query_range"
+	params := url.Values{}
+	params.Set("query", fmt.Sprintf(`{pool=%q, src="incident"} | json`, pool))
+	params.Set("start", strconv.FormatInt(now.Add(-window).UnixNano(), 10))
+	params.Set("end", strconv.FormatInt(now.UnixNano(), 10))
+	params.Set("limit", "5000")
+	params.Set("direction", "backward") // newest-first: the first line per host stream is the latest
+
+	client := &http.Client{Timeout: pushTimeout}
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("rehydrate incidents: Loki query: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var lr struct {
+		Data struct {
+			Result []struct {
+				Values [][2]string `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&lr); err != nil {
+		log.Printf("rehydrate incidents: parse: %v", err)
+		return
+	}
+
+	streams := make([][][2]string, 0, len(lr.Data.Result))
+	for _, st := range lr.Data.Result {
+		streams = append(streams, st.Values)
+	}
+	if n := s.applyIncidentLines(streams, now); n > 0 {
+		log.Printf("rehydrate: restored %d open incident(s) from Loki", n)
+	}
+}
+
+// applyIncidentLines restores open incidents (per-host and pool-wide) from the
+// incident-feed streams -- each element is one Loki stream's [ts,line] values,
+// newest-first. The most recent line per host, and the most recent pool-scoped
+// line, decides current state (a trailing resolve means "not in incident").
+// Split out from the HTTP fetch in rehydrateIncidentsFromLoki so it is
+// unit-testable without a live Loki. Takes s.mu.
+func (s *poolState) applyIncidentLines(streams [][][2]string, now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	decided := map[string]bool{} // hostId -> latest lifecycle line already applied
+	poolDecided := false         // the latest pool-scoped line already applied
+	restored := 0
+	for _, values := range streams {
+		for _, v := range values { // newest-first within a stream
+			var e struct {
+				Event             string         `json:"event"`
+				IncidentId        string         `json:"incidentId"`
+				HostId            string         `json:"hostId"`
+				StartedAt         string         `json:"startedAt"`
+				FailCount         int            `json:"failCount"`
+				AffectedHostCount int            `json:"affectedHostCount"`
+				Class             string         `json:"class"`          // pool-wide triggering class
+				DominantClass     string         `json:"dominantClass"`  // per-host dominant class
+				ClassHistogram    map[string]int `json:"classHistogram"` // per-host class breakdown
+			}
+			if json.Unmarshal([]byte(v[1]), &e) != nil {
+				continue
+			}
+			parseStarted := func() time.Time {
+				if t, perr := time.Parse(time.RFC3339, e.StartedAt); perr == nil {
+					return t
+				}
+				return now
+			}
+			// Pool-wide lifecycle lines (one stream, scope=pool, no hostId).
+			if e.Event == "pool_incident_open" || e.Event == "pool_incident_resolved" {
+				if poolDecided {
+					continue
+				}
+				poolDecided = true
+				if e.Event == "pool_incident_open" {
+					started := parseStarted()
+					id := e.IncidentId
+					if id == "" {
+						id = poolIncidentID(started)
+					}
+					cls := e.Class
+					if cls == "" {
+						cls = "unknown" // legacy open line predating same-class cross-host
+					}
+					s.poolIncident = &poolIncidentState{id: id, startedAt: started, peakHosts: e.AffectedHostCount, class: cls}
+					restored++
+				}
+				continue
+			}
+			// Per-host lifecycle lines.
+			if e.HostId == "" || decided[e.HostId] {
+				continue // only the most recent line per host decides current state
+			}
+			decided[e.HostId] = true
+			if e.Event != "incident_open" {
+				continue // latest line is a resolve (or unknown) -> host not in incident
+			}
+			started := parseStarted()
+			id := e.IncidentId
+			if id == "" {
+				id = incidentID(e.HostId, started)
+			}
+			peak := e.FailCount
+			hist := e.ClassHistogram
+			dom := e.DominantClass
+			if n := len(s.failWindow[e.HostId]); n > peak {
+				// The live window is larger than the restored snapshot -> recompute
+				// BOTH the histogram AND its dominant from the live window so they
+				// agree (mirrors evaluateIncidents). Recomputing only the histogram
+				// would leave dominantClass stale vs peakClassHist after a post-open
+				// class shift, misclassifying the metric/Loki/dashboard.
+				peak = n
+				hist = classHistogram(s.failWindow[e.HostId])
+				dom = dominantClass(hist)
+			}
+			if len(hist) == 0 {
+				hist = map[string]int{}
+			}
+			if dom == "" {
+				dom = dominantClass(hist) // legacy open line predating the class histogram
+			}
+			if dom == "" {
+				dom = "unknown"
+			}
+			s.incident[e.HostId] = &incidentState{id: id, startedAt: started, peak: peak, peakClassHist: hist, dominantClass: dom}
+			restored++
+		}
+	}
+	return restored
+}
+
+// tailEvents pulls a host's current-cycle NDJSON event file
+// (<baseUrl>/<cycleFolderUrl>cycle.events.ndjson) and ships any lines beyond the
+// per-host byte cursor to Loki under {pool,hostId,src=event}. This is the
+// Phase-2 incident drill-down feed: step_failure/step_end and the typed sub-
+// events become queryable cross-host. The Loki entry timestamp is the event's
+// OWN `timestamp`, so a collector restart that re-pushes the in-flight cycle is
+// idempotent (Loki drops exact (ts,line) duplicates). The cursor avoids
+// re-pushing within a running instance and resets when the cycleId changes.
+// Best-effort + bounded: a missing/oversized file or a Loki error is logged
+// and skipped; it never blocks the poll.
+// hostnameEventKeys are the NDJSON event fields scrubbed from each forwarded
+// event line: the literal `hostname`, and `cycleFolder`. New cycle folders are
+// named with the opaque hostId, so cycleFolder is hostname-free at the source;
+// scrubbing it is defense-in-depth that also covers a legacy folder name (created
+// before a host adopted hostId naming, which embedded the hostname). Keeps the
+// unauthenticated pool dashboard's event drill-down hostname-free; the host's own
+// status page keeps the full detail.
+var hostnameEventKeys = []string{"hostname", "cycleFolder"}
+
+// redactEventLine removes hostnameEventKeys from one NDJSON event line before it
+// is shipped to Loki. It unmarshals, deletes the keys, and re-marshals; Go sorts
+// map keys, so the output is deterministic and re-forwarding the same source line
+// stays an exact Loki duplicate (idempotent dedup across collector restarts is
+// preserved). A line that is not a JSON object -- or that carries none of the
+// keys -- is forwarded byte-for-byte unchanged (host events are well-formed JSON;
+// this only guards a truncated tail and avoids needless reformatting).
+func redactEventLine(ln string) string {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(ln), &m); err != nil {
+		return ln
+	}
+	changed := false
+	for _, k := range hostnameEventKeys {
+		if _, ok := m[k]; ok {
+			delete(m, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return ln
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return ln
+	}
+	return string(b)
+}
+
+func (s *poolState) tailEvents(client *http.Client, lokiURL, poolLabel, hostID, baseURL, cycleID, cycleFolderURL string, now time.Time) {
+	u := strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(cycleFolderURL, "/")
+	if !strings.HasSuffix(u, "/") {
+		u += "/"
+	}
+	u += eventsFile
+
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return // host went away mid-poll; next tick retries
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return // events file not present yet (fresh cycle) -> nothing to tail
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxEventFetch))
+	if err != nil {
+		return
+	}
+
+	cur := s.eventCur[hostID]
+	if cur == nil || cur.cycleId != cycleID {
+		cur = &eventCursor{cycleId: cycleID}
+		s.eventCur[hostID] = cur
+	}
+	if int64(len(body)) <= cur.offset {
+		return // nothing new (or the file rotated/shrank under the same cycleId)
+	}
+	chunk := body[int(cur.offset):]
+	// Ship only COMPLETE lines (ending in \n); keep any trailing partial for the
+	// next poll by advancing the cursor exactly past the bytes we forward.
+	var lines []string
+	consumed := 0
+	for consumed < len(chunk) {
+		nl := bytes.IndexByte(chunk[consumed:], '\n')
+		if nl < 0 {
+			break
+		}
+		ln := strings.TrimRight(string(chunk[consumed:consumed+nl]), "\r")
+		consumed += nl + 1
+		if ln != "" {
+			lines = append(lines, redactEventLine(ln))
+		}
+		if len(lines) >= maxEventPush {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	pushEvents(client, lokiURL, poolLabel, hostID, lines, now)
+	cur.offset += int64(consumed)
+}
+
+// pushEvents ships NDJSON event lines for one host to Loki under
+// {pool,hostId,src=event}. Each Loki entry timestamp is the event's own
+// `timestamp` field, so re-pushing an identical line is an exact-duplicate no-op
+// (idempotent across collector restarts). Within-second events share a Loki
+// timestamp (distinct lines, both retained) -- second resolution is fine for
+// drill-down, and the precise time stays in the line. Falls back to the ingest
+// clock for any line whose timestamp won't parse.
+func pushEvents(client *http.Client, lokiURL, pool, hostID string, lines []string, ingest time.Time) {
+	if len(lines) == 0 {
+		return
+	}
+	values := make([][]string, 0, len(lines))
+	for _, ln := range lines {
+		values = append(values, []string{strconv.FormatInt(eventNano(ln, ingest), 10), ln})
+	}
+	payload := map[string]any{"streams": []map[string]any{{
+		"stream": map[string]string{"pool": pool, "hostId": hostID, "src": "event"},
+		"values": values,
+	}}}
+	buf, _ := json.Marshal(payload)
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
+	if err != nil {
+		log.Printf("event push build: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("event push: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode/100 != 2 {
+		log.Printf("event push HTTP %d", resp.StatusCode)
+	}
+}
+
+// eventNano returns the event's own timestamp in unix-nanoseconds, or the
+// fallback (ingest clock) when the line has no parseable RFC3339 `timestamp`.
+func eventNano(line string, fallback time.Time) int64 {
+	var e struct {
+		Timestamp string `json:"timestamp"`
+	}
+	if json.Unmarshal([]byte(line), &e) == nil && e.Timestamp != "" {
+		if t, perr := time.Parse(time.RFC3339, e.Timestamp); perr == nil {
+			return t.UnixNano()
+		}
+	}
+	return fallback.UnixNano()
+}
+
+// incidentEvent is a pending incident lifecycle change to push to Loki.
+type incidentEvent struct {
+	open          bool
+	pool          bool     // pool-wide (cross-host) incident vs per-host
+	hostId        string   // per-host incidents
+	hosts         []string // pool-wide: affected host IDs at open (hostname-free)
+	id            string
+	count         int            // per-host: in-window fails at open; pool: affected host count at open
+	peak          int            // per-host: peak in-window fails; pool: peak affected hosts
+	classHist     map[string]int // per-host: failure-class breakdown (live at open, peak at resolve)
+	dominantClass string         // per-host: argmax class of classHist
+	class         string         // pool-wide: the pinned triggering (same) failure class
+	poolLabel     string         // pool label for the Loki stream (per-host: poolFor(hostId); pool-wide: the -pool flag)
+	startedAt     time.Time
+	now           time.Time
+	// Pool gating ALERT lifecycle (distinct from the heuristic incidents above):
+	// alert=true marks a quorum-degraded alert event; rearm distinguishes recovered
+	// from fired. healthyFraction/membersHealthy/membersTotal carry the gate snapshot.
+	alert           bool
+	rearm           bool
+	healthyFraction float64
+	membersHealthy  int
+	membersTotal    int
+}
+
+// classHistogram counts the failure classes in a fail window (empty -> empty map).
+func classHistogram(fw []failRec) map[string]int {
+	h := map[string]int{}
+	for _, r := range fw {
+		c := r.class
+		if c == "" {
+			c = "unknown"
+		}
+		h[c]++
+	}
+	return h
+}
+
+// dominantClass is the argmax class of a histogram, ties broken lexically (so the
+// headline class is deterministic); "" for an empty histogram.
+func dominantClass(h map[string]int) string {
+	best, bestN := "", -1
+	for c, n := range h {
+		if n > bestN || (n == bestN && c < best) {
+			best, bestN = c, n
+		}
+	}
+	return best
+}
+
+func incidentID(hostID string, t time.Time) string {
+	short := hostID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return fmt.Sprintf("inc-%s-%d", short, t.Unix())
+}
+
+func poolIncidentID(t time.Time) string { return fmt.Sprintf("inc-pool-%d", t.Unix()) }
+
+// evaluateIncidents prunes each host's in-window fail list, opens an incident
+// when a host reaches incidentN fails within incidentWin, and resolves it once
+// the window empties of fails. Hysteresis (open at >=N, resolve at 0) keeps a
+// host that keeps failing in ONE incident instead of flapping. Returns the
+// open/resolve events for the caller to push to Loki AFTER releasing s.mu.
+// MUST be called with s.mu held.
+func (s *poolState) evaluateIncidents(now time.Time) []incidentEvent {
+	cutoff := now.Add(-s.incidentWin)
+	ids := map[string]bool{}
+	for h := range s.failWindow {
+		ids[h] = true
+	}
+	for h := range s.incident {
+		ids[h] = true
+	}
+	var events []incidentEvent
+	for hid := range ids {
+		kept := s.failWindow[hid][:0]
+		for _, r := range s.failWindow[hid] {
+			if r.t.After(cutoff) {
+				kept = append(kept, r)
+			}
+		}
+		if len(kept) == 0 {
+			delete(s.failWindow, hid)
+		} else {
+			s.failWindow[hid] = kept
+		}
+		n := len(kept)
+		inc := s.incident[hid]
+		switch {
+		case inc == nil && n >= s.incidentN:
+			hist := classHistogram(kept)
+			dom := dominantClass(hist)
+			if dom == "" {
+				dom = "unknown"
+			}
+			inc = &incidentState{id: incidentID(hid, kept[0].t), startedAt: kept[0].t, peak: n, peakClassHist: hist, dominantClass: dom}
+			s.incident[hid] = inc
+			events = append(events, incidentEvent{open: true, hostId: hid, id: inc.id, count: n, startedAt: kept[0].t, now: now, classHist: hist, dominantClass: dom, poolLabel: s.poolFor(hid)})
+		case inc != nil:
+			// Snapshot the class histogram whenever peak is (re)assigned so the
+			// resolve line -- emitted when the window has aged to ~0 -- reports the
+			// breakdown the incident PEAKED at, like peakFails.
+			if n > inc.peak {
+				inc.peak = n
+				inc.peakClassHist = classHistogram(kept)
+				inc.dominantClass = dominantClass(inc.peakClassHist)
+				if inc.dominantClass == "" {
+					inc.dominantClass = "unknown"
+				}
+			}
+			if n == 0 {
+				delete(s.incident, hid)
+				events = append(events, incidentEvent{hostId: hid, id: inc.id, startedAt: inc.startedAt, peak: inc.peak, now: now, classHist: inc.peakClassHist, dominantClass: inc.dominantClass, poolLabel: s.poolFor(hid)})
+			}
+		}
+	}
+
+	// Cross-host SAME-CLASS correlation: a POOL-WIDE incident when >= crossN distinct
+	// hosts each failed within the (shorter) crossWin WITH THE SAME failure class -- a
+	// systemic shared cause (proxy/network/a bad commit hitting one class everywhere),
+	// not unrelated single-host churn that merely coincides in time. For each class,
+	// count distinct hosts with an in-crossWin fail of that class; the argmax class
+	// (lexical tiebreak) is the open candidate. The triggering class is PINNED at open;
+	// resolve evaluates ONLY that class's distinct-host count against crossFloor
+	// (max(1,crossN-1)) -- never re-pinning -- so the incident can't class-hop and
+	// inflate its duration (guards the sticky-resolve invariant). A genuinely
+	// different class reaching crossN resolves the old incident and reopens a new one
+	// (new id) in the same pass.
+	crossCut := now.Add(-s.crossWin)
+	hostsByClass := map[string]map[string]bool{} // class -> set of hostIds with an in-window fail of that class
+	for hid, fw := range s.failWindow {
+		for _, r := range fw {
+			if r.t.After(crossCut) {
+				c := r.class
+				if c == "" {
+					c = "unknown"
+				}
+				if hostsByClass[c] == nil {
+					hostsByClass[c] = map[string]bool{}
+				}
+				hostsByClass[c][hid] = true
+			}
+		}
+	}
+	// affectedFor returns the sorted hostId list for a class (hostname-free: the pool
+	// feed drives the unauthenticated dashboard).
+	affectedFor := func(c string) []string {
+		a := make([]string, 0, len(hostsByClass[c]))
+		for hid := range hostsByClass[c] {
+			a = append(a, hid)
+		}
+		sort.Strings(a)
+		return a
+	}
+	// The class with the most distinct hosts (lexical tiebreak) is the open candidate.
+	topClass, topN := "", 0
+	for c, hs := range hostsByClass {
+		nc := len(hs)
+		if nc > topN || (nc == topN && (topClass == "" || c < topClass)) {
+			topClass, topN = c, nc
+		}
+	}
+	crossFloor := s.crossN - 1
+	if crossFloor < 1 {
+		crossFloor = 1
+	}
+	// Resolve first (against the pinned class), so a cleared incident can reopen for a
+	// different systemic class in this same pass.
+	if s.poolIncident != nil {
+		pinnedN := len(hostsByClass[s.poolIncident.class])
+		if pinnedN > s.poolIncident.peakHosts {
+			s.poolIncident.peakHosts = pinnedN
+		}
+		if pinnedN < crossFloor {
+			events = append(events, incidentEvent{pool: true, id: s.poolIncident.id, startedAt: s.poolIncident.startedAt, peak: s.poolIncident.peakHosts, now: now, class: s.poolIncident.class, poolLabel: s.pool})
+			s.poolIncident = nil
+		}
+	}
+	if s.poolIncident == nil && topN >= s.crossN {
+		s.poolIncident = &poolIncidentState{id: poolIncidentID(now), startedAt: now, peakHosts: topN, class: topClass}
+		events = append(events, incidentEvent{open: true, pool: true, id: s.poolIncident.id, count: topN, startedAt: now, now: now, hosts: affectedFor(topClass), class: topClass, poolLabel: s.pool})
+	}
+	return events
+}
+
+func poolAlertID(t time.Time) string { return fmt.Sprintf("alert-pool-%d", t.Unix()) }
+
+// evaluatePoolGate computes each pool's advisory health gate from the gating quorum
+// and runs the degraded/alert hysteresis. READ-SIDE ONLY: no runner consumes the
+// result (consensus-gated control is deferred) -- it drives alerting (the host-side
+// notifier reads yuruna_pool_alert_active) + dashboard de-noise, never a cycle/pause/
+// break. MUST be called with s.mu held (reads s.hosts/s.incident/s.gating, mutates
+// s.poolGate). Returns the alert lifecycle events to ship to Loki after the unlock.
+//
+// healthy(host)   := reachable AND status in {running,pass,idle} AND not in an open
+//
+//	incident; healthyFraction := healthy/known (known = pool members
+//	in the view). degraded latches when the fraction stays below the
+//	threshold for >= DegradedAfter (wall-clock), clears immediately on
+//	recovery. The ALERT fires after FailuresBeforeAlert consecutive
+//	degraded polls + re-arms after SuccessesBeforeRearm non-degraded
+//	polls (poll-count hysteresis: deterministic + unit-testable).
+//
+// Gauges (_healthy_fraction/_degraded/_members_*) are computed for EVERY pool with a
+// member (harmless observability); _alert_active + the fired/rearmed events fire ONLY
+// for pools that authored a gating block (s.gating), so an un-configured pool is
+// observed but never paged.
+func (s *poolState) evaluatePoolGate(now time.Time) []incidentEvent {
+	membersByPool := map[string][]*hostView{}
+	for hid, hv := range s.hosts {
+		p := s.poolFor(hid)
+		membersByPool[p] = append(membersByPool[p], hv)
+	}
+	var events []incidentEvent
+	// Drop gate state for pools that no longer have a member (their gauge series
+	// vanish; the notifier preserves last-state on an absent gauge + a rearm cooldown,
+	// so a pool that simply emptied does not page). If such a pool was still FIRING,
+	// emit a rearm first so the kind=alert Loki lifecycle feed closes cleanly -- this is
+	// otherwise the one path that could leave a dangling pool_alert_fired.
+	for p, gate := range s.poolGate {
+		if _, ok := membersByPool[p]; ok {
+			continue
+		}
+		if gate.authored && gate.alertFired {
+			events = append(events, incidentEvent{
+				alert: true, rearm: true, pool: true, id: gate.alertID, poolLabel: p,
+				startedAt: gate.alertStartedAt, now: now,
+				healthyFraction: 0, membersHealthy: 0, membersTotal: 0,
+			})
+		}
+		delete(s.poolGate, p)
+	}
+	for p, members := range membersByPool {
+		total := len(members)
+		healthy := 0
+		for _, hv := range members {
+			if hv.Reachable && s.incident[hv.HostId] == nil {
+				switch hv.statusCode() {
+				case 1, 2, 4: // running, pass, idle
+					healthy++
+				}
+			}
+		}
+		policy, authored := s.gating[p]
+		if !authored {
+			policy = defaultGatingPolicy()
+		}
+		gate := s.poolGate[p]
+		if gate == nil {
+			gate = &poolGateState{}
+			s.poolGate[p] = gate
+		}
+		gate.authored = authored
+		frac := 1.0
+		if total > 0 {
+			frac = float64(healthy) / float64(total)
+		}
+		gate.lastFraction, gate.lastHealthy, gate.lastTotal, gate.lastThreshold = frac, healthy, total, policy.HealthyThreshold
+
+		below := frac < policy.HealthyThreshold
+		if below {
+			if gate.belowSince.IsZero() {
+				gate.belowSince = now
+			}
+		} else {
+			gate.belowSince = time.Time{}
+		}
+		gate.degraded = below && !gate.belowSince.IsZero() && now.Sub(gate.belowSince) >= policy.DegradedAfter
+
+		// Alert hysteresis runs only for authored pools; an un-configured pool keeps
+		// its counters/latch reset (observed via gauges, never paged).
+		if !authored {
+			gate.consecDegraded, gate.consecHealthy, gate.alertFired = 0, 0, false
+			continue
+		}
+		if gate.degraded {
+			gate.consecDegraded++
+			gate.consecHealthy = 0
+		} else {
+			gate.consecHealthy++
+			gate.consecDegraded = 0
+		}
+		if !gate.alertFired && gate.consecDegraded >= policy.FailuresBeforeAlert {
+			gate.alertFired = true
+			gate.alertID = poolAlertID(now)
+			gate.alertStartedAt = now
+			events = append(events, incidentEvent{
+				alert: true, pool: true, id: gate.alertID, poolLabel: p, startedAt: now, now: now,
+				healthyFraction: frac, membersHealthy: healthy, membersTotal: total,
+			})
+		} else if gate.alertFired && gate.consecHealthy >= policy.SuccessesBeforeRearm {
+			events = append(events, incidentEvent{
+				alert: true, rearm: true, pool: true, id: gate.alertID, poolLabel: p, startedAt: gate.alertStartedAt, now: now,
+				healthyFraction: frac, membersHealthy: healthy, membersTotal: total,
+			})
+			gate.alertFired, gate.alertID, gate.alertStartedAt = false, "", time.Time{}
+		}
+	}
+	return events
+}
+
+// pushIncident ships one incident lifecycle line to Loki under
+// {pool,hostId,src=incident} -- the feed behind the dashboard incident strip.
+func pushIncident(client *http.Client, lokiURL, pool string, ev incidentEvent) {
+	rec := map[string]any{
+		"incidentId": ev.id,
+		"startedAt":  ev.startedAt.UTC().Format(time.RFC3339),
+		"timestamp":  ev.now.UTC().Format(time.RFC3339),
+	}
+	stream := map[string]string{"pool": pool, "src": "incident"}
+	switch {
+	case ev.alert:
+		// Pool-level advisory ALERT (quorum-degraded). kind=alert distinguishes it
+		// from pool_incident_* on the same pool-scoped stream; the host-side notifier
+		// reads the yuruna_pool_alert_active gauge (not this line) to deliver, so this
+		// is the audit trail + the rehydrate-free record of the latch transition.
+		stream["scope"] = "pool"
+		stream["kind"] = "alert"
+		rec["scope"] = "pool"
+		rec["healthyFraction"] = ev.healthyFraction
+		rec["membersHealthy"] = ev.membersHealthy
+		rec["membersTotal"] = ev.membersTotal
+		if ev.rearm {
+			rec["event"] = "pool_alert_rearmed"
+			rec["durationSec"] = int64(ev.now.Sub(ev.startedAt) / time.Second)
+		} else {
+			rec["event"] = "pool_alert_fired"
+		}
+	case ev.pool:
+		stream["scope"] = "pool"
+		rec["scope"] = "pool"
+		if ev.class != "" {
+			rec["class"] = ev.class // the same-class that triggered the pool-wide incident
+		}
+		if ev.open {
+			rec["event"] = "pool_incident_open"
+			rec["affectedHostCount"] = ev.count
+			rec["affectedHosts"] = ev.hosts
+		} else {
+			rec["event"] = "pool_incident_resolved"
+			rec["peakHosts"] = ev.peak
+			rec["durationSec"] = int64(ev.now.Sub(ev.startedAt) / time.Second)
+		}
+	default:
+		stream["hostId"] = ev.hostId
+		rec["hostId"] = ev.hostId
+		// The failure-class breakdown on the incident OBJECT: dominantClass is the
+		// headline; classHistogram is the full per-class count (live at open, peak at
+		// resolve). Empty/unknown when the cycles carried no classified lastFailure.
+		if ev.dominantClass != "" {
+			rec["dominantClass"] = ev.dominantClass
+		}
+		if len(ev.classHist) > 0 {
+			rec["classHistogram"] = ev.classHist
+		}
+		if ev.open {
+			rec["event"] = "incident_open"
+			rec["failCount"] = ev.count
+		} else {
+			rec["event"] = "incident_resolved"
+			rec["peakFails"] = ev.peak
+			rec["durationSec"] = int64(ev.now.Sub(ev.startedAt) / time.Second)
+		}
+	}
+	line, _ := json.Marshal(rec)
+	payload := map[string]any{"streams": []map[string]any{{
+		"stream": stream,
+		"values": [][]string{{strconv.FormatInt(ev.now.UnixNano(), 10), string(line)}},
+	}}}
+	buf, _ := json.Marshal(payload)
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
+	if err != nil {
+		log.Printf("incident push build: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("incident push: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode/100 != 2 {
+		log.Printf("incident push HTTP %d", resp.StatusCode)
+	}
+}
+
+func (s *poolState) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	_, _ = io.WriteString(w, "ok\n")
+}
+
+func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	out := struct {
+		Pool        string      `json:"pool"`
+		LastPollUTC string      `json:"lastPollUtc"`
+		Hosts       []*hostView `json:"hosts"`
+	}{Pool: s.pool}
+	if !s.last.IsZero() {
+		out.LastPollUTC = s.last.UTC().Format(time.RFC3339)
+	}
+	ids := make([]string, 0, len(s.hosts))
+	for id := range s.hosts {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		out.Hosts = append(out.Hosts, s.hosts[id])
+	}
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	total := len(s.hosts)
+	reachable := 0
+	for _, h := range s.hosts {
+		if h.Reachable {
+			reachable++
+		}
+	}
+	// Union of every hostId across the live view + the cycle counters, so each
+	// per-host series set is complete (a host with no terminal cycles yet still
+	// gets pass/fail=0, and an evicted host's counters linger until seenTTL).
+	hostIDs := map[string]bool{}
+	for h := range s.hosts {
+		hostIDs[h] = true
+	}
+	for h := range s.pass {
+		hostIDs[h] = true
+	}
+	for h := range s.fail {
+		hostIDs[h] = true
+	}
+	ids := sortedKeys(hostIDs)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# HELP yuruna_pool_collector_up Pool aggregator is serving.\n# TYPE yuruna_pool_collector_up gauge\nyuruna_pool_collector_up 1\n")
+	fmt.Fprintf(&b, "# HELP yuruna_pool_hosts_total Pool hosts discovered (within hostTTL).\n# TYPE yuruna_pool_hosts_total gauge\nyuruna_pool_hosts_total %d\n", total)
+	fmt.Fprintf(&b, "# HELP yuruna_pool_hosts_reachable Pool hosts answering status.json on the last poll.\n# TYPE yuruna_pool_hosts_reachable gauge\nyuruna_pool_hosts_reachable %d\n", reachable)
+	if !s.last.IsZero() {
+		fmt.Fprintf(&b, "# HELP yuruna_pool_last_poll_timestamp_seconds Unix time of the last completed poll.\n# TYPE yuruna_pool_last_poll_timestamp_seconds gauge\nyuruna_pool_last_poll_timestamp_seconds %d\n", s.last.Unix())
+	}
+
+	// Per-host descriptive series that drive the dashboard's pool table.
+	// host_info carries the table's label cells (name, type, deep-link URLs,
+	// current cycle, derived status); the value is a constant 1. The series
+	// churns when cycleId/status/IP change -- fine for an INSTANT table query
+	// (old label-sets go stale immediately since only the current set is
+	// exported), but is why status/cycle are NOT labels on the timeline series.
+	b.WriteString("# HELP yuruna_pool_host_info Per-host descriptive labels for the pool table (value always 1).\n# TYPE yuruna_pool_host_info gauge\n")
+	for _, h := range ids {
+		hv := s.hosts[h]
+		if hv == nil {
+			continue
+		}
+		hostType, cycleId, cfu := "", "", ""
+		if hv.Status != nil {
+			hostType, cycleId, cfu = hv.Status.Host, hv.Status.CycleId, hv.Status.CycleFolderUrl
+		}
+		// No hostname label (pool view is hostname-free). cycleFolderUrl stays --
+		// the table's cycle-folder deep-link needs it; the folder name is the opaque
+		// hostId (Format-CycleFolderBaseName), so this value is hostname-free too. (A
+		// legacy pre-hostId folder name still embeds the hostname until that host's
+		// next cycle re-names under hostId.)
+		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,hostId=%q,hostType=%q,baseUrl=%q,cycleId=%q,cycleFolderUrl=%q,status=%q} 1\n",
+			s.poolFor(h), h, hostType, hv.BaseURL, cycleId, cfu, hv.statusLabel())
+	}
+	// host_status: the numeric twin of host_info's status, keyed on hostId so it
+	// forms one continuous series per host -- the input the state-timeline panel
+	// needs. No hostname label (pool view is hostname-free). 0=unreachable
+	// 1=running 2=pass 3=fail 4=idle.
+	b.WriteString("# HELP yuruna_pool_host_status Per-host cycle status code (0=unreachable 1=running 2=pass 3=fail 4=idle).\n# TYPE yuruna_pool_host_status gauge\n")
+	for _, h := range ids {
+		hv := s.hosts[h]
+		if hv == nil {
+			continue
+		}
+		fmt.Fprintf(&b, "yuruna_pool_host_status{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, hv.statusCode())
+	}
+	// host_last_seen: unix seconds of last successful probe; the table shows age
+	// as `time() - this`. Keeps climbing for an unreachable-but-not-yet-evicted
+	// host, which is exactly the "last seen 5m ago" signal an operator wants.
+	b.WriteString("# HELP yuruna_pool_host_last_seen_seconds Unix time of the last successful status probe for this host.\n# TYPE yuruna_pool_host_last_seen_seconds gauge\n")
+	for _, h := range ids {
+		hv := s.hosts[h]
+		if hv == nil {
+			continue
+		}
+		fmt.Fprintf(&b, "yuruna_pool_host_last_seen_seconds{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, hv.LastSeenUnixMs/1000)
+	}
+
+	// Incident correlation signals (N-failures-in-M-minutes).
+	fmt.Fprintf(&b, "# HELP yuruna_pool_incidents_active Hosts currently in an incident (>= incidentN fails within the window).\n# TYPE yuruna_pool_incidents_active gauge\nyuruna_pool_incidents_active %d\n", len(s.incident))
+	b.WriteString("# HELP yuruna_pool_host_incident 1 if the host is currently in an incident, else 0.\n# TYPE yuruna_pool_host_incident gauge\n")
+	for _, h := range ids {
+		v := 0
+		if s.incident[h] != nil {
+			v = 1
+		}
+		fmt.Fprintf(&b, "yuruna_pool_host_incident{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, v)
+	}
+	// host_incident_info carries the dominant failure class of an active incident as a
+	// label (the 0/1 gauge above stays class-free so its sum() tile is unaffected);
+	// emitted only for hosts currently in an incident. Mirrors host_info.
+	b.WriteString("# HELP yuruna_pool_host_incident_info Dominant failure class of a host's active incident (value always 1).\n# TYPE yuruna_pool_host_incident_info gauge\n")
+	for _, h := range ids {
+		if inc := s.incident[h]; inc != nil {
+			cls := inc.dominantClass
+			if cls == "" {
+				cls = "unknown"
+			}
+			fmt.Fprintf(&b, "yuruna_pool_host_incident_info{pool=%q,hostId=%q,class=%q} 1\n", s.poolFor(h), h, cls)
+		}
+	}
+	b.WriteString("# HELP yuruna_pool_host_recent_fail_count Failed cycles for this host within the incident window.\n# TYPE yuruna_pool_host_recent_fail_count gauge\n")
+	for _, h := range ids {
+		fmt.Fprintf(&b, "yuruna_pool_host_recent_fail_count{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, len(s.failWindow[h]))
+	}
+	// Cross-host (pool-wide) incident: _wide_incident is the hysteresis state set
+	// by evaluateIncidents; _wide_incident_hosts is the instantaneous count of
+	// distinct hosts that failed within crossWin.
+	poolInc := 0
+	if s.poolIncident != nil {
+		poolInc = 1
+	}
+	crossCut := time.Now().UTC().Add(-s.crossWin)
+	recentHosts := 0
+	for _, fw := range s.failWindow {
+		if len(fw) > 0 && fw[len(fw)-1].t.After(crossCut) {
+			recentHosts++
+		}
+	}
+	fmt.Fprintf(&b, "# HELP yuruna_pool_wide_incident 1 if a pool-wide (cross-host) incident is active.\n# TYPE yuruna_pool_wide_incident gauge\nyuruna_pool_wide_incident %d\n", poolInc)
+	fmt.Fprintf(&b, "# HELP yuruna_pool_wide_incident_hosts Distinct hosts that failed within the cross-host window.\n# TYPE yuruna_pool_wide_incident_hosts gauge\nyuruna_pool_wide_incident_hosts %d\n", recentHosts)
+	// wide_incident_info carries the pinned same-class of an active pool-wide incident
+	// as a label (the 0/1 gauge above stays class-free); emitted only when active.
+	b.WriteString("# HELP yuruna_pool_wide_incident_info Pinned failure class of the active pool-wide incident (value always 1).\n# TYPE yuruna_pool_wide_incident_info gauge\n")
+	if s.poolIncident != nil {
+		cls := s.poolIncident.class
+		if cls == "" {
+			cls = "unknown"
+		}
+		fmt.Fprintf(&b, "yuruna_pool_wide_incident_info{pool=%q,class=%q} 1\n", s.pool, cls)
+	}
+	// Pool gating: advisory degraded/alert latch + the quorum inputs (keyed by pool
+	// only -- low cardinality). _members_*/_healthy_fraction/_healthy_threshold/
+	// _degraded are emitted for every pool with a member (observability); _alert_active
+	// only for pools that authored a gating block (the host-side notifier reads ==1 to
+	// deliver), so an un-configured pool is observed but never paged.
+	gatePools := make([]string, 0, len(s.poolGate))
+	for p := range s.poolGate {
+		gatePools = append(gatePools, p)
+	}
+	sort.Strings(gatePools)
+	b.WriteString("# HELP yuruna_pool_members_total Pool members currently in the view (within hostTTL).\n# TYPE yuruna_pool_members_total gauge\n")
+	for _, p := range gatePools {
+		fmt.Fprintf(&b, "yuruna_pool_members_total{pool=%q} %d\n", p, s.poolGate[p].lastTotal)
+	}
+	b.WriteString("# HELP yuruna_pool_members_healthy Pool members counted healthy (reachable, running/pass/idle, not in an incident).\n# TYPE yuruna_pool_members_healthy gauge\n")
+	for _, p := range gatePools {
+		fmt.Fprintf(&b, "yuruna_pool_members_healthy{pool=%q} %d\n", p, s.poolGate[p].lastHealthy)
+	}
+	b.WriteString("# HELP yuruna_pool_healthy_fraction Fraction of pool members counted healthy on the last poll.\n# TYPE yuruna_pool_healthy_fraction gauge\n")
+	for _, p := range gatePools {
+		fmt.Fprintf(&b, "yuruna_pool_healthy_fraction{pool=%q} %g\n", p, s.poolGate[p].lastFraction)
+	}
+	b.WriteString("# HELP yuruna_pool_healthy_threshold Configured healthy-fraction threshold (default 0.5); a Grafana rule needs no hardcode.\n# TYPE yuruna_pool_healthy_threshold gauge\n")
+	for _, p := range gatePools {
+		fmt.Fprintf(&b, "yuruna_pool_healthy_threshold{pool=%q} %g\n", p, s.poolGate[p].lastThreshold)
+	}
+	b.WriteString("# HELP yuruna_pool_degraded 1 if the healthy fraction stayed below the threshold for >= degradedAfterMinutes (advisory).\n# TYPE yuruna_pool_degraded gauge\n")
+	for _, p := range gatePools {
+		v := 0
+		if s.poolGate[p].degraded {
+			v = 1
+		}
+		fmt.Fprintf(&b, "yuruna_pool_degraded{pool=%q} %d\n", p, v)
+	}
+	b.WriteString("# HELP yuruna_pool_alert_active 1 if the pool's degraded alert is latched (authored-gating pools only).\n# TYPE yuruna_pool_alert_active gauge\n")
+	for _, p := range gatePools {
+		if !s.poolGate[p].authored {
+			continue
+		}
+		v := 0
+		if s.poolGate[p].alertFired {
+			v = 1
+		}
+		fmt.Fprintf(&b, "yuruna_pool_alert_active{pool=%q} %d\n", p, v)
+	}
+
+	b.WriteString("# HELP yuruna_pool_cycles_pass_total Terminal passing cycles observed.\n# TYPE yuruna_pool_cycles_pass_total counter\n")
+	for _, h := range ids {
+		fmt.Fprintf(&b, "yuruna_pool_cycles_pass_total{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, s.pass[h])
+	}
+	b.WriteString("# HELP yuruna_pool_cycles_fail_total Terminal failing cycles observed.\n# TYPE yuruna_pool_cycles_fail_total counter\n")
+	for _, h := range ids {
+		fmt.Fprintf(&b, "yuruna_pool_cycles_fail_total{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, s.fail[h])
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = io.WriteString(w, b.String())
+}
+
+// requestSourceIP returns the connection's source IP (no port). RemoteAddr is the
+// real peer on the trusted LAN; X-Forwarded-For is deliberately NOT consulted (it is
+// client-settable and would let a member spoof another host's identity binding).
+func requestSourceIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// ingestLineHostID extracts the hostId field from one pushed NDJSON event line, or
+// "" when absent/unparseable. Used to reject a line whose claimed hostId disagrees
+// with the IP-resolved sender identity (a member may push only its own events).
+func ingestLineHostID(ln string) string {
+	var e struct {
+		HostId string `json:"hostId"`
+	}
+	if json.Unmarshal([]byte(ln), &e) == nil {
+		return e.HostId
+	}
+	return ""
+}
+
+// fileReadable reports whether path is a readable, non-empty regular file -- the
+// gate for activating TLS / auth, so a missing or empty cert/token file gracefully
+// degrades to plain HTTP / ingest-disabled rather than failing to start.
+func fileReadable(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular() && fi.Size() > 0
+}
+
+// handleIngest is the Phase-6 push surface: a runner-side forwarder POSTs its cycle's
+// NDJSON event lines here so they reach Loki without waiting for the next pull
+// (closing the between-poll trailing-event gap). It SUPPLEMENTS pull, never replaces
+// it -- a pushed line and the later-pulled copy carry the event's own timestamp
+// (eventNano), so Loki drops the exact (ts,line) duplicate and the overlap is harmless.
+//
+// Security of the new inbound write route: (1) gated on a configured shared bearer
+// token -- with none the route is DISABLED (503), never exposed unauthenticated; (2)
+// Bearer checked constant-time BEFORE the body is read; (3) IDENTITY BINDING -- the
+// {pool,hostId} Loki labels come from resolving the sender's SOURCE IP against the
+// pull-discovered view, NOT the body, so a shared-token holder can push only as the
+// host currently at its own IP (a compromised member cannot forge another host's
+// telemetry; an undiscovered IP is rejected -- push never bypasses discovery); (4)
+// each line runs through redactEventLine (identical to the pull path) and a body
+// hostId disagreeing with the bound identity is rejected; (5) size + line caps mirror
+// the pull side. Telemetry-only: it ships to Loki and reaches no control plane.
+func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
+	if s.authToken == "" {
+		http.Error(w, "ingest disabled", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	const bearer = "Bearer "
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, bearer) ||
+		subtle.ConstantTimeCompare([]byte(auth[len(bearer):]), []byte(s.authToken)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	srcIP := requestSourceIP(r)
+	if srcIP == "" {
+		http.Error(w, "no source address", http.StatusForbidden)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxEventFetch))
+	if err != nil {
+		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		return
+	}
+	// Scan the body incrementally (NOT strings.Split, which would materialize every line
+	// before the cap can fire): stop the moment the running line count would exceed
+	// maxEventPush, so a million-tiny-line body can't burn parse/alloc work past the cap
+	// (mirrors the pull-side tailEvents scan). Collect the batch's body hostId for identity
+	// binding; a batch that mixes hostIds is rejected.
+	var lines []string
+	bodyHostID := ""
+	mixed := false
+	consumed := 0
+	for consumed < len(body) {
+		var ln string
+		if nl := bytes.IndexByte(body[consumed:], '\n'); nl < 0 {
+			ln = strings.TrimRight(string(body[consumed:]), "\r")
+			consumed = len(body)
+		} else {
+			ln = strings.TrimRight(string(body[consumed:consumed+nl]), "\r")
+			consumed += nl + 1
+		}
+		if ln == "" {
+			continue
+		}
+		if len(lines) >= maxEventPush {
+			http.Error(w, "too many lines", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if bid := ingestLineHostID(ln); bid != "" {
+			if bodyHostID == "" {
+				bodyHostID = bid
+			} else if bodyHostID != bid {
+				mixed = true
+			}
+		}
+		lines = append(lines, redactEventLine(ln))
+	}
+	if mixed {
+		http.Error(w, "batch mixes multiple hostIds", http.StatusForbidden)
+		return
+	}
+	if len(lines) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	// Identity binding (the anti-forgery control): resolve {pool,hostId} from the SOURCE IP
+	// against the pull-discovered view, NOT the body. Hosts currently at this IP:
+	//   * a body hostId MUST be one of them (else the IP doesn't own that hostId -> reject);
+	//   * with no body hostId, bind only when exactly one host sits at this IP (a shared IP
+	//     without a hostId is ambiguous -> reject). Empty CurrentIP never matches.
+	s.mu.Lock()
+	var atIP []string
+	for hid, hv := range s.hosts {
+		if hv.CurrentIP != "" && hv.CurrentIP == srcIP {
+			atIP = append(atIP, hid)
+		}
+	}
+	hostID := ""
+	if bodyHostID != "" {
+		for _, hid := range atIP {
+			if hid == bodyHostID {
+				hostID = hid
+				break
+			}
+		}
+	} else if len(atIP) == 1 {
+		hostID = atIP[0]
+	}
+	poolLabel := ""
+	if hostID != "" {
+		poolLabel = s.poolFor(hostID)
+	}
+	s.mu.Unlock()
+	if hostID == "" {
+		http.Error(w, "sender identity could not be bound (undiscovered IP, hostId not owned by this IP, or ambiguous)", http.StatusForbidden)
+		return
+	}
+	pushEvents(s.httpClient, s.lokiURL, poolLabel, hostID, lines, time.Now().UTC())
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func main() {
+	addr := flag.String("listen", defaultListenAddr, "address to listen on")
+	squidLog := flag.String("squid-log", defaultSquidLog, "squid access log to discover pool client IPs from")
+	lokiURL := flag.String("loki", defaultLokiURL, "Loki push API URL")
+	pool := flag.String("pool", defaultPool, "pool name label")
+	statusPort := flag.Int("status-port", defaultStatusPort, "status-server port to probe on each discovered IP")
+	interval := flag.Duration("interval", defaultInterval, "poll/discover interval")
+	rehydrateWin := flag.Duration("rehydrate-window", defaultRehydrate, "on startup, restore cycle counts from Loki over this trailing window (0 to disable)")
+	incidentN := flag.Int("incident-fails", defaultIncidentN, "open an incident after this many failed cycles within -incident-window")
+	incidentWin := flag.Duration("incident-window", defaultIncidentWin, "trailing window for the N-failures-in-M-minutes incident rule")
+	crossN := flag.Int("cross-host-fails", defaultCrossN, "distinct hosts that must fail within -cross-host-window to open a pool-wide incident")
+	crossWin := flag.Duration("cross-host-window", defaultCrossWin, "window for cross-host (pool-wide) incident correlation")
+	tlsCert := flag.String("tls-cert", "", "TLS certificate file (PEM); when both -tls-cert and -tls-key name readable files the listener is HTTPS, else plain HTTP")
+	tlsKey := flag.String("tls-key", "", "TLS private-key file (PEM); see -tls-cert")
+	authTokenFile := flag.String("auth-token-file", "", "file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)")
+	flag.Parse()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	go func() { <-sig; cancel() }()
+
+	state := newPoolState(*pool, *statusPort)
+	state.incidentN = *incidentN
+	state.incidentWin = *incidentWin
+	state.crossN = *crossN
+	state.crossWin = *crossWin
+	client := &http.Client{Timeout: probeTimeout}
+	state.lokiURL = *lokiURL
+	state.httpClient = client
+	// Load the shared bearer token that GATES /ingest. Absent / empty file -> token
+	// stays "" -> the route is disabled (503), so it is never exposed unauthenticated.
+	if *authTokenFile != "" {
+		if b, rerr := os.ReadFile(*authTokenFile); rerr == nil {
+			state.authToken = strings.TrimSpace(string(b))
+		} else {
+			log.Printf("auth-token-file %q unreadable (%v); /ingest disabled", *authTokenFile, rerr)
+		}
+	}
+
+	go func() {
+		now := time.Now().UTC()
+		if *rehydrateWin > 0 {
+			state.rehydrateFromLoki(*lokiURL, *pool, *rehydrateWin, now)
+			state.rehydrateIncidentsFromLoki(*lokiURL, *pool, *rehydrateWin, now)
+		}
+		state.pollOnce(client, *squidLog, *lokiURL, now)
+		t := time.NewTicker(*interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				state.pollOnce(client, *squidLog, *lokiURL, time.Now().UTC())
+			}
+		}
+	}()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", state.handleHealth)
+	mux.HandleFunc("/metrics", state.handleMetrics)
+	mux.HandleFunc("/api/v1/pool-status", state.handlePoolStatus)
+	// /ingest stays registered always; it self-gates on the auth token (503 when
+	// unconfigured). /metrics, /healthz, /api/v1/pool-status remain OPEN + plaintext-
+	// parseable so Prometheus, the host-side pool notifier, and the hostname-free
+	// dashboard keep working without credentials.
+	mux.HandleFunc("/ingest", state.handleIngest)
+
+	srv := &http.Server{Addr: *addr, Handler: mux, ReadTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
+	go func() {
+		<-ctx.Done()
+		sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer scancel()
+		_ = srv.Shutdown(sctx)
+	}()
+
+	// TLS activates only when both cert + key name readable, non-empty files; a
+	// missing/empty pair degrades gracefully to plain HTTP (byte-identical to Phase 5),
+	// so a proxy provisioned without the leaf still runs. crypto/tls is stdlib -> the
+	// Windows toolchain still cross-builds this.
+	useTLS := fileReadable(*tlsCert) && fileReadable(*tlsKey)
+	if (*tlsCert != "" || *tlsKey != "") && !useTLS {
+		log.Printf("tls-cert/tls-key set but not both readable+non-empty; serving plain HTTP")
+	}
+	authState := "ingest disabled (no token)"
+	if state.authToken != "" {
+		authState = "ingest enabled (bearer)"
+	}
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	log.Printf("pool-aggregator listening on %s (%s), pool=%q, discover-from=%s, status-port=%d, loki=%s, interval=%s, %s",
+		*addr, scheme, *pool, *squidLog, *statusPort, *lokiURL, *interval, authState)
+	var serveErr error
+	if useTLS {
+		serveErr = srv.ListenAndServeTLS(*tlsCert, *tlsKey)
+	} else {
+		serveErr = srv.ListenAndServe()
+	}
+	if serveErr != nil && serveErr != http.ErrServerClosed {
+		log.Fatal(serveErr)
+	}
+}

@@ -199,8 +199,10 @@ fires if any value changed.
 | System-wide DPI fallback (non-per-monitor-aware processes) | `HKCU:\Control Panel\Desktop\LogPixels` + `Win8DpiScaling` | 96 + 1 |
 | Win11 text size (Settings → Accessibility → Text size) | `HKCU:\Software\Microsoft\Accessibility\TextScaleFactor` | 100 |
 
-Back to [Windows Hyper-V Host Setup](../host/windows.hyper-v/README.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

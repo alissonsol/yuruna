@@ -21,12 +21,10 @@ git config --global user.email "your@email.com"
 
 Then open VS Code and sign in to each extension that needs it.
 
-Back to [Amazon Linux 2023 ...](../guest/amazon.linux.2023/README.md) ·
-[Ubuntu Server 24.04 ...](../guest/ubuntu.server.24/README.md) ·
-[Ubuntu Server 26.04 ...](../guest/ubuntu.server.26/README.md) ·
-[Windows 11 ...](../guest/windows.11/README.md) ·
-[Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

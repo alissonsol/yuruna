@@ -53,8 +53,10 @@ inject the proxy URL into the seed ISO.
 
 Read more: [Windows Hyper-V Host Setup - Nerd-Level Details](read.more.md).
 
-[Troubleshooting](../../docs/host-hyperv.md) · Back to [Hosts](../README.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

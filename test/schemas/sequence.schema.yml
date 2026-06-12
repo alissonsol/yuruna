@@ -260,14 +260,23 @@ $defs:
             id:
               type: string
               description: >
-                Optional snapshot id. When set, clicking "Continue" in
-                the status UI calls Restore-VMDiskSnapshot -Id <id>
-                followed by Start-VM before resuming the sequence (so a
-                break paired with a prior saveDiskSnapshot -Id <same>
-                gives a one-click "rewind to base + continue" workflow).
-                Without id, Continue just resumes without snapshot
-                restore. Manual marker-file delete always resumes
-                without snapshot restore regardless of id.
+                Optional label for this breakpoint, shown in the marker
+                file and the status UI. It is a label only: it does NOT
+                trigger a snapshot restore, even when it happens to match
+                a real snapshot name (e.g. the workload's requiresSnapshot
+                / loadDiskSnapshot id). A plain break pauses and, on
+                Continue, resumes in place -- the usual breakpoint
+                semantics. Set restoreOnContinue to opt into a restore.
+            restoreOnContinue:
+              type: boolean
+              description: >
+                When true AND `id` names an existing snapshot, clicking
+                "Continue" in the status UI calls Restore-VMDiskSnapshot
+                -Id <id> followed by Start-VM before resuming (a one-click
+                "rewind to checkpoint + continue" workflow, e.g. a break
+                paired with a prior saveDiskSnapshot -Id <same>). Default
+                false: Continue resumes in place. Manual marker-file
+                delete always resumes in place regardless of this flag.
 
       - if: { properties: { action: { const: takeScreenshot } } }
         then:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,11 @@
 
 param(
     [string]$VMName = "amazon-linux01",
-    [string]$CachingProxyUrl,
+    # No -CachingProxyUrl: AL2023 does not template a dnf proxy into cloud-init
+    # (the guest-side placeholder approach was abandoned as unreliable, see
+    # feedback_dnf_proxy_via_cloud_init_placeholder), matching the Hyper-V/UTM
+    # AL2023 New-VM.ps1. Invoke-PerGuestNewVm only forwards -CachingProxyUrl to
+    # scripts that declare it, so omitting it here is contract-safe.
     # Greppable test user added on top of ec2-user; force-expired by
     # cloud-init chpasswd default so the rotation flow runs.
     [string]$Username = 'yauser1'
@@ -110,14 +114,20 @@ if (Test-Path -LiteralPath $cfg) {
     } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
 }
 
-$userDataTemplate = Join-Path $ScriptDir 'vmconfig/user-data'
-$metaDataTemplate = Join-Path $ScriptDir 'vmconfig/meta-data'
-foreach ($f in @($userDataTemplate, $metaDataTemplate)) {
+# user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
+# byte-identical across the three host platforms). Anchor contract:
+# automation/Yuruna.CloudInitTemplate.psm1.
+$metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/amazon.linux.2023.meta-data'
+$hostVmConfigDir  = Join-Path $repoRoot 'host/vmconfig'
+$baseUserData     = Join-Path $hostVmConfigDir 'amazon.linux.2023.base.user-data'
+$overlayUserData  = Join-Path $hostVmConfigDir 'amazon.linux.2023.kvm.overlay.yml'
+foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
         Write-Error "Template missing: $f"
         exit 1
     }
 }
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 # Per-cycle authentication vault password for $Username.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
@@ -126,26 +136,20 @@ if (-not $plaintextPassword) { Write-Error "Get-LocalOsPassword returned empty f
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
-# write_files entries. Eliminates the legacy network-dependent wget+wget
-# bootstrap and ensures both files are on disk before any guest script runs.
-$yurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
-$yurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'yuruna-retry.sh')))
-$yurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'fetch-and-execute.sh')))
-$yurunaNetworkB64    = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $yurunaAutomationDir 'yuruna-network.sh')))
-
-$userData = (Get-Content -Raw -LiteralPath $userDataTemplate).
-    Replace('HOSTNAME_PLACEHOLDER', $VMName).
-    Replace('USERNAME_PLACEHOLDER', $Username).
-    Replace('PLAINTEXT_PASSWORD_PLACEHOLDER', $plaintextPassword).
-    Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $sshPub).
-    Replace('CACHING_PROXY_URL_PLACEHOLDER', ($CachingProxyUrl ?? '')).
-    Replace('YURUNA_HOST_IP_PLACEHOLDER', $hostIp).
-    Replace('YURUNA_HOST_PORT_PLACEHOLDER', $hostPort).
-    Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $yurunaRetryLibB64).
-    Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $yurunaFaeB64).
-    Replace('YURUNA_NETWORK_BASE64_PLACEHOLDER', $yurunaNetworkB64)
+# Build-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
+# fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
+# write_files entries, then resolves the per-cycle placeholders below.
+$userData = Build-CloudInitUserData `
+    -BasePath    $baseUserData `
+    -OverlayPath $overlayUserData `
+    -RepoRoot    $repoRoot `
+    -Replacement @{
+        USERNAME_PLACEHOLDER           = $Username
+        PLAINTEXT_PASSWORD_PLACEHOLDER = $plaintextPassword
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $sshPub
+        YURUNA_HOST_IP_PLACEHOLDER     = $hostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $hostPort
+    } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName)
 

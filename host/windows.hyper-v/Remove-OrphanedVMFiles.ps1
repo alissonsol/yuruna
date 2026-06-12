@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Hyper-V check via dism.exe (not Get-WindowsOptionalFeature) — the cmdlet
+# Hyper-V check via dism.exe (not Get-WindowsOptionalFeature) -- the cmdlet
 # fails with "Class not registered" on some fresh pwsh 7 sessions.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
@@ -310,7 +310,7 @@ Write-CleanupMessage ""
 
 # Ask for confirmation (skip if -Force)
 if ($Force) {
-    Write-CleanupMessage "Force mode enabled — skipping confirmation."
+    Write-CleanupMessage "Force mode enabled -- skipping confirmation."
 } else {
     $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
     if ($confirmation -ne "YES") {
@@ -333,7 +333,7 @@ foreach ($filePath in $orphanedFiles) {
 # Remove empty subfolders, deepest first so parents empty as children go.
 # Hyper-V's system subdirs under VirtualMachinePath (Planned Virtual Machines,
 # Snapshots Cache, Resource Types, ...) are normally empty on a no-VMs
-# host but are part of vmms's expected layout — earlier logs showed
+# host but are part of vmms's expected layout -- earlier logs showed
 # "Removed empty folder: ..." for 15+ system dirs per cycle. Skip
 # anything Test-IsHyperVSystemPath flags.
 foreach ($scanPath in $scanPaths) {

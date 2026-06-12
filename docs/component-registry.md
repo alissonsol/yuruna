@@ -106,8 +106,10 @@ default for any registry the old hard-coded check did not match.
 - [Host I/O registry](host-io.md) — the older, two-level registry that established the pattern.
 - [Remediation dispatcher](remediation.md) — calls `Repair-Credential` when a push fails with 401.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

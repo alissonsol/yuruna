@@ -1,0 +1,3 @@
+a8d206e71d8a98456496cc0e20402dcb69d07ef34869f6e1f0dd5ca72f81ef84  install/macos.utm.sh
+f62e64c544c1a019f7eaf3268ed0be0601627bfbe57b9135f74c41a63540ac7c  install/ubuntu.kvm.sh
+76cae72e7b092540ea55c60ab8a123ad8310a2747b8abb8f7a5bd7057e4b7095  install/windows.hyper-v.ps1

@@ -1,0 +1,45 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/guests.compatibility.schema.yml
+title: Yuruna guest-to-hypervisor compatibility rules
+description: >
+  Declares which hypervisors each guest can run on, so the later pool-planner can
+  pick a compatible host for a required guest. Authored now (frozen v1 shape);
+  ENFORCEMENT (gating host selection) is a later phase -- today guest availability
+  is gated only by folder existence. The hypervisor tokens match those derived in
+  the host registration record (hyper-v / kvm / utm).
+
+type: object
+required: [schemaVersion, rules]
+additionalProperties: false
+
+properties:
+
+  schemaVersion:
+    type: integer
+    const: 1
+    description: Schema contract version. Bump only on a breaking shape change.
+
+  rules:
+    type: array
+    description: One rule per guest identifier.
+    items:
+      type: object
+      required: [guestKey, hypervisors]
+      additionalProperties: false
+      properties:
+        guestKey:
+          type: string
+          pattern: "^[A-Za-z0-9._-]+$"
+          description: Guest identifier (e.g. guest.ubuntu.server.24), as in guestSequence[].
+        hypervisors:
+          type: array
+          minItems: 1
+          description: Hypervisors this guest is supported on.
+          items:
+            type: string
+            enum: [hyper-v, kvm, utm]
+        notes:
+          type: string
+          description: Optional free-form rationale.

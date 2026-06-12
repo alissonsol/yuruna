@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.05
+# Version: 2026.06.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -43,7 +43,6 @@ apt_retry sudo apt-get install -y \
     ca-certificates lsb-release gnupg gpg \
     libnss3-tools unzip
 
-# Enable and start SSH
 sudo systemctl enable --now ssh
 sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status unknown"
 
@@ -86,8 +85,8 @@ EOF
 # Write the Kubernetes repo HERE so the single `apt-get update` below
 # refreshes both Docker and K8s indices in one shot. K8s packages are
 # installed later but the index is cheap to carry.
-curl_retry -fsSL "https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
+curl_retry -fsSL "https://pkgs.k8s.io/core:/stable:/v${YURUNA_K8S_MINOR}/deb/Release.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${YURUNA_K8S_MINOR}/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
 
 apt_retry sudo apt-get update -y
 apt_retry sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
@@ -216,14 +215,12 @@ sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to b
 if [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ] || [ -d /etc/kubernetes/pki ]; then
     echo "Existing Kubernetes cluster detected — resetting before re-initialization"
     sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock
-    # Clean up CNI plugin configuration
     sudo rm -rf /etc/cni/net.d
     # Clean up network filtering rules left by the previous cluster
     sudo iptables -F && sudo iptables -t nat -F && sudo iptables -t mangle -F && sudo iptables -X || true
     if command -v ipvsadm &>/dev/null; then
         sudo ipvsadm --clear || true
     fi
-    # Clean up kubeconfig
     sudo rm -f "${REAL_HOME}/.kube/config"
 fi
 
@@ -294,7 +291,6 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" wait --for=condition=ready node
 # Remove control-plane taint for single-node cluster
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kubernetes.io/control-plane- || true
 
-# Rename kubectl context to docker-desktop
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
 
 echo ""
@@ -302,20 +298,22 @@ echo -e "\e[1;36m==== Helm ====\e[0m"
 curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash || true
 
 # OpenTofu: deb install (primary) with standalone fallback, then verify.
-# The deb method fetches https://get.opentofu.org/opentofu.gpg; a transient
-# outage on that endpoint causes the install to fail while the script
-# happily continues (due to `|| true`), leaving every downstream
-# Set-Resource tofu invocation breaking with "command not recognized" and
-# ultimately producing HTTP 503 from the ingress. The standalone method
-# pulls the binary from github.com/opentofu/opentofu/releases and does not
-# touch get.opentofu.org, so it routes around the outage entirely.
+# The deb method fetches the signing key from get.opentofu.org, which can
+# blip; on failure the standalone method retries from the binary release.
+# Both paths pass --opentofu-version "$YURUNA_OPENTOFU_VERSION" so neither
+# asks the GitHub releases API for "latest" -- that is an unauthenticated
+# api.github.com call that 403s on rate limits once many guests share one
+# NAT egress IP, which would leave the standalone fallback as fragile as the
+# deb path it backs up. The post-install `command -v tofu` guard aborts when
+# both fail, because every downstream Set-Resource step needs tofu and a
+# missing binary otherwise surfaces far away as an HTTP 503 at the ingress.
 echo ""
 echo -e "\e[1;36m==== OpenTofu ====\e[0m"
 curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
-if ! /tmp/install-opentofu.sh --install-method deb; then
+if ! /tmp/install-opentofu.sh --install-method deb --opentofu-version "$YURUNA_OPENTOFU_VERSION"; then
     echo "WARNING: OpenTofu deb install failed (often a GPG-key fetch from get.opentofu.org). Falling back to standalone method..."
-    /tmp/install-opentofu.sh --install-method standalone || true
+    /tmp/install-opentofu.sh --install-method standalone --opentofu-version "$YURUNA_OPENTOFU_VERSION" || true
 fi
 rm -f /tmp/install-opentofu.sh
 if ! command -v tofu >/dev/null 2>&1; then

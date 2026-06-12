@@ -59,8 +59,10 @@ Install each of the tools linked below. After installing PowerShell, run `Test-R
     - Windows 11 Professional (`ver` → `Microsoft Windows [Version 10.0.26220.7872]`).
   - Required tools — run `Test-Requirement.ps1` to compare the version in the test environment against the one locally installed; follow links above to install or update. Scripts may work with older versions, but tests were performed with the indicated versions.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

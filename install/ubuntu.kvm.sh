@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.06.05  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.06.12  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer, x86_64 or aarch64.
@@ -11,13 +11,46 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
+YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.12}"
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
+
+# Pinned apt signing-key fingerprints, verified before each key is trusted as
+# an apt anchor (a MITM that swaps the key fetch otherwise plants a permanent
+# trust root). Refresh on a vendor key rotation: re-fetch the key, confirm the
+# new fingerprint with `gpg --show-keys --with-colons`, and update the value.
+MS_APT_KEY_FPR="AA86F75E427A19DD33346403EE4D7792F748182B"       # Microsoft 2025 General GPG Signer (Ubuntu >= 25.10 prod repo)
+GH_APT_KEY_FPR_NEW="7F38BBB59D064DBCB3D84D725612B36462313325"   # GitHub CLI (current)
+GH_APT_KEY_FPR_OLD="2C6106201985B60E6C7AC87323F3D4EA75716059"   # GitHub CLI (legacy, expires 2026-09-05)
 
 _yuruna_step="<starting up>"
 log()  { _yuruna_step="$*"; printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
+
+# Verify a downloaded apt signing key before trusting it as an apt anchor (a
+# MITM that swaps the key fetch would otherwise plant a permanent trust root).
+# Args after the key file are the ALLOWED primary fingerprints; the FIRST is
+# also REQUIRED to be present. Dies if the file carries any fingerprint outside
+# the allow-set, or if the required one is missing. Works on armored .asc and
+# binary .gpg key files.
+verify_key_fingerprints() {
+  local keyfile="$1"; shift
+  local required="${1^^}"
+  local allowed=("$@")
+  local present a fpr ok found_required=0
+  present="$(gpg --show-keys --with-colons "$keyfile" 2>/dev/null \
+            | awk -F: '/^pub:/{p=1} /^fpr:/{if(p){print toupper($10); p=0}}')"
+  [[ -n "$present" ]] || die "No primary key fingerprints in $keyfile (is gpg installed?)"
+  while IFS= read -r fpr; do
+    fpr="${fpr//[$'\r\n\t ']/}"
+    [[ -z "$fpr" ]] && continue
+    ok=0
+    for a in "${allowed[@]}"; do [[ "${a^^}" == "$fpr" ]] && { ok=1; break; }; done
+    (( ok )) || die "Unexpected key fingerprint in $keyfile: $fpr (not in the pinned allow-set)"
+    [[ "$fpr" == "$required" ]] && found_required=1
+  done <<<"$present"
+  (( found_required )) || die "Required key fingerprint $required missing from $keyfile"
+}
 
 # -- ERR trap --------------------------------------------------------------
 _yuruna_on_err() {
@@ -195,6 +228,7 @@ APT_PACKAGES=(
   bridge-utils
   dnsmasq-base
   acl
+  cifs-utils       # mount.cifs helper for the optional poolStorage (ypsp) SMB share
   cpu-checker
   swtpm swtpm-tools
   genisoimage
@@ -294,6 +328,36 @@ ensure_osinfo_db_has_ubuntu24() {
     return
   fi
 
+  # Verify the tarball's detached GPG signature against the pinned libosinfo
+  # release key before importing it: pagure serves over HTTPS but publishes no
+  # checksum, so the .asc is the integrity control. FAIL CLOSED -- a tarball we
+  # cannot verify is never imported; the apt-shipped osinfo-db stays in place.
+  # Refresh on a signing-key rotation: confirm the new primary fingerprint with
+  # `gpg --list-packets <tarball>.asc` and update LIBOSINFO_KEY_FPR.
+  local LIBOSINFO_KEY_FPR='4252D86A52041137C291CADFC85C5E957062A701'  # Pavel Hrdina (osinfo-db releases)
+  if ! command -v gpg >/dev/null 2>&1; then
+    warn "  gpg unavailable -- not importing unverified upstream osinfo-db; staying on apt-shipped data."
+    rm -rf "$tmpdir"; return
+  fi
+  if ! curl -fsSL --max-time 30 "${tarball_url}.asc" -o "$tmpdir/$latest.asc"; then
+    warn "  no detached signature for $latest -- not importing unverified data; staying on apt-shipped data."
+    rm -rf "$tmpdir"; return
+  fi
+  local gpghome="$tmpdir/gnupg"
+  mkdir -p "$gpghome"; chmod 700 "$gpghome"
+  if ! gpg --homedir "$gpghome" --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$LIBOSINFO_KEY_FPR" >/dev/null 2>&1; then
+    warn "  could not fetch the libosinfo signing key -- not importing unverified data; staying on apt-shipped data."
+    rm -rf "$tmpdir"; return
+  fi
+  local vstatus
+  vstatus=$(gpg --homedir "$gpghome" --batch --status-fd 1 --verify "$tmpdir/$latest.asc" "$tmpdir/$latest" 2>/dev/null)
+  if printf '%s\n' "$vstatus" | grep -qE '^\[GNUPG:\] BADSIG ' \
+     || ! printf '%s\n' "$vstatus" | grep -qE "^\[GNUPG:\] VALIDSIG .*${LIBOSINFO_KEY_FPR}"; then
+    warn "  GPG verification FAILED for $latest -- not importing; staying on apt-shipped data."
+    rm -rf "$tmpdir"; return
+  fi
+  log "  GPG signature verified (libosinfo release key $LIBOSINFO_KEY_FPR)"
+
   log "  importing into /usr/local/share/osinfo (system-local, needs sudo)"
   local imported=0
   if sudo osinfo-db-import --local "$tmpdir/$latest"; then
@@ -329,9 +393,17 @@ install_pwsh_apt() {
   log "Adding Microsoft apt repo (codename=$codename)"
   if [[ ! -f /etc/apt/keyrings/microsoft.gpg ]]; then
     sudo install -d -m 0755 /etc/apt/keyrings
-    curl -fsSL "https://packages.microsoft.com/keys/microsoft.asc" \
-      | sudo gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg
+    # Fetch to a temp file and pin the fingerprint BEFORE dearmoring into the
+    # keyring -- never pipe an unverified key straight into apt's trust store.
+    # The 2025 key signs the prod repo for Ubuntu >= 25.10; the preflight
+    # requires 26.04+, so the legacy key (whose mismatch against the
+    # 2025-signed prod repo causes NO_PUBKEY at apt-get update) never applies.
+    local ms_tmp; ms_tmp="$(mktemp -d)"
+    curl -fsSL "https://packages.microsoft.com/keys/microsoft-2025.asc" -o "$ms_tmp/microsoft.asc"
+    verify_key_fingerprints "$ms_tmp/microsoft.asc" "$MS_APT_KEY_FPR"
+    sudo gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg "$ms_tmp/microsoft.asc"
     sudo chmod 0644 /etc/apt/keyrings/microsoft.gpg
+    rm -rf "$ms_tmp"
   fi
   if [[ ! -f /etc/apt/sources.list.d/microsoft-prod.list ]]; then
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/$(. /etc/os-release; echo "$VERSION_ID")/prod $codename main" \
@@ -353,6 +425,18 @@ install_pwsh_tarball() {
   local tmp; tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
   curl -fsSL -o "$tmp/$pkg" "https://github.com/PowerShell/PowerShell/releases/download/v${ver}/${pkg}"
+  # Verify the tarball against the release's published hashes.sha256 before
+  # unpacking it as the interpreter for all downstream Yuruna automation. Pull
+  # the single pinned-version line out first (awk index() = literal match):
+  # `sha256sum -c` over the whole file fails on the sibling artifacts
+  # (arm64/musl/.deb) that are not downloaded.
+  curl -fsSL -o "$tmp/hashes.sha256" "https://github.com/PowerShell/PowerShell/releases/download/v${ver}/hashes.sha256" \
+    || die "PowerShell $ver: could not fetch hashes.sha256 for verification"
+  awk -v p="$pkg" 'index($0,p){print}' "$tmp/hashes.sha256" > "$tmp/pkg.sha256"
+  [[ "$(wc -l < "$tmp/pkg.sha256")" -eq 1 ]] \
+    || die "PowerShell $ver: expected exactly one checksum line for $pkg in hashes.sha256"
+  ( cd "$tmp" && sha256sum -c --quiet pkg.sha256 ) \
+    || die "PowerShell $ver: tarball SHA-256 does not match hashes.sha256 (possible tamper)"
   sudo install -d -m 0755 /opt/microsoft/powershell/7
   sudo tar -xzf "$tmp/$pkg" -C /opt/microsoft/powershell/7
   sudo chmod +x /opt/microsoft/powershell/7/pwsh
@@ -576,9 +660,15 @@ install_gh_apt() {
   log "Installing GitHub CLI (gh) via cli.github.com apt repo"
   sudo install -d -m 0755 /etc/apt/keyrings
   if [[ ! -f /etc/apt/keyrings/githubcli-archive-keyring.gpg ]]; then
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      | sudo dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg status=none
-    sudo chmod 0644 /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    # Fetch to a temp file and pin the fingerprints BEFORE installing the
+    # keyring as the apt anchor. The keyring ships both the current and the
+    # legacy (expiring) GitHub CLI keys during the rotation window; require the
+    # current one present and reject any key outside the pinned allow-set.
+    local gh_tmp; gh_tmp="$(mktemp -d)"
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o "$gh_tmp/gh.gpg"
+    verify_key_fingerprints "$gh_tmp/gh.gpg" "$GH_APT_KEY_FPR_NEW" "$GH_APT_KEY_FPR_OLD"
+    sudo install -m 0644 "$gh_tmp/gh.gpg" /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    rm -rf "$gh_tmp"
   fi
   if [[ ! -f /etc/apt/sources.list.d/github-cli.list ]]; then
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \

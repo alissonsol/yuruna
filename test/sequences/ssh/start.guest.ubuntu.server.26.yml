@@ -5,26 +5,40 @@
 # SSH-driven equivalent of gui/start.guest.ubuntu.server.26.yml. Selected
 # automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.
 # Subiquity runs fully hands-off via interactive-sections:[], so there is
-# no Install-button dance — just one OCR step to dismiss GRUB, then
+# no Install-button dance — a blind keystroke (OCR-free) to dismiss GRUB, then
 # SSH-wait for cloud-init to finish bringing up sshd.
 # See possible actions in the actions.yml file.
 
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 427b2ba5-58ee-4873-9737-869138b121fe
-sequenceRevision: 2
+sequenceRevision: 3
 
-description: "Ubuntu Server 26.04: OCR-dismiss GRUB, then drive everything else over SSH once cloud-init has finished bringing up sshd."
+description: "Ubuntu Server 26.04: blind-keystroke-dismiss GRUB (OCR-free), then drive everything else over SSH once cloud-init has finished bringing up sshd."
 baseline:
   ubuntu.server.26: []
 variables:
   username: yuuser26
 
 steps:
-  - action: waitForAndEnter
-    pattern: "Try or Install Ubuntu Server"
-    timeoutSeconds: 600
-    text: ""
-    description: "Try or Install Ubuntu Server"
+  # OCR-free boot bridge: GRUB has no sshd yet, so dismiss the boot menu with a
+  # blind keystroke (no framebuffer/OCR needed -- pressKey uses hypervisor key
+  # injection, which works headless). Two attempts cover the menu's render
+  # window; GRUB's own auto-boot timeout is the backstop if both mistime.
+  - action: waitForSeconds
+    seconds: 5
+    description: "Let the GRUB boot menu render"
+
+  - action: pressKey
+    name: Enter
+    description: "Blind-dismiss the GRUB boot menu (first attempt)"
+
+  - action: waitForSeconds
+    seconds: 8
+    description: "Pause before retry"
+
+  - action: pressKey
+    name: Enter
+    description: "Blind-dismiss the GRUB boot menu (retry)"
 
   - action: sshWaitReady
     timeoutSeconds: 2400

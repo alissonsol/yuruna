@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42d8e9f0-a1b2-4c34-d567-8e9f0a1b2c34
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,11 +48,11 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImag
 
 # === Retrieve and process the files ===
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download
-# through Save-CachedHttpUri when available + applies the warn-only
-# checksum policy that Yuruna.UbuntuImage uses for the live-server
-# ISOs. AL2023 publishes `<basename>.qcow2.sha256` next to each
-# qcow2; the helper parses it transparently. A mismatch surfaces as
-# a visual banner Write-Warning but doesn't abort the download.
+# through Save-CachedHttpUri when available + verifies SHA-256 against
+# the publisher checksum. AL2023 publishes `<basename>.qcow2.sha256`
+# next to each qcow2; the helper parses it transparently. A genuine
+# mismatch deletes the tampered file and fails the run (WarnAndDelete);
+# a MISSING upstream checksum stays a soft pass (publisher lag).
 $downloadFile = Join-Path $downloadDir "downloaded.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
@@ -63,7 +63,7 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath   $downloadFile `
     -ChecksumUrl $checksumUrl `
     -ChecksumTargetFileName $qcow2Link `
-    -OnMismatch 'WarnAndContinue' `
+    -OnMismatch 'WarnAndDelete' `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $downloadUrl"

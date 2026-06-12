@@ -120,8 +120,10 @@ ambiguity (`-RequireSingle`).
    [`test/schemas/`](../test/schemas/) folder already hosts
    `extension-config.schema.yml` for the common envelope).
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456726
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,10 @@
 param()
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
+# Leaf taxonomy module: the FailureClass/Severity ValidateSet below is a literal
+# copy of its canonical arrays (a ValidateSet attribute arg must be a constant
+# expression), kept honest by an Assert-FailureTaxonomyInSync call at load.
+Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global
 
 $script:SequenceActionRegistry = New-YurunaRegistry -Name 'SequenceAction' -AnchorVar 'YurunaSequenceActions' -Comparer 'OrdinalIgnoreCase'
 
@@ -89,7 +93,8 @@ function Register-SequenceAction {
         [ValidateSet('ocr_timeout','network_timeout','credential_expired',
             'host_io_blocked','pattern_matched_failure','retry_exhausted',
             'snapshot_restore_failed','script_error','wait_timeout',
-            'extension_error','instrumentation_failure','unknown')]
+            'extension_error','instrumentation_failure','provisioning_failure',
+            'bootstrap_sync','plan_invalid','unknown')]
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',
@@ -125,6 +130,20 @@ function Register-SequenceAction {
     foreach ($alias in $Aliases) {
         if ($alias -ne $Name) { & $script:SequenceActionRegistry.Register $alias $entry }
     }
+}
+
+# The ValidateSet on $FailureClass/$Severity above must be a constant expression,
+# so it duplicates the canonical taxonomy. Assert at module load that the literal
+# still matches Test.FailureTaxonomy (warn-only, never throws). Get-Command guard
+# so a standalone import without the taxonomy module degrades to no-check.
+if (Get-Command Assert-FailureTaxonomyInSync -ErrorAction SilentlyContinue) {
+    $null = Assert-FailureTaxonomyInSync -Source 'Test.SequenceAction Register-SequenceAction ValidateSet' `
+        -FailureClass @('ocr_timeout','network_timeout','credential_expired',
+            'host_io_blocked','pattern_matched_failure','retry_exhausted',
+            'snapshot_restore_failed','script_error','wait_timeout',
+            'extension_error','instrumentation_failure','provisioning_failure',
+            'bootstrap_sync','plan_invalid','unknown') `
+        -Severity @('hard','soft','unknown')
 }
 
 function Test-SequenceActionHasHandler {

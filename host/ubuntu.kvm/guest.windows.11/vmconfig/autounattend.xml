@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
 
     <!-- Aligned with host/macos.utm/guest.windows.11/vmconfig/autounattend.xml

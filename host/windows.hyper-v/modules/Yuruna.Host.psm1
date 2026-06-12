@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,16 +40,20 @@ $script:HostFolder     = Join-Path $script:RepoRoot 'host\windows.hyper-v'
 # Export-ModuleMember below decides which of OUR functions become visible
 # to test/ orchestration. Yuruna.Host.psm1's exports shadow any same-name
 # exports the supporting modules also produce.
-Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking
-Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking
-Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking
-# Shared squid download / TLS-bump stack — single source of truth across host drivers.
+# These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
+# mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
+# EVICTS the global copy other modules call via qualified names (e.g.
+# Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
+Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
+# Shared squid download / TLS-bump stack -- single source of truth across host drivers.
 # The X509 chain-validation callback lives here verbatim; per-driver cache-host
 # discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
-Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostDownload.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
 # Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
 # the Get-Image log-line writer) that all three drivers carried in duplicate.
-Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # === Hyper-V host helpers ====================================================
 
 # --- Define Oscdimg Path (adjust '10' for your ADK version if necessary) ---
@@ -118,7 +122,7 @@ function CreateIso {
 # New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/Start-CachingProxy.ps1.
 # Guards against the regression class where a KVP-only summary reports
 # "(discovery failed)" even though the ARP fallback has already found the
-# cache and it is serving — by routing all three callers through the same
+# cache and it is serving -- by routing all three callers through the same
 # function.
 
 function Get-CacheVmCandidateIp {
@@ -127,7 +131,7 @@ function Get-CacheVmCandidateIp {
         Candidate IPv4 addresses for a running Hyper-V VM.
     .DESCRIPTION
         Combines two lookups, dedup, KVP first:
-          1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) — needs
+          1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) -- needs
              hv_kvp_daemon inside the guest; empty until hyperv-daemons
              is installed and the daemon running. Once it's up, the
              single source of truth regardless of which vSwitch the VM
@@ -137,12 +141,12 @@ function Get-CacheVmCandidateIp {
              interfaces (Default Switch's vEthernet for guests on the
              internal NAT, plus the External-vSwitch vEthernet for the
              caching-proxy VM after the External-vSwitch migration). The
-             MAC filter is sufficient — it can only match neighbors of
+             MAC filter is sufficient -- it can only match neighbors of
              this specific VM. Stale 'Permanent' entries across VM
              rebuilds can map one MAC to multiple IPs; all returned so
              the caller's :3128 probe picks the live one.
     .OUTPUTS
-        System.String[] — zero or more IPv4, KVP entries first.
+        System.String[] -- zero or more IPv4, KVP entries first.
     #>
     [CmdletBinding()]
     [OutputType([System.String])]
@@ -188,7 +192,7 @@ function Get-CacheVmCandidateIp {
     The caching-proxy VM rides on this switch (instead of the built-in
     Default Switch) so it gets a real LAN IP via DHCP and is reachable
     by remote LAN clients without any host-side port forwarding. squid
-    sees the actual LAN client IP at TCP level — no PROXY-protocol
+    sees the actual LAN client IP at TCP level -- no PROXY-protocol
     forwarder needed and no Defender per-program filtering layer to
     fight (which is what blocked the user-mode forwarder path on
     Hyper-V hosts; see test/Start-CachingProxy.ps1 for the long note).
@@ -196,17 +200,17 @@ function Get-CacheVmCandidateIp {
     Picks the NIC carrying the default IPv4 route (the one with actual
     LAN connectivity, by definition). Wi-Fi works in principle but most
     Wi-Fi APs reject MAC addresses they didn't authenticate, so the
-    cache VM may fail DHCP or be unreachable from peers — flagged with
+    cache VM may fail DHCP or be unreachable from peers -- flagged with
     a warning, not a hard error.
 
     -AllowManagementOS:$true keeps the host's own networking on the
-    same physical NIC after the bridge — without it, creating the
+    same physical NIC after the bridge -- without it, creating the
     External vSwitch would strand the host until the operator manually
     re-binds protocols. Brief (~5s) network blip during creation is
     inherent to Hyper-V vSwitch reconfiguration.
 
     Idempotent: re-runs return the existing switch. Removing it
-    requires explicit Remove-VMSwitch (we don't auto-clean — operators
+    requires explicit Remove-VMSwitch (we don't auto-clean -- operators
     may have other VMs on the same External vSwitch).
 
     Requires admin (vmms calls). Returns $null on any failure so the
@@ -307,14 +311,14 @@ function Get-OrCreateYurunaExternalSwitch {
     started yet.
 .DESCRIPTION
     On the Default Switch path, the host is the NAT/DHCP server so the
-    cache VM's MAC↔IP mapping lands in the ARP cache the moment DHCP
+    cache VM's MAC<->IP mapping lands in the ARP cache the moment DHCP
     completes. On External vSwitch the LAN's DHCP server (not the host)
     answers, so the host has no reason to ARP for the VM's IP and
-    `Get-NetNeighbor` returns nothing — even though the VM is up,
+    `Get-NetNeighbor` returns nothing -- even though the VM is up,
     has its lease, and is happily installing apt packages. KVP would
     eventually fill this gap, but `hv_kvp_daemon` only starts late in
     cloud-init's runcmd (after grafana / prometheus / loki / squid have
-    all installed) — that's 5-15 minutes of "not discovered yet" while
+    all installed) -- that's 5-15 minutes of "not discovered yet" while
     the VM is actually fine.
 
     This active sweep ARP-resolves every IP on the host's
@@ -325,7 +329,7 @@ function Get-OrCreateYurunaExternalSwitch {
 
     No-op on non-Windows or when the host has no Yuruna-External
     vEthernet (e.g., Default-Switch fallback path). Only handles /24
-    subnets — the common home/office LAN size; wider subnets fall back
+    subnets -- the common home/office LAN size; wider subnets fall back
     to KVP-only discovery.
 
 .OUTPUTS
@@ -346,7 +350,7 @@ function Invoke-YurunaExternalArpProbe {
         # loop. Most home/office LANs are /24; if the host is on a
         # different prefix the operator can fall back to KVP-only
         # discovery (slower but works once hv_kvp_daemon is up).
-        Write-Verbose "Invoke-YurunaExternalArpProbe: host /$($hostIp.PrefixLength) — skipping sweep (only /24 supported)."
+        Write-Verbose "Invoke-YurunaExternalArpProbe: host /$($hostIp.PrefixLength) -- skipping sweep (only /24 supported)."
         return
     }
 
@@ -410,7 +414,7 @@ function Get-WorkingCachingProxyUrl {
     .DESCRIPTION
         One-shot helper for consumers (ubuntu guests) and
         Start-CachingProxy.ps1's summary. Does NOT wait for the cache VM
-        to boot or for squid to come up — callers expect the VM already
+        to boot or for squid to come up -- callers expect the VM already
         running and squid listening. The producer
         (guest.caching-proxy/New-VM.ps1) uses Get-CacheVmCandidateIp
         directly because it provisions the cache and must poll while
@@ -579,7 +583,7 @@ function Assert-HyperVEnabled {
         Enable-WindowsOptionalFeature completes, can fail with "Class
         not registered" (HRESULT 0x80040154) even when Hyper-V is
         enabled and healthy. Seen on the first post-install run of
-        Start-CachingProxy → guest.caching-proxy/New-VM.ps1. dism.exe is
+        Start-CachingProxy -> guest.caching-proxy/New-VM.ps1. dism.exe is
         the plain Win32 tool the cmdlet wraps; calling it directly
         sidesteps the COM failure (same workaround as
         install/windows.hyper-v.ps1).
@@ -1734,7 +1738,7 @@ client area.
 function Get-HyperVScreenshot {
     param([string]$VMName, [string]$OutputPath)
 
-    # ── Load C# type (once per session) ────────────────────────────────────
+    # -- Load C# type (once per session) ------------------------------------
     try {
         if (-not ('HyperVCapture' -as [type])) {
             Add-Type -TypeDefinition @"
@@ -1997,11 +2001,11 @@ public class HyperVCapture {
         Write-Warning "Failed to load HyperVCapture type: $_"
     }
 
-    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.YurunaDir.psm1') -Force -ErrorAction SilentlyContinue -Verbose:$false
+    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.YurunaDir.psm1') -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     $debugDir = Join-Path (Initialize-YurunaLogDir) "Screenshot"
     if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
 
-    # ── Primary: WMI GetVirtualSystemThumbnailImage ────────────────────────
+    # -- Primary: WMI GetVirtualSystemThumbnailImage ------------------------
     try {
         $vmSettingData = Get-CimInstance -Namespace root/virtualization/v2 `
             -ClassName Msvm_VirtualSystemSettingData `
@@ -2061,7 +2065,7 @@ public class HyperVCapture {
         [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "exception: $_")
     }
 
-    # ── Fallback: PrintWindow via vmconnect window ─────────────────────────
+    # -- Fallback: PrintWindow via vmconnect window -------------------------
     try {
         [HyperVCapture]::EnsureDpiAware()
         $hWnd = [HyperVCapture]::FindWindow($VMName)
@@ -2536,7 +2540,10 @@ function Send-Text {
     # exported Invoke-Sequence\Send-Text avoids the visibility trap.
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        Import-Module $invokeSequence -Force -DisableNameChecking
+        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
+        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
+        # refresh it in place instead.
+        Import-Module $invokeSequence -Force -DisableNameChecking -Global
         return [bool](Invoke-Sequence\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
     Write-Warning "Send-Text -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
@@ -2564,7 +2571,10 @@ function Send-Key {
     # not resolvable from this module's scope).
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        Import-Module $invokeSequence -Force -DisableNameChecking
+        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
+        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
+        # refresh it in place instead.
+        Import-Module $invokeSequence -Force -DisableNameChecking -Global
         return [bool](Invoke-Sequence\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
     }
     Write-Warning "Send-Key -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
@@ -2585,7 +2595,10 @@ function Send-Click {
     )
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        Import-Module $invokeSequence -Force -DisableNameChecking
+        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
+        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
+        # refresh it in place instead.
+        Import-Module $invokeSequence -Force -DisableNameChecking -Global
         return [bool](Invoke-Sequence\Send-Click -HostType $script:HostTag -VMName $VMName -X $X -Y $Y)
     }
     Write-Warning "Send-Click: Invoke-Sequence.psm1 not found at '$invokeSequence'."
@@ -3204,3 +3217,17 @@ $null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' -ExportedF
     'Test-CachingProxyAvailable','Get-CachingProxyVMIp',
     'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
 )
+
+# Load-time guard for the cache-download wrapper precedence. The image helpers
+# (Save-ImageWithChecksum / Save-UbuntuServerImage) feature-detect Save-CachedHttpUri
+# BY NAME and invoke it with only -Uri/-OutFile, so this driver's 2-param wrapper
+# must win the command-table slot over the shared 3-param
+# Yuruna.HostDownload\Save-CachedHttpUri. If an import-order change flips that
+# precedence the cache-discovery closure is dropped and downloads silently bypass
+# the squid cache (direct, no error) -- surface that regression loudly here.
+$__yurunaCacheDownloadCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue
+if (-not $__yurunaCacheDownloadCmd) {
+    Write-Warning "Yuruna.Host (windows.hyper-v): Save-CachedHttpUri is not on the command table after load; image downloads cannot route through the squid cache."
+} elseif ($__yurunaCacheDownloadCmd.Parameters.ContainsKey('ResolveCacheHostIp')) {
+    Write-Warning "Yuruna.Host (windows.hyper-v): Save-CachedHttpUri resolves to the shared Yuruna.HostDownload implementation (mandatory -ResolveCacheHostIp), not this driver's cache-injecting wrapper; image downloads will silently bypass the squid cache. Check module import order."
+}

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 
 # === Configuration ===
 # Ubuntu 24.04 LTS (Noble Numbat), arm64 cloud image -- macOS UTM
-# runs on Apple Silicon. Pinned per the stash-service spec (§3.1:
+# runs on Apple Silicon. Pinned per the stash-service spec (section 3.1:
 # default image ubuntu.server.24).
 $sourceUrl = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img"
 $downloadDir = "$HOME/yuruna/image/stash-service"
@@ -69,7 +69,8 @@ $downloaded = Save-ImageWithChecksum `
     -DestPath    $downloadFile `
     -ChecksumUrl "$sourceDir/SHA256SUMS" `
     -ChecksumTargetFileName $sourceBaseName `
-    -OnMismatch  'WarnAndContinue' `
+    -OnMismatch  'WarnAndDelete' `
+    -VerifyUbuntuSignature `
     -Confirm:$false
 if (-not $downloaded) {
     Write-Error "Download failed for $sourceUrl"

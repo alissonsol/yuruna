@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -290,17 +290,32 @@ function Invoke-CachingProxyProbe {
         @{ Port = 80;         Name = 'Apache (CA cert)';       Level = 'WARN' }
         @{ Port = 3000;       Name = 'Grafana dashboard';      Level = 'FAIL' }
     )
+    # Retry the connect instead of trusting a single 1500 ms deadline. On a
+    # wired host the first attempt answers in well under a millisecond, so the
+    # extra attempts never run. Over Wi-Fi the connect latency has a fat tail:
+    # a cold radio waking from power-save plus an ARP-over-air round trip can
+    # burn most of a 1500 ms budget on its own (measured ~850 ms to a one-hop
+    # LAN host), and a single AP retransmit or roam pushes it past the cliff --
+    # producing a spurious FAIL on a cache that is actually up. The first
+    # attempt warms ARP / wakes the radio; a follow-up then connects in
+    # milliseconds. A genuinely dead port still misses every attempt and FAILs.
+    $connectAttempts    = 3
+    $connectTimeoutMs   = 1500
+    $connectBackoffMs   = 200
     foreach ($p in $ports) {
         $label = "{0,-5} ({1})" -f $p.Port, $p.Name
-        $tcp = New-Object System.Net.Sockets.TcpClient
         $ok  = $false
-        try {
-            $async = $tcp.BeginConnect($CacheIp, $p.Port, $null, $null)
-            $ok    = ($async.AsyncWaitHandle.WaitOne(1500) -and $tcp.Connected)
-        } catch {
-            Write-Verbose "TCP probe ${CacheIp}:$($p.Port) failed: $($_.Exception.Message)"
-        } finally {
-            $tcp.Close()
+        for ($attempt = 1; $attempt -le $connectAttempts -and -not $ok; $attempt++) {
+            if ($attempt -gt 1) { Start-Sleep -Milliseconds $connectBackoffMs }
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            try {
+                $async = $tcp.BeginConnect($CacheIp, $p.Port, $null, $null)
+                $ok    = ($async.AsyncWaitHandle.WaitOne($connectTimeoutMs) -and $tcp.Connected)
+            } catch {
+                Write-Verbose "TCP probe ${CacheIp}:$($p.Port) attempt $attempt failed: $($_.Exception.Message)"
+            } finally {
+                $tcp.Close()
+            }
         }
         if ($ok) {
             $lines.Add("  [PASS] TCP :$label")

@@ -69,3 +69,6 @@ Dockerfile   text eol=lf
 *.tar.bz2    binary
 *.exe        binary
 *.dll        binary
+# Detached release signature (raw RSA bytes). EOL normalization would corrupt
+# it and break verification of install/install.sha256 on a fresh host.
+*.sig        binary

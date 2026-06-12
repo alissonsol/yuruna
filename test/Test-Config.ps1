@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -673,6 +673,165 @@ if (Test-Path $UsersPath) {
             } else {
                 $scannedDirs = ($sequencesDirs | ForEach-Object { $_ }) -join ', '
                 Write-Pass "users.yml strict mode: every sequence-referenced logical username is declared (scanned: $scannedDirs)."
+            }
+        }
+    }
+}
+
+# ── Section 9c: poolStorage (ypsp) replication ───────────────────────────────
+# Validate the optional NAS replication tier when it's switched on: all three
+# paths set, a usable vault credential (so the mount won't silently auto-generate
+# a junk SMB password), that the SMB server answers on :445, and -- when both of
+# those pass -- an ACTIVE mount of localPath plus creation of the per-host folder
+# '<localPath>/<hostId>'. The active step is what proves replication will actually
+# work (credentials, share name, Linux sudo, write permission) instead of silently
+# failing in the detached drain; with replicate on it FAILs the gate (stopping the
+# cycle), and the reachability probe stays a WARN so a merely-offline NAS -- which
+# the loop retries each cycle -- never blocks a healthy run.
+
+Write-Section "poolStorage (ypsp) replication"
+
+$poolMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
+if (-not (Test-Path $poolMod)) {
+    Write-Info "Test.PoolStorage.psm1 not found at ${poolMod}; poolStorage check skipped."
+} else {
+    Import-Module $poolMod -Global -Force
+    $psRaw = if ($Config.Contains('poolStorage')) { $Config['poolStorage'] } else { $null }
+    if ($psRaw -isnot [System.Collections.IDictionary]) {
+        Write-Info "poolStorage block not present -- NAS replication is off (optional)."
+    } else {
+        $psReplicate = [bool]$psRaw['replicate']
+        # Validate the connection parameters REGARDLESS of the replicate flag, so an
+        # operator can confirm the share + credential work BEFORE flipping replicate
+        # to true. When replicate is on a problem FAILs (it will actually run next
+        # cycle); when off it is advisory (WARN) -- the cycle runs fine without it.
+        $psCfg = Get-YurunaPoolStorageConfig -Config $Config -IgnoreReplicate -WarningAction SilentlyContinue
+        if (-not $psCfg) {
+            $incomplete = "poolStorage networkPath / networkUser / localPath are not all set"
+            if ($psReplicate) {
+                Write-Fail "poolStorage.replicate is true but $incomplete -- replication stays OFF until all three are populated. See docs/test-config.md." -FullPath $ConfigPath
+            } else {
+                Write-Info "poolStorage.replicate = false and $incomplete -- replication is off (optional). Populate all three to pre-validate the share before enabling."
+            }
+        } else {
+            $psState = if ($psReplicate) { 'enabled' } else { 'disabled -- pre-validating' }
+            Write-Pass "poolStorage [$psState]: '$($psCfg.NetworkPath)' -> '$($psCfg.LocalPath)' as user '$($psCfg.NetworkUser)'."
+
+            # Vault credential readiness (read-only loud-fail pre-check). Needs the
+            # authentication extension for Get-EffectiveUser + Test-VaultEntry.
+            if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue)) {
+                $extMod = Join-Path $ModulesDir 'Test.Extension.psm1'
+                if ((Test-Path $extMod) -and -not (Get-Command Import-Extension -ErrorAction SilentlyContinue)) {
+                    Import-Module $extMod -Global -Force -ErrorAction SilentlyContinue
+                }
+                if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+                    try { $null = Import-Extension -Area 'authentication' -RequireSingle } catch { $null = $_ }
+                }
+            }
+            # Captured for the ACTIVE mount + per-host-folder pre-flight below: it
+            # is only attempted when a real credential is configured AND the server
+            # answered on :445, so a merely-offline NAS stays a transient WARN and
+            # never triggers a doomed mount that would FAIL a healthy cycle.
+            $psVaultReady = $false
+            $psReachable  = $false
+            if (Get-Command Test-PoolStorageVaultReady -ErrorAction SilentlyContinue) {
+                if (Test-PoolStorageVaultReady -Config $psCfg -WarningAction SilentlyContinue) {
+                    $psVaultReady = $true
+                    Write-Pass "poolStorage: a vault credential is configured for '$($psCfg.NetworkUser)'."
+                } else {
+                    $vmsg = "poolStorage: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
+                    if ($psReplicate) { Write-Fail $vmsg -FullPath $ConfigPath }
+                    else              { Write-Warn "$vmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
+                }
+            }
+
+            # SMB server reachability (best-effort; WARN either way -- the NAS may be
+            # intentionally offline at config-check time).
+            if (Get-Command Test-PoolStorageServerReachable -ErrorAction SilentlyContinue) {
+                $poolSrv = Get-PoolStorageServerName -NetworkPath $psCfg.NetworkPath
+                if (Test-PoolStorageServerReachable -Config $psCfg -TimeoutSeconds 5) {
+                    $psReachable = $true
+                    Write-Pass "poolStorage: SMB server reachable (${poolSrv}:445)."
+                } else {
+                    $tail = if ($psReplicate) { 'Replication will fail-fast and retry next cycle' } else { 'Replication is disabled' }
+                    Write-Warn "poolStorage: SMB server '${poolSrv}:445' is not reachable right now. $tail -- fine if the NAS is intentionally offline; otherwise check networkPath / firewall / VPN."
+                }
+            }
+
+            if ($IsLinux) {
+                Write-Info "poolStorage on Linux needs passwordless sudo for 'mount' (an /etc/sudoers.d drop-in). See docs/pool-storage.md."
+            }
+
+            # ACTIVE write-path pre-flight: actually mount localPath and create the
+            # per-host folder '<localPath>/<hostId>'. This is the check that catches
+            # the "reachable NAS, replicate=true, but replication silently never
+            # happens" class -- a wrong SMB password, a share-name typo, missing
+            # Linux passwordless sudo, or a read-only share -- which the passive
+            # reachability probe above cannot see (the host-side drain runs detached
+            # and only records the failure in the ledger, where no operator sees it).
+            # Only attempted when a credential is configured AND the server is
+            # reachable, so a merely-offline NAS stays the transient WARN above.
+            # FAIL (block the cycle) when replicate is on; advisory WARN when off.
+            if ($psVaultReady -and $psReachable -and (Get-Command Initialize-PoolStorageHostFolder -ErrorAction SilentlyContinue)) {
+                if (-not (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
+                    $ydMod = Join-Path $ModulesDir 'Test.YurunaDir.psm1'
+                    if (Test-Path $ydMod) { Import-Module $ydMod -Global -Force -ErrorAction SilentlyContinue }
+                }
+                $poolHostId = ''
+                if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) {
+                    try { $poolHostId = [string](Get-YurunaHostId) } catch { $null = $_ }
+                }
+                if ([string]::IsNullOrWhiteSpace($poolHostId)) {
+                    Write-Warn "poolStorage: could not resolve this host's id (runtime/host.uuid) -- skipping the mount + per-host-folder pre-flight. Replication still runs at cycle end; check it has not silently failed."
+                } else {
+                    $poolReady = Initialize-PoolStorageHostFolder -Config $psCfg -HostId $poolHostId -Confirm:$false
+                    if ($poolReady.ok) {
+                        Write-Pass "poolStorage: localPath mounted and per-host folder ready ('$($poolReady.folder)')."
+                    } else {
+                        $rmsg = "poolStorage: localPath '$($psCfg.LocalPath)' / per-host folder pre-flight FAILED -- $($poolReady.error). Replication would silently never happen this way."
+                        if ($psReplicate) { Write-Fail $rmsg -FullPath $ConfigPath }
+                        else              { Write-Warn "$rmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# ── Section 9d: pool (intent sync) ───────────────────────────────────────────
+# Validate the optional pool-intent PULL when configured: enabled implies a
+# non-empty intentGitUrl, and the LAN intent store answers a bounded git
+# ls-remote. Reachability is a WARN (the runner degrades to single-host when the
+# store is down), so a momentarily-offline proxy never blocks a healthy cycle.
+# The intent-store CONTENT (pools.yml shape) is validated by Test-PoolIntent.ps1;
+# this gate only checks the LOCAL config block + reachability.
+
+Write-Section "pool (intent sync)"
+
+$poolSyncMod = Join-Path $ModulesDir 'Test.PoolSync.psm1'
+if (-not (Test-Path $poolSyncMod)) {
+    Write-Info "Test.PoolSync.psm1 not found at ${poolSyncMod}; pool check skipped."
+} else {
+    Import-Module $poolSyncMod -Global -Force
+    $plRaw = if ($Config.Contains('pool')) { $Config['pool'] } else { $null }
+    if ($plRaw -isnot [System.Collections.IDictionary]) {
+        Write-Info "pool block not present -- pool intent sync is off (optional)."
+    } else {
+        $plEnabled = [bool]$plRaw['enabled']
+        $plUrl     = [string]$plRaw['intentGitUrl']
+        if ([string]::IsNullOrWhiteSpace($plUrl)) {
+            if ($plEnabled) { Write-Fail "pool.enabled is true but pool.intentGitUrl is empty -- the runner cannot pull intent. Set the LAN bare-repo URL. See docs/pool-storage.md." -FullPath $ConfigPath }
+            else            { Write-Info "pool.enabled = false and pool.intentGitUrl is empty -- pool intent sync is off (optional). Populate intentGitUrl to pre-validate the store before enabling." }
+        } else {
+            $plState = if ($plEnabled) { 'enabled' } else { 'configured (disabled)' }
+            Write-Pass "pool [$plState]: intent store '$plUrl'."
+            # Bounded, credential-prompt-proof reachability probe (read-only).
+            $rc = Invoke-PoolSyncGit -ArgumentList @('ls-remote', '--quiet', $plUrl) -TimeoutSeconds 15
+            if ($rc -eq 0) {
+                Write-Pass "pool: intent store reachable ($plUrl)."
+            } else {
+                $why = if ($rc -eq 124) { 'timed out' } elseif ($rc -eq -1) { 'git not available' } else { "git ls-remote exit $rc" }
+                Write-Warn "pool: intent store '$plUrl' not reachable right now ($why) -- fine if the proxy is intentionally offline; the runner degrades to single-host. Otherwise check the URL / apache / network."
             }
         }
     }

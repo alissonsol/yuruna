@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -322,18 +322,10 @@ function Invoke-RemoteDiagnosticsKeySsh {
         [string]$BootstrapUrl
     )
     $command = Get-RemoteDiagnosticsCommand -BootstrapUrl $BootstrapUrl
-    # Re-assert Test.Ssh. The console rung above invokes Yuruna.Host's
-    # Send-Text + Send-Key, each of which does
-    #   Import-Module $invokeSequence -Force
-    # That -Force cascade-removes Invoke-Sequence and its nested modules
-    # — and Invoke-Sequence's per-call -Force re-import of Test.Ssh.psm1
-    # (Invoke-Sequence.psm1 line 2521, no -Global) had stashed Test.Ssh
-    # in that nested table. The cascade evicts Test.Ssh from the global
-    # session, so the Test.Ssh\ qualified call below fails with
-    # "The module 'Test.Ssh' could not be loaded". The matching guard at
-    # the top of Save-GuestDiagnostic covers the pre-console calls but
-    # is undone by the console attempt, so we re-assert here too.
-    Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
+    # Test.Ssh is imported -Global at module load, and the Yuruna.Host Send-*
+    # dispatchers import Invoke-Sequence -Global, so Test.Ssh stays in the
+    # global session through the console rung -- the module-qualified call
+    # below resolves without a per-call re-assert.
     $r = Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey `
             -Command $command -TimeoutSeconds $TimeoutSeconds
     return @{
@@ -701,18 +693,6 @@ function Save-GuestDiagnostic {
     # minimizes the diff and avoids renaming a parameter on every
     # private helper called below.
     $FailureFolderPath = $OutputFolder
-
-    # Re-assert Test.Ssh in the global module table. Test.Diagnostic's
-    # module body imports it -Global at load time, but other modules
-    # (Yuruna.Host line 45, Invoke-Sequence line 2521) re-import
-    # Test.Ssh.psm1 with -Force WITHOUT -Global later in the cycle,
-    # which evicts it from the global session into a private nested
-    # table. After that, the Test.Ssh\Foo qualified calls below fail
-    # with "The module 'Test.Ssh' could not be loaded" -- killing both
-    # SSH backup rungs (key + password) and leaving the per-guest data
-    # folder empty. Re-importing here is idempotent on the happy path
-    # and self-heals after an upstream eviction.
-    Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
 
     # Module-qualified Test.Ssh calls below: when Save-GuestDiagnostic
     # runs from the failure-artifact path (Invoke-TestInnerRunner's

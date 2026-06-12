@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,15 +25,15 @@
     Configures host-side settings needed for unattended, long-running test
     runs against Hyper-V guest VMs:
       * starts the Hyper-V Virtual Machine Management service (vmms)
-      * display timeout (AC + DC) → Never
-      * machine inactivity lock → disabled
-      * lock screen on resume → disabled
+      * display timeout (AC + DC) -> Never
+      * machine inactivity lock -> disabled
+      * lock screen on resume -> disabled
       * inbound ICMPv4 echo allowed (guest VMs + LAN can ping the host)
       * inbound TCP on the status-service port allowed (LAN can see status)
-      * display scale / text scale → 100% — only when YURUNA_VIRTUAL_DISPLAY
+      * display scale / text scale -> 100% -- only when YURUNA_VIRTUAL_DISPLAY
         is set (prevents Tesseract OCR failures on VM screenshots caused by
         HiDPI up-scaling on fresh Win11 laptops)
-    Requires Administrator elevation. Idempotent — safe to re-run.
+    Requires Administrator elevation. Idempotent -- safe to re-run.
 
     The opt-in virtual display (checksum-verified usbmmidd_v2) that keeps
     DWM painting the Hyper-V synthetic GPU when the physical monitor comes and
@@ -47,7 +47,7 @@
     reports that display timeout or lock screen settings will interfere
     with test runs. If the scale reset fires on a machine that was at
     125% or 150%, sign out and back in (or reboot) before the next run
-    so the compositor picks up the new DPI — OCR otherwise still sees
+    so the compositor picks up the new DPI -- OCR otherwise still sees
     the old scale.
 
 .PARAMETER WhatIf
@@ -76,6 +76,16 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters
 
 Set-WindowsHostConditionSet @PSBoundParameters
+
+# -- poolStorage host-identity setup + reimage reclaim (interactive) ---------
+# Offer to configure poolStorage (NAS replication) and, on a host with no local
+# pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
+# Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
+# loads its own sibling dependencies (config/vault/mount). See docs/pool-storage.md.
+if (-not $WhatIfPreference) {
+    Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostIdentity.psm1') -Force
+    Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
+}
 
 # Closing guidance: the virtual display is opt-in (see header). On a host that
 # runs tests without a connected monitor -- a headless box, a closed laptop

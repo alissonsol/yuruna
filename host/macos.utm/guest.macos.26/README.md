@@ -62,8 +62,10 @@ contract as `start.guest.ubuntu.server.24.yml` — a `baseline: { macos.26: [] }
 entry plus the GUI steps that walk Setup Assistant to a logged-in
 desktop and rotate the operator-chosen initial password.
 
-Back to [macOS UTM](../README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

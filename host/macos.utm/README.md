@@ -79,8 +79,10 @@ legacy forwarders left over from before the bridged-mode upgrade.
 
 Read more: [macOS UTM Host Setup - Nerd-Level Details](read.more.md).
 
-[Troubleshooting](../../docs/host-macos.md) · Back to [Hosts](../README.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

@@ -1,0 +1,103 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/host.registration.schema.yml
+title: Yuruna host registration record
+description: >
+  Each runner writes runtime/host.registration.json (served at
+  /runtime/host.registration.json) so the pool aggregator learns a host's
+  identity, capabilities, and pool WITHOUT logging in. The aggregator labels the
+  host's telemetry by `poolId` (which the runner derived from pools.yml members[],
+  the single source of truth), falling back to its own default when null. Every
+  field beyond the original v1 set is additive + nullable, so schemaVersion stays
+  1: a consumer reading an older record without these fields keeps working.
+
+type: object
+required: [schemaVersion, hostId, hostType]
+additionalProperties: true
+
+properties:
+
+  schemaVersion:
+    type: integer
+    const: 1
+    description: Additive-only; not bumped for the nullable fields added this release.
+
+  hostId:
+    type: string
+    pattern: "^42[0-9a-fA-F]{30}$"
+    description: Stable host identity (runtime/host.uuid). Survives hostname change; the pool join key.
+
+  hostname:
+    type: string
+
+  hostType:
+    type: string
+    description: e.g. host.windows.hyper-v / host.ubuntu.kvm / host.macos.utm.
+
+  hypervisor:
+    type: string
+    enum: [hyper-v, kvm, utm]
+
+  poolId:
+    type: [string, "null"]
+    description: >
+      The pool this host belongs to, DERIVED by the runner from pools.yml
+      members[] during the pool-intent pull. null when the host is unpooled or has
+      not yet pulled intent. The aggregator labels telemetry by this value.
+
+  gating:
+    type: [object, "null"]
+    description: >
+      The pool's authored alert/quorum policy, carried from pools.yml via
+      pool.state.json so the aggregator computes the advisory degraded/alert latch
+      without parsing pools.yml. null when the pool authored none (the aggregator
+      observes the pool's gauges but never pages it); an empty object means
+      alert-with-defaults. Mirrors pools.schema.yml gating.
+    additionalProperties: false
+    properties:
+      failuresBeforeAlert: { type: integer }
+      successesBeforeRearm: { type: integer }
+      quorum:
+        type: object
+        additionalProperties: false
+        properties:
+          healthyThreshold: { type: number }
+          degradedAfterMinutes: { type: integer }
+
+  capabilities:
+    type: object
+    description: Get-HostCapabilityMatrix output (hostIO/ocr/vnc/screenshot/extensions/...).
+
+  runId:
+    type: string
+
+  pid:
+    type: integer
+
+  statusPort:
+    type: [integer, "null"]
+    description: >
+      The host's real status-server HTTP port (the aggregator otherwise assumes
+      8080). null when unresolved.
+
+  writtenAtUtc:
+    type: string
+
+  capacity:
+    type: [object, "null"]
+    description: Reserved for Horizon B (F1). null until populated.
+
+  ipPool:
+    type: [object, "null"]
+    description: Reserved for Horizon B (F1). null until populated.
+
+  disk:
+    type: [object, "null"]
+    description: Reserved for Horizon B (F4). null until populated.
+
+  supportedGuests:
+    type: [array, "null"]
+    description: Guest identifiers this host can run. Reserved for the pool-planner; null until populated.
+    items:
+      type: string

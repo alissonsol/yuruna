@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,10 +101,18 @@ function Reset-StatusDocumentForCycleStart {
 
     $now = Get-UtcTimestamp
     $script:File = $StatusFilePath
+    # hostId: the stable per-host pool identity (runtime/host.uuid; distinct from
+    # hostname). Resolved via Get-YurunaHostId (reads the same file the entry
+    # point seeds) so this never touches the $global directly; '' when
+    # Test.YurunaDir is not loaded (standalone status init).
+    $hostIdValue = if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) {
+        [string](Get-YurunaHostId)
+    } else { '' }
     $script:Doc  = [ordered]@{
         schemaVersion  = 1
         host           = $hostType
         hostname       = $hostnameValue
+        hostId         = $hostIdValue
         cycleId        = $now
         startedAt      = $now
         finishedAt     = $null
@@ -118,6 +126,9 @@ function Reset-StatusDocumentForCycleStart {
         repoUrl        = $repoUrl
         lastGetImageAt = $lastGetImageAt
         cycle          = $cycle
+        # Cycle-scoped; null on the interim doc so a prior cycle's cause can't
+        # leak into the running banner before a guest fails (matches Initialize).
+        lastFailure    = $null
         guests         = @()
         # Empty until Initialize-StatusDocument resolves the cycle plan; kept
         # here so the interim "running" doc carries the same shape the
@@ -243,10 +254,14 @@ function Initialize-StatusDocument {
         }
     }
 
+    $hostIdValue = if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) {
+        [string](Get-YurunaHostId)
+    } else { '' }
     $script:Doc = [ordered]@{
         schemaVersion  = 1
         host           = $HostType
         hostname       = $Hostname
+        hostId         = $hostIdValue
         cycleId        = $cycleId
         startedAt      = $cycleId
         finishedAt     = $null
@@ -270,6 +285,12 @@ function Initialize-StatusDocument {
         # base for the cycle-log link and every per-guest pill: each pill
         # navigates to "<cycleFolderUrl><vmName>/".
         cycleFolderUrl = ''
+        # Top-level classified-cause summary of the most recent failure this
+        # cycle (failureClass / severity / stepNumber / sequenceName /
+        # reproCommand / relPath), set by Set-LastFailureSummary at failure time;
+        # null until a guest fails. relPath deep-links the dashboard to
+        # last_failure.json under the per-guest folder.
+        lastFailure    = $null
         guests         = @($guests)
         # Ordered top-level sequences (the test.runner.yml entries) mapped to
         # the guest(s) each drives. The dashboard renders one card per entry,
@@ -345,6 +366,49 @@ function Set-StepStatus {
 
 <#
 .SYNOPSIS
+    Records the classified cause + a pointer to last_failure.json on the live
+    status doc, so the dashboard (and an agent reading status.json) sees the
+    failureClass / severity / repro for the running cycle without re-reading the
+    per-guest cycle folder.
+.DESCRIPTION
+    Top-level lastFailure summary, set at failure time. relPath points to the
+    per-guest cycle-folder last_failure.json (resolved by the dashboard against
+    the per-guest folder URL). null until a guest fails this cycle.
+#>
+function Set-LastFailureSummary {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [string]$FailureClass = 'unknown',
+        [string]$Severity     = 'unknown',
+        [int]   $StepNumber   = 0,
+        [string]$SequenceName = '',
+        [string]$ReproCommand = '',
+        [string]$RelPath      = '',
+        [string]$GuestKey     = '',
+        [string]$StepName     = '',
+        [string]$ErrorMessage = '',
+        [string]$VmName       = ''
+    )
+    if (-not $script:Doc) { return }
+    if (-not $PSCmdlet.ShouldProcess('lastFailure', "Record failure cause $FailureClass")) { return }
+    $script:Doc.lastFailure = [ordered]@{
+        failureClass = $FailureClass
+        severity     = $Severity
+        stepNumber   = [int]$StepNumber
+        sequenceName = $SequenceName
+        guestKey     = $GuestKey
+        stepName     = $StepName
+        errorMessage = $ErrorMessage
+        reproCommand = $ReproCommand
+        relPath      = $RelPath
+        vmName       = $VmName
+        recordedAt   = (Get-UtcTimestamp)
+    }
+    Write-StatusJson
+}
+
+<#
+.SYNOPSIS
     Marks the run as finished, appends to history, and flushes status.json.
 #>
 function Complete-Run {
@@ -391,6 +455,14 @@ function Complete-Run {
             stepDurationsSec = $stepDurationsSec
         }
         if ($artifacts) { $guestEntry.failureArtifacts = $artifacts }
+        # Persist the failing step's message + the classified cause into the
+        # history row so a row is self-describing without re-reading
+        # last_failure.json (additive; old rows simply lack these keys).
+        $failStep = $g.steps | Where-Object { $_.status -eq 'fail' -and $_.errorMessage } | Select-Object -First 1
+        if ($failStep) { $guestEntry.errorMessage = [string]$failStep.errorMessage }
+        if ($script:Doc.Contains('lastFailure') -and $script:Doc.lastFailure -and $script:Doc.lastFailure.guestKey -eq $g.guestKey) {
+            $guestEntry.failureClass = [string]$script:Doc.lastFailure.failureClass
+        }
         $guestSummary[$g.guestKey] = $guestEntry
     }
 
@@ -463,6 +535,9 @@ function Complete-Run {
         cycleFolderUrl   = $historyCycleFolderUrl
         guestSummary     = $guestSummary
         sequenceSummary  = @($sequenceSummary)
+        # Freeze the cycle's classified cause into the row (like gitCommits /
+        # cycleFolderUrl) so a history row is self-describing; null on a pass.
+        lastFailure      = if ($script:Doc.Contains('lastFailure') -and $script:Doc.lastFailure) { $script:Doc.lastFailure } else { $null }
     }
     $script:Doc.history = @($entry) + @($script:Doc.history) | Select-Object -First $MaxHistoryRuns
     Write-StatusJson
@@ -708,4 +783,4 @@ function Get-GuestProvenance {
     }
 }
 
-Export-ModuleMember -Function Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime
+Export-ModuleMember -Function Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime

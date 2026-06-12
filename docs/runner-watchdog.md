@@ -76,8 +76,10 @@ back to the enclosing function's param block.
 - [Outer-loop dispatcher](runner-outer-loop.md) — the caller.
 - [Runner state machine](runner-state.md) — what state the outer transitions through around the watchdog arm/disarm.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

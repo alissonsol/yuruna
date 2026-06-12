@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # Assert-HyperVEnabled calls dism.exe directly instead of
-# Get-WindowsOptionalFeature — avoids the "Class not registered" COM
+# Get-WindowsOptionalFeature -- avoids the "Class not registered" COM
 # failure on first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) {
     Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"

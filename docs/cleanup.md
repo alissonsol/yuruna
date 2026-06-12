@@ -39,8 +39,10 @@ Don't forget to delete the cluster context from `[user]/.kube/config`. The [Visu
 
 - From the [GCP Console](https://console.cloud.google.com/), delete any resources that were previously created.
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

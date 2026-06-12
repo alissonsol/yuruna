@@ -207,8 +207,10 @@ what `Remove-HostProxy` cannot reach. The behavior is uniform across
 ubuntu.kvm / windows.hyper-v / macos.utm — all three run the same
 .NET `HttpClient`.
 
-Back to [Yuruna Test ...](../test/README.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

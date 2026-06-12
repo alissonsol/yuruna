@@ -369,8 +369,8 @@ crashes a cycle.**
 
 ---
 
-Back to [Yuruna](../README.md)
-
----
-
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

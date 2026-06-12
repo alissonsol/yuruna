@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,7 +132,7 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # === Render user-data / meta-data ===
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/stash-service.base.user-data'
 $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/stash-service.kvm.overlay.yml'
-$metaDataTemplate = Join-Path $ScriptDir 'vmconfig/meta-data'
+$metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/stash-service.meta-data'
 foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     if (-not (Test-Path -LiteralPath $f)) {
         Write-Error "Template missing: $f"

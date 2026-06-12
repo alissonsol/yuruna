@@ -97,12 +97,16 @@ each is a module you can grep for if you want to extend it.
     so an operator can `sha256sum -c` before piping.
   - Pin clones to release tags rather than `main`; fall back to `main`
     only with an explicit warning.
-  - Collapse the Windows-installer double-fetch — pass the already-
-    fetched script via `-EncodedCommand` to the elevated child instead
-    of re-`irm`ing the URL.
-  - Add a `?sha=…` parameter to `fetch-and-execute.sh` that the guest
-    verifies before exec, so a host-side mid-edit cannot deliver
-    partial content.
+  - Collapse the Windows-installer double-fetch — materialize the
+    fetched source ONCE to a single BOM-less temp file and relaunch the
+    elevated child via `-File` (NOT `-EncodedCommand`: the ~44 KB
+    installer base64-encodes ~3.6× over the 32,767 CreateProcess
+    command-line cap, see `feedback_createprocess_cmdline_limit.md`).
+  - Guest-side per-fetch verification in `fetch-and-execute.sh` is
+    declined (disposable test VM fetching from the same trust domain);
+    the shipped change is a one-line transparency message before the
+    download, and the working-tree-rename race is handled operationally
+    by the capture self-heal (`feedback_status_server_working_tree_rename_race.md`).
   - Pin GPG fingerprints for the MS / GitHub CLI keys added in
     [`install/ubuntu.kvm.sh`](../install/ubuntu.kvm.sh) (otherwise a
     MITM on first install installs an attacker-controlled key).
@@ -202,8 +206,10 @@ KVM `Test-CachingProxyAvailable` is intentionally *not* folded into the shared
 probe: it omits the IPv6 host-bracketing the guests rely on, so converging it
 would change the proxy URL they trust.)
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

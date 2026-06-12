@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -375,4 +375,109 @@ function Test-CyclePlanCapabilityFromPlan {
     return (Test-CyclePlanCapability -SequencePath $paths -HostType $HostType)
 }
 
-Export-ModuleMember -Function Get-CapabilityActionRequirement, Get-CapabilityExtensionArea, Get-HostCapabilityMatrix, Write-HostCapabilityBanner, Get-SequenceActionsUsed, Test-CyclePlanCapability, Get-CyclePlanSequencePath, Test-CyclePlanCapabilityFromPlan
+function Write-HostRegistrationRecord {
+    <#
+    .SYNOPSIS
+        Externalize this host's identity + capabilities as
+        runtime/host.registration.json (served by the status server at
+        /runtime/host.registration.json) for the multi-host pool aggregator /
+        pool-planner. Best-effort; never throws -- telemetry must not fail a cycle.
+    .DESCRIPTION
+        Built from Get-HostCapabilityMatrix + the process host identity so a pool
+        consumer learns each host's hostId / platform / hostIO / OCR / extensions
+        without SSHing in. Identity + capability only (mostly static); LIVE runner
+        state is NOT mirrored here -- status.json + the heartbeat already carry it.
+        Written once per cycle at runner startup on the MAIN runspace, never from
+        the heartbeat threadpool timer (the scriptblock-as-TimerCallback trap).
+        Resolves the runtime dir + hostId from $env:YURUNA_RUNTIME_DIR +
+        $global:__YurunaHostId (set by the entry point) rather than calling into
+        Test.YurunaDir, to avoid foreign-module command-resolution surprises.
+        capacity/ipPool/disk/supportedGuests are reserved (null) for Horizon B
+        (F1/F2/F4) + the pool-planner, so those become a data-population step
+        rather than a re-architecture. Atomic temp+rename so a polling consumer
+        never reads a half-written record.
+    .OUTPUTS
+        System.String -- the path written, or $null on a (swallowed) failure.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Best-effort single-file telemetry write; never throws, overwrite is idempotent.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Reads the $global:__YurunaHostId / __YurunaRunId cross-host identity channels set by the entry point.')]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        [string]$RepoRoot
+    )
+    try {
+        $runtimeDir = $env:YURUNA_RUNTIME_DIR
+        if (-not $runtimeDir -or -not (Test-Path -LiteralPath $runtimeDir)) { return $null }
+        $cap = Get-HostCapabilityMatrix -HostType $HostType -RepoRoot $RepoRoot
+        # host.windows.hyper-v -> hyper-v ; host.ubuntu.kvm -> kvm ; host.macos.utm -> utm
+        $hypervisor = ($HostType -replace '^host\.[^.]+\.', '')
+        # poolId: this host's pool, DERIVED by the outer loop's pool-sync from
+        # pools.yml members[] (the single source of truth) and persisted to
+        # runtime/pool.state.json -- the cross-process channel, since this writer
+        # runs in the FRESH inner process that does not inherit the outer's
+        # $global. null when unpooled or intent not yet pulled (the aggregator then
+        # falls back to its own pool label). Read inline so Test.Capability keeps no
+        # dependency on Test.PoolSync.
+        # gating: the pool's advisory alert policy, carried alongside poolId in
+        # pool.state.json (null when the pool authored none). Forwarded verbatim so the
+        # aggregator parses the thresholds; a null/absent gating tells it to observe the
+        # pool's gauges but never page it.
+        $poolId = $null
+        $gating = $null
+        try {
+            $poolStatePath = Join-Path $runtimeDir 'pool.state.json'
+            if (Test-Path -LiteralPath $poolStatePath) {
+                $ps = Get-Content -Raw -LiteralPath $poolStatePath | ConvertFrom-Json -ErrorAction Stop
+                if ($ps -and -not [string]::IsNullOrWhiteSpace([string]$ps.poolId)) { $poolId = [string]$ps.poolId }
+                if ($ps -and ($null -ne $ps.gating)) { $gating = $ps.gating }
+            }
+        } catch { $null = $_ }
+        # statusPort: the real status-server port so the aggregator can deep-link
+        # without assuming 8080. Best-effort from statusService.port; null otherwise.
+        $statusPort = $null
+        try {
+            if ($env:YURUNA_CONFIG_PATH -and (Test-Path -LiteralPath $env:YURUNA_CONFIG_PATH) -and (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
+                $cfgDoc = Get-Content -Raw -LiteralPath $env:YURUNA_CONFIG_PATH | ConvertFrom-Yaml -Ordered
+                if ($cfgDoc -and $cfgDoc['statusService'] -and $cfgDoc['statusService']['port']) { $statusPort = [int]$cfgDoc['statusService']['port'] }
+            }
+        } catch { $null = $_ }
+        $record = [ordered]@{
+            schemaVersion   = 1
+            hostId          = [string]$global:__YurunaHostId
+            hostname        = [string]([System.Net.Dns]::GetHostName())
+            hostType        = $HostType
+            hypervisor      = $hypervisor
+            poolId          = $poolId
+            gating          = $gating
+            capabilities    = $cap
+            runId           = [string]$global:__YurunaRunId
+            pid             = $PID
+            statusPort      = $statusPort
+            writtenAtUtc    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            # Reserved for Horizon B (F1 IP/capacity, F2 proxy breaker, F4 disk)
+            # + the pool-planner's host selection; populated when those land.
+            capacity        = $null
+            ipPool          = $null
+            disk            = $null
+            supportedGuests = $null
+        }
+        $path = Join-Path $runtimeDir 'host.registration.json'
+        $tmp  = "$path.tmp"
+        # -Depth 10: capacity/ipPool/disk gain a nested object when Horizon B
+        # populates them, beyond ConvertTo-Json's default depth that would
+        # silently serialize a deeper level as "@{...}".
+        $json = $record | ConvertTo-Json -Depth 10
+        [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tmp -Destination $path -Force -ErrorAction Stop
+        return $path
+    } catch {
+        Write-Verbose "Write-HostRegistrationRecord: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+Export-ModuleMember -Function Get-CapabilityActionRequirement, Get-CapabilityExtensionArea, Get-HostCapabilityMatrix, Write-HostCapabilityBanner, Get-SequenceActionsUsed, Test-CyclePlanCapability, Get-CyclePlanSequencePath, Test-CyclePlanCapabilityFromPlan, Write-HostRegistrationRecord

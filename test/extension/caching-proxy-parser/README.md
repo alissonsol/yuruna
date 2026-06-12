@@ -93,8 +93,10 @@ xdg-open http://<cache-ip>:9302/                  # the live HTML view
   `/etc/squid/conf.d/yuruna.conf`; the stock squid access.log layout
   is silently skipped.
 
-Back to [Test harness](../../README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

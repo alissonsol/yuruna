@@ -71,8 +71,10 @@ x86_64 only. Windows 11 ARM64 on KVM aarch64 is technically possible
 (via UUP-dump-assembled ISOs) but out of scope for the initial
 scaffold. Use the macOS UTM guest for ARM64 Windows 11.
 
-Back to [Ubuntu KVM](../README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

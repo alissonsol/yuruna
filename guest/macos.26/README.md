@@ -44,8 +44,10 @@ The `code`, `k8s`, `n8n`, `openclaw`, and `postgresql` workloads are
 intentionally out of scope for the macOS 26 guest; use the Ubuntu Server
 or Amazon Linux 2023 guests for those workloads.
 
-Back to [Yuruna](../../README.md).
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

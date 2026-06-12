@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -292,14 +292,19 @@ try {
 # --- Probe proxy cache → $env:YURUNA_RUNTIME_DIR/caching-proxy.txt ---
 # UI banner appends this string to the status text so viewers see at a
 # glance whether the harness is behind a local squid. File holds
-# ready-to-embed HTML (including <a href> to cachemgr URL) so the UI
+# ready-to-embed HTML (including <a href> to the Grafana dashboards URL) so the UI
 # injects it without knowing the URL format. Written once at
 # Start-StatusService — restart to refresh after bringing squid up/down.
 # Needs $detectedHost, so runs AFTER the SSH block's host detection.
 $CachingProxyFile = Join-Path $RuntimeDir "caching-proxy.txt"
 try {
     if ($detectedHost) {
-        Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Force
+        # -Global: this script is &-invoked from the inner cycle runner (a module
+        # context), where a -Force import without -Global pulls the host contract
+        # out of the global table for foreign modules (the legacy-eviction
+        # regression class) -- a contract call made later from Invoke-Sequence
+        # would then fail to resolve.
+        Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Force -Global
         [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $TestRoot) -HostType $detectedHost)
         # Re-import Test.CachingProxy with -Global -Force here even though
         # line 55 already imported it once: Initialize-YurunaHost cascades
@@ -433,7 +438,7 @@ try {
                 }
             }
             if ($mapOk) {
-                $dashboardUrl = "http://${bestIp}:3000/d/yuruna-squid/caching-proxy-yuruna?orgId=1&from=now-2h&to=now&timezone=browser&refresh=1m"
+                $dashboardUrl = "http://${bestIp}:3000/dashboards?tag=yuruna"
                 # Escape & for strict HTML-attribute correctness — we
                 # inject via .innerHTML so lenient parsers work either
                 # way, but strict ones trip on bare `&` next to

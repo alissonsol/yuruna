@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 4236e7f8-a9b0-4c23-d678-9e0f1a2b3c48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
 
 param(
     [string]$VMName = "ubuntu-server01",
-    # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM)
+    # Forwarded by the test harness (Invoke-TestRunner -> Invoke-NewVM)
     # so every guest in a run agrees on one caching proxy URL. When
     # bound (even to ""), local discovery is skipped and this value is
     # used verbatim: "" = no cache, go direct; URL = use this. When NOT
@@ -68,7 +68,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # Assert-HyperVEnabled calls dism.exe directly instead of
-# Get-WindowsOptionalFeature — avoids the "Class not registered" COM
+# Get-WindowsOptionalFeature -- avoids the "Class not registered" COM
 # failure on first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) {
     Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"
@@ -174,7 +174,7 @@ if (Test-Path -Path $vhdxFile) {
 # 64 GB dynamic VHDX is enough headroom for the k8s + dotnet build
 # workload yet stays a uniform cap across hosts.ubuntu.kvm /
 # windows.hyper-v / macos.utm. Paired with sizing-policy: all in
-# vmconfig/user-data so the root LV consumes the whole PV.
+# host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
 Write-Verbose "Creating 64GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 64GB -Dynamic | Out-Null
 
@@ -186,16 +186,14 @@ $SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
-$VmConfigDir = Join-Path $ScriptDir "vmconfig"
-$MetaDataTemplate = Join-Path $VmConfigDir "meta-data"
-# user-data is the shared base + Hyper-V overlay under host/vmconfig/.
-# Three Split-Path -Parent walks: guest.ubuntu.server.26/ -> windows.hyper-v/
-# -> host/ -> <RepoRoot>. The merger's anchor contract is documented in
-# automation/Yuruna.CloudInitTemplate.psm1.
+# user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
+# byte-identical across the three host platforms; ubuntu.server.24 and .26
+# share one file). Anchor contract: automation/Yuruna.CloudInitTemplate.psm1.
 $RepoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 $HostVmConfigDir = Join-Path $RepoRoot 'host/vmconfig'
 $BaseUserData    = Join-Path $HostVmConfigDir 'ubuntu.server.base.user-data'
 $OverlayUserData = Join-Path $HostVmConfigDir 'ubuntu.server.hyperv.overlay.yml'
+$MetaDataTemplate = Join-Path $HostVmConfigDir 'ubuntu.server.meta-data'
 foreach ($p in @($BaseUserData, $OverlayUserData)) {
     if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
 }
@@ -209,25 +207,25 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 
 # Detect the caching-proxy VM and inject its proxy URL if available.
 # Severity policy:
-#   * No cache VM         → WARNING, proceed (direct CDN)
-#   * Cache VM stopped    → WARNING, proceed (direct CDN)
+#   * No cache VM         -> WARNING, proceed (direct CDN)
+#   * Cache VM stopped    -> WARNING, proceed (direct CDN)
 #   * Cache running, :3128
-#     doesn't answer      → ERROR, exit 1
+#     doesn't answer      -> ERROR, exit 1
 if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
     # URL forwarded by the test runner. Skip discovery so this script
     # and the runner agree on one cache URL. On Hyper-V the race is
     # narrower than UTM (MAC-scoped neighbor lookup, not subnet scan),
     # but one source of truth still simplifies debugging.
     if ($CachingProxyUrl) {
-        Write-Verbose "  caching proxy URL forwarded by caller: $CachingProxyUrl — skipping local discovery."
+        Write-Verbose "  caching proxy URL forwarded by caller: $CachingProxyUrl -- skipping local discovery."
     } else {
-        Write-Verbose "  No proxy forwarded by caller — guest will download directly."
+        Write-Verbose "  No proxy forwarded by caller -- guest will download directly."
     }
 } else {
 $CachingProxyUrl = ""
 $cacheVM = Get-VM -Name "yuruna-caching-proxy" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
-    Write-Warning "  No yuruna-caching-proxy VM exists on this host. Guest will download packages directly from Ubuntu mirrors — expect occasional 429 rate-limit failures on linux-firmware under load."
+    Write-Warning "  No yuruna-caching-proxy VM exists on this host. Guest will download packages directly from Ubuntu mirrors -- expect occasional 429 rate-limit failures on linux-firmware under load."
     Write-Warning "  To enable caching, run: host\windows.hyper-v\guest.caching-proxy\New-VM.ps1"
 } elseif ($cacheVM.State -ne 'Running') {
     Write-Warning "  yuruna-caching-proxy VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
@@ -240,7 +238,7 @@ if (-not $cacheVM) {
     # reports "discovery failed" while the ARP path already found it).
     $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName "yuruna-caching-proxy"
     if ($CachingProxyUrl) {
-        Write-Output "  yuruna-caching-proxy VM detected at $CachingProxyUrl — guest will use local proxy."
+        Write-Output "  yuruna-caching-proxy VM detected at $CachingProxyUrl -- guest will use local proxy."
     } else {
         $cacheIps = Get-CacheVmCandidateIp -VM $cacheVM
         $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
@@ -276,29 +274,16 @@ To intentionally skip the cache:
 }
 }
 
-# Build the autoinstall apt block. We ALWAYS emit it — even when no
-# caching-proxy is reachable — because subiquity's default apt behavior
-# is `geoip: true`, which fires an HTTPS lookup to geoip.ubuntu.com
-# to elect a regional mirror. That lookup is slow and prone to
-# retry-storming during configure_apt/cmd-in-target on this host
-# (adds minutes to every install). `geoip: false` plus an explicit
-# `primary:` pin keeps mirror election deterministic.
-#
-# `primary:` (not `sources_list:`): the Server 24.04 amd64 squashfs ships
-# /etc/apt/sources.list.d/ubuntu.sources (deb822) ALREADY pointing at
-# archive.ubuntu.com. Curtin's apt-config does "modifymirrors" — it
-# rewrites the existing URI in ubuntu.sources to whatever `primary:`
-# says, in place. So one block of pinning is enough; apt sees a single
-# fully-rewritten ubuntu.sources and fetches indexes once. Using
-# `sources_list:` instead writes a SECOND apt config file alongside the
-# existing ubuntu.sources and doubles every per-suite index fetch; see
-# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# Build the autoinstall apt block: always emit `geoip: false` + a pinned
+# `primary:` mirror (deterministic election; `primary:` not `sources_list:`,
+# see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
+# --- See https://yuruna.link/vmconfig#apt-proxy-block
 #
 # `$AptProxyLine` is appended to the end of the `uri:` line below: when a
 # proxy is configured we want a leading newline + 4-space indent so the
 # YAML lands at the same level as `geoip:` / `primary:`; when there's no
 # proxy the whole expansion is empty. The closing `"@` MUST stay on its
-# own line at column 0 — required by PowerShell's here-string parser
+# own line at column 0 -- required by PowerShell's here-string parser
 # (inlining `$(...)"@` raises "The string is missing the terminator").
 $AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
 $AptProxyBlock = @"

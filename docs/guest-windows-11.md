@@ -37,8 +37,10 @@ slmgr /ato
 
 Product keys: [Windows 11 ...](../host/windows.hyper-v/guest.windows.11/vmconfig/README.md).
 
-Back to [Windows 11 Guest - Workloads](../guest/windows.11/README.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

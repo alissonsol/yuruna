@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42e0f1a2-b3c4-4d56-e789-0f1a2b3c4d56
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,13 +98,21 @@ $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
-$VmConfigDir = Join-Path $ScriptDir "vmconfig"
-$UserDataTemplate = Join-Path $VmConfigDir "user-data"
-$MetaDataTemplate = Join-Path $VmConfigDir "meta-data"
-if (-not (Test-Path $UserDataTemplate)) {
-    Write-Error "user-data template not found at '$UserDataTemplate'."
-    exit 1
+# user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
+# byte-identical across the three host platforms). Anchor contract:
+# automation/Yuruna.CloudInitTemplate.psm1.
+$repoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+$hostVmConfigDir = Join-Path $repoRoot 'host/vmconfig'
+$baseUserData    = Join-Path $hostVmConfigDir 'amazon.linux.2023.base.user-data'
+$overlayUserData = Join-Path $hostVmConfigDir 'amazon.linux.2023.utm.overlay.yml'
+$MetaDataTemplate = Join-Path $hostVmConfigDir 'amazon.linux.2023.meta-data'
+foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
+    if (-not (Test-Path -LiteralPath $f)) {
+        Write-Error "Template missing: $f"
+        exit 1
+    }
 }
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $VMName
@@ -139,17 +147,20 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
-# Bake yuruna-retry.sh + fetch-and-execute.sh + yuruna-network.sh into the seed
-# as base64-encoded write_files entries. Eliminates the legacy network-dependent
-# wget+wget bootstrap and ensures all three files are on disk before any guest
-# script runs.
-$YurunaAutomationDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'automation'
-$YurunaRetryLibB64   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna-retry.sh')))
-$YurunaFaeB64        = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'fetch-and-execute.sh')))
-$YurunaNetworkB64    = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $YurunaAutomationDir 'yuruna-network.sh')))
-
-$UserData = (Get-Content -Raw $UserDataTemplate).Replace('SSH_AUTHORIZED_KEY_PLACEHOLDER', $SshAuthorizedKey).Replace('USERNAME_PLACEHOLDER', $Username).Replace('PLAINTEXT_PASSWORD_PLACEHOLDER', $Password).Replace('YURUNA_HOST_IP_PLACEHOLDER', $YurunaHostIp).Replace('YURUNA_HOST_PORT_PLACEHOLDER', $YurunaHostPort).Replace('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER', $YurunaRetryLibB64).Replace('YURUNA_FAE_BASE64_PLACEHOLDER', $YurunaFaeB64).Replace('YURUNA_NETWORK_BASE64_PLACEHOLDER', $YurunaNetworkB64)
+# Build-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
+# fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
+# write_files entries, then resolves the per-cycle placeholders below.
+$UserData = Build-CloudInitUserData `
+    -BasePath    $baseUserData `
+    -OverlayPath $overlayUserData `
+    -RepoRoot    $repoRoot `
+    -Replacement @{
+        USERNAME_PLACEHOLDER           = $Username
+        PLAINTEXT_PASSWORD_PLACEHOLDER = $Password
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+    } -Confirm:$false
 
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline

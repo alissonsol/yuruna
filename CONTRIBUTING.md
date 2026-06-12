@@ -172,6 +172,16 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   `PSScriptAnalyzerSettings.psd1` that PSSA auto-discovers; all
   Error- and Warning-severity findings (including
   `PSUseBOMForUnicodeEncodedFile`) must be zero before merge.
+- **Commit hook** — a repo-tracked `tools/githooks/pre-commit` runs the
+  ASCII/no-BOM gate (`test/Test-AsciiNoBom.ps1`) and blocks a commit that
+  would put a BOM or non-ASCII byte into a byte-parsed bootstrap script
+  (`irm|iex` / `curl|bash`) or first-run guest script. The install scripts
+  activate it automatically via `.gitconfig.yuruna`; on a clone set up by
+  hand, enable it once with
+  `git config --local core.hooksPath tools/githooks`. It is advisory —
+  skipped when `pwsh` is absent and bypassable with
+  `git commit --no-verify` — so the release script must run the same gate as
+  a hard precondition (the authoritative check for the published artifact).
 - **Resources** — keep OpenTofu files simple; minimize variables.
 - **Components** — reusable components are best explained in an
   end-to-end example.
@@ -200,8 +210,10 @@ the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
 `host/<short-host>/guest.*/vmconfig/user-data` and replace
 `refs/heads/main` with your branch. **Revert before opening a PR.**
 
-Back to [Yuruna](README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](README.md)

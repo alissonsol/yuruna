@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,6 +101,15 @@ function Start-GuestWorkload {
             return @{ success=$false; skipped=$false; errorMessage=$errMsg }
         }
         Write-Information "  ${s}: PASS" -InformationAction Continue
+        # Pick up a mid-sequence saveDiskSnapshot rename (e.g. a baseline that
+        # ends in saveDiskSnapshot before a dependent .test loads it) so the next
+        # sequence targets the renamed VM -- the same Get-SequenceFinishedVMName
+        # mechanism Test-Sequence's chain runner uses. No-op when nothing renamed.
+        $finishedVm = Get-SequenceFinishedVMName
+        if ($finishedVm -and $finishedVm -ne $VMName) {
+            Write-Information "  VM renamed mid-chain: '$VMName' -> '$finishedVm'." -InformationAction Continue
+            $VMName = $finishedVm
+        }
     }
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }

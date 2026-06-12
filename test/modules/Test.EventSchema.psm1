@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42f8a7b6-c5d4-4e83-9210-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,13 @@
     fields without a schema migration.
 #>
 
+# The canonical FailureClass/Severity enums live in the leaf taxonomy module so
+# a new class lands in exactly one place. This validator derives its enum
+# mirrors from it; the Register-SequenceAction ValidateSet keeps a guarded
+# literal copy only because a ValidateSet attribute arg must be a constant
+# expression.
+Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global
+
 # Required envelope fields. Every NDJSON record MUST carry these or
 # the entire row is unparseable by a streaming consumer.
 $script:RequiredField = @('timestamp', 'event')
@@ -83,7 +90,12 @@ $script:TypedField = @{
     hostType            = 'string'
     action              = 'string'
     description         = 'string'
+    sequenceName        = 'string'
     sequencePath        = 'string'
+    classificationSource = 'string'
+    reproCommand        = 'string'
+    causeOcrTail        = 'string'
+    causePatternsSought = 'array'
     error               = 'string'
     reason              = 'string'
     pid                 = 'int'
@@ -95,20 +107,13 @@ $script:TypedField = @{
     toState             = 'string'
 }
 
-# FailureClass enum mirror -- kept in sync with the ValidateSet in
-# Test.SequenceAction.psm1's Register-SequenceAction. A failureClass
-# value outside this set is flagged because every downstream consumer
-# (last_failure.json schema v2, the remediation dispatcher) routes on
-# the enum and a typo would silently fall through to 'unknown'.
-$script:FailureClassEnum = @(
-    'ocr_timeout', 'network_timeout', 'credential_expired',
-    'host_io_blocked', 'pattern_matched_failure', 'retry_exhausted',
-    'snapshot_restore_failed', 'script_error', 'wait_timeout',
-    'extension_error', 'instrumentation_failure', 'unknown'
-)
-
-# Severity enum mirror.
-$script:SeverityEnum = @('hard', 'soft', 'unknown')
+# FailureClass / Severity enums, sourced from the canonical Test.FailureTaxonomy
+# module (not re-declared here). A failureClass value outside this set is flagged
+# because every downstream consumer (last_failure.json schema v2, the remediation
+# dispatcher) routes on the enum and a typo would silently fall through to
+# 'unknown'.
+$script:FailureClassEnum = Get-FailureClassEnum
+$script:SeverityEnum     = Get-SeverityEnum
 
 # Runner-state enum mirror -- kept in sync with the StateEnum in
 # Test.RunnerState.psm1's $script:StateEnum. A value outside this

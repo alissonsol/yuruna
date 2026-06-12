@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42fa7b6c-d5e4-4a83-9170-2f3a4b5c6d94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,9 +66,9 @@
 
 # Cycle-folder name patterns. Two shapes:
 #
-#   Bare:           NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTNAME
+#   Bare:           NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTID
 #                   (clean close)
-#   With suffix:    NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTNAME.incomplete
+#   With suffix:    NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTID.incomplete
 #                   (in progress, OR crashed before Stop-LogFile's rename)
 #
 # Anything else under status/log/ is left alone (operator-created

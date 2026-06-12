@@ -111,8 +111,10 @@ move it into the correct module or update this table.
 3. Reference the new sequence (or anything that depends on it) from
    the `project/test/test.runner.yml` `sequences` list.
 
-Back to [Test runner](../README.md) · [Test harness](../../docs/test-harness.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

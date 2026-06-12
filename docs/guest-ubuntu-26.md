@@ -6,8 +6,10 @@ Release-specific: in the fetch-and-execute paths use
 The boot / console-login / time-zone troubleshooting is shared across
 releases: **[Ubuntu Server guest — troubleshooting](guest-ubuntu.md)**.
 
-Back to [Ubuntu Server 26.04 Guest - Workloads](../guest/ubuntu.server.26/README.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

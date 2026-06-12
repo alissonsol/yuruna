@@ -1,0 +1,31 @@
+#!/bin/sh
+# Yuruna pre-commit hook -- block a commit that would put a UTF-8/UTF-16 BOM or
+# a non-ASCII byte into the irm|iex / curl|bash bootstrap installers or the
+# first-run guest scripts. Those are parsed byte-for-byte on a fresh host
+# before any BOM-tolerant shell exists, so a stray BOM aborts first-install at
+# line 1 (feedback_bootstrap_installer_no_bom). Mirrors the per-cycle gate in
+# Test-Config.ps1.
+#
+# Activated per-clone via core.hooksPath = tools/githooks (set in
+# .gitconfig.yuruna, which the install scripts include). Advisory by design: a
+# contributor without pwsh is skipped with a warning, and
+# `git commit --no-verify` bypasses it. The release script's hard gate is the
+# authoritative backstop for the published artifact.
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+gate="$repo_root/test/Test-AsciiNoBom.ps1"
+[ -f "$gate" ] || exit 0
+
+if ! command -v pwsh >/dev/null 2>&1; then
+    echo "pre-commit: pwsh not found; skipping the ASCII/BOM gate (install PowerShell 7 to enable it)." >&2
+    exit 0
+fi
+
+if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -Quiet; then
+    echo "" >&2
+    echo "pre-commit: ASCII/BOM gate failed (see test/Test-AsciiNoBom.ps1 output above)." >&2
+    echo "  A BOM or non-ASCII byte in a bootstrap / first-run script breaks first-install." >&2
+    echo "  Fix the flagged file(s), or bypass with 'git commit --no-verify' (discouraged)." >&2
+    exit 1
+fi
+exit 0

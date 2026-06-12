@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,12 +110,38 @@ function Get-OuterConfigMtime {
 # Read testCycle.stepTimeoutMinutes from test.config.yml each cycle so
 # an operator can edit between cycles and the new bound takes effect
 # on the next spawn without restarting the outer.
+# Get-OuterPoolTestCycleOverride extracts a pool's config.testCycle override map
+# from the pool object Sync-YurunaPoolIntent returns. PURE + null-safe: returns @{}
+# for a null pool / no config / no testCycle, so a no-pool host overlays nothing
+# (identical to single-host today). Read straight off the pool object -- not the
+# pool.manifest.json -- so a pool that authors a testCycle override WITHOUT test-sets
+# still applies it (the manifest is deleted when a pool has no test-sets).
+function Get-OuterPoolTestCycleOverride {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter()][AllowNull()]$Pool)
+    if (-not ($Pool -is [System.Collections.IDictionary])) { return @{} }
+    $cfg = $Pool['config']
+    if (-not ($cfg -is [System.Collections.IDictionary])) { return @{} }
+    $tc = $cfg['testCycle']
+    if (-not ($tc -is [System.Collections.IDictionary])) { return @{} }
+    # Copy into a plain hashtable so callers index it uniformly (the source is the
+    # OrderedDictionary ConvertFrom-Yaml produced).
+    $out = @{}
+    foreach ($k in $tc.Keys) { $out[[string]$k] = $tc[$k] }
+    return $out
+}
+
 function Get-OuterStepTimeoutMinute {
     [CmdletBinding()]
     [OutputType([int])]
     param(
         [Parameter(Mandatory)][string]$ConfigPath,
-        [Parameter(Mandatory)][int]$DefaultMinutes
+        [Parameter(Mandatory)][int]$DefaultMinutes,
+        # Per-pool config.testCycle overrides (from Get-OuterPoolTestCycleOverride).
+        # An override here WINS over test.config.yml (precedence: pool > config >
+        # default). Empty @{} for a no-pool host -> identical to single-host.
+        [Parameter()][hashtable]$PoolTestCycleOverride = @{}
     )
     # -NoCache so a mid-cycle operator edit (the "lower stepTimeout for
     # the next cycle" workflow documented in test/README.md) takes effect
@@ -123,11 +149,15 @@ function Get-OuterStepTimeoutMinute {
     # hasn't noticed yet on a low-resolution filesystem.
     $cfg = Read-TestConfig -Path $ConfigPath -NoCache
     $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.stepTimeoutMinutes'
+    $result = $DefaultMinutes
     if ($null -ne $v) {
         $i = [int]$v
-        if ($i -gt 0) { return $i }
+        if ($i -gt 0) { $result = $i }
     }
-    return $DefaultMinutes
+    if ($PoolTestCycleOverride.ContainsKey('stepTimeoutMinutes') -and ([int]$PoolTestCycleOverride['stepTimeoutMinutes'] -gt 0)) {
+        $result = [int]$PoolTestCycleOverride['stepTimeoutMinutes']
+    }
+    return $result
 }
 
 function Get-OuterAutoRemediation {
@@ -135,11 +165,16 @@ function Get-OuterAutoRemediation {
     .SYNOPSIS
         Read the default-off auto-remediation opt-in (enable flag + per-streak
         cap) fresh from test.config.yml so an operator edit takes effect at the
-        spawn boundary, like Get-OuterStepTimeoutMinute.
+        spawn boundary, like Get-OuterStepTimeoutMinute. A per-pool config.testCycle
+        override WINS over the local config (pool > config > default), so a pool can
+        ENGAGE remediation fleet-wide without editing every host's test.config.yml.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$ConfigPath)
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter()][hashtable]$PoolTestCycleOverride = @{}
+    )
     $enabled = $false
     $maxAttempts = 2
     try {
@@ -149,6 +184,12 @@ function Get-OuterAutoRemediation {
         $m = Get-TestConfigValue -Config $cfg -Path 'testCycle.autoRemediationMaxAttemptsPerCycle'
         if (($null -ne $m) -and ([int]$m -gt 0)) { $maxAttempts = [int]$m }
     } catch { Write-Verbose "Get-OuterAutoRemediation: $($_.Exception.Message)" }
+    if ($PoolTestCycleOverride.ContainsKey('autoRemediationEnabled')) {
+        $enabled = [bool]$PoolTestCycleOverride['autoRemediationEnabled']
+    }
+    if ($PoolTestCycleOverride.ContainsKey('autoRemediationMaxAttemptsPerCycle') -and ([int]$PoolTestCycleOverride['autoRemediationMaxAttemptsPerCycle'] -gt 0)) {
+        $maxAttempts = [int]$PoolTestCycleOverride['autoRemediationMaxAttemptsPerCycle']
+    }
     return @{ Enabled = $enabled; MaxAttempts = $maxAttempts }
 }
 
@@ -288,6 +329,54 @@ function Invoke-RunnerOuterLoop {
             }
         }
 
+        # 1b. Pool intent sync (best-effort, IN-PROCESS, DEFAULT-OFF). Pull the
+        #     pool intent over the LAN and reconcile desiredState BEFORE spawning
+        #     the inner, so a pulled paused/drain gates THIS cycle. A no-op (single
+        #     try-wrapped call that short-circuits) when pool sync is unconfigured
+        #     -- a no-pool host is unaffected. The pull is wall-clock-bounded +
+        #     credential-prompt-proof inside Sync-YurunaPoolIntent, so this can't
+        #     hang the (bare-pwsh-INTERACTIVE) outer loop; any error is non-fatal.
+        # Per-pool config.testCycle override (default-off, empty for a no-pool host),
+        # captured at the cycle boundary so the watchdog (step-timeout) + the failure-
+        # pause (auto-remediation) below can let a pool ENGAGE remediation / tighten
+        # the step timeout fleet-wide without editing each host's test.config.yml.
+        $poolTC = @{}
+        if (Get-Command Sync-YurunaPoolIntent -ErrorAction SilentlyContinue) {
+            $poolState = 'run'
+            try {
+                $poolObj   = Sync-YurunaPoolIntent
+                $poolState = Resolve-YurunaPoolDesiredState -Pool $poolObj
+                if (Get-Command Get-OuterPoolTestCycleOverride -ErrorAction SilentlyContinue) {
+                    $poolTC = Get-OuterPoolTestCycleOverride -Pool $poolObj
+                }
+            } catch {
+                Write-OuterLog "[outer cycle $cycle] pool sync error (non-fatal): $($_.Exception.Message)"
+            }
+            if ($poolState -eq 'drain') {
+                # Stop-after-cycle: any in-flight cycle already completed (this
+                # runs at the cycle boundary), so draining never corrupts an
+                # accumulating cycle. The host stops; re-adding it (set desiredState
+                # back to run + restart the runner) rejoins the pool.
+                Write-Output "[outer cycle $cycle] pool desiredState=drain -- stopping (no further cycles)."
+                Write-OuterLog "[outer cycle $cycle] pool desiredState=drain -- requesting shutdown at the cycle boundary."
+                $State.ShutdownState['Requested'] = $true
+                break
+            }
+            if ($poolState -eq 'paused') {
+                # Healthy hold (distinct from the failure-pause below): the outer
+                # while-loop IS the poll -- log, reflect 'paused' in the runner
+                # state, sleep, and re-pull intent next iteration. Flips back to a
+                # normal cycle as soon as a pull shows desiredState=run.
+                if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+                    $null = Set-RunnerState -To 'paused' -Reason "pool desiredState=paused (cycle $cycle)" -Confirm:$false
+                }
+                Write-Output "[outer cycle $cycle] pool desiredState=paused -- holding; re-checking intent in 30s."
+                Write-OuterLog "[outer cycle $cycle] pool desiredState=paused -- holding (no cycle spawned)."
+                Start-Sleep -Seconds 30
+                continue
+            }
+        }
+
         # 2. Spawn the inner. YURUNA_RUNNER_RELAUNCH=1 tells the inner
         #    that we (the outer) own the pidfile + Ctrl+C handler;
         #    inner skips its own copies of those. Sync-ForwardEnv
@@ -362,7 +451,7 @@ function Invoke-RunnerOuterLoop {
         # heartbeat. Re-read stepTimeoutMinutes each cycle so an
         # operator can tighten / loosen the bound between cycles
         # without restarting the outer.
-        $stepTimeoutMin = Get-OuterStepTimeoutMinute -ConfigPath $State.ConfigPath -DefaultMinutes $State.StepTimeoutMinutesDefault
+        $stepTimeoutMin = Get-OuterStepTimeoutMinute -ConfigPath $State.ConfigPath -DefaultMinutes $State.StepTimeoutMinutesDefault -PoolTestCycleOverride $poolTC
         Write-OuterLog "[outer cycle $cycle] watchdog: stepTimeoutMinutes=$stepTimeoutMin"
         $watchdogJob = Start-Watchdog -StepTimeoutMinutes $stepTimeoutMin -RuntimeDir $env:YURUNA_RUNTIME_DIR -PollSeconds $State.WatchdogPollSeconds
         # A watchdog that failed to arm (null job, or one already in a
@@ -404,6 +493,158 @@ function Invoke-RunnerOuterLoop {
         Write-Output "[outer cycle $cycle] inner exited with code $exitCode"
         Write-OuterLog "[outer cycle $cycle] inner exited with code $exitCode"
 
+        # === poolStorage health surfacing (best-effort) ===========================
+        # The drain below runs DETACHED + best-effort, so a host that has STOPPED
+        # replicating (bad credential, read-only share, a Windows drive-letter /
+        # credential collision) records the failure ONLY in the ledger -- where no
+        # operator looks. Read the PRIOR drain's ledger (the one fired at the end of
+        # the previous cycle has had a full cycle to finish) and WARN to console +
+        # outer.log when replication is failing/stalled, so a silent failure becomes
+        # visible. Never throws; a missing module / config / ledger just skips it.
+        try {
+            if (-not (Get-Command Get-PoolStorageHealthWarning -ErrorAction SilentlyContinue)) {
+                $psHealthMod = Join-Path $PSScriptRoot 'Test.PoolStorage.psm1'
+                if (Test-Path -LiteralPath $psHealthMod) { Import-Module $psHealthMod -ErrorAction SilentlyContinue }
+            }
+            if ((Get-Command Read-PoolStorageLedger -ErrorAction SilentlyContinue) -and
+                (Get-Command Get-PoolStorageHealthWarning -ErrorAction SilentlyContinue) -and
+                (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+                $psReplicate = $false
+                try {
+                    $psCfgNow = Read-TestConfig -Path $State.ConfigPath
+                    if (($psCfgNow -is [System.Collections.IDictionary]) -and
+                        ($psCfgNow['poolStorage'] -is [System.Collections.IDictionary])) {
+                        $psReplicate = [bool]$psCfgNow['poolStorage']['replicate']
+                    }
+                } catch { $null = $_ }
+                if ($psReplicate) {
+                    $psLedger = Read-PoolStorageLedger -RuntimeDir $env:YURUNA_RUNTIME_DIR
+                    $psWarn   = Get-PoolStorageHealthWarning -Ledger $psLedger -Replicate $true
+                    if ($psWarn) {
+                        Write-Warning "[outer cycle $cycle] $psWarn"
+                        Write-OuterLog "[outer cycle $cycle] poolStorage health: $psWarn"
+                    }
+                }
+            }
+        } catch {
+            Write-Verbose "poolStorage health check skipped: $($_.Exception.Message)"
+        }
+
+        # === yuruna pool storage replication (best-effort, DETACHED) ===
+        # Fire the backlog-draining replicator in its OWN detached process so a
+        # slow/absent NAS can NEVER delay the next cycle. The drain self-dedupes
+        # (single-instance lock file), fail-fasts on an unreachable share, copies
+        # every not-yet-replicated cycle atomically, and is a no-op unless
+        # poolStorage.replicate is configured. Spawn failure is non-fatal. Detach
+        # idiom mirrors Start-StatusService.ps1 (empty stdin sink on Windows so the
+        # child can't pin conhost; nohup + own process group on macOS/Linux).
+        try {
+            $drainScript = Join-Path $PSScriptRoot 'Invoke-PoolStorageDrain.ps1'
+            if (Test-Path -LiteralPath $drainScript) {
+                $hid = if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) { [string](Get-YurunaHostId) } else { '' }
+                $drainErr = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.drain.err'
+                if ($IsWindows) {
+                    $drainStdin = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.drain.stdin.empty'
+                    if (-not (Test-Path -LiteralPath $drainStdin)) { [System.IO.File]::WriteAllBytes($drainStdin, [byte[]]@()) }
+                    $drainOut = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.drain.out'
+                    $scriptQuoted = '"' + $drainScript + '"'
+                    Start-Process -FilePath $State.PwshExe `
+                        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $scriptQuoted, "-HostId", $hid `
+                        -RedirectStandardInput  $drainStdin `
+                        -RedirectStandardOutput $drainOut `
+                        -RedirectStandardError  $drainErr | Out-Null
+                } else {
+                    & bash -c "set -m; nohup '$($State.PwshExe)' -NoProfile -File '$drainScript' -HostId '$hid' </dev/null >/dev/null 2>'$drainErr' & echo `$!" | Out-Null
+                }
+            }
+        } catch {
+            Write-Warning "[outer cycle $cycle] poolStorage drain spawn error (non-fatal): $($_.Exception.Message)"
+        }
+
+        # === pool push forwarder (Phase 6, best-effort, DETACHED) ===
+        # Ship this cycle's NDJSON events to the aggregator's /ingest so they reach Loki
+        # without waiting for the next 30s pull. Runs in its OWN detached process (same
+        # idiom as the drain) so a slow/absent aggregator can NEVER delay the next cycle
+        # (preserving read-side decoupling); pull backfills anything push drops. The
+        # forwarder self-gates: it is a fast no-op unless the pool-auth-token is configured
+        # (the operator's push opt-in) AND a caching-proxy is reachable. Spawn failure is
+        # non-fatal.
+        try {
+            $pushScript = Join-Path $PSScriptRoot 'Invoke-PoolPushForwarder.ps1'
+            if (Test-Path -LiteralPath $pushScript) {
+                $phid = if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) { [string](Get-YurunaHostId) } else { '' }
+                $pushErr = Join-Path $env:YURUNA_RUNTIME_DIR 'poolpush.forwarder.err'
+                if ($IsWindows) {
+                    $pushStdin = Join-Path $env:YURUNA_RUNTIME_DIR 'poolpush.forwarder.stdin.empty'
+                    if (-not (Test-Path -LiteralPath $pushStdin)) { [System.IO.File]::WriteAllBytes($pushStdin, [byte[]]@()) }
+                    $pushOut = Join-Path $env:YURUNA_RUNTIME_DIR 'poolpush.forwarder.out'
+                    $pushScriptQuoted = '"' + $pushScript + '"'
+                    Start-Process -FilePath $State.PwshExe `
+                        -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $pushScriptQuoted, "-HostId", $phid `
+                        -RedirectStandardInput  $pushStdin `
+                        -RedirectStandardOutput $pushOut `
+                        -RedirectStandardError  $pushErr | Out-Null
+                } else {
+                    & bash -c "set -m; nohup '$($State.PwshExe)' -NoProfile -File '$pushScript' -HostId '$phid' </dev/null >/dev/null 2>'$pushErr' & echo `$!" | Out-Null
+                }
+            }
+        } catch {
+            Write-Warning "[outer cycle $cycle] pool push spawn error (non-fatal): $($_.Exception.Message)"
+        }
+
+        # === pool alert notifier (best-effort, BOUNDED cycle-end hook) =============
+        # On the ONE host the operator configured the pool.alert transport, deliver the
+        # aggregator's ADVISORY pool-degraded alerts: read the latched yuruna_pool_alert_
+        # active gauge over HTTP, enqueue rising edges on the poolStorage NAS spool, deliver
+        # via the notification extension, move to delivered/. Self-elects -- a clean no-op
+        # everywhere the transport is not configured. Fully bounded (HTTP -TimeoutSec on the
+        # gauge fetch AND the Resend POST, plus a per-cycle message cap) and never throws,
+        # so it is safe on the bare-pwsh-INTERACTIVE outer loop (the cycle-end hook
+        # prompt-safe + subprocess-bounded contract). IN-PROCESS so the dispatcher's delivery
+        # ledger (the confirmation channel) is readable; no detached spawn needed.
+        try {
+            # Import the notifier + its dependencies (poolStorage config, caching-proxy IP,
+            # the Send-Notification dispatcher) best-effort. Plain Import-Module (no -Force)
+            # is idempotent and avoids the global-module-eviction trap.
+            foreach ($m in @('Test.PoolStorage.psm1', 'Test.CachingProxy.psm1', 'Test.Notify.psm1', 'Test.PoolNotifier.psm1')) {
+                $mp = Join-Path $PSScriptRoot $m
+                if (Test-Path -LiteralPath $mp) { Import-Module $mp -ErrorAction SilentlyContinue }
+            }
+            if (Get-Command Invoke-PoolNotifierCycle -ErrorAction SilentlyContinue) {
+                $notifierCfg = $null
+                if (Get-Command Read-TestConfig -ErrorAction SilentlyContinue) {
+                    try { $notifierCfg = Read-TestConfig -Path $State.ConfigPath } catch { $null = $_ }
+                }
+                $notifySummary = $null
+                # The notifier touches the poolStorage NAS in-process (it needs the delivery
+                # ledger to confirm a send). A wedged CIFS mount mid-drain could otherwise
+                # block here for the OS SMB timeout, stalling the unattended loop. Run it in a
+                # thread job with a hard wall-clock cap: Wait-Job -Timeout returns control to
+                # the loop even if a syscall is still blocked (the loop moves on; an
+                # uncompleted delivery simply retries next cycle). Send-Notification works in a
+                # thread job -- the async notification path relies on the same.
+                if (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue) {
+                    $njob = Start-ThreadJob -Name "pool-notifier-$cycle" -ScriptBlock {
+                        Invoke-PoolNotifierCycle -Config $using:notifierCfg
+                    }
+                    if (Wait-Job -Job $njob -Timeout 120) {
+                        $notifySummary = Receive-Job -Job $njob -ErrorAction SilentlyContinue
+                    } else {
+                        Write-OuterLog "[outer cycle $cycle] pool notifier exceeded 120s -- detaching; will retry next cycle."
+                        Stop-Job -Job $njob -ErrorAction SilentlyContinue
+                    }
+                    Remove-Job -Job $njob -Force -ErrorAction SilentlyContinue
+                } else {
+                    $notifySummary = Invoke-PoolNotifierCycle -Config $notifierCfg
+                }
+                if ($notifySummary -and $notifySummary.ran -and (($notifySummary.enqueued + $notifySummary.delivered + $notifySummary.failed + $notifySummary.retried) -gt 0)) {
+                    Write-OuterLog "[outer cycle $cycle] pool notifier: enqueued=$($notifySummary.enqueued) delivered=$($notifySummary.delivered) retried=$($notifySummary.retried) failed=$($notifySummary.failed)"
+                }
+            }
+        } catch {
+            Write-Verbose "pool notifier hook skipped: $($_.Exception.Message)"
+        }
+
         # Watchdog-kill detection: when the inner exits non-zero AND
         # the last step heartbeat is older than the threshold, the
         # cause was almost certainly the watchdog (the exit code is
@@ -422,18 +663,38 @@ function Invoke-RunnerOuterLoop {
                     # A SIGKILL leaves no last_failure.json (the inner's application
                     # failure path cannot run), so the auto-remediation pause-skip
                     # below has nothing to classify and the cycle escalates straight
-                    # to the full human-wait pause. Synthesize a minimal record --
-                    # only when the inner left none -- with the already-wired
-                    # 'wait_timeout' class so the streak-capped auto-retry can end
-                    # the pause early. Atomic write so a reader never sees a partial
-                    # record; the existing per-streak cap still escalates a
+                    # to the full human-wait pause. Synthesize a minimal schema-v2
+                    # record -- only when the inner left none -- with the already-
+                    # wired 'wait_timeout' class so the streak-capped auto-retry can
+                    # end the pause early. Atomic write so a reader never sees a
+                    # partial record; the existing per-streak cap still escalates a
                     # deterministic hang after MaxAttempts.
                     $synthFailureFile = if ($env:YURUNA_LOG_DIR) { Join-Path $env:YURUNA_LOG_DIR 'last_failure.json' } else { $null }
                     if ($synthFailureFile -and -not (Test-Path -LiteralPath $synthFailureFile) -and (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue)) {
                         $null = Write-YurunaStateFileJson -Path $synthFailureFile -Confirm:$false -InputObject ([ordered]@{
+                            schemaVersion           = 2
+                            reason                  = 'watchdog_kill'
                             failureClass            = 'wait_timeout'
                             severity                = 'hard'
-                            reason                  = 'watchdog_kill'
+                            classificationSource    = 'synthetic'
+                            # SIGKILL destroyed the inner runspace that held the only
+                            # structured step location (runner.stepHeartbeat records a
+                            # bare mtime; current-action.json a free-text line), so
+                            # these stay unresolved -- 0 / '' (not omitted) keeps the
+                            # schema-v2 contract satisfied and Invoke-Remediation
+                            # null-safe.
+                            stepNumber              = 0
+                            sequenceName            = ''
+                            # Remaining schema-v2 file fields so the record genuinely
+                            # matches the shape New-SequenceFailureRecord emits (all
+                            # 'unresolved' -- a SIGKILL left no inner state to read).
+                            totalSteps              = 0
+                            action                  = 'watchdog kill (inner runspace SIGKILLed)'
+                            description             = 'Outer watchdog killed a wedged inner; no in-runspace failure state survived.'
+                            vmName                  = ''
+                            guestKey                = ''
+                            actionVerb              = 'watchdog'
+                            suggestedRecoveries     = @()
                             stepHeartbeatAgeSeconds = [int]$hbAge
                             stepTimeoutSeconds      = ($stepTimeoutMin * 60)
                             cycle                   = $cycle
@@ -583,7 +844,7 @@ function Invoke-RunnerOuterLoop {
                 # the normal wait-for-human pause after a couple of fast retries.
                 # Everything else (pause_and_inspect / operator_intervention_
                 # required / restart_from_snapshot classes) keeps the full pause.
-                $autoRem = Get-OuterAutoRemediation -ConfigPath $State.ConfigPath
+                $autoRem = Get-OuterAutoRemediation -ConfigPath $State.ConfigPath -PoolTestCycleOverride $poolTC
                 if ($autoRem.Enabled -and $remediationAutoSkips -lt $autoRem.MaxAttempts) {
                     $failClass = Get-OuterLastFailureClass
                     if ($failClass -in @('wait_timeout','instrumentation_failure','network_timeout','host_io_blocked')) {
@@ -626,5 +887,6 @@ function Invoke-RunnerOuterLoop {
 Export-ModuleMember -Function `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
+    Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, `
     Sync-ForwardEnv, Write-OuterLog, `
     Invoke-RunnerOuterLoop

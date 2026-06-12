@@ -82,8 +82,10 @@ Implementation:
 (search for "Threat model" near the top of the module for the same
 text in code).
 
-Back to [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

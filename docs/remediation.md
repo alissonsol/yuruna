@@ -43,6 +43,19 @@ this small finite set instead of free-text matching:
 | `operator_intervention_required` | The runner cannot self-recover (vault password wrong, image unsigned). |
 | `escalate` | Reserved — a valid recommendation an external handler may return to flag a novel case for the framework to learn. No built-in handler emits it; the no-handler / handler-error fallback is `operator_intervention_required`. |
 
+## Inner-cause routing past `retry_exhausted`
+
+An exhausted `retry` reports the outer class `retry_exhausted`, which
+masks the deepest verb's actionable cause. The failure record preserves
+that cause in `innerFailureClass`; when the outer class is
+`retry_exhausted` and the inner class has its own registered handler, the
+dispatcher routes on the **inner** class so the recommendation targets
+the real failure rather than the generic retry wrapper. `severity` and
+`suggestedRecoveries` follow the routed class; the outer class stays
+visible as `RoutedFromFailureClass` on the result and `outerFailureClass`
+on the `remediation_recommended` event. With no inner class (or no inner
+handler) the dispatcher routes on the outer class unchanged.
+
 ## Advisory by design
 
 Handlers return **what the caller should do**, not what they
@@ -73,17 +86,29 @@ validator that gates the cycle event stream.
 
 ## Adding a new failure class
 
-1. Add the new value to the `FailureClass` enum in
-   [`Test.SequenceAction`](../test/modules/Test.SequenceAction.psm1).
+1. Add the new value to the canonical `FailureClass` list in
+   [`Test.FailureTaxonomy`](../test/modules/Test.FailureTaxonomy.psm1)
+   AND to the literal `ValidateSet` in
+   [`Test.SequenceAction`](../test/modules/Test.SequenceAction.psm1)
+   (a `ValidateSet` attribute argument must be a constant expression, so
+   it can't read the shared array; an `Assert-FailureTaxonomyInSync` call
+   at module load warns if the two ever drift). The event-schema
+   validator derives its enum from the taxonomy module automatically.
+   Built-in infra classes already added this way: `provisioning_failure`,
+   `bootstrap_sync`, `plan_invalid`.
 2. Register a handler in
    [`Test.Remediation`](../test/modules/Test.Remediation.psm1)'s
    built-in block, or from an external module via
    `Register-RecoveryHandler`.
 3. The handler is a `param([hashtable]$c)` scriptblock that reads
    `$c.Failure` (the parsed last_failure.json) and `$c.Context`
-   (vmName, guestKey, hostType, stepNumber, actionVerb, severity,
-   suggestedRecoveries), returning `@{ Recommendation = '<enum>';
-   Rationale = '<short>' }` (optional `Actions`, `HandledBy`,
+   (`vmName`, `guestKey`, `hostType`, `stepNumber`, `actionVerb`,
+   `severity`, `suggestedRecoveries`, `failureClass`, plus the
+   actionability fields `sequenceName`, `sequencePath`,
+   `matchedFailurePattern`, `innerFailureClass`, `outerFailureClass`,
+   and `reproCommand` — each an empty string when absent, so a handler
+   string-tests without a null guard), returning `@{ Recommendation =
+   '<enum>'; Rationale = '<short>' }` (optional `Actions`, `HandledBy`,
    `AutoApply`). Severity is attached by the dispatcher from the
    failure record, not by the handler.
 4. The startup capability matrix picks up the registration
@@ -97,8 +122,10 @@ validator that gates the cycle event stream.
 - [Watchdog and heartbeat protocol](watchdog.md) — the kill side of self-healing.
 - [Runner state machine](runner-state.md) — explicit lifecycle that surfaces a fault transition.
 
-Back to [Test harness](test-harness.md) · [Yuruna](../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../README.md)

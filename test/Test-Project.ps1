@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 4292b214-b454-46f0-976c-81a548f8de5d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,11 @@ param(
     # in the cycle itself instead of at startup. Mirrors -NoConfigGate
     # on Invoke-TestRunner / Test-Sequence.
     [switch]$NoConfigGate,
+    # Skip the built-in HTTP status server. Test-Project starts no server of
+    # its own -- it delegates that to the inner runner it spawns -- so this is
+    # forwarded to Invoke-TestInnerRunner, where the shared status-service gate
+    # honors it. Mirrors -NoServer on Invoke-TestRunner / Test-Sequence.
+    [switch]$NoServer,
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel
 )
@@ -271,6 +276,9 @@ $innerParams = [ordered]@{
     NoGitPull      = [switch]::new($true)
     NoProjectClone = [switch]::new($true)
 }
+# Forward -NoServer so the inner's shared status-service gate honors it; the
+# server is the inner's responsibility, so Test-Project only passes it through.
+if ($NoServer)                                  { $innerParams['NoServer'] = [switch]::new($true) }
 if ($PSBoundParameters.ContainsKey('logLevel')) { $innerParams['logLevel'] = $logLevel }
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $innerParams
 

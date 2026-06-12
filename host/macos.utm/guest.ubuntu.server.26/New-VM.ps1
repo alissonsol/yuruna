@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.06.05
+<#PSScriptInfo
+.VERSION 2026.06.12
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
 
 param(
     [string]$VMName = "ubuntu-server01",
-    # Forwarded by the test harness (Invoke-TestRunner → Invoke-NewVM) so
+    # Forwarded by the test harness (Invoke-TestRunner -> Invoke-NewVM) so
     # every guest in a run agrees on a single caching proxy URL. When bound
     # (even to ""), the local subnet probe is skipped and this value is
     # used verbatim: "" means "no cache, go direct"; a URL means "use this".
@@ -160,7 +160,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # === Create copies and files for VM ===
 
-# Load shared helpers (retry-on-EACCES bundle removal — handles the race
+# Load shared helpers (retry-on-EACCES bundle removal -- handles the race
 # where UTM.app / QEMUHelper.xpc still holds file handles on disk.qcow2
 # immediately after `utmctl delete`).
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
@@ -178,11 +178,11 @@ $DestIso = "$DataDir/$VMName.iso"
 Copy-Item -Path $baseImageFile -Destination $DestIso
 Write-Verbose "Copied installer ISO as: $VMName.iso"
 
-# Create blank disk for installation (64GB, qcow2 sparse — grows on
+# Create blank disk for installation (64GB, qcow2 sparse -- grows on
 # demand inside the qcow2 container, so the host doesn't pre-reserve
 # the full nominal size). Uniform cap across hosts.ubuntu.kvm /
 # windows.hyper-v / macos.utm. Paired with sizing-policy: all in
-# vmconfig/user-data so the root LV consumes the whole PV.
+# host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Verbose "Creating 64GB disk image (qcow2 format for QEMU backend)..."
 & qemu-img create -f qcow2 "$DiskImage" 64G 2>&1 | ForEach-Object { Write-Verbose $_ }
@@ -196,16 +196,14 @@ $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
-$VmConfigDir = Join-Path $ScriptDir "vmconfig"
-$MetaDataTemplate = Join-Path $VmConfigDir "meta-data"
-# user-data is the shared base + UTM overlay under host/vmconfig/.
-# Three Split-Path -Parent walks: guest.ubuntu.server.26/ -> macos.utm/
-# -> host/ -> <RepoRoot>. The merger's anchor contract is documented in
-# automation/Yuruna.CloudInitTemplate.psm1.
+# user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
+# byte-identical across the three host platforms; ubuntu.server.24 and .26
+# share one file). Anchor contract: automation/Yuruna.CloudInitTemplate.psm1.
 $RepoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 $HostVmConfigDir = Join-Path $RepoRoot 'host/vmconfig'
 $BaseUserData    = Join-Path $HostVmConfigDir 'ubuntu.server.base.user-data'
 $OverlayUserData = Join-Path $HostVmConfigDir 'ubuntu.server.utm.overlay.yml'
+$MetaDataTemplate = Join-Path $HostVmConfigDir 'ubuntu.server.meta-data'
 foreach ($p in @($BaseUserData, $OverlayUserData)) {
     if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
 }
@@ -225,23 +223,23 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 # NAT reach that LAN IP through VMnet's outbound NAT (same path they
 # use to reach Ubuntu mirrors), so no host-side TCP forwarder layer is
 # needed. Discovery delegates to Test-CachingProxyAvailable, which owns
-# the (state-file fast path → LAN /24 scan → state refresh) logic.
+# the (state-file fast path -> LAN /24 scan -> state refresh) logic.
 #
 # Severity policy:
-#   * Test-CachingProxyAvailable returns a URL → inject it.
+#   * Test-CachingProxyAvailable returns a URL -> inject it.
 #   * utmctl sees the cache VM started
-#     but no :3128 answer on the LAN          → ERROR, exit 1 (the cache
+#     but no :3128 answer on the LAN          -> ERROR, exit 1 (the cache
 #                                                came up but is not on
 #                                                LAN; bridge interface
 #                                                or DHCP problem).
-#   * Cache VM not registered / not started   → WARNING, proceed direct.
+#   * Cache VM not registered / not started   -> WARNING, proceed direct.
 if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
     # URL was forwarded by the caller (test runner). Skip the probe so this
     # script and the runner's detection agree on a single cache URL.
     if ($CachingProxyUrl) {
-        Write-Verbose "  caching proxy URL forwarded by caller: $CachingProxyUrl — skipping local probe."
+        Write-Verbose "  caching proxy URL forwarded by caller: $CachingProxyUrl -- skipping local probe."
     } else {
-        Write-Verbose "  No proxy forwarded by caller — guest will download directly."
+        Write-Verbose "  No proxy forwarded by caller -- guest will download directly."
     }
 } else {
 $CachingProxyUrl = ""
@@ -272,7 +270,7 @@ try { $probedUrl = Test-CachingProxyAvailable } catch {
 
 if ($probedUrl) {
     $CachingProxyUrl = $probedUrl
-    Write-Verbose "  caching-proxy reachable on LAN — guest will use $CachingProxyUrl."
+    Write-Verbose "  caching-proxy reachable on LAN -- guest will use $CachingProxyUrl."
 } elseif ($squidStatus -and $squidStatus.ToString().Trim() -match 'start') {
     # VM is up but no :3128 answer was found on the LAN. Could be: the
     # bridged DHCP lease failed (Wi-Fi AP MAC filter), cloud-init still
@@ -311,29 +309,19 @@ To intentionally skip the cache:
     Write-Warning "  To enable caching: test/Start-CachingProxy.ps1"
 } else {
     if (-not $utmctl) {
-        Write-Warning "  utmctl not found — can't query UTM directly, and nothing answers on the LAN /24 either."
+        Write-Warning "  utmctl not found -- can't query UTM directly, and nothing answers on the LAN /24 either."
     } else {
         Write-Warning "  No yuruna-caching-proxy VM registered with UTM and nothing answers on the LAN /24."
     }
-    Write-Warning "  Guest will download directly — expect 429 rate-limit failures on linux-firmware under load."
+    Write-Warning "  Guest will download directly -- expect 429 rate-limit failures on linux-firmware under load."
     Write-Warning "  To enable caching, run: test/Start-CachingProxy.ps1"
 }
 }
 
-# Build the autoinstall apt block. Always emit `geoip: false` + a pinned
-# primary mirror, even when no caching-proxy is reachable -- subiquity's
-# default `geoip: true` fires an HTTPS lookup to geoip.ubuntu.com that
-# adds seconds to mirror election. Pinning primary makes the election
-# deterministic and lets curtin's `modifymirrors` rewrite the existing
-# /etc/apt/sources.list.d/ubuntu.sources (Deb822) in-place. Format /
-# placement match the hyper-v and kvm sister scripts.
-#
-# Do NOT use curtin's `sources_list:` template plus a separate
-# `sources:` entry. On noble's curtin it doubles per-suite index
-# fetches; on resolute's curtin (subiquity snap 7227) it aborts
-# `subiquity/Mirror/cmd-apt-config` with exit 1 and drops to "An error
-# occurred. Press enter to start a shell". See
-# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# Build the autoinstall apt block: always emit `geoip: false` + a pinned
+# `primary:` mirror (deterministic election; `primary:` not `sources_list:`,
+# see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
+# --- See https://yuruna.link/vmconfig#apt-proxy-block
 #
 # Primary URI is the ports mirror because macOS UTM is always aarch64.
 $AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
@@ -376,7 +364,7 @@ if ($CachingProxyUrl -and $cacheVmIp) {
         if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
             $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
             $CaCertBase64 = [Convert]::ToBase64String($caBytes)
-            Write-Verbose "  Fetched caching-proxy CA from $cacheVmCaUrl ($($caBytes.Length) bytes) — embedded in seed."
+            Write-Verbose "  Fetched caching-proxy CA from $cacheVmCaUrl ($($caBytes.Length) bytes) -- embedded in seed."
         }
     } catch {
         Write-Warning "  Could not fetch CA cert from ${cacheVmCaUrl} : $($_.Exception.Message)"

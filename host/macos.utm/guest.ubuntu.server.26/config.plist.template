@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
 <!-- Yuruna VM config · https://yuruna.link/vmconfig -->
 <!-- QEMU backend (not Apple Virtualization) so we can pass -vnc to QEMU.
      QEMU's built-in RFB server gives the test harness focus-independent
@@ -190,7 +192,7 @@
 			<true/>
 		</dict>
 		<!-- Seed bus is VirtIO (not USB) to match the fix in
-		     guest.amazon.linux.2023/config.plist.template -- the
+		     guest.amazon.linux.2023/config.plist.template - the
 		     USB-enumeration race on QEMU+EDK2 aarch64 doesn't bite
 		     ubuntu the same way (subiquity polls for cidata on a
 		     longer schedule, and the installed system's first-boot
@@ -228,7 +230,7 @@
 	     CHANGE events when the NIC was virtio-net-pci. On 26.04 the
 	     same userspace defense lets a handful of CHANGE events still
 	     reach subiquity early, after which the install eventually
-	     stalls at curtin's initial step -- consistent with the
+	     stalls at curtin's initial step - consistent with the
 	     background netlink stream starving subiquity's asyncio loop.
 	     Switching to fully-emulated Intel e1000 cuts the host-side
 	     link-state spam at the source (the vmnet-shared bridge's RA

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.05
+.VERSION 2026.06.12
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,9 +68,14 @@ if (-not $ExplicitPrefix) {
 if (-not $Prefix) { $Prefix = 'test-' }
 
 # === Import Test.HostContract (needed for Get-HostType on every platform) ===
+# -Global is load-bearing: when this script is invoked via the call operator
+# from inside a module (the cycle runner calls it for the VM sweep), a -Force
+# import without -Global pulls Test.HostContract (and its host-contract exports)
+# out of the global table for unrelated modules (the legacy-eviction regression
+# class). -Global keeps the contract globally resolvable for every caller.
 $hostModPath = Join-Path $ModulesDir "Test.HostContract.psm1"
 if (-not (Test-Path $hostModPath)) { Write-Error "Module not found: $hostModPath"; exit 1 }
-Import-Module -Name $hostModPath -Force
+Import-Module -Name $hostModPath -Force -Global
 
 $HostType = Get-HostType
 if (-not $HostType) { exit 1 }

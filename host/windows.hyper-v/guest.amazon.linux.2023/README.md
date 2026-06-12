@@ -49,8 +49,10 @@ Good moment for a Hyper-V checkpoint.
 
 Read more: [Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md).
 
-Back to [Windows Hyper-V](../README.md) · [Yuruna](../../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../../README.md)

@@ -28,8 +28,10 @@ Run `ubuntu.server.24.update.sh` first.
 | `postgresql` | [PostgreSQL](../../docs/postgresql.md) from PGDG |
 | `k8s` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
 
-[Troubleshooting](../../docs/guest-ubuntu-24.md) · Back to [Guests](../README.md) · [Yuruna](../../README.md)
-
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.12
+
+Back to [Yuruna](../../README.md)

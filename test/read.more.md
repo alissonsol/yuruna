@@ -13,13 +13,13 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | Key | Default | Description |
 |-----|---------|-------------|
 | `guestSequence` | _required_ | Array of guest keys; each must correspond to `host/<short-host>/<guestKey>/` |
-| `testCycle.cycleDelaySeconds` | `30` | Pause between cycles |
+| `testCycle.cycleDelaySeconds` | `300` | Pause between cycles |
 | `testCycle.shouldStopOnFailure` | `false` | `true` = stop on first failure and preserve VM; `false` = clean up and continue. Failure artifacts always copied to `status/log/` |
 | `testCycle.recentDisplayCount` | `30` | Runs kept in status history |
 | `vmStart.startTimeoutSeconds` | `120` | Wait for VM to reach running state |
 | `vmStart.bootDelaySeconds` | `15` | Extra wait after running, before tests |
 | `vmStart.testVmNamePrefix` | `"test-"` | Prefix for test VM names |
-| `vmImage.refreshHours` | `24` | Hours between automatic re-downloads |
+| `vmImage.refreshHours` | `168` | Hours between automatic re-downloads |
 | `vmImage.alwaysRedownload` | `false` | Force re-download even if image exists |
 | `vmCommunication.characterDelayMs` | `20` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences/ overrides this default) |
 | `vmCommunication.allowGuiFallback` | `false` | When `false` (default) `gui/` and `ssh/` are **independent** mechanisms: under `keystrokeMechanism="SSH"` a missing `ssh/` sequence is a hard error, never a silent run on the OCR `gui/` sibling (which an SSH-only host could not drive). Set `true` to restore the legacy degrade-to-`gui/` behavior |
@@ -27,8 +27,8 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `vmCommunication.pollSeconds` | `5` | Default poll interval (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `waitForAndEnter`, `sshWaitReady`, …). A step's own `pollSeconds` overrides this default |
 | `vmCommunication.timeoutSeconds` | `180` | Default timeout (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `fetchAndExecute`, `sshExec`, `sshWaitReady`, …). A step's own `timeoutSeconds` overrides this default |
 | `vmCommunication.vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`host/macos.utm/modules/Yuruna.Host.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
-| `repositories.frameworkUrl` | `alissonsol/yuruna` | URL of the framework repo. Used by status page for commit links AND polled by the outer runner during a failure-pause to break out early when a new commit lands upstream. |
-| `repositories.projectUrl` | `alissonsol/yuruna-project` | URL of the project-under-test repo. Polled alongside `repositories.frameworkUrl` during a failure-pause, so a fix pushed to the project also breaks out of the 1-hour wait. Empty value disables the project clone (in-tree `project/` is used instead). |
+| `repositories.frameworkUrl` | `https://github.com/alissonsol/yurunadev` | URL of the framework repo. Used by status page for commit links AND polled by the outer runner during a failure-pause to break out early when a new commit lands upstream. |
+| `repositories.projectUrl` | `https://github.com/alissonsol/yurunadev-project` | URL of the project-under-test repo. Polled alongside `repositories.frameworkUrl` during a failure-pause, so a fix pushed to the project also breaks out of the 1-hour wait. Empty value disables the project clone (in-tree `project/` is used instead). |
 | `statusService.isEnabled` | `true` | Start built-in HTTP status server |
 | `statusService.port` | `8080` | Port for status server |
 
@@ -324,6 +324,6 @@ architecture: [Test Modules ...](modules/README.md).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

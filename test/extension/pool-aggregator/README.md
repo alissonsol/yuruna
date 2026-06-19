@@ -1,7 +1,7 @@
 # pool-aggregator
 
 The read-only multi-host **pool view** for the Yuruna test harness — Phase 1
-(MVP) of the pool harness.
+(MVP) of the pool harness (see [docs/opportunities-hostpool.md](../../../docs/opportunities-hostpool.md)).
 
 ## What it does
 
@@ -103,7 +103,11 @@ unaffected (graceful degradation).
   `write_files` in `host/vmconfig/caching-proxy.base.user-data` so the dashboard
   deploys even when the collector build fails or its source has not yet reached
   public `yuruna`. Edit this file, then sync the inline copy (keep the two in
-  step).
+  step). The timeline's "open cycle results" and "open host status page" data links
+  target `${aggregator}`, a hidden constant variable holding this proxy's `/go/` base;
+  both copies carry the literal `AGGREGATOR_BASE_PLACEHOLDER`, which cloud-init
+  substitutes at boot with `http(s)://<proxy-ip>:9400` (scheme follows the
+  aggregator's TLS leaf).
 
 ## Flags
 
@@ -125,6 +129,8 @@ the leaf is absent.
 | `/healthz` | GET | none | `ok` liveness |
 | `/metrics` | GET | none | Prometheus text (`yuruna_pool_*`) — scraped by the local Prometheus |
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
+| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
+| `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); disabled (503) until a shared bearer token is configured |
 
 ## Deploy + verify
@@ -196,7 +202,7 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 - **Service-data durability:** the collector itself is stateless — it rehydrates
   counters + open incidents from Loki on restart (point 6) — and the underlying
   Loki / Prometheus / Grafana stores on the proxy are now archived to the NAS by
-  poolStorage **service replication** (an hourly guest-side `ypsp-replicate.timer`),
+  networkStorage.pool* **service replication** (an hourly guest-side `ypool-nas-replicate.timer`),
   so a reimaged proxy can be restored. Squid + zot caches are excluded. See
   [docs/pool-storage.md](../../../docs/pool-storage.md) (Service replication +
   restore procedure).
@@ -225,3 +231,9 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
   a range has no fails. The "Failed cycles" tile is the same Loki count summed.
   The state-timeline keys on `host_status` (Prometheus). Verify rendering on a
   live Grafana when iterating the JSON.
+
+---
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.06.19

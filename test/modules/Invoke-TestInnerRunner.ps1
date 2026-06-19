@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -124,12 +124,12 @@ $env:YURUNA_CONFIG_PATH = $ConfigPath
 # Test.Extension, Test.HostContract, Test.Status, Test.Notify, Test.Provenance,
 # Test.Start-GuestOS, Test.Start-GuestWorkload, Test.Log, Test.Sequence-
 # Planner, Test.CachingProxy, Test.Perf, Test.HostIO, Test.Capability,
-# Test.Transport. Replaces seven separate inline Import-Module sites that
-# used to cover the early-bootstrap (Test.YurunaDir, Test.Extension,
-# Test.SingleInstance) and the per-cycle workhorse list ($script:Runner-
-# Modules). The mid-cycle refresh loop re-calls this helper so a `git
-# pull` between cycles propagates source changes to every covered module
-# in lockstep -- without having to maintain a parallel list.
+# Test.Transport. One helper covers both the early-bootstrap modules
+# (Test.YurunaDir, Test.Extension, Test.SingleInstance) and the per-cycle
+# workhorse list, replacing per-site inline Import-Module calls. The
+# mid-cycle refresh loop re-calls this helper so a `git pull` between
+# cycles propagates source changes to every covered module in lockstep --
+# without having to maintain a parallel list.
 Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $ModulesDir
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
@@ -677,10 +677,13 @@ if (-not $OverallPassed -and $FailedGuest) {
             -CycleId       $CycleId `
             -GitCommit     $GitCommit `
             -ProjectCommit $ProjectGitCommit
-        # Advisory remediation dispatch (same as the in-cycle path). Skip the
-        # planner-abort case (FailedGuest '(planner)' / PlannerFatal): a
-        # duplicate-sequence config error is never auto-remediable and would
-        # only route to operator_intervention_required.
+        # Advisory remediation dispatch (same as the in-cycle path): computes
+        # the recommendation, emits the NDJSON breadcrumb, and persists the
+        # durable last_remediation.json into the cycle folder (replicated to the
+        # pool). Records the decision; never acts. Skip the planner-abort case
+        # (FailedGuest '(planner)' / PlannerFatal): a duplicate-sequence config
+        # error is never auto-remediable and would only route to
+        # operator_intervention_required.
         if ((Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) -and $FailedGuest -ne '(planner)') {
             $remediation = Invoke-Remediation -FailureRecord $postLoopEventData
             if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }

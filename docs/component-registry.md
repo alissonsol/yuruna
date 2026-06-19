@@ -14,12 +14,12 @@ through the same `Invoke-ComponentCommand` wrapper that handles
 build / tag / push — so the `registryLogin` phase shares
 `docker.stderr.log` and `docker.rc` with the rest of the pipeline.
 
-Before the dispatcher landed, the Component module hard-coded
-`if ($registryLocation -like '*azurecr.io*')` and only Azure ACR
-worked. Adding ECR / GAR / Docker Hub used to mean editing that
-function in three places. Now adding a new registry kind (Harbor,
-Nexus, …) is one `Register-CredentialProvider` call; nothing in
-`Yuruna.Component` changes.
+The dispatcher keeps registry knowledge out of `Yuruna.Component`,
+which carries no per-registry branching like
+`if ($registryLocation -like '*azurecr.io*')`. Adding a new registry
+kind (ECR, GAR, Docker Hub, Harbor, Nexus, …) is one
+`Register-CredentialProvider` call; nothing in `Yuruna.Component`
+changes.
 
 ## Cross-tree boundary
 
@@ -27,7 +27,7 @@ Yuruna.Component lives in `automation/`; the credential-provider
 registry lives in `test/modules/`. This is the only `automation/ ->
 test/` import edge in the codebase, and it is justified because the
 providers are deployment-time knowledge, not test-time knowledge —
-the historical naming is what put the registry under
+the module naming is what places the registry under
 `test/modules/`. The bridge file
 [`automation/Yuruna.Component.Registry.psm1`](../automation/Yuruna.Component.Registry.psm1)
 concentrates the boundary so future readers see it in one place.
@@ -85,8 +85,8 @@ context (`az login`, `aws configure`, `gcloud auth login`):
 When either env-var pair is missing, the corresponding provider's
 `LoginCommand` returns `$null` — the push pipeline silently skips
 the login phase and the operator's pre-existing docker credential
-helper handles the push. This preserves the legacy "no login needed"
-default for any registry the old hard-coded check did not match.
+helper handles the push. This is the "no login needed" default for
+any registry without provider-supplied credentials.
 
 ## Adding a new registry kind
 
@@ -110,6 +110,6 @@ default for any registry the old hard-coded check did not match.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

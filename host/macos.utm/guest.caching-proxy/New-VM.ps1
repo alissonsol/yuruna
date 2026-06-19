@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,38 +192,38 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# poolStorage (ypsp) service replication: bake the networkUser credential, the share
+# networkStorage pool (ypool-nas) service replication: bake the networkUser credential, the share
 # path (unix form), and this host's id so the proxy can rsync its observability data
-# to the NAS. Resolved here on the host (poolStorage config + vault).
-# REPLICATE stays false unless poolStorage is configured AND networkUser has a vault
+# to the NAS. Resolved here on the host (networkStorage pool config + vault).
+# REPLICATE stays false unless networkStorage pool is configured AND networkUser has a vault
 # password, so an empty credential is never baked. networkUser is the single NAS
 # account used for every storage connection (host drain + this guest mount alike).
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.YurunaDir.psm1')   -Force
-$ypspCfg = $null
-if ($tc) { try { $ypspCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypsp config: $_" } }
-$ypspHostId = ''
-try { $ypspHostId = [string](Get-YurunaHostId) } catch { $ypspHostId = '' }
-if (-not $ypspHostId) { $ypspHostId = 'unknown-host' }
-$ypspUser    = if ($ypspCfg) { [string]$ypspCfg.NetworkUser } else { '' }
-$ypspNetPath = if ($ypspCfg) { Get-PoolStorageUncPath -Path $ypspCfg.NetworkPath -Style unix } else { '' }
+$ypoolNasCfg = $null
+if ($tc) { try { $ypoolNasCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypool-nas config: $_" } }
+$ypoolNasHostId = ''
+try { $ypoolNasHostId = [string](Get-YurunaHostId) } catch { $ypoolNasHostId = '' }
+if (-not $ypoolNasHostId) { $ypoolNasHostId = 'unknown-host' }
+$ypoolNasUser    = if ($ypoolNasCfg) { [string]$ypoolNasCfg.NetworkUser } else { '' }
+$ypoolNasNetPath = if ($ypoolNasCfg) { Get-PoolStorageUncPath -Path $ypoolNasCfg.NetworkPath -Style unix } else { '' }
 # Refuse to bake a value containing a single quote: it would unbalance the guest's
-# single-quoted, sourced /etc/yuruna/ypsp.env and could strand the guest's runcmd.
-if (($ypspNetPath -match "'") -or ($ypspUser -match "'")) {
-    Write-Warning "poolStorage: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
-    $ypspUser = ''; $ypspNetPath = ''
+# single-quoted, sourced /etc/yuruna/ypool-nas.env and could strand the guest's runcmd.
+if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
+    Write-Warning "networkStorage pool: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
+    $ypoolNasUser = ''; $ypoolNasNetPath = ''
 }
-$ypspPwd = ''
+$ypoolNasPwd = ''
 # Gate Get-Password on the read-only vault-readiness check so a networkUser that was
 # set in config but never Set-Password'd does NOT auto-generate + persist a junk
 # credential (and bake it). Mirrors the host-side drain's loud-fail.
-if ($ypspCfg -and $ypspUser -and (Test-PoolStorageVaultReady -Config $ypspCfg -WarningAction SilentlyContinue)) {
-    try { $ypspPwd = [string](Get-Password -Username $ypspUser) } catch { Write-Verbose "ypsp networkUser password: $_" }
+if ($ypoolNasCfg -and $ypoolNasUser -and (Test-PoolStorageVaultReady -Config $ypoolNasCfg -WarningAction SilentlyContinue)) {
+    try { $ypoolNasPwd = [string](Get-Password -Username $ypoolNasUser) } catch { Write-Verbose "ypool-nas networkUser password: $_" }
 }
-$ypspReplicate = if ($ypspCfg -and $ypspUser -and $ypspPwd) { 'true' } else { 'false' }
+$ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasPwd) { 'true' } else { 'false' }
 
-# Pool push-ingest shared bearer (Phase 6): resolve the operator-supplied token that
-# gates the aggregator's POST /ingest, mirroring the ypsp loud-fail gate. Read it ONLY
+# Pool push-ingest shared bearer: resolve the operator-supplied token that
+# gates the aggregator's POST /ingest, mirroring the ypool-nas loud-fail gate. Read it ONLY
 # when the operator declared a vaultKey for 'pool-auth-token' AND populated it
 # (Test-VaultEntry) -- an empty vaultKey means push is DISABLED, so do NOT call
 # Get-Password then (it would auto-generate a per-host random token and break the
@@ -256,13 +256,15 @@ $UserData = Build-CloudInitUserData `
         PASSWORD_PLACEHOLDER           = $YurunaPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
-        YPSP_REPLICATE_PLACEHOLDER     = $ypspReplicate
-        YPSP_NETWORK_PATH_PLACEHOLDER  = $ypspNetPath
-        YPSP_NETWORK_USER_PLACEHOLDER  = $ypspUser
-        YPSP_PASSWORD_PLACEHOLDER      = $ypspPwd
-        YPSP_HOST_ID_PLACEHOLDER       = $ypspHostId
+        YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
+        YPOOL_NAS_NETWORK_PATH_PLACEHOLDER  = $ypoolNasNetPath
+        YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
+        YPOOL_NAS_PASSWORD_PLACEHOLDER      = $ypoolNasPwd
+        YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
         POOL_AUTH_TOKEN_PLACEHOLDER    = $poolAuthToken
-    } -Confirm:$false
+    } `
+    -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
+    -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"

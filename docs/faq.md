@@ -42,12 +42,12 @@
 
 ### Why do I get `Error: can't find external program "pwsh"`?
 
-  - Check PowerShell 7.5+ via `$PSVersionTable`. Setup: <https://aka.ms/powershell>.
+  - Check PowerShell 7.0+ via `$PSVersionTable` (tested with 7.6.3). Setup: <https://aka.ms/powershell>.
 
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

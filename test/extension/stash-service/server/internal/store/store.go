@@ -11,6 +11,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,20 +20,36 @@ import (
 	"stash-server/internal/config"
 )
 
-// Store roots the per-VM Stash filesystem layout. All paths the daemon
-// writes are derived from Folder; callers never compose paths by hand.
+// Store roots the share-side Stash filesystem layout (hostkey/ + files/)
+// on the mounted stash share. All share paths the daemon writes are
+// derived from Folder; callers never compose paths by hand. The metadata
+// index and the offline buffer are VM-local and owned elsewhere (main).
 type Store struct {
 	Folder string
 }
 
-// New initialises the on-disk layout (hostkey/, metadata/, files/) and
-// returns a Store rooted at folder. Idempotent: re-running against an
-// existing layout is a no-op.
+// New returns a Store rooted at the share folder and BEST-EFFORT pre-creates
+// the share-side layout (hostkey/, files/). Pre-creation failure is NOT
+// fatal: at startup the share may be offline/unmounted (§8.4), in which case
+// folder is the unmounted, root-owned mountpoint and these mkdirs fail with
+// EACCES — the daemon must still come up and buffer locally, creating the
+// share dirs lazily (DayDir / the flush worker) once the share is writable.
+// metadata/ is intentionally NOT created here — the SQLite index lives on the
+// VM's local disk (§6.1, §8).
 func New(folder string) (*Store, error) {
-	for _, sub := range []string{config.HostKeyDirName, config.MetadataDirName, config.FilesDirName} {
-		if err := os.MkdirAll(filepath.Join(folder, sub), 0o700); err != nil {
-			return nil, fmt.Errorf("mkdir %s: %w", sub, err)
-		}
+	for _, sub := range []string{config.HostKeyDirName, config.FilesDirName} {
+		_ = os.MkdirAll(filepath.Join(folder, sub), 0o700) // best-effort; see doc
+	}
+	return &Store{Folder: folder}, nil
+}
+
+// NewFilesOnly returns a Store rooted at folder with only files/ created —
+// used for the VM-local NAS-offline buffer (§8.4), which mirrors the
+// share's files/yyyy/mm/dd layout (so a flush is a same-relative-path
+// copy) but has no hostkey/ of its own.
+func NewFilesOnly(folder string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Join(folder, config.FilesDirName), 0o700); err != nil {
+		return nil, fmt.Errorf("mkdir %s: %w", config.FilesDirName, err)
 	}
 	return &Store{Folder: folder}, nil
 }
@@ -40,11 +57,6 @@ func New(folder string) (*Store, error) {
 // HostKeyPath returns the path to the persistent SSH host key file.
 func (s *Store) HostKeyPath() string {
 	return filepath.Join(s.Folder, config.HostKeyDirName, config.HostKeyFileName)
-}
-
-// MetadataDBPath returns the SQLite file path under metadata/.
-func (s *Store) MetadataDBPath() string {
-	return filepath.Join(s.Folder, config.MetadataDirName, config.DatabaseFileName)
 }
 
 // DayDir returns the absolute path to files/yyyy/mm/dd/ for t (UTC).
@@ -241,4 +253,143 @@ func zipDir(srcDir, dstZip string) error {
 		_, err = io.Copy(w, f)
 		return err
 	})
+}
+
+// ShareOnline reports whether the share-side StashFolder is backed by a
+// live network mount AND is writable (§8.4). The network-mount check is
+// essential: with cifs `nofail`, an unmounted share leaves a writable
+// LOCAL mountpoint dir, so a write probe alone would silently store
+// "on the share" on local disk and lose the data on reimage. Requiring
+// a cifs/smb mount underneath the path defeats that trap.
+func ShareOnline(shareFolder string) bool {
+	return IsNetworkMount(shareFolder) && probeWritable(shareFolder)
+}
+
+// IsNetworkMount reports whether shareFolder sits on a cifs/smb mount,
+// per /proc/self/mountinfo (Linux). On a non-Linux host or an unreadable
+// mountinfo it returns false (treated as offline → uploads buffer).
+func IsNetworkMount(shareFolder string) bool {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false
+	}
+	return networkMountFromMountinfo(string(data), filepath.Clean(shareFolder))
+}
+
+// networkMountFromMountinfo is the pure core of IsNetworkMount: given the
+// mountinfo text and a target path, it finds the most specific mount whose
+// mount point is an ancestor of (or equal to) target and reports whether
+// that mount's filesystem type is a network share.
+func networkMountFromMountinfo(content, target string) bool {
+	best, bestIsNet := -1, false
+	for _, line := range strings.Split(content, "\n") {
+		// Format (man 5 proc): ... <mountPoint(5)> ... " - " <fstype> <source> ...
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		sep := -1
+		for i, f := range fields {
+			if f == "-" {
+				sep = i
+				break
+			}
+		}
+		if sep < 0 || sep+1 >= len(fields) {
+			continue
+		}
+		mountPoint := fields[4]
+		fstype := fields[sep+1]
+		if !pathHasPrefix(target, mountPoint) {
+			continue
+		}
+		if len(mountPoint) > best {
+			best = len(mountPoint)
+			bestIsNet = isNetworkFSType(fstype)
+		}
+	}
+	return bestIsNet
+}
+
+func isNetworkFSType(fstype string) bool {
+	switch fstype {
+	case "cifs", "smb3", "smb", "nfs", "nfs4":
+		return true
+	}
+	return false
+}
+
+// pathHasPrefix reports whether mountPoint is target itself or an ancestor
+// directory of it. "/" is an ancestor of every absolute path.
+func pathHasPrefix(target, mountPoint string) bool {
+	if mountPoint == "/" {
+		return true
+	}
+	return target == mountPoint || strings.HasPrefix(target, mountPoint+"/")
+}
+
+// probeWritable confirms dir accepts a create+remove. Cheap belt to the
+// mount check (catches a read-only remount or a permission problem).
+func probeWritable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".probe-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
+}
+
+// DirSize sums the bytes of regular files under root (the buffer-ceiling
+// check, §8.4). A missing root is size 0, not an error.
+func DirSize(root string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return ierr
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
+}
+
+// AtomicCopyFile copies src to dst via a temp file in dst's directory plus
+// fsync + rename, so a reader (or a crash) never sees a partial artifact
+// on the share. Used by the flush worker (§8.4).
+func AtomicCopyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".flush-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // no-op once renamed away
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, dst)
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,68 @@ $HostType = Get-HostType
 if (-not $HostType) { exit 1 }
 Write-Output "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
+
+# --- stash storage pre-flight (design spec sections 2 and 3.1) -----------
+# The Stash Service stores its files on its OWN, isolated stash share
+# (networkStorage.stash*), separate from the pool. Refuse to bring up a VM that
+# would have nowhere durable to write: fail fast HERE, before the long VM build,
+# when the stash storage is unconfigured or its NAS credential is not stored.
+Import-Module (Join-Path $ModulesDir 'Test.Config.psm1')      -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.PoolStorage.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.Extension.psm1')   -Global -Force
+$null = @(Import-Extension -Area 'authentication' -RequireSingle)
+$tcPath = Join-Path $RepoRoot 'test/test.config.yml'
+$tc = $null
+if (Test-Path -LiteralPath $tcPath) {
+    try { $tc = Read-TestConfig -Path $tcPath } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+}
+$stashCfg = $null
+if ($tc) {
+    try { $stashCfg = Get-YurunaStashStorageConfig -Config $tc } catch { Write-Verbose "stash storage config: $($_.Exception.Message)" }
+}
+if (-not $stashCfg) {
+    Write-Error @"
+Start-StashServer requires the stash storage to be configured (isolated from the pool):
+set networkStorage.stashNetworkPath / stashNetworkUser / stashLocalPath in
+test/test.config.yml and Set-Password the stashNetworkUser. See docs/test-config.md
+and docs/design/stash-service.md (section 3.1).
+"@
+    exit 1
+}
+# Hard gate: a REAL password must already be stored for the stash SMB user.
+# Test-PoolStorageVaultReady is too lenient here -- it also passes when only a
+# vaultKey is MAPPED (no stored password), which makes the seed bake an
+# AUTO-GENERATED junk password the NAS rejects (cifs mount error(13)). The SMB
+# user authenticates to a PRE-EXISTING NAS account, so require a stored entry.
+if (-not (Test-PoolStorageStoredCredential -Config $stashCfg)) {
+    Write-Error @"
+stash networkUser '$($stashCfg.NetworkUser)' has NO password stored in the vault.
+The stash VM mounts the stash share with this account; without a stored credential the
+VM seed bakes an auto-generated value the NAS rejects (cifs mount error(13)), so the
+share never mounts. Store the real NAS password first, then re-run:
+    Set-Password -Username '$($stashCfg.NetworkUser)' -NewPassword '<the real NAS password>'
+See docs/test-config.md (networkStorage credentials).
+"@
+    exit 1
+}
+# Soft gate: a credential IS stored -- verify it actually AUTHENTICATES to the
+# stash share (catches a stale/wrong stored password, which the read-only check
+# above cannot). WARNING, not a hard stop: the daemon buffers locally when the
+# share is offline (stash-service-ui.md section 8.4), and the NAS may merely be
+# transiently unreachable. Connect-YurunaPoolStorage is bounded + best-effort and
+# uses the SAME credential the seed will bake.
+if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
+    Write-Output "stash storage pre-flight OK (networkUser='$($stashCfg.NetworkUser)'; credential authenticates)."
+} else {
+    Write-Warning @"
+stash networkUser '$($stashCfg.NetworkUser)' has a stored credential, but it did NOT
+authenticate to the stash share '$($stashCfg.NetworkPath)' just now (wrong/stale password,
+or the NAS is unreachable). Bringing the VM up anyway: the daemon will START and BUFFER
+uploads locally, but they will NOT persist to the stash share until this is fixed. If the
+password is stale, update it and rebuild:
+    Set-Password -Username '$($stashCfg.NetworkUser)' -NewPassword '<the real NAS password>'
+"@
+}
 
 $hostFolder = Get-HostFolder $HostType
 $guestDir   = Join-Path -Path $RepoRoot -ChildPath $hostFolder -AdditionalChildPath 'guest.stash-service'
@@ -112,8 +174,10 @@ Write-Output "== stash-service start: complete =="
 Write-Output "  VM:       $VMName"
 Write-Output "  Host:     $HostType"
 Write-Output ""
-Write-Output "Daemon install + launch is a later automation step (see"
-Write-Output "https://yuruna.link/stash-service)."
+Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
+Write-Output "bring-up script that builds + launches the stash daemon under systemd."
+Write-Output "Allow a few minutes after first boot; watch the VM's cloud-init-output.log."
+Write-Output "(See https://yuruna.link/stash-service.)"
 Write-Output ""
-Write-Output "Stop with: ./Stop-StashService.ps1"
+Write-Output "Stop with: ./Stop-StashServer.ps1"
 exit 0

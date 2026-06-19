@@ -41,6 +41,6 @@ Product keys: [Windows 11 ...](../host/windows.hyper-v/guest.windows.11/vmconfig
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

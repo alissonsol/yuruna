@@ -50,6 +50,6 @@ but 1920×1080 settings produced 1024×768.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

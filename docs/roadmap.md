@@ -44,7 +44,7 @@ infrastructure and audit items in parallel.
   6/9 candidate Get-Image scripts wired), log rotation primitive
   (R-10).
 
-✓ Sequence verb-handler split (H-10) — all 19 verbs are now
+✓ Sequence verb-handler split (H-10) — all 21 verbs are now
   registry handlers in `Test.SequenceHandler.psm1`. The final two
   (`retry` / `recoverFromSnapshot`) moved once their failure state
   was lifted into the shared `Test.SequenceFailureState` store, so
@@ -54,6 +54,6 @@ infrastructure and audit items in parallel.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

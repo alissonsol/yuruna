@@ -10,7 +10,7 @@ a loop that is meant to run for hours or days without an operator
 present.
 
 See [test-config.md](test-config.md) for the `test.config.yml` parameter
-reference, including the optional `poolStorage` NAS replication tier and how to
+reference, including the optional `networkStorage` NAS replication tier and how to
 set its SMB password in the vault; [pool-storage.md](pool-storage.md) covers that
 tier's architecture and operations.
 
@@ -104,6 +104,6 @@ guard, and the failure-pause back-off all live in
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

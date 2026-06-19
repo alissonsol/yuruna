@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# yuruna pool storage (ypsp): connect an OPTIONAL SMB3 network share and replicate
+# yuruna pool storage (ypool-nas): connect an OPTIONAL SMB3 network share and replicate
 # cycle output to it. Hosts (like guests) are reimageable, so local storage is
 # fast + ephemeral and this NAS-backed share is the durable tier. Everything here
 # is BEST-EFFORT: a missing/unreachable/misconfigured/SLOW share never throws AND
@@ -173,6 +173,183 @@ function Test-PoolStorageMountMatch {
     return $false
 }
 
+# ConvertFrom-PoolStorageMountLine parses ONE `mount` output line (or a synthesized
+# "<remote> on <point>" line for Windows mappings) into its remote + mount-point +
+# host/share-sub parts, normalized the same way Test-PoolStorageMountMatch does
+# (scheme, leading slashes, an optional 'user@' prefix, a trailing slash all
+# stripped). Returns $null for a line that isn't a recognizable mount. Pure.
+function ConvertFrom-PoolStorageMountLine {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter()][AllowNull()][string]$MountLine)
+    if ([string]::IsNullOrWhiteSpace($MountLine)) { return $null }
+    $s = [string]$MountLine
+    $sep = $s.IndexOf(' on ')
+    if ($sep -lt 0) { return $null }
+    $remote = $s.Substring(0, $sep)
+    $tail   = $s.Substring($sep + 4)
+    $tIdx = $tail.IndexOf(' type ')                 # Linux: "/mnt/x type cifs (...)"
+    if ($tIdx -ge 0) {
+        $point = $tail.Substring(0, $tIdx)
+    } else {
+        $pIdx = $tail.LastIndexOf(' (')             # macOS: "/Users/x (smbfs, ...)"
+        $point = if ($pIdx -ge 0) { $tail.Substring(0, $pIdx) } else { $tail }
+    }
+    $remoteBare = ((($remote -replace '[\\/]+', '/') -replace '^/+', '') -replace '^[^/@]*@', '').TrimEnd('/')
+    $slash = $remoteBare.IndexOf('/')
+    if ($slash -lt 0) { $srvHost = $remoteBare; $shareSub = '' }
+    else { $srvHost = $remoteBare.Substring(0, $slash); $shareSub = $remoteBare.Substring($slash + 1) }
+    return @{
+        Remote     = $remote.Trim()
+        RemoteBare = $remoteBare
+        MountPoint = $point.Trim()
+        HostName   = $srvHost
+        ShareSub   = $shareSub
+    }
+}
+
+# Find-PoolStorageConflictingMount returns the mounts that would BLOCK a fresh mount
+# of OUR share: the same server-relative 'share/sub' path mounted at a DIFFERENT
+# point than LocalPath. macOS mount_smbfs refuses a second mount of a share it
+# already holds and fails with a misleading "File exists" (EEXIST) -- a stale mount
+# left under an OLD host alias (whose name may no longer even resolve) is the
+# classic trigger, so the match is anchored on the host-relative 'share/sub' and
+# deliberately tolerates a different (or dead) host alias. Each result carries
+# HostMatches so the caller can tell the operator whether it is our exact host or a
+# look-alike before unmounting. Pure + testable.
+function Find-PoolStorageConflictingMount {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter()][AllowNull()][string[]]$MountLines,
+        [Parameter(Mandatory)][string]$LocalPath,
+        [Parameter(Mandatory)][string]$NetworkPath
+    )
+    # Every call site wraps the return in @(); emit a plain array (no unary-comma
+    # wrapper) so an EMPTY result stays count 0 under @() instead of unrolling to a
+    # single empty-array element.
+    $out = [System.Collections.Generic.List[pscustomobject]]::new()
+    if (-not $MountLines) { return $out.ToArray() }
+    $wantBare = (($NetworkPath -replace '[\\/]+', '/') -replace '^/+', '').TrimEnd('/')
+    $slash = $wantBare.IndexOf('/')
+    if ($slash -lt 0) { return $out.ToArray() }    # no share component -> nothing to anchor on
+    $wantHost     = $wantBare.Substring(0, $slash)
+    $wantShareSub = $wantBare.Substring($slash + 1)
+    if ([string]::IsNullOrWhiteSpace($wantShareSub)) { return $out.ToArray() }
+    foreach ($line in $MountLines) {
+        $p = ConvertFrom-PoolStorageMountLine -MountLine $line
+        if (-not $p) { continue }
+        if ([string]::IsNullOrWhiteSpace($p.ShareSub)) { continue }
+        if ($p.ShareSub -ine $wantShareSub) { continue }
+        if ($p.MountPoint -eq $LocalPath) { continue }    # our own point, not a blocker
+        $out.Add([pscustomobject]@{
+            Remote      = $p.Remote
+            MountPoint  = $p.MountPoint
+            HostMatches = ($p.HostName -ieq $wantHost)
+        })
+    }
+    return $out.ToArray()
+}
+
+# Get-PoolStorageConflictingMount is the OS-aware wrapper over the pure finder above:
+# it lists the live mounts (mount(8) on macOS/Linux; Get-SmbMapping rendered as
+# "<remote> on <local>" on Windows, bounded since the redirector can stall) and
+# returns the conflicting set. Best-effort; never throws.
+function Get-PoolStorageConflictingMount {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([Parameter(Mandatory)][pscustomobject]$Config)
+    try {
+        $lines = @()
+        if ($IsWindows) {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ScriptBlock {
+                Get-SmbMapping -ErrorAction SilentlyContinue | ForEach-Object { "$($_.RemotePath) on $($_.LocalPath)" }
+            }
+            if (-not $r.TimedOut -and $r.Result) { $lines = @($r.Result | ForEach-Object { [string]$_ }) }
+        } else {
+            # Resolve the native binary explicitly -- a bare `mount` is a PowerShell
+            # alias for New-PSDrive. Listing kernel mounts is local + instant even
+            # when a cifs mount is wedged, so it needs no wall-clock cap.
+            $mountExe = (Get-Command -CommandType Application -Name 'mount' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+            if ($mountExe) { $lines = @(& $mountExe 2>$null | ForEach-Object { [string]$_ }) }
+        }
+        return (Find-PoolStorageConflictingMount -MountLines $lines -LocalPath $Config.LocalPath -NetworkPath $Config.NetworkPath)
+    } catch {
+        Write-Verbose "Get-PoolStorageConflictingMount: $($_.Exception.Message)"
+        return @()
+    }
+}
+
+# Dismount-PoolStoragePoint unmounts ONE mount point, cross-platform: diskutil
+# (force) on macOS because a busy SMB mount refuses a plain umount with "Resource
+# busy"; sudo -n umount on Linux (never prompt, mirroring the mount path); and
+# Remove-SmbMapping on Windows. Bounded + best-effort; returns $true on success.
+function Dismount-PoolStoragePoint {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$MountPoint)
+    try {
+        if ($IsWindows) {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($MountPoint) -ScriptBlock {
+                param($p) Remove-SmbMapping -LocalPath $p -Force -ErrorAction Stop
+            }
+            return (-not $r.TimedOut -and -not $r.Error)
+        } elseif ($IsMacOS) {
+            $rc = Invoke-PoolStorageProcess -FilePath 'diskutil' -ArgumentList @('unmount', 'force', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+            if ($rc -ne 0) { $rc = Invoke-PoolStorageProcess -FilePath 'umount' -ArgumentList @('-f', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSec }
+            return ($rc -eq 0)
+        } else {
+            $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', 'umount', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+            if ($rc -ne 0) { $rc = Invoke-PoolStorageProcess -FilePath 'umount' -ArgumentList @($MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSec }
+            return ($rc -eq 0)
+        }
+    } catch {
+        Write-Verbose "Dismount-PoolStoragePoint($MountPoint): $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Clear-PoolStorageConflictingMount finds any mount of OUR share at a point OTHER
+# than LocalPath (Get-PoolStorageConflictingMount) and unmounts it after operator
+# confirmation, clearing the macOS "File exists" block on the cycle's own mount.
+# Interactive by design (the cycle gate runs headless + in a loop and must never
+# prompt, so it only HINTS at conflicts; the operator runs this by hand to act).
+# Honors -WhatIf; prompts per mount unless -Force. Best-effort: an unmount that
+# fails logs + continues. Returns a summary object.
+function Clear-PoolStorageConflictingMount {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Config,
+        [switch]$Force
+    )
+    $found = @(Get-PoolStorageConflictingMount -Config $Config)
+    $result = [pscustomobject]@{ Found = $found.Count; Unmounted = 0; Failed = 0; Skipped = 0; Details = @() }
+    if ($found.Count -eq 0) {
+        Write-Information "poolStorage: no conflicting mount of '$($Config.NetworkPath)' found." -InformationAction Continue
+        return $result
+    }
+    foreach ($c in $found) {
+        $target = "$($c.MountPoint) [$($c.Remote)]"
+        if (-not $PSCmdlet.ShouldProcess($target, 'Unmount conflicting SMB share')) { $result.Skipped++; continue }
+        if (-not $Force) {
+            $hostNote = if ($c.HostMatches) { 'our host' } else { 'a DIFFERENT or stale host alias' }
+            $q = "Unmount '$($c.MountPoint)' ($($c.Remote))? It holds the same share '$($Config.NetworkPath)' via $hostNote and blocks the cycle mount with macOS 'File exists'."
+            if (-not $PSCmdlet.ShouldContinue($q, 'Conflicting SMB mount')) { $result.Skipped++; continue }
+        }
+        $ok = Dismount-PoolStoragePoint -MountPoint $c.MountPoint
+        if ($ok) {
+            $result.Unmounted++
+            Write-Information "poolStorage: unmounted conflicting share at '$($c.MountPoint)'." -InformationAction Continue
+        } else {
+            $result.Failed++
+            Write-Warning "poolStorage: failed to unmount '$($c.MountPoint)' ($($c.Remote)); unmount it manually (macOS: diskutil unmount force '$($c.MountPoint)')."
+        }
+        $result.Details += [pscustomobject]@{ MountPoint = $c.MountPoint; Remote = $c.Remote; Unmounted = $ok }
+    }
+    return $result
+}
+
 # Get-YurunaPoolStorageConfig returns a normalized config object, or $null when
 # the feature is OFF: replicate false (unless -IgnoreReplicate), or any of
 # networkPath/networkUser/localPath empty. The object's Replicate field carries the
@@ -204,19 +381,24 @@ function Get-YurunaPoolStorageConfig {
             return $null
         }
     }
-    if (-not ($Config -is [System.Collections.IDictionary]) -or -not $Config.Contains('poolStorage')) { return $null }
-    $ps = $Config['poolStorage']
+    if (-not ($Config -is [System.Collections.IDictionary]) -or -not $Config.Contains('networkStorage')) { return $null }
+    $ps = $Config['networkStorage']
     if (-not ($ps -is [System.Collections.IDictionary])) { return $null }
-    $replicate   = [bool]$ps['replicate']
-    $networkPath = [string]$ps['networkPath']
-    $networkUser = [string]$ps['networkUser']
-    $localPath   = [string]$ps['localPath']
+    # networkReplicate is a POOL behavior, so it lives under the `pool` node;
+    # networkStorage carries only the path/credential keys.
+    $replicate = $false
+    if ($Config.Contains('pool') -and ($Config['pool'] -is [System.Collections.IDictionary])) {
+        $replicate = [bool]$Config['pool']['networkReplicate']
+    }
+    $networkPath = [string]$ps['poolNetworkPath']
+    $networkUser = [string]$ps['poolNetworkUser']
+    $localPath   = [string]$ps['poolLocalPath']
     if (-not $replicate -and -not $IgnoreReplicate) { return $null }
     if ([string]::IsNullOrWhiteSpace($networkPath) -or
         [string]::IsNullOrWhiteSpace($networkUser) -or
         [string]::IsNullOrWhiteSpace($localPath)) {
         if ($replicate) {
-            Write-Warning "poolStorage.replicate is true but networkPath/networkUser/localPath are not all set; replication disabled."
+            Write-Warning "pool.networkReplicate is true but networkStorage.poolNetworkPath/poolNetworkUser/poolLocalPath are not all set; replication disabled."
         }
         return $null
     }
@@ -230,6 +412,50 @@ function Get-YurunaPoolStorageConfig {
     }
     return [pscustomobject]@{
         Replicate   = $replicate
+        NetworkPath = $networkPath.Trim()
+        NetworkUser = $networkUser.Trim()
+        LocalPath   = $localPath
+    }
+}
+
+# Get-YurunaStashStorageConfig returns the normalized STASH storage record from
+# networkStorage.{stashNetworkPath,stashNetworkUser,stashLocalPath}, or $null when
+# any is unset. The stash storage is ISOLATED from the pool (its own share +
+# account); it has no replicate flag -- the stash daemon writes files directly.
+# Returns the SAME shape as Get-YurunaPoolStorageConfig so the generic mount /
+# credential helpers (Connect-YurunaPoolStorage, Test-PoolStorageStoredCredential,
+# Test-PoolStorageVaultReady, Get-PoolStorageUncPath) work unchanged.
+function Get-YurunaStashStorageConfig {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter()][AllowNull()]$Config)
+    if (-not $Config) {
+        $cfgPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } else { $null }
+        if (-not [string]::IsNullOrWhiteSpace($cfgPath) -and (Test-Path -LiteralPath $cfgPath) -and
+            (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+            try { $Config = Read-TestConfig -Path $cfgPath } catch { Write-Verbose "Read-TestConfig failed: $($_.Exception.Message)" }
+        } else {
+            Write-Verbose "Get-YurunaStashStorageConfig: no -Config and no resolvable YURUNA_CONFIG_PATH; feature off."
+            return $null
+        }
+    }
+    if (-not ($Config -is [System.Collections.IDictionary]) -or -not $Config.Contains('networkStorage')) { return $null }
+    $ns = $Config['networkStorage']
+    if (-not ($ns -is [System.Collections.IDictionary])) { return $null }
+    $networkPath = [string]$ns['stashNetworkPath']
+    $networkUser = [string]$ns['stashNetworkUser']
+    $localPath   = [string]$ns['stashLocalPath']
+    if ([string]::IsNullOrWhiteSpace($networkPath) -or
+        [string]::IsNullOrWhiteSpace($networkUser) -or
+        [string]::IsNullOrWhiteSpace($localPath)) {
+        return $null
+    }
+    $localPath = $localPath.Trim()
+    if ($localPath -match '^~(?=[\\/]|$)') {
+        $localPath = Join-Path $HOME ($localPath.Substring(1).TrimStart('/', '\'))
+    }
+    return [pscustomobject]@{
+        Replicate   = $false
         NetworkPath = $networkPath.Trim()
         NetworkUser = $networkUser.Trim()
         LocalPath   = $localPath
@@ -324,7 +550,22 @@ function Connect-YurunaPoolStorage {
             if ($rc -ne 0) { throw "mount_smbfs rc=$rc" }
         } else {
             $remote = Get-PoolStorageUncPath -Path $Config.NetworkPath -Style unix
-            if (-not (Test-Path -LiteralPath $Config.LocalPath)) { New-Item -ItemType Directory -Force -Path $Config.LocalPath | Out-Null }
+            if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
+                # Create the mount point. Try unprivileged first -- it succeeds when
+                # the parent is user-writable (e.g. a localPath under $HOME). A
+                # root-owned parent like /mnt rejects it, so fall back to
+                # `sudo -n mkdir -p`: the SAME passwordless-sudo precondition the
+                # cifs mount below already needs, so no new privilege surface. `mount`
+                # does not create its target, so a missing mount point otherwise
+                # fails the mount with a misleading error. The unprivileged attempt
+                # is silenced: its denial on a root-owned parent is expected and
+                # handled by the fallback, so an error record there would be noise.
+                New-Item -ItemType Directory -Force -Path $Config.LocalPath -ErrorAction SilentlyContinue | Out-Null
+                if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
+                    $mk = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', 'mkdir', '-p', $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+                    if ($mk -ne 0) { throw "could not create mount point '$($Config.LocalPath)' (sudo -n mkdir rc=$mk; a root-owned mount-point parent such as /mnt needs passwordless sudo for mkdir as well as mount)" }
+                }
+            }
             $credDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
             # Per-invocation unique name (no cross-run collision) deleted in the
             # finally below: the plaintext credentials only need to exist for the
@@ -360,6 +601,64 @@ function Connect-YurunaPoolStorage {
     return $true
 }
 
+# Get-PoolStorageLinuxSudoHint returns the operator-facing lines for the one-time
+# Linux passwordless-sudo precondition: an /etc/sudoers.d drop-in granting the
+# test account NOPASSWD mkdir/mount/umount (mkdir is needed when localPath sits
+# under a root-owned parent like /mnt). The mount path runs `sudo -n` (never
+# prompts) and writing under /etc/sudoers.d itself needs root, so this CANNOT be
+# auto-applied by the unattended runner -- the operator runs it once. Pure: the
+# caller resolves the account + binary paths and passes them in. Returns an empty
+# array for a blank user (nothing actionable to print).
+function Get-PoolStorageLinuxSudoHint {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$User,
+        [Parameter()][string]$MkdirPath  = '/usr/bin/mkdir',
+        [Parameter()][string]$MountPath  = '/usr/bin/mount',
+        [Parameter()][string]$UmountPath = '/usr/bin/umount',
+        [Parameter()][string]$DropInName = 'yuruna-poolstorage'
+    )
+    if ([string]::IsNullOrWhiteSpace($User)) { return @() }
+    $cmds = (@($MkdirPath, $MountPath, $UmountPath) | Where-Object { $_ }) -join ', '
+    $file = "/etc/sudoers.d/$DropInName"
+    $rule = "$User ALL=(root) NOPASSWD: $cmds"
+    return @(
+        "Fix (one-time, run as a sudoer -- the unattended runner cannot self-install this: 'sudo -n' never prompts and /etc/sudoers.d needs root):",
+        "  echo '$rule' | sudo tee $file >/dev/null",
+        "  sudo chmod 0440 $file && sudo visudo -cf $file",
+        "Then re-run Test-Config. (Adjust the binary paths if your distro differs.)"
+    )
+}
+
+# Join-PoolStoragePath combines a localPath base with a relative subpath. A
+# Windows drive-qualified base ('y:' or 'y:\...') is composed by pure string via
+# [IO.Path]::Combine, NOT Join-Path: Join-Path resolves the base's drive
+# qualifier against the PSDrive table, so a drive letter for an SMB mount the
+# current runspace has not yet enumerated -- referenced before the mount, or
+# after the mapping silently dropped mid-cycle -- throws a NON-TERMINATING
+# DriveNotFoundException ("A drive with the name 'y' does not exist"); the call
+# then returns $null and the empty path surfaces downstream as a misleading
+# "null Path argument" folder-creation failure. A bare drive letter is also
+# drive-RELATIVE, so anchor it to the root ('y:' -> 'y:\') first or the join
+# targets the per-process CWD on that drive. Any other base (a '/'-rooted
+# macOS/Linux mount point) carries no drive qualifier, so Join-Path is safe there
+# and keeps its separator normalization. SubPath is taken verbatim; callers
+# normalize any embedded separators before passing it in.
+function Join-PoolStoragePath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$LocalPath,
+        [Parameter(Mandatory)][string]$SubPath
+    )
+    if ($LocalPath -notmatch '^[A-Za-z]:') {
+        return (Join-Path $LocalPath $SubPath)
+    }
+    $base = if ($LocalPath -match '^[A-Za-z]:$') { "${LocalPath}\" } else { $LocalPath }
+    return [System.IO.Path]::Combine($base, $SubPath)
+}
+
 # Sync-YurunaPoolStorageFolder copies a source directory to <LocalPath>/<DestSubPath>/
 # on the share. Cross-platform (robocopy / rsync / cp), every copy run through a
 # wall-clock-bounded subprocess so a NAS stalling mid-copy cannot freeze the loop.
@@ -378,7 +677,7 @@ function Sync-YurunaPoolStorageFolder {
         return $false
     }
     if (-not (Connect-YurunaPoolStorage -Config $Config)) { return $false }
-    $dest = Join-Path $Config.LocalPath $DestSubPath
+    $dest = Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath $DestSubPath
     if (-not $PSCmdlet.ShouldProcess($dest, "Replicate $Source")) { return $false }
     try {
         if (-not (Test-Path -LiteralPath $dest)) { New-Item -ItemType Directory -Force -Path $dest | Out-Null }
@@ -649,6 +948,34 @@ function Test-PoolStorageVaultReady {
     return $ready
 }
 
+# Test-PoolStorageStoredCredential is the STRICT pre-check: it requires a REAL
+# password to already be stored in the vault for the networkUser, returning
+# $false when there is none. Unlike Test-PoolStorageVaultReady (which also
+# accepts a mere non-empty vaultKey mapping and lets Get-Password
+# AUTO-GENERATE), this never permits auto-generation: an SMB networkUser must
+# authenticate to a PRE-EXISTING NAS account, so an auto-generated password is
+# always junk the NAS rejects (cifs mount error(13)). Read-only; never writes
+# the vault, never auto-generates. Use it before baking the credential into a
+# VM seed so a missing credential fails fast instead of producing a VM that
+# can never mount.
+function Test-PoolStorageStoredCredential {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][pscustomobject]$Config)
+    $who = $Config.NetworkUser
+    if ([string]::IsNullOrWhiteSpace($who)) { return $false }
+    if (-not (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
+        Write-Warning "poolStorage: authentication extension not loaded; cannot verify a stored credential for '$who'."
+        return $false
+    }
+    $vaultKey = ''
+    if (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) {
+        try { $vaultKey = [string](Get-EffectiveUser -LogicalUser $who).vaultKey } catch { Write-Verbose "Get-EffectiveUser failed: $($_.Exception.Message)" }
+    }
+    $resolvedKey = if ([string]::IsNullOrWhiteSpace($vaultKey)) { $who } else { $vaultKey }
+    try { return [bool](Test-VaultEntry -VaultKey $resolvedKey) } catch { Write-Verbose "Test-VaultEntry failed: $($_.Exception.Message)"; return $false }
+}
+
 # Copy-PoolStorageCycle copies one cycle folder to <localPath>/<HostId>/<CycleName>/
 # and commits it with a .yuruna-complete sentinel written LAST. Any pre-existing
 # copy WITHOUT a sentinel (a crashed prior attempt) is deleted first and recopied,
@@ -665,8 +992,8 @@ function Copy-PoolStorageCycle {
     )
     if (-not $PSCmdlet.ShouldProcess("$HostId/$CycleName", 'Replicate cycle to poolStorage')) { return $false }
     $destSub  = Join-Path $HostId $CycleName
-    $destFull = Join-Path $Config.LocalPath $destSub
-    $sentinel = Join-Path $destFull '.yuruna-complete'
+    $destFull = Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath $destSub
+    $sentinel = Join-PoolStoragePath -LocalPath $destFull -SubPath '.yuruna-complete'
     if ((Test-Path -LiteralPath $destFull) -and -not (Test-Path -LiteralPath $sentinel)) {
         Remove-Item -LiteralPath $destFull -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -775,7 +1102,7 @@ function Get-PoolStorageHostFolderPath {
         [Parameter(Mandatory)][pscustomobject]$Config,
         [Parameter(Mandatory)][string]$HostId
     )
-    return (Join-Path $Config.LocalPath $HostId)
+    return (Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath $HostId)
 }
 
 # Initialize-PoolStorageHostFolder is the ACTIVE write-path pre-flight: mount the
@@ -806,6 +1133,19 @@ function Initialize-PoolStorageHostFolder {
     }
     if (-not (Connect-YurunaPoolStorage -Config $Config -Confirm:$false)) {
         $result.error = "could not mount the SMB share '$($Config.NetworkPath)' at localPath '$($Config.LocalPath)' (check the networkUser password in the vault, the share name, and -- on Linux -- passwordless sudo for mount)"
+        # A stale mount of the SAME share at a DIFFERENT point (e.g. left under a
+        # retired host alias) makes macOS reject the new mount with "File exists".
+        # This is macOS-only: Linux and Windows both allow the same share at a
+        # second mount point, so the hint is a red herring there -- it would point
+        # the operator at an unmount that fixes nothing. Surface it (a headless
+        # HINT, not a prompt) only on macOS, where it is the actual one-command fix.
+        if ($IsMacOS) {
+            $conflicts = @(Get-PoolStorageConflictingMount -Config $Config)
+            if ($conflicts.Count -gt 0) {
+                $pts = ($conflicts | ForEach-Object { "'$($_.MountPoint)' [$($_.Remote)]" }) -join ', '
+                $result.error += ". NOTE: the same share is already mounted elsewhere ($pts) -- on macOS this blocks the new mount with 'File exists'. Run Clear-PoolStorageConflictingMount -Config (Get-YurunaPoolStorageConfig -IgnoreReplicate) to unmount it after confirmation"
+            }
+        }
         return $result
     }
     if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
@@ -832,6 +1172,151 @@ function Initialize-PoolStorageHostFolder {
     }
     $result.ok = $true
     $result.stage = 'ok'
+    return $result
+}
+
+# Test-PoolStorageHostResolvable returns $true when an SMB server NAME still
+# resolves to at least one IP, $false when it resolves to nothing. A retired
+# hosts-file alias whose entry was removed (e.g. a renamed NAS) leaves a
+# persistent SMB mapping pointing at a name that no longer exists.
+# [System.Net.Dns]::GetHostAddresses walks the full Windows resolver order (hosts
+# file, DNS, then NetBIOS/LLMNR), so a LAN-only NetBIOS name (no DNS/hosts entry)
+# still resolves -- only a genuinely dead name throws. Two aliases for ONE NAS
+# resolving to the SAME IP is intentional and resolves fine, so it is never
+# flagged here. Best-effort: any resolver error => $false.
+function Test-PoolStorageHostResolvable {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowEmptyString()][string]$ServerName)
+    if ([string]::IsNullOrWhiteSpace($ServerName)) { return $false }
+    try {
+        $addrs = [System.Net.Dns]::GetHostAddresses($ServerName)
+        return ($null -ne $addrs -and @($addrs).Count -gt 0)
+    } catch {
+        Write-Verbose "Test-PoolStorageHostResolvable($ServerName): $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Get-PoolStorageStaleAliasMount lists the Windows SMB mappings whose server name
+# no longer resolves to any IP -- a persistent drive left pointing at a retired
+# host alias. Such a mapping keeps Status OK from its cached connection yet BLOCKS
+# a fresh mount of the same physical NAS under a current alias, because the
+# redirector still holds the dead-name session and refuses a second credentialed
+# session to a server it is already (stale-) connected to. Returns objects
+# { LocalPath; RemotePath; ServerName }. Windows-only (Get-SmbMapping); empty array
+# elsewhere or on any error. Bounded so a wedged redirector cannot hang the caller.
+function Get-PoolStorageStaleAliasMount {
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]])]
+    param()
+    if (-not $IsWindows) { return @() }
+    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ScriptBlock {
+        Get-SmbMapping -ErrorAction SilentlyContinue | Select-Object LocalPath, RemotePath
+    }
+    if ($r.TimedOut -or $r.Error) { return @() }
+    $out = [System.Collections.Generic.List[pscustomobject]]::new()
+    foreach ($m in @($r.Result)) {
+        if (-not $m -or [string]::IsNullOrWhiteSpace([string]$m.RemotePath)) { continue }
+        $server = Get-PoolStorageServerName -NetworkPath ([string]$m.RemotePath)
+        if (-not (Test-PoolStorageHostResolvable -ServerName $server)) {
+            $out.Add([pscustomobject]@{
+                LocalPath  = [string]$m.LocalPath
+                RemotePath = [string]$m.RemotePath
+                ServerName = $server
+            })
+        }
+    }
+    return @($out)
+}
+
+# Remove-PoolStorageStaleAliasMount tears down ONE mapping by LocalPath when it has
+# a drive letter, else by RemotePath (a device-less connection). Bounded +
+# best-effort; returns $true on success. Windows-only.
+function Remove-PoolStorageStaleAliasMount {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter()][AllowEmptyString()][string]$LocalPath,
+        [Parameter(Mandatory)][string]$RemotePath
+    )
+    if (-not $IsWindows) { return $false }
+    $target = if (-not [string]::IsNullOrWhiteSpace($LocalPath)) { $LocalPath } else { $RemotePath }
+    if (-not $PSCmdlet.ShouldProcess($target, 'Remove stale SMB mapping')) { return $false }
+    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($LocalPath, $RemotePath) -ScriptBlock {
+        param($local, $remote)
+        if (-not [string]::IsNullOrWhiteSpace($local)) {
+            Remove-SmbMapping -LocalPath $local -Force -ErrorAction Stop
+        } else {
+            Remove-SmbMapping -RemotePath $remote -Force -ErrorAction Stop
+        }
+    }
+    return (-not $r.TimedOut -and -not $r.Error)
+}
+
+# Initialize-PoolStorageTargetFolder ensures the network path's TARGET SUBFOLDER
+# exists on the share, creating it when missing. A share configured as
+# '\\server\share\yuruna.stash' targets a SUBFOLDER, not the share root, and
+# New-SmbMapping to a non-existent subfolder fails ("network name cannot be found"
+# / "device is no longer available") -- a failure the operator sees only as a
+# vague unreachable-mount. The subfolder cannot be created through a mount of
+# itself (it does not exist yet), so this mounts the PARENT share, creates the
+# leaf, then releases the parent mount. No-op (ok, nothing to create) when the
+# network path is a bare share root (a share is provisioned NAS-side, not over
+# SMB). Bounded + best-effort; returns @{ ok; created; folder; error }. Run AFTER
+# any stale-alias mapping is cleared so the parent mount is not pre-empted by a
+# dead-name session to the same NAS.
+function Initialize-PoolStorageTargetFolder {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][pscustomobject]$Config)
+    $result = @{ ok = $false; created = $false; folder = $Config.NetworkPath; error = '' }
+    $bare  = (($Config.NetworkPath -replace '[\\/]+', '/') -replace '^/+', '').TrimEnd('/')
+    $parts = @($bare -split '/')
+    if ($parts.Count -lt 3) {
+        # server-only or a bare share root -- there is no subfolder to create, and a
+        # share itself is provisioned on the NAS, not over SMB.
+        $result.ok = $true
+        return $result
+    }
+    $parentBare = ($parts[0..1] -join '/')                       # server/share
+    $subRel     = ($parts[2..($parts.Count - 1)] -join '/')      # sub[/deeper]
+    if (-not $PSCmdlet.ShouldProcess("$($Config.LocalPath) -> $subRel", 'Ensure target folder on share')) {
+        $result.error = 'skipped (WhatIf)'
+        return $result
+    }
+    $parentCfg = [pscustomobject]@{
+        Replicate   = $false
+        NetworkPath = '//' + $parentBare
+        NetworkUser = $Config.NetworkUser
+        LocalPath   = $Config.LocalPath
+    }
+    if (-not (Connect-YurunaPoolStorage -Config $parentCfg -Confirm:$false)) {
+        $result.error = "could not mount the parent share '//$parentBare' at '$($Config.LocalPath)' to create '$subRel' (check the '$($Config.NetworkUser)' password and that the account may write the share root)"
+        return $result
+    }
+    try {
+        $leaf = Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath ($subRel -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+        $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($leaf) -ScriptBlock {
+            param($f)
+            $existed = [bool](Test-Path -LiteralPath $f)
+            if (-not $existed) { New-Item -ItemType Directory -Force -Path $f -ErrorAction Stop | Out-Null }
+            return [pscustomobject]@{ Existed = $existed; Present = [bool](Test-Path -LiteralPath $f) }
+        }
+        if ($r.TimedOut) {
+            $result.error = "creating '$subRel' on the share timed out after ${script:PoolStorageSmbCmdletTimeoutSec}s (the share may be wedged)"
+        } elseif ($r.Error -or ($null -eq $r.Result) -or -not $r.Result.Present) {
+            $detail = if ($r.Error) { ": $($r.Error)" } else { '' }
+            $result.error = "could not create '$subRel' on the share$detail (the account may lack write permission at the share root)"
+        } else {
+            $result.ok = $true
+            $result.created = (-not $r.Result.Existed)
+        }
+    } finally {
+        # Always release the temporary parent mount: the configured LocalPath is
+        # meant to map the SUBFOLDER, not the share root.
+        $null = Dismount-PoolStoragePoint -MountPoint $Config.LocalPath
+    }
     return $result
 }
 
@@ -912,12 +1397,70 @@ function Get-PoolStorageHealthWarning {
     return $null
 }
 
+# Get-YurunaStashSeedValue resolves the STASH storage coordinates the stash VM's
+# cloud-init seed needs: the share UNC (unix form), the stashNetworkUser, its
+# vault password, and this host's id -- read from the ISOLATED networkStorage
+# stash* keys (Get-YurunaStashStorageConfig), not the pool keys. Returns empty
+# strings when unavailable so a
+# caller bakes blanks (the guest then uses local fallback) -- the fail-fast gate
+# lives in Start-StashServer, not here. Mirrors the caching-proxy ypool-nas bake.
+# Get-YurunaHostId (Test.YurunaDir) and Get-Password (authentication extension)
+# must be loaded in the caller's session.
+function Get-YurunaStashSeedValue {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter()][AllowNull()]$Config)
+    $out = @{ NetworkPath = ''; NetworkIp = ''; NetworkUser = ''; Password = ''; HostId = '' }
+    try { $out.HostId = [string](Get-YurunaHostId) } catch { Write-Verbose "stash seed hostId: $($_.Exception.Message)" }
+    if (-not $out.HostId) { $out.HostId = 'unknown-host' }
+    $cfg = $null
+    if ($Config) {
+        try { $cfg = Get-YurunaStashStorageConfig -Config $Config } catch { Write-Verbose "stash seed config: $($_.Exception.Message)" }
+    }
+    if (-not $cfg) { return $out }
+    $user    = [string]$cfg.NetworkUser
+    $netPath = Get-PoolStorageUncPath -Path $cfg.NetworkPath -Style unix
+    # Refuse a value with a single quote: it would unbalance the guest's
+    # single-quoted /etc/yuruna/ystash-nas.env entries.
+    if (($netPath -match "'") -or ($user -match "'")) {
+        Write-Warning "poolStorage: networkPath/networkUser contains a single quote; not baking the stash share."
+        return $out
+    }
+    $netPwd = ''
+    if ($user -and (Test-PoolStorageVaultReady -Config $cfg -WarningAction SilentlyContinue)) {
+        try { $netPwd = [string](Get-Password -Username $user) } catch { Write-Verbose "stash seed password: $($_.Exception.Message)" }
+    }
+    $out.NetworkPath = $netPath
+    $out.NetworkUser = $user
+    $out.Password    = $netPwd
+    # Resolve the NAS hostname to an IPv4 on the HOST (where NetBIOS/DNS
+    # works). A Linux guest often cannot resolve a bare NetBIOS name like
+    # 'wserver', so the guest's cifs mount uses ip=<this> and skips name
+    # resolution entirely. Empty when unresolvable -> guest falls back to
+    # name resolution (and buffers if that fails).
+    try {
+        $server = Get-PoolStorageServerName -NetworkPath $cfg.NetworkPath
+        if ($server) {
+            $ip = [System.Net.Dns]::GetHostAddresses($server) |
+                Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+            if ($ip) { $out.NetworkIp = $ip.IPAddressToString }
+        }
+    } catch { Write-Verbose "stash seed ip resolve: $($_.Exception.Message)" }
+    return $out
+}
+
 Export-ModuleMember -Function `
     Get-PoolStorageUncPath, Test-PoolStorageMountMatch, Get-PoolStorageServerName, `
-    Get-YurunaPoolStorageConfig, Test-YurunaPoolStorageMounted, Connect-YurunaPoolStorage, `
+    ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
+    Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, `
+    Get-YurunaPoolStorageConfig, Get-YurunaStashStorageConfig, Test-YurunaPoolStorageMounted, Connect-YurunaPoolStorage, `
+    Get-PoolStorageLinuxSudoHint, `
     Sync-YurunaPoolStorageFolder, Test-PoolStorageVaultDecision, Get-PoolStorageCycleIdentity, `
     Get-PoolStoragePendingSet, Merge-PoolStorageLedger, Read-PoolStorageLedger, `
     Write-PoolStorageLedger, Test-PoolStorageServerReachable, Test-PoolStorageVaultReady, `
+    Test-PoolStorageStoredCredential, `
+    Test-PoolStorageHostResolvable, Get-PoolStorageStaleAliasMount, `
+    Remove-PoolStorageStaleAliasMount, Initialize-PoolStorageTargetFolder, `
     Get-PoolStorageHostFolderPath, Initialize-PoolStorageHostFolder, `
     Get-PoolStorageDrainOrder, Get-PoolStorageHealthWarning, `
-    Invoke-PoolStorageDrain
+    Invoke-PoolStorageDrain, Get-YurunaStashSeedValue

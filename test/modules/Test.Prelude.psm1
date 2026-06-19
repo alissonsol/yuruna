@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,19 +109,18 @@ function Initialize-YurunaEntryPointModuleSet {
     .DESCRIPTION
         Each of the four entry points (Outer = Invoke-TestRunner.ps1,
         Inner = Invoke-TestInnerRunner.ps1, Project = Test-Project.ps1,
-        Sequence = Test-Sequence.ps1) used to hand-roll its own
-        Import-Module sequence: 6-13 lines per script, drifting whenever
-        a new module landed. This function centralizes the lists so
-        adding a new shared module is one edit, not four.
+        Sequence = Test-Sequence.ps1) would otherwise hand-roll its own
+        Import-Module sequence (6-13 lines per script), which drifts
+        whenever a new module lands. Centralizing the lists here makes
+        adding a new shared module one edit, not four.
 
         Entry points still issue their own Import-Module calls for
         modules outside the shared core (e.g. status-service-only helpers,
         per-host drivers). The "shared core" here is the set of modules
-        that every entry point of the same kind has historically loaded.
+        that every entry point of the same kind loads.
 
         -Global -Force is applied so re-running the function across
-        cycle boundaries refreshes mid-run git-pull'd code changes,
-        matching the prior inline behavior.
+        cycle boundaries refreshes mid-run git-pull'd code changes.
     .PARAMETER For
         Which entry-point kind is calling. Outer/Inner/Project/Sequence/
         StatusService/CachingProxy.

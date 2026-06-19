@@ -6,9 +6,9 @@ pwsh / per-cycle inner runner / sequence engine through `$env:YURUNA_LOG_LEVEL`.
 
 The canonical implementation lives in
 [`test/modules/Test.LogLevel.psm1`](../test/modules/Test.LogLevel.psm1).
-Before this module landed, the same rank table + preference cascade
-was duplicated in 28+ scripts and four separate runner files; the
-module collapsed those to a single source of truth.
+This module is the single source of truth for the rank table +
+preference cascade, so it is not duplicated across the 28+ scripts and
+four runner files that depend on it.
 
 ## Levels
 
@@ -53,9 +53,9 @@ $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 ```
 
-This three-line idiom replaces what was an 11-line copy-paste rank
-table previously duplicated across every
-`host/<platform>/guest.<x>/{Get-Image,New-VM}.ps1`.
+This three-line idiom keeps each
+`host/<platform>/guest.<x>/{Get-Image,New-VM}.ps1` from carrying an
+11-line copy-paste rank table.
 
 ## Why `$ErrorActionPreference` stays at `Continue`
 
@@ -80,6 +80,6 @@ Verbose` see clean, line-oriented output.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

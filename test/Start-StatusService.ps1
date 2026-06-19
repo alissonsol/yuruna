@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,10 +198,10 @@ if (Test-Path $StatusFile) {
 # server.heartbeat: server no longer reads this; tidy up so inspectors
 # don't think it's load-bearing.
 # Legacy paths directly under test/status/ and under the old
-# test/status/track/ (renamed to test/status/runtime/): pre-track-dir
-# and track-era layouts wrote server.pid, runner.pid, status.json,
-# server.err, current-action.json, control.*-pause, .status-service.ps1
-# in those locations. An upgrade leaves those untracked (no longer
+# test/status/track/ (now test/status/runtime/): older on-disk layouts
+# place server.pid, runner.pid, status.json, server.err,
+# current-action.json, control.*-pause, .status-service.ps1 in those
+# locations. A checkout upgrade can leave those untracked (no longer
 # .gitignored), cluttering `git status`. Drop them on every start so
 # operator runs land on a clean status dir.
 Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
@@ -212,10 +212,10 @@ foreach ($legacyName in @('server.pid','runner.pid','status.json','server.err','
     Remove-Item (Join-Path $StatusDir       $legacyName) -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $LegacyTrackDir  $legacyName) -Force -ErrorAction SilentlyContinue
 }
-# Drop the entire pre-rename test/status/track/ tree if it survives an
-# upgrade (perf data was relocated to status/perf/, runtime state to
-# status/runtime/, extension event logs to status/extension/...; the
-# old folder is no longer .gitignored).
+# Drop the entire legacy test/status/track/ tree if it survives a
+# checkout upgrade (perf data now lives under status/perf/, runtime
+# state under status/runtime/, extension event logs under
+# status/extension/...; the old folder is no longer .gitignored).
 if (Test-Path -LiteralPath $LegacyTrackDir) {
     Remove-Item -LiteralPath $LegacyTrackDir -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -530,8 +530,8 @@ try {
       # http.sys hiccup) would otherwise unwind to the outer try/finally
       # and exit with no log. Wrap the whole iteration; log + continue.
       try {
-        # Block indefinitely for the next request. No periodic wake-up
-        # needed now that the heartbeat-stale self-exit is gone.
+        # Block indefinitely for the next request. The server has no
+        # self-exit timer, so no periodic wake-up is needed.
         `$ctx = `$listener.GetContext()
         try {
             `$req  = `$ctx.Request
@@ -2267,8 +2267,8 @@ try {
 # "The filename or extension is too long" which is obscure and easy to
 # misread as a path problem. -File sidesteps the size limit entirely:
 # pwsh reads the script from disk instead of its command line.
-# Reap the prior-name generated server script (.status-server.ps1, since
-# renamed to .status-service.ps1) and its stdout log so an upgrade does not
+# Reap the legacy generated server script (.status-server.ps1, distinct
+# from today's .status-service.ps1) and its stdout log so an upgrade does not
 # leave a stale, misleading copy under the runtime dir that an inspector could
 # mistake for the live server. Runs before the current script is written below.
 Remove-Item (Join-Path $RuntimeDir '.status-server.ps1') -Force -ErrorAction SilentlyContinue

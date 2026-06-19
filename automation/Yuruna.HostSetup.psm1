@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a7b8c9-d0e1-4f23-9456-78a9b0c1d2e3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,12 +23,12 @@
     Three platform scripts ([host/windows.hyper-v/Enable-TestAutomation.ps1](../host/windows.hyper-v/Enable-TestAutomation.ps1),
     [host/macos.utm/Enable-TestAutomation.ps1](../host/macos.utm/Enable-TestAutomation.ps1),
     [host/ubuntu.kvm/Enable-TestAutomation.ps1](../host/ubuntu.kvm/Enable-TestAutomation.ps1))
-    used to hand-roll the same 10-line bootstrap: locate Test.HostContract.psm1
+    otherwise each hand-roll the same 10-line bootstrap: locate Test.HostContract.psm1
     two folders up, suppress -Verbose echo during the import, then install
     powershell-yaml + PSScriptAnalyzer so the cycle planner and the lint
-    gate can resolve their dependencies. Whenever a new prerequisite
-    landed, three identical edits had to follow. This module collapses
-    the bootstrap into a single call so a new prerequisite is one edit.
+    gate can resolve their dependencies. A new prerequisite would then need
+    three identical edits. This module collapses the bootstrap into a single
+    call so a new prerequisite is one edit.
 
     Linux callers also need to prime sudo BEFORE the long
     `Install-PowerShellYamlIfMissing` step so the password prompt fires

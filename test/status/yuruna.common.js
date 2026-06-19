@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.06.12
+  Version: 2026.06.19
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.06.12';
+  var VERSION = '2026.06.19';
 
   // fetch shim for Safari iOS 9.x. (Target support for Yuruna UI).
   if (!window.fetch) {

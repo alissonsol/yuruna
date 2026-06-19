@@ -1,6 +1,6 @@
 # caching-proxy-parser
 
-A ~200-line Go tail-server that replaces loki + promtail for the single
+A ~300-line Go tail-server that replaces loki + promtail for the single
 "Recent 100 requests" panel on the caching-proxy Grafana dashboard.
 Optimized for that one scenario — no tenancy, no persistence, no
 LogQL, no plugin dependencies.
@@ -97,6 +97,6 @@ xdg-open http://<cache-ip>:9302/                  # the live HTML view
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

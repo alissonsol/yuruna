@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,7 +58,7 @@ function Read-SequenceFile {
         $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
         if ($script:SequenceFileCache.ContainsKey($resolved)) {
             $entry = $script:SequenceFileCache[$resolved]
-            if ($entry.Mtime -eq $mtime) { return $entry.Parsed }
+            if ($entry.Mtime -eq $mtime) { return (Expand-SequenceSnippet -Sequence $entry.Parsed -Path $Path) }
         }
     }
     try {
@@ -68,7 +68,7 @@ function Read-SequenceFile {
             $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
             $script:SequenceFileCache[$resolved] = @{ Mtime = $mtime; Parsed = $parsed }
         }
-        return $parsed
+        return (Expand-SequenceSnippet -Sequence $parsed -Path $Path)
     } catch {
         # YamlDotNet's SyntaxErrorException carries Start/End marks with
         # Line/Column, but powershell-yaml wraps it in a generic
@@ -357,4 +357,225 @@ function Get-SequenceSearchPath {
     return $paths.ToArray()
 }
 
-Export-ModuleMember -Function Read-SequenceFile, Get-SequenceMode, Get-SequenceModePath, Test-GuiFallbackAllowed, Get-ProjectTestSearchDir, Find-ProjectSequenceFile, Resolve-SequencePath, Get-SequenceSearchPath
+# ── Step-snippet library ─────────────────────────────────────────────────────
+# A snippet is a named, reusable list of steps spliced into a sequence wherever
+# a `{ snippet: <name> }` step appears (including inside retry.steps), so common
+# preambles like the cold-agetty login prime live in one place instead of being
+# copied across every workload sequence. Libraries are `_snippets.yml` files (a
+# map of name -> step-array) living in the same mode dir as sequences: framework
+# `test/sequences/<mode>/_snippets.yml` and project
+# `project/<...>/test/<mode>/_snippets.yml`. Project entries override framework
+# ones of the same name (mirrors Resolve-SequencePath's project-wins layering);
+# two PROJECT libraries defining the same name is a fatal ambiguity. Expansion
+# runs inside Read-SequenceFile so every consumer (executor, planner, perf, step
+# windows) sees the already-spliced steps with no per-call-site wiring.
+
+function Copy-YamlNode {
+    # Deep-clones a powershell-yaml node (OrderedDictionary / list / scalar) so a
+    # spliced snippet step never shares a reference with the mtime-cached library
+    # parse -- a downstream in-place edit must not poison the cache or bleed into
+    # another sequence that reuses the same snippet.
+    param($Node)
+    if ($Node -is [System.Collections.IDictionary]) {
+        $copy = [ordered]@{}
+        foreach ($k in $Node.Keys) { $copy[$k] = Copy-YamlNode $Node[$k] }
+        return $copy
+    }
+    if ($Node -is [System.Collections.IEnumerable] -and $Node -isnot [string]) {
+        $list = New-Object System.Collections.Generic.List[object]
+        foreach ($item in $Node) { [void]$list.Add((Copy-YamlNode $item)) }
+        return ,($list.ToArray())
+    }
+    return $Node
+}
+
+function Test-StepHasSnippet {
+    # True when $Steps (or any nested retry.steps) contains a `{snippet: ...}`
+    # element. Lets Read-SequenceFile skip the clone-and-expand path entirely for
+    # the common snippet-free sequence (zero overhead, returns the cached object).
+    param($Steps)
+    if ($null -eq $Steps) { return $false }
+    foreach ($s in $Steps) {
+        if ($s -is [System.Collections.IDictionary]) {
+            if ($s.Contains('snippet')) { return $true }
+            if ($s.Contains('steps') -and (Test-StepHasSnippet $s['steps'])) { return $true }
+        }
+    }
+    return $false
+}
+
+function Get-SnippetLibraryFile {
+    # Parses one _snippets.yml into an OrderedDictionary, cached by abs-path +
+    # mtime (parallel to Read-SequenceFile's own cache) so the planner's repeated
+    # reads don't re-parse, yet a library edit is picked up on the next call.
+    param([Parameter(Mandatory)][string]$LibPath)
+    if (-not (Test-Path -LiteralPath $LibPath)) { return $null }
+    if (-not $script:SnippetFileCache) { $script:SnippetFileCache = @{} }
+    $resolved = (Resolve-Path -LiteralPath $LibPath).Path
+    $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+    if ($script:SnippetFileCache.ContainsKey($resolved)) {
+        $entry = $script:SnippetFileCache[$resolved]
+        if ($entry.Mtime -eq $mtime) { return $entry.Parsed }
+    }
+    $parsed = Get-Content -Raw -LiteralPath $resolved | ConvertFrom-Yaml -Ordered
+    $script:SnippetFileCache[$resolved] = @{ Mtime = $mtime; Parsed = $parsed }
+    return $parsed
+}
+
+function Get-SnippetMap {
+    # Builds name -> @{Steps; File; Tier} for the snippet libraries visible to the
+    # sequence at $SequencePath. Framework loads first (base); project libraries
+    # then override by name. Two PROJECT libraries with the same name throw (an
+    # ambiguous plan), mirroring Find-ProjectSequenceFile's duplicate rule.
+    param([Parameter(Mandatory)][string]$SequencePath)
+
+    $norm    = ($SequencePath -replace '\\', '/')
+    $modeDir = Split-Path -Parent $SequencePath
+    $mode = $null; $repoRoot = $null
+    if     ($norm -match '(?i)/project/.+/test/(gui|ssh)/[^/]+$') { $mode = $matches[1]; $repoRoot = ($norm -replace '(?i)/project/.+$', '') }
+    elseif ($norm -match '(?i)/test/sequences/(gui|ssh)/[^/]+$')  { $mode = $matches[1]; $repoRoot = ($norm -replace '(?i)/test/sequences/(gui|ssh)/[^/]+$', '') }
+
+    $frameworkLibs = New-Object System.Collections.Generic.List[string]
+    $projectLibs   = New-Object System.Collections.Generic.List[string]
+    if ($repoRoot -and $mode) {
+        $fw = Join-Path (Join-Path (Join-Path (Join-Path $repoRoot 'test') 'sequences') $mode) '_snippets.yml'
+        if (Test-Path -LiteralPath $fw) { [void]$frameworkLibs.Add($fw) }
+        foreach ($d in (Get-ProjectTestSearchDir -RepoRoot $repoRoot -Mode $mode)) {
+            $pl = Join-Path $d '_snippets.yml'
+            if (Test-Path -LiteralPath $pl) { [void]$projectLibs.Add($pl) }
+        }
+    }
+    # Always consider the sequence's own dir (covers standalone temp dirs used by
+    # tests and any layout the regexes above didn't recognise). De-dup against
+    # the tiers already collected so a framework/project file isn't double-loaded.
+    $localLib = Join-Path $modeDir '_snippets.yml'
+    if (Test-Path -LiteralPath $localLib) {
+        $localResolved = (Resolve-Path -LiteralPath $localLib).Path
+        $known = @()
+        foreach ($f in (@($frameworkLibs) + @($projectLibs))) { $known += (Resolve-Path -LiteralPath $f).Path }
+        if ($localResolved -notin $known) { [void]$projectLibs.Add($localLib) }
+    }
+
+    $map = @{}
+    foreach ($f in $frameworkLibs) {
+        $doc = Get-SnippetLibraryFile -LibPath $f
+        if ($doc -isnot [System.Collections.IDictionary]) { continue }
+        foreach ($name in $doc.Keys) {
+            $key = [string]$name
+            if ($doc[$name] -isnot [System.Collections.IEnumerable] -or $doc[$name] -is [string]) {
+                throw "PlannerFatal: snippet '$key' in $f is not a list of steps."
+            }
+            $map[$key] = @{ Steps = $doc[$name]; File = $f; Tier = 'framework' }
+        }
+    }
+    foreach ($p in $projectLibs) {
+        $doc = Get-SnippetLibraryFile -LibPath $p
+        if ($doc -isnot [System.Collections.IDictionary]) { continue }
+        foreach ($name in $doc.Keys) {
+            $key = [string]$name
+            if ($doc[$name] -isnot [System.Collections.IEnumerable] -or $doc[$name] -is [string]) {
+                throw "PlannerFatal: snippet '$key' in $p is not a list of steps."
+            }
+            if ($map.ContainsKey($key) -and $map[$key].Tier -eq 'project') {
+                throw "PlannerFatal: snippet '$key' is defined in two project libraries:`n    $($map[$key].File)`n    $p`nKeep only one so the reference resolves unambiguously."
+            }
+            $map[$key] = @{ Steps = $doc[$name]; File = $p; Tier = 'project' }
+        }
+    }
+    return $map
+}
+
+function Expand-StepList {
+    # Returns a NEW step array with every {snippet:name} replaced by that
+    # snippet's (recursively expanded, deep-cloned) steps. $Visiting guards
+    # against snippet->snippet cycles; $Depth is a backstop ceiling. retry.steps
+    # (and any other nested `steps`) are walked so snippets work at any depth.
+    # NOTE: $Steps / $Map / $Visiting are intentionally NOT [Parameter(Mandatory)]:
+    # an empty collection (e.g. a fresh HashSet, or an empty step list) fails
+    # mandatory binding with "Cannot bind argument ... empty collection".
+    param(
+        $Steps,
+        [hashtable]$Map,
+        [System.Collections.Generic.HashSet[string]]$Visiting,
+        [Parameter(Mandatory)][string]$SeqPath,
+        [int]$Depth = 0
+    )
+    if ($Depth -gt 25) { throw "PlannerFatal: snippet expansion exceeded depth 25 in $SeqPath (cyclic or pathological nesting)." }
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($step in $Steps) {
+        if ($step -is [System.Collections.IDictionary] -and $step.Contains('snippet')) {
+            $name = [string]$step['snippet']
+            if (-not $Map.ContainsKey($name)) {
+                $available = (($Map.Keys | Sort-Object) -join ', ')
+                if (-not $available) { $available = '(no snippet libraries found)' }
+                throw "PlannerFatal: snippet '$name' referenced by $SeqPath was not found. Available snippets: $available."
+            }
+            if ($Visiting.Contains($name)) {
+                throw "PlannerFatal: snippet cycle detected at '$name' (referenced from $SeqPath)."
+            }
+            [void]$Visiting.Add($name)
+            $inner = @(Expand-StepList -Steps $Map[$name].Steps -Map $Map -Visiting $Visiting -SeqPath $SeqPath -Depth ($Depth + 1))
+            [void]$Visiting.Remove($name)
+            foreach ($e in $inner) { [void]$out.Add($e) }
+        }
+        elseif ($step -is [System.Collections.IDictionary] -and $step.Contains('steps')) {
+            $clone = [ordered]@{}
+            foreach ($k in $step.Keys) {
+                if ($k -eq 'steps') { $clone['steps'] = @(Expand-StepList -Steps $step['steps'] -Map $Map -Visiting $Visiting -SeqPath $SeqPath -Depth ($Depth + 1)) }
+                else                { $clone[$k] = Copy-YamlNode $step[$k] }
+            }
+            [void]$out.Add($clone)
+        }
+        else {
+            [void]$out.Add((Copy-YamlNode $step))
+        }
+    }
+    # Return a plain array; every caller wraps the call in @() so a single-element
+    # result is rebuilt as a 1-element array rather than unrolled to a scalar.
+    return $out.ToArray()
+}
+
+function Expand-SequenceSnippet {
+    <#
+    .SYNOPSIS
+        Returns the sequence with every {snippet:name} step spliced out to its
+        library definition. Snippet-free sequences are returned unchanged (the
+        cached object, no clone).
+    .DESCRIPTION
+        Called by Read-SequenceFile after parse so the expansion is the single
+        point every consumer flows through. Never mutates $Sequence: when a
+        snippet is present it returns a shallow top-level copy whose `steps` is a
+        freshly built, deep-cloned, fully-expanded array. Throws PlannerFatal on
+        an unknown snippet name, a duplicate project definition, or a cycle.
+    #>
+    param(
+        [Parameter(Mandatory)]$Sequence,
+        [Parameter(Mandatory)][string]$Path
+    )
+    if ($Sequence -isnot [System.Collections.IDictionary]) { return $Sequence }
+    if (-not $Sequence.Contains('steps')) { return $Sequence }
+    if (-not (Test-StepHasSnippet $Sequence['steps'])) { return $Sequence }
+
+    if (-not (Get-Module powershell-yaml)) {
+        if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
+            throw "powershell-yaml is required to expand sequence snippets. Install with: Install-Module -Name powershell-yaml -Scope CurrentUser"
+        }
+        Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
+    }
+
+    $map      = Get-SnippetMap -SequencePath $Path
+    $visiting = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $expanded = @(Expand-StepList -Steps $Sequence['steps'] -Map $map -Visiting $visiting -SeqPath $Path -Depth 0)
+
+    # Shallow-copy the top-level dict (non-steps keys are read-only downstream so
+    # sharing them by reference is safe) and swap in the expanded step array, so
+    # the mtime-cached raw parse object is never mutated.
+    $out = [ordered]@{}
+    foreach ($k in $Sequence.Keys) {
+        if ($k -eq 'steps') { $out['steps'] = $expanded }
+        else                { $out[$k] = $Sequence[$k] }
+    }
+    return $out
+}
+
+Export-ModuleMember -Function Read-SequenceFile, Get-SequenceMode, Get-SequenceModePath, Test-GuiFallbackAllowed, Get-ProjectTestSearchDir, Find-ProjectSequenceFile, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap

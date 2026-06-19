@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -676,16 +676,15 @@ Folder) where this guest's diagnostics, logs, and failure artifacts
 live. Set on every guest -- success or failure -- so the dashboard
 tile always navigates to the same place.
 .DESCRIPTION
-Historically this field only had a value when a failure produced a
-debug folder; the dashboard JS used the empty-string check to decide
-whether to wrap the pill in an anchor. The folder layout was reworked
-to one folder per guest per cycle (independent of pass/fail), so this
-function is now called eagerly by Invoke-TestInnerRunner as soon as the
-per-guest folder is created. Empty string still clears the field for
-contexts that legitimately have no per-guest folder (status reset
-between cycles). The JSON field name remains `failureArtifacts` for
-back-compat with old history rows and the dashboard JS that reads them;
-only the cmdlet name is singular per PowerShell Verb-Noun convention.
+The folder layout is one folder per guest per cycle (independent of
+pass/fail), so Invoke-TestInnerRunner calls this function eagerly as
+soon as the per-guest folder is created -- not only on failure. The
+dashboard JS uses the empty-string check to decide whether to wrap the
+pill in an anchor, so an empty string clears the field for contexts
+that legitimately have no per-guest folder (status reset between
+cycles). The JSON field name is `failureArtifacts` for back-compat
+with old history rows and the dashboard JS that reads them; only the
+cmdlet name is singular per PowerShell Verb-Noun convention.
 #>
     [CmdletBinding(SupportsShouldProcess)]
     param(

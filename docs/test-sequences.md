@@ -107,6 +107,86 @@ variable, delete the persisted VM + snapshot to force a cold rebuild.
 
 ---
 
+## Snippets (reusable step lists)
+
+A **snippet** is a named, reusable list of steps spliced into a sequence
+wherever a `snippet:` step appears — so a common preamble lives in one
+place instead of being copied across every sequence. The classic case is
+the cold-agetty login prime (see [`firstLoginPrime`](#firstloginprime)
+below), shared by all `workload.guest.*` sequences.
+
+Reference one with a step whose only key is `snippet:` (it has no
+`action:`). It works at the top level **and inside `retry.steps`**:
+
+```yaml
+steps:
+  - action: retry
+    maxAttempts: 2
+    steps:
+      - snippet: firstLoginPrime        # spliced out to the 3 primed steps
+      - action: passwdPrompt
+        pattern: "login:"
+        text: "${username}"
+```
+
+### Where snippets live
+
+Snippets are defined in a `_snippets.yml` library — a map of
+`name → [steps]` — sitting in the same mode dir as sequences:
+
+- **Framework:** `test/sequences/gui/_snippets.yml`,
+  `test/sequences/ssh/_snippets.yml`
+- **Project:** `project/<…>/test/gui/_snippets.yml` (any example's test tree)
+
+```yaml
+# test/sequences/gui/_snippets.yml
+firstLoginPrime:
+  - action: waitForText
+    pattern: "login:"
+    description: "OCR: login:"
+  - action: pressKey
+    name: Enter
+  - action: waitForSeconds
+    seconds: 2
+```
+
+Schema: [`test/schemas/snippets.schema.yml`](../test/schemas/snippets.schema.yml).
+
+### Resolution and rules
+
+- **Project overrides framework.** A snippet name defined in a project
+  `_snippets.yml` wins over the same name in the framework library —
+  mirroring how a project sequence overrides a framework sequence of the
+  same name. Defining the same name in **two project** libraries is a
+  fatal ambiguity (the cycle aborts before any guest runs).
+- **Variables resolve in the consumer's scope.** A snippet may use
+  `${username}` and other tokens; they expand against the sequence that
+  references the snippet, at execute time. Snippets are parameter-free.
+- **Snippets may reference snippets.** Nesting is expanded recursively;
+  a reference cycle is a fatal error.
+- **Expansion is invisible downstream.** Splicing happens at file-read
+  time, so step windows (`-StartStep`/`-StopStep`), perf step rows, and
+  the executor all see the already-expanded steps — identical to writing
+  the steps inline.
+- An **unknown snippet name** is a fatal error listing the available
+  names, so a typo fails fast instead of silently dropping steps.
+
+Every sequence in the framework and the project tree is read (and thus
+snippet-expanded) by [`Test-Config.ps1`](../test/Test-Config.ps1), so a
+broken or missing snippet reference is caught before a cycle starts.
+
+#### firstLoginPrime
+
+The bundled gui snippet. Wakes a freshly-rebooted agetty before a
+username is typed: the first keystroke into a cold `login:` prompt is
+swallowed while the tty input layer drains, so on KVM (one
+`virsh send-key` per char, no lead-in) the leading character of the
+username is lost. Pressing Enter (a harmless empty submit at a `login:`
+prompt) and pausing lets the prompt settle before the
+[`passwdPrompt`](#passwdprompt) types the username.
+
+---
+
 ## Action reference
 
 ### break
@@ -270,6 +350,21 @@ on `waitForText` for the login prompt).
 |---|---|---|
 | `id` | string | Required. Snapshot name previously written by `saveDiskSnapshot`. |
 
+### networkRelease
+
+Release the guest DHCP lease and network resources at the end of a
+sequence so the address returns to the pool instead of lingering until
+lease expiry (keeps a churning fleet from exhausting a shared LAN's DHCP
+pool). In GUI mode types `bash /usr/local/lib/yuruna/yuruna-network.sh
+release` on the guest console for Ubuntu / Amazon Linux guests;
+Windows.11 is a no-op reminder (TODO). Uses the `Send-Text` and
+`Send-Key` host I/O contracts.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `text` | string | Optional override of the typed command. Default `bash /usr/local/lib/yuruna/yuruna-network.sh release` (Ubuntu / Amazon only). |
+| `charDelayMs` | number | Default `50`. Character typing delay in milliseconds. |
+
 ### passwdPrompt
 
 Like `waitForAndEnter`, but `text` is always treated as sensitive — for
@@ -404,7 +499,8 @@ Capture a screenshot for debugging.
 
 Wait for a button label to appear on the VM screen via OCR, then click
 at the label's centre. Hyper-V uses `vmconnect` + SendInput
-(`vmconnect` must be open). UTM: not yet implemented.
+(`vmconnect` must be open). UTM uses CGEvent mouse-click synthesis
+(requires Accessibility permission on macOS).
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -608,6 +704,6 @@ are NOT in `Yuruna.Host`'s exports and remain safe unqualified.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

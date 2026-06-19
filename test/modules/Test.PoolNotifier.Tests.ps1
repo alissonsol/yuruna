@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 422d8f14-9a73-4e52-8c61-2d9b3a7e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,9 +166,9 @@ Describe 'Get-PoolMetricsCandidateUrl (TLS rollout tolerance)' {
 }
 
 Describe 'Get-PoolNotifierSpoolRoot' {
-    It 'is null without a poolStorage config and joins notifications onto LocalPath otherwise' {
+    It 'is null without a pool storage config and joins notifications onto LocalPath otherwise' {
         Assert-Null (Get-PoolNotifierSpoolRoot -Config $null) 'null config -> null'
-        $root = Get-PoolNotifierSpoolRoot -Config ([pscustomobject]@{ LocalPath = '/mnt/ypsp' })
-        Assert-Equal (Join-Path '/mnt/ypsp' 'notifications') $root 'LocalPath/notifications'
+        $root = Get-PoolNotifierSpoolRoot -Config ([pscustomobject]@{ LocalPath = '/mnt/ypool-nas' })
+        Assert-Equal (Join-Path '/mnt/ypool-nas' 'notifications') $root 'LocalPath/notifications'
     }
 }

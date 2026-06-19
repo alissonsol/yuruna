@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -826,13 +826,13 @@ while ($true) {
 
     # --- Re-import modules so a mid-run `git pull` propagates code changes ---
     # Unconditional, both platforms: same guarantee regardless of how the
-    # cycle loop is structured. Symptom that drove this defense: on macOS
-    # (which loops in-process via `continue` near the bottom of the cycle),
-    # PowerShell's module cache survives across cycles, so a long-running
-    # runner kept building UTM bundle paths under the pre-rename
-    # `~/Desktop/Yuruna.VDE/<host>.nosync/` layout from the cached
-    # Test.Start-VM module after the path-rename commits landed — Start-VM
-    # failed every guest with "UTM bundle not found: …/Yuruna.VDE/…". On
+    # cycle loop is structured. The failure class this guards against: on
+    # macOS (which loops in-process via `continue` near the bottom of the
+    # cycle), PowerShell's module cache survives across cycles, so a
+    # long-running runner keeps executing stale module code after a
+    # mid-run `git pull` -- e.g. building UTM bundle paths from a cached
+    # Test.Start-VM whose layout no longer matches disk, so Start-VM fails
+    # every guest with "UTM bundle not found: …". On
     # Windows each cycle is normally a fresh pwsh via Start-Process, so this
     # block is mostly redundant there, but: (1) Add-Type compiles like
     # YurunaVMConnectDialog / HyperVCapture stick across the same
@@ -976,9 +976,9 @@ while ($true) {
     # --- Capability gate ----------------------------------------------------
     # Print the matrix once per cycle (helps post-mortem readers in the
     # cycle log) and refuse the cycle when the plan references a host
-    # I/O action no backend on this host has registered — replaces
-    # the silent "Unknown host: ..." that used to surface only at
-    # runtime, deep inside a sequence step.
+    # I/O action no backend on this host has registered — catching it
+    # here, at plan time, instead of as a silent "Unknown host: ..."
+    # that surfaces only at runtime, deep inside a sequence step.
     if (-not $plannerFatal -and $script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
         Write-HostCapabilityBanner
         $cap = Test-CyclePlanCapabilityFromPlan -Plan $script:CyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
@@ -1068,7 +1068,7 @@ while ($true) {
     # the framework SHA is what Start-LogFile actually used to name
     # the per-cycle log file), project SECOND if a clone was produced
     # this cycle. Empty repositories.projectUrl / in-tree fallback yields a
-    # one-element array, identical to the pre-array behavior.
+    # one-element array.
     $GitCommitsList = @(
         [ordered]@{ sha = $GitCommit; repoUrl = $Config.repositories.frameworkUrl }
     )
@@ -1774,12 +1774,15 @@ while ($true) {
                 # Close the self-heal observability loop: route the failure
                 # through the remediation dispatcher so it computes a recovery
                 # recommendation, emits the remediation_recommended NDJSON event
-                # (internally, via Send-CycleEventSafely), and logs the next
-                # step. Advisory only -- the dispatcher never acts. Pass the
-                # in-memory payload so a cycle-boundary wipe of last_failure.json
-                # can't route this on a stale file. Auto-applying a
-                # recommendation is a separate, default-off feature that needs a
-                # per-cycle attempt cap and a class allow-list before it can act.
+                # (internally, via Send-CycleEventSafely), persists the durable
+                # last_remediation.json beside the failure (archived into the
+                # cycle folder and replicated to the pool), and logs the next
+                # step. Advisory only -- the dispatcher records the decision but
+                # never acts. Pass the in-memory payload so a cycle-boundary wipe
+                # of last_failure.json can't route this on a stale file. Auto-
+                # applying a recommendation is a separate, default-off feature
+                # that needs a per-cycle attempt cap and a class allow-list
+                # (and enough human review) before it can act.
                 if (Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) {
                     $remediation = Invoke-Remediation -FailureRecord $inCycleEventData
                     if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }

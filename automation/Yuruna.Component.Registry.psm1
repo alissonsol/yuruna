@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42d2e3f4-a5b6-4789-0123-4d5e6f7a8b9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,8 +33,8 @@
 
     The cross-tree import (automation -&gt; test) is the only such edge in
     the codebase. It is justified because the providers are
-    deployment-time knowledge, not test-time knowledge -- the historical
-    naming is what put the registry under test/modules. A future
+    deployment-time knowledge, not test-time knowledge -- the `Test.`
+    naming convention is what puts the registry under test/modules. A future
     consolidation could move Test.CredentialProvider into automation/;
     for now this bridge keeps the boundary explicit and concentrated.
 #>
@@ -67,9 +67,8 @@ function Resolve-ComponentRegistryLogin {
         Invoke-ComponentCommand so the registryLogin phase shares the
         same docker.stderr.log + docker.rc capture path as build / tag /
         push. Returning $null is the "no login needed" signal -- caller
-        silently skips the phase, which matches the legacy behavior for
-        any registry the old hard-coded `if ($registryLocation -like
-        '*azurecr.io*')` check did not match.
+        silently skips the phase for any registry without a registered
+        credential provider.
     .PARAMETER RegistryLocation
         Hostname (or hostname/path) read from the per-component
         componentVars["&lt;registryName&gt;.registryLocation"]. Empty / $null

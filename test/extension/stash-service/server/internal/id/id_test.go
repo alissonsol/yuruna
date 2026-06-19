@@ -15,7 +15,7 @@ import (
 
 // TestAllocateUniqueWithinDay verifies that consecutive Allocate calls
 // for the same UTC day never repeat, that all IDs are the documented
-// 6 chars over the [a-z0-9] alphabet, and that the in-memory seen set
+// 4 chars over the [a-z0-9] alphabet, and that the in-memory seen set
 // stays in sync with the on-disk scan path.
 func TestAllocateUniqueWithinDay(t *testing.T) {
 	tmp := t.TempDir()
@@ -53,14 +53,16 @@ func TestAllocatePicksUpExistingFilesOnDisk(t *testing.T) {
 	if err := os.MkdirAll(dayDir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// Pre-existing artifacts: an extension'd file, a no-extension
-	// file, and an archive. Each reserves the leading 6-char ID.
-	for _, name := range []string{"abc123.pdf", "def456", "ghi789.yuruna.archive.zip", "qrs456.staging"} {
+	// Pre-existing entries: an extension'd file, a no-extension file, an
+	// archive, an in-progress staging dir, and a sidecar (§8.5). Each
+	// reserves the leading 4-char ID — including the sidecar, so the
+	// allocator never hands out an ID a sidecar already claims.
+	for _, name := range []string{"a1b2.pdf", "c3d4", "e5f6.yuruna.archive.zip", "g7h8.staging", "i9j0.yuruna.meta.json"} {
 		if err := os.WriteFile(filepath.Join(dayDir, name), nil, 0o600); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
-	reserved := map[string]bool{"abc123": true, "def456": true, "ghi789": true, "qrs456": true}
+	reserved := map[string]bool{"a1b2": true, "c3d4": true, "e5f6": true, "g7h8": true, "i9j0": true}
 
 	a := New(tmp)
 	for i := 0; i < 500; i++ {

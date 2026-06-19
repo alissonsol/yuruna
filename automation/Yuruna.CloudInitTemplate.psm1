@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,9 +20,9 @@
 .SYNOPSIS
     Merge a shared cloud-init user-data base file with a per-host overlay.
 .DESCRIPTION
-    Three host platforms (Hyper-V, KVM, UTM) historically shipped three
-    near-identical autoinstall user-data files per guest, drifting whenever
-    a fix landed in one copy and not the others
+    Three host platforms (Hyper-V, KVM, UTM) otherwise need three
+    near-identical autoinstall user-data files per guest, which drift
+    whenever a fix lands in one copy and not the others
     ([[feedback_cache_userdata_three_platforms]]). This module shares one
     base file across hosts and applies a per-host overlay at New-VM time.
 
@@ -161,11 +161,11 @@ function Get-YurunaGuestScriptBase64 {
         base64 -- yuruna-retry.sh, yuruna-versions.sh, fetch-and-execute.sh,
         and yuruna-network.sh -- and return them as a hashtable keyed by purpose.
     .DESCRIPTION
-        All six New-VM.ps1 scripts (3 platforms x {24, 26}) used to
-        duplicate the `[Convert]::ToBase64String([File]::ReadAllBytes(...))`
-        dance for the same two files. Centralising the read here means
-        the eventual swap to a signed-bundle distribution (or a third
-        guest-side script) is one edit.
+        Centralises the `[Convert]::ToBase64String([File]::ReadAllBytes(...))`
+        read otherwise duplicated across all six New-VM.ps1 scripts
+        (3 platforms x {24, 26}) for the same files, so the eventual
+        swap to a signed-bundle distribution (or a third guest-side
+        script) is one edit.
     .PARAMETER RepoRoot
         Absolute path to the repository root. The scripts live under
         $RepoRoot/automation/.
@@ -199,9 +199,10 @@ function Resolve-CloudInitPlaceholder {
         Substitute every `<NAME>_PLACEHOLDER` token in a cloud-init
         template with the matching value from -Replacement.
     .DESCRIPTION
-        The six New-VM.ps1 scripts each used to carry a 600-character
-        `.Replace(...).Replace(...)...` chain that buried the placeholder
-        list in one line. Pulling the iteration here lets each caller
+        Centralises the placeholder iteration otherwise spelled as a
+        600-character `.Replace(...).Replace(...)...` chain in each of
+        the six New-VM.ps1 scripts, which buried the placeholder list
+        in one line. Pulling the iteration here lets each caller
         spell out the substitution map line-by-line, AND adds an
         unresolved-placeholder safety net: after the substitution, any
         `*_PLACEHOLDER` token left in the result throws -- a typo in
@@ -280,6 +281,12 @@ function Build-CloudInitUserData {
         every placeholder it cares about; missing tokens (a placeholder
         in the template that the caller forgot) throw via the
         Resolve-CloudInitPlaceholder safety net.
+    .PARAMETER AllowedUnresolved
+        Placeholder names the template intentionally leaves unresolved for
+        a downstream consumer to fill in (e.g. AGGREGATOR_BASE_PLACEHOLDER,
+        which the caching-proxy guest resolves at boot via sed once its
+        DHCP IP is known). Forwarded to Resolve-CloudInitPlaceholder so the
+        unresolved-placeholder safety net ignores these tokens.
     .PARAMETER OutputPath
         Optional. When set, also write the resolved user-data to this
         path (UTF-8 without BOM, LF line endings).
@@ -295,6 +302,7 @@ function Build-CloudInitUserData {
         [Parameter(Mandatory)][string]$OverlayPath,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][hashtable]$Replacement,
+        [string[]]$AllowedUnresolved = @(),
         [string]$OutputPath
     )
     $merged = Merge-CloudInitUserData -BasePath $BasePath -OverlayPath $OverlayPath
@@ -315,7 +323,7 @@ function Build-CloudInitUserData {
     if (-not $fullReplacement.ContainsKey('YURUNA_NETWORK_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_NETWORK_BASE64_PLACEHOLDER'] = $b64.NetworkLib
     }
-    $resolved = Resolve-CloudInitPlaceholder -TemplateContent $merged -Replacement $fullReplacement
+    $resolved = Resolve-CloudInitPlaceholder -TemplateContent $merged -Replacement $fullReplacement -AllowedUnresolved $AllowedUnresolved
     if ($OutputPath) {
         if ($PSCmdlet.ShouldProcess($OutputPath, 'Write resolved cloud-init user-data')) {
             [System.IO.File]::WriteAllText($OutputPath, $resolved, [System.Text.UTF8Encoding]::new($false))

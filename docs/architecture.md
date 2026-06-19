@@ -10,7 +10,8 @@ rather than repeat.
    KVM/libvirt. See [Hosts](../host/README.md) and
    [Guests](../guest/README.md).
 2. **Kubernetes deployment** — three-phase model targeting localhost,
-   AWS, Azure, or GCP with the same project layout. See
+   AWS, or Azure with the same project layout (GCP is planned, not yet
+   available). See
    [Kubernetes Deployment](kubernetes.md).
 3. **Test harness** — continuous VM creation + validation across hosts
    and guests, with status server, notifications, and extensible
@@ -46,7 +47,8 @@ Set-Workload.ps1  <project> <cloud>
 Test-Runtime.ps1
 ```
 
-`<cloud>` is `localhost`, `aws`, `azure`, or `gcp`. Cloud variants require
+`<cloud>` is `localhost`, `aws`, or `azure` (`gcp` is planned, not yet
+available). Cloud variants require
 a one-time auth step (`az login`, `aws configure`, `gcloud auth …`) — see
 [Yuruna Authentication](authentication.md). Syntax reference:
 [Yuruna Syntax](syntax.md).
@@ -116,6 +118,6 @@ Scripts and examples are provided "as is". See [Yuruna License](../LICENSE.md).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,9 +43,9 @@ param(
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# Canonical path bundle + CachingProxy module kind. Loads the same trio
-# (Test.VMUtility, Test.CachingProxy, Test.HostContract) that the four caching-
-# proxy scripts used to import inline:
+# Canonical path bundle + CachingProxy module kind. Loads the trio
+# (Test.VMUtility, Test.CachingProxy, Test.HostContract) shared by the four
+# caching-proxy scripts:
 #   * Test.VMUtility -- Get-CachingProxyPort / Test-IpAddress, used by the
 #     port-probe block below and the env-var / -CacheIp branches that
 #     bypass Test-CachingProxyAvailable's transitive imports.

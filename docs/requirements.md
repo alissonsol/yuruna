@@ -8,7 +8,7 @@ Before installing certificates on localhost, run `mkcert -install` once to creat
 
 Install each of the tools linked below. After installing PowerShell, run `Test-Requirement.ps1` to check which tools are installed and whether their versions meet the ones used in testing.
 
-- Install [PowerShell Core](https://github.com/powershell/powershell) 7.5+. On Windows, from an Administrator PowerShell:
+- Install [PowerShell Core](https://github.com/powershell/powershell) 7.0+ (tested with 7.6.3). On Windows, from an Administrator PowerShell:
   - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (see [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170))
   - `Install-Module -Name powershell-yaml`
 - Install [Git](https://git-scm.com/downloads)
@@ -63,6 +63,6 @@ Install each of the tools linked below. After installing PowerShell, run `Test-R
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456761
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Gracefully stops the Yuruna Stash Service VM. Does NOT delete the
     VM or its disk -- the spec (§2) explicitly excludes a
-    Remove-StashService cmdlet. A subsequent Start-StashService rebuilds
+    Remove-StashServer cmdlet. A subsequent Start-StashServer rebuilds
     the VM idempotently (New-VM destroys the prior instance first).
 
     In-flight uploads are not drained (§3.2): a hard stop is

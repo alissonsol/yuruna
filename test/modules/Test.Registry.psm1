@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42e1b4d3-a8f9-4256-bc04-3d5e8a2b1c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ function New-YurunaRegistry {
         $global:<AnchorVar>) so `-Force` re-imports of the calling
         module do NOT evict live entries.
 
-        Both Test.SequenceAction and Test.HostIO historically use
+        Both Test.SequenceAction and Test.HostIO use
         `[ordered]@{}` (PowerShell-default case-insensitive). Pass
         -Comparer when a different case-sensitivity policy is required.
     .PARAMETER Name

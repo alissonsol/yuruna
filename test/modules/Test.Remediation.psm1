@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,6 +61,11 @@
 #>
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
+# Test.StateFile gives the atomic, no-BOM JSON writer used to persist the
+# recommendation as a durable cycle artifact. Imported here (not guarded at
+# the call site) so the write-back is always available wherever the
+# dispatcher runs.
+Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Force -DisableNameChecking -Global
 
 $script:RemediationRegistry = New-YurunaRegistry -Name 'Remediation' -AnchorVar 'YurunaRemediationHandlers' -Comparer 'OrdinalIgnoreCase'
 
@@ -188,6 +193,12 @@ function Invoke-Remediation {
         Hashtable with: FailureClass, Severity, Recommendation, Actions,
         Rationale, HandledBy, AutoApply, Source (file path or '(inline)').
         Returns $null when there's no failure record to act on.
+
+        Side effect: writes a durable last_remediation.json next to the
+        failure record (or in $env:YURUNA_LOG_DIR) so the dispatcher's
+        DECISION persists with the cycle, not only on the transient NDJSON
+        event. The write is advisory-only -- it records what SHOULD happen,
+        it never performs the recommended action.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -373,6 +384,46 @@ function Invoke-Remediation {
             if ($val) { $emit[$key] = [string]$val }
         }
         Send-CycleEventSafely -EventRecord ([hashtable]$emit)
+    }
+    # Persist the recommendation as a durable, self-contained record beside
+    # last_failure.json. The NDJSON event above is a transient breadcrumb and
+    # the verb's suggestedRecoveries is only a HINT; this file is the
+    # dispatcher's authoritative DECISION on disk, so a filesystem-polling
+    # consumer (dashboard, pool aggregator, a later autonomous loop) reads it
+    # without tailing the stream. It lands in the runtime log dir; Stop-LogFile
+    # archives it into the per-cycle folder and the pool copy carries it along.
+    if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
+        $targetDir = if ($source -and $source -ne '(inline)' -and (Test-Path -LiteralPath $source)) {
+            Split-Path -Parent $source
+        } elseif ($env:YURUNA_LOG_DIR) {
+            $env:YURUNA_LOG_DIR
+        } else { $null }
+        if ($targetDir -and (Test-Path -LiteralPath $targetDir -PathType Container)) {
+            $record = [ordered]@{
+                schemaVersion  = 1
+                timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                failureClass   = $failureClass
+                severity       = $severity
+                recommendation = [string]$result['Recommendation']
+                rationale      = [string]$result['Rationale']
+                actions        = @($result['Actions'])
+                handledBy      = [string]$result['HandledBy']
+                autoApply      = [bool]$result['AutoApply']
+                source         = [string]$source
+            }
+            if ($routedFromClass) { $record['outerFailureClass'] = [string]$routedFromClass }
+            # Correlation fields, attached only when the failure carried them so
+            # the typed-string consumer never sees a null.
+            foreach ($key in @('vmName', 'guestKey', 'hostType', 'stepNumber', 'actionVerb', 'sequenceName')) {
+                $val = $ctx.Context[$key]
+                if ($null -ne $val -and "$val" -ne '') { $record[$key] = $val }
+            }
+            try {
+                $null = Write-YurunaStateFileJson -Path (Join-Path $targetDir 'last_remediation.json') -InputObject $record -Confirm:$false
+            } catch {
+                Write-Verbose "Invoke-Remediation: could not write last_remediation.json: $($_.Exception.Message)"
+            }
+        }
     }
     return $result
 }

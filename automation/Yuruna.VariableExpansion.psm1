@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c1d2e3-f4a5-4678-9012-3c4d5e6f7a8b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,14 +23,14 @@
     [Yuruna.Workload](Yuruna.Workload.psm1) and
     [Yuruna.Component](Yuruna.Component.psm1).
 .DESCRIPTION
-    The two consumers used to walk the same data shapes in opposite
-    flavours: Workload always expanded values (so a `${env:X}` reference
+    The two consumers walk the same data shapes in opposite
+    flavours: Workload always expands values (so a `${env:X}` reference
     in a workload variable resolves against the layer below it),
-    Component always emitted them verbatim (its comment block stated
+    Component always emits them verbatim (its comment block states
     the layering happens at the YAML level, not via expansion). Both
-    walked the same two structures -- a flat `variables` hashtable and
+    walk the same two structures -- a flat `variables` hashtable and
     the nested `resources.output.yml` shape with its `globalVariables`
-    special case -- and both pushed every key to env so subsequent
+    special case -- and both push every key to env so subsequent
     `${env:...}` references resolved against the merged state. Hoisting
     the walk here, with an opt-in `-NoExpand` switch, means a future
     schema tweak (a new sentinel resource type, a new debug pattern)

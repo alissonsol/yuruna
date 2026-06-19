@@ -616,15 +616,17 @@ func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy,
 // CURRENT baseURL for the dashboard's drill-down deep-link -- live in the line.
 // The value timestamp is the proxy-side INGEST clock, not the host cycleId.
 func pushLoki(client *http.Client, lokiURL, pool string, st *hostStatus, baseURL string, ingest time.Time) {
-	// hostname is omitted and cycleFolderUrl is NOT carried here: no dashboard
-	// panel reads the folder URL off the transition line (the table's cycle-folder
-	// deep-link reads cycleFolderUrl from yuruna_pool_host_info). baseUrl is the
-	// host IP (no hostname); the cycle-folder name itself is the opaque hostId.
+	// hostname is omitted (pool view is hostname-free). cycleFolderUrl IS carried:
+	// the /go/cycle redirect resolves a PAST cycle's results folder by time off this
+	// line (the in-memory view only knows the current cycle). The folder name is the
+	// opaque hostId (Format-CycleFolderBaseName), so the line stays hostname-free;
+	// baseUrl is the host IP at transition time (the drill-down fallback for a host
+	// that has since aged out of the live view).
 	m := map[string]string{
 		"hostId": st.HostId, "hostType": st.Host,
 		"cycleId": st.CycleId, "overallStatus": st.OverallStatus,
 		"startedAt": st.StartedAt, "finishedAt": st.FinishedAt,
-		"baseUrl": baseURL,
+		"baseUrl": baseURL, "cycleFolderUrl": st.CycleFolderUrl,
 	}
 	if st.OverallStatus == "fail" {
 		// failureClass is carried on the fail transition so a restart's
@@ -1501,6 +1503,351 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// cycleCand is one Loki transition line parsed for /go/cycle's time->cycle match.
+type cycleCand struct {
+	started, finished, ingest   time.Time
+	folderURL, baseURL, cycleID string
+}
+
+// pickCycleForTime chooses the cycle whose [started,finished] window contains t;
+// failing that (a still-running cycle with no finishedAt, or a gap between cycles)
+// it returns the candidate whose timestamp is nearest t. Pure + table-testable;
+// ok=false only for empty input. MUST stay free of I/O so the resolver's matching
+// is unit-tested without a live Loki.
+func pickCycleForTime(cands []cycleCand, t time.Time) (cycleCand, bool) {
+	for _, c := range cands {
+		if !c.started.IsZero() && !c.finished.IsZero() && !t.Before(c.started) && !t.After(c.finished) {
+			return c, true
+		}
+	}
+	best, found := cycleCand{}, false
+	var bestDelta time.Duration
+	for _, c := range cands {
+		ref := c.ingest
+		if ref.IsZero() {
+			ref = c.started
+		}
+		if ref.IsZero() {
+			continue
+		}
+		d := ref.Sub(t)
+		if d < 0 {
+			d = -d
+		}
+		if !found || d < bestDelta {
+			best, bestDelta, found = c, d, true
+		}
+	}
+	return best, found
+}
+
+// lookupCycleAt queries the Loki transition feed ({pool,hostId,src=cycle}) for the
+// cycle a host was running at time t and returns its results-folder URL + the
+// baseURL recorded then. Best-effort + bounded (a 6h window each side, line cap):
+// any Loki error or no usable match returns ok=false, and the caller degrades to
+// the host's current status root.
+func (s *poolState) lookupCycleAt(pool, hostID string, t time.Time) (folderURL, baseURL string, ok bool) {
+	if t.IsZero() || s.lokiURL == "" || s.httpClient == nil {
+		return "", "", false
+	}
+	queryURL := strings.TrimSuffix(s.lokiURL, "push") + "query_range"
+	const win = 6 * time.Hour
+	params := url.Values{}
+	params.Set("query", fmt.Sprintf(`{pool=%q, hostId=%q, src="cycle"} | json`, pool, hostID))
+	params.Set("start", strconv.FormatInt(t.Add(-win).UnixNano(), 10))
+	params.Set("end", strconv.FormatInt(t.Add(win).UnixNano(), 10))
+	params.Set("limit", "200")
+	params.Set("direction", "backward")
+
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return "", "", false
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", false
+	}
+	var lr struct {
+		Data struct {
+			Result []struct {
+				Values [][2]string `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&lr) != nil {
+		return "", "", false
+	}
+	var cands []cycleCand
+	for _, st := range lr.Data.Result {
+		for _, v := range st.Values {
+			var e struct {
+				StartedAt      string `json:"startedAt"`
+				FinishedAt     string `json:"finishedAt"`
+				CycleFolderUrl string `json:"cycleFolderUrl"`
+				BaseUrl        string `json:"baseUrl"`
+				CycleId        string `json:"cycleId"`
+			}
+			if json.Unmarshal([]byte(v[1]), &e) != nil {
+				continue
+			}
+			c := cycleCand{folderURL: e.CycleFolderUrl, baseURL: e.BaseUrl, cycleID: e.CycleId}
+			if ns, perr := strconv.ParseInt(v[0], 10, 64); perr == nil {
+				c.ingest = time.Unix(0, ns)
+			}
+			if tt, perr := time.Parse(time.RFC3339, e.StartedAt); perr == nil {
+				c.started = tt
+			}
+			if tt, perr := time.Parse(time.RFC3339, e.FinishedAt); perr == nil {
+				c.finished = tt
+			}
+			cands = append(cands, c)
+		}
+	}
+	c, found := pickCycleForTime(cands, t)
+	if !found || c.folderURL == "" {
+		return "", "", false
+	}
+	return c.folderURL, c.baseURL, true
+}
+
+// lastKnownBaseURL returns the most recent baseUrl (host IP) the transition feed
+// recorded for a host -- the fallback for resolving a host's address when it is not
+// in the live in-memory view (just after a collector restart, or an idle host that
+// hasn't been re-discovered yet). Best-effort + bounded -> "".
+func (s *poolState) lastKnownBaseURL(pool, hostID string) string {
+	if s.lokiURL == "" || s.httpClient == nil {
+		return ""
+	}
+	now := time.Now().UTC()
+	queryURL := strings.TrimSuffix(s.lokiURL, "push") + "query_range"
+	params := url.Values{}
+	params.Set("query", fmt.Sprintf(`{pool=%q, hostId=%q, src="cycle"} | json`, pool, hostID))
+	params.Set("start", strconv.FormatInt(now.Add(-defaultHostTTL).UnixNano(), 10))
+	params.Set("end", strconv.FormatInt(now.UnixNano(), 10))
+	params.Set("limit", "1")
+	params.Set("direction", "backward")
+
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var lr struct {
+		Data struct {
+			Result []struct {
+				Values [][2]string `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&lr) != nil {
+		return ""
+	}
+	for _, st := range lr.Data.Result {
+		for _, v := range st.Values {
+			var e struct {
+				BaseUrl string `json:"baseUrl"`
+			}
+			if json.Unmarshal([]byte(v[1]), &e) == nil && e.BaseUrl != "" {
+				return e.BaseUrl
+			}
+		}
+	}
+	return ""
+}
+
+// resolveHostBase resolves a hostId to the host's CURRENT status-page base URL -- the
+// uuid->IP step shared by the dashboard deep-links (/go/cycle and /go/host). Prefers
+// the live in-memory IP (freshest -- survives an IP change), else the last IP the Loki
+// transition feed recorded (host not in the live view, e.g. just after a collector
+// restart, before re-discovery). Returns "" when the host is unknown to the pool. An
+// empty pool is normalized to the host's pool so the Loki fallback can scope its query;
+// the normalized pool is returned for callers that need it downstream.
+func (s *poolState) resolveHostBase(hostID, pool string) (base, resolvedPool string) {
+	s.mu.Lock()
+	if hv := s.hosts[hostID]; hv != nil {
+		base = hv.BaseURL
+	}
+	if pool == "" {
+		pool = s.poolFor(hostID)
+	}
+	s.mu.Unlock()
+	if base == "" {
+		base = s.lastKnownBaseURL(pool, hostID)
+	}
+	return base, pool
+}
+
+// handleGoHost bridges a dashboard click -> the host's OWN status-page root, resolving
+// the host's CURRENT IP server-side (the same uuid->IP resolution as /go/cycle, so the
+// link survives a host IP change). Distinct from /go/cycle, which targets a specific
+// cycle-results folder; this always lands on the status root. The state-timeline series
+// is intentionally IP-free (keyed on hostId so a host's row doesn't split on an IP
+// change), so the link can't carry the IP and must resolve it here. Host unknown -> 404.
+func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	hostID := strings.TrimSpace(q.Get("host"))
+	if hostID == "" {
+		http.Error(w, "missing host", http.StatusBadRequest)
+		return
+	}
+	base, _ := s.resolveHostBase(hostID, strings.TrimSpace(q.Get("pool")))
+	if base == "" {
+		http.Error(w, "host not known to the pool", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, strings.TrimRight(base, "/"), http.StatusFound)
+}
+
+// handleGoCycle bridges a dashboard timeline click -> the host's own cycle-results
+// folder. The state-timeline series is intentionally IP-free (keyed on hostId so a
+// host's row doesn't split when its IP changes), so the link cannot carry the IP;
+// this resolves it LIVE from the in-memory view (the host's CURRENT IP -- the whole
+// point: the link survives an IP change). The cycle folder for the clicked time is
+// the current cycle (fast path, no fetch) when t falls in it, else the cycle active
+// at t resolved from the host's /log/ listing (works for any retained cycle, old or
+// new), else the Loki transition feed (a host that has aged out of the live view).
+// Degrades gracefully: missing/zero time -> current cycle; folder unresolved -> the
+// host's status root (still the right host at its current IP); host unknown -> 404.
+func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	hostID := strings.TrimSpace(q.Get("host"))
+	if hostID == "" {
+		http.Error(w, "missing host", http.StatusBadRequest)
+		return
+	}
+	var clickT time.Time
+	if ms, err := strconv.ParseInt(strings.TrimSpace(q.Get("t")), 10, 64); err == nil && ms > 0 {
+		clickT = time.Unix(0, ms*int64(time.Millisecond)).UTC()
+	}
+	pool := strings.TrimSpace(q.Get("pool"))
+
+	s.mu.Lock()
+	var curFolder string
+	var curStart time.Time
+	if hv := s.hosts[hostID]; hv != nil && hv.Status != nil {
+		curFolder = hv.Status.CycleFolderUrl
+		if tt, perr := time.Parse(time.RFC3339, hv.Status.StartedAt); perr == nil {
+			curStart = tt
+		}
+	}
+	s.mu.Unlock()
+
+	// Resolve the host's current base URL (live IP, else the last IP Loki recorded);
+	// also normalizes an empty pool so the per-cycle folder lookups below can scope.
+	base, pool := s.resolveHostBase(hostID, pool)
+	if base == "" {
+		http.Error(w, "host not known to the pool", http.StatusNotFound)
+		return
+	}
+
+	folder := ""
+	switch {
+	case curFolder != "" && (clickT.IsZero() || (!curStart.IsZero() && !clickT.Before(curStart))):
+		folder = curFolder // current cycle (in-memory, no fetch)
+	case !clickT.IsZero():
+		// Resolve the cycle active at the clicked time from the host's /log/ listing:
+		// the folder name encodes its start time + hostId, so this works for ANY
+		// retained cycle (old + new) and supplies the cycle-number prefix that can't be
+		// reconstructed from the transition line. Loki's cycleFolderUrl is the fallback
+		// when the listing can't be fetched.
+		folder = s.resolveFolderByListing(base, hostID, clickT)
+		if folder == "" {
+			if fu, _, found := s.lookupCycleAt(pool, hostID, clickT); found {
+				folder = fu
+			}
+		}
+	}
+
+	target := strings.TrimRight(base, "/")
+	if folder != "" {
+		target += "/" + strings.TrimLeft(folder, "/")
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// resolveFolderByListing fetches the host's /log/ index and returns the results
+// folder ("log/<n>.<date>.<time>.<hostId>/") of the cycle that was active at time
+// t. Works for any cycle still on disk regardless of what Loki recorded -- the
+// folder name itself encodes the start time. Best-effort: unreachable / non-200 /
+// unparseable -> "".
+func (s *poolState) resolveFolderByListing(baseURL, hostID string, t time.Time) string {
+	if s.httpClient == nil {
+		return ""
+	}
+	u := strings.TrimRight(baseURL, "/") + "/log/"
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return ""
+	}
+	return pickFolderFromListing(string(body), hostID, t)
+}
+
+// pickFolderFromListing scans a /log/ index page for this host's cycle folders
+// (`<6-digit cycle number>.<YYYY-MM-DD>.<HH-mm-ss>.<hostId>[.incomplete]/`, the
+// Format-CycleFolderBaseName shape) and returns the one whose encoded start time is
+// the latest at/before t -- the cycle active at the clicked moment. When t predates
+// every retained folder it returns the earliest, so the link still lands on a real
+// cycle. Pure + table-testable; "" when nothing matches.
+func pickFolderFromListing(body, hostID string, t time.Time) string {
+	re := regexp.MustCompile(`\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.` + regexp.QuoteMeta(hostID) + `(?:\.incomplete)?/`)
+	best, earliest := "", ""
+	var bestStart, earliestStart time.Time
+	for _, m := range re.FindAllStringSubmatch(body, -1) {
+		st, perr := time.Parse("2006-01-02 15-04-05", m[1]+" "+m[2])
+		if perr != nil {
+			continue
+		}
+		st = st.UTC()
+		if earliest == "" || st.Before(earliestStart) {
+			earliest, earliestStart = m[0], st
+		}
+		if st.After(t) {
+			continue
+		}
+		if best == "" || st.After(bestStart) {
+			best, bestStart = m[0], st
+		}
+	}
+	if best == "" {
+		best = earliest
+	}
+	if best == "" {
+		return ""
+	}
+	return "log/" + strings.TrimSuffix(best, "/") + "/"
+}
+
 func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1909,6 +2256,14 @@ func main() {
 	mux.HandleFunc("/healthz", state.handleHealth)
 	mux.HandleFunc("/metrics", state.handleMetrics)
 	mux.HandleFunc("/api/v1/pool-status", state.handlePoolStatus)
+	// /go/cycle: dashboard timeline click -> 302 to the host's cycle-results folder,
+	// resolving the host's CURRENT IP live (so the link survives an IP change). Open
+	// (no auth): it only redirects to a host's already-open status server.
+	mux.HandleFunc("/go/cycle", state.handleGoCycle)
+	// /go/host: same uuid->current-IP resolution as /go/cycle, but 302s to the host's
+	// status-page ROOT (not a cycle folder) -- the timeline's "open host status page"
+	// link, so the IP-free state-timeline rows reach the per-host status page too.
+	mux.HandleFunc("/go/host", state.handleGoHost)
 	// /ingest stays registered always; it self-gates on the auth token (503 when
 	// unconfigured). /metrics, /healthz, /api/v1/pool-status remain OPEN + plaintext-
 	// parseable so Prometheus, the host-side pool notifier, and the hostname-free

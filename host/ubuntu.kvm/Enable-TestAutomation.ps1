@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters -SudoCacheReason @(
     'systemctl enable + start libvirtd / virtlogd',
     'virsh net-{list,start,autostart} default',
-    'create the poolStorage SMB mount point (localPath) when its parent is root-owned',
+    'create the networkStorage pool SMB mount point (localPath) when its parent is root-owned',
     'read host hardware fingerprint (/sys/class/dmi product_uuid + board_serial) to register/reclaim this host pool identity'
 )
 
@@ -131,10 +131,10 @@ foreach ($d in @($imgDir, $vmDir)) {
     }
 }
 
-# -- poolStorage SMB mount point (optional NAS replication target) ---------
-# poolStorage (test.config.yml) mounts an SMB share at localPath. The test
+# -- networkStorage pool SMB mount point (optional NAS replication target) ---------
+# networkStorage pool (test.config.yml) mounts an SMB share at localPath. The test
 # runner runs UNPRIVILEGED; when localPath sits under a root-owned parent
-# (e.g. /mnt/ypsp under /mnt 0755 root:root), Connect-YurunaPoolStorage's own
+# (e.g. /mnt/ypool-nas under /mnt 0755 root:root), Connect-YurunaPoolStorage's own
 # New-Item cannot create the directory and the mount is never even attempted
 # -- a reachable NAS that silently never replicates. Pre-create the mount
 # point here, where this host-setup script can elevate, owned by the runner so
@@ -156,14 +156,14 @@ if (Test-Path -LiteralPath $cfgPath) {
             $poolCfg = Get-YurunaPoolStorageConfig -Config $poolConfigDoc -IgnoreReplicate -WarningAction SilentlyContinue
         }
     } catch {
-        Write-Warning "poolStorage mount-point setup: could not read $cfgPath ($($_.Exception.Message)); skipping."
+        Write-Warning "networkStorage pool mount-point setup: could not read $cfgPath ($($_.Exception.Message)); skipping."
     }
     if ($poolCfg -and -not [string]::IsNullOrWhiteSpace($poolCfg.LocalPath)) {
         $mountPoint = $poolCfg.LocalPath
         if (Test-Path -LiteralPath $mountPoint) {
-            Write-Output "poolStorage mount point already exists: $mountPoint"
+            Write-Output "networkStorage pool mount point already exists: $mountPoint"
         } else {
-            Invoke-Step -Description "create poolStorage mount point $mountPoint (owned by $env:USER)" -Action {
+            Invoke-Step -Description "create networkStorage pool mount point $mountPoint (owned by $env:USER)" -Action {
                 # Try unprivileged first (a localPath under $HOME needs no sudo);
                 # fall back to sudo for a root-owned parent like /mnt, handing
                 # ownership to the runner so the later unprivileged mount can
@@ -174,7 +174,7 @@ if (Test-Path -LiteralPath $cfgPath) {
                     $grp = (& id -gn).Trim()
                     & sudo install -d -o $env:USER -g $grp $mountPoint
                     if ($LASTEXITCODE -ne 0) {
-                        Write-Warning "Could not create poolStorage mount point '$mountPoint'. Create it manually: sudo install -d -o $env:USER -g $grp '$mountPoint'."
+                        Write-Warning "Could not create networkStorage pool mount point '$mountPoint'. Create it manually: sudo install -d -o $env:USER -g $grp '$mountPoint'."
                     }
                 }
             }
@@ -255,8 +255,8 @@ foreach ($grp in @('libvirt','kvm')) {
     }
 }
 
-# -- poolStorage host-identity setup + reimage reclaim (interactive) ---------
-# Offer to configure poolStorage (NAS replication) and, on a host with no local
+# -- networkStorage pool host-identity setup + reimage reclaim (interactive) ---------
+# Offer to configure networkStorage pool (NAS replication) and, on a host with no local
 # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
 # loads its own sibling dependencies (config/vault/mount); sudo is primed above so

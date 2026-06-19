@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,18 @@ Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
 if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-$hostIp = '192.168.122.1'
+# Host coordinates + guest network are a topology-aware matched pair: the
+# guest attaches to the SAME libvirt network as the caching-proxy
+# (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else NAT
+# 'default') and reaches the host at an address routable from that network.
+# A guest on the NAT 'default' net cannot reach a bridged cache's LAN IP,
+# so a mismatch bakes an unreachable host/proxy coordinate. See the sibling
+# guest.ubuntu.server.24/New-VM.ps1 for the apt "Network is unreachable"
+# failure this prevents.
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
+$guestBinding = Resolve-GuestHostBinding
+$networkName  = $guestBinding.NetworkName
+$hostIp       = $guestBinding.HostIp
 $hostPort = '8080'
 $cfg = Join-Path $repoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $cfg) {
@@ -260,7 +271,7 @@ $installArgs = @(
     '--os-variant', $osVariant,
     '--disk',    "path=$diskImg,format=qcow2,bus=virtio",
     '--disk',    "path=$seedImg,device=cdrom",
-    '--network', 'network=default,model=virtio',
+    '--network', "network=$networkName,model=virtio",
     '--graphics','vnc,listen=127.0.0.1',
     '--events',  'on_reboot=restart',
     '--noautoconsole',

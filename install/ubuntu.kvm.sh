@@ -1,17 +1,17 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.06.12  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.06.19  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
-# Supported target: Ubuntu 26.04 (Resolute) or newer, x86_64 or aarch64.
+# Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
 
 set -euo pipefail
 
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.12}"
+YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.19}"
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
 # Pinned apt signing-key fingerprints, verified before each key is trusted as
@@ -228,7 +228,7 @@ APT_PACKAGES=(
   bridge-utils
   dnsmasq-base
   acl
-  cifs-utils       # mount.cifs helper for the optional poolStorage (ypsp) SMB share
+  cifs-utils       # mount.cifs helper for the optional networkStorage pool (ypool-nas) SMB share
   cpu-checker
   swtpm swtpm-tools
   genisoimage
@@ -414,7 +414,26 @@ install_pwsh_apt() {
 }
 
 install_pwsh_tarball() {
-  local ver="${PWSH_VERSION:-7.4.6}"
+  # aarch64 has no Microsoft apt package, and x86_64 lands here only when the
+  # apt path fails, so this is the fallback PowerShell source for all
+  # downstream Yuruna automation. Resolve the latest-stable tag by following
+  # the /releases/latest redirect (a HEAD-follow -- no rate-limited
+  # api.github.com call) so the tarball tracks the same current release the
+  # apt path would install instead of freezing on one line. PowerShell ships
+  # both a linux-x64 and a linux-arm64 tarball (plus hashes.sha256) for every
+  # GA release, so both arches resolve. PWSH_VERSION overrides the discovery
+  # for a pinned or air-gapped build.
+  local ver="${PWSH_VERSION:-}"
+  if [[ -z "$ver" ]]; then
+    local tag
+    tag="$(curl -fsSLI --retry 3 --retry-delay 5 --retry-connrefused \
+      -o /dev/null -w '%{url_effective}' \
+      "https://github.com/PowerShell/PowerShell/releases/latest")"
+    tag="${tag##*/}"
+    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+      || die "PowerShell latest-version discovery failed (got: '$tag')"
+    ver="${tag#v}"
+  fi
   local pkg
   case "$ARCH" in
     x86_64)  pkg="powershell-${ver}-linux-x64.tar.gz" ;;

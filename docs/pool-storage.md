@@ -1,9 +1,9 @@
-# poolStorage (ypsp) — NAS-backed durable replication
+# poolStorage (ypool-nas) — NAS-backed durable replication
 
 Hosts in the Yuruna pool are **reimageable at any time**, exactly like the guests
 they test. So host-local storage is treated as fast, local, and **ephemeral**, and
 the durable tier is an **optional** Network-Attached Storage share — the *yuruna
-pool storage path* (**ypsp**). When enabled, each host replicates its finished
+pool storage path* (**ypool-nas**). When enabled, each host replicates its finished
 test-cycle output to the share over **SMB3** (the one network-file protocol uniform
 across Windows, macOS, and Linux). Nothing host-local is load-bearing: wipe a host
 and its archived cycles still live on the NAS.
@@ -17,15 +17,20 @@ vault) see [test-config.md](test-config.md).
 - **Local stays local.** The runner writes cycle folders to `test/status/log/`
   exactly as before. poolStorage never changes the live data path or its
   performance.
+- **Stash storage is isolated.** The stash service has its own separate tier
+  under `networkStorage.stash*` (its own NAS share + account); it no longer
+  shares the pool's share or credential. This page covers only the **pool**
+  side (`networkStorage.pool*` + `networkReplicate`); for the stash storage
+  reference see [test-config.md](test-config.md) and the stash guide.
 - **The NAS is a cold archive.** Replication is a one-way **copy** of immutable,
   finished cycle folders — not a live data directory on the share. There is no
   live reader of the share (the pool dashboard reads each host's own HTTP status
   server, not the NAS), so the share is a durable backup an operator or a future
   tool can browse, not a hot path.
-- **Per-host namespacing.** Each host writes under `<localPath>/<hostId>/…`, keyed
+- **Per-host namespacing.** Each host writes under `<poolLocalPath>/<hostId>/…`, keyed
   on the stable opaque `hostId` (`runtime/host.uuid`), so many hosts share one
   share without collision.
-- **Opt-in + off by default.** `replicate: false` (the default), or any of the
+- **Opt-in + off by default.** `networkReplicate: false` (the default), or any of the
   paths left empty, is a complete no-op: no mount, no copy, no background work.
 
 ## How replication works — the PoolStorageReplicator
@@ -50,14 +55,14 @@ left for next time.
 
 **Backlog-draining.** Each run copies **every** cycle not yet recorded as
 replicated, **oldest first**, scanning both the top-level log directory and the
-rotated `history.YYYY-MM-DD/` buckets. It is capped at **20 cycles per run**
+rotated `history.YYYY-MM-DD/` buckets. It is capped at **100 cycles per run**
 (`-MaxPerRun`) so a first-time catch-up of a large history can't run for hours;
 the next run continues where it left off. Steady state (one new cycle per drain)
 never approaches the cap. A big initial catch-up can be hurried with a one-off
 `Invoke-PoolStorageDrain … -MaxPerRun 500`.
 
 **Atomic — a cycle is copied, or it is not.** Each cycle is copied into
-`<localPath>/<hostId>/<cycle>/`, then a tiny `.yuruna-complete` **sentinel** file
+`<poolLocalPath>/<hostId>/<cycle>/`, then a tiny `.yuruna-complete` **sentinel** file
 is written **last**, and only then is the cycle recorded in the ledger. A copy
 interrupted partway leaves no sentinel and no ledger entry, so the next run
 deletes the incomplete folder and recopies it. A partial replica is therefore
@@ -80,19 +85,19 @@ otherwise silently stall replication forever). Same hardening as the runner's
 `runner.pid` + `runner.start`.
 
 **Loud-fail vault pre-check.** Before mounting, the drain confirms a real SMB
-credential exists for `networkUser`. If the user has an empty `vaultKey` **and**
+credential exists for `poolNetworkUser`. If the user has an empty `vaultKey` **and**
 no stored vault entry, mounting would make `Get-Password` auto-generate a random
 password the NAS will reject — so instead the drain **warns and bails** (no mount,
 no junk vault entry). The check is read-only
 ([Test-VaultEntry](../test/extension/authentication/default.psm1) — it never
 writes the vault or auto-generates). The fix is the recommended vault setup in
-[test-config.md](test-config.md#setting-the-networkuser-password-in-the-vault):
+[test-config.md](test-config.md#setting-the-smb-passwords-in-the-vault):
 map a non-empty `vaultKey` and `Set-Password` it.
 
 ## On-share layout
 
 ```
-<localPath>/
+<poolLocalPath>/
   hosts/
     info.<hostId>.yml                       # host registry (uuid + fingerprint)
   <hostId>/
@@ -185,10 +190,18 @@ can never hang the drain.
 | **macOS** | `mount_smbfs -N` | Credentials are URL-encoded into the mount URL (so `@ # % & + =` in a password don't corrupt it). The password is briefly on the `mount_smbfs` argv (visible to `ps`); keychain integration is a future hardening. |
 
 **Linux precondition — passwordless sudo for the mount.** `sudo -n` never prompts;
-without a `NOPASSWD` rule for `mount` it fails fast (recorded in `lastError`,
-loop unaffected) and the share is never archived. Grant the test account
-passwordless `mount` (e.g. a `/etc/sudoers.d/` drop-in) on Linux pool hosts that
-use poolStorage.
+without a `NOPASSWD` rule it fails fast (recorded in `lastError`, loop unaffected)
+and the share is never archived. Grant the test account passwordless `mount` and
+`umount` (e.g. a `/etc/sudoers.d/` drop-in) on Linux pool hosts that use
+poolStorage. When `localPath` sits under a **root-owned** parent such as `/mnt`,
+also grant `mkdir`: the mount point is created unprivileged when its parent is
+user-writable, but a root-owned parent forces a `sudo -n mkdir -p` fallback
+(`mount` does not create its own target, so a missing mount point otherwise fails
+the mount). Example drop-in (adjust binary paths to your distro):
+
+```
+test ALL=(root) NOPASSWD: /usr/bin/mkdir, /usr/bin/mount, /usr/bin/umount
+```
 
 ## What is — and isn't — replicated
 
@@ -198,7 +211,7 @@ use poolStorage.
   rebuildable from upstream and is handled by squid's own pooling; copying it would
   be churn with no durability value.
 - **Service data (caching-proxy):** the proxy's **Loki, Prometheus, and Grafana**
-  data — archived to ypsp by the guest itself (see *Service replication* below).
+  data — archived to ypool-nas by the guest itself (see *Service replication* below).
   The **stash** service is deferred (no data dir yet). Zot's OCI cache and squid's
   cache are excluded (rebuildable).
 
@@ -207,38 +220,38 @@ use poolStorage.
 Beyond the host-side cycle replication above, the caching-proxy VM archives its own
 **observability data** to the same share so a reimaged proxy can be restored. It is
 **guest-side**: the proxy's cloud-init seed carries the config + a credential, mounts
-the share over cifs, and an hourly `ypsp-replicate.timer` rsyncs the data dirs to
-`<networkPath>/<hostId>/services/caching-proxy/<svc>/`.
+the share over cifs, and an hourly `ypool-nas-replicate.timer` rsyncs the data dirs to
+`<poolNetworkPath>/<hostId>/services/caching-proxy/<svc>/`.
 
 - **Replicated:** `loki` + `prometheus` via `rsync -a` (crash-consistent, additive);
   `grafana` via `sqlite3 .backup` of the live `grafana.db` (a plain rsync of an open
   WAL sqlite can restore corrupt) plus an rsync of the rest. **Excluded:** squid +
   zot (caches), promtail (tail cursor).
-- **Account (`poolStorage.networkUser`).** The proxy mounts with the **single**
-  `networkUser` — the same account the host uses for cycle replication. There is no
-  separate guest credential. **Operator prerequisite:** scope `networkUser`
-  **storage-only** on the NAS — write access to `networkPath` and nothing else — and
+- **Account (`networkStorage.poolNetworkUser`).** The proxy mounts with the **single**
+  `poolNetworkUser` — the same account the host uses for cycle replication. There is no
+  separate guest credential. **Operator prerequisite:** scope `poolNetworkUser`
+  **storage-only** on the NAS — write access to `poolNetworkPath` and nothing else — and
   `Set-Password` its vault entry. **Accepted trade-off:** the credential is baked into
   the proxy's cloud-init seed, so a compromised proxy leaks it; because the account is
   storage-only, the blast radius is confined to the pool share (no host login, no other
-  service). Empty `networkUser` ⇒ service replication stays off.
-- **Enablement** is baked at VM-create time: the seed gets `YPSP_REPLICATE=true` only
-  when poolStorage is configured **and** `networkUser` resolves a vault password;
+  service). Empty `poolNetworkUser` ⇒ service replication stays off.
+- **Enablement** is baked at VM-create time: the seed gets `YPOOL_NAS_REPLICATE=true` only
+  when poolStorage is configured **and** `poolNetworkUser` resolves a vault password;
   otherwise the timer is never enabled.
 - **Reachability:** the proxy must be on a **LAN-routable (bridged)** network to reach
   the NAS; on a NAT proxy (Default Switch / UTM Shared / Hyper-V-on-Wi-Fi) the mount
   fails (nofail) and replication silently no-ops — visible at the breadcrumb below.
-- **Visibility:** the proxy publishes `http://<proxy>/ypsp-status`
+- **Visibility:** the proxy publishes `http://<proxy>/ypool-nas-status`
   (`last_attempt=… mounted=0|1 rc_loki=… rc_prometheus=… rc_grafana=…`) and logs to
-  `journalctl -u ypsp-replicate`.
+  `journalctl -u ypool-nas-replicate`.
 
 ### Restoring the caching-proxy after a reimage (manual)
 Replication is one-way; restore is a documented manual step. On the fresh proxy, with
-the share mounted at `/mnt/ypsp`:
+the share mounted at `/mnt/ypool-nas`:
 ```sh
 systemctl stop loki prometheus grafana-server
 for s in loki prometheus grafana; do
-  rsync -a "/mnt/ypsp/<hostId>/services/caching-proxy/$s/" "/var/lib/$s/"
+  rsync -a "/mnt/ypool-nas/<hostId>/services/caching-proxy/$s/" "/var/lib/$s/"
 done
 chown -R loki:loki /var/lib/loki; chown -R prometheus:prometheus /var/lib/prometheus; chown -R grafana:grafana /var/lib/grafana
 systemctl start loki prometheus grafana-server
@@ -248,22 +261,22 @@ so a restore mainly recovers retained metrics/logs + any runtime dashboard edits
 
 ## Operating & troubleshooting
 
-`pwsh test/Test-Config.ps1` is the pre-flight check — it validates the poolStorage
-block (all three paths set, a usable vault credential so the mount won't
-auto-generate a junk password, and SMB `:445` reachability) before a cycle runs.
-When the credential is configured **and** the server is reachable, it goes one
-step further and **actively mounts `localPath` and creates the per-host folder
-`<localPath>/<hostId>`** — the same write the replicator does — so a wrong SMB
-password, a share-name typo, a missing Linux passwordless-sudo rule, or a
+`pwsh test/Test-Config.ps1` is the pre-flight check — it validates the
+networkStorage pool block (all three pool paths set, a usable vault credential so
+the mount won't auto-generate a junk password, and SMB `:445` reachability) before
+a cycle runs. When the credential is configured **and** the server is reachable, it
+goes one step further and **actively mounts `poolLocalPath` and creates the per-host
+folder `<poolLocalPath>/<hostId>`** — the same write the replicator does — so a wrong
+SMB password, a share-name typo, a missing Linux passwordless-sudo rule, or a
 read-only share is caught here instead of failing silently in the detached drain.
-With `replicate: true` a failure of this active step is a **FAIL that stops the
+With `networkReplicate: true` a failure of this active step is a **FAIL that stops the
 cycle** (the gate refuses to start until it is fixed, or you bypass it with
-`-NoConfigGate`); with `replicate: false` it is advisory only. A merely-offline
+`-NoConfigGate`); with `networkReplicate: false` it is advisory only. A merely-offline
 NAS (no answer on `:445`) stays a WARN — the loop retries it each cycle, so it
 never blocks a healthy run.
 
 This is the same gate `Invoke-TestRunner`, `Test-Sequence`, and `Test-Project`
-all run at startup, so all three refuse to begin when `replicate` is on and the
+all run at startup, so all three refuse to begin when `networkReplicate` is on and the
 share is not actually writable.
 
 Everything the drain writes lives under the runtime directory:
@@ -295,22 +308,22 @@ Invoke-PoolStorageDrain -HostId '<hostId>' -LogDir $env:YURUNA_LOG_DIR -RuntimeD
 Common findings:
 
 - **`connectOk=False, error='server unreachable…'`** — the TCP-445 probe failed:
-  NAS off, wrong `networkPath`, or a firewall. The loop is unaffected; the backlog
+  NAS off, wrong `poolNetworkPath`, or a firewall. The loop is unaffected; the backlog
   resumes when the NAS returns.
 - **`error='vault credential not configured'`** — the loud-fail pre-check: set the
-  `networkUser` password per [test-config.md](test-config.md#setting-the-networkuser-password-in-the-vault).
+  `poolNetworkUser` password per [test-config.md](test-config.md#setting-the-smb-passwords-in-the-vault).
 - **`error='mount failed'` on Linux** — usually missing passwordless sudo for
   `mount` (see the precondition above).
-- **The cycle won't start, gate FAILs on `localPath / per-host folder
-  pre-flight FAILED`** — `replicate: true` and the active pre-flight could not
-  mount the share or could not create `<localPath>/<hostId>` on it. The FAIL line
+- **The cycle won't start, gate FAILs on `poolLocalPath / per-host folder
+  pre-flight FAILED`** — `networkReplicate: true` and the active pre-flight could not
+  mount the share or could not create `<poolLocalPath>/<hostId>` on it. The FAIL line
   names the stage: a *mount* failure points at the password / share name / Linux
   sudo; a *folder* failure points at a read-only share or missing write
-  permission for `networkUser` under `localPath`. Fix the share, or set
-  `replicate: false` (downgrades it to advisory), or bypass once with
+  permission for `poolNetworkUser` under `poolLocalPath`. Fix the share, or set
+  `networkReplicate: false` (downgrades it to advisory), or bypass once with
   `-NoConfigGate` for an unrelated in-progress edit.
-- **The whole config won't load** — a Windows drive-letter `localPath` must be
-  **quoted** in YAML (`localPath: 'w:'`, not `w:`); unquoted it breaks the entire
+- **The whole config won't load** — a Windows drive-letter `poolLocalPath` must be
+  **quoted** in YAML (`poolLocalPath: 'w:'`, not `w:`); unquoted it breaks the entire
   `test.config.yml` parse. See the YAML-quoting note in [test-config.md](test-config.md).
 
 ## Security notes
@@ -347,6 +360,6 @@ ever routed through it.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

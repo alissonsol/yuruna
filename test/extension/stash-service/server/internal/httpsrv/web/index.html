@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yuruna Stash</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="has-footer-bar">
+  <header class="app">
+    <div class="brand">
+      <h1><a href="/">Yuruna Stash</a></h1>
+      <span class="version" id="header-version"></span>
+    </div>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
+    <a class="btn primary" href="/new">+ New stash</a>
+  </header>
+  <main>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search id, filename, user, path…" autocomplete="off">
+      <select id="class">
+        <option value="">All types</option>
+        <option value="text">Text</option>
+        <option value="image">Image</option>
+        <option value="pdf">PDF</option>
+        <option value="audio">Audio</option>
+        <option value="video">Video</option>
+        <option value="archive">Archive</option>
+        <option value="other">Other</option>
+      </select>
+      <select id="host">
+        <option value="">All hosts</option>
+      </select>
+      <button class="btn" id="refresh" title="Rescan the stash share for other hosts' stashes">Refresh</button>
+    </div>
+    <div id="status" class="muted"></div>
+    <table class="stashes">
+      <thead>
+        <tr>
+          <th></th><th>ID</th><th>Name</th><th>Host</th><th>User</th>
+          <th class="num">Size</th><th>Created</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="actions">
+      <button class="btn" id="more" style="display:none">Load more</button>
+    </div>
+  </main>
+  <footer class="app" id="footer-bar">
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
+    <span>Loaded: <span id="last-loaded">—</span></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s · <a href="https://yuruna.link/stash-guide">guide</a></span>
+  </footer>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/index.js"></script>
+</body>
+</html>

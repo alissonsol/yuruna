@@ -1,10 +1,12 @@
 # Cloud-init template pipeline
 
 Three host platforms (Hyper-V, KVM, UTM) each install Ubuntu Server
-into a freshly-created VM via cloud-init's NoCloud datasource. The
-seed ISO they generate contains a `user-data` file rendered from a
-shared base + a per-host overlay + a per-cycle replacement table. The
-rendering pipeline lives in
+or Amazon Linux 2023 into a freshly-created VM via cloud-init's
+NoCloud datasource. Each guest type has its own base + per-host
+overlay set; the `ubuntu.server.*` and `amazon.linux.2023.*` files
+are described below. The seed ISO they generate contains a
+`user-data` file rendered from a shared base + a per-host overlay +
+a per-cycle replacement table. The rendering pipeline lives in
 [`automation/Yuruna.CloudInitTemplate.psm1`](../automation/Yuruna.CloudInitTemplate.psm1).
 
 Before the pipeline landed, each of the six `New-VM.ps1` scripts
@@ -38,12 +40,20 @@ line endings — the cloud-init contract).
 | `host/vmconfig/ubuntu.server.hyperv.overlay.yml` | Per-host overlay: `hv_balloon` denylist + `hyperv_fb` framebuffer pin. |
 | `host/vmconfig/ubuntu.server.kvm.overlay.yml` | Per-host overlay: VT-blanking early-command + `consoleblank=0` + fb-safe GRUB cmdline. |
 | `host/vmconfig/ubuntu.server.utm.overlay.yml` | Per-host overlay: `network:` block pinning IPv4 DHCP and refusing IPv6 RA. |
+| `host/vmconfig/amazon.linux.2023.base.user-data` | The shared AL2023 base. Uses cloud-init `runcmd:` (the AL2023 cloud image boots from a prebuilt image rather than running an Ubuntu-style autoinstall), with its own anchor set. |
+| `host/vmconfig/amazon.linux.2023.hyperv.overlay.yml` | Per-host AL2023 overlay (Hyper-V). |
+| `host/vmconfig/amazon.linux.2023.kvm.overlay.yml` | Per-host AL2023 overlay (KVM): `consoleblank=0` runcmd. |
+| `host/vmconfig/amazon.linux.2023.utm.overlay.yml` | Per-host AL2023 overlay (UTM). |
 | `automation/yuruna-retry.sh`, `automation/yuruna-versions.sh`, `automation/fetch-and-execute.sh`, `automation/yuruna-network.sh` | Guest-side helper scripts baked into the seed as base64 `write_files` entries. `yuruna-versions.sh` holds the pinned dependency versions and is sourced by `yuruna-retry.sh`. |
 
 ## Anchor contract
 
 Each anchor line in the base looks like
-`# === YURUNA_OVERLAY_<NAME> ===`. Four anchors today:
+`# === YURUNA_OVERLAY_<NAME> ===`. The anchor set differs by guest
+type because Ubuntu Server runs an autoinstall while AL2023 boots a
+prebuilt cloud image and configures itself via `runcmd:`.
+
+**Ubuntu Server** — four anchors:
 
 | Anchor | Purpose | Used by overlays |
 |---|---|---|
@@ -51,6 +61,14 @@ Each anchor line in the base looks like
 | `EARLY_COMMANDS` | Pre-install commands | KVM only (disable VT blanking) |
 | `GRUB_PRE_CONSOLE_QUIET` | Kernel quirks before `console-quiet` block | Hyper-V (`hv_balloon`+`hyperv_fb`), KVM (`consoleblank`) |
 | `GRUB_POST_CONSOLE_QUIET` | Kernel quirks after `console-quiet` block | KVM only (`nomodeset` fb-safe) |
+
+**Amazon Linux 2023** — three anchors:
+
+| Anchor | Purpose | Used by overlays |
+|---|---|---|
+| `RUNCMD_CONSOLEBLANK` | `runcmd:` block pinning `consoleblank=0` | KVM only |
+| `RUNCMD_QUIET_LOGLEVEL` | `runcmd:` block for quiet/loglevel kernel-cmdline quirks | per-host as needed |
+| `POWER_STATE` | `power_state:` directive (reboot/poweroff after first boot) | per-host as needed |
 
 The overlay file uses the same line format as section headers; the
 lines between one header and the next (or end of file) are the
@@ -79,6 +97,7 @@ autoinstall with a confusing diagnostic.
 | `HOSTNAME_PLACEHOLDER` | `-VMName` (caller) |
 | `USERNAME_PLACEHOLDER` | `-Username` (caller) |
 | `HASH_PLACEHOLDER` | `-PasswordHash` (caller — passlib-format SHA-512 crypt) |
+| `PLAINTEXT_PASSWORD_PLACEHOLDER` | `-Password` (caller — AL2023 path only; feeds the `chpasswd.list` directive) |
 | `SSH_AUTHORIZED_KEY_PLACEHOLDER` | `Get-YurunaSshPublicKey` |
 | `APT_PROXY_BLOCK_PLACEHOLDER` | Caching-proxy YAML block (or empty) |
 | `CACHING_PROXY_URL_PLACEHOLDER` | Detected caching-proxy URL (or empty) |
@@ -125,6 +144,6 @@ guests trip on CR-sensitive shell heredocs in the rendered
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

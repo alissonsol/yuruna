@@ -24,6 +24,7 @@ Yuruna capability matrix (host.windows.hyper-v)
 ─────────────────────────────────────────────────────────
   Host I/O:   Send-Click, Send-Key, Send-Text
   OCR:        winrt, tesseract
+  Recovery:   VNC reconnect (built-in (clear cached handle)), screenshot (legacy capture)
   Extensions:
     authentication         default
     caching-proxy-parser   default
@@ -87,8 +88,8 @@ before the slow path.
 
 ## What's in the requirements table
 
-Today (see the `Register-SequenceAction` block at the bottom of
-[`Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1)):
+Today (see the `Register-SequenceAction` calls in
+[`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1)):
 
 | Verb                     | HostIO required           | OCR required |
 |--------------------------|---------------------------|--------------|
@@ -100,8 +101,9 @@ Today (see the `Register-SequenceAction` block at the bottom of
 | `waitForAndEnter`        | `Send-Text`, `Send-Key`   | yes          |
 | `passwdPrompt`           | `Send-Text`, `Send-Key`   | yes          |
 | `fetchAndExecute`        | `Send-Text`, `Send-Key`   | yes          |
+| `networkRelease`         | `Send-Text`, `Send-Key`   | no           |
 | `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(none)_ | no |
-| `saveDiskSnapshot` / `loadDiskSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `retry` / `waitForSeconds` | _(none)_ | no |
+| `saveDiskSnapshot` / `loadDiskSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | no |
 
 Adding a new verb means one `Register-SequenceAction` call that
 declares its capabilities — the gate automatically picks up the new
@@ -139,6 +141,6 @@ Used by future health-checks, CI smoke tests, and the upcoming
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

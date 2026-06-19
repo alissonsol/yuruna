@@ -9,8 +9,8 @@ remediation dispatcher in
 maps that token to an actionable recommendation — the keystone of
 autonomous self-heal.
 
-Before this module nothing consumed the FailureClass enum. An
-operator (or a future autonomous loop) had to grep the free-text
+This module is what consumes the FailureClass enum. Without it, an
+operator (or a future autonomous loop) would have to grep the free-text
 error message and guess what to do next. The dispatcher closes the
 loop: read the failure record, route on `failureClass`, return what
 the caller should do.
@@ -126,6 +126,6 @@ validator that gates the cycle event stream.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

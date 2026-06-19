@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -387,11 +387,11 @@ function Test-Ipv4Address {
     in 0..255. Rejects "999.999.999.999", "01.2.3.4", "1.2.3", "1.2.3.4 ",
     null, empty, and shortened forms.
 
-    Provided here because the loose regex '^\d+\.\d+\.\d+\.\d+$' that the
-    repo previously used in many places accepts out-of-range octets and
-    gives false confidence (downstream TCP connect fails, but only after
-    we've already passed validation). [System.Net.IPAddress]::TryParse is
-    not strict enough either -- it accepts shortened/hex/octal forms.
+    Provided here because the loose regex '^\d+\.\d+\.\d+\.\d+$' accepts
+    out-of-range octets and gives false confidence (downstream TCP
+    connect fails, but only after we've already passed validation).
+    [System.Net.IPAddress]::TryParse is not strict enough either -- it
+    accepts shortened/hex/octal forms.
 .OUTPUTS
     [bool]
 .EXAMPLE
@@ -550,10 +550,10 @@ function ConvertTo-Sha512CryptHash {
        Older openssl builds lack `-6`; we surface a clear error rather
        than substituting a bogus hash.
 
-    Platform-specific binary probe mirrors what the per-host New-VM.ps1
-    scripts used to do inline (Git for Windows paths, Homebrew paths,
-    PATH fallback on Linux). Centralising it here means the three
-    parallel host copies no longer drift.
+    Platform-specific binary probe (Git for Windows paths, Homebrew
+    paths, PATH fallback on Linux) lives here, shared by the three
+    parallel per-host New-VM.ps1 scripts so the path logic stays in one
+    place instead of drifting across copies.
 
     The plaintext is briefly visible in the openssl process's argv
     while it runs (process listings). This is acceptable in the

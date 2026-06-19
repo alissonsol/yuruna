@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456728
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,9 +56,9 @@ function Test-AgainstSchema {
         content errors.
     .DESCRIPTION
         Resolves YamlPath to an absolute path so every FAIL row carries
-        an operator-actionable location. The original message used to
-        say just "vault.yml" — forcing the operator to guess which of
-        the several vault.yml locations was meant.
+        an operator-actionable location: a bare label like "vault.yml"
+        would force the operator to guess which of the several vault.yml
+        locations was meant.
     .PARAMETER Label
         Display label for the section (e.g. 'vault.yml', 'users.yml').
     .PARAMETER YamlPath

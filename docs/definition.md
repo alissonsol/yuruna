@@ -1,8 +1,7 @@
 # Yuruna definitions
 
 This file collects definitions of generic and yuruna-specific terms
-that used to live as long inline comments in the codebase. Centralising
-them in one place keeps definitions consistent across the framework,
+in one place to keep definitions consistent across the framework,
 the guest scripts, and the docs.
 
 Source files reference an entry with a single line of the form:
@@ -145,11 +144,10 @@ external fetches.
 
 On fetch failure, the script prints the distinct
 `NONZERO SCRIPT EXIT:` marker so the GUI harness's
-`FailurePattern` detection fires. Previously this branch printed the
-legacy success marker (with the rationale "so the harness doesn't
-hang") — but that lied to the harness about completion status. The
-new marker closes the OCR wait at the same cadence as success, while
-surfacing the actual failure category (couldn't fetch the script).
+`FailurePattern` detection fires. This marker closes the OCR wait at
+the same cadence as success, while surfacing the actual failure
+category (couldn't fetch the script); a success marker here would lie
+to the harness about completion status.
 
 **Inner-script failure.** Under `set -euo pipefail`, the first
 non-zero command aborts the script; the failing command's output is
@@ -176,10 +174,10 @@ keystroke harness can tell them apart via OCR:
 - On success: `FETCHED AND EXECUTED:`
 - On failure: `NONZERO SCRIPT EXIT:`
 
-Previously a single `FETCHED AND EXECUTED:` marker was printed
-regardless of `$rc`, so the harness's wait-for-text matched on
-completion and reported PASS even when the inner script exited
-non-zero — the failure only surfaced one or two steps later, usually
+The markers must differ by `$rc`: a single `FETCHED AND EXECUTED:`
+marker printed regardless of exit code lets the harness's wait-for-text
+match on completion and report PASS even when the inner script exits
+non-zero — the failure only surfaces one or two steps later, usually
 as a confusing downstream symptom (e.g. `test-localhost.sh` can't
 reach a website that was never deployed).
 
@@ -295,8 +293,7 @@ re-implements this same scheme):
 
 ### Defining the Windows host-proxy registry keys
 
-Yuruna's Hyper-V host-proxy helpers (migrated from
-`test/modules/Test.HostProxy.psm1`) read and write the following
+Yuruna's Hyper-V host-proxy helpers read and write the following
 registry values:
 
 **WinINet (`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`):**
@@ -597,7 +594,7 @@ must either run on a larger host or edit the specific guest's
 `New-VM.ps1` to override the policy.
 
 **Uniform across all guests.** Every guest follows this policy —
-including the caching-proxy VM (historically 4 vCPU regardless of host).
+including the caching-proxy VM.
 On larger hosts the extra vCPUs cost nothing because caching is I/O-
 and memory-bound, not CPU-bound; the policy keeps every guest's sizing
 predictable instead of carrying per-guest exceptions.
@@ -711,7 +708,7 @@ page so additional consumers do not re-fetch.
 | `version`     | `/yuruna-repo/VERSION`    | First line only. |
 | `hostname`    | `status.json.hostname`    | Falls back to `window.location.hostname`. |
 | `host`        | `status.json.host`        | `host.` prefix stripped. |
-| `ipAddresses` | `/track/ipaddresses.txt`  | Raw text, trailing whitespace stripped. |
+| `ipAddresses` | `/runtime/ipaddresses.txt`  | Raw text, trailing whitespace stripped. |
 
 Each field is `null` (or `''` for hostname) when its source is
 unavailable; the renderer is expected to no-op rather than throw.
@@ -1625,6 +1622,6 @@ back from memory.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

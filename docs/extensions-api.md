@@ -1,10 +1,11 @@
 # Extensions API
 
-The harness defers four classes of swappable behavior to **extension
+The harness defers five classes of swappable behavior to **extension
 areas** under [`test/extension/`](../test/extension/) — authentication,
-notification transports, caching-proxy log parsing, and host-side 
-artifact stashing. An area is a directory with one or more `.psm1` 
-files plus a small YAML config naming the active set.
+notification transports, caching-proxy log parsing, host-side
+artifact stashing, and multi-host pool aggregation. An area is a
+directory with one or more `.psm1` files plus a small YAML config
+naming the active set.
 
 Loader: [`test/modules/Test.Extension.psm1`](../test/modules/Test.Extension.psm1).
 
@@ -15,7 +16,8 @@ Loader: [`test/modules/Test.Extension.psm1`](../test/modules/Test.Extension.psm1
 | `authentication`       | `default`      | `${ext:authentication.GetPassword(<user>)}` / `NewRandomPassword()` / `SetPassword()` — vault read/write for sequences. The `default` extension stores per-cycle ephemeral test-VM passwords in plaintext YAML **by design**; see [Authentication — Test-harness vault threat model](authentication.md#test-harness-vault--threat-model) for the trust boundary. Wire a different extension (DPAPI / keyring / external secret manager) before driving any production system from a sequence. |
 | `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates configured transports (Resend, SMTP, etc.). |
 | `caching-proxy-parser` | `default`      | Maps a Squid access-log line to a structured record for the test/perf log. Ships a Go sidecar (`main.go` + `caching-proxy-parser.service`) for inside-the-VM parsing; the PowerShell `default.psm1` is the host-side wrapper. |
-| `stash-service`        | `default`      | Receives SCP'd guest artifacts (diagnostic bundles, screenshots) into a host-side stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) plus the PowerShell wrapper `default.psm1`. See [`docs/stash-service.md`](stash-service.md) for the contract. |
+| `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServer` + cloud-init, plus the PowerShell wrapper `default.psm1`. See [`docs/design/stash-service.md`](design/stash-service.md) for the contract. |
+| `pool-aggregator`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorManifest`). Ships a stdlib-only Go daemon that runs on the caching-proxy machine (pool services host): it auto-discovers pool members from the squid access log, probes each one's status server, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator/README.md`](../test/extension/pool-aggregator/README.md). |
 
 ## Filesystem layout
 
@@ -38,9 +40,17 @@ test/extension/
 │   ├── go.mod, main.go                 # Go sidecar source (built into the proxy VM)
 │   ├── README.md
 │   └── default.psm1                    # host-side wrapper
-└── stash-service/
-    ├── stash-service.config.yml        # active: ['default']
-    ├── server/                         # Go daemon (main.go + internal/{...})
+├── stash-service/
+│   ├── stash-service.config.yml        # active: ['default']
+│   ├── server/                         # Go daemon (main.go + internal/{...})
+│   └── default.psm1                    # host-side wrapper
+└── pool-aggregator/
+    ├── pool-aggregator.config.yml      # active: ['default']
+    ├── pool-aggregator.contract.yml    # requiredFunction: Get-PoolAggregatorManifest
+    ├── pool-aggregator.service         # systemd unit for the proxy-host Go daemon
+    ├── go.mod, main.go, main_test.go   # stdlib-only Go daemon source
+    ├── grafana-pool-dashboard.json     # companion Grafana dashboard
+    ├── README.md
     └── default.psm1                    # host-side wrapper
 ```
 
@@ -124,6 +134,6 @@ ambiguity (`-RequireSingle`).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

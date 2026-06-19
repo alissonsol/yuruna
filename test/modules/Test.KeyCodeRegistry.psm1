@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42e7c4b3-d2a1-4f56-9c78-3e4f5a6b7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,11 +24,11 @@
     Five distinct keyboard transports each need their own translation
     table (macOS UTM virtual key codes, PS/2 Set 1 scan codes for
     Hyper-V/QEMU, X11 keysyms for VNC/RFB, plus character->code maps
-    for each). The tables previously lived inline in Test.Transport.psm1
-    where a 1300-line module mixed data with the Send-Key / Send-Text /
-    Send-Click backends that consume them. Extracting them here:
+    for each). The tables live here, owned by one module, rather than
+    inline alongside the Send-Key / Send-Text / Send-Click backends in
+    Test.Transport.psm1 that consume them. Keeping the data here:
 
-      * Shrinks Test.Transport so the backend logic is easier to read.
+      * Keeps Test.Transport focused on backend logic, not lookup data.
       * Provides one place to register a new transport's table when a
         fourth host backend lands (e.g. ProxMox, gnome-boxes) -- the
         new transport adds a new `Kind` case here, not a new $script:*
@@ -36,9 +36,7 @@
       * Lets autonomous tooling enumerate every map through a single
         Get-KeyCodeMapKind / Get-KeyCodeMap surface.
 
-    The data values are byte-for-byte preserved from the prior inline
-    declarations -- this is a code-organization move, not a content
-    change. See docs/host-io.md for the broader transport contract.
+    See docs/host-io.md for the broader transport contract.
 #>
 
 # ── Maps owned by this module ─────────────────────────────────────────────────

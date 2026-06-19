@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42f3e8d7-c6b5-4a32-9087-1d2e3f4a5b67
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,9 +23,9 @@
 .DESCRIPTION
     Centralizes the poll-delay math used by Invoke-Sequence (step-pause,
     break-wait), Invoke-TestInnerRunner (cycle-pause), and
-    Test.SequenceHandler (break-wait inside the break handler). The
-    function was previously duplicated verbatim across these three
-    files; a tuning change had to land in all three to take effect.
+    Test.SequenceHandler (break-wait inside the break handler). One
+    definition here means a tuning change lands once for all three call
+    sites instead of having to be kept in sync across copies.
 
     The jitter (uniform [0, 100) ms) breaks lock-step at the call site
     -- many runners on shared storage polling at synchronised 1 Hz can

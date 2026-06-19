@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,10 +37,10 @@
     byte -- the authoritative backstop the per-cycle gate and the pre-commit
     hook (Item 6) point at for the published artifact.
 
-    SCOPE NOTE: pin-rewriting (the README one-liners and the installer clone
-    defaults from `main` to `refs/tags/<VERSION>`) lands together with the
-    installer clone-to-tag change; this script signs and gates the manifest
-    today and gains the pin rewrite in that change.
+    It also repoints the release pins -- the installer clone defaults and the
+    README one-liners/verified path from `main` to `refs/tags/<VERSION>`. Pins
+    are rewritten by default; use -SkipPins to regenerate and gate the manifest
+    without touching the refs.
 
 .PARAMETER PrivateKeyPath
     Path to the release RSA private key (PEM). Read only at release time from a

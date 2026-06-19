@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package id implements the per-day 6-character unique-ID allocator
+// Package id implements the per-day 4-character unique-ID allocator
 // defined in §7 of the Stash Service spec.
 //
 // Uniqueness scope: per UTC day, i.e. unique within one yyyy/mm/dd
@@ -29,23 +29,25 @@ import (
 // Allocator is the §5.6 mutex-protected ID generator. Safe for use
 // from multiple goroutines.
 type Allocator struct {
-	mu        sync.Mutex
-	rng       *rand.Rand
-	seenByDay map[string]map[string]struct{}
-	filesRoot string
+	mu         sync.Mutex
+	rng        *rand.Rand
+	seenByDay  map[string]map[string]struct{}
+	filesRoots []string
 }
 
-// New returns an allocator that scans for existing IDs under filesRoot.
-// Callers should pass the absolute path to <StashFolder>/files/.
-func New(filesRoot string) *Allocator {
+// New returns an allocator that scans for existing IDs under each of the
+// given files roots. Pass the share's <StashFolder>/files/ AND the
+// VM-local buffer's files/ so a daemon restart mid-outage cannot reissue
+// an ID a not-yet-flushed buffered artifact already claims (§7, §8.4).
+func New(filesRoots ...string) *Allocator {
 	return &Allocator{
-		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
-		seenByDay: make(map[string]map[string]struct{}),
-		filesRoot: filesRoot,
+		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
+		seenByDay:  make(map[string]map[string]struct{}),
+		filesRoots: filesRoots,
 	}
 }
 
-// Allocate returns a fresh 6-char ID unique within the UTC day of t.
+// Allocate returns a fresh 4-char ID unique within the UTC day of t.
 // Returns an error only if the search space is exhausted (would only
 // happen if a day already holds millions of IDs, which the spec does
 // not target).
@@ -57,7 +59,9 @@ func (a *Allocator) Allocate(t time.Time) (string, error) {
 	if !ok {
 		seen = make(map[string]struct{})
 		a.seenByDay[dayKey] = seen
-		a.populateFromDisk(t.UTC(), seen)
+		for _, root := range a.filesRoots {
+			a.populateFromDisk(root, t.UTC(), seen)
+		}
 	}
 	for tries := 0; tries < 10000; tries++ {
 		candidate := a.random()
@@ -78,10 +82,11 @@ func (a *Allocator) random() string {
 }
 
 // populateFromDisk seeds seen with IDs already stored under
-// files/yyyy/mm/dd/. The ID is always the first IDLength characters
-// of the filename: <id>, <id>.ext, or <id>.yuruna.archive.zip.
-func (a *Allocator) populateFromDisk(t time.Time, seen map[string]struct{}) {
-	dayDir := filepath.Join(a.filesRoot, t.Format("2006/01/02"))
+// filesRoot/yyyy/mm/dd/. The ID is always the first IDLength characters
+// of the filename: <id>, <id>.ext, <id>.yuruna.archive.zip, or the
+// <id>.yuruna.meta.json sidecar.
+func (a *Allocator) populateFromDisk(filesRoot string, t time.Time, seen map[string]struct{}) {
+	dayDir := filepath.Join(filesRoot, t.Format("2006/01/02"))
 	entries, err := os.ReadDir(dayDir)
 	if err != nil {
 		// Day folder doesn't exist yet — that's fine. First allocation

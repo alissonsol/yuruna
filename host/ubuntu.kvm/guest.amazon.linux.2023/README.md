@@ -12,7 +12,6 @@ aarch64) with a cloud-init NoCloud seed.
 pwsh ./Get-Image.ps1                        # download / refresh base image
 pwsh ./New-VM.ps1                           # default name: amazon-linux01
 pwsh ./New-VM.ps1 -VMName myhost            # custom name
-pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
 ```
 
 `New-VM.ps1` clones the qcow2 cloud image as a backing-file disk under
@@ -46,6 +45,6 @@ ssh -i ../../../test/status/ssh/yuruna_ed25519 yauser1@<ip>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

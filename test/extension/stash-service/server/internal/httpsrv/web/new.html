@@ -1,0 +1,53 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New stash · Yuruna Stash</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="app">
+    <h1><a href="/">Yuruna Stash</a></h1>
+    <span class="spacer"></span>
+    <a class="btn" href="/">&larr; Back</a>
+  </header>
+  <main>
+    <h2>New stash</h2>
+    <div id="msg"></div>
+    <div class="tabs">
+      <div class="tab active" id="tab-text">Paste text</div>
+      <div class="tab" id="tab-files">Upload file(s)</div>
+    </div>
+
+    <form class="create" id="form-text">
+      <label for="title">Title / filename (optional)</label>
+      <input type="text" id="title" name="title" placeholder="notes.txt">
+      <label for="author">Author (optional)</label>
+      <input type="text" id="author" name="author" placeholder="web">
+      <label for="text">Content</label>
+      <textarea id="text" name="text" placeholder="Paste content here…"></textarea>
+      <div class="actions">
+        <button class="btn primary" type="submit">Create stash</button>
+      </div>
+    </form>
+
+    <form class="create" id="form-files" style="display:none">
+      <label for="author2">Author (optional)</label>
+      <input type="text" id="author2" name="author" placeholder="web">
+      <label for="files">File(s) — multiple files are grouped into one ZIP</label>
+      <input type="file" id="files" name="files" multiple>
+      <div class="actions">
+        <button class="btn primary" type="submit">Upload stash</button>
+      </div>
+    </form>
+  </main>
+  <footer class="app">Yuruna Stash Service · created stashes are identical to scp-uploaded ones · <a href="https://yuruna.link/stash-guide">guide</a></footer>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/new.js"></script>
+</body>
+</html>

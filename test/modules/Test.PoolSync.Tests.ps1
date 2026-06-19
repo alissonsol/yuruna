@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42e3f4a5-b6c7-4d89-9e01-3f4a5b6c7d8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@ function Assert-Null  { param($Actual, [string]$Because = '') if ($null -ne $Act
 
 Describe 'Get-YurunaPoolConfig (feature on/off)' {
     It 'is off when there is no pool block' {
-        Assert-Null (Get-YurunaPoolConfig -Config ([ordered]@{ poolStorage = [ordered]@{} })) 'no pool block -> off'
+        Assert-Null (Get-YurunaPoolConfig -Config ([ordered]@{ networkStorage = [ordered]@{} })) 'no pool block -> off'
     }
     It 'is off when enabled is false (unless -IgnoreEnabled)' {
         $cfg = [ordered]@{ pool = [ordered]@{ enabled = $false; intentGitUrl = 'http://p/i.git' } }

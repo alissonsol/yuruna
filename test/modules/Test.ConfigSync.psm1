@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,6 +61,62 @@ function ConvertTo-MergedHashtable {
             $result[$key] = $Current[$key]
         } else {
             $result[$key] = $tVal
+        }
+    }
+    return $result
+}
+
+# Deep-clone a template subtree so the additive overlay never aliases a template
+# object into the operator's config: a later in-place edit of one must not mutate
+# the other (the template is read once per run and reused). Scalars/strings/bools
+# are immutable enough to return as-is; only dictionaries and lists need a fresh
+# copy. Lists are rebuilt so a copied default array is independent of the template.
+function Copy-ConfigSubtree {
+    param($Value)
+    if ($Value -is [System.Collections.IDictionary]) {
+        $copy = [ordered]@{}
+        foreach ($k in $Value.Keys) { $copy[$k] = Copy-ConfigSubtree $Value[$k] }
+        return $copy
+    }
+    if (($Value -is [System.Collections.IEnumerable]) -and ($Value -isnot [string])) {
+        $list = [System.Collections.Generic.List[object]]::new()
+        foreach ($i in $Value) { [void]$list.Add((Copy-ConfigSubtree $i)) }
+        return , $list.ToArray()
+    }
+    return $Value
+}
+
+# Additive overlay: returns $Current with every key/node the TEMPLATE defines but
+# $Current lacks filled in from the template default (recursively). This is the
+# MIRROR of ConvertTo-MergedHashtable: that function treats the template as the
+# schema source of truth and DROPS keys present only in $Current; this one
+# PRESERVES every current-only key untouched -- the operator's not-yet-migrated
+# values (e.g. a renamed section's old keys) stay in the file so they can be
+# hand-copied into the new fields and removed deliberately, never silently. An
+# existing current value always wins, including a shape conflict (current scalar
+# where the template has a node): the operator value is preserved rather than
+# overwritten with template sub-fields. Keys are emitted alphabetically at every
+# level to match how the maintained file is already serialized.
+function ConvertTo-AdditiveMergedHashtable {
+    param($Template, $Current)
+
+    if ($Current  -isnot [System.Collections.IDictionary]) { return $Current }
+    if ($Template -isnot [System.Collections.IDictionary]) { return $Current }
+
+    $keys = [System.Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($k in $Current.Keys)  { [void]$keys.Add([string]$k) }
+    foreach ($k in $Template.Keys) { [void]$keys.Add([string]$k) }
+
+    $result = [ordered]@{}
+    foreach ($key in $keys) {
+        $inCur = $Current.Contains($key)
+        $inTpl = $Template.Contains($key)
+        if ($inCur -and $inTpl -and ($Current[$key] -is [System.Collections.IDictionary]) -and ($Template[$key] -is [System.Collections.IDictionary])) {
+            $result[$key] = ConvertTo-AdditiveMergedHashtable -Template $Template[$key] -Current $Current[$key]
+        } elseif ($inCur) {
+            $result[$key] = $Current[$key]                       # operator value wins (incl. shape conflicts)
+        } else {
+            $result[$key] = Copy-ConfigSubtree $Template[$key]   # template-only -> fill in the default
         }
     }
     return $result
@@ -303,6 +359,61 @@ The run is stopping so you can review. Restarting will then proceed normally.
     return $merged
 }
 
+# Additively enforce the template schema on the on-disk config: write every
+# template field the file LACKS (its empty/default value, ready to fill in)
+# WITHOUT removing any operator key and WITHOUT a backup. This is the gentle
+# counterpart to Update-TestConfigFromTemplate (the runner's hard cycle-start
+# reconciliation, which backs up, resets the file to the template shape, and
+# drops orphan keys): here nothing the operator typed is ever destroyed -- the
+# file just gains the missing fields, and a renamed section's old keys are left
+# in place to migrate by hand and remove deliberately. The file is rewritten only
+# when at least one field is genuinely missing, so a repeat run is a no-op.
+#
+# Returns a result object:
+#   .Config  -- the additive-merged config (also on disk when .Wrote is $true)
+#   .Added   -- dotted leaf paths newly written (the empty fields to fill in)
+#   .Orphans -- populated leaf paths the file still carries that are NOT part of
+#               the current schema (e.g. a renamed section's old keys) -- copy
+#               each into its new field, then delete the old key, or the runner
+#               will back up + reset (dropping these) at cycle start
+#   .Wrote   -- $true when the file was rewritten (i.e. .Added was non-empty)
+function Add-MissingTestConfigField {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] $Template,
+        [Parameter(Mandatory)] $Current,
+        [Parameter(Mandatory)] [string]$ConfigPath
+    )
+
+    $additive  = ConvertTo-AdditiveMergedHashtable -Template $Template -Current $Current
+    # 'secrets' is excluded from the diff the same way the runner's overlay
+    # excludes it (operator credentials always diverge from the template blanks).
+    $curLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $Current)
+    $newLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $additive)
+    $added     = [System.Collections.Generic.List[string]]::new()
+    foreach ($p in $newLeaves.Keys) { if (-not $curLeaves.Contains($p)) { [void]$added.Add($p) } }
+
+    # Orphans = populated current leaves that have no home in the template schema.
+    # Compared against the STRICT (template-shape-wins) merge, identical to how
+    # Update-TestConfigFromTemplate reports the fields it cannot carry forward.
+    $strictMerge = ConvertTo-MergedHashtable -Template $Template -Current $Current
+    $orphans     = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $Current) -Merged $strictMerge)
+
+    $wrote = $false
+    if ($added.Count -gt 0 -and $PSCmdlet.ShouldProcess($ConfigPath, "Add $($added.Count) missing schema field(s)")) {
+        $additive | ConvertTo-Yaml | Set-Content -Path $ConfigPath -Encoding utf8NoBOM
+        $wrote = $true
+    }
+
+    return [pscustomobject]@{
+        Config  = $additive
+        Added   = [string[]]@($added   | Sort-Object)
+        Orphans = [string[]]@($orphans | Sort-Object)
+        Wrote   = $wrote
+    }
+}
+
 # Strip everything under the top-level 'secrets' node before logging.
 # Hide- (rather than Remove-) keeps PSScriptAnalyzer's PSUseShouldProcess-
 # ForStateChangingFunctions rule quiet (it fires on Remove-/Set-/etc. but
@@ -319,6 +430,7 @@ function Hide-SecretsInConfig {
 }
 
 Export-ModuleMember -Function `
-    ConvertTo-MergedHashtable, Copy-HashtableWithoutSecretNode, `
+    ConvertTo-MergedHashtable, ConvertTo-AdditiveMergedHashtable, Copy-ConfigSubtree, `
+    Copy-HashtableWithoutSecretNode, `
     Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, `
-    Update-TestConfigFromTemplate, Hide-SecretsInConfig
+    Update-TestConfigFromTemplate, Add-MissingTestConfigField, Hide-SecretsInConfig

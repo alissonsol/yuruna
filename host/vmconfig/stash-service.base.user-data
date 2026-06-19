@@ -2,9 +2,12 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/vmconfig and https://yuruna.link/stash-service
-# Minimal cloud-init for the stash-service VM: get ssh + console login
-# working; the daemon, schema, and SCP wire-protocol handler are installed
-# by a later step. `users:` WITHOUT `- default` suppresses ubuntu creation.
+# Cloud-init for the stash-service VM: ssh + console login, mount the stash
+# share (ystash-nas), fetch the framework, then run the bring-up script that
+# builds + launches the daemon. `users:` without `- default` suppresses the
+# ubuntu cloud-image user. The daemon binds :22 (SCP/SFTP sink) and :80
+# (browser UI/API, stash-service-ui.md §2), both on the bridged LAN (the cloud
+# image runs no host firewall, so no extra port-opening is needed here).
 hostname: yuruna-stash-service
 users:
   - name: yuruna
@@ -21,3 +24,119 @@ chpasswd:
       password: PASSWORD_PLACEHOLDER
       type: text
 ssh_pwauth: true
+package_update: true
+packages:
+  # cifs-utils: mount the stash share over SMB3. golang-go + libcap2-bin are
+  # installed by the bring-up script (they're only needed at build time).
+  - cifs-utils
+  # Network debugging tools for interactive triage via console/SSH.
+  - net-tools
+  - iputils-ping
+write_files:
+  # stash storage (ystash-nas) coordinates for the share that backs the stash
+  # (§6.1). Single-quoted values; the host bake refuses any value carrying
+  # a single quote so this file can be parsed safely. Read by the bring-up
+  # script via sed-extraction (never sourced).
+  - path: /etc/yuruna/ystash-nas.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YSTASH_NAS_NETWORK_PATH='YSTASH_NAS_NETWORK_PATH_PLACEHOLDER'
+      YSTASH_NAS_NETWORK_IP='YSTASH_NAS_NETWORK_IP_PLACEHOLDER'
+      YSTASH_NAS_NETWORK_USER='YSTASH_NAS_NETWORK_USER_PLACEHOLDER'
+      YSTASH_NAS_HOST_ID='YSTASH_NAS_HOST_ID_PLACEHOLDER'
+      YSTASH_NAS_MOUNT='/mnt/ystash-nas'
+  # cifs credentials (0600 root). The networkUser is the single NAS account
+  # (host drain + this guest mount alike); scope it storage-only on the NAS.
+  - path: /etc/yuruna/ystash-nas.cifs.cred
+    permissions: '0600'
+    owner: root:root
+    content: |
+      username=YSTASH_NAS_NETWORK_USER_PLACEHOLDER
+      password=YSTASH_NAS_PASSWORD_PLACEHOLDER
+  # Host coordinates so the daemon source is fetched from the deploying
+  # host's status server (the live working tree) rather than the public
+  # github mirror. Empty IP/PORT (status service off) falls back to github.
+  - path: /etc/yuruna/host.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
+      YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+runcmd:
+  # 1) Mount the stash share (persistent via fstab so it survives reboot and
+  #    systemd exposes a mnt-ystash\x2dnas.mount unit the daemon orders After=).
+  #    mountpoint -q (NOT findmnt --target, which resolves a non-mount to
+  #    its enclosing mount and false-passes; feedback_findmnt_target_and_cloudinit_env_source_traps.md).
+  - |
+    set +e
+    ENVF=/etc/yuruna/ystash-nas.env
+    NETPATH=$(sed -nE "s/^YSTASH_NAS_NETWORK_PATH='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
+    NETIP=$(sed -nE "s/^YSTASH_NAS_NETWORK_IP='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
+    HOST_ID=$(sed -nE "s/^YSTASH_NAS_HOST_ID='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
+    MOUNT=$(sed -nE "s/^YSTASH_NAS_MOUNT='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1); MOUNT=${MOUNT:-/mnt/ystash-nas}
+    if [ -n "$NETPATH" ] && [ -n "$HOST_ID" ]; then
+      mkdir -p "$MOUNT"
+      SVC_UID=$(id -u yuruna); SVC_GID=$(id -g yuruna)
+      # Open modes (0777/0666), NOT restrictive: the server maps the cifs
+      # mount mode onto the created object's NTFS ACL, so dir_mode=0700 would
+      # lock every folder the VM creates to the single creator -- even though
+      # the parent stash share grants all users full control -- and other pool
+      # peers (and the host) then can't list the stash. Match the open parent.
+      # noperm: don't let the client block the daemon on a surprising owner
+      # mapping. NO iocharset=utf8: nls_utf8 is absent on the minimal cloud
+      # kernel and fails with mount error(79); stash on-disk names are ASCII.
+      OPTS="credentials=/etc/yuruna/ystash-nas.cifs.cred,vers=3.0,uid=$SVC_UID,gid=$SVC_GID,file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
+      # A Linux guest often can't resolve a bare NetBIOS name (e.g. wserver);
+      # ip= (resolved on the host at bake time) lets cifs connect without it.
+      [ -n "$NETIP" ] && OPTS="$OPTS,ip=$NETIP"
+      if ! grep -q " $MOUNT cifs " /etc/fstab 2>/dev/null; then
+        printf '%s %s cifs %s 0 0\n' "$NETPATH" "$MOUNT" "$OPTS" >> /etc/fstab
+      fi
+      systemctl daemon-reload
+      mountpoint -q "$MOUNT" || timeout 60 mount "$MOUNT" || true
+      if mountpoint -q "$MOUNT"; then
+        # No chown: with 0777/0666 the tree is already pool-accessible, and a
+        # chown on a mode-mapped cifs mount can re-impose an owner-only ACL.
+        mkdir -p "$MOUNT/stash/$HOST_ID"
+        echo "yuruna stash: stash share mounted at $MOUNT; StashFolder $MOUNT/stash/$HOST_ID"
+      else
+        echo "yuruna stash: share '$NETPATH' did not mount at $MOUNT; the daemon will buffer locally until it does." >&2
+      fi
+    else
+      echo "yuruna stash: stash storage not configured in the seed; the daemon will use local fallback storage." >&2
+    fi
+  # 2) Fetch the framework from the host status server (same resolution as
+  #    automation/fetch-and-execute.sh / update.sh). Host coordinates read
+  #    via sed (not sourced). Falls back to a github clone when the host is
+  #    unreachable so a bring-up still works off-LAN.
+  - |
+    set +e
+    HF=/etc/yuruna/host.env
+    YR_HOST=$(sed -nE 's/^YURUNA_HOST_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    YR_PORT=$(sed -nE 's/^YURUNA_HOST_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    DEST=/home/yuruna/yuruna
+    mkdir -p "$DEST"
+    OK=0
+    if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
+      if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST"; then
+        OK=1; echo "yuruna stash: framework extracted from host http://$YR_HOST:$YR_PORT"
+      fi
+    fi
+    if [ "$OK" -eq 0 ]; then
+      echo "yuruna stash: host status server unreachable; cloning the public github mirror." >&2
+      rm -rf "$DEST"
+      git clone --depth 1 https://github.com/alissonsol/yuruna "$DEST" && OK=1
+    fi
+    chown -R yuruna:yuruna "$DEST" 2>/dev/null || true
+    [ "$OK" -eq 1 ] || echo "yuruna stash: could not obtain the framework source; run the bring-up manually." >&2
+  # 3) Build + launch the daemon (the script provisions VM-local dirs,
+  #    writes the systemd unit, and starts it).
+  - |
+    set +e
+    SCRIPT=/home/yuruna/yuruna/guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh
+    if [ -f "$SCRIPT" ]; then
+      bash "$SCRIPT" || echo "yuruna stash: bring-up script exited non-zero; see cloud-init-output.log." >&2
+    else
+      echo "yuruna stash: bring-up script not found at $SCRIPT (framework not fetched?)." >&2
+    fi

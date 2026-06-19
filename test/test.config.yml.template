@@ -11,11 +11,14 @@ pool:
   intentGitUrl: ''
   localClonePath: ''
   pullTimeoutSeconds: 30
-poolStorage:
-  replicate: false
-  networkPath: ''
-  networkUser: ''
-  localPath: ''
+  networkReplicate: false
+networkStorage:
+  poolNetworkPath: ''
+  poolNetworkUser: ''
+  poolLocalPath: ''
+  stashNetworkPath: ''
+  stashNetworkUser: ''
+  stashLocalPath: ''
 repositories:
   frameworkUrl: https://github.com/alissonsol/yuruna
   projectUrl: https://github.com/alissonsol/yuruna-project

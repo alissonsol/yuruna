@@ -1,16 +1,10 @@
 #cloud-config
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- See https://yuruna.link/vmconfig
+# --- See https://yuruna.link/vmconfig/caching-proxy
+# --- See https://yuruna.link/vmconfig/caching-proxy#squid-cache-hostname-vs-template-name
 hostname: yuruna-caching-proxy
-# Replace the Ubuntu cloud image's default `ubuntu` user with `yuruna`.
-# Listing a `users:` block WITHOUT `- default` suppresses ubuntu creation
-# entirely -- only the listed users land in /etc/passwd. yuruna gets:
-#   - Passwordless sudo (this VM is a debug box on a private network).
-#   - The yuruna harness SSH key for passwordless `ssh yuruna@<cache-ip>`.
-#   - lock_passwd: false so chpasswd below can set a known random password
-#     for console fallback (the host VM console) when cloud-init hasn't finished
-#     and SSH isn't up yet.
+# --- See https://yuruna.link/vmconfig/caching-proxy#users-replace-cloud-image-default-with-yuruna
 users:
   - name: yuruna
     gecos: yuruna debug user
@@ -26,14 +20,7 @@ chpasswd:
       password: PASSWORD_PLACEHOLDER
       type: text
 ssh_pwauth: true
-# Grafana OSS repo: inline ASCII-armored key. The obvious alternative
-# (keyid B53AE77BADB630A683046005963FA27710458545 from
-# keyserver.ubuntu.com) returns "gpg: keyserver receive failed: End of
-# file" intermittently, which cascades apt_configure -> package_update
-# _upgrade_install -> scripts_user failure, leaving squid stopped on
-# the stale apt-postinst start. Rotate by refetching from
-# https://apt.grafana.com/gpg.key when Grafana publishes a new key
-# (verify fingerprint B53A E77B ADB6 30A6 8304 6005 963F A277 1045 8545).
+# --- See https://yuruna.link/vmconfig/caching-proxy#grafana-apt-repo-inline-gpg-key
 apt:
   sources:
     grafana.list:
@@ -82,96 +69,41 @@ apt:
         -----END PGP PUBLIC KEY BLOCK-----
 package_update: true
 packages:
-  # squid-openssl: OpenSSL-linked build. Ubuntu's default `squid`
-  # package is built WITHOUT --with-openssl (Debian packaging split over
-  # OpenSSL vs GPL licensing), so its http_port parser rejects `ssl-bump`,
-  # `tls-cert=`, etc. with a "Bungled" FATAL at config-load and
-  # squid.service never binds a socket. squid-openssl ships the same
-  # /usr/sbin/squid and squid.service unit, and Conflicts: squid.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#package-squid-openssl-not-squid
   - squid-openssl
-  # squid-cgi provides cachemgr.cgi, hosted by apache2 (cgi-bin/ is wired
-  # up by the default conf.d/serve-cgi-bin.conf once runcmd enables
-  # mod_cgi). Low-overhead fallback to the Prometheus+Grafana UI for raw
-  # cachemgr queries.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#package-squid-cgi-for-cachemgr
   - squid-cgi
-  # squidclient (/usr/bin/squidclient) ships in squid-common (already pulled
-  # in by squid-openssl); no separate package needed. PURGE example:
-  #   curl -x http://<cache>:3128 -X PURGE http://<origin>:<port>/<path>
+  # --- See https://yuruna.link/vmconfig/caching-proxy#squidclient-and-apache2
   - apache2
-  # Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301);
-  # Grafana on :3000 (anonymous Viewer). squid-exporter has no apt package
-  # and no stable GitHub release-asset URL, so golang-go is pulled in just
-  # long enough to `go install` it; both build tools are purged at the end
-  # of runcmd (~400 MB reclaimed). The compiled binary stays.
-  #
-  # loki + promtail back the "Recent 100 requests" Grafana panel -- Prometheus
-  # only stores aggregates, so per-request client IP / target URL are not
-  # available there. Promtail tails /var/log/squid/access.log and ships to
-  # Loki on localhost:3100. Both come from apt.grafana.com (same repo as
-  # grafana) -- no extra source needed.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#monitoring-stack-packages
   - prometheus
   - grafana
   - loki
   - promtail
-  # acl: needed by the post-zot setfacl step that grants promtail read
-  # access on /var/log/zot/zot.log (zot writes mode 0600, so group-read
-  # alone isn't enough -- promtail can't tail it without an ACL).
+  # --- See https://yuruna.link/vmconfig/caching-proxy#package-acl-for-promtail-log-read
   - acl
   - golang-go
-  # Network debugging tools for interactive triage via console/SSH.
-  # The server cloud image ships `ip` but not `ifconfig` or `ping`;
-  # cheap to install, big quality-of-life win.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#network-debugging-tool-packages
   - net-tools       # ifconfig, netstat, route, arp
   - iputils-ping    # ping, ping6
-  # openssl for the CA-generation step in runcmd. The cloud image ships
-  # libssl but not the /usr/bin/openssl CLI, so `req -x509` would fail
-  # with "command not found" and leave squid's http_port 3129 unable to
-  # load tls-cert/tls-key. Kept top-level (not apt-get in runcmd) so
-  # failure surfaces in the package-install phase, not halfway through
-  # cache setup.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#package-openssl-for-ca-generation
   - openssl
-  # unattended-upgrades: applies security + LTS-point patches daily via
-  # the stock apt-daily.timer + apt-daily-upgrade.timer units that the
-  # package's postinst enables. Combined with the 20auto-upgrades drop-
-  # in below it gives the long-lived cache VM a self-maintained patch
-  # cadence so it doesn't accumulate CVEs between cache rebuilds. A
-  # first-boot `apt-get -y upgrade` at the end of runcmd applies the
-  # backlog that exists between the cloud image's build date and now.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#package-unattended-upgrades
   - unattended-upgrades
-  # cifs-utils + sqlite3 back the optional poolStorage (ypsp) service replication:
-  # the ypsp-replicate.timer mounts the NAS share over SMB3 (cifs) and uses
-  # sqlite3's online .backup to copy Grafana's live grafana.db consistently. Both
-  # are tiny Ubuntu-main packages with no kernel-version dependency, so they stay
-  # top-level (failure surfaces in the package phase, not mid-runcmd); the timer is
-  # only enabled when the seed was built with replication configured.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#packages-cifs-utils-and-sqlite3-for-nas-replication
   - cifs-utils
   - sqlite3
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
   # === YURUNA_OVERLAY_NIC_OFFLOAD ===
-  # Retry apt fetches on transient network errors. Cloud-init's default is
-  # one-shot; a single timeout or TCP reset against archive.ubuntu.com
-  # fails the whole package install and leaves the VM without squid -- the
-  # exact "Exit code: 100 / Stdout: -" failure seen against `apt-get
-  # install apache2 squid`. Retries=5 covers transient hiccups; does NOT
-  # paper over 4xx (429/404) -- apt treats those as fatal and they need
-  # operator attention via /var/log/cloud-init-output.log.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#apt-retries-on-transient-errors
   - path: /etc/apt/apt.conf.d/80-yuruna-retries
     permissions: '0644'
     owner: root:root
     content: |
       Acquire::Retries "5";
       Acquire::Retries::Delay-Max "60";
-  # unattended-upgrades enable flags. Both timers (apt-daily.timer +
-  # apt-daily-upgrade.timer) ship with the apt package and are enabled
-  # by default -- this dropin is what turns the upgrade phase on.
-  # Update-Package-Lists = run `apt-get update` daily; Unattended-
-  # Upgrade = run the upgrade phase daily. Auto-clean keeps /var/cache/
-  # apt from growing without bound between cycles. The default
-  # /etc/apt/apt.conf.d/50unattended-upgrades scopes upgrades to the
-  # security pocket only -- leave that conservative; widening to all
-  # pockets risks pulling in a kernel that needs a reboot we can't
-  # schedule on a long-lived cache box.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#unattended-upgrades-schedule
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     permissions: '0644'
     owner: root:root
@@ -179,9 +111,7 @@ write_files:
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
-  # Restrict cachemgr.cgi to RFC1918, matching the squid ACL. Apache's
-  # default cgi-bin/ is open to all; aligning policy with squid means a
-  # misconfigured host network can't accidentally expose cachemgr.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#restrict-cachemgr-to-rfc1918
   - path: /etc/apache2/conf-available/yuruna-cachemgr.conf
     permissions: '0644'
     owner: root:root
@@ -192,12 +122,7 @@ write_files:
           Require ip 172.16.0.0/12
           Require ip 192.168.0.0/16
       </Location>
-  # Pool intent store (Phase 3): serve the bare git repo READ-ONLY over the LAN
-  # via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull
-  # http://<proxy>/pool-intent.git to learn pool membership + desiredState. The
-  # repo holds only NON-SECRET intent (pools.yml / test-sets / guests.compatibility);
-  # writes go through the admin CLI on the proxy (a local/file:// path), never this
-  # HTTP route. RFC1918 only, mirroring the cachemgr access policy.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-over-read-only-http
   - path: /etc/apache2/conf-available/yuruna-pool-intent.conf
     permissions: '0644'
     owner: root:root
@@ -210,11 +135,7 @@ write_files:
           Require ip 172.16.0.0/12
           Require ip 192.168.0.0/16
       </Directory>
-  # Drop-in overrides on top of Ubuntu's stock /etc/squid/squid.conf.
-  # conf.d files include after the main config so same-named directives
-  # here win. Keeping this a drop-in (not a full replacement) means future
-  # squid package upgrades still get their default refresh_pattern and ACL
-  # baseline -- we only override what's specific to yuruna.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-drop-in-config-approach
   - path: /etc/squid/conf.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -484,7 +405,7 @@ write_files:
       # Squid 7 requires module prefix on access_log; without `stdio:`
       # the parser emits a deprecation WARNING at every config load.
       access_log stdio:/var/log/squid/yuruna_access.log yuruna !yuruna_mgr_scrape
-  # --- Prometheus: loopback-only so its open UI isn't LAN-exposed; Grafana on :3000 is the entry point.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#prometheus-loopback-only
   - path: /etc/default/prometheus
     permissions: '0644'
     owner: root:root
@@ -537,11 +458,7 @@ write_files:
             insecure_skip_verify: true
           static_configs:
             - targets: ['localhost:9400']
-  # --- Loki: loopback-only (same 0.0.0.0 default as Prometheus). Tiered retention:
-  # 30d for transitions (src=cycle) + incidents (src=incident) -- the dashboard's
-  # count_over_time Pass/Fail + incident history span a month -- and 7d for per-step
-  # events (src=event), the recent-focused drill-down (caps disk). Pre-written here
-  # because cloud-init's --force-confold preserves it through package upgrades.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#loki-tiered-retention
   - path: /etc/loki/config.yml
     permissions: '0644'
     owner: root:root
@@ -586,9 +503,7 @@ write_files:
         working_directory: /var/lib/loki/compactor
         retention_enabled: true
         delete_request_store: filesystem
-  # --- Promtail: only timestamp in labels (client IP/URL in labels = stream explosion);
-  # positions.yaml on disk so reboots don't re-tail; /var/lib/promtail created in runcmd
-  # because the deb postinst doesn't always create it.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#promtail-timestamp-only-labels
   - path: /etc/promtail/config.yml
     permissions: '0644'
     owner: root:root
@@ -666,32 +581,14 @@ write_files:
                 source: path
                 value: NO_HTTP_PATH
                 drop_counter_reason: no_http_context
-  # --- Promtail drop-in: SupplementaryGroups grants read on the upstream
-  # access logs:
-  #   - proxy:  /var/log/squid/yuruna_access.log (proxy:proxy 640)
-  #   - zot:    /var/log/zot/zot.log             (zot:zot     640)
-  # Can't use Group= -- the promtail postinst falls back to `nogroup`
-  # (no `promtail` group created), so referencing it would fail.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#promtail-supplementary-groups-drop-in
   - path: /etc/systemd/system/promtail.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
     content: |
       [Service]
       SupplementaryGroups=proxy zot
-  # --- Squid metadata exporter: tiny script that reads the on-disk
-  # squid.conf and reports `squid_offline_mode_configured` (1 if
-  # `offline_mode on` is set) + `squid_listening` (1 if squid is bound
-  # to :3128). Output is a Prom-format file under /var/www/html, served
-  # by apache, scraped by Prometheus (job: squid_meta). Two reasons NOT
-  # to fold this into squid-exporter:
-  #   1. squid-exporter taps squid's cachemgr counters; offline_mode is
-  #      a config directive, not a counter. squid-exporter would need
-  #      a fork to surface it.
-  #   2. When squid is DOWN, squid-exporter's metrics stop publishing
-  #      and Grafana shows "No data" -- exactly when the operator
-  #      needs to know whether offline_mode was supposed to be on. This
-  #      exporter reads the file directly, so the signal survives a
-  #      crashed squid.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-metadata-exporter
   - path: /usr/local/bin/squid-meta-exporter.sh
     permissions: '0755'
     owner: root:root
@@ -769,7 +666,7 @@ write_files:
       Unit=squid-meta-exporter.service
       [Install]
       WantedBy=timers.target
-  # --- squid-exporter unit: binary go-installed in runcmd, loopback-only (Prometheus scrapes it).
+  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-exporter-unit
   - path: /etc/systemd/system/squid-exporter.service
     permissions: '0644'
     owner: root:root
@@ -787,8 +684,7 @@ write_files:
       RestartSec=5
       [Install]
       WantedBy=multi-user.target
-  # --- Grafana: anonymous Viewer (no login/sign-up); admin/admin still editable. GF_* env vars
-  # applied via systemd drop-in.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#grafana-anonymous-viewer
   - path: /etc/systemd/system/grafana-server.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -796,7 +692,7 @@ write_files:
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-  # --- Grafana datasources: UIDs pinned for stable cross-reference in the provisioned dashboard.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#grafana-datasources-pinned-uids
   - path: /etc/grafana/provisioning/datasources/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -816,15 +712,7 @@ write_files:
           access: proxy
           url: http://localhost:3100
           editable: false
-  # --- Rewriter for community Grafana dashboards downloaded from
-  # grafana.com. Upstream dashboards use a $DS_PROMETHEUS templating
-  # placeholder whose embedded default points at the original author's
-  # datasource (e.g. "VictoriaMetrics Bagno") -- without rewrite the
-  # dashboard loads but every panel renders "No data" until someone
-  # clicks through the picker. This script strips the picker and pins
-  # every panel's datasource to yuruna-prometheus, plus assigns a stable
-  # uid so re-runs are idempotent. Generic across any prometheus-only
-  # dashboard; today the only caller is the Zot dashboard install below.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#grafana-dashboard-rewriter
   - path: /usr/local/bin/yuruna-rewrite-zot-dashboard.py
     permissions: '0755'
     owner: root:root
@@ -1049,7 +937,7 @@ write_files:
       for k in ('id', '__inputs', '__elements', '__requires'):
           d.pop(k, None)
       json.dump(d, sys.stdout, indent=2)
-  # --- Grafana dashboard provider: watches /var/lib/grafana/dashboards for JSON; syncs post-boot edits.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#grafana-dashboard-provider
   - path: /etc/grafana/provisioning/dashboards/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1063,25 +951,14 @@ write_files:
           updateIntervalSeconds: 30
           options:
             path: /var/lib/grafana/dashboards
-  # --- Yuruna host (status server) coordinates. Baked into the seed by the
-  # platform New-VM.ps1 (Get-GuestReachableHostIp + statusService.port). The
-  # runcmd build block below sources this to fetch the collector + parser
-  # source from the LOCAL host working tree (http://IP:PORT/yuruna-repo/) --
-  # the host repo is the source of truth, so a rebuild never waits on the
-  # private->public github mirror. Same resolution as fetch-and-execute.sh.
-  # Empty IP/PORT (coordinates unavailable, e.g. status service disabled)
-  # make the build fall back to github.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#yuruna-host-coordinates-for-source-fetch
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
     content: |
       YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
       YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
-  # --- Yuruna Pool dashboard (Phase 1). INLINED (like squid.json) so it deploys
-  # from the local user-data -- independent of the pool-aggregator binary build
-  # AND of any GitHub fetch/mirror -- and therefore shows from first boot ("No
-  # data" until the collector is up). Keep in sync with the lintable canonical
-  # copy at test/extension/pool-aggregator/grafana-pool-dashboard.json.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#yuruna-pool-dashboard-inlined
   - path: /var/lib/grafana/dashboards/pool.json
     permissions: '0644'
     owner: root:root
@@ -1094,7 +971,7 @@ write_files:
         "version": 2,
         "editable": true,
         "refresh": "30s",
-        "timezone": "browser",
+        "timezone": "utc",
         "time": { "from": "now-24h", "to": "now" },
         "templating": {
           "list": [
@@ -1103,6 +980,13 @@ write_files:
               "type": "constant",
               "query": "default",
               "current": { "text": "default", "value": "default" },
+              "hide": 2
+            },
+            {
+              "name": "aggregator",
+              "type": "constant",
+              "query": "AGGREGATOR_BASE_PLACEHOLDER",
+              "current": { "text": "AGGREGATOR_BASE_PLACEHOLDER", "value": "AGGREGATOR_BASE_PLACEHOLDER" },
               "hide": 2
             }
           ]
@@ -1309,8 +1193,8 @@ write_files:
           {
             "id": 7,
             "type": "state-timeline",
-            "title": "Cycle outcome over time (host × time)",
-            "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator observed at that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID.",
+            "title": "Cycle outcome over time (host × UTC time)",
+            "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block to open that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -1319,10 +1203,22 @@ write_files:
             "transformations": [
               { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12}).*", "renamePattern": "$1-$2-$3-$4-$5" } }
             ],
-            "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+            "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
             "fieldConfig": {
               "defaults": {
                 "color": { "mode": "thresholds" },
+                "links": [
+                  {
+                    "title": "Open cycle results for this host at this time",
+                    "url": "${aggregator}/go/cycle?host=${__field.labels.hostId}&t=${__value.time}&pool=${pool}",
+                    "targetBlank": true
+                  },
+                  {
+                    "title": "Open host status page",
+                    "url": "${aggregator}/go/host?host=${__field.labels.hostId}&pool=${pool}",
+                    "targetBlank": true
+                  }
+                ],
                 "mappings": [
                   { "type": "value", "options": {
                     "0": { "text": "unreachable", "color": "#374151", "index": 0 },
@@ -1426,7 +1322,7 @@ write_files:
           }
         ]
       }
-  # --- Minimal squid dashboard: panels show "No data" gracefully if metric names drift between exporter releases.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-dashboard-inlined
   - path: /var/lib/grafana/dashboards/squid.json
     permissions: '0644'
     owner: root:root
@@ -1799,11 +1695,7 @@ write_files:
           }
         }
       }
-  # Systemd unit -- runs zot as an unprivileged service user with
-  # ProtectSystem=strict + ReadWritePaths confining writes to /var/lib/
-  # zot (blob store) and /var/log/zot. There is no apt package for zot
-  # on Resolute, so the binary install + manual systemd unit is the
-  # simplest path. The binary lands at /usr/local/bin/zot via runcmd.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#zot-systemd-unit
   - path: /etc/systemd/system/zot.service
     permissions: '0644'
     owner: root:root
@@ -1832,74 +1724,67 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
-  # --- poolStorage (ypsp) service replication: config + SMB credential + the timer-
-  # driven rsync of observability data to the NAS. All values are baked by New-VM.ps1
-  # from the host's poolStorage config + vault (empty / REPLICATE=false when off).
-  - path: /etc/yuruna/ypsp.env
+  # --- See https://yuruna.link/vmconfig/caching-proxy#networkstorage-pool-replication-config
+  - path: /etc/yuruna/ypool-nas.env
     permissions: '0644'
     owner: root:root
     content: |
-      YPSP_REPLICATE='YPSP_REPLICATE_PLACEHOLDER'
-      YPSP_NETWORK_PATH='YPSP_NETWORK_PATH_PLACEHOLDER'
-      YPSP_NETWORK_USER='YPSP_NETWORK_USER_PLACEHOLDER'
-      YPSP_HOST_ID='YPSP_HOST_ID_PLACEHOLDER'
-      YPSP_MOUNT='/mnt/ypsp'
-  # cifs credentials (0600 root). The networkUser account -- the single NAS account,
-  # ACL-scoped storage-only by the operator (write access to the share, nothing else).
-  - path: /etc/yuruna/ypsp.cifs.cred
+      YPOOL_NAS_REPLICATE='YPOOL_NAS_REPLICATE_PLACEHOLDER'
+      YPOOL_NAS_NETWORK_PATH='YPOOL_NAS_NETWORK_PATH_PLACEHOLDER'
+      YPOOL_NAS_NETWORK_USER='YPOOL_NAS_NETWORK_USER_PLACEHOLDER'
+      YPOOL_NAS_HOST_ID='YPOOL_NAS_HOST_ID_PLACEHOLDER'
+      YPOOL_NAS_MOUNT='/mnt/ypool-nas'
+  # --- See https://yuruna.link/vmconfig/caching-proxy#nas-cifs-credentials
+  - path: /etc/yuruna/ypool-nas.cifs.cred
     permissions: '0600'
     owner: root:root
     content: |
-      username=YPSP_NETWORK_USER_PLACEHOLDER
-      password=YPSP_PASSWORD_PLACEHOLDER
-  # pool auth token: the shared bearer that gates the aggregator's POST /ingest push
-  # surface. Baked by New-VM from the operator-set vault entry (pool.auth.token), or
-  # EMPTY when unconfigured -> the aggregator disables /ingest (never an unauthenticated
-  # write route). The aggregator trims surrounding whitespace. Mode 0640 root:proxy so
-  # the proxy-run aggregator can read it but it is not world-readable.
+      username=YPOOL_NAS_NETWORK_USER_PLACEHOLDER
+      password=YPOOL_NAS_PASSWORD_PLACEHOLDER
+  # --- See https://yuruna.link/vmconfig/caching-proxy#pool-auth-token
   - path: /etc/yuruna/pool-auth.token
     permissions: '0640'
     owner: root:proxy
     content: |
       POOL_AUTH_TOKEN_PLACEHOLDER
-  - path: /usr/local/bin/ypsp-replicate.sh
+  - path: /usr/local/bin/ypool-nas-replicate.sh
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/sh
-      # yuruna poolStorage (ypsp) service replication. Best-effort, never fails the
+      # yuruna networkStorage pool (ypool-nas) service replication. Best-effort, never fails the
       # timer: mount the optional NAS share over cifs and rsync the caching-proxy's
       # observability data into <share>/<hostId>/services/caching-proxy/. Squid + zot
       # (rebuildable caches) and promtail (tail cursor) are intentionally excluded. A
-      # status breadcrumb is published to /var/www/html/ypsp-status (Apache serves it)
+      # status breadcrumb is published to /var/www/html/ypool-nas-status (Apache serves it)
       # so "configured but not replicating" (e.g. a NAT proxy that can't reach the LAN
       # NAS) is visible without SSH.
       set -u
-      ENVF=/etc/yuruna/ypsp.env
+      ENVF=/etc/yuruna/ypool-nas.env
       [ -r "$ENVF" ] || exit 0
       . "$ENVF"
-      [ "${YPSP_REPLICATE:-false}" = "true" ] || exit 0
-      [ -n "${YPSP_NETWORK_PATH:-}" ] && [ -n "${YPSP_HOST_ID:-}" ] || exit 0
-      MOUNT="${YPSP_MOUNT:-/mnt/ypsp}"
-      STATUS=/var/www/html/ypsp-status
+      [ "${YPOOL_NAS_REPLICATE:-false}" = "true" ] || exit 0
+      [ -n "${YPOOL_NAS_NETWORK_PATH:-}" ] && [ -n "${YPOOL_NAS_HOST_ID:-}" ] || exit 0
+      MOUNT="${YPOOL_NAS_MOUNT:-/mnt/ypool-nas}"
+      STATUS=/var/www/html/ypool-nas-status
       mkdir -p "$MOUNT" 2>/dev/null || true
       # mountpoint -q tests whether $MOUNT is ITSELF a mount (exact). findmnt
       # --target would resolve a plain dir to its enclosing '/' mount and always
       # report "mounted", silently skipping the mount and writing to the local root fs.
       if ! mountpoint -q "$MOUNT" 2>/dev/null; then
-        timeout 60 mount -t cifs "$YPSP_NETWORK_PATH" "$MOUNT" -o credentials=/etc/yuruna/ypsp.cifs.cred,vers=3.0,uid=0,gid=0,iocharset=utf8,nofail >/dev/null 2>&1 || true
+        timeout 60 mount -t cifs "$YPOOL_NAS_NETWORK_PATH" "$MOUNT" -o credentials=/etc/yuruna/ypool-nas.cifs.cred,vers=3.0,uid=0,gid=0,iocharset=utf8,nofail >/dev/null 2>&1 || true
       fi
       MOUNTED=0
       mountpoint -q "$MOUNT" 2>/dev/null && MOUNTED=1
       RC_LOKI=skip; RC_PROM=skip; RC_GRAF=skip
       if [ "$MOUNTED" = "1" ]; then
-        DEST="$MOUNT/$YPSP_HOST_ID/services/caching-proxy"
+        DEST="$MOUNT/$YPOOL_NAS_HOST_ID/services/caching-proxy"
         for svc in loki prometheus; do
           [ -d "/var/lib/$svc" ] || continue
           mkdir -p "$DEST/$svc" 2>/dev/null || continue
           timeout 600 rsync -a --timeout=120 "/var/lib/$svc/" "$DEST/$svc/" >/dev/null 2>&1
           rc=$?
-          logger -t ypsp "rsync $svc rc=$rc"
+          logger -t ypool-nas "rsync $svc rc=$rc"
           if [ "$svc" = loki ]; then RC_LOKI=$rc; else RC_PROM=$rc; fi
         done
         if [ -d /var/lib/grafana ]; then
@@ -1907,54 +1792,50 @@ write_files:
           timeout 600 rsync -a --timeout=120 --exclude grafana.db --exclude 'grafana.db-wal' --exclude 'grafana.db-shm' /var/lib/grafana/ "$DEST/grafana/" >/dev/null 2>&1
           rc=$?
           if [ -f /var/lib/grafana/grafana.db ] && command -v sqlite3 >/dev/null 2>&1; then
-            if timeout 120 sqlite3 /var/lib/grafana/grafana.db ".backup '/tmp/ypsp-grafana.db'" >/dev/null 2>&1; then
-              timeout 120 cp -f /tmp/ypsp-grafana.db "$DEST/grafana/grafana.db" >/dev/null 2>&1 || rc=1
-              rm -f /tmp/ypsp-grafana.db 2>/dev/null || true
+            if timeout 120 sqlite3 /var/lib/grafana/grafana.db ".backup '/tmp/ypool-nas-grafana.db'" >/dev/null 2>&1; then
+              timeout 120 cp -f /tmp/ypool-nas-grafana.db "$DEST/grafana/grafana.db" >/dev/null 2>&1 || rc=1
+              rm -f /tmp/ypool-nas-grafana.db 2>/dev/null || true
             else
               rc=1
             fi
           fi
-          logger -t ypsp "grafana rc=$rc"
+          logger -t ypool-nas "grafana rc=$rc"
           RC_GRAF=$rc
         fi
       fi
       printf 'last_attempt=%s mounted=%s rc_loki=%s rc_prometheus=%s rc_grafana=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MOUNTED" "$RC_LOKI" "$RC_PROM" "$RC_GRAF" > "$STATUS" 2>/dev/null || true
       exit 0
-  - path: /etc/systemd/system/ypsp-replicate.service
+  - path: /etc/systemd/system/ypool-nas-replicate.service
     permissions: '0644'
     owner: root:root
     content: |
       [Unit]
-      Description=Yuruna poolStorage (ypsp) service replication to NAS
+      Description=Yuruna networkStorage pool (ypool-nas) service replication to NAS
       After=network-online.target loki.service prometheus.service grafana-server.service
       Wants=network-online.target
       [Service]
       Type=oneshot
-      ExecStart=/usr/local/bin/ypsp-replicate.sh
+      ExecStart=/usr/local/bin/ypool-nas-replicate.sh
       StandardOutput=journal
       StandardError=journal
-  - path: /etc/systemd/system/ypsp-replicate.timer
+  - path: /etc/systemd/system/ypool-nas-replicate.timer
     permissions: '0644'
     owner: root:root
     content: |
       [Unit]
-      Description=Run Yuruna ypsp service replication hourly
+      Description=Run Yuruna ypool-nas service replication hourly
       [Timer]
       OnBootSec=5m
       OnUnitActiveSec=1h
       AccuracySec=1m
-      Unit=ypsp-replicate.service
+      Unit=ypool-nas-replicate.service
       [Install]
       WantedBy=timers.target
 runcmd:
   # === YURUNA_OVERLAY_RUNCMD_NET ===
-  # Stop the squid apt's postinst started: it's FATAL (yuruna.conf references ca.pem before
-  # we generate it) or on partial/default config. Don't run `squid -z` here -- it also parses
-  # yuruna.conf and FATALs on the missing cert (was tried; left only a scary log FATAL).
+  # --- See https://yuruna.link/vmconfig/caching-proxy#stop-squid-before-ca-bootstrap
   - systemctl stop squid || true
-  # --- SSL-bump CA bootstrap: both steps idempotent so re-runs don't rotate the CA
-  # (rotating would orphan guests that already trusted it). Private key stays proxy:proxy 700;
-  # public cert served by Apache. CN includes timestamp to distinguish deliberate rebuilds.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#ssl-bump-ca-bootstrap
   - |
     set -e
     CA_DIR=/etc/squid/ssl_cert
@@ -1978,12 +1859,7 @@ runcmd:
       chmod 600 "$CA_DIR/ca.key"
       chmod 644 "$CA_DIR/ca.pem"
     fi
-  # --- pool-aggregator TLS leaf: mint a server cert for the aggregator's :9400 surface
-  # (metrics + ingest), signed by the squid CA above (reused -- no new CA), so the LAN
-  # hop is encrypted + authenticated. Idempotent (no rotate). SAN carries the proxy's
-  # LAN IP (runners connect by IP) + 127.0.0.1 (loopback Prometheus). Key stays
-  # proxy:proxy 600 (the aggregator runs as proxy). Best-effort: a mint failure leaves
-  # no leaf and the aggregator falls back to plain HTTP.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#pool-aggregator-tls-leaf
   - |
     set -e
     CA_DIR=/etc/squid/ssl_cert
@@ -2004,18 +1880,18 @@ runcmd:
       chmod 600 "$LEAF.key"
       chmod 644 "$LEAF.crt"
     fi
-  # security_file_certgen's `-c` is create-new and errors if the DB
-  # already exists, so the existence check guards re-runs. DB holds leaf
-  # certs minted per SNI hostname -- 4 MB is generous (each entry ~1 KB).
-  #
-  # The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu
-  # the squid-openssl postinst doesn't guarantee this directory, and
-  # security_file_certgen's Create() makes only the leaf `ssl_db/` dir,
-  # not the parent. Without `install -d` the helper FATALs with "Cannot
-  # create /var/lib/squid/ssl_db", sslcrtd children crash-loop on every
-  # spawn, squid bails with "The sslcrtd_program helpers are crashing too
-  # rapidly, need help!" and squid-parent blocks restart for 3600s.
-  # Running as `proxy` avoids a follow-up chown and confirms write access.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#resolve-pool-dashboard-aggregator-url
+  - |
+    set -e
+    POOL_DASH=/var/lib/grafana/dashboards/pool.json
+    if [ -f "$POOL_DASH" ]; then
+      AGG_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+      [ -n "$AGG_IP" ] || AGG_IP=127.0.0.1
+      AGG_SCHEME=http
+      [ -f /etc/squid/ssl_cert/pool-aggregator.crt ] && AGG_SCHEME=https
+      sed -i "s#AGGREGATOR_BASE_PLACEHOLDER#${AGG_SCHEME}://${AGG_IP}:9400#g" "$POOL_DASH"
+    fi
+  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-ssl_db-initialization
   - |
     set -e
     SSL_DB=/var/lib/squid/ssl_db
@@ -2026,35 +1902,16 @@ runcmd:
   - systemctl enable squid
   - systemctl start squid
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # --- Enable cachemgr.cgi monitoring ---
-  # a2enmod cgi wires mod_cgi into Apache; a2enconf enables the RFC1918
-  # ACL dropin. Squid's default squid.conf has `http_access allow manager
-  # localhost` + `http_access deny manager`, so manager queries from
-  # 127.0.0.1 (Apache) succeed while remote mgr: URLs are rejected.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-cachemgr-monitoring
   - a2enmod cgi
   - a2enconf yuruna-cachemgr
-  # Publish the CA public cert at http://<cache>/yuruna-squid-ca.crt so
-  # guests can fetch and trust it during install. Only the public cert
-  # is copied -- ca.key stays in /etc/squid/ssl_cert/. Mode 644 is
-  # intentional: RFC1918 reachability is enforced at the network layer
-  # (the host switch/bridge/NAT), so trust distribution works without an
-  # extra cachemgr-style `Require ip` dropin.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#publish-squid-ca-cert
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
-  # Publish the SAME CA under a pool-specific name so a runner can pin the
-  # pool-aggregator's TLS leaf (it is signed by this CA) without coupling to the squid
-  # CA filename. Public cert only; the key never leaves /etc/squid/ssl_cert.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#publish-pool-ca-cert
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-pool-ca.crt
   - systemctl enable apache2
   - systemctl restart apache2
-  # --- Pre-warm the cache ---
-  # security.ubuntu.com rate-limits linux-firmware (~330 MB) hard enough
-  # that every cold guest install 429s on it. Pre-fetching via the local
-  # proxy means squid has it before any guest asks, so the first-ever
-  # install serves from cache. Pull the HWE meta too so kernel, modules-
-  # extra, headers, and microcode .debs land alongside.
-  #
-  # Wait up to 60s for squid's listener. apt's postinst usually has it up,
-  # but start can be slow on first boot.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#pre-warm-the-cache
   - |
     for i in $(seq 1 60); do
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
@@ -2070,18 +1927,10 @@ runcmd:
       systemctl --no-pager -l status squid || true
       journalctl --no-pager -u squid -n 80 || true
     fi
-  # Only NOW route this VM's own apt through local squid -- squid is
-  # confirmed listening, so the self-proxy loop is safe. Writing this
-  # dropin during write_files (before `packages:` runs) deadlocks apt:
-  # it tries to fetch squid itself through 127.0.0.1:3128 (not listening
-  # yet) and the install bombs with Exit 100.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#route-vm-apt-through-local-squid
   - echo 'Acquire::http::Proxy "http://127.0.0.1:3128";' > /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
   - apt-get update
-  # Each call: --reinstall --download-only first (forces re-fetch of
-  # already-installed packages like linux-firmware); fall back to plain
-  # --download-only for not-yet-installed packages (linux-generic-hwe-24.04
-  # and friends). `|| true` on the fallback so one miss doesn't abort the
-  # loop.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#prewarm-download-loop
   - |
     # === YURUNA_OVERLAY_FIRMWARE_PKGS ===
       echo "== yuruna prewarm: $pkg =="
@@ -2089,22 +1938,11 @@ runcmd:
         || apt-get install --download-only -y "$pkg" 2>/dev/null \
         || echo "yuruna prewarm: skipped $pkg"
     done
-  # Squid now has the large .debs cached under /var/spool/squid.
-  # Clear /var/cache/apt (squid's store is separate) to reclaim ~1 GB.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#reclaim-apt-cache-after-prewarm
   - apt-get clean
-  # Remove the apt proxy dropin so future apt inside this VM doesn't loop
-  # through its own squid. Guests still reach squid at 3128 over network.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#remove-prewarm-apt-proxy-dropin
   - rm -f /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
-  # --- Flip squid into offline_mode now prewarm is done. With
-  # offline_mode on, squid serves cached objects without contacting
-  # origin -- hit returns stored content, miss returns 504. Enables the
-  # "fully disconnected if everything is cached" workflow: guests can
-  # apt-install against this proxy with no internet on the host.
-  #
-  # Must be AFTER prewarm -- with offline_mode on, a cold-cache first
-  # request returns 504 and prewarm populates nothing. Dropped as a
-  # separate conf.d file so an operator can refresh against origin by
-  # removing the one file and running `squid -k reconfigure`.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#flip-squid-into-offline-mode
   - |
     cat > /etc/squid/conf.d/yuruna-offline.conf << 'EOF'
     # Serve only from cache; never contact origin. Miss returns 504. To
@@ -2113,29 +1951,9 @@ runcmd:
     offline_mode on
     EOF
   - squid -k reconfigure
-  # Single-quote the echo so YAML doesn't parse `cache:` as a mapping key.
-  # cloud-init's shellify() chokes on a dict in runcmd and aborts the
-  # ENTIRE runcmd phase -- which happened once, leaving a VM with Apache's
-  # default page, no cachemgr, no offline_mode, no monitoring even though
-  # write_files and packages ran.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#offline_mode-echo-yaml-mapping-trap
   - 'echo "caching-proxy offline_mode ON - serving cached content only"'
-  # --- Build and install squid-exporter + caching-proxy-parser. No apt
-  # package for either; `go install` (squid-exporter) and `go build`
-  # against fetched source (caching-proxy-parser) keep this cross-arch
-  # path working -- amd64 on Hyper-V/KVM, arm64 on UTM, no URL guessing.
-  # squid-exporter pinned to v1.13.0 for reproducibility. v1.13.0 is the
-  # cutoff: it dropped legacy `cache_mgr://` URI support and switched to
-  # Squid 7's `/squid-internal-mgr/` HTTP path. Ubuntu 26.04 (Resolute)
-  # ships Squid 7.x, which rejects the old URI; earlier pins (v1.10.5
-  # and below) install fine, scrape clean (squid_up still publishes),
-  # but produce squid_up=0 and zero counter metrics because the request
-  # path to squid is unreachable -- every Grafana panel that queries
-  # `squid_client_http_*_total` ends up empty. See
-  # https://github.com/boynux/squid-exporter/commit/<v1.13.0> for the
-  # cache_mgr -> squid-internal-mgr swap.
-  # Both runs happen AFTER the prewarm proxy cleanup so the Go module
-  # fetch (HTTPS to proxy.golang.org + GitHub) doesn't traverse squid --
-  # HTTP squid can't cache HTTPS without SSL-bump.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#build-squid-exporter-and-caching-proxy-parser
   - |
     export GOPATH=/root/go HOME=/root
     # squid-exporter: Prometheus scraper for squid cachemgr counters.
@@ -2213,40 +2031,22 @@ runcmd:
     fi
     cd /
     rm -rf /root/go /opt/caching-proxy-parser /opt/pool-aggregator
-  # Reclaim ~400 MB: Go toolchain is only needed for the builds above;
-  # both squid-exporter and caching-proxy-parser are static binaries.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#purge-go-toolchain-after-builds
   - DEBIAN_FRONTEND=noninteractive apt-get purge -y golang-go || true
   - DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
-  # --- Start the monitoring stack. daemon-reload picks up the
-  # squid-exporter unit + grafana-server drop-in written via write_files.
-  # Grafana is restarted (not just enabled) so the anonymous-Viewer env
-  # vars take effect even if the deb postinst already started it.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#start-the-monitoring-stack
   - systemctl daemon-reload
   - systemctl enable --now squid-exporter.service
-  # Squid meta exporter: timer drives a oneshot that writes
-  # /var/www/html/squid-meta every 30s. Started AFTER apache2 (already
-  # active by the packages phase) so the first scrape doesn't 404.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-squid-metadata-exporter-timer
   - systemctl enable --now squid-meta-exporter.timer
-  # Run the script once immediately so /var/www/html/squid-meta exists
-  # before Prometheus's first scrape -- avoids a 15-second "No data"
-  # window on the dashboard at boot.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#prime-squid-metadata-exporter-once
   - /usr/local/bin/squid-meta-exporter.sh || true
   - systemctl enable --now prometheus.service
-  # caching-proxy-parser fails closed (the binary may not be present
-  # if the build above failed); `|| true` keeps the rest of runcmd
-  # going so loki+promtail+grafana still come up.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-caching-proxy-parser-service
   - systemctl enable --now caching-proxy-parser.service || true
-  # pool-aggregator: read-only pool view (Phase 1). Soft-fail like the parser --
-  # the binary may be absent if the build above failed; prometheus already has
-  # the pool-aggregator scrape job (it just reads 'down' until the daemon is up).
+  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-pool-aggregator-service
   - systemctl enable --now pool-aggregator.service || true
-  # --- Yuruna pool intent store (Phase 3): a bare git repo pooled hosts clone +
-  # pull READ-ONLY over HTTP (the yuruna-pool-intent apache conf) to learn pool
-  # membership + desiredState. The admin CLI (run on the proxy) pushes intent
-  # here. Seeded with an empty, schema-valid pools.yml on 'main' so the first
-  # clone is non-empty + deterministic. The post-update hook keeps the dumb-HTTP
-  # info current on every push. Idempotent (re-run skips an existing repo) and
-  # soft-fail (each fallible step is `|| true`) so it can never abort the phase.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-seeding
   - |
     INTENT_GIT=/var/lib/yuruna/pool-intent.git
     if [ ! -d "$INTENT_GIT/refs" ]; then
@@ -2269,13 +2069,7 @@ runcmd:
     systemctl reload apache2 || systemctl restart apache2 || true
   - systemctl enable grafana-server.service
   - systemctl restart grafana-server.service
-  # Wait for grafana-server to bind :3000 and dump journal if it doesn't.
-  # On a slow first boot, grafana can take ~15s to come up after
-  # `restart` returns. Without this check, a failed start only surfaces
-  # when an operator tries the dashboard and gets "connection refused" --
-  # by which time cloud-init logs may be rotated. Mirrors the squid:3128
-  # diagnostic net so both failure modes surface the same way in
-  # /var/log/cloud-init-output.log.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#wait-for-grafana-server-to-bind
   - |
     for i in $(seq 1 60); do
       systemctl is-active --quiet grafana-server.service && \
@@ -2287,16 +2081,7 @@ runcmd:
       systemctl --no-pager -l status grafana-server.service || true
       journalctl --no-pager -u grafana-server.service -n 80 || true
     fi
-  # --- Install the community Zot dashboard (Grafana ID 20501) alongside
-  # the hand-crafted Yuruna Caching Proxy dashboard. The upstream JSON
-  # uses a $DS_PROMETHEUS templating placeholder whose embedded default
-  # points at the original author's datasource ("VictoriaMetrics Bagno");
-  # the rewriter (write_files) strips the picker and pins every panel to
-  # yuruna-prometheus + a stable uid + a friendly title so re-runs are
-  # idempotent. The dashboard provisioner under /etc/grafana/provisioning/
-  # dashboards/yuruna.yaml picks the file up on its next 30s tick. `else`
-  # branch keeps cycling: a transient grafana.com outage degrades to
-  # "missing extra dashboard" rather than failing the whole runcmd phase.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#install-community-zot-dashboard
   - |
     if curl -fsSL --retry 3 --retry-delay 5 --max-time 30 \
          https://grafana.com/api/dashboards/20501/revisions/latest/download \
@@ -2318,24 +2103,16 @@ runcmd:
   - systemctl enable --now loki.service
   - systemctl enable --now promtail.service
   - systemctl restart loki.service promtail.service
-  # poolStorage (ypsp) service replication: enable the timer only when the seed was
-  # built with replication configured (REPLICATE=true). Read it with an exact-line
-  # grep, NOT by sourcing -- sourcing a malformed value would abort the whole runcmd
-  # phase (a `.`-parse error fires before any `|| true`). Block scalar dodges the
-  # colon-space YAML trap; grep dodges the source-time abort.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-nas-replication-timer-conditionally
   - |
-    if grep -qx "YPSP_REPLICATE='true'" /etc/yuruna/ypsp.env 2>/dev/null; then
+    if grep -qx "YPOOL_NAS_REPLICATE='true'" /etc/yuruna/ypool-nas.env 2>/dev/null; then
       systemctl daemon-reload
-      systemctl enable --now ypsp-replicate.timer || true
-      echo "yuruna ypsp: service replication timer enabled"
+      systemctl enable --now ypool-nas-replicate.timer || true
+      echo "yuruna ypool-nas: service replication timer enabled"
     else
-      echo "yuruna ypsp: service replication disabled in seed (timer not enabled)"
+      echo "yuruna ypool-nas: service replication disabled in seed (timer not enabled)"
     fi
-  # Verify promtail picked up BOTH supplementary groups. The drop-in
-  # writes "SupplementaryGroups=proxy zot"; failing on either keeps the
-  # corresponding Recent-100 panel empty. Without explicit per-group
-  # verification, this used to slip past observability (the prior check
-  # grepped only for `proxy`, missing the zot regression).
+  # --- See https://yuruna.link/vmconfig/caching-proxy#verify-promtail-supplementary-groups
   - |
     sleep 2
     GROUPS=$(systemctl show -p SupplementaryGroups --value promtail.service)
@@ -2349,21 +2126,10 @@ runcmd:
           ;;
       esac
     done
-  # --- First-boot security upgrade. unattended-upgrades + the daily
-  # apt timers will keep pulling fixes from here on; this run flushes
-  # the backlog that exists between the cloud image's build date and
-  # boot day. Routed through 127.0.0.1:3128 (squid is up by now and
-  # the prewarm-proxy dropin already enabled this VM's apt-via-self
-  # loop) so the upgrade hits cache for anything other guests have
-  # pulled before. `|| true` because we DO NOT want a transient
-  # archive.ubuntu.com hiccup to fail the whole cycle -- the daily
-  # apt-daily-upgrade.timer will retry within 24 h.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#first-boot-security-upgrade
   - DEBIAN_FRONTEND=noninteractive apt-get update || true
   - DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade || true
-  # Confirm the timers that drive the 24-hour cadence are actually armed.
-  # If the apt package's postinst didn't enable them (rare on Ubuntu but
-  # has happened on minimised cloud images), surface a clear breadcrumb
-  # so an operator notices BEFORE CVEs pile up.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#confirm-apt-daily-timers-armed
   - |
     for t in apt-daily.timer apt-daily-upgrade.timer; do
       systemctl enable --now "$t" 2>/dev/null || true
@@ -2381,17 +2147,10 @@ runcmd:
     echo "  CA cert:    http://${vm_ip}/yuruna-squid-ca.crt (trust to enable :3129 HTTPS caching)"
     echo "  Recent 100: http://${vm_ip}:9302/ (in-memory live tail; see test/extension/caching-proxy-parser/)"
     echo "  zot:        http://${vm_ip}:5000/v2/ (OCI registry, Docker Hub pull-through)"
-  # --- zot install (binary fetch + systemd activation) ---
-  # ZOT_VERSION is pinned for reproducibility. To bump: read
-  # https://github.com/project-zot/zot/releases, verify the asset names
-  # still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync
-  # extension is required for on-demand pull-through caching), then
-  # change ZOT_VERSION here. The binary download goes DIRECT to GitHub
-  # (not through this VM's own squid -- chicken-and-egg) and is a one-
-  # shot per VM build, so the 25 MB transfer doesn't recur.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#zot-install-binary-and-activation
   - |
     set -e
-    ZOT_VERSION="v2.1.5"
+    ZOT_VERSION="v2.1.17"
     ARCH=$(uname -m)
     case "$ARCH" in
       x86_64)  ZOT_ARCH="amd64" ;;
@@ -2432,10 +2191,5 @@ runcmd:
       setfacl -m u:promtail:r /var/log/zot/zot.log 2>&1 || true
       setfacl -d -m u:promtail:r /var/log/zot/    2>&1 || true
     fi
-  # Single-quoted: the bare `: ` after "ready" makes YAML parse the
-  # scalar as a mapping; shellify() gets a dict instead of a string and
-  # aborts the ENTIRE runcmd phase (CA gen, ssl_db init, prewarm,
-  # squid-exporter, monitoring -- none run). Silent in systemctl output
-  # because write_files still ran; only `cloud-init status --long`
-  # surfaces the TypeError.
+  # --- See https://yuruna.link/vmconfig/caching-proxy#ready-banner-yaml-mapping-trap
   - 'echo "caching-proxy ready: :3128 HTTP + CONNECT, :3129 HTTPS SSL-bump (pre-warmed); zot :5000 OCI pull-through"'

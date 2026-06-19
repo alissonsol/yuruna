@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,15 +26,18 @@ if (-not $IsLinux) {
 }
 
 # === Configuration ===
-# Ubuntu 24.04 LTS (Noble Numbat). Pinned per the stash-service spec
-# (section 3.1: default image ubuntu.server.24).
+# Ubuntu 26.04 LTS (Resolute Raccoon). Moved up from 24.04 LTS (Noble
+# Numbat) per the stash-service spec (section 3.1: default image
+# ubuntu.server.26), matching the caching-proxy LTS so the stash VM stays
+# in the supported-LTS window and the distro Go toolchain satisfies the
+# daemon's go.mod directive without a toolchain fetch.
 $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $imgArch = 'amd64' }
     'aarch64' { $imgArch = 'arm64' }
     default   { Write-Error "Unsupported arch: $arch"; exit 1 }
 }
-$sourceUrl     = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-$imgArch.img"
+$sourceUrl     = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-$imgArch.img"
 $downloadDir   = "$HOME/yuruna/image/stash-service"
 $baseImageName = "host.ubuntu.kvm.guest.stash-service"
 # libvirt-qemu boots qcow2 natively; no format conversion needed.

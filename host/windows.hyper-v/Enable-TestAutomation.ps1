@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,8 +77,8 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParamete
 
 Set-WindowsHostConditionSet @PSBoundParameters
 
-# -- poolStorage host-identity setup + reimage reclaim (interactive) ---------
-# Offer to configure poolStorage (NAS replication) and, on a host with no local
+# -- networkStorage pool host-identity setup + reimage reclaim (interactive) ---------
+# Offer to configure networkStorage pool (NAS replication) and, on a host with no local
 # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
 # loads its own sibling dependencies (config/vault/mount). See docs/pool-storage.md.

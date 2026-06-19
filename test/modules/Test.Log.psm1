@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -490,6 +490,7 @@ function Write-CycleManifest {
                 'cycle.events.ndjson'    { 'ndjson'; break }
                 'cycle.events.gaps'      { 'ndjson-gaps'; break }
                 'last_failure.json'      { 'failure'; break }
+                'last_remediation.json'  { 'remediation'; break }
                 'failure_screenshot*.png'{ 'screenshot-failure'; break }
                 'failure_ocr*.txt'       { 'ocr-failure'; break }
                 'host.diagnostic.txt'    { 'diagnostic-host'; break }
@@ -612,6 +613,17 @@ function Stop-LogFile {
                     $dstFailure = Join-Path $global:__YurunaCycleFolder 'last_failure.json'
                     try { Copy-Item -LiteralPath $srcFailure -Destination $dstFailure -Force -ErrorAction Stop }
                     catch { Write-Verbose "Stop-LogFile: could not archive last_failure.json: $($_.Exception.Message)" }
+                }
+                # The remediation dispatcher's decision (Invoke-Remediation) rides
+                # the same archive path as the failure it routed on, so the cycle
+                # folder -- and the pool copy of it -- carries the recommendation
+                # next to the failure. Only on a non-pass outcome: a passing cycle
+                # has no remediation of its own, so any file present is stale.
+                $srcRemediation = Join-Path $env:YURUNA_LOG_DIR 'last_remediation.json'
+                if (Test-Path -LiteralPath $srcRemediation) {
+                    $dstRemediation = Join-Path $global:__YurunaCycleFolder 'last_remediation.json'
+                    try { Copy-Item -LiteralPath $srcRemediation -Destination $dstRemediation -Force -ErrorAction Stop }
+                    catch { Write-Verbose "Stop-LogFile: could not archive last_remediation.json: $($_.Exception.Message)" }
                 }
             }
             Write-CycleManifest -CycleFolder $global:__YurunaCycleFolder -Confirm:$false
@@ -758,12 +770,12 @@ function Send-CycleEventSafely {
         the record against the cycle-event schema, surfaces violations
         as a sibling `schema_violation` event, and writes both.
     .DESCRIPTION
-        Replaces the repeated 4-line pattern
+        Consolidates the 4-line emit pattern
             if (Get-Command Write-CycleNdjsonEvent -ErrorAction SilentlyContinue) {
                 try { Write-CycleNdjsonEvent -EventRecord @{...} } catch { $null = $_ }
             }
-        that was duplicated across Invoke-Sequence, Test.SequenceHandler,
-        and Test.Status. A single helper has three payoffs: (a) every
+        used by Invoke-Sequence, Test.SequenceHandler, and Test.Status
+        into one helper. A single helper has three payoffs: (a) every
         emit site is one line instead of four, easier to audit for
         missing events; (b) the inner try/catch is in one place, so a
         future change to the failure mode updates every site at once;

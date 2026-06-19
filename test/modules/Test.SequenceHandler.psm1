@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -259,9 +259,9 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
         $resumedVia = 'marker-delete'
         # Fixed short poll interval (250 ms) instead of Get-PollDelay's
         # exponential backoff. An operator clicking Continue in the UI
-        # expects sub-second feedback; the backoff used to cap at 59 s
-        # after a handful of iterations, so a click could sit unread for
-        # nearly a minute. Two Test-Path calls every 250 ms is ~8 file
+        # expects sub-second feedback; that backoff caps at 59 s after a
+        # handful of iterations, so a click could sit unread for nearly a
+        # minute. Two Test-Path calls every 250 ms is ~8 file
         # checks/s -- a rounding error on any modern Windows VM. Worst-
         # case latency is one poll interval (~250 ms); average is half.
         $breakPollMs = 250

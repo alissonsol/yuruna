@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -382,7 +382,7 @@ function Publish-ResourceList {
     Copy-Item "$resourcesFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
     Write-Verbose "Backup of: $resourcesFile copied to: $backupFile"
 
-    # Helper now returns a result manifest -- branch on its .success key
+    # Helper returns a result manifest -- branch on its .success key
     # (Test-YurunaResultManifestOk handles null/missing-key defensively).
     $initResult = Publish-ResourceListHelper -project_root $project_root -config_subfolder $config_subfolder -isInitialization $true
     if (Test-YurunaResultManifestOk $initResult) {

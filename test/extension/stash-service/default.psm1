@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,15 +16,12 @@
 
 #requires -version 7
 
-# Default stash-service extension. v1 ships a placeholder Get-StashServiceInfo
-# that returns a uniform hashtable so future automation (daemon install +
-# launch -- see https://yuruna.link/stash-service §4.6) can be swapped in
-# without changing caller sites.
-#
-# The Go daemon source (SCP wire-protocol handler, SQLite metadata store,
-# storage layout per §6) will land under [server/](server/) when the
-# implementation moves past the cloud-init-only stage. Today the folder
-# carries only a README explaining the layout to come.
+# Default stash-service extension. The Go daemon (SCP sink-mode wire-protocol
+# handler, SQLite metadata index, storage layout per https://yuruna.link/stash-service §6)
+# lives under [server/](server/). Get-StashServiceInfo is a status stub that
+# returns a uniform hashtable in the host-side cmdlet vocabulary; host-side
+# status probing (querying a running stash VM) is not wired yet, so the flags
+# stay $false until that lands.
 
 function Get-StashServiceInfo {
     <#
@@ -43,7 +40,7 @@ function Get-StashServiceInfo {
         supported     = $false
         installed     = $false
         running       = $false
-        message       = 'stash-service daemon: not yet implemented. See https://yuruna.link/stash-service.'
+        message       = 'stash-service: daemon source under server/; host-side status probing not wired yet. See https://yuruna.link/stash-service.'
         daemonVersion = $null
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c5d6e7-f8a9-4b01-9234-5e6f7a8b9c0d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,9 +20,9 @@
 # layout that Mac and Windows already follow: Set/Assert pair (used by
 # the registry dispatcher) plus Test-LinuxHostMinimum (the quick check
 # Test-HostRequirement runs from one-off operator helpers). The
-# diagnostic logic for Assert was previously inlined in the facade; it
-# moves here so the facade is pure dispatch and a future libvirt-side
-# check has an obvious home.
+# diagnostic logic for Assert lives here, not in the facade, so the
+# facade stays pure dispatch and a future libvirt-side check has an
+# obvious home.
 
 function Set-LinuxHostConditionSet {
     <#

@@ -6,20 +6,33 @@ Three capabilities: reproducible host/guest VM setups for development
 workspaces, Kubernetes deployment across multiple clouds, and a VM-based
 test harness. Architecture and conventions: [Yuruna Architecture](docs/architecture.md).
 
+## Safestart
+
+It is recommended that you read the online drafts of chapters [0](https://yuruna.link/book/2026/ch00) and [1](https://yuruna.link/book/2026/ch01) of an upcoming book about the Yuruna framework.
+
 ## Quickstart
 
 See the **Administrator Risk Warning** in the [Yuruna License](LICENSE.md).
 
-1. **Install Yuruna on the host.** Paste the one-liner for your OS from
+1. **Install Yuruna on a host.** Paste the one-liner for your OS from
    [install scripts](install/README.md#remote-one-liners). It installs
    dependencies and clones the framework to `~/git/yuruna`
    (`%USERPROFILE%\git\yuruna` on Windows).
 
-2. **In `pwsh`, from the `yuruna` folder, configure and run:**
+2. **In a PowerShell window (`pwsh`), from the `yuruna` folder, configure and run:**
 
    ```
    Copy-Item test/test.config.yml.template test/test.config.yml
-   pwsh test/Start-CachingProxy.ps1      # wait until "cache ready"
+   ```
+
+   Edit `test/test.config.yml` and test the configuration.
+
+   ```
+   test/Test-Config.ps1
+   ```
+   Fix any error before proceeding.
+
+   ```
    pwsh test/Invoke-TestRunner.ps1
    ```
 
@@ -63,11 +76,9 @@ After the guest OS is up, test workloads:
 
 ## Read More
 
-- [Host pools](docs/pool-admin.md) — run several hosts as one pool and assign already-developed test sequences to them.
-- [Hosts](host/README.md) · [Guests](guest/README.md) ·
-  [Kubernetes Deployment](docs/kubernetes.md) · [Yuruna Requirements](docs/requirements.md)
-- [FAQ](docs/faq.md) · [Contributing](CONTRIBUTING.md) · [Roadmap](docs/roadmap.md) ·
-  [Contributor opportunities](docs/opportunities.md)
+- [Requirements](docs/requirements.md) · [FAQ](docs/faq.md) · [Roadmap](docs/roadmap.md)
+- [Host pools](docs/pool-admin.md) · [Hosts](host/README.md) · [Guests](guest/README.md)
+- [Contributing](CONTRIBUTING.md) · [Contributors](docs/contributors.md) · [Opportunities](docs/opportunities.md)
 
 **Cost warning**: Cloud resources incur charges. Always clean up
 [Yuruna Resources ...](docs/cleanup.md) you're not using.
@@ -76,4 +87,4 @@ After the guest OS is up, test workloads:
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19

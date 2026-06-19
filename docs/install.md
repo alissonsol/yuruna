@@ -1,7 +1,7 @@
 # Yuruna install scripts — rationale
 
-This file collects the load-bearing rationale that used to live as inline
-comments in the three bootstrap installers:
+This file collects the load-bearing rationale for the three bootstrap
+installers:
 
 - [install/windows.hyper-v.ps1](../install/windows.hyper-v.ps1)
 - [install/macos.utm.sh](../install/macos.utm.sh)
@@ -43,7 +43,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.06.12`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.06.19`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` flips the three installers'
 `YURUNA_BRANCH` default from `main` to the release tag (pinning the clone),
 regenerates `install/install.sha256`, signs it (`install/install.sha256.sig`,
@@ -87,8 +87,8 @@ if the status server is still holding it.
 
 ### Preserve the yuruna-caching-proxy VM
 
-The cache VM (`yuruna-caching-proxy`, formerly `caching-proxy`) holds tens
-of GB of pre-fetched `.deb` / `.iso` content built up across prior test
+The cache VM (`yuruna-caching-proxy`) holds tens
+of GB of pre-fetched `.deb` / `.iso` content built up across test
 cycles. The installer never stops Hyper-V VMs (no `Stop-VM` / `Remove-VM`
 in any installer), so the cache survives re-runs by default.
 
@@ -140,7 +140,7 @@ history survives this path.
 `.gitattributes` (committed at the repo root) locks LF for every text
 type a Linux guest reads — `*.sh`, `*.yml`, `user-data`, `meta-data`,
 etc. Adding `.gitattributes` does NOT rewrite files already in the
-working tree: without this step a developer who originally cloned with
+working tree: without this step a developer who cloned with
 `core.autocrlf=true` still has `fetch-and-execute.sh` sitting on disk
 as CRLF, the host status server serves those CRLF bytes byte-faithfully
 to the guest, and the guest's bash chokes with `$'\r': command not
@@ -222,9 +222,9 @@ install.
 `powershell-yaml` is required by `Resolve-CyclePlan` and every YAML
 reader in the harness. pwsh 7 does NOT ship it, and `test/Test-Project.ps1`
 preflight fails fast with "powershell-yaml is not installed" if the
-module is missing — which used to be the friction of every fresh-host
-bootstrap. Each installer now installs `powershell-yaml` (CurrentUser
-scope, `-Force -AllowClobber` to auto-trust PSGallery on a fresh box).
+module is missing — the friction of every fresh-host bootstrap. Each
+installer installs `powershell-yaml` (CurrentUser scope,
+`-Force -AllowClobber` to auto-trust PSGallery on a fresh box).
 `Install-PowerShellYamlIfMissing` (defined in
 [test/modules/Test.HostGit.psm1](../test/modules/Test.HostGit.psm1)
 and re-exported via `Test.HostContract`) is still called from
@@ -583,8 +583,12 @@ x86_64 gets `powershell` from Microsoft's apt repo (canonical source).
 aarch64 has no apt package, so the installer falls back to the
 PowerShell tarball under `/opt/microsoft/powershell/7` with a
 `/usr/local/bin/pwsh` symlink. Both paths leave `pwsh` on PATH for
-subsequent steps. The tarball is pinned to a known LTS line
-(`PWSH_VERSION=7.4.6`) since the 7.4.x stream maintains aarch64 builds.
+subsequent steps. The tarball path resolves the latest-stable release
+by following the `/releases/latest` redirect (PowerShell publishes both
+linux-x64 and linux-arm64 tarballs, plus `hashes.sha256`, for every GA
+release), so aarch64 tracks the same current version the apt path
+installs; set `PWSH_VERSION` to pin a specific release for a
+reproducible or air-gapped build.
 
 ### libvirt-qemu traverse ACL on $HOME
 
@@ -660,6 +664,6 @@ the first run.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

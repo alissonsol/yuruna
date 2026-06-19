@@ -1,46 +1,81 @@
 # Stash Service — Go daemon (`stash-server`)
 
-Spec: [docs/stash-service.md](../../../../docs/stash-service.md) ·
+Spec: [docs/design/stash-service.md](../../../../docs/design/stash-service.md) ·
 [yuruna.link/stash-service](https://yuruna.link/stash-service).
 
-A single static binary that listens on TCP/22, accepts any SSH
-authentication (§4.3 pass-through), implements the SCP sink-mode wire
-protocol (§5), and stores every upload as a content artifact plus a
-SQLite metadata row under the StashFolder (§6, §8).
+A single static binary with TWO listeners:
+
+- **TCP/22** — the SCP/SFTP sink. Accepts any SSH authentication (§4.3
+  pass-through) and stores every upload as a content artifact (plus an
+  on-share `.yuruna.meta.json` sidecar and a VM-local SQLite index row,
+  §6, §8). Serves BOTH the legacy SCP sink-mode wire protocol (§5) and the
+  SFTP subsystem (modern scp's default, §4.1).
+- **TCP/80** — the browser **UI + JSON API**
+  ([stash-service-ui.md](../../../../docs/design/stash-service-ui.md)): pool-wide
+  browse/search, create (paste or upload), inline viewing, and
+  local-host-only delete. Same process, so create flows through the same
+  storage pipeline as SCP (a stash is a stash).
 
 ## Layout
 
 ```
 server/
-├── go.mod                                # module stash-server
-├── main.go                               # flags, signals, listener loop
+├── go.mod / go.sum                       # module stash-server (go.sum committed)
+├── main.go                               # flags, signals, listener loop, sidecar rebuild
 ├── internal/
 │   ├── config/config.go                  # spec §10 constants in one place
-│   ├── id/id.go                          # per-day 6-char allocator (§7)
-│   ├── store/store.go                    # files/ + extension extraction (§6.3, §13)
-│   ├── meta/meta.go                      # SQLite schema + CRUD + search (§8)
-│   ├── scp/scp.go                        # SCP sink-mode wire protocol (§5)
-│   └── sshsrv/sshsrv.go                  # crypto/ssh server, host key, dispatch (§4)
+│   ├── id/id.go                          # per-day 4-char allocator, scans share+buffer (§7)
+│   ├── store/store.go                    # share/buffer layout, extension extraction, mount probe (§6.3, §8.4, §13)
+│   ├── meta/meta.go                      # VM-local SQLite index + sidecars + rebuild (§8, §8.5)
+│   ├── scp/scp.go                        # legacy SCP sink-mode wire protocol (§5)
+│   ├── sshsrv/{sshsrv,sftp,flush}.go     # crypto/ssh server, SFTP backend, NAS-offline flush (§4, §4.1, §8.4)
+│   ├── sshsrv/ingest.go                  # UI-facing ingest (paste/upload) + local delete (ui §5, §8)
+│   ├── detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter (ui §6.1)
+│   └── httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/ (ui §2–§9)
 └── *_test.go                             # unit tests for the pure-logic bits
 ```
+
+`ui` section references above are [stash-service-ui.md](../../../../docs/design/stash-service-ui.md).
 
 ## Build
 
 Pure Go (the SQLite driver is [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite),
-not the CGo one), so the build needs only `golang-go`:
+not the CGo one), so the build needs only `golang-go`. `go.sum` is
+committed, so do NOT run `go mod tidy` (it needs the network to recompute
+the graph); `go build` verifies against `go.sum` and fetches modules
+through the caching proxy:
 
 ```bash
-sudo apt-get install -y golang-go
+sudo apt-get install -y golang-go libcap2-bin
 cd ~/yuruna/test/extension/stash-service/server
-go mod tidy        # generates go.sum + fills the module graph
 go build -o stash-server .
 sudo install -m 0755 stash-server /usr/local/bin/stash-server
 ```
 
-## Run (manual, v1)
+### Detection backend (magika)
 
-Daemon supervision is out of scope per §4.6. To bring the service up
-for testing:
+Content-type detection (`internal/detect`) defaults to a pure-Go heuristic
+(extension + content sniff + UTF-8 text check) — no cgo, no model, always
+built and tested. The richer **magika** backend
+([google/magika](https://github.com/google/magika/tree/main/go)) is behind
+a build tag and OFF by default because it needs cgo + the ONNX Runtime
+native library + the model assets:
+
+```bash
+# In the VM image build only, after vendoring ONNX Runtime + the model:
+go get github.com/google/magika/go/magika
+go build -tags magika -o stash-server .
+# Runtime: MAGIKA_ASSETS_DIR (default /usr/local/share/magika), MAGIKA_MODEL
+# (default standard_v3_3). A model/init failure degrades to the heuristic.
+```
+
+The bring-up script honors `STASH_BUILD_TAGS=magika` to opt in.
+
+The production bring-up (`guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh`,
+run by the VM's cloud-init) does all of this plus the mount, systemd unit,
+and `/var/lib/stash-server` provisioning — this section is for ad-hoc dev.
+
+## Run (manual / dev)
 
 ```bash
 # 1. Disable the OS sshd so the custom server can bind :22 (§4.2).
@@ -49,38 +84,73 @@ sudo systemctl disable --now ssh
 # 2. Allow non-root binding of port 22 (or run the daemon as root).
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-server
 
-# 3. Launch. By default the StashFolder is $HOME/yuruna/test/status/stash;
-#    override with --folder if you have a different layout.
-/usr/local/bin/stash-server
+# 3. Launch. --share-folder (the mounted stash share, <stashLocalPath>/stash/<hostId>)
+#    is required; the metadata index and offline buffer default to
+#    /var/lib/stash-server/{metadata,buffer} on the VM's local disk.
+/usr/local/bin/stash-server --share-folder /mnt/ystash-nas/stash/<hostId>
 ```
 
-Logs go to stderr (journald captures them when launched under
-systemd; the systemd unit is deferred per §4.6).
+Logs go to stderr; journald captures them under the `stash-server.service`
+unit the bring-up installs (`journalctl -u stash-server`).
 
 ## Exercise
 
+The daemon serves BOTH protocols (see the spec §4.1):
+
 ```bash
-# Single file -- one record, one artifact with extension preserved.
+# Modern scp defaults to SFTP -- works, one record per file. Stored on
+# the share; the upload ID is logged server-side (SFTP can't echo it).
 echo hello > note.pdf
 scp note.pdf yuruna@<vm-ip>:/scratch
 
-# Multi-file -- one record, one .yuruna.archive.zip.
-scp a.txt b.txt yuruna@<vm-ip>:/scratch
-
-# Recursive -- one record, one .yuruna.archive.zip.
-scp -r ./dir yuruna@<vm-ip>:/scratch
+# Legacy protocol (-O): enables multi/recursive ZIP grouping AND echoes
+# the YURUNA-STASH-ID line to your terminal.
+scp -O a.txt b.txt yuruna@<vm-ip>:/scratch    # one .yuruna.archive.zip
+scp -O -r ./dir    yuruna@<vm-ip>:/scratch    # one .yuruna.archive.zip
 ```
 
-scp prints the daemon's stderr to the operator's terminal, so each
-invocation surfaces a line like:
+Under `-O` (legacy), scp renders the daemon's stderr, so each invocation
+surfaces a line like:
 
 ```
-YURUNA-STASH-ID: a8b2cz
+YURUNA-STASH-ID: a1b2
 ```
 
-The artifact is at `<StashFolder>/files/<yyyy>/<mm>/<dd>/a8b2cz[.ext]`
-(single) or `a8b2cz.yuruna.archive.zip` (archive). The matching SQLite
-row is in `<StashFolder>/metadata/stash.sqlite`.
+The artifact is at `<ShareFolder>/files/<yyyy>/<mm>/<dd>/a1b2[.ext]`
+(single) or `a1b2.yuruna.archive.zip` (archive), with an `a1b2.yuruna.meta.json`
+sidecar next to it. The matching SQLite row is in the VM-local metadata
+index (default `/var/lib/stash-server/metadata/stash.sqlite`).
+
+## UI / API (`:80`)
+
+Open `http://<vm-ip>/` for the pastebin-style UI (browse, search, create,
+view, delete). The JSON API it consumes
+([stash-service-ui.md](../../../../docs/design/stash-service-ui.md) §9):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/healthz` | liveness (`ok`) |
+| GET | `/api/stashes` | list/search the pool-wide view (`q`,`id`,`username`,`filename`,`path`,`class`,`status`,`host`,`from`,`to`,`limit`,`offset`) |
+| GET | `/api/stashes/{hostId}/{y}/{m}/{d}/{id}` | one stash's metadata |
+| GET | `/api/stashes/{…}/{id}/archive` | ZIP entry listing |
+| GET | `/raw/{hostId}/{y}/{m}/{d}/{id}` | bytes, inline (safety headers; active content served as text) |
+| GET | `/download/{…}` | bytes, attachment |
+| POST | `/api/stashes` | create (multipart `files`/`text`/`title`/`author`, urlencoded, or JSON) |
+| DELETE | `/api/stashes/{hostId}/{…}` | delete — **local host only** (foreign hostId → 403) |
+| POST | `/api/refresh` | force a pool-index rescan |
+| GET | `/api/host?host=<id>` | best-effort hostId→stash-UI resolution (pool-aggregator) |
+
+Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
+`--pool-window-days` (`30`), `--pool-refresh-secs` (`60`),
+`--list-default-limit` (`50`), `--aggregator-url` (empty), `--listen-addr`
+(`0.0.0.0:22`, dev override when the OS sshd holds :22). The bring-up stamps
+the framework version via `-ldflags "-X main.version=<v>"` (shown in the UI
+header); ad-hoc dev builds show `vdev`.
+
+The UI is pool-wide: this host's live index merged with every other host's
+on-share sidecars (bounded to the recent window in memory, with an
+on-demand deep scan for older queries). Delete only touches this host's
+own stashes; a remote stash shows a disabled Delete pointing at its owner.
 
 ## Tests
 
@@ -90,23 +160,46 @@ go test ./...
 
 Coverage focuses on the spec-driven pure-logic bits:
 
-- `internal/store/store_test.go` — every §6.3 extension-extraction rule
-  plus the §13-decision boundaries (option-c: discard on disallowed
-  charset).
-- `internal/id/id_test.go` — uniqueness within a day, on-disk scan
-  picks up pre-existing IDs (restart safety), cross-day re-use is
-  permitted (§12).
+- `internal/store/` — §6.3 extension-extraction rules + §13 boundaries;
+  mountinfo parsing (the cifs-nofail trap), DirSize, AtomicCopyFile (§8.4).
+- `internal/id/id_test.go` — per-day uniqueness, on-disk scan picks up
+  pre-existing IDs incl. sidecars (restart safety), cross-day re-use (§12).
+- `internal/meta/` — sidecar write → reimage rebuild round-trip (§8.5);
+  buffered lifecycle (UpdateOnComplete preserves the flag, §8.4).
+- `internal/sshsrv/` — flush worker (move+sidecar+clear+remove, offline
+  no-op, idempotent, §8.4); SFTP ingest (store+sidecar+metadata,
+  truncation, offline buffering, §4.1).
+- `internal/detect/` — heuristic classification (extension/sniff/text,
+  SVG+HTML→download-only) (ui §6.1, §7.4).
+- `internal/httpsrv/` — create→list→get→raw→delete round-trip, remote-host
+  delete 403, pool-wide remote-sidecar aggregation, html-served-as-text,
+  multi-file archive + listing, static pages (ui §3–§9).
 
-Wire-protocol and SSH integration are exercised manually with `scp`
-above; an in-VM end-to-end test will land with the bring-up
-automation step.
+The legacy SCP wire protocol and the live SFTP path are exercised against
+a real `scp`/`sftp` client only in the in-VM end-to-end (host `:22` is
+typically taken by sshd, so a local daemon can't bind it; use
+`--listen-addr` to run a dev instance on another port).
 
 ## What's not here yet
 
-- Daemon supervision (systemd unit). Manual start only (§4.6, §12).
-- The in-VM UI that browses the metadata DB (§2, §12).
+- The magika detection backend is built only with `-tags magika` (the
+  default is the pure-Go heuristic); ONNX Runtime + model vendoring is a
+  VM-image-build concern (ui §6.1, §14).
+- The pool-aggregator's `stashBaseUrl` field (ui §3.4, §13) — until it
+  ships, the remote-host delete link is absent (resolution returns empty,
+  the UI degrades to showing the hostId). The consumer side (resolve.go)
+  is fully wired and validates the scheme; only the producer
+  (host status server + pool-aggregator) is outstanding.
+- **Cross-day ID reuse vs the global SQLite PRIMARY KEY** (pre-existing):
+  the allocator's uniqueness scope is per-UTC-day (SS§7/§12, IDs may repeat
+  across days), but `uploads.id` is a global `PRIMARY KEY`, so a 4-char ID
+  reused on a later day collides with a surviving older-day row and fails
+  the upload (clean rejection — SCP exit 1 / UI 500 — no corruption). Rare
+  at this tool's volume; a proper fix is a composite `(day, id)` key plus
+  date-scoped `Get`/`Delete` (resolve is already date-scoped, ui §4.4), or a
+  bounded re-allocate-on-collision retry. Tracked, not addressed here.
 - Cleanup / retention / aging (§12).
-- Backup / restore (§12).
+- Backup / restore beyond the durable share + sidecars (§12).
 
 ## Module path note
 
@@ -118,6 +211,6 @@ from outside this directory. Internal packages live under
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../../README.md)

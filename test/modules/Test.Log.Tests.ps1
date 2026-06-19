@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42e9c5b7-2d18-4a3f-bc60-7f1e9a8d2c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,6 +127,34 @@ Describe 'Stop-LogFile last_failure.json archiving' {
             $entry = @($man.artifacts | Where-Object { $_.path -eq 'last_failure.json' })
             Assert-Equal 1 $entry.Count 'manifest lists last_failure.json exactly once'
             Assert-Equal 'failure' $entry[0].kind 'manifest classifies it as kind=failure'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'archives last_remediation.json + manifests it as kind=remediation on a non-pass outcome' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"ocr_timeout"}'
+        try {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $fx.Tmp 'last_remediation.json'),
+                '{"schemaVersion":1,"failureClass":"ocr_timeout","recommendation":"restart_from_snapshot","autoApply":false}',
+                [System.Text.UTF8Encoding]::new($false))
+            Stop-LogFile -Outcome 'fail' -Reason 'remediation-archive-test' -Confirm:$false
+            Assert-True (Test-Path (Join-Path $fx.Final 'last_remediation.json')) 'last_remediation.json archived into the cycle folder'
+            $man = Get-Content -Raw (Join-Path $fx.Final 'manifest.json') | ConvertFrom-Json
+            $entry = @($man.artifacts | Where-Object { $_.path -eq 'last_remediation.json' })
+            Assert-Equal 1 $entry.Count 'manifest lists last_remediation.json exactly once'
+            Assert-Equal 'remediation' $entry[0].kind 'manifest classifies it as kind=remediation'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'does NOT archive a (stale) last_remediation.json on a pass outcome' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"unknown"}'
+        try {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $fx.Tmp 'last_remediation.json'),
+                '{"schemaVersion":1,"failureClass":"unknown","recommendation":"pause_and_inspect","autoApply":false}',
+                [System.Text.UTF8Encoding]::new($false))
+            Stop-LogFile -Outcome 'pass' -Reason 'clean' -Confirm:$false
+            Assert-True (-not (Test-Path (Join-Path $fx.Final 'last_remediation.json'))) 'a passing cycle must not archive a stale last_remediation.json'
         } finally { Restore-ArchiveFixture -Fixture $fx }
     }
 

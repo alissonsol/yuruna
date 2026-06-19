@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,9 +122,9 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 # Test.LogLevel + Test.Config + Test.SequenceAction + Test.HostIO +
 # Test.HostContract + Test.Log + Invoke-Sequence + Test.SequencePlanner +
 # Test.YurunaDir + Test.OcrEngine + Test.Tesseract +
-# Test.ConfigPreflight. Order in the helper matches the prior inline
-# sequence (planner AFTER engine so the engine's -Force re-import
-# inside the planner doesn't evict the just-imported engine).
+# Test.ConfigPreflight. Order matters: planner AFTER engine so the
+# engine's -Force re-import inside the planner doesn't evict the
+# just-imported engine.
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
 Initialize-YurunaEntryPointModuleSet -For Sequence -ModulesDir $ModulesDir

@@ -1,0 +1,228 @@
+/*
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+  Stash UI styles. Mirrors the status-pages' yuruna.common design tokens
+  (light/dark custom properties) for visual consistency (stash-service-ui.md
+  §2.3). Vendored into the daemon binary, not fetched from the host.
+*/
+
+:root {
+  --bg-primary: #f9fafb;
+  --bg-elevated: #ffffff;
+  --bg-header: #111827;
+  --bg-hover: #f3f4f6;
+  --bg-code: #f3f4f6;
+  --fg-primary: #111827;
+  --fg-header: #ffffff;
+  --fg-muted: #6b7280;
+  --fg-faint: #9ca3af;
+  --border: #e5e7eb;
+  --border-input: #d1d5db;
+  --pass-bg: #dcfce7;
+  --pass-fg: #16a34a;
+  --warn-bg: #fef3c7;
+  --warn-fg: #b45309;
+  --fail-bg: #fee2e2;
+  --fail-fg: #dc2626;
+  --pending-bg: #fef3c7;
+  --pending-fg: #ca8a04;
+  --running-bg: #dbeafe;
+  --running-fg: #1d4ed8;
+  --link: #0366d6;
+  --primary-bg: #2563eb;
+  --primary-fg: #ffffff;
+  --primary-hover-bg: #1d4ed8;
+  --destructive-bg: #f97316;
+  --destructive-fg: #ffffff;
+  --destructive-hover-bg: #ea580c;
+  --footer-bg: #111827;
+  --footer-fg: #9ca3af;
+  --footer-input-bg: #0b1220;
+  --footer-input-border: #374151;
+  --touch-min: 2.75rem;
+  --font-mono: 'Menlo', 'Consolas', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #0b1220;
+    --bg-elevated: #111827;
+    --bg-header: #030712;
+    --bg-hover: #1f2937;
+    --bg-code: #1f2937;
+    --fg-primary: #e5e7eb;
+    --fg-muted: #94a3b8;
+    --fg-faint: #64748b;
+    --border: #1f2937;
+    --border-input: #334155;
+    --pass-bg: #14532d;
+    --pass-fg: #4ade80;
+    --warn-bg: #78350f;
+    --warn-fg: #fde68a;
+    --fail-bg: #7f1d1d;
+    --fail-fg: #fecaca;
+    --pending-bg: #78350f;
+    --pending-fg: #fcd34d;
+    --running-bg: #1e3a8a;
+    --running-fg: #93c5fd;
+    --link: #74b8ff;
+    --footer-bg: #030712;
+    --footer-fg: #94a3b8;
+    --footer-input-bg: #020617;
+    --footer-input-border: #1f2937;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+header.app {
+  background: var(--bg-header);
+  color: var(--fg-header);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+header.app h1 { font-size: 1.1rem; margin: 0; }
+header.app h1 a { color: var(--fg-header); }
+header.app .brand { display: flex; flex-direction: column; line-height: 1.15; }
+header.app .version { color: var(--fg-faint); font-family: var(--font-mono); font-size: 0.72rem; }
+header.app .spacer { flex: 1; }
+header.app .machine { color: var(--fg-faint); font-family: var(--font-mono); font-size: 0.8rem; }
+
+main { max-width: 1100px; margin: 0 auto; padding: 1rem; }
+
+.toolbar { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+.toolbar input[type="search"], .toolbar input[type="text"], .toolbar select {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  min-height: var(--touch-min);
+}
+.toolbar input[type="search"] { flex: 1; min-width: 12rem; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-min);
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-input);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+.btn:hover { background: var(--bg-hover); }
+.btn.primary { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-hover-bg); }
+.btn.primary:hover { background: var(--primary-hover-bg); }
+.btn.destructive { background: var(--destructive-bg); color: var(--destructive-fg); border-color: var(--destructive-hover-bg); }
+.btn.destructive:hover { background: var(--destructive-hover-bg); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+table.stashes { width: 100%; border-collapse: collapse; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+table.stashes th, table.stashes td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+table.stashes th { color: var(--fg-muted); font-weight: 600; }
+table.stashes tr:hover td { background: var(--bg-hover); cursor: pointer; }
+table.stashes .mono { font-family: var(--font-mono); }
+table.stashes .num { text-align: right; white-space: nowrap; }
+
+.badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; font-family: var(--font-mono); }
+.badge.complete { background: var(--pass-bg); color: var(--pass-fg); }
+.badge.pending { background: var(--pending-bg); color: var(--pending-fg); }
+.badge.partial, .badge.truncated { background: var(--warn-bg); color: var(--warn-fg); }
+.badge.host { background: var(--running-bg); color: var(--running-fg); }
+.badge.local { background: var(--pass-bg); color: var(--pass-fg); }
+
+.card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; font-size: 0.9rem; }
+.kv dt { color: var(--fg-muted); }
+.kv dd { margin: 0; font-family: var(--font-mono); word-break: break-all; }
+
+pre.viewer { background: var(--bg-code); padding: 0.75rem; border-radius: 6px; overflow: auto; max-height: 70vh; font-family: var(--font-mono); font-size: 0.85rem; white-space: pre; }
+pre.viewer.wrap { white-space: pre-wrap; word-break: break-word; }
+.viewer-img { max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-code); }
+.viewer-frame { width: 100%; height: 75vh; border: 1px solid var(--border); border-radius: 6px; }
+audio.viewer-av, video.viewer-av { width: 100%; }
+
+form.create label { display: block; margin: 0.75rem 0 0.25rem; color: var(--fg-muted); font-size: 0.9rem; }
+form.create input[type="text"], form.create textarea, form.create input[type="file"] {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  font-family: inherit;
+}
+form.create textarea { min-height: 16rem; font-family: var(--font-mono); font-size: 0.85rem; }
+
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+.tab { padding: 0.4rem 0.8rem; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; background: var(--bg-elevated); }
+.tab.active { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-hover-bg); }
+
+.notice { padding: 0.6rem 0.8rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; }
+.notice.info { background: var(--running-bg); color: var(--running-fg); }
+.notice.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.notice.error { background: var(--fail-bg); color: var(--fail-fg); }
+
+.muted { color: var(--fg-muted); }
+.right { text-align: right; }
+.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+
+footer.app { background: var(--footer-bg); color: var(--footer-fg); padding: 0.75rem 1rem; margin-top: 2rem; font-size: 0.8rem; text-align: center; }
+
+/* Shared footer bar (server IPs · loaded · refresh countdown), mirroring the
+   status pages' #footer-bar (yuruna.common.css) — fixed at the bottom, with a
+   readonly mono textarea for the (possibly long) IP list. Reuses the
+   footer.app background/color; #footer-bar (id) overrides the centered flow
+   layout above. main pads its bottom so the fixed bar never covers the last
+   row / Load more button. */
+#footer-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  margin-top: 0;
+  padding: 0.35rem 1rem;
+  font-size: 0.6875rem;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 0.75rem; text-align: left;
+}
+#footer-bar a { color: var(--footer-fg); }
+#footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
+#footer-ips > * + * { margin-left: 0.5rem; }
+#footer-ips .label { flex-shrink: 0; }
+textarea#footer-ip-list {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--font-mono); font-size: 0.6875rem;
+  color: var(--footer-fg); background: var(--footer-input-bg); border: 1px solid var(--footer-input-border);
+  border-radius: 3px; padding: 0.15rem 0.35rem;
+  resize: none; overflow: auto; white-space: pre;
+  line-height: 1.25; vertical-align: middle;
+  scrollbar-width: none;
+}
+textarea#footer-ip-list::-webkit-scrollbar { display: none; }
+/* body class (not :has()) so the fixed-footer clearance works on Firefox and
+   iOS Safari < 15.4, which predate :has(). Set on the only page that renders
+   #footer-bar (index.html). */
+body.has-footer-bar main { padding-bottom: 3rem; }
+
+@media (max-width: 600px) {
+  #footer-bar { padding-left: 0.5rem; padding-right: 0.5rem; flex-wrap: wrap; }
+  #footer-ips { flex-basis: 100%; max-width: 100%; }
+}

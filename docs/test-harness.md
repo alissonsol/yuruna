@@ -130,9 +130,9 @@ test/
 ├── extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
 │   ├── authentication/         default.psm1, authentication.config.yml
 │   └── notification/           default.psm1, notification.config.yml, transports.yml.template
-├── screenshots/<guestKey>/
-│   ├── schedule.json           Capture checkpoints + thresholds
-│   └── reference/*.png         Trained reference screenshots (committed)
+├── screenshots/<guestKey>/     [Optional — operator-populated; absent by default]
+│   ├── schedule.json           Capture checkpoints + thresholds (create if using screenshot validation)
+│   └── reference/*.png         Trained reference screenshots (commit manually per checkpoint)
 └── status/                     Status dashboard + ALL harness runtime state
     ├── index.html, hostinfo.html, test.config.html, yuruna.common.{css,js},
     │                           status.json.template     (committed UI)
@@ -257,8 +257,8 @@ and `Test-<Platform>HostMinimum` (quick check for one-off helpers).
 The facade calls `New-YurunaRegistry` and then registers each
 platform's triplet via `Register-HostConditionProvider`, so
 `Assert-HostConditionSet`, `Test-ElevationRequired`, and
-`Test-HostRequirement` are pure registry lookups -- the old `switch
-($HostType)` chains are gone. Adding a new host is one
+`Test-HostRequirement` are pure registry lookups -- no `switch
+($HostType)` chains. Adding a new host is one
 `Register-HostConditionProvider` call; existing callers can keep
 `Import-Module Test.HostCondition` and resolve names exactly as
 before.
@@ -422,6 +422,6 @@ log-stream visibility is controlled by [Log levels](loglevels.md).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

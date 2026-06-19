@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42d7e6c5-b4a3-4928-8f16-5a4b3c2d1e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # One-shot poolStorage drain, fired DETACHED by the outer loop at each cycle end
 # (Test.RunnerOuterLoop.psm1). It drains the backlog of not-yet-replicated cycle
-# folders to the optional SMB share (ypsp): fail-fast on an unreachable NAS,
+# folders to the optional SMB share (ypool-nas): fail-fast on an unreachable NAS,
 # atomic per cycle, single-instance via a lock file. Runs in its own fresh process
 # so a slow/absent NAS never delays the cycle loop and module imports start from a
 # clean global scope. Env (YURUNA_CONFIG_PATH / YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR)

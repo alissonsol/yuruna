@@ -1,0 +1,22 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/snippets.schema.yml
+title: Yuruna sequence snippet library
+description: >
+  A _snippets.yml library: a map of snippet name -> ordered step list. Each list
+  is spliced into a sequence wherever a `{ snippet: <name> }` step appears (see
+  sequence.schema.yml). Lives in a mode dir alongside sequences --
+  test/sequences/<mode>/_snippets.yml (framework) or
+  <...>/test/<mode>/_snippets.yml (project). A step in a snippet is the same
+  shape as a sequence step, so snippets may themselves reference other snippets.
+
+type: object
+minProperties: 1
+propertyNames:
+  pattern: "^[A-Za-z][A-Za-z0-9_-]*$"
+additionalProperties:
+  type: array
+  minItems: 1
+  items:
+    $ref: "sequence.schema.yml#/$defs/step"

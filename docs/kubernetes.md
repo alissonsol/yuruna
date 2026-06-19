@@ -1,8 +1,8 @@
 # Kubernetes Deployment
 
 Deploy containerized applications to Kubernetes across localhost, Azure,
-AWS, and GCP with a single workflow. Write the configuration once; switch
-target clouds by changing a parameter.
+and AWS with a single workflow (GCP is planned, not yet available). Write
+the configuration once; switch target clouds by changing a parameter.
 
 See [Yuruna Architecture](architecture.md) for the three-phase model
 (Resources→Components→Workloads), the CLI entry points, and the project
@@ -58,7 +58,7 @@ Set-Resource.ps1 website azure; Set-Component.ps1 website azure; Set-Workload.ps
 aws configure
 Set-Resource.ps1 website aws;   Set-Component.ps1 website aws;   Set-Workload.ps1 website aws
 
-# GCP
+# GCP (planned, not yet available)
 gcloud auth application-default login
 Set-Resource.ps1 website gcp;   Set-Component.ps1 website gcp;   Set-Workload.ps1 website gcp
 ```
@@ -102,6 +102,6 @@ kubectl config current-context
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

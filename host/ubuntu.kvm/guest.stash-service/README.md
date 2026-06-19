@@ -1,10 +1,10 @@
 # Stash Service VM (Ubuntu KVM)
 
-Canonical documentation: **[Stash Service](../../../docs/stash-service.md)**.
+Canonical documentation: **[Stash Service](../../../docs/design/stash-service.md)**.
 
 Scripts and config in this folder:
 
-- [Get-Image.ps1](Get-Image.ps1) — base Ubuntu 24.04 LTS cloud image
+- [Get-Image.ps1](Get-Image.ps1) — base Ubuntu 26.04 LTS cloud image
   (amd64 qcow2, resized to 256 GB sparse).
 - [New-VM.ps1](New-VM.ps1) — defines the libvirt domain (8 GB RAM /
   4 vCPU) and seeds via cloud-init NoCloud ISO.
@@ -18,6 +18,6 @@ Scripts and config in this folder:
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

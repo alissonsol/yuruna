@@ -79,6 +79,44 @@ join the two on a single field). The flattened event also carries
 `repro.command` string), and `matchedFailurePattern` (the nested-context
 field lifted flat). A crash event adds `crashError`.
 
+## `last_remediation.json` (the dispatcher's decision, persisted)
+
+When the [remediation dispatcher](remediation.md) routes a failure it
+writes `$YURUNA_LOG_DIR/last_remediation.json` beside `last_failure.json`.
+Three signals describe a failure and it is easy to confuse them; this file
+exists to keep the authoritative one durable:
+
+- the verb's `suggestedRecoveries` is a **hint** (what the failing action
+  thinks might help),
+- the `remediation_recommended` NDJSON event is a **transient breadcrumb**
+  on the stream, and
+- `last_remediation.json` is the dispatcher's **decision** — the single
+  recommendation a consumer should act on — written as a self-contained file
+  so a consumer that polls the filesystem (dashboard, pool aggregator, a
+  future autonomous loop) never has to tail the event stream or re-run the
+  dispatcher to recover it.
+
+Schema-versioned (`schemaVersion` = `1`), written through the atomic,
+no-BOM state-file primitive. Fields: `timestamp`, `failureClass`,
+`severity`, `recommendation` (one of the canonical recovery vocabulary),
+`rationale`, `actions` (string[]), `handledBy`, `autoApply`, `source`, plus
+`outerFailureClass` when the dispatcher routed past a `retry_exhausted`
+wrapper, and the correlation fields (`vmName`, `guestKey`, `hostType`,
+`stepNumber`, `actionVerb`, `sequenceName`) the failure carried.
+
+`autoApply` is **always `false` today**: the dispatcher records what should
+happen, it never performs the action. Acting on the recommendation is a
+separate, default-off capability that stays gated behind a per-cycle attempt
+cap, a class allow-list, and enough human review of these records first —
+which is exactly why the decision is persisted now, ahead of any actor that
+consumes it.
+
+`Stop-LogFile` archives the file into the per-cycle folder on a non-pass
+outcome (same path as `last_failure.json`), `Write-CycleManifest` catalogs
+it as `kind` = `remediation`, and the pool replication copies the whole
+cycle folder — so the recommendation travels with the failure to the pool
+without a dedicated push.
+
 ## Synthetic & infra records
 
 Two record variants reuse the schema-v2 shape for failures that happen
@@ -150,6 +188,6 @@ is additive (old readers ignore it).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

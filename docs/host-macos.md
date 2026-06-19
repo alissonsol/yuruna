@@ -10,7 +10,7 @@
 
 ## Cleaning Up Old Files
 
-Run `Remove-OrphanedVMFiles.ps1`. It removes anything not tied to an existing VM, including downloaded base images — re-run `Get-Image.ps1` afterward.
+Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (bundles, ISOs, etc.) for any VM that no longer exists. Downloaded base images are explicitly KEPT so subsequent `Get-Image.ps1` runs don't re-download them; refresh a base image with the matching `Get-Image.ps1`.
 
 ## `tapOn` loops on "UTM window for `<vm>` not found"
 
@@ -178,18 +178,20 @@ keys (Test.HostCondition.Mac.psm1, `$pmsetGuards`):
 Every guard is treated as `OptionalKey` because macOS evolves these
 names across major versions (Sonoma split `standbydelay` into
 `standbydelaylow`/`standbydelayhigh`; later releases rename or remove
-more). `install/macos.utm.sh`'s bash prelude applies them all using
-the legacy names, which `pmset` accepts as compatibility aliases. The
-in-cycle precheck reads `pmset -g custom` (no sudo) and only invokes
+more). The in-cycle host condition setup (`Set-MacHostConditionSet`
+in `Test.HostCondition.Mac.psm1`) applies them all using the legacy
+names, which `pmset` accepts as compatibility aliases. The install
+script does not apply `pmset` settings; it only primes the sudo cache
+for that step. The precheck reads `pmset -g custom` (no sudo) and only invokes
 `sudo pmset` if a key is present AND has the wrong value — a missing
 key is treated as "macOS no longer surfaces it under that name", not
-as a verification failure. The precheck also prevents a second sudo
-prompt when the bash prelude already applied the values.
+as a verification failure. This skips an unnecessary sudo prompt when
+the values are already correct.
 
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

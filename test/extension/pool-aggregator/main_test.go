@@ -898,3 +898,125 @@ func TestHandleIngest(t *testing.T) {
 		}
 	}
 }
+
+func TestPickCycleForTime(t *testing.T) {
+	at := func(s string) time.Time { tt, _ := time.Parse(time.RFC3339, s); return tt }
+	mk := func(start, fin string) cycleCand {
+		return cycleCand{folderURL: "f-" + start, started: at(start), finished: at(fin), ingest: at(fin)}
+	}
+	cands := []cycleCand{
+		mk("2026-06-12T10:00:00Z", "2026-06-12T10:30:00Z"),
+		mk("2026-06-12T11:00:00Z", "2026-06-12T11:20:00Z"),
+	}
+	// (a) t inside a cycle window -> that cycle (containment beats proximity).
+	if c, ok := pickCycleForTime(cands, at("2026-06-12T11:10:00Z")); !ok || c.folderURL != "f-2026-06-12T11:00:00Z" {
+		t.Fatalf("(a) containment: ok=%v folder=%q", ok, c.folderURL)
+	}
+	// (b) t in the gap between cycles -> nearest by timestamp (10:40 is 10m past the
+	// first finish, 40m before the second) -> the first cycle.
+	if c, ok := pickCycleForTime(cands, at("2026-06-12T10:40:00Z")); !ok || c.folderURL != "f-2026-06-12T10:00:00Z" {
+		t.Fatalf("(b) gap-nearest: ok=%v folder=%q", ok, c.folderURL)
+	}
+	// (c) empty input -> not found.
+	if _, ok := pickCycleForTime(nil, at("2026-06-12T11:10:00Z")); ok {
+		t.Fatalf("(c) empty want ok=false")
+	}
+}
+
+func TestPickFolderFromListing(t *testing.T) {
+	const hid = "4299be00a3764fd58e425ca8937ae3fe"
+	at := func(s string) time.Time { tt, _ := time.Parse(time.RFC3339, s); return tt }
+	body := `<a href="001593.2026-06-13.05-31-44.` + hid + `/">x</a>` +
+		`<a href="001608.2026-06-13.12-25-21.` + hid + `/">x</a>` +
+		`<a href="001609.2026-06-13.12-47-36.` + hid + `.incomplete/">x</a>` +
+		`<a href="000001.2026-06-13.04-00-00.42ffffffffffffffffffffffffffffff/">other host</a>`
+	// (a) click inside the failed cycle's persisted block (06:46) -> 001593 (the
+	// latest cycle that had started at/before the click). This is the real-world
+	// case that previously fell back to the host root.
+	if got := pickFolderFromListing(body, hid, at("2026-06-13T06:46:00Z")); got != "log/001593.2026-06-13.05-31-44."+hid+"/" {
+		t.Fatalf("(a) got %q", got)
+	}
+	// (b) click in the current (incomplete) cycle window -> 001609 incomplete.
+	if got := pickFolderFromListing(body, hid, at("2026-06-13T12:50:00Z")); got != "log/001609.2026-06-13.12-47-36."+hid+".incomplete/" {
+		t.Fatalf("(b) got %q", got)
+	}
+	// (c) t predates every folder for this host -> earliest (still a real cycle); the
+	// other host's earlier 04:00 folder is never matched.
+	if got := pickFolderFromListing(body, hid, at("2026-06-13T04:30:00Z")); got != "log/001593.2026-06-13.05-31-44."+hid+"/" {
+		t.Fatalf("(c) got %q", got)
+	}
+	// (d) no folder for this host -> "".
+	if got := pickFolderFromListing(`<a href="x/">y</a>`, hid, at("2026-06-13T06:46:00Z")); got != "" {
+		t.Fatalf("(d) got %q", got)
+	}
+}
+
+func TestHandleGoCycle(t *testing.T) {
+	const hid = "4253419c1f0b45a08260f36a1521a857"
+	folder := "status/log/000001.2026-06-12.10-48-00." + hid + "/"
+	get := func(s *poolState, qs string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/go/cycle?"+qs, nil)
+		w := httptest.NewRecorder()
+		s.handleGoCycle(w, req)
+		return w
+	}
+	// (a) missing host -> 400.
+	if w := get(newPoolState("default", 8080), ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("(a) missing host want 400, got %d", w.Code)
+	}
+	// (b) host not in the live view -> 404.
+	if w := get(newPoolState("default", 8080), "host="+hid); w.Code != http.StatusNotFound {
+		t.Fatalf("(b) unknown host want 404, got %d", w.Code)
+	}
+	// (c) current-cycle fast path (no t): 302 to the LIVE base + current folder.
+	{
+		s := newPoolState("default", 8080)
+		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
+			Status: &hostStatus{CycleId: "c1", CycleFolderUrl: folder, StartedAt: "2026-06-12T10:48:00Z"}}
+		w := get(s, "host="+hid)
+		want := "http://10.0.0.5:8080/" + folder
+		if w.Code != http.StatusFound || w.Header().Get("Location") != want {
+			t.Fatalf("(c) current-cycle: code=%d loc=%q want %q", w.Code, w.Header().Get("Location"), want)
+		}
+	}
+	// (d) past t with no resolvable folder (no current cycle, no Loki) -> 302 to the
+	// host's CURRENT base root: the IP is still resolved live (the IP-survives-change
+	// guarantee), only the per-cycle folder degrades.
+	{
+		s := newPoolState("default", 8080)
+		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.9:8080"}
+		w := get(s, "host="+hid+"&t=1000")
+		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.9:8080" {
+			t.Fatalf("(d) degrade-to-root: code=%d loc=%q", w.Code, w.Header().Get("Location"))
+		}
+	}
+}
+
+func TestHandleGoHost(t *testing.T) {
+	const hid = "4253419c1f0b45a08260f36a1521a857"
+	get := func(s *poolState, qs string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/go/host?"+qs, nil)
+		w := httptest.NewRecorder()
+		s.handleGoHost(w, req)
+		return w
+	}
+	// (a) missing host -> 400.
+	if w := get(newPoolState("default", 8080), ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("(a) missing host want 400, got %d", w.Code)
+	}
+	// (b) host not in the live view -> 404.
+	if w := get(newPoolState("default", 8080), "host="+hid); w.Code != http.StatusNotFound {
+		t.Fatalf("(b) unknown host want 404, got %d", w.Code)
+	}
+	// (c) 302 to the LIVE base ROOT regardless of a current cycle folder: /go/host
+	// always lands on the status page, never a cycle folder (the /go/cycle distinction).
+	{
+		s := newPoolState("default", 8080)
+		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080/",
+			Status: &hostStatus{CycleId: "c1", CycleFolderUrl: "status/log/000001." + hid + "/"}}
+		w := get(s, "host="+hid)
+		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.5:8080" {
+			t.Fatalf("(c) root: code=%d loc=%q", w.Code, w.Header().Get("Location"))
+		}
+	}
+}

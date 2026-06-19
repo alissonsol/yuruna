@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,78 +53,133 @@ Describe 'Get-PoolStorageUncPath (SMB path normalization)' {
 
 Describe 'Test-PoolStorageMountMatch (anchored mount detection)' {
     It 'matches our share at our exact mount point (Linux)' {
-        $l = '//srv/work on /mnt/ypsp type cifs (rw,relatime,vers=3.0)'
-        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work') 'linux exact'
+        $l = '//srv/work on /mnt/ypool-nas type cifs (rw,relatime,vers=3.0)'
+        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypool-nas' -NetworkPath '//srv/work') 'linux exact'
     }
     It 'matches our share at our exact mount point (macOS, strips user@)' {
-        $l = '//yurunanet@srv/work on /Users/u/Shares/ypsp (smbfs, nodev, nosuid)'
-        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/Users/u/Shares/ypsp' -NetworkPath '//srv/work') 'macos exact'
+        $l = '//yurunanet@srv/work on /Users/u/Shares/ypool-nas (smbfs, nodev, nosuid)'
+        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/Users/u/Shares/ypool-nas' -NetworkPath '//srv/work') 'macos exact'
     }
     It 'rejects a DIFFERENT share at the same mount point (share-suffix collision)' {
-        $l = '//srv/work2 on /mnt/ypsp type cifs (rw)'
-        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'work2 != work'
+        $l = '//srv/work2 on /mnt/ypool-nas type cifs (rw)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypool-nas' -NetworkPath '//srv/work')) 'work2 != work'
     }
     It 'rejects a server-name-suffix collision' {
-        $l = '//other-srv/work on /mnt/ypsp type cifs (rw)'
-        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'other-srv != srv'
+        $l = '//other-srv/work on /mnt/ypool-nas type cifs (rw)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypool-nas' -NetworkPath '//srv/work')) 'other-srv != srv'
     }
     It 'rejects our share at a DIFFERENT mount point' {
-        $l = '//srv/work on /mnt/ypsp type cifs (rw)'
+        $l = '//srv/work on /mnt/ypool-nas type cifs (rw)'
         Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/other' -NetworkPath '//srv/work')) 'point mismatch'
     }
     It 'rejects a mount-point prefix collision' {
-        $l = '//srv/work on /mnt/ypsp2 type cifs (rw)'
-        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'ypsp2 != ypsp'
+        $l = '//srv/work on /mnt/ypool-nas2 type cifs (rw)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypool-nas' -NetworkPath '//srv/work')) 'ypool-nas2 != ypool-nas'
     }
     It 'accepts a Windows-style NetworkPath form (normalized)' {
-        $l = '//srv/work on /mnt/ypsp type cifs (rw)'
-        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypsp' -NetworkPath '\\srv\work') 'win-form normalized'
+        $l = '//srv/work on /mnt/ypool-nas type cifs (rw)'
+        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/mnt/ypool-nas' -NetworkPath '\\srv\work') 'win-form normalized'
     }
     It 'returns false on empty or null mount output' {
-        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @() -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'empty'
-        Assert-True (-not (Test-PoolStorageMountMatch -MountLines $null -LocalPath '/mnt/ypsp' -NetworkPath '//srv/work')) 'null'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @() -LocalPath '/mnt/ypool-nas' -NetworkPath '//srv/work')) 'empty'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines $null -LocalPath '/mnt/ypool-nas' -NetworkPath '//srv/work')) 'null'
+    }
+}
+
+Describe 'ConvertFrom-PoolStorageMountLine (mount-line parser)' {
+    It 'splits a macOS smbfs line into remote/point/host/share-sub (strips user@)' {
+        $p = ConvertFrom-PoolStorageMountLine -MountLine '//pooluser@srv/work/sub on /Users/u/Shares/x (smbfs, nodev, nosuid)'
+        Assert-Equal '/Users/u/Shares/x' $p.MountPoint 'point'
+        Assert-Equal 'srv' $p.HostName 'host'
+        Assert-Equal 'work/sub' $p.ShareSub 'share-sub'
+    }
+    It 'splits a Linux cifs line (type-delimited point)' {
+        $p = ConvertFrom-PoolStorageMountLine -MountLine '//srv/work on /mnt/x type cifs (rw,relatime)'
+        Assert-Equal '/mnt/x' $p.MountPoint 'point'
+        Assert-Equal 'work' $p.ShareSub 'share-sub'
+    }
+    It 'parses a hostless mount to an empty share-sub (filtered out downstream)' {
+        $p = ConvertFrom-PoolStorageMountLine -MountLine 'map auto_home on /System/Volumes/Data/home'
+        Assert-Equal '' $p.ShareSub 'no share component'
+    }
+    It 'returns null for a line with no separator, empty, or null' {
+        Assert-Null (ConvertFrom-PoolStorageMountLine -MountLine 'garbage line') 'no separator'
+        Assert-Null (ConvertFrom-PoolStorageMountLine -MountLine '') 'empty'
+        Assert-Null (ConvertFrom-PoolStorageMountLine -MountLine $null) 'null'
+    }
+}
+
+Describe 'Find-PoolStorageConflictingMount (same share, other point -> macOS "File exists")' {
+    It 'flags a stale mount of the same share under a RETIRED host alias' {
+        # The real ypsp->ypool-nas case: same share/sub, different (now-dead) host
+        # alias, different mount point -> macOS rejects the new mount with EEXIST.
+        $l = '//pooluser@ypsp/work/yuruna.pool on /Users/u/Shares/ypsp (smbfs, nodev, nosuid)'
+        $c = @(Find-PoolStorageConflictingMount -MountLines @($l) -LocalPath '/Users/u/Shares/ypool-nas' -NetworkPath '//ypool-nas/work/yuruna.pool')
+        Assert-Equal 1 $c.Count 'one conflict'
+        Assert-Equal '/Users/u/Shares/ypsp' $c[0].MountPoint 'stale point'
+        Assert-True (-not $c[0].HostMatches) 'host differs (ypsp != ypool-nas)'
+    }
+    It 'flags a same-host duplicate at a different point and reports HostMatches' {
+        $l = '//pooluser@ypool-nas/work/yuruna.pool on /Users/u/Shares/dup (smbfs)'
+        $c = @(Find-PoolStorageConflictingMount -MountLines @($l) -LocalPath '/Users/u/Shares/ypool-nas' -NetworkPath '//ypool-nas/work/yuruna.pool')
+        Assert-Equal 1 $c.Count 'one conflict'
+        Assert-True $c[0].HostMatches 'same host'
+    }
+    It 'does NOT flag OUR own mount at LocalPath (not a blocker)' {
+        $l = '//pooluser@ypool-nas/work/yuruna.pool on /Users/u/Shares/ypool-nas (smbfs)'
+        $c = @(Find-PoolStorageConflictingMount -MountLines @($l) -LocalPath '/Users/u/Shares/ypool-nas' -NetworkPath '//ypool-nas/work/yuruna.pool')
+        Assert-Equal 0 $c.Count 'our own point is fine'
+    }
+    It 'does NOT flag a DIFFERENT share path (share-suffix collision)' {
+        $l = '//pooluser@ypool-nas/work/yuruna.pool2 on /Users/u/Shares/other (smbfs)'
+        $c = @(Find-PoolStorageConflictingMount -MountLines @($l) -LocalPath '/Users/u/Shares/ypool-nas' -NetworkPath '//ypool-nas/work/yuruna.pool')
+        Assert-Equal 0 $c.Count 'pool2 != pool'
+    }
+    It 'returns an empty set on empty or null mount output' {
+        Assert-Equal 0 (@(Find-PoolStorageConflictingMount -MountLines @() -LocalPath '/x' -NetworkPath '//srv/work/sub')).Count 'empty'
+        Assert-Equal 0 (@(Find-PoolStorageConflictingMount -MountLines $null -LocalPath '/x' -NetworkPath '//srv/work/sub')).Count 'null'
     }
 }
 
 Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
     It 'returns null when replicate is false' {
-        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $false; networkPath = '//srv/work'; networkUser = 'u'; localPath = '/mnt/ypsp' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '/mnt/ypool-nas' } }
         Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'replicate false -> off'
     }
     It 'with -IgnoreReplicate returns the object even when replicate is false (pre-validation)' {
-        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $false; networkPath = '//srv/work'; networkUser = 'u'; localPath = '/mnt/ypsp' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '/mnt/ypool-nas' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate
         Assert-True ($null -ne $r) 'object returned despite replicate false'
         Assert-Equal $false $r.Replicate 'Replicate field reflects the real flag'
         Assert-Equal '//srv/work' $r.NetworkPath 'paths normalized'
     }
     It 'with -IgnoreReplicate still returns null when a path is empty' {
-        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $false; networkPath = '//srv/work'; networkUser = 'u'; localPath = '' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '' } }
         Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate) 'incomplete -> still null'
     }
-    It 'returns null when the poolStorage section is absent' {
+    It 'returns null when the networkStorage section is absent' {
         Assert-Null (Get-YurunaPoolStorageConfig -Config ([ordered]@{ statusService = [ordered]@{ port = 8080 } })) 'no section -> off'
     }
     It 'returns null when replicate is true but a required path is empty' {
-        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = '//srv/work'; networkUser = 'u'; localPath = '' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '' } }
         Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'empty localPath -> off'
     }
     It 'returns the trimmed config object when fully set' {
-        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = ' //srv/work '; networkUser = ' yurunanet '; localPath = ' /mnt/ypsp ' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolNetworkPath = ' //srv/work '; poolNetworkUser = ' yurunanet '; poolLocalPath = ' /mnt/ypool-nas ' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
         Assert-True ($null -ne $r) 'object returned'
         Assert-Equal '//srv/work' $r.NetworkPath 'networkPath trimmed'
         Assert-Equal 'yurunanet'  $r.NetworkUser 'networkUser trimmed'
-        Assert-Equal '/mnt/ypsp'  $r.LocalPath   'localPath trimmed'
+        Assert-Equal '/mnt/ypool-nas'  $r.LocalPath   'localPath trimmed'
         Assert-True $r.Replicate 'replicate true'
     }
     It 'expands a leading ~ in localPath to $HOME' {
-        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = '//srv/work'; networkUser = 'u'; localPath = '~/Shares/ypsp' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '~/Shares/ypool-nas' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
-        Assert-Equal (Join-Path $HOME 'Shares/ypsp') $r.LocalPath '~ -> $HOME'
+        Assert-Equal (Join-Path $HOME 'Shares/ypool-nas') $r.LocalPath '~ -> $HOME'
     }
     It 'leaves a non-tilde path untouched (a bare ~ in the middle is not expanded)' {
-        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = '//srv/work'; networkUser = 'u'; localPath = '/mnt/a~b' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '/mnt/a~b' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
         Assert-Equal '/mnt/a~b' $r.LocalPath 'mid-path ~ untouched'
     }
@@ -138,6 +193,37 @@ Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
         } finally {
             $env:YURUNA_CONFIG_PATH = $saved
         }
+    }
+    It 'ignores a legacy poolStorage node (clean break)' {
+        $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = '//srv/work'; networkUser = 'u'; localPath = '/mnt/ypool-nas' } }
+        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate) 'legacy poolStorage is not read'
+    }
+}
+
+Describe 'Get-YurunaStashStorageConfig (isolated stash storage)' {
+    It 'returns the stash record from networkStorage.stash* (independent of the pool)' {
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{
+            poolNetworkPath = '//srv/work/pool'; poolNetworkUser = 'u-pool'; poolLocalPath = 'y:'
+            stashNetworkPath = ' //srv/work/stash '; stashNetworkUser = ' u-stash '; stashLocalPath = ' z: '
+        } }
+        $r = Get-YurunaStashStorageConfig -Config $cfg
+        Assert-True ($null -ne $r) 'object returned'
+        Assert-Equal '//srv/work/stash' $r.NetworkPath 'stashNetworkPath trimmed'
+        Assert-Equal 'u-stash'           $r.NetworkUser 'stashNetworkUser trimmed'
+        Assert-Equal 'z:'                $r.LocalPath   'stashLocalPath trimmed'
+        Assert-Equal $false              $r.Replicate   'stash never replicates'
+    }
+    It 'returns null when any stash field is unset' {
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ stashNetworkPath = '//srv/work/stash'; stashNetworkUser = 'u-stash'; stashLocalPath = '' } }
+        Assert-Null (Get-YurunaStashStorageConfig -Config $cfg) 'incomplete -> null'
+    }
+    It 'returns null when networkStorage is absent' {
+        Assert-Null (Get-YurunaStashStorageConfig -Config ([ordered]@{ statusService = [ordered]@{ port = 8080 } })) 'no section -> null'
+    }
+    It 'expands a leading ~ in stashLocalPath to $HOME' {
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ stashNetworkPath = '//srv/work/stash'; stashNetworkUser = 'u'; stashLocalPath = '~/Shares/stash' } }
+        $r = Get-YurunaStashStorageConfig -Config $cfg
+        Assert-Equal (Join-Path $HOME 'Shares/stash') $r.LocalPath '~ -> $HOME'
     }
 }
 
@@ -155,6 +241,54 @@ Describe 'Get-PoolStorageServerName (server extraction)' {
     }
     It 'returns empty for a path with no server' {
         Assert-Equal '' (Get-PoolStorageServerName -NetworkPath '//') 'no host'
+    }
+}
+
+Describe 'Test-PoolStorageHostResolvable (dead-alias guard)' {
+    It 'returns false for an empty, whitespace, or null server name' {
+        Assert-True (-not (Test-PoolStorageHostResolvable -ServerName '')) 'empty -> false'
+        Assert-True (-not (Test-PoolStorageHostResolvable -ServerName '   ')) 'whitespace -> false'
+        Assert-True (-not (Test-PoolStorageHostResolvable -ServerName $null)) 'null -> false'
+    }
+    It 'returns false for a name that cannot resolve (no DNS/hosts/NetBIOS entry)' {
+        # A syntactically valid but deliberately non-existent name: GetHostAddresses
+        # throws "No such host is known.", which the guard maps to $false. (The
+        # positive case -- a name that DOES resolve -- is environment-dependent and
+        # covered by the live mount integration path.)
+        Assert-True (-not (Test-PoolStorageHostResolvable -ServerName 'no-such-host-yuruna-3f9c1a2b')) 'unresolvable -> false'
+    }
+}
+
+Describe 'Get-PoolStorageLinuxSudoHint (Linux sudo precondition hint)' {
+    It 'returns the sudoers rule + install commands for the given user/paths' {
+        $h = @(Get-PoolStorageLinuxSudoHint -User 'test' -MkdirPath '/usr/bin/mkdir' -MountPath '/usr/bin/mount' -UmountPath '/usr/bin/umount')
+        Assert-True ($h.Count -ge 2) 'at least the two command lines'
+        $joined = $h -join "`n"
+        Assert-True ($joined -match 'test ALL=\(root\) NOPASSWD: /usr/bin/mkdir, /usr/bin/mount, /usr/bin/umount') 'rule line present'
+        Assert-True ($joined -match '/etc/sudoers\.d/yuruna-poolstorage') 'drop-in path present'
+        Assert-True ($joined -match 'sudo tee') 'install command present'
+    }
+    It 'returns an empty array for a blank user (nothing actionable)' {
+        Assert-Equal 0 (@(Get-PoolStorageLinuxSudoHint -User '').Count) 'blank user -> empty'
+    }
+}
+
+Describe 'Initialize-PoolStorageTargetFolder (subfolder ensure)' {
+    It 'is a no-op (ok) for a bare share root -- no subfolder to create over SMB' {
+        # NetworkPath = '\\srv\share' has no leaf: nothing is provisioned over SMB,
+        # so the function returns ok without attempting any mount.
+        $cfg = [pscustomobject]@{ Replicate = $false; NetworkPath = '\\srv\work'; NetworkUser = 'u'; LocalPath = 'z:' }
+        $r = Initialize-PoolStorageTargetFolder -Config $cfg
+        Assert-True ($r.ok) 'share root -> ok'
+        Assert-True (-not $r.created) 'share root -> nothing created'
+    }
+    It 'neither mounts nor creates under -WhatIf (returns before any I/O)' {
+        $fake = Join-Path ([System.IO.Path]::GetTempPath()) 'stash-target-whatif-should-not-exist'
+        $cfg  = [pscustomobject]@{ Replicate = $false; NetworkPath = '//srv/work/yuruna.stash'; NetworkUser = 'u'; LocalPath = $fake }
+        $r = Initialize-PoolStorageTargetFolder -Config $cfg -WhatIf
+        Assert-True (-not $r.ok) 'whatif -> not ok'
+        Assert-Equal 'skipped (WhatIf)' $r.error 'whatif -> skipped before mount'
+        Assert-True (-not (Test-Path -LiteralPath $fake)) 'whatif created nothing on disk'
     }
 }
 
@@ -237,10 +371,10 @@ Describe 'Test-PoolStorageVaultDecision (loud-fail gate)' {
 
 Describe 'Get-PoolStorageHostFolderPath (per-host destination root)' {
     # A pscustomobject of the shape Get-YurunaPoolStorageConfig returns.
-    function Get-TestPoolConfig { param([string]$LocalPath = '/mnt/ypsp') [pscustomobject]@{ Replicate = $true; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $LocalPath } }
+    function Get-TestPoolConfig { param([string]$LocalPath = '/mnt/ypool-nas') [pscustomobject]@{ Replicate = $true; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $LocalPath } }
     It 'joins localPath and hostId' {
         $cfg = Get-TestPoolConfig
-        Assert-Equal (Join-Path '/mnt/ypsp' '4212abc') (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') 'host root = localPath/hostId'
+        Assert-Equal (Join-Path '/mnt/ypool-nas' '4212abc') (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') 'host root = localPath/hostId'
     }
     It 'is the PARENT of the cycle destination Copy-PoolStorageCycle writes (no drift)' {
         # Copy-PoolStorageCycle writes <localPath>/<HostId>/<CycleName>/; the gate
@@ -251,13 +385,22 @@ Describe 'Get-PoolStorageHostFolderPath (per-host destination root)' {
         $cycleDest = Join-Path $cfg.LocalPath (Join-Path '4212abc' '000001.d.t.h')
         Assert-Equal $hostRoot (Split-Path -Parent $cycleDest) 'host root is the cycle-dest parent'
     }
+    It 'composes a bare Windows drive-letter localPath without a DriveNotFound throw' -Skip:(-not $IsWindows) {
+        # Join-Path resolves the 'y:' qualifier against the PSDrive table and
+        # throws DriveNotFoundException when the SMB mapping has not been
+        # enumerated in this runspace (this helper runs before the mount); the
+        # per-host root must compose by string so an unmounted drive letter still
+        # yields 'y:\<hostId>' instead of $null.
+        $cfg = Get-TestPoolConfig -LocalPath 'y:'
+        Assert-Equal 'y:\4212abc' (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') 'bare drive -> y:\hostId'
+    }
 }
 
 Describe 'Initialize-PoolStorageHostFolder (-WhatIf is a no-I/O no-op)' {
     It 'neither mounts nor creates the folder under -WhatIf' {
         # A localPath that does not exist: under -WhatIf the function must return
         # before any mount/create, so the path is never brought into being.
-        $fake = Join-Path ([System.IO.Path]::GetTempPath()) 'ypsp-whatif-should-not-exist'
+        $fake = Join-Path ([System.IO.Path]::GetTempPath()) 'ypool-nas-whatif-should-not-exist'
         $cfg  = [pscustomobject]@{ Replicate = $true; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $fake }
         $r = Initialize-PoolStorageHostFolder -Config $cfg -HostId '4212abc' -WhatIf
         Assert-True (-not $r.ok) 'whatif -> not ok'

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -706,8 +706,8 @@ function Wait-ForText {
     # -Global on the -Force re-imports: a nested -Force without -Global
     # evicts the modules from the parent script's session state, so a
     # later top-level call to Get-CycleScreenDir (Invoke-TestInnerRunner.ps1
-    # success branch, the cycle 62 crash on macOS in-process runners)
-    # fails with "term not recognized".
+    # success branch, seen on macOS in-process runners) fails with
+    # "term not recognized".
     Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     Import-Module (Join-Path $modulesDir "Test.Log.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     $logDir     = Initialize-YurunaLogDir

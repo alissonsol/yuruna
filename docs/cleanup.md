@@ -16,7 +16,7 @@ Clearing the resources for the project `website` in the `Azure` cloud (assuming 
 Invoke-Clear.ps1 website azure
 ```
 
-If needed, you can delete resources directly from the folder with the initial deployment files (`.yuruna/resources/$resourceTemplate`):
+If needed, you can delete resources directly from the folder with the initial deployment files (`.yuruna/$config_subfolder/resources/$resourceName`, e.g. `.yuruna/azure/resources/website-cluster` for `Invoke-Clear.ps1 website azure`):
 
 ```
 tofu destroy -auto-approve -refresh=false
@@ -43,6 +43,6 @@ Don't forget to delete the cluster context from `[user]/.kube/config`. The [Visu
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

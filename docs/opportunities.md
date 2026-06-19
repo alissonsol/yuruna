@@ -11,7 +11,7 @@ no marker = open. Last reviewed 2026-06-04.
 
 The move from the inline switch in `Invoke-Sequence.psm1` to the
 per-verb registry in `Test.SequenceAction.psm1` +
-`Test.SequenceHandler.psm1` is complete — all 19 verbs are registry
+`Test.SequenceHandler.psm1` is complete — all 21 verbs are registry
 handlers. `retry` and `recoverFromSnapshot` were the last two; their
 engine-private failure state was lifted into the shared
 `Test.SequenceFailureState` store (`$script:Fail`), so they now live in
@@ -210,6 +210,6 @@ would change the proxy URL they trust.)
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

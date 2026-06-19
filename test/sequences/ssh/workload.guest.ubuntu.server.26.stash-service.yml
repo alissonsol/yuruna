@@ -2,13 +2,18 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# SSH-driven equivalent of gui/workload.guest.ubuntu.server.24.stash-service.yml.
+# SSH-driven equivalent of gui/workload.guest.ubuntu.server.26.stash-service.yml.
+# Standalone SMOKE TEST of the stash daemon build + launch on a vanilla
+# Ubuntu guest (no NAS seed -> local-fallback storage); NOT the production
+# bring-up (Start-StashServer + cloud-init) and NOT wired into automated
+# test-sets -- run it manually. See https://yuruna.link/stash-service.
 # Selected automatically when test.config.yml has vmCommunication.keystrokeMechanism='SSH'.
 # Authenticates as the key-bearing cloud-init user 'yuruna'
-# (host/vmconfig/stash-service.base.user-data); the GUI sequence's console
-# account 'ystash' is not key-provisioned. variables.username cascades into the
-# baseline start sequence so the whole chain connects as yuruna.
-# The deploy is the LAST step on purpose: ubuntu.server.24.stash-service.sh
+# (host/vmconfig/stash-service.base.user-data) -- the only account the
+# stash VM provisions. variables.username cascades into the baseline start
+# sequence so the whole chain connects as yuruna (the GUI sequence uses the
+# same account for console login).
+# The deploy is the LAST step on purpose: ubuntu.server.26.stash-service.sh
 # disables the OS sshd (ssh.service + ssh.socket) and rebinds :22 to the Yuruna
 # Stash daemon, so the harness OpenSSH transport is gone the instant it
 # succeeds -- any later sshExec/sshWaitReady would hit the stash protocol on :22,
@@ -20,10 +25,10 @@
 sequenceGuid: 426483ed-7299-4b75-b280-ccb8c74ec993
 sequenceRevision: 1
 
-description: "Ubuntu Server 24.04 (SSH): bring up the Yuruna Stash Service daemon -- parallel path to the keystroke sequence."
+description: "Ubuntu Server 26.04 (SSH): bring up the Yuruna Stash Service daemon -- parallel path to the keystroke sequence."
 baseline:
-  ubuntu.server.24:
-    - start.guest.ubuntu.server.24
+  ubuntu.server.26:
+    - start.guest.ubuntu.server.26
 variables:
   username: yuruna
 
@@ -37,6 +42,6 @@ steps:
     description: "Smoke test: whoami/hostname"
 
   - action: sshFetchAndExecute
-    command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.stash-service.sh"
+    command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh"
     timeoutSeconds: 1800
-    description: "ubuntu.server.24.stash-service.sh (LAST step: disables OS sshd + rebinds :22 to the stash daemon on success)"
+    description: "ubuntu.server.26.stash-service.sh (LAST step: disables OS sshd + rebinds :22 to the stash daemon on success)"

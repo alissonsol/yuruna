@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,16 +35,44 @@
 .PARAMETER SkipSend
     Validate the config but do not actually send a notification.
 
+.PARAMETER OnConfigSchemaDrift
+    Severity when test.config.yml carries populated keys that are NOT part of the
+    current template schema (for example a renamed section's old keys, left in
+    place by the default additive fill): 'Warn' (default — surfaces the orphaned
+    keys but lets the run continue) or 'Fail' (records a FAIL so CI / the operator
+    must resolve it before the cycle). When every key still maps to the schema (a
+    purely additive drift) the result is always a PASS regardless of this flag.
+
+.PARAMETER ApplyConfigMigration
+    Run the runner's HARD cycle-start reconciliation now instead of the default
+    additive fill: test.config.yml is copied to test.config.yml.backup, the
+    template replaces it, and every value that still maps to the new schema is
+    copied back (reusing Update-TestConfigFromTemplate). If a value no longer maps,
+    the migrated file is still written but the run stops so the remaining fields
+    can be hand-migrated from the backup. Without this switch a schema drift is
+    resolved additively: the missing template fields are written into the file
+    (empty defaults, ready to fill in) and the operator's existing keys — including
+    a renamed section's old keys — are left untouched for hand-migration.
+
 .EXAMPLE
     pwsh test/Test-Config.ps1
 
 .EXAMPLE
     pwsh test/Test-Config.ps1 -SkipSend
+
+.EXAMPLE
+    pwsh test/Test-Config.ps1 -OnConfigSchemaDrift Fail
+
+.EXAMPLE
+    pwsh test/Test-Config.ps1 -ApplyConfigMigration
 #>
 
 param(
     [string]$ConfigPath = $null,
-    [switch]$SkipSend
+    [switch]$SkipSend,
+    [ValidateSet('Warn', 'Fail')]
+    [string]$OnConfigSchemaDrift = 'Warn',
+    [switch]$ApplyConfigMigration
 )
 
 $TestRoot = $PSScriptRoot
@@ -107,6 +135,84 @@ try {
     Write-Fail "YAML parse error in ${ConfigPath}: $_" -FullPath $ConfigPath
     Write-Info "Open test.config.yml and fix the syntax error above."
     Exit-WithSummary 1
+}
+
+# ── Section 2b: Config schema vs template ────────────────────────────────────
+# The template is the schema source of truth. By default this validator
+# ADDITIVELY enforces it: every template field the live test.config.yml lacks is
+# written into the file with its empty/default value (ready to fill in), WITHOUT
+# touching the operator's existing keys and WITHOUT a backup. So the operator is
+# never left without the new fields, and nothing they typed is destroyed -- a
+# renamed section's old keys stay in the file to migrate by hand and remove
+# deliberately (Add-MissingTestConfigField in Test.ConfigSync.psm1):
+#   * nothing missing, shape matches          -> PASS
+#   * fields were missing and got added       -> PASS, listing the empty fields to fill in
+#   * old keys remain that the schema dropped -> WARN or FAIL per -OnConfigSchemaDrift
+#                                                (copy their values across, then delete them)
+# Separately, at cycle start the runner does a HARDER reconciliation
+# (Update-TestConfigFromTemplate, the same path Invoke-TestRunner uses): if the
+# nested SHAPE still departs from the template it backs the file up to
+# test.config.yml.backup, resets it to the template shape, carries matching values
+# forward, and STOPS if a populated value no longer maps -- so the old keys must be
+# removed before then. -ApplyConfigMigration runs that hard reconciliation now.
+
+Write-Section "Config schema vs template"
+
+$configSyncMod = Join-Path $script:ModulesDir 'Test.ConfigSync.psm1'
+if (-not (Test-Path $TemplatePath)) {
+    Write-Warn "Template not found ($TemplatePath) -- cannot compare schema; the runner will load test.config.yml as-is."
+} elseif (-not (Test-Path $configSyncMod)) {
+    Write-Info "Test.ConfigSync.psm1 not found at ${configSyncMod}; schema-vs-template check skipped."
+} else {
+    Import-Module $configSyncMod -Global -Force
+    try {
+        $templateDoc  = Read-TestConfig -Path $TemplatePath -ThrowOnError
+        $shapeMatches = Test-ConfigMatchesTemplateShape -Template $templateDoc -Current $Config
+
+        if ($ApplyConfigMigration -and -not $shapeMatches) {
+            # Opt-in HARD migration matching the runner's cycle-start reconciliation:
+            # back up to test.config.yml.backup, reset to the template shape, carry
+            # every still-mapping value forward, and -- if a populated value no longer
+            # maps -- write the migrated file then STOP for hand-migration
+            # (Get-EntryPointExitCode Failure). Test.Prelude supplies that helper.
+            $backupPath = "$ConfigPath.backup"
+            $preludeMod = Join-Path $script:ModulesDir 'Test.Prelude.psm1'
+            if ((Test-Path $preludeMod) -and -not (Get-Command Get-EntryPointExitCode -ErrorAction SilentlyContinue)) {
+                Import-Module $preludeMod -Global -Force
+            }
+            Write-Info "Applying config migration (backup -> template -> carry matching values forward)..."
+            $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
+            Write-Pass "Config migrated to the template schema; previous file backed up to $backupPath. Re-run Test-Config to validate the migrated file."
+        } else {
+            # Default: ADDITIVELY enforce the schema so the operator is never left
+            # without the new fields to fill in. Write every template field the file
+            # lacks (empty/default value) without touching existing keys and without
+            # a backup; a renamed section's old keys stay put for hand-migration.
+            $res = Add-MissingTestConfigField -Template $templateDoc -Current $Config -ConfigPath $ConfigPath
+            $Config = $res.Config
+
+            if ($res.Wrote) {
+                $addedList = ($res.Added | ForEach-Object { "          - $_" }) -join "`n"
+                Write-Pass "test.config.yml was missing $($res.Added.Count) field(s) from the current schema; added them with empty/default values (existing values untouched, no backup). Fill these in:`n$addedList"
+            } elseif ($shapeMatches) {
+                Write-Pass "test.config.yml matches the template's nested schema."
+            } else {
+                Write-Info "test.config.yml schema differs from the template but already carries every current-schema field; nothing to add."
+            }
+
+            if ($res.Orphans.Count -gt 0) {
+                $orphanList = ($res.Orphans | ForEach-Object { "          - $_" }) -join "`n"
+                $msg = "test.config.yml still has $($res.Orphans.Count) populated key(s) that are NOT part of the current schema (for example, left over from a renamed section). They were kept in place. Copy each value into its matching new field above, then DELETE the old key -- otherwise the runner backs the file up to $ConfigPath.backup and resets it (dropping these) at cycle start. Old keys:`n$orphanList`nTo instead reset to the template now (backup + carry matching values forward, dropping these), re-run with -ApplyConfigMigration."
+                if ($OnConfigSchemaDrift -eq 'Fail') {
+                    Write-Fail $msg -FullPath $ConfigPath
+                } else {
+                    Write-Warn $msg
+                }
+            }
+        }
+    } catch {
+        Write-Fail "Schema-vs-template comparison failed: $($_.Exception.Message)" -FullPath $ConfigPath
+    }
 }
 
 # ── Section 3: Host requirements (quick) ─────────────────────────────────────
@@ -678,7 +784,166 @@ if (Test-Path $UsersPath) {
     }
 }
 
-# ── Section 9c: poolStorage (ypsp) replication ───────────────────────────────
+# ── Section 9b2: Sequence files (parse + snippet expansion) ──────────────────
+# Read every sequence in the framework AND the default test project through the
+# same loader the runner uses (Read-SequenceFile, which splices `snippet:`
+# references from the _snippets.yml libraries). A YAML error, an unknown or
+# duplicate snippet name, or a snippet cycle FAILs the gate here -- before a
+# cycle starts -- instead of dropping steps or aborting mid-guest. Snippet
+# libraries are also shape-checked directly so a broken-but-unreferenced library
+# doesn't hide until first use.
+
+Write-Section "Sequence files (parse + snippets)"
+
+$seqResolveMod = Join-Path $ModulesDir 'Test.SequenceResolve.psm1'
+if (-not (Test-Path $seqResolveMod)) {
+    Write-Info "Test.SequenceResolve.psm1 not found at ${seqResolveMod}; sequence check skipped."
+} else {
+    Import-Module $seqResolveMod -Global -Force
+    $RepoRoot = Split-Path -Parent $TestRoot
+    # Same dir set the runtime resolver walks: framework test/sequences/{gui,ssh}
+    # plus every project <...>/test/{gui,ssh} (matches Get-ProjectTestSearchDir).
+    $seqDirs = New-Object System.Collections.Generic.List[string]
+    foreach ($m in @('gui', 'ssh')) { [void]$seqDirs.Add((Join-Path (Join-Path $TestRoot 'sequences') $m)) }
+    $projectRoot = Join-Path $RepoRoot 'project'
+    if (Test-Path -LiteralPath $projectRoot) {
+        Get-ChildItem -LiteralPath $projectRoot -Directory -Recurse -ErrorAction SilentlyContinue |
+            Where-Object {
+                ($_.Name -eq 'gui' -or $_.Name -eq 'ssh') -and
+                ((Split-Path -Leaf (Split-Path -Parent $_.FullName)) -eq 'test')
+            } |
+            ForEach-Object { [void]$seqDirs.Add($_.FullName) }
+    }
+
+    $seqOk = 0
+    $seqDirsScanned = 0
+    foreach ($sd in $seqDirs) {
+        if (-not (Test-Path -LiteralPath $sd)) { continue }
+        $seqDirsScanned++
+        Get-ChildItem -LiteralPath $sd -File -Filter '*.yml' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne '_snippets.yml' } |
+            ForEach-Object {
+                try {
+                    $null = Read-SequenceFile -Path $_.FullName -NoCache
+                    $seqOk++
+                } catch {
+                    Write-Fail "Sequence '$($_.Name)' failed to load: $($_.Exception.Message)" -FullPath $_.FullName
+                }
+            }
+        # Shape-check the snippet library in this dir even when no sequence
+        # references it yet (a broken library otherwise stays invisible).
+        $libPath = Join-Path $sd '_snippets.yml'
+        if (Test-Path -LiteralPath $libPath) {
+            try {
+                $lib = Read-TestConfig -Path $libPath -ThrowOnError
+                if ($lib -isnot [System.Collections.IDictionary] -or $lib.Keys.Count -eq 0) {
+                    Write-Fail "_snippets.yml is not a non-empty map of snippet name -> steps." -FullPath $libPath
+                } else {
+                    $libBad = $false
+                    foreach ($snipName in $lib.Keys) {
+                        $val = $lib[$snipName]
+                        if ($val -isnot [System.Collections.IEnumerable] -or $val -is [string] -or @($val).Count -eq 0) {
+                            Write-Fail "_snippets.yml snippet '$snipName' is not a non-empty list of steps." -FullPath $libPath
+                            $libBad = $true
+                        }
+                    }
+                    if (-not $libBad) { Write-Pass "_snippets.yml: $($lib.Keys.Count) snippet(s) in $sd." }
+                }
+            } catch {
+                Write-Fail "_snippets.yml parse error: $($_.Exception.Message)" -FullPath $libPath
+            }
+        }
+    }
+    if ($seqDirsScanned -eq 0) {
+        Write-Warn "No sequence directories found under $TestRoot/sequences or the project tree."
+    } else {
+        Write-Pass "Sequence files loaded + snippet-expanded OK: $seqOk file(s) across $seqDirsScanned dir(s)."
+    }
+}
+
+# ── Section 9b3: stale SMB alias mappings (Windows) ──────────────────────────
+# A persistent Windows drive mapping can outlive the hosts-file alias it points
+# at: after a NAS alias is renamed/removed, the mapping still shows Status OK from
+# its cached connection, yet the dead-name session it holds BLOCKS a fresh mount
+# of the same physical NAS under a current alias (the redirector refuses a second
+# credentialed session to a server it is already stale-connected to). Mapping two
+# aliases of ONE NAS to the SAME IP is intentional and fine -- an UNRESOLVABLE
+# alias is the actual blocker. List them and, only with an operator at the
+# keyboard, offer to unmount each so the pool/stash mounts below are not
+# pre-empted. Headless runs never prompt: advisory WARN + the one-line manual fix.
+if ($IsWindows) {
+    $smbMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
+    if (Test-Path $smbMod) {
+        Import-Module $smbMod -Global -Force
+        Write-Section "networkStorage: stale SMB alias mappings"
+        $stale = @(Get-PoolStorageStaleAliasMount)
+        if ($stale.Count -eq 0) {
+            Write-Pass "no stale SMB drive mappings (every mapped server name still resolves)."
+        } else {
+            $smbInteractive = $false
+            try { $smbInteractive = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $smbInteractive = $false }
+            foreach ($s in $stale) {
+                $label = if ($s.LocalPath) { "$($s.LocalPath) -> $($s.RemotePath)" } else { $s.RemotePath }
+                $removed = $false
+                if ($smbInteractive) {
+                    $ans = Read-Host "Stale SMB mapping '$label' (server '$($s.ServerName)' no longer resolves) can block NAS mounts. Unmount it now? [y/N]"
+                    if ($ans.Trim() -match '^(y|yes)$') {
+                        $removed = Remove-PoolStorageStaleAliasMount -LocalPath $s.LocalPath -RemotePath $s.RemotePath -Confirm:$false
+                    }
+                }
+                if ($removed) {
+                    Write-Pass "stale SMB mapping unmounted: $label (server '$($s.ServerName)' unresolvable)."
+                } else {
+                    $fix = if ($s.LocalPath) { "net use $($s.LocalPath) /delete" } else { "net use `"$($s.RemotePath)`" /delete" }
+                    Write-Warn "stale SMB mapping '$label': server '$($s.ServerName)' no longer resolves -- this can block a fresh mount of the same NAS under a current alias. Unmount it: $fix"
+                }
+            }
+        }
+    }
+}
+
+# Linux-only: print the EXACT one-time passwordless-sudo setup the mount path
+# needs (resolved to this account + binary paths) the first time a mount-stage
+# pre-flight fails. Once per run -- the pool and stash shares share one drop-in.
+# It cannot be auto-applied: `sudo -n` never prompts and writing /etc/sudoers.d
+# needs root, so the precise command is the most a non-root validator can do.
+$script:LinuxSudoHintShown = $false
+function Show-LinuxSudoHintOnce {
+    if (-not $IsLinux -or $script:LinuxSudoHintShown) { return }
+    if (-not (Get-Command Get-PoolStorageLinuxSudoHint -ErrorAction SilentlyContinue)) { return }
+    $script:LinuxSudoHintShown = $true
+    $acct = ''
+    try { $acct = [string](& id -un 2>$null | Select-Object -First 1) } catch { $null = $_ }
+    if ([string]::IsNullOrWhiteSpace($acct)) { $acct = [string]$env:USER }
+    $resolve = {
+        param($cmd, $fallback)
+        $src = (Get-Command -CommandType Application -Name $cmd -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        if ([string]::IsNullOrWhiteSpace($src)) { $fallback } else { $src }
+    }
+    $hint = Get-PoolStorageLinuxSudoHint -User ($acct.Trim()) `
+        -MkdirPath  (& $resolve 'mkdir'  '/usr/bin/mkdir') `
+        -MountPath  (& $resolve 'mount'  '/usr/bin/mount') `
+        -UmountPath (& $resolve 'umount' '/usr/bin/umount')
+    foreach ($line in $hint) { Write-Info $line }
+}
+
+# A bare drive-letter (e.g. 'z:') is a localPath value, never a valid SMB
+# username -- finding one in <prefix>NetworkUser means <prefix>NetworkUser and
+# <prefix>LocalPath were transposed in test.config.yml. A value swap keeps the
+# schema valid (both are strings), so nothing else flags it; the only visible
+# symptom is a misleading "no stored vault credential" warning keyed on the
+# drive letter, while the real account's password sits unused in the vault.
+function Show-NetworkStorageFieldSwapWarning {
+    param(
+        [Parameter(Mandatory)]$Config,
+        [Parameter(Mandatory)][ValidateSet('pool', 'stash')][string]$Prefix
+    )
+    if ([string]::IsNullOrWhiteSpace($Config.NetworkUser)) { return }
+    if ($Config.NetworkUser.Trim() -notmatch '^[A-Za-z]:\\?$') { return }
+    Write-Warn ("networkStorage {0}: {0}NetworkUser is set to a drive letter ('{1}') -- that's a {0}LocalPath value, not an SMB username. {0}NetworkUser and {0}LocalPath are almost certainly swapped in test.config.yml. See docs/test-config.md." -f $Prefix, $Config.NetworkUser.Trim())
+}
+
+# ── Section 9c: networkStorage pool (ypool-nas) replication ───────────────────────
 # Validate the optional NAS replication tier when it's switched on: all three
 # paths set, a usable vault credential (so the mount won't silently auto-generate
 # a junk SMB password), that the SMB server answers on :445, and -- when both of
@@ -689,33 +954,36 @@ if (Test-Path $UsersPath) {
 # cycle), and the reachability probe stays a WARN so a merely-offline NAS -- which
 # the loop retries each cycle -- never blocks a healthy run.
 
-Write-Section "poolStorage (ypsp) replication"
+Write-Section "networkStorage: pool (ypool-nas) replication"
 
 $poolMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
 if (-not (Test-Path $poolMod)) {
-    Write-Info "Test.PoolStorage.psm1 not found at ${poolMod}; poolStorage check skipped."
+    Write-Info "Test.PoolStorage.psm1 not found at ${poolMod}; networkStorage check skipped."
 } else {
     Import-Module $poolMod -Global -Force
-    $psRaw = if ($Config.Contains('poolStorage')) { $Config['poolStorage'] } else { $null }
+    $psRaw = if ($Config.Contains('networkStorage')) { $Config['networkStorage'] } else { $null }
     if ($psRaw -isnot [System.Collections.IDictionary]) {
-        Write-Info "poolStorage block not present -- NAS replication is off (optional)."
+        Write-Info "networkStorage block not present -- NAS replication is off (optional)."
     } else {
-        $psReplicate = [bool]$psRaw['replicate']
+        # networkReplicate is a pool behavior (pool node), not a networkStorage key.
+        $psReplicate = $false
+        if ($Config.Contains('pool') -and $Config['pool'] -is [System.Collections.IDictionary]) { $psReplicate = [bool]$Config['pool']['networkReplicate'] }
         # Validate the connection parameters REGARDLESS of the replicate flag, so an
         # operator can confirm the share + credential work BEFORE flipping replicate
         # to true. When replicate is on a problem FAILs (it will actually run next
         # cycle); when off it is advisory (WARN) -- the cycle runs fine without it.
         $psCfg = Get-YurunaPoolStorageConfig -Config $Config -IgnoreReplicate -WarningAction SilentlyContinue
         if (-not $psCfg) {
-            $incomplete = "poolStorage networkPath / networkUser / localPath are not all set"
+            $incomplete = "networkStorage poolNetworkPath / poolNetworkUser / poolLocalPath are not all set"
             if ($psReplicate) {
-                Write-Fail "poolStorage.replicate is true but $incomplete -- replication stays OFF until all three are populated. See docs/test-config.md." -FullPath $ConfigPath
+                Write-Fail "pool.networkReplicate is true but $incomplete -- replication stays OFF until all three are populated. See docs/test-config.md." -FullPath $ConfigPath
             } else {
-                Write-Info "poolStorage.replicate = false and $incomplete -- replication is off (optional). Populate all three to pre-validate the share before enabling."
+                Write-Info "pool.networkReplicate = false and $incomplete -- replication is off (optional). Populate all three to pre-validate the share before enabling."
             }
         } else {
             $psState = if ($psReplicate) { 'enabled' } else { 'disabled -- pre-validating' }
-            Write-Pass "poolStorage [$psState]: '$($psCfg.NetworkPath)' -> '$($psCfg.LocalPath)' as user '$($psCfg.NetworkUser)'."
+            Write-Pass "networkStorage pool [$psState]: '$($psCfg.NetworkPath)' -> '$($psCfg.LocalPath)' as user '$($psCfg.NetworkUser)'."
+            Show-NetworkStorageFieldSwapWarning -Config $psCfg -Prefix 'pool'
 
             # Vault credential readiness (read-only loud-fail pre-check). Needs the
             # authentication extension for Get-EffectiveUser + Test-VaultEntry.
@@ -737,9 +1005,9 @@ if (-not (Test-Path $poolMod)) {
             if (Get-Command Test-PoolStorageVaultReady -ErrorAction SilentlyContinue) {
                 if (Test-PoolStorageVaultReady -Config $psCfg -WarningAction SilentlyContinue) {
                     $psVaultReady = $true
-                    Write-Pass "poolStorage: a vault credential is configured for '$($psCfg.NetworkUser)'."
+                    Write-Pass "networkStorage pool: a vault credential is configured for '$($psCfg.NetworkUser)'."
                 } else {
-                    $vmsg = "poolStorage: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
+                    $vmsg = "networkStorage pool: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
                     if ($psReplicate) { Write-Fail $vmsg -FullPath $ConfigPath }
                     else              { Write-Warn "$vmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
                 }
@@ -751,15 +1019,15 @@ if (-not (Test-Path $poolMod)) {
                 $poolSrv = Get-PoolStorageServerName -NetworkPath $psCfg.NetworkPath
                 if (Test-PoolStorageServerReachable -Config $psCfg -TimeoutSeconds 5) {
                     $psReachable = $true
-                    Write-Pass "poolStorage: SMB server reachable (${poolSrv}:445)."
+                    Write-Pass "networkStorage pool: SMB server reachable (${poolSrv}:445)."
                 } else {
                     $tail = if ($psReplicate) { 'Replication will fail-fast and retry next cycle' } else { 'Replication is disabled' }
-                    Write-Warn "poolStorage: SMB server '${poolSrv}:445' is not reachable right now. $tail -- fine if the NAS is intentionally offline; otherwise check networkPath / firewall / VPN."
+                    Write-Warn "networkStorage pool: SMB server '${poolSrv}:445' is not reachable right now. $tail -- fine if the NAS is intentionally offline; otherwise check networkPath / firewall / VPN."
                 }
             }
 
             if ($IsLinux) {
-                Write-Info "poolStorage on Linux needs passwordless sudo for 'mount' (an /etc/sudoers.d drop-in). See docs/pool-storage.md."
+                Write-Info "networkStorage on Linux needs passwordless sudo for 'mount'/'umount' (and 'mkdir' when localPath is under a root-owned dir like /mnt) -- an /etc/sudoers.d drop-in. See docs/pool-storage.md."
             }
 
             # ACTIVE write-path pre-flight: actually mount localPath and create the
@@ -782,17 +1050,99 @@ if (-not (Test-Path $poolMod)) {
                     try { $poolHostId = [string](Get-YurunaHostId) } catch { $null = $_ }
                 }
                 if ([string]::IsNullOrWhiteSpace($poolHostId)) {
-                    Write-Warn "poolStorage: could not resolve this host's id (runtime/host.uuid) -- skipping the mount + per-host-folder pre-flight. Replication still runs at cycle end; check it has not silently failed."
+                    Write-Warn "networkStorage pool: could not resolve this host's id (runtime/host.uuid) -- skipping the mount + per-host-folder pre-flight. Replication still runs at cycle end; check it has not silently failed."
                 } else {
                     $poolReady = Initialize-PoolStorageHostFolder -Config $psCfg -HostId $poolHostId -Confirm:$false
                     if ($poolReady.ok) {
-                        Write-Pass "poolStorage: localPath mounted and per-host folder ready ('$($poolReady.folder)')."
+                        Write-Pass "networkStorage pool: localPath mounted and per-host folder ready ('$($poolReady.folder)')."
                     } else {
-                        $rmsg = "poolStorage: localPath '$($psCfg.LocalPath)' / per-host folder pre-flight FAILED -- $($poolReady.error). Replication would silently never happen this way."
+                        $rmsg = "networkStorage pool: localPath '$($psCfg.LocalPath)' / per-host folder pre-flight FAILED -- $($poolReady.error). Replication would silently never happen this way."
                         if ($psReplicate) { Write-Fail $rmsg -FullPath $ConfigPath }
                         else              { Write-Warn "$rmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
+                        # A mount-stage failure on Linux is the passwordless-sudo
+                        # precondition; print the exact one-time fix (a folder-stage
+                        # failure is a share-permission issue, not sudo).
+                        if ($poolReady.stage -eq 'mount') { Show-LinuxSudoHintOnce }
                     }
                 }
+            }
+        }
+    }
+}
+
+# ── Section 9c-stash: networkStorage stash (Stash Service) ───────────────────
+# The stash storage is ISOLATED from the pool (its own share + account). It is
+# optional (only the Stash Service uses it); issues here are advisory WARN, not
+# FAIL -- Start-StashServer hard-fails at build time when it is misconfigured.
+Write-Section "networkStorage: stash (Stash Service)"
+
+if (-not (Test-Path $poolMod)) {
+    Write-Info "Test.PoolStorage.psm1 not found at ${poolMod}; stash storage check skipped."
+} else {
+    $stashCfg = Get-YurunaStashStorageConfig -Config $Config
+    if (-not $stashCfg) {
+        Write-Info "networkStorage stash* not fully set -- the Stash Service is off (optional). Set stashNetworkPath / stashNetworkUser / stashLocalPath to enable it."
+    } else {
+        Write-Pass "networkStorage stash: '$($stashCfg.NetworkPath)' -> '$($stashCfg.LocalPath)' as user '$($stashCfg.NetworkUser)'."
+        Show-NetworkStorageFieldSwapWarning -Config $stashCfg -Prefix 'stash'
+        if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue)) {
+            $extMod = Join-Path $ModulesDir 'Test.Extension.psm1'
+            if ((Test-Path $extMod) -and -not (Get-Command Import-Extension -ErrorAction SilentlyContinue)) {
+                Import-Module $extMod -Global -Force -ErrorAction SilentlyContinue
+            }
+            if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+                try { $null = Import-Extension -Area 'authentication' -RequireSingle } catch { $null = $_ }
+            }
+        }
+        # A stored credential is REQUIRED for the stash SMB user (a pre-existing NAS
+        # account); a missing one bakes a junk password the NAS rejects.
+        $stashCredStored = $false
+        if (Get-Command Test-PoolStorageStoredCredential -ErrorAction SilentlyContinue) {
+            if (Test-PoolStorageStoredCredential -Config $stashCfg) {
+                $stashCredStored = $true
+                Write-Pass "networkStorage stash: a vault credential is stored for '$($stashCfg.NetworkUser)'."
+            } else {
+                Write-Warn "networkStorage stash: '$($stashCfg.NetworkUser)' has NO stored vault credential -- the stash VM would bake a junk SMB password the NAS rejects. Set-Password it before Start-StashServer. See docs/test-config.md."
+            }
+        }
+        $stashReachable = $false
+        if (Get-Command Test-PoolStorageServerReachable -ErrorAction SilentlyContinue) {
+            $stashSrv = Get-PoolStorageServerName -NetworkPath $stashCfg.NetworkPath
+            if (Test-PoolStorageServerReachable -Config $stashCfg -TimeoutSeconds 5) {
+                $stashReachable = $true
+                Write-Pass "networkStorage stash: SMB server reachable (${stashSrv}:445)."
+            } else {
+                Write-Warn "networkStorage stash: SMB server '${stashSrv}:445' is not reachable right now -- fine if the NAS is intentionally offline; otherwise check stashNetworkPath / firewall / VPN."
+            }
+        }
+        # ACTIVE write-path pre-flight: the stash share is configured as a SUBFOLDER
+        # ('\\server\share\yuruna.stash'); New-SmbMapping to a missing subfolder fails
+        # with a vague "network name cannot be found", so ensure the target folder
+        # exists (create it via the parent share when missing), then verify an actual
+        # mount of it. Advisory throughout -- the stash is optional and Start-StashServer
+        # hard-fails at build time -- but this catches the "reachable NAS, credential
+        # stored, yet the mount still fails because the folder was never created" class
+        # the passive checks above cannot see. Only attempted when a credential is
+        # stored AND the server answered, so a merely-offline NAS stays the WARN above.
+        if ($stashCredStored -and $stashReachable -and (Get-Command Initialize-PoolStorageTargetFolder -ErrorAction SilentlyContinue)) {
+            $mk = Initialize-PoolStorageTargetFolder -Config $stashCfg -Confirm:$false
+            if ($mk.ok) {
+                if ($mk.created) {
+                    Write-Pass "networkStorage stash: created the missing target folder '$($stashCfg.NetworkPath)' on the share."
+                } else {
+                    Write-Pass "networkStorage stash: target folder '$($stashCfg.NetworkPath)' already present on the share."
+                }
+                if (Get-Command Connect-YurunaPoolStorage -ErrorAction SilentlyContinue) {
+                    if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
+                        Write-Pass "networkStorage stash: localPath mounted ('$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)')."
+                    } else {
+                        Write-Warn "networkStorage stash: the target folder exists but mounting '$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)' still failed -- check the '$($stashCfg.NetworkUser)' password and that no other mapping holds the same NAS under a conflicting credential. Start-StashServer will buffer locally until this is fixed."
+                        Show-LinuxSudoHintOnce
+                    }
+                }
+            } else {
+                Write-Warn "networkStorage stash: could not ensure the target folder '$($stashCfg.NetworkPath)' -- $($mk.error). Start-StashServer will buffer locally until this is fixed."
+                if ($mk.error -match 'mount') { Show-LinuxSudoHintOnce }
             }
         }
     }

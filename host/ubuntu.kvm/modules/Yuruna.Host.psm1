@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1835,6 +1835,47 @@ function Get-GuestReachableHostIp {
     return '192.168.122.1'
 }
 
+<#
+.SYNOPSIS
+    Resolve the libvirt network a guest attaches to plus the host IPv4 it
+    reaches back on, as one matched pair.
+.DESCRIPTION
+    Single source of truth for guest network binding. Every install guest
+    (and the caching-proxy) must land on the SAME network as the cache, and
+    must reach the host's status server at an address routable from that
+    network. Get the two from here so they can never drift apart.
+
+    Returns a hashtable:
+      NetworkName -- libvirt network for `--network network=<name>`.
+                     Get-ExternalNetwork prefers the bridged 'yuruna-external'
+                     when defined, else the NAT 'default'.
+      HostIp      -- host address the guest reaches, matched to NetworkName:
+                     NAT 'default' -> the libvirt gateway (192.168.122.1);
+                     bridged -> the host's LAN IP (Get-BestHostIp).
+
+    The pairing is load-bearing: a guest on the NAT 'default' net cannot
+    route to a bridged cache's LAN IP (and vice-versa), so a guest pinned
+    to one network while handed the other network's host/proxy address
+    bakes an unreachable coordinate -- apt's in-target kernel fetch then
+    fails with "Network is unreachable". $env:YURUNA_GUEST_REACHABLE_HOST_IP
+    overrides HostIp on both paths.
+#>
+function Resolve-GuestHostBinding {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $networkName = Get-ExternalNetwork
+    if ($Env:YURUNA_GUEST_REACHABLE_HOST_IP) {
+        $hostIp = $Env:YURUNA_GUEST_REACHABLE_HOST_IP
+    } elseif ($networkName -eq 'default') {
+        $hostIp = Get-GuestReachableHostIp   # NAT 'default': libvirt gateway
+    } else {
+        $hostIp = Get-BestHostIp             # bridged 'yuruna-external': host LAN IP
+    }
+    if (-not $hostIp) { $hostIp = '' }
+    return @{ NetworkName = $networkName; HostIp = $hostIp }
+}
+
 # === Caching proxy ==========================================================
 
 <#
@@ -2182,7 +2223,7 @@ Export-ModuleMember -Function `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
     Wait-VMIp, Get-VMIp, Get-VMMac, `
     Get-ExternalNetwork, New-ExternalNetwork, New-YurunaExternalNetwork, Get-YurunaExternalNetworkPlan, Test-CacheVMOnExternalNetwork, `
-    Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
+    Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, Resolve-GuestHostBinding, `
     Test-CachingProxyAvailable, Get-CachingProxyVMIp, `
     Test-DownloadAlreadyCurrent, Test-CachingProxyPort, Resolve-CacheHostIp, Save-CachedHttpUri, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization

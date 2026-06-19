@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42de9c8b-f7a6-4b34-9182-3c4d5e6f7ab7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,8 +89,10 @@ function Get-ImageChecksumLine {
     .PARAMETER TargetFileName
         Filename to match. Embedded into the regex as a literal.
     .PARAMETER Pattern
-        Format-string regex with {0} replaced by the escaped filename.
-        Default works for the cloud-images / Ubuntu releases layout.
+        Regex with the literal token {0} marking where the escaped
+        filename goes. {0} is substituted literally (NOT via -f), so
+        regex quantifiers like {64} in the pattern are safe. Default
+        works for the cloud-images / Ubuntu releases layout.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -108,7 +110,12 @@ function Get-ImageChecksumLine {
     }
     if (-not $body) { return $null }
     $escaped = [regex]::Escape($TargetFileName)
-    $rx = [regex]::new(($Pattern -f $escaped), 'Multiline')
+    # Substitute the filename token literally, NOT via -f: the pattern
+    # carries regex quantifiers like {64}, which the -f operator misreads
+    # as format placeholders (throwing "Index ... less than the size of
+    # the argument list" and leaving $rx null). .Replace leaves every
+    # other brace untouched so the quantifier survives into the regex.
+    $rx = [regex]::new($Pattern.Replace('{0}', $escaped), 'Multiline')
     $m = $rx.Match($body)
     if (-not $m.Success) { return $null }
     return $m.Groups[1].Value

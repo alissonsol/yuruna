@@ -9,8 +9,12 @@ ISO ships `linux-generic` on the cdrom plus a network-configured
 step always succeeds. First boot lands in a text-mode login.
 
 **Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
-Apple **M3+**, UTM v4.6+ — verified by `New-VM.ps1`. Cross-host
-concepts: [Hosts — ...](../../README.md).
+Apple **M3+**, UTM v4.6+ with the Apple Virtualization backend. This
+guest runs on the QEMU+HVF backend, which does not expose nested
+virtualization. These requirements are not checked by `New-VM.ps1`
+(it validates only baseline compatibility — macOS 12+, any M-series,
+UTM 4.0+); verify manually if nested virtualization is required.
+Cross-host concepts: [Hosts — ...](../../README.md).
 
 ## One-time
 
@@ -44,6 +48,6 @@ rotation runs against the OS prompt.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 425458ca-5060-4a2d-b2e3-2fb297ec265e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,12 +16,12 @@
 
 #requires -version 7
 
-# Canonical log-level cascade. Why this lives in its own module:
-# the same rank table + preference-cascade logic was duplicated across
-# Invoke-TestInnerRunner.ps1, Test-Sequence.ps1, Invoke-Sequence.psm1, and
-# every host/<platform>/guest.<x>/{Get-Image,New-VM}.ps1 (28+ copies). A
-# new level (or a tweak to ProgressPreference) had to be applied in each
-# copy by hand. Single source of truth fixes that.
+# Canonical log-level cascade. Why this lives in its own module: it is
+# the single source for the rank table + preference-cascade logic shared
+# by Invoke-TestInnerRunner.ps1, Test-Sequence.ps1, Invoke-Sequence.psm1,
+# and every host/<platform>/guest.<x>/{Get-Image,New-VM}.ps1 (28+
+# consumers). A new level (or a tweak to ProgressPreference) is a single
+# edit here instead of a hand edit in every copy.
 #
 # See docs/loglevels.md for the cascade semantics and why env-var
 # propagation is the only way to reach child pwsh processes.

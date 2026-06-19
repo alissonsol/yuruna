@@ -3,26 +3,37 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM workload testing.
+# Standalone SMOKE TEST of the stash daemon build + launch on a vanilla
+# Ubuntu guest (no NAS seed -> the daemon uses local-fallback storage).
+# It is NOT the production bring-up (that is Start-StashServer + cloud-init
+# on a dedicated pool-backed VM) and is NOT wired into automated test-sets;
+# run it manually to verify the daemon compiles + starts. See
+# https://yuruna.link/stash-service.
 # See possible actions in the actions.yml file.
 # ${vmName}, ${hostType}, ${guestKey} are built-in. ${ext:area.Method(args)}
 # invokes the active extension under test/extension/<area>/.
 
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
-sequenceGuid: 27e26897-db3b-4d98-b923-5f39ad3349bb
-sequenceRevision: 1
+sequenceGuid: 42e26897-db3b-4d98-b923-5f39ad3349bb
+sequenceRevision: 2
 
-description: "Ubuntu Server 24.04: log in as ystash and bring up the Yuruna Stash Service daemon."
+description: "Ubuntu Server 26.04: log in as yuruna and bring up the Yuruna Stash Service daemon."
 baseline:
-  ubuntu.server.24:
-    - start.guest.ubuntu.server.24
+  ubuntu.server.26:
+    - start.guest.ubuntu.server.26
 variables:
-  username: ystash
+  # The stash VM's cloud-init creates only 'yuruna' (passwordless sudo +
+  # vault password); use it for console login. The bring-up script runs
+  # many sudo commands, so a NOPASSWD account is required here.
+  username: yuruna
 
 steps:
   - action: retry
     maxAttempts: 2
     description: "Login + retry"
     steps:
+      - snippet: firstLoginPrime
+
       - action: passwdPrompt
         pattern: "login:"
         timeoutSeconds: 600
@@ -40,8 +51,8 @@ steps:
     description: "OCR: ${username}@${vmName}"
 
   - action: fetchAndExecute
-    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.stash-service.sh"
-    description: "ubuntu.server.24.stash-service.sh"
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh"
+    description: "ubuntu.server.26.stash-service.sh"
     waitPattern: "FETCHED AND EXECUTED:"
     timeoutSeconds: 900
 

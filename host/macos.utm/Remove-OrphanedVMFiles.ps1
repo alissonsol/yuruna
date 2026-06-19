@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,8 +122,9 @@ foreach ($line in $utmOutput) {
 #   * UTM stores the UUID at Information.UUID, not a top-level key.
 #   * `-convert json` fails outright on these bundles because config.plist
 #     contains a <data> blob (MachineIdentifier) that JSON can't represent
-#     -- plutil exits 1 and ConvertFrom-Json throws, so the whole function
-#     used to silently return $null and the orphan check fell through.
+#     -- plutil exits 1 and ConvertFrom-Json throws, which would make the
+#     whole function silently return $null and let the orphan check fall
+#     through, misclassifying a live VM as orphaned.
 function Get-UTMBundleUUID {
     param([string]$BundlePath)
     $configPlist = Join-Path $BundlePath "config.plist"

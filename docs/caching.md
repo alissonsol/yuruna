@@ -59,17 +59,18 @@ Works identically on Windows Hyper-V, macOS UTM, and Ubuntu KVM/libvirt.
 
 ### What it does
 
-Ubuntu Server VM (12 GB RAM with 9 GB `cache_mem`, 4 vCPU, 512 GB disk
+Ubuntu Server VM (12 GB RAM with 7 GB `cache_mem`, 4 vCPU, 512 GB disk
 with a 384 GB `cache_dir`) on `:3128`, transparently caching every
 cacheable response (`.deb` packages, ISO metadata, firmware blobs,
 anything fetched over plain HTTP). First install populates; subsequent
 installs hit LAN speed. This is a *dedicated* VM — the memory budget
-is sized so squid's hot-object LRU takes 75 % of RAM (per the
-`cache_mem` directive in host/vmconfig/caching-proxy.base.user-data); the rest covers apache,
-grafana, prometheus, loki, promtail, squid-exporter,
-caching-proxy-parser, the kernel, and page cache.
+is sized so squid's hot-object LRU takes 58 % of RAM (per the
+`cache_mem` directive in host/vmconfig/caching-proxy.base.user-data,
+trimmed from 75 % to free ~2 GB for the zot OCI registry pull-through
+cache); the rest covers apache, grafana, prometheus, loki, promtail,
+squid-exporter, caching-proxy-parser, the kernel, and page cache.
 
-### Why Squid replaced apt-cacher-ng
+### Why Squid over apt-cacher-ng
 
 - **Caches more.** apt-cacher-ng recognized only apt-shaped URLs, so
   subiquity's in-install `apt-get install linux-firmware` bypassed it
@@ -482,8 +483,8 @@ UTM's Shared mode hands out `192.168.64.0/24` with a gateway of
 - **All UTM VMs egress through the host's single public IP.** That
   amplifies upstream rate-limiting (`security.ubuntu.com` 429s bite
   faster than on Hyper-V where every VM may NAT through its own
-  source) — one of the reasons squid replaced apt-cacher-ng on this
-  platform first.
+  source) — one of the reasons squid's broader caching matters most
+  on this platform.
 
 ### Cache-VM disk sizing for the macOS install image
 
@@ -848,6 +849,6 @@ these at deploy time rather than after a restart that fails to bind.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

@@ -38,7 +38,7 @@ remaining budget.
 
 **The failure modes that motivated this library.** Two examples:
 
-1. Cycle 37 on a remote macOS UTM host (dnf transient DNS):
+1. A remote macOS UTM host (dnf transient DNS):
 
    ```
    Error: Error downloading packages:
@@ -47,7 +47,7 @@ remaining budget.
      [Could not resolve host: cdn.amazonlinux.com]
    ```
 
-2. Cycle 101 on a remote Windows Hyper-V host (GitHub edge 502):
+2. A remote Windows Hyper-V host (GitHub edge 502):
 
    ```
    curl: (22) The requested URL returned error: 502
@@ -63,7 +63,7 @@ seconds later.
 
 The same pattern applies to apt: transient mirror flakes, DNS bounces
 on first-boot DHCP, `Hash Sum mismatch` from a half-refreshed mirror
-(see [squid dep11 LM-factor trap in memory.md](memory.md)).
+(transient, handled by the retry logic in `apt_retry`).
 
 **Library.** All three retry wrappers live in
 [automation/yuruna-retry.sh](../automation/yuruna-retry.sh) — single
@@ -145,6 +145,6 @@ Linux 2023, and macOS 26 all ship newer.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

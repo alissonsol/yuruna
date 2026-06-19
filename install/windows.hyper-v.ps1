@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git\yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
-    [string]$YurunaBranch = '2026.06.12',
+    [string]$YurunaBranch = '2026.06.19',
     [switch]$SkipPreflight
 )
 
@@ -335,6 +335,55 @@ function Stop-YurunaProcess {
     } catch { Write-Verbose "port 8080 check skipped: $($_.Exception.Message)" }
 }
 
+# -- Preflight: the checkout is not held open ------------------------------
+# The update path (below) may have to move the existing checkout aside to
+# re-clone, and Move-Item of a directory is a rename that fails when the
+# folder is held open -- most often a shell sitting inside it (its current
+# location pins the tree), or an editor / Explorer window with it open. That
+# failure is otherwise only reached AFTER the winget installs, the Hyper-V
+# enable, and the test/status backup, so the operator waits minutes for a
+# surprising "item is in use" abort. Probe it up front with the SAME operation
+# the fallback uses -- a sibling rename -- after first dropping our own lock by
+# stepping out of the tree. A pass renames straight back (no disruption); a
+# failure moves nothing and is the early, actionable abort.
+function Assert-YurunaCheckoutMovable {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Dir)
+    # A first-time clone creates the dir, so there is nothing to move.
+    if (-not (Test-Path -LiteralPath (Join-Path $Dir '.git'))) { return }
+
+    $full  = [System.IO.Path]::GetFullPath($Dir).TrimEnd('\')
+    $probe = "$full.locktest"
+
+    # Drop a self-inflicted lock: a working directory inside the tree pins it,
+    # failing both the probe and the later move-aside. Step out to the parent.
+    $cwd = [System.IO.Path]::GetFullPath((Get-Location).ProviderPath).TrimEnd('\')
+    if ($cwd -eq $full -or $cwd.StartsWith($full + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        Set-Location -LiteralPath (Split-Path -Parent $full)
+        Write-Warn "Stepped out of '$Dir' -- the installer was launched from inside the checkout, which would block updating it."
+    }
+
+    # Recover from a probe a prior run left half-applied (renamed away, never
+    # renamed back), then refuse to clobber any unexpected leftover.
+    if ((Test-Path -LiteralPath $probe) -and -not (Test-Path -LiteralPath $full)) {
+        Move-Item -LiteralPath $probe -Destination $full -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $probe) {
+        Write-Die "A previous lock-probe left '$probe' behind. Inspect it, then remove it or rename it back to '$Dir' before re-running."
+    }
+
+    try {
+        Move-Item -LiteralPath $full -Destination $probe -ErrorAction Stop
+    } catch {
+        Write-Die "The Yuruna checkout '$Dir' is in use and cannot be updated: $($_.Exception.Message). Close any shell sitting inside it (cd elsewhere), and any editor (VS Code) or Explorer window holding it open, then re-run. (Checked up front so the package installs and Hyper-V setup are not run first.)"
+    }
+    try {
+        Move-Item -LiteralPath $probe -Destination $full -ErrorAction Stop
+    } catch {
+        Write-Die "Verified '$Dir' is movable but could not restore it from the probe name '$probe': $($_.Exception.Message). Rename '$probe' back to '$Dir' manually, then re-run."
+    }
+}
+
 # -- yuruna-caching-proxy detection ----------------------------------------
 function Test-CachingProxyRunning {
     [CmdletBinding()]
@@ -356,6 +405,9 @@ if (Test-CachingProxyRunning) {
 
 Write-Step 'Stopping anything that would block an upgrade'
 Stop-YurunaProcess
+
+Write-Step 'Checking the Yuruna checkout is not locked by a shell / editor / Explorer'
+Assert-YurunaCheckoutMovable -Dir $YurunaDir
 
 # -- winget availability ---------------------------------------------------
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {

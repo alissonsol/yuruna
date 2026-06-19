@@ -7,10 +7,10 @@ file-on-disk heartbeat protocol the watchdog observes is documented in
 [Watchdog and heartbeat protocol](watchdog.md); this page covers the
 PowerShell-side contract.
 
-The functions used to live inline at the top of
-[`test/Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1). Moving
-them into their own module makes the heartbeat-kill logic testable in
-isolation — a unit test can `Start-Watchdog`, write a stale
+Keeping these functions in their own module — rather than inline in
+[`test/Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1) —
+makes the heartbeat-kill logic testable in
+isolation: a unit test can `Start-Watchdog`, write a stale
 `runner.stepHeartbeat`, and observe the kill without spinning up an
 inner runner.
 
@@ -80,6 +80,6 @@ back to the enclosing function's param block.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

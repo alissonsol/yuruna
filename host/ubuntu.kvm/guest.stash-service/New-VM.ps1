@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,10 @@
     Creates the Yuruna Stash Service VM on Ubuntu KVM (libvirt).
 
 .DESCRIPTION
-    Builds a libvirt VM that boots the Ubuntu 24.04 LTS cloud image
-    for the stash-service daemon (SCP receiver + SQLite metadata
-    store). Cloud-init only brings up the VM with the harness yuruna
-    user; daemon install + launch is out of scope here and runs as a
-    later automation step.
+    Builds a libvirt VM that boots the Ubuntu 26.04 LTS cloud image
+    for the stash-service daemon (SCP receiver + SQLite metadata index).
+    Cloud-init mounts the stash share, fetches the framework, and runs the
+    bring-up script which builds + launches the daemon under systemd.
 
     See https://yuruna.link/stash-service for the full specification.
 
@@ -139,9 +138,47 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
+# === Pick libvirt network (BEFORE the render) ===
+# The baked share + source coordinates depend on whether this is NAT
+# 'default' (host = libvirt gateway) or bridged 'yuruna-external' (host =
+# LAN IP), so resolve the network first.
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
+$networkName = Get-ExternalNetwork
+if (-not $networkName) {
+    Write-Error "No libvirt network defined. Run 'virsh net-start default' to enable the NAT default, or define 'yuruna-external' (see README.md) for LAN-bridged access."
+    exit 1
+}
+if ($networkName -eq 'default') {
+    Write-Warning "Using libvirt NAT 'default' network (192.168.122/24). The stash VM is reachable from this host only and the NAS likely isn't routable; define a bridged 'yuruna-external' libvirt network for LAN + NAS access."
+} else {
+    Write-Output "Using libvirt network: $networkName (stash VM will get a LAN-routable IP)"
+}
+
+# Host coordinates (status server, for the in-VM source fetch) + stash storage
+# coordinates (the share), baked into the seed. Honor an explicit override.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1') -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')   -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')      -Global -Force
+if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
+    $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
+} elseif ($networkName -eq 'default') {
+    $YurunaHostIp = Get-GuestReachableHostIp   # NAT 'default': libvirt gateway
+} else {
+    $YurunaHostIp = Get-BestHostIp             # bridged 'yuruna-external': host LAN IP
+}
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
+$tc = $null
+if (Test-Path -LiteralPath $YurunaTestConfig) {
+    try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+    if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
+}
+$ystashNas = Get-YurunaStashSeedValue -Config $tc
+
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
-# stash-service.*). The overlay is empty (no per-platform divergence today);
-# Build-CloudInitUserData resolves the SSH-key and password placeholders.
+# stash-service.*). Build-CloudInitUserData resolves placeholders with literal
+# .Replace(), so values carrying regex-special chars are safe.
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 $userData = Build-CloudInitUserData `
     -BasePath    $baseUserData `
@@ -150,6 +187,13 @@ $userData = Build-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $YurunaPassword
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
+        YSTASH_NAS_NETWORK_IP_PLACEHOLDER    = $ystashNas.NetworkIp
+        YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
+        YSTASH_NAS_PASSWORD_PLACEHOLDER      = $ystashNas.Password
+        YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
@@ -174,19 +218,6 @@ Write-Output "    virt-viewer --connect $virshUri $VMName"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# === Pick libvirt network ===
-Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
-$networkName = Get-ExternalNetwork
-if (-not $networkName) {
-    Write-Error "No libvirt network defined. Run 'virsh net-start default' to enable the NAT default, or define 'yuruna-external' (see README.md) for LAN-bridged access."
-    exit 1
-}
-if ($networkName -eq 'default') {
-    Write-Warning "Using libvirt NAT 'default' network (192.168.122/24). Dock VM is reachable from this host only; LAN peers will not see <vm-ip>:22 directly. Define a bridged 'yuruna-external' libvirt network for LAN exposure."
-} else {
-    Write-Output "Using libvirt network: $networkName (stash VM will get a LAN-routable IP)"
-}
-
 # === virt-install ===
 $arch = (& uname -m).Trim()
 $osVariant = 'linux2022'
@@ -196,11 +227,13 @@ if ($LASTEXITCODE -eq 0) {
         $first = ("$_".Trim() -split '[\s,]', 2)[0]
         ($first -replace ',$', '').Trim()
     } | Where-Object { $_ })
-    foreach ($candidate in @('ubuntu24.04', 'ubuntu22.04')) {
+    # Ubuntu 26.04 may not be in the host's osinfo-db yet; fall back through
+    # ubuntu24.04 -> ubuntu22.04 -> linux2022 generic.
+    foreach ($candidate in @('ubuntu26.04', 'ubuntu24.04', 'ubuntu22.04')) {
         if ($canonicalIds -contains $candidate) { $osVariant = $candidate; break }
     }
     if ($osVariant -eq 'linux2022') {
-        Write-Verbose "osinfo-db has no 'ubuntu24.04'/'ubuntu22.04' entry; using 'linux2022' generic variant."
+        Write-Verbose "osinfo-db has no 'ubuntu26.04'/'ubuntu24.04'/'ubuntu22.04' entry; using 'linux2022' generic variant."
     }
 }
 
@@ -292,6 +325,10 @@ Write-Output "  Network:  $networkName"
 Write-Output "  SSH:      ssh yuruna@$dockIp  (harness key authorized)"
 Write-Output "  Console:  virt-viewer --connect $virshUri $VMName"
 Write-Output ""
-Write-Output "Daemon install + launch is a later automation step (see"
-Write-Output "https://yuruna.link/stash-service)."
+Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
+Write-Output "bring-up script. Once it finishes, the stash daemon owns :22 (the OS"
+Write-Output "sshd is disabled), so reach it with scp:  scp ./file user@$dockIp`:/scratch"
+Write-Output "Watch progress:  ssh yuruna@$dockIp 'tail -f /var/log/cloud-init-output.log'"
+Write-Output "(harness key authorized until the daemon takes over :22). See"
+Write-Output "https://yuruna.link/stash-service."
 exit 0

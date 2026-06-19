@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c3a9e8-5b2d-4f17-8a04-1c6d3e5f7a92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,6 +78,51 @@ Describe 'Invoke-Remediation forwards the enriched Context' {
         $vocab = @(Get-RecoveryRecommendationName)
         $r = Invoke-Remediation -FailureRecord $rec
         Assert-True ($vocab -contains [string]$r.Recommendation) "recommendation '$($r.Recommendation)' in canonical vocabulary"
+    }
+}
+
+Describe 'Invoke-Remediation persists last_remediation.json' {
+    It 'writes the durable decision record into YURUNA_LOG_DIR' {
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-remediation-$([guid]::NewGuid().ToString('N'))"
+        $null = New-Item -ItemType Directory -Path $tmp -Force
+        $savedLogDir = $env:YURUNA_LOG_DIR
+        try {
+            $env:YURUNA_LOG_DIR = $tmp
+            $rec = @{
+                failureClass = 'ocr_timeout'; severity = 'hard'; stepNumber = 4
+                actionVerb = 'waitForText'; sequenceName = 'wl.test'; vmName = 'vm1'; guestKey = 'guest.x'
+            }
+            $r = Invoke-Remediation -FailureRecord $rec
+            $path = Join-Path $tmp 'last_remediation.json'
+            Assert-True (Test-Path -LiteralPath $path) 'last_remediation.json written to the log dir'
+            $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+            Assert-Equal 1 $doc.schemaVersion 'schema-versioned record'
+            Assert-Equal 'ocr_timeout' $doc.failureClass 'failureClass captured'
+            Assert-Equal ([string]$r.Recommendation) ([string]$doc.recommendation) 'recommendation matches the returned decision'
+            Assert-Equal 'vm1' $doc.vmName 'correlation field captured'
+            Assert-Equal $false $doc.autoApply 'advisory-only: autoApply stays false'
+            # No BOM: the first byte must be the JSON open-brace, not EF BB BF.
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            Assert-True ($bytes[0] -ne 0xEF) 'record is written without a UTF-8 BOM'
+        } finally {
+            $env:YURUNA_LOG_DIR = $savedLogDir
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'records the outer class when routing past a retry wrapper' {
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-remediation-$([guid]::NewGuid().ToString('N'))"
+        $null = New-Item -ItemType Directory -Path $tmp -Force
+        $savedLogDir = $env:YURUNA_LOG_DIR
+        try {
+            $env:YURUNA_LOG_DIR = $tmp
+            $null = Invoke-Remediation -FailureRecord @{ failureClass = 'retry_exhausted'; severity = 'hard'; innerFailureClass = 'ocr_timeout'; stepNumber = 3 }
+            $doc = Get-Content -Raw -LiteralPath (Join-Path $tmp 'last_remediation.json') | ConvertFrom-Json
+            Assert-Equal 'ocr_timeout' $doc.failureClass 'routed inner class recorded'
+            Assert-Equal 'retry_exhausted' $doc.outerFailureClass 'masked outer class preserved in the record'
+        } finally {
+            $env:YURUNA_LOG_DIR = $savedLogDir
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

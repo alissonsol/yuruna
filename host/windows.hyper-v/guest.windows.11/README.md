@@ -22,7 +22,7 @@ prints manual instructions if blocked.
 ## For each VM
 
 ```
-.\New-VM.ps1                       # default hostname
+.\New-VM.ps1                       # default hostname windows11-01
 .\New-VM.ps1 -VMName myhost
 ```
 
@@ -53,6 +53,6 @@ Read more: [Windows 11 guest on Windows Hyper-V host — Nerd-Level Details](rea
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

@@ -4,20 +4,35 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.06.19
+
+- **Stash Service available.** The Stash Service is functional end-to-end — start
+  it, then guests upload artifacts to it and you browse and serve them from the
+  host. See [stash-guide.md](docs/stash-guide.md).
+- **Independent stash and pool storage.** The Stash Service and the pool network
+  storage can now live on **different NAS shares with different accounts**. Where a
+  host's OS refuses two credentials to one server, define a **machine alias** (a
+  second hostname for the same NAS) so each tier mounts under its own server name.
+  See [pool-storage.md](docs/pool-storage.md) and [test-config.md](docs/test-config.md).
+- **Clearer host-configuration preflight.** Several `Test-Config.ps1` refinements
+  guide the operator more directly toward validating and fixing the host setup
+  (storage mounts, stale SMB alias mappings, credentials) before a run. See
+  [test-config.md](docs/test-config.md).
+
 ## 2026.06.12
 
 - **Multi-host pool harness.** Test hosts can run as a named **pool** sharing
   sequences and reporting under one `poolId`, driven by a read-only intent store
   with no central dispatcher (default-off, falls back to standalone). A
   self-discovering aggregator feeds the **Yuruna Pool** Grafana dashboard. See
-  [pool-admin.md](docs/pool-admin.md).
+  [pool-admin.md](docs/pool-admin.md) and [opportunities-hostpool.md](docs/opportunities-hostpool.md).
 - **poolStorage (ypsp) NAS replication.** Pool observability data replicates to a
   NAS share over SMB on Windows, Ubuntu, and macOS — async, fail-fast, atomic,
   hardware-fingerprinted identity. See [pool-storage.md](docs/pool-storage.md).
 - **Signed installer integrity.** The three platform installers gain a SHA-256
   manifest with a detached release signature, verified against a committed
   RSA-4096 key, plus in-guest hash checks and an ASCII/BOM pre-commit gate. See
-  [install.md](docs/install.md).
+  [install.md](docs/install.md) and [opportunities-installer.md](docs/opportunities-installer.md).
 - **Converged cloud-init.** AL2023 and Ubuntu guests collapse drifting per-platform
   `user-data`/`meta-data` into one shared base plus per-host overlays; orphaned
   anchors throw at merge time. See [cloud-init-template.md](docs/cloud-init-template.md).
@@ -54,6 +69,6 @@ tagged release.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](README.md)

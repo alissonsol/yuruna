@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,8 +130,8 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 # owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
 # failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
 # so the public bytes seeded into the guest's authorized_keys MUST be
-# this key -- not an ad-hoc per-host pair. Prior versions of this
-# script generated test/status/ssh/host.ubuntu.kvm and silently broke
+# this key -- not an ad-hoc per-host pair. Seeding a different key (e.g.
+# a host-specific test/status/ssh/host.ubuntu.kvm pair) silently breaks
 # diagnostics (Permission denied (publickey,password)).
 $repoRoot      = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
@@ -170,11 +170,21 @@ try {
     exit 1
 }
 
-# -- Yuruna host coordinates (best-effort) --------------------------------
-# The libvirt 'default' net is 192.168.122.0/24 with the host on .1; the
-# guest reaches the status server at that gateway. Status server port is
-# read from test.config.yml when available, otherwise defaults to 8080.
-$hostIp = '192.168.122.1'
+# -- Yuruna host coordinates + guest network (topology-aware) -------------
+# The guest must attach to the SAME libvirt network as the caching-proxy
+# (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else the
+# NAT 'default') and reach the host status server at an address routable
+# from that network. Resolve-GuestHostBinding returns the matched
+# pair, so the cache's address (passed in via -CachingProxyUrl) and the
+# baked host coordinates can't point at a network the guest can't route
+# to: a guest on the NAT 'default' net cannot reach a bridged cache's LAN
+# IP, which makes apt's in-target kernel fetch fail "Network is
+# unreachable". Status server port is read from test.config.yml when
+# available, otherwise defaults to 8080.
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
+$guestBinding = Resolve-GuestHostBinding
+$networkName  = $guestBinding.NetworkName
+$hostIp       = $guestBinding.HostIp
 $hostPort = '8080'
 $cfg = Join-Path $repoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $cfg) {
@@ -351,7 +361,7 @@ $installArgs = @(
     '--disk',    "path=$diskImg,format=qcow2,bus=virtio",
     '--cdrom',   $baseImageFile,
     '--disk',    "path=$seedImg,device=cdrom,readonly=on",
-    '--network', 'network=default,model=virtio',
+    '--network', "network=$networkName,model=virtio",
     '--graphics','vnc,listen=127.0.0.1',
     # Force paravirtual virtio video instead of the q35+UEFI default
     # (bochs-display). The bochs DRM driver in the resolute live-server

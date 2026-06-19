@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,9 +28,9 @@
     network, a hung sequence, an unhandled exception inside the
     inner -- is just another failure that the outer absorbs and retries.
 
-    Carved out of the previously monolithic Invoke-TestRunner.ps1 so
-    the loop body and its helpers can be unit-tested independently of
-    the entry-point script. The caller (Invoke-TestRunner.ps1) builds
+    Lives in its own module, separate from the Invoke-TestRunner.ps1
+    entry point, so the loop body and its helpers can be unit-tested
+    independently of the entry-point script. The caller (Invoke-TestRunner.ps1) builds
     a State hashtable and calls Invoke-RunnerOuterLoop; the function
     returns when ShutdownState['Requested'] flips. The watchdog lives
     in its own module ([Test.RunnerWatchdog](Test.RunnerWatchdog.psm1))
@@ -513,8 +513,8 @@ function Invoke-RunnerOuterLoop {
                 try {
                     $psCfgNow = Read-TestConfig -Path $State.ConfigPath
                     if (($psCfgNow -is [System.Collections.IDictionary]) -and
-                        ($psCfgNow['poolStorage'] -is [System.Collections.IDictionary])) {
-                        $psReplicate = [bool]$psCfgNow['poolStorage']['replicate']
+                        ($psCfgNow['pool'] -is [System.Collections.IDictionary])) {
+                        $psReplicate = [bool]$psCfgNow['pool']['networkReplicate']
                     }
                 } catch { $null = $_ }
                 if ($psReplicate) {

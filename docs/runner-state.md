@@ -8,11 +8,11 @@ dashboard or off-host consumer can follow the runner without
 reconstructing what it is doing from heartbeat mtimes and pidfile
 presence.
 
-Before this module, the lifecycle was implicit. A watchdog or
-dashboard had to guess: "if `inner.pid` exists and
+This module makes the lifecycle explicit. Without it, a watchdog or
+dashboard has to guess: "if `inner.pid` exists and
 `runner.stepHeartbeat` is fresh then a cycle is running, unless the
 inner just exited and we're between cycles, unless..." — every
-consumer reconstructed the state machine for itself from incomplete
+consumer reconstructing the state machine for itself from incomplete
 signals. The explicit machine gives the lifecycle a single observable
 shape.
 
@@ -50,8 +50,7 @@ event-schema validator: catch drift loudly, never lose telemetry.
 | `Set-RunnerState -To <state> -Reason <text>` | The
 [outer-loop dispatcher](runner-outer-loop.md) at every cycle boundary. |
 | `Get-RunnerStateName` | Capability matrix; dashboard. |
-| `Get-RunnerStateValidTransition -From <state>` | Validators; introspection. |
-| `Get-RunnerStateHistory` | `/control/runner-status` endpoint, post-mortem tooling. |
+| `Test-RunnerStateTransition -From <state> -To <state>` | Predicate validator; checks whether a `(From, To)` pair is an allowed transition. |
 
 ## Files on disk
 
@@ -92,6 +91,6 @@ in-file slice is a convenience.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

@@ -31,7 +31,7 @@ The registry centralises the `(HostType, Action)` binding in one
 lookup table. Adding a new host or a new action verb is a single
 `Register-HostIOProvider` call; nothing in the dispatcher needs to
 change. Adding the same host across three separate `if/elseif` chains
-(one per action) used to be the source of "Send-Key works on the new
+(one per action) is a source of "Send-Key works on the new
 host but Send-Text was forgotten" drift — the registry makes every
 pair enumerable at startup, so the
 [capability gate](capability-matrix.md) refuses cycles that reference
@@ -160,6 +160,6 @@ still cost ~1-2 ms each, which compounds across 8+ re-imports per step.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

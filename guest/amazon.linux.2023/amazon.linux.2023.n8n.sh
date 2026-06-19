@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.12
+# Version: 2026.06.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -25,7 +25,7 @@ esac
 
 echo ""
 echo -e "\e[1;36m==== Node.js ====\e[0m"
-# Install Node.js 22+ (required for n8n)
+# Install the manifest-pinned Node.js major (YURUNA_NODE_MAJOR); n8n needs a current LTS
 # NodeSource setup script auto-detects architecture
 wget_try -qO- "https://rpm.nodesource.com/setup_${YURUNA_NODE_MAJOR}.x${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo bash -
 dnf_retry sudo dnf -y install nodejs

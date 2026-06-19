@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.12
+# Version: 2026.06.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -23,18 +23,18 @@
 
 # Kubernetes apt-repo minor track: pkgs.k8s.io/core:/stable:/v<minor>/deb.
 # Bump only across a minor your kubeadm/kubelet/kubectl are validated on.
-export YURUNA_K8S_MINOR=1.35
+export YURUNA_K8S_MINOR=1.36
 
 # OpenTofu release for the standalone installer's --opentofu-version. Pinning
 # it means the installer never queries the rate-limited GitHub releases API
 # for "latest" (an unauthenticated api.github.com call that 403s once many
 # guests share one NAT egress IP), so the standalone fallback is deterministic.
-export YURUNA_OPENTOFU_VERSION=1.12.1
+export YURUNA_OPENTOFU_VERSION=1.12.3
 
 # Node Version Manager release tag (github.com/nvm-sh/nvm) the Ubuntu guests
 # fetch install.sh from. Amazon Linux uses nodesource instead (no nvm pin).
-export YURUNA_NVM_VERSION=0.39.7
+export YURUNA_NVM_VERSION=0.40.5
 
 # Node.js major version. Ubuntu installs it via `nvm install <major>`; Amazon
 # Linux via the nodesource `setup_<major>.x` bootstrap.
-export YURUNA_NODE_MAJOR=22
+export YURUNA_NODE_MAJOR=24

@@ -6,7 +6,7 @@
   "version": 2,
   "editable": true,
   "refresh": "30s",
-  "timezone": "browser",
+  "timezone": "utc",
   "time": { "from": "now-24h", "to": "now" },
   "templating": {
     "list": [
@@ -15,6 +15,13 @@
         "type": "constant",
         "query": "default",
         "current": { "text": "default", "value": "default" },
+        "hide": 2
+      },
+      {
+        "name": "aggregator",
+        "type": "constant",
+        "query": "AGGREGATOR_BASE_PLACEHOLDER",
+        "current": { "text": "AGGREGATOR_BASE_PLACEHOLDER", "value": "AGGREGATOR_BASE_PLACEHOLDER" },
         "hide": 2
       }
     ]
@@ -221,8 +228,8 @@
     {
       "id": 7,
       "type": "state-timeline",
-      "title": "Cycle outcome over time (host × time)",
-      "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator observed at that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID.",
+      "title": "Cycle outcome over time (host × UTC time)",
+      "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block to open that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID.",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -231,10 +238,22 @@
       "transformations": [
         { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12}).*", "renamePattern": "$1-$2-$3-$4-$5" } }
       ],
-      "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
+          "links": [
+            {
+              "title": "Open cycle results for this host at this time",
+              "url": "${aggregator}/go/cycle?host=${__field.labels.hostId}&t=${__value.time}&pool=${pool}",
+              "targetBlank": true
+            },
+            {
+              "title": "Open host status page",
+              "url": "${aggregator}/go/host?host=${__field.labels.hostId}&pool=${pool}",
+              "targetBlank": true
+            }
+          ],
           "mappings": [
             { "type": "value", "options": {
               "0": { "text": "unreachable", "color": "#374151", "index": 0 },

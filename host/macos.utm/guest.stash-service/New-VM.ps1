@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,9 +22,9 @@
 
 .DESCRIPTION
     Creates a UTM .utm bundle (QEMU backend with -vnc) that boots the
-    arm64 Ubuntu 24.04 LTS cloud image. Cloud-init only brings up the
-    VM with the harness yuruna user; daemon install + launch is out
-    of scope here and runs as a later automation step.
+    arm64 Ubuntu 26.04 LTS cloud image. Cloud-init mounts the stash share,
+    fetches the framework, and runs the bring-up script which builds +
+    launches the daemon under systemd.
 
     See https://yuruna.link/stash-service for the full specification.
 
@@ -122,9 +122,35 @@ if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
+# Host coordinates (status server, for the in-VM source fetch) + stash storage
+# coordinates (the share), baked into the seed. Topology-aware host address:
+# an Ethernet default route -> bridged (host LAN IP, Get-BestHostIp); a Wi-Fi
+# default route -> UTM Shared NAT (VZ gateway, Get-GuestReachableHostIp).
+# $env:YURUNA_GUEST_REACHABLE_HOST_IP overrides.
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1') -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')   -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')      -Global -Force
+if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
+    $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
+} elseif (Test-MacDefaultRouteIsWiFi) {
+    $YurunaHostIp = Get-GuestReachableHostIp   # Wi-Fi -> Shared NAT: VZ gateway
+} else {
+    $YurunaHostIp = Get-BestHostIp             # Ethernet -> bridged: host LAN IP
+}
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$YurunaTestConfig = Join-Path $_repoRoot 'test/test.config.yml'
+$tc = $null
+if (Test-Path -LiteralPath $YurunaTestConfig) {
+    try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+    if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
+}
+$ystashNas = Get-YurunaStashSeedValue -Config $tc
+
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
-# stash-service.*). The overlay is empty (no per-platform divergence today);
-# Build-CloudInitUserData resolves the SSH-key and password placeholders.
+# stash-service.*). Build-CloudInitUserData resolves placeholders with literal
+# .Replace(), so values carrying regex-special chars are safe.
 Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 $UserData = Build-CloudInitUserData `
     -BasePath    (Join-Path $_repoRoot 'host/vmconfig/stash-service.base.user-data') `
@@ -133,6 +159,13 @@ $UserData = Build-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $YurunaPassword
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
+        YSTASH_NAS_NETWORK_IP_PLACEHOLDER    = $ystashNas.NetworkIp
+        YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
+        YSTASH_NAS_PASSWORD_PLACEHOLDER      = $ystashNas.Password
+        YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
@@ -242,11 +275,16 @@ Next steps:
      b) Look in the UTM window console; eth0 prints its IP at the
         login prompt after DHCP.
 
-  4. SSH in (harness key is already authorized):
-       ssh yuruna@$ip
+  4. Watch the bring-up (harness key authorized until the daemon takes
+     over :22; cloud-init mounts the share, fetches the framework, and
+     builds + launches the daemon):
+       ssh yuruna@$ip 'tail -f /var/log/cloud-init-output.log'
 
-Daemon install + launch is a later automation step (see
-https://yuruna.link/stash-service).
+  5. Once cloud-init finishes, the stash daemon owns :22 (the OS sshd is
+     disabled) -- send files with scp:
+       scp ./file user@$ip:/scratch
+
+See https://yuruna.link/stash-service.
 '@
 Write-Output ($guidance.
     Replace('__VM_NAME__', $VMName).

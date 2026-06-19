@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42d9c8b7-6f5e-4a23-9c81-7e4f3a2d1b50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,12 +22,12 @@
 .DESCRIPTION
     Outer ([test/Invoke-TestRunner.ps1](../Invoke-TestRunner.ps1)) and
     inner ([test/modules/Invoke-TestInnerRunner.ps1](Invoke-TestInnerRunner.ps1))
-    each used to carry a hand-rolled pidfile guard. The two copies were
-    near-identical and drifted whenever a per-platform fix landed -- the
-    [BSD `ps -ww` truncation trap](../../docs/test-harness.md) for
-    instance had to be applied in both files.
+    share one pidfile guard here instead of each carrying a near-identical
+    hand-rolled copy that drifts when a per-platform fix lands -- the
+    [BSD `ps -ww` truncation trap](../../docs/test-harness.md), for
+    instance, is fixed once for both.
 
-    Now both entry points call into this module. The contract:
+    Both entry points call into this module. The contract:
 
     - Get-RunnerInstanceState  : Inspect <RuntimeDir>/runner.pid +
                                  runner.start; classify the prior

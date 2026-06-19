@@ -100,7 +100,7 @@ The install method depends on the guest family:
   boot triggers cloud-init, which lays down `<USERNAME>` on top of
   the default `ec2-user` and forces a password rotation.
 - **Windows 11** — installer runs unattended via `autounattend.xml`
-  (~15 min). First login auto-logs as `User`/`password`; the change
+  (~15 min). First login auto-logs as `ywuser1`/`password`; the change
   is forced on next login.
 
 ### 6. SSH ready / first-cycle readiness
@@ -168,10 +168,15 @@ a known plaintext before `New-VM.ps1` to bypass the vault.
 ## Caching proxy
 
 When a `guest.caching-proxy` VM is running on any host, pass its IP via
-`-CachingProxyUrl` to `New-VM.ps1`. Cloud-init / autoinstall picks the
-URL up and points apt / dnf at it for the install, which is
-dramatically faster than hitting upstream mirrors on every rebuild.
-See [`docs/caching-proxy.md`](caching-proxy.md) and
+`-CachingProxyUrl` to `New-VM.ps1` for supported guests. Ubuntu Server
+guests (24.04, 26.04) accept the parameter and cloud-init / autoinstall
+points apt at it for the install, which is dramatically faster than
+hitting upstream mirrors on every rebuild. Amazon Linux 2023 guests do
+**not** support the caching proxy — their `New-VM.ps1` declares no
+`-CachingProxyUrl` parameter because templating a dnf proxy into
+cloud-init proved unreliable. See the per-guest README files for
+feature availability, and
+[`docs/caching-proxy.md`](caching-proxy.md) and
 [`docs/caching.md`](caching.md).
 
 ## Cleanup
@@ -197,6 +202,6 @@ across deletes so the next `New-VM.ps1` doesn't have to re-download.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

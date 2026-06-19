@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -216,23 +216,20 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
 # Yuruna host (status server) IP+port baked into the seed so the cache VM's
 # cloud-init build block fetches collector/parser source from the LOCAL host
 # working tree (/yuruna-repo/) instead of public github -- a rebuild never
-# waits on the private->public mirror. The reachable host address is
-# topology-aware: on the bridged 'yuruna-external' network the cache VM gets a
-# LAN IP and reaches the host at its LAN address (Get-BestHostIp); on the NAT
-# 'default' network it reaches the host at the libvirt gateway
-# (Get-GuestReachableHostIp = 192.168.122.1). $env:YURUNA_GUEST_REACHABLE_HOST_IP
-# overrides both. Empty value -> github fallback. Start-CachingProxy.ps1 starts
-# the status server. Get-ExternalNetwork is an idempotent read (called again
-# below for the virt-install network).
+# waits on the private->public mirror. The reachable host address and the
+# libvirt network the cache attaches to are a topology-aware matched pair:
+# on the bridged 'yuruna-external' network the cache VM gets a LAN IP and
+# reaches the host at its LAN address; on the NAT 'default' network it
+# reaches the host at the libvirt gateway (192.168.122.1).
+# Resolve-GuestHostBinding resolves both at once (the same helper every
+# install guest uses, so the cache and the guests always land on the same
+# network). $env:YURUNA_GUEST_REACHABLE_HOST_IP overrides the host IP;
+# empty value -> github fallback. Start-CachingProxy.ps1 starts the status
+# server. The resolved $networkName is reused below for virt-install.
 Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
-if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
-    $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
-} elseif ((Get-ExternalNetwork) -eq 'default') {
-    $YurunaHostIp = Get-GuestReachableHostIp   # NAT 'default': libvirt gateway
-} else {
-    $YurunaHostIp = Get-BestHostIp             # bridged 'yuruna-external': host LAN IP
-}
-if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$guestBinding = Resolve-GuestHostBinding
+$networkName  = $guestBinding.NetworkName
+$YurunaHostIp = $guestBinding.HostIp
 $YurunaHostPort = '8080'
 $YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
 $tc = $null
@@ -243,38 +240,38 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# poolStorage (ypsp) service replication: bake the networkUser credential, the share
+# networkStorage pool (ypool-nas) service replication: bake the networkUser credential, the share
 # path (unix form), and this host's id so the proxy can rsync its observability data
-# to the NAS. Resolved here on the host (poolStorage config + vault).
-# REPLICATE stays false unless poolStorage is configured AND networkUser has a vault
+# to the NAS. Resolved here on the host (networkStorage pool config + vault).
+# REPLICATE stays false unless networkStorage pool is configured AND networkUser has a vault
 # password, so an empty credential is never baked. networkUser is the single NAS
 # account used for every storage connection (host drain + this guest mount alike).
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1') -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')   -Force
-$ypspCfg = $null
-if ($tc) { try { $ypspCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypsp config: $_" } }
-$ypspHostId = ''
-try { $ypspHostId = [string](Get-YurunaHostId) } catch { $ypspHostId = '' }
-if (-not $ypspHostId) { $ypspHostId = 'unknown-host' }
-$ypspUser    = if ($ypspCfg) { [string]$ypspCfg.NetworkUser } else { '' }
-$ypspNetPath = if ($ypspCfg) { Get-PoolStorageUncPath -Path $ypspCfg.NetworkPath -Style unix } else { '' }
+$ypoolNasCfg = $null
+if ($tc) { try { $ypoolNasCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypool-nas config: $_" } }
+$ypoolNasHostId = ''
+try { $ypoolNasHostId = [string](Get-YurunaHostId) } catch { $ypoolNasHostId = '' }
+if (-not $ypoolNasHostId) { $ypoolNasHostId = 'unknown-host' }
+$ypoolNasUser    = if ($ypoolNasCfg) { [string]$ypoolNasCfg.NetworkUser } else { '' }
+$ypoolNasNetPath = if ($ypoolNasCfg) { Get-PoolStorageUncPath -Path $ypoolNasCfg.NetworkPath -Style unix } else { '' }
 # Refuse to bake a value containing a single quote: it would unbalance the guest's
-# single-quoted, sourced /etc/yuruna/ypsp.env and could strand the guest's runcmd.
-if (($ypspNetPath -match "'") -or ($ypspUser -match "'")) {
-    Write-Warning "poolStorage: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
-    $ypspUser = ''; $ypspNetPath = ''
+# single-quoted, sourced /etc/yuruna/ypool-nas.env and could strand the guest's runcmd.
+if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
+    Write-Warning "networkStorage pool: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
+    $ypoolNasUser = ''; $ypoolNasNetPath = ''
 }
-$ypspPwd = ''
+$ypoolNasPwd = ''
 # Gate Get-Password on the read-only vault-readiness check so a networkUser that was
 # set in config but never Set-Password'd does NOT auto-generate + persist a junk
 # credential (and bake it). Mirrors the host-side drain's loud-fail.
-if ($ypspCfg -and $ypspUser -and (Test-PoolStorageVaultReady -Config $ypspCfg -WarningAction SilentlyContinue)) {
-    try { $ypspPwd = [string](Get-Password -Username $ypspUser) } catch { Write-Verbose "ypsp networkUser password: $_" }
+if ($ypoolNasCfg -and $ypoolNasUser -and (Test-PoolStorageVaultReady -Config $ypoolNasCfg -WarningAction SilentlyContinue)) {
+    try { $ypoolNasPwd = [string](Get-Password -Username $ypoolNasUser) } catch { Write-Verbose "ypool-nas networkUser password: $_" }
 }
-$ypspReplicate = if ($ypspCfg -and $ypspUser -and $ypspPwd) { 'true' } else { 'false' }
+$ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasPwd) { 'true' } else { 'false' }
 
-# Pool push-ingest shared bearer (Phase 6): resolve the operator-supplied token that
-# gates the aggregator's POST /ingest, mirroring the ypsp loud-fail gate. Read it ONLY
+# Pool push-ingest shared bearer: resolve the operator-supplied token that
+# gates the aggregator's POST /ingest, mirroring the ypool-nas loud-fail gate. Read it ONLY
 # when the operator declared a vaultKey for 'pool-auth-token' AND populated it
 # (Test-VaultEntry) -- an empty vaultKey means push is DISABLED, so do NOT call
 # Get-Password then (it would auto-generate a per-host random token and break the
@@ -307,13 +304,15 @@ $userData = Build-CloudInitUserData `
         PASSWORD_PLACEHOLDER           = $YurunaPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
-        YPSP_REPLICATE_PLACEHOLDER     = $ypspReplicate
-        YPSP_NETWORK_PATH_PLACEHOLDER  = $ypspNetPath
-        YPSP_NETWORK_USER_PLACEHOLDER  = $ypspUser
-        YPSP_PASSWORD_PLACEHOLDER      = $ypspPwd
-        YPSP_HOST_ID_PLACEHOLDER       = $ypspHostId
+        YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
+        YPOOL_NAS_NETWORK_PATH_PLACEHOLDER  = $ypoolNasNetPath
+        YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
+        YPOOL_NAS_PASSWORD_PLACEHOLDER      = $ypoolNasPwd
+        YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
         POOL_AUTH_TOKEN_PLACEHOLDER    = $poolAuthToken
-    } -Confirm:$false
+    } `
+    -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
+    -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
 $seedDir = Join-Path $vmDir 'seed.src'
@@ -343,15 +342,13 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # === Pick libvirt network ===
-# Prefer a bridged 'yuruna-external' network (the cache VM gets a real
-# LAN IP via the upstream DHCP server and remote LAN clients reach it
-# directly by IP). Fall back to the NAT 'default' network when no
-# bridged network is defined -- cache still works for same-host guests
-# but is NOT directly reachable from LAN clients without a host-side
-# port forwarder. README.md documents the `virsh net-define` command
-# for the bridged path.
-Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
-$networkName = Get-ExternalNetwork
+# $networkName was resolved above via Resolve-GuestHostBinding (prefers
+# a bridged 'yuruna-external' network so the cache VM gets a real LAN IP via
+# the upstream DHCP server and remote LAN clients reach it directly by IP;
+# falls back to the NAT 'default' network when no bridged network is defined
+# -- cache still works for same-host guests but is NOT directly reachable
+# from LAN clients without a host-side port forwarder). README.md documents
+# the `virsh net-define` command for the bridged path.
 if (-not $networkName) {
     Write-Error "No libvirt network defined. Run 'virsh net-start default' to enable the NAT default, or define 'yuruna-external' (see README.md) for LAN-bridged access."
     exit 1

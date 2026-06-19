@@ -46,7 +46,7 @@ invoked only when the primary's text did not match.
 ~1000 OCR polls would burn 3-5 minutes per cycle on process-start
 overhead alone. The persistent worker keeps one `powershell.exe`
 alive for the inner-runner lifetime and feeds image paths over stdin —
-the per-call latency drops to ~8 ms (a ~40× speedup). A worker failure
+the per-call latency drops to ~5-15 ms (a ~10-30× speedup). A worker failure
 falls back to the one-shot path for that single call, so a broken
 worker can never harden into a permanent OCR outage.
 
@@ -124,6 +124,6 @@ provider's `IsAvailable` returns `$true`.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

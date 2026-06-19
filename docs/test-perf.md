@@ -20,18 +20,23 @@ Everything lives under `$env:YURUNA_RUNTIME_DIR/perf/`:
 
 ```
 perf/
-  host.uuid                             # 42-prefixed, persisted on first cycle
   cycles/
     2026-05-21T18-42-11Z__7f3a.jsonl    # one row per step execution
     2026-05-21T19-05-44Z__a91e.jsonl
     ...
   hostinfo/
     sha256-3b4e....txt                  # full Get-SystemDiagnostic dump
-  guestinfo/
+  guestinfo/                            # runtime-created by Set-PerfGuestContext; absent until a guest runs
     sha256-1c7a....json                 # small per-guest fingerprint
+  checkpoints/                          # guest-pushed fetch-and-execute phase timings (control/perf-checkpoints)
+    ...
   sequences/
     sha256-a039....yml                  # snapshot of the sequence YAML body
 ```
+
+`host.uuid` is **not** under `perf/`; it lives in the sibling
+`$env:YURUNA_RUNTIME_DIR/host.uuid` (`status/runtime/host.uuid`) because it is
+a per-machine identity consulted by non-perf code paths.
 
 **Why JSONL, one file per cycle.** Append-only writes (no
 read-modify-write means no lock contention between writers and
@@ -371,6 +376,6 @@ crashes a cycle.**
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

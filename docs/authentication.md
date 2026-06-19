@@ -23,6 +23,10 @@
 
 ## Google Cloud
 
+> **Note:** GCP deployment is planned and not yet available — the
+> `global/resources/gcp/` resource templates do not ship yet. These steps
+> prepare for the upcoming GCP support.
+
 - One-time initialization:
   - Check currently active configuration: `gcloud config list`
   - `gcloud init --skip-diagnostics` — start a new configuration and project so you don't disrupt other work.
@@ -86,6 +90,6 @@ text in code).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

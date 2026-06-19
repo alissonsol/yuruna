@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,11 +184,11 @@ function Publish-ComponentList {
             Invoke-ComponentCommand -Phase "preProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for preProcessor: $executionCommand"
-                # Preserve prior behavior: under EAP=Continue the function
-                # "swallows" the docker failure and reports success so the
-                # cycle moves on; under any other EAP it reports failure.
-                # The manifest now carries the actual tool exit code so
-                # callers and diagnostics can see what really happened.
+                # Under EAP=Continue the function "swallows" the docker
+                # failure and reports success so the cycle moves on; under
+                # any other EAP it reports failure. The manifest carries the
+                # actual tool exit code so callers and diagnostics can see
+                # what really happened.
                 return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "preProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }

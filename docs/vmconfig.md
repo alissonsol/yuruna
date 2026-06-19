@@ -3,7 +3,7 @@
 This file collects the rationale behind every non-trivial line in the
 per-guest `vmconfig/` artifacts (`user-data`, `meta-data`,
 `autounattend.xml`). The user-data files themselves stay short — each
-formerly large comment block now collapses to a single line of the form:
+topic collapses to a single line of the form:
 
 ```
 # --- See https://yuruna.link/vmconfig#<topic-slug>
@@ -17,6 +17,11 @@ with hyphens. So `### Disable swap` becomes `#disable-swap`.
 Topics are written generically (the same explanation applies across
 guests on all hosts) and use sub-bullets only where a specific guest or
 host needs an exception or addition.
+
+The **caching-proxy** VM has its own cloud-init seed
+(`host/vmconfig/caching-proxy.base.user-data`); its per-stanza rationale lives
+in [vmconfig.caching-proxy.md](vmconfig.caching-proxy.md). This file covers the
+shared *guest* user-data only.
 
 ---
 
@@ -88,7 +93,7 @@ Recommended order (a guest may legitimately omit topics that don't apply):
 `apt.proxy` (scoped — not top-level `proxy:`) routes only `apt`/`apt-get`
 through the local caching-proxy. Scope matters: top-level `proxy:` also
 exports `http_proxy`/`https_proxy` into late-commands' env, which
-previously broke `wget https://...` against proxies that refused
+breaks `wget https://...` against proxies that refuse
 CONNECT, and would route the host status-service probe through the
 cache.
 
@@ -573,6 +578,32 @@ never sees a `login:` prompt. Three to four steps fix this:
 UTM omits this block entirely because UTM's display window reads the
 serial console directly (no framebuffer dependency).
 
+### GNOME auto-open terminal on login
+
+*(amazon.linux.2023)*
+
+```
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Open Terminal
+Exec=ptyxis --new-window
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+DESKTOP
+```
+
+AL2023's GNOME desktop boots to an empty session with no terminal
+window, but the GUI OCR harness drives the guest by typing into a
+terminal it can see. An XDG autostart `.desktop` entry under
+`/etc/xdg/autostart/` launches `ptyxis --new-window` for every
+graphical login, so a terminal is already on screen by the time the
+harness starts its login-and-type dance. `NoDisplay=true` keeps the
+launcher out of the applications menu while still honoring the
+autostart, and `X-GNOME-Autostart-enabled=true` opts it back in for
+GNOME specifically.
+
 ### consoleblank kernel cmdline
 
 *(KVM ubuntu.server.24)*
@@ -683,13 +714,13 @@ from blocking getty forever. The drop-in lives on the template
 (`getty@.service.d/`) so it covers `tty1` plus any other getty the
 `systemd-getty-generator` spawns.
 
-Earlier versions used `[Unit] After=cloud-final.service`. That is
-ordering only (no `Wants`/`Requires`) and lost a ~5% race on fast
-boots: when `getty.target` was reached BEFORE `cloud-final.service`
-entered the systemd transaction, the queued `getty@tty1` job was
-silently dropped and the VM hung at "Finished cloud-final.service"
+`[Unit] After=cloud-final.service` is not enough: it is ordering only
+(no `Wants`/`Requires`) and loses a ~5% race on fast
+boots: when `getty.target` is reached BEFORE `cloud-final.service`
+enters the systemd transaction, the queued `getty@tty1` job is
+silently dropped and the VM hangs at "Finished cloud-final.service"
 with no login prompt forever (cloud-init issue #2158, lp #1804957).
-`status --wait` in `ExecStartPre` is the replacement.
+`status --wait` in `ExecStartPre` avoids the race.
 
 ### Yuruna host coordinates
 
@@ -834,19 +865,6 @@ shell.
 Bucket layout on the status server:
 `installer-fail/<hostname>/<UTC-timestamp>/<file>`.
 
-### Squid-cache hostname vs template name
-
-```
-hostname: yuruna-caching-proxy
-```
-
-OS-side hostname is kept in lock-step with the hypervisor's VM /
-libvirt domain name (`yuruna-caching-proxy`). Renaming happens HERE
-only — the source-tree directory `guest.caching-proxy/` and the image
-filename keep the historical `caching-proxy` token because they identify
-the guest type/template, not the running VM. This split prevents a
-rename cascade across the repo every time the runtime VM gets renamed.
-
 ### Headless host reboot on framebuffer collapse
 
 *(Hyper-V amazon.linux.2023)*
@@ -897,6 +915,6 @@ first successful run.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

@@ -21,25 +21,25 @@ requirements:
   - tool: "PowerShell"
     command: |-
       "$($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
-    version: "7.6.1 (Core)"
+    version: "7.6.3 (Core)"
     releases: "https://github.com/powershell/powershell/releases"
   - tool: "git"
     command: |-
       ((git --version) -replace '^git version ','')
-    version: "2.43.0"
+    version: "2.54.0"
     releases: "https://git-scm.com/downloads"
   - tool: "python3"
     command: |-
       ((python3 --version) -replace '^Python ','')
-    version: "3.12.3"
+    version: "3.14.6"
     releases: "https://www.python.org/downloads/"
   - tool: "OpenTofu"
     command: "($(tofu version -json) | ConvertFrom-Json).terraform_version"
-    version: "1.11.5"
+    version: "1.12.3"
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"
-    version: "v3.20.1"
+    version: "v3.21.1"
     releases: "https://github.com/helm/helm/releases"
   - tool: "Docker"
     # `docker --version` is local (no daemon roundtrip) -- avoids the
@@ -47,29 +47,29 @@ requirements:
     # unreachable, which is the failure mode the diagnostic catches.
     command: |-
       ((docker --version) -replace '^Docker version ','' -replace ',\s*build.*$','')
-    version: "29.3.0"
+    version: "29.6.0"
     releases: "https://docs.docker.com/desktop/"
   - tool: "Docker buildx"
     command: |-
       ((docker buildx version) -split '\s+')[1]
-    version: "v0.32.1"
+    version: "v0.35.0"
     releases: "https://github.com/docker/buildx"
   - tool: "containerd"
     # `containerd --version` prints `containerd github.com/.../v2 vX.Y.Z <commit>` --
     # the third whitespace token is the version.
     command: |-
       ((containerd --version) -split '\s+')[2]
-    version: "v2.2.3"
+    version: "v2.3.2"
     releases: "https://github.com/containerd/containerd/releases"
   - tool: "Kubernetes"
     command: "($(kubectl version --client -o json) | ConvertFrom-Json).clientVersion.gitVersion"
-    version: "v1.35.5"
+    version: "v1.36.2"
     releases: "https://kubernetes.io/releases/"
   - tool: "Visual Studio Code"
     # `code -v` prints three lines (version / commit / arch); first line
     # is the version.
     command: "(code -v | Select-Object -First 1)"
-    version: "1.112.0"
+    version: "1.125.0"
     releases: "https://code.visualstudio.com/Download"
   - tool: "mkcert"
     # mkcert writes its version banner to stderr -- the `2>&1` redirect
@@ -79,49 +79,48 @@ requirements:
     releases: "https://github.com/filosottile/mkcert/releases"
   - tool: "node"
     command: "node --version"
-    version: "v22.19.0"
+    version: "v24.17.0"
     releases: "https://nodejs.org/en/download"
   - tool: "npm"
     command: "npm --version"
-    version: "11.7.0"
+    version: "11.17.0"
     releases: "https://docs.npmjs.com/cli/v11/configuring-npm/install"
   - tool: "curl"
     # First line is `curl X.Y.Z (build/triplet) libcurl/X.Y.Z ...`; the
     # paren-wrapped suffix is libcurl feature noise.
     command: |-
       ((curl --version | Select-Object -First 1) -replace '\s*\(.*$','')
-    version: "curl 8.5.0"
+    version: "curl 8.20.0"
     releases: "https://curl.se/download.html"
   - tool: "wget"
     command: "(wget --version 2>$null | Select-Object -First 1)"
-    version: "GNU Wget 1.24.5"
+    version: "GNU Wget 1.25.0"
     releases: "https://www.gnu.org/software/wget/"
   - tool: "tesseract"
     command: "(tesseract --version 2>&1 | Select-Object -First 1)"
-    version: "tesseract 5.4.1"
+    version: "tesseract 5.5.2"
     releases: "https://github.com/tesseract-ocr/tesseract/releases"
   - tool: "qemu-img"
     # First line is `qemu-img version X.Y.Z, Copyright (c) ... Fabrice
     # Bellard`; the Copyright tail is a constant suffix.
     command: |-
       ((qemu-img --version | Select-Object -First 1) -replace ',\s*Copyright.*$','')
-    version: "qemu-img version 8.2.2"
+    version: "qemu-img version 11.0.1"
     releases: "https://www.qemu.org/download/"
   - tool: "AWS cli"
     # `aws-cli/X.Y.Z Python/X.Y.Z OS/build prompt/...`; everything past
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.34.12"
+    version: "aws-cli/2.35.8"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
-    version: "2.84.0"
+    version: "2.87.0"
     releases: "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
   - tool: "Google Cloud"
-    # Dropped `-q` (redundant) and the 2>&1 capture; a broken bundled-
-    # python install now silently fails rather than dumping a traceback
-    # into the version column.
+    # No `-q` and no 2>&1 capture: a broken bundled-python install fails
+    # silently rather than dumping a traceback into the version column.
     command: "(gcloud -v | Select-Object -First 1)"
-    version: "Google Cloud SDK 561.0.0"
+    version: "Google Cloud SDK 573.0.0"
     releases: "https://cloud.google.com/sdk/docs/install-sdk"

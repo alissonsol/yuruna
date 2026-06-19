@@ -105,7 +105,15 @@ wrappers (`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`,
 
 ## VM sizing and connectivity
 
-Every VM is **16 GB RAM, 4 vCPU, 512 GB disk (dynamic/thin)**. Resize
+VM size varies by guest and hypervisor; all disks are dynamic/thin
+(qcow2 sparse or Dynamic VHDX). Most guests get **16 GB RAM, 4 vCPU**;
+the exceptions are macOS 26 (defaults to 8 GB RAM, configurable via
+`-MemoryMb`) and the KVM Windows 11 guest (8 GB RAM). Disk sizes:
+Ubuntu Server 24/26 are **64 GB** on every host; Windows 11 is
+**512 GB** on macOS UTM and Hyper-V but **64 GB** on KVM; Amazon
+Linux 2023 is **128 GB** on macOS UTM and sized to the base image
+(≥16 GB) on KVM; macOS 26 defaults to **128 GB** (configurable via
+`-DiskSizeGb`). Resize
 new VMs by editing `New-VM.ps1`; resize an existing VM via the
 hypervisor UI or `Set-VM` cmdlet. Find a guest's IP with `Get-VM` on
 Hyper-V, by reading `/var/db/dhcpd_leases` on macOS, or with
@@ -134,6 +142,6 @@ Read more: [Hosts — Nerd-Level Details](read.more.md).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../README.md)

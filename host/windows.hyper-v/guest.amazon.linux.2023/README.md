@@ -18,7 +18,7 @@ elevated PowerShell:
 ## For each VM
 
 ```
-.\New-VM.ps1                       # default hostname
+.\New-VM.ps1                       # default hostname amazon-linux01
 .\New-VM.ps1 -VMName myhost
 ```
 
@@ -53,6 +53,6 @@ Read more: [Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Detai
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

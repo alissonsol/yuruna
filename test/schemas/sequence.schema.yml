@@ -105,6 +105,29 @@ properties:
 $defs:
 
   step:
+    description: A sequence step -- an action invocation or a snippet reference.
+    oneOf:
+      - $ref: "#/$defs/actionStep"
+      - $ref: "#/$defs/snippetStep"
+
+  snippetStep:
+    type: object
+    additionalProperties: false
+    description: >
+      Reference to a named step list in a _snippets.yml library (framework
+      test/sequences/<mode>/_snippets.yml or project
+      <...>/test/<mode>/_snippets.yml). The loader splices the named steps in
+      place before execution; a project name overrides a framework name.
+    required: [snippet]
+    properties:
+      snippet:
+        type: string
+        pattern: "^[A-Za-z][A-Za-z0-9_-]*$"
+        description: Snippet name to splice in.
+      description:
+        type: string
+
+  actionStep:
     type: object
     description: One action invocation.
     required: [action]

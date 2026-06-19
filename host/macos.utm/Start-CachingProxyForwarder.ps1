@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,11 @@
     Cross-platform userspace TCP forwarder for the caching-proxy VM.
 
 .DESCRIPTION
-    Originally written for macOS UTM (Apple Virtualization shared-NAT
-    isolates guest-to-guest traffic so guests can't reach a sibling VM
-    directly), this is now also used on Windows when source-IP
-    preservation matters -- e.g. for squid:3128/3129 with PROXY protocol,
-    where netsh portproxy would lose the real client IP at the NAT hop.
+    Needed on macOS UTM, where Apple Virtualization shared-NAT isolates
+    guest-to-guest traffic so guests can't reach a sibling VM directly.
+    Also used on Windows when source-IP preservation matters -- e.g. for
+    squid:3128/3129 with PROXY protocol, where netsh portproxy would lose
+    the real client IP at the NAT hop.
     Pure PowerShell (TcpListener + runspace pool per connection) -- no
     brew/socat/HAProxy dependency, runs anywhere pwsh runs.
 

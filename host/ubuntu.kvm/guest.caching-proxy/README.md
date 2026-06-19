@@ -118,6 +118,6 @@ state managed by `test/modules/Test.CachingProxy.psm1`.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

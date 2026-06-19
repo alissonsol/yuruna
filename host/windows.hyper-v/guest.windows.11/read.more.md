@@ -17,7 +17,7 @@ automatically.
 
 ## 2) Create the VM
 
-[`New-VM.ps1`](./New-VM.ps1) creates a Gen 2 VM (16 GB RAM, max(5, host
+[`New-VM.ps1`](./New-VM.ps1) creates a Gen 2 VM (16 GB RAM, max(4, host
 cores / 2) virtual processors with nested virtualization, UEFI + Secure
 Boot with the Microsoft Windows template, Yuruna-External vSwitch when
 available -- falls back to Default Switch, virtual TPM), mounts the
@@ -39,12 +39,12 @@ enables Remote Desktop. Default credentials: `User` / `password`
 - ISO must be downloaded manually.
 - Remove the DVD drives after install.
 - VM is unactivated until a key is provided.
-- Enhanced Session Mode is available by default for Windows guests.
+- Enhanced Session Mode is disabled by yuruna to force VMConnect basic mode (prevents interactive resolution dialogs during automated testing).
 
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../../README.md)

@@ -57,6 +57,6 @@ Read more: [Windows Hyper-V Host Setup - Nerd-Level Details](read.more.md).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../README.md)

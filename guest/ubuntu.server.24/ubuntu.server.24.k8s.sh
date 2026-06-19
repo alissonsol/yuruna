@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.12
+# Version: 2026.06.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -298,9 +298,12 @@ echo -e "\e[1;36m==== Helm ====\e[0m"
 curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash || true
 
 # OpenTofu: deb install (primary) with standalone fallback, then verify.
-# The deb method fetches the signing key from get.opentofu.org, which can
-# blip; on failure the standalone method retries from the binary release.
-# Both paths pass --opentofu-version "$YURUNA_OPENTOFU_VERSION" so neither
+# The deb method fetches the signing key from get.opentofu.org and the
+# standalone method the binary release; both can blip, and the third-party
+# install-opentofu.sh runs those inner fetches with no retry, so a single
+# transient blip is otherwise fatal even on a healthy host. Each invocation
+# is wrapped in _yuruna_retry to give it the same backoff every other fetch
+# in this script gets. Both paths pass --opentofu-version "$YURUNA_OPENTOFU_VERSION" so neither
 # asks the GitHub releases API for "latest" -- that is an unauthenticated
 # api.github.com call that 403s on rate limits once many guests share one
 # NAT egress IP, which would leave the standalone fallback as fragile as the
@@ -311,9 +314,9 @@ echo ""
 echo -e "\e[1;36m==== OpenTofu ====\e[0m"
 curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh
 chmod +x /tmp/install-opentofu.sh
-if ! /tmp/install-opentofu.sh --install-method deb --opentofu-version "$YURUNA_OPENTOFU_VERSION"; then
+if ! _yuruna_retry opentofu_deb /tmp/install-opentofu.sh --install-method deb --opentofu-version "$YURUNA_OPENTOFU_VERSION"; then
     echo "WARNING: OpenTofu deb install failed (often a GPG-key fetch from get.opentofu.org). Falling back to standalone method..."
-    /tmp/install-opentofu.sh --install-method standalone --opentofu-version "$YURUNA_OPENTOFU_VERSION" || true
+    _yuruna_retry opentofu_standalone /tmp/install-opentofu.sh --install-method standalone --opentofu-version "$YURUNA_OPENTOFU_VERSION" || true
 fi
 rm -f /tmp/install-opentofu.sh
 if ! command -v tofu >/dev/null 2>&1; then

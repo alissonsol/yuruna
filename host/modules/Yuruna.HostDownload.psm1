@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42e0d1c8-9b3a-4f52-8c61-7d2e4a9b0f33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -279,7 +279,63 @@ function Save-CachedHttpUri {
     Invoke-HttpsViaSquidBump -Uri $Uri -OutFile $OutFile -ProxyUrl $cfg.Proxy -CaPemPath $cfg.CaPemPath
 }
 
+function Get-SquidBumpCertValidator {
+    <#
+    .SYNOPSIS
+        Compiled-delegate certificate validator for the squid SSL-bump leaf:
+        accept iff the chain (seeded with $ExtraCa) roots at $ExtraCa by
+        thumbprint, mirroring the pinned-CA policy.
+    .DESCRIPTION
+        Returned as a C# delegate rather than a scriptblock because HttpClient
+        invokes ServerCertificateCustomValidationCallback on a TLS worker
+        thread that has no PowerShell runspace: a scriptblock there throws
+        "There is no Runspace available to run scripts in this thread" and
+        fails every handshake. See feedback_scriptblock_timer_callback. The
+        type compiles once per process (guarded) and is idempotent across
+        -Force module re-imports.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$ExtraCa)
+    if (-not ('YurunaSquidCertValidator' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Net.Http;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+
+public static class YurunaSquidCertValidator
+{
+    public static Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> Make(X509Certificate2 extraCa)
+    {
+        string expectedThumb = extraCa.Thumbprint;
+        return (req, cert, chain, errors) =>
+        {
+            if ((errors & SslPolicyErrors.RemoteCertificateNotAvailable) != 0) return false;
+            if ((errors & SslPolicyErrors.RemoteCertificateNameMismatch) != 0) return false;
+            if ((errors & SslPolicyErrors.RemoteCertificateChainErrors) == 0) return true;
+            using (var extraChain = new X509Chain())
+            {
+                extraChain.ChainPolicy.ExtraStore.Add(extraCa);
+                extraChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                extraChain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority;
+                if (!extraChain.Build(cert)) return false;
+                var root = extraChain.ChainElements[extraChain.ChainElements.Count - 1].Certificate;
+                return string.Equals(root.Thumbprint, expectedThumb, StringComparison.OrdinalIgnoreCase);
+            }
+        };
+    }
+}
+'@
+    }
+    return [YurunaSquidCertValidator]::Make($ExtraCa)
+}
+
 function Invoke-HttpsViaSquidBump {
+    <#
+    .SYNOPSIS
+        Stream $Uri to $OutFile through the squid SSL-bump proxy, trusting only
+        the cache's CA at $CaPemPath (per-process, via a compiled validator).
+    #>
     [CmdletBinding()]
     [OutputType([void])]
     param(
@@ -292,30 +348,15 @@ function Invoke-HttpsViaSquidBump {
     # file; the yuruna-squid-ca.crt published by the cache is cert-only.
     # The ctor auto-detects PEM/DER/PFX and works for cert-only PEM.
     $extraCa = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CaPemPath)
-    $expectedThumb = $extraCa.Thumbprint
 
     $handler = [System.Net.Http.HttpClientHandler]::new()
     $handler.UseProxy = $true
     $handler.Proxy = [System.Net.WebProxy]::new([System.Uri]$ProxyUrl, $true)
-    $handler.ServerCertificateCustomValidationCallback = {
-        param($req, $cert, $chain, $errors)
-        # $req (HttpRequestMessage) and $chain (the system-built chain)
-        # are part of the delegate signature but unused by our policy --
-        # we make our own chain below seeded with the yuruna CA. Touching
-        # them as $null = ... silences PSReviewUnusedParameter without
-        # changing the delegate's contract.
-        $null = $req; $null = $chain
-        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable) -ne 0) { return $false }
-        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch) -ne 0) { return $false }
-        if (($errors -band [System.Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors) -eq 0) { return $true }
-        $extraChain = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
-        [void]$extraChain.ChainPolicy.ExtraStore.Add($extraCa)
-        $extraChain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
-        $extraChain.ChainPolicy.VerificationFlags = [System.Security.Cryptography.X509Certificates.X509VerificationFlags]::AllowUnknownCertificateAuthority
-        if (-not $extraChain.Build($cert)) { return $false }
-        $root = $extraChain.ChainElements[$extraChain.ChainElements.Count - 1].Certificate
-        return ($root.Thumbprint -eq $expectedThumb)
-    }.GetNewClosure()
+    # The validation callback fires on HttpClient's TLS worker thread, which
+    # has no PowerShell runspace -- a scriptblock there throws "There is no
+    # Runspace available to run scripts in this thread" and fails every
+    # handshake. Use a compiled C# delegate, which runs on any thread.
+    $handler.ServerCertificateCustomValidationCallback = Get-SquidBumpCertValidator -ExtraCa $extraCa
 
     $client = [System.Net.Http.HttpClient]::new($handler, $true)
     # 4 GB at ~50 MB/s LAN cache = ~80s; HTTP/SSL handshake + cold cache

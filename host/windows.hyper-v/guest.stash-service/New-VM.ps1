@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,10 @@
     Creates (or recreates) the Yuruna Stash Service VM on Hyper-V.
 
 .DESCRIPTION
-    Builds a lightweight Ubuntu 24.04 LTS cloud-image VM intended to
-    host the stash-service daemon (SCP receiver + SQLite metadata
-    store). Cloud-init only brings up the VM with the harness yuruna
-    user; daemon install + launch is out of scope here and runs as a
-    later automation step.
+    Builds an Ubuntu 26.04 LTS cloud-image VM that hosts the stash-service
+    daemon (SCP receiver + SQLite metadata index). Cloud-init mounts the
+    stash share, fetches the framework, and runs the bring-up script which
+    builds + launches the daemon under systemd.
 
     See https://yuruna.link/stash-service for the full specification.
 
@@ -130,9 +129,38 @@ if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
+# === Pick a vSwitch (BEFORE the seed render) ===
+# The share + source coordinates baked into cloud-init depend on the chosen
+# network, so resolve it first. Prefer Yuruna-External so the VM gets a LAN
+# IP and can reach the NAS + the host status server; fall back to Default
+# Switch only when External is unavailable (Wi-Fi-only host), where the VM
+# is reachable only from same-host peers and the NAS likely isn't routable.
+$switchName = Get-OrCreateYurunaExternalSwitch
+if (-not $switchName) {
+    Write-Output "WARNING: External vSwitch unavailable -- falling back to 'Default Switch'."
+    Write-Output "  The stash VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
+    $switchName = 'Default Switch'
+}
+
+# Host coordinates (status server, for the in-VM source fetch) + stash storage
+# coordinates (the share the daemon writes to), baked into the seed.
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1') -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')   -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')      -Global -Force
+$YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$YurunaTestConfig = Join-Path $_repoRoot 'test/test.config.yml'
+$tc = $null
+if (Test-Path -LiteralPath $YurunaTestConfig) {
+    try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+    if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
+}
+$ystashNas = Get-YurunaStashSeedValue -Config $tc
+
 # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
-# stash-service.*). The overlay is empty (no per-platform divergence today);
-# Build-CloudInitUserData resolves the SSH-key and password placeholders.
+# stash-service.*). Build-CloudInitUserData resolves placeholders with literal
+# .Replace(), so values carrying regex-special chars are safe.
 Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 $UserData = Build-CloudInitUserData `
     -BasePath    (Join-Path $_repoRoot 'host/vmconfig/stash-service.base.user-data') `
@@ -141,6 +169,13 @@ $UserData = Build-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $YurunaPassword
+        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
+        YSTASH_NAS_NETWORK_IP_PLACEHOLDER    = $ystashNas.NetworkIp
+        YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
+        YSTASH_NAS_PASSWORD_PLACEHOLDER      = $ystashNas.Password
+        YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
@@ -155,19 +190,6 @@ Write-Output "  password: (in authentication vault under 'yuruna')"
 Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VMName'"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
-
-# === Pick a vSwitch ===
-# Prefer the Yuruna-External vSwitch so the stash VM gets a real LAN IP
-# via DHCP and peers reach it directly at <vm-ip>:22. Fall back to
-# Default Switch only when External isn't available (Wi-Fi-only host,
-# etc.); stash-service-on-Default-Switch is only reachable from same-host
-# guests.
-$switchName = Get-OrCreateYurunaExternalSwitch
-if (-not $switchName) {
-    Write-Output "WARNING: External vSwitch unavailable -- falling back to 'Default Switch'."
-    Write-Output "  Dock VM will not be reachable from LAN by its own IP."
-    $switchName = 'Default Switch'
-}
 
 # === Create and configure Hyper-V VM ===
 # 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
@@ -276,6 +298,10 @@ Write-Output "  IP:       $dockIp"
 Write-Output "  SSH:      ssh yuruna@$dockIp  (harness key authorized)"
 Write-Output "  Console:  vmconnect localhost $VMName  (user yuruna, vault password)"
 Write-Output ""
-Write-Output "Daemon install + launch is a later automation step (see"
-Write-Output "https://yuruna.link/stash-service)."
+Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
+Write-Output "bring-up script. Once it finishes, the stash daemon owns :22 (the OS"
+Write-Output "sshd is disabled), so reach it with scp:  scp ./file user@$dockIp`:/scratch"
+Write-Output "Watch progress:  ssh yuruna@$dockIp 'tail -f /var/log/cloud-init-output.log'"
+Write-Output "(harness key authorized until the daemon takes over :22). See"
+Write-Output "https://yuruna.link/stash-service."
 exit 0

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,7 +198,7 @@ function Initialize-SudoCache {
     sudoers config those share a per-tty timestamp that lasts ~5 min,
     so a single `sudo -v` up front is enough to keep the rest silent.
     Without this, the operator sees "[sudo] password for ..." on every
-    individual call -- the symptom that drove this helper.
+    individual call.
 
     Idempotent: if `sudo -n true` already succeeds (cache warm because
     the install/<host>.sh wrapper primed it, or a prior call in this

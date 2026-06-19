@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,8 +54,9 @@ param(
 
 # Write-CleanupMessage lives in host/modules/Yuruna.VMCleanup.psm1 so
 # all three Remove-OrphanedVMFiles.ps1 scripts share one routing path
-# (the old hand-rolled copies drifted on the quiet flag -- this one used
-# $Quiet directly where the other two used $script:QuietOutput).
+# (per-copy implementations drift on the quiet flag -- this script
+# references $Quiet directly where the other two reference
+# $script:QuietOutput).
 $_repoRoot      = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $_vmCleanupMod  = Join-Path $_repoRoot 'host/modules/Yuruna.VMCleanup.psm1'
 Import-Module -Name $_vmCleanupMod -Force

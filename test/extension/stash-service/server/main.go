@@ -3,10 +3,10 @@
 
 // Yuruna Stash Service daemon. Spec: https://yuruna.link/stash-service.
 //
-// Single binary, single listener on TCP/22, no daemon supervision
-// (§4.6: out of scope for v1; launch manually or via a future systemd
-// unit). Operational logs go to stderr; journald captures them when
-// the service is launched under systemd.
+// Single binary, single listener on TCP/22. In production the daemon is
+// supervised by a systemd unit (Restart=on-failure) installed during
+// bring-up (§4.6); it can also be launched directly for local runs.
+// Operational logs go to stderr, which journald captures under systemd.
 package main
 
 import (
@@ -17,35 +17,89 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"stash-server/internal/config"
+	"stash-server/internal/httpsrv"
 	"stash-server/internal/id"
 	"stash-server/internal/meta"
 	"stash-server/internal/sshsrv"
 	"stash-server/internal/store"
 )
 
+// version is the framework version shown in the UI header. The bring-up
+// build stamps it from the repo VERSION file via
+// -ldflags "-X main.version=<v>"; ad-hoc dev builds keep "dev".
+var version = "dev"
+
 func main() {
-	folder := flag.String("folder", defaultFolder(), "StashFolder path (§6.1)")
+	shareFolder := flag.String("share-folder", "", "share-side StashFolder on the mounted stash share, e.g. <localPath>/stash/<hostId> (holds hostkey/ + files/) (§6.1) — required")
+	metadataDir := flag.String("metadata-dir", config.DefaultMetadataDir, "VM-local metadata index directory (§8)")
+	bufferDir := flag.String("buffer-dir", config.DefaultBufferDir, "VM-local NAS-offline buffer directory (§8.4)")
+	listenAddr := flag.String("listen-addr", config.ListenAddress, "SCP/SFTP sink listen address (§4.2); override only for dev when :22 is taken by the OS sshd")
+	httpAddr := flag.String("http-addr", config.DefaultHTTPAddress, "UI/API HTTP listen address (stash-service-ui.md §2); empty disables the UI")
+	poolWindowDays := flag.Int("pool-window-days", config.DefaultPoolWindowDays, "days of cross-host sidecars the pool index holds in memory (stash-service-ui.md §3.2)")
+	poolRefreshSecs := flag.Int("pool-refresh-secs", 60, "pool-index rescan interval in seconds (stash-service-ui.md §11)")
+	listLimit := flag.Int("list-default-limit", config.DefaultListLimit, "default page size for the recent-stash list (stash-service-ui.md §11)")
+	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator base URL for hostId→stash-UI resolution (stash-service-ui.md §3.4); empty disables the remote-host link (best-effort)")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
-	log.Printf("stash-server starting; folder=%s", *folder)
 
-	st, err := store.New(*folder)
+	if *shareFolder == "" {
+		log.Fatalf("--share-folder is required (the daemon writes to the mounted stash share; see https://yuruna.link/stash-service §6.1)")
+	}
+	log.Printf("stash-server starting; share=%s metadata=%s buffer=%s", *shareFolder, *metadataDir, *bufferDir)
+
+	st, err := store.New(*shareFolder)
 	if err != nil {
 		log.Fatalf("store.New: %v", err)
 	}
+	// The share may be offline at startup (e.g. the cifs mount failed). That
+	// is NOT fatal — the daemon buffers locally and flushes when the share
+	// returns (§8.4). Surface it loudly so an operator isn't left guessing
+	// when uploads are buffering instead of landing on the NAS.
+	if !store.ShareOnline(*shareFolder) {
+		log.Printf("WARNING: share %s is not a writable network mount; buffering locally until it returns (§8.4)", *shareFolder)
+	}
 
-	m, err := meta.Open(st.MetadataDBPath())
+	// VM-local dirs: the metadata index and the offline buffer never live
+	// on the share (§6.1, §8). The buffer mirrors the share's files/ layout
+	// (NewFilesOnly) so a flush is a same-relative-path copy (§8.4).
+	if err := os.MkdirAll(*metadataDir, 0o700); err != nil {
+		log.Fatalf("metadata dir: %v", err)
+	}
+	buf, err := store.NewFilesOnly(*bufferDir)
+	if err != nil {
+		log.Fatalf("buffer store: %v", err)
+	}
+
+	m, err := meta.Open(filepath.Join(*metadataDir, config.DatabaseFileName))
 	if err != nil {
 		log.Fatalf("meta.Open: %v", err)
 	}
 	defer m.Close()
 
-	ids := id.New(st.FilesRoot())
+	// §8.5: on a fresh VM (e.g. after a reimage) the VM-local index is
+	// empty — rebuild it from the durable on-share sidecars so prior
+	// uploads remain searchable. A normal restart finds a populated index
+	// and skips the (potentially large) share scan.
+	if n, cerr := m.Count(); cerr != nil {
+		log.Printf("index count: %v", cerr)
+	} else if n == 0 {
+		if rebuilt, rerr := m.RebuildFromSidecars(st.FilesRoot()); rerr != nil {
+			log.Printf("rebuild from sidecars: %v", rerr)
+		} else if rebuilt > 0 {
+			log.Printf("rebuilt %d metadata record(s) from on-share sidecars", rebuilt)
+		}
+	}
 
-	srv, err := sshsrv.New(st, m, ids)
+	// Seed the allocator from BOTH the share and the buffer so a restart
+	// mid-outage cannot reissue an ID a not-yet-flushed buffered artifact
+	// already claims (§7, §8.4).
+	ids := id.New(st.FilesRoot(), buf.FilesRoot())
+
+	srv, err := sshsrv.New(st, buf, m, ids)
 	if err != nil {
 		log.Fatalf("sshsrv.New: %v", err)
 	}
@@ -53,19 +107,36 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if err := srv.ListenAndServe(ctx, config.ListenAddress); err != nil {
-		log.Fatalf("listen: %v", err)
+	// Drain the offline buffer in the background (and on startup, covering
+	// a restart after the outage ended) (§8.4).
+	go srv.RunFlushWorker(ctx)
+
+	// Two listeners in one process (stash-service-ui.md §2.1): the SCP/SFTP
+	// sink on :22 and the UI/API HTTP server (default :80). Both stop on ctx
+	// cancel and return nil; a real bind/serve failure on either is fatal.
+	errCh := make(chan error, 2)
+	go func() { errCh <- srv.ListenAndServe(ctx, *listenAddr) }()
+	if *httpAddr != "" {
+		ui := httpsrv.New(srv, httpsrv.Options{
+			Addr:           *httpAddr,
+			AggregatorURL:  *aggregatorURL,
+			PoolWindowDays: *poolWindowDays,
+			PoolRefresh:    time.Duration(*poolRefreshSecs) * time.Second,
+			DefaultLimit:   *listLimit,
+			Version:        version,
+		})
+		log.Printf("stash-server UI on %s (pool window %dd, refresh %ds, aggregator=%q)", *httpAddr, *poolWindowDays, *poolRefreshSecs, *aggregatorURL)
+		go func() { errCh <- ui.ListenAndServe(ctx) }()
+	} else {
+		log.Printf("stash-server UI disabled (--http-addr empty)")
+	}
+
+	select {
+	case <-ctx.Done():
+	case err := <-errCh:
+		if err != nil {
+			log.Fatalf("listen: %v", err)
+		}
 	}
 	log.Printf("stash-server stopped")
-}
-
-// defaultFolder returns $HOME/yuruna/test/status/stash, matching the
-// path the Yuruna repo clone (cloned into $HOME/yuruna by
-// ubuntu.server.24.update.sh) provides on the stash VM.
-func defaultFolder() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return filepath.FromSlash("./" + config.DefaultFolderRelative)
-	}
-	return filepath.Join(home, filepath.FromSlash(config.DefaultFolderRelative))
 }

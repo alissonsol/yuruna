@@ -39,6 +39,14 @@ After the script finishes, follow the steps in
 
 Manual walk-through of the installer: [macOS UTM Host Setup - Nerd-Level Details](read.more.md).
 
+## System requirements
+
+The installer's tested baseline is **macOS 26+ (Sequoia)**, **Apple
+Silicon (arm64)**, **16+ physical cores**, **32 GB+ RAM**, and
+**512 GB+ free disk**. A preflight check warns and prompts for
+confirmation if any of these is not met; continuing is permitted but
+UNTESTED. See [Installation — system-requirements preflight](../../docs/install.md#system-requirements-preflight).
+
 ## Optional: Squid cache VM
 
 See [Hosts — ...](../README.md#optional-squid-cache-vm) and
@@ -83,6 +91,6 @@ Read more: [macOS UTM Host Setup - Nerd-Level Details](read.more.md).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.12
+Last review: 2026.06.19
 
 Back to [Yuruna](../../README.md)

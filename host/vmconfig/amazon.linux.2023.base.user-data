@@ -2,11 +2,9 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
-# NoCloud user-data for Amazon Linux 2023 (parity with hyper-v / utm / kvm
-# siblings). Two users: ec2-user (cloud-image default) + USERNAME_PLACEHOLDER
-# (harness test user; passwordless sudo + SSH key). cloud-init chpasswd
-# default expire=true is LOAD-BEARING — it triggers the Current/New/Retype
-# prompt the GUI sequence drives. See docs/vmconfig.md for per-topic rationale.
+# NoCloud user-data for Amazon Linux 2023 (parity with hyper-v/utm/kvm siblings).
+# cloud-init chpasswd default expire=true is LOAD-BEARING -- it drives the
+# Current/New/Retype prompt the GUI sequence enters. See docs/vmconfig.md.
 users:
   - default
   - name: USERNAME_PLACEHOLDER

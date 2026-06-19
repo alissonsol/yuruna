@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,8 +86,7 @@ function Get-RemoteDiagnosticsCommand {
     extracted on the guest.
 .DESCRIPTION
     Without -BootstrapUrl, the command is the bare
-    `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`
-    that earlier versions of this module produced verbatim.
+    `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
 
     With -BootstrapUrl, the command tests for the materialized script
     first; if absent, it falls through to `curl -fsSL <url>/yuruna-repo
@@ -180,10 +179,10 @@ function Resolve-StoredPassword {
 
     Returns @{ password; reason } so callers can discriminate the three
     distinct failure modes (auth extension not loaded, Get-Password
-    not exported, Get-Password threw) -- previously all three collapsed
-    to $null and the operator had to guess which one fired. The reason
-    string is short (one phrase) so a caller can log it directly into
-    the diagnostic file header / failure NDJSON.
+    not exported, Get-Password threw) instead of collapsing all three to
+    a bare $null that leaves the operator guessing which one fired. The
+    reason string is short (one phrase) so a caller can log it directly
+    into the diagnostic file header / failure NDJSON.
 
       password  [string] the stored password, or $null on any failure
       reason    [string] 'ok' when password is set, otherwise one of

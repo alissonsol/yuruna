@@ -9,13 +9,21 @@
 # match the 'action' field in each step. Every step also accepts a
 # step-level 'description' (string, free-form label shown in the cycle
 # log and dashboard) — not repeated under each action's parameter list.
-# Source of truth for which actions actually exist is the switch in
-# test/modules/Invoke-Sequence.psm1; keep this file in sync when adding
-# or removing a case.
+# Source of truth for which actions actually exist is the registry
+# populated by the Register-SequenceAction calls in
+# test/modules/Test.SequenceHandler.psm1; keep this file in sync when
+# adding or removing a registration (Get-SequenceActionName lists the
+# registered names).
 #
 # Rendered, prose-style companion (with per-host Yuruna.Host contract
 # notes — including the saveDiskSnapshot rename behavior and its
 # divergence across Hyper-V / KVM / UTM): see actions.md.
+#
+# Besides the actions below, a step may be a SNIPPET REFERENCE -- a step
+# whose only key is `snippet: <name>` (no `action:`). The loader splices
+# the named step list (from a `_snippets.yml` library in the same mode
+# dir) in place, including inside retry blocks. See the Snippets section
+# of docs/test-sequences.md.
 
 # Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}
 # are built-in. Use ${varName} in step parameters.
@@ -35,17 +43,23 @@ actions:
     breakpoints in the same sequence do not collide. The status UI
     learns the break is parked by polling /track/break-active.json,
     which the action writes on entry and clears on exit. Continue
-    POSTs to /control/break-continue; the action sees the flag, calls
-    Restore-VMDiskSnapshot -Id <break.id> (skipped if no id), then
-    Start-VM, then resumes. Manual marker-delete resumes without
-    snapshot restore. Login (and any other guest-side recovery) is
+    POSTs to /control/break-continue; the action sees the flag. When
+    `restoreOnContinue: true` AND `id` names an existing snapshot it calls
+    Restore-VMDiskSnapshot -Id <break.id> then Start-VM; otherwise it
+    resumes in place (no snapshot restore -- the usual breakpoint
+    semantics; `id` alone is just a label). Manual marker-delete always
+    resumes in place. Login (and any other guest-side recovery) is
     the sequence author's responsibility -- place login steps after
     the break so the post-Continue, fresh-from-snapshot guest reaches
     the same state the sequence expects. Parameters: reason (string,
     optional -- free-form text written into the marker file so the
     operator knows why execution stopped here), id (string, optional
-    -- snapshot id to restore when Continue is clicked; commonly the
-    id of a same-cycle saveDiskSnapshot earlier in the sequence).
+    -- snapshot id; a pure label by default, restored on Continue only
+    when restoreOnContinue is true; commonly the id of a same-cycle
+    saveDiskSnapshot earlier in the sequence), restoreOnContinue
+    (boolean, optional, default false -- when true, restore the snapshot
+    named by id and restart the VM on Continue instead of resuming in
+    place).
 
   callExtension: >
     Side-effecting call into the active extension for an area

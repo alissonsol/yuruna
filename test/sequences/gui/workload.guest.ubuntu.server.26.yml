@@ -9,7 +9,7 @@
 
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 422cbc66-4a66-47de-9487-d08b4c3b97cd
-sequenceRevision: 1
+sequenceRevision: 2
 
 description: "Ubuntu Server 26.04: log in, install VS Code via the guest.ubuntu.server.26 workload scripts."
 baseline:
@@ -23,6 +23,8 @@ steps:
     maxAttempts: 2
     description: "Login + retry"
     steps:
+      - snippet: firstLoginPrime
+
       - action: passwdPrompt
         pattern: "login:"
         timeoutSeconds: 600

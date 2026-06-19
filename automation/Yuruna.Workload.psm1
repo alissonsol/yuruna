@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,7 +183,7 @@ function Invoke-WorkloadChartDeployment {
     # Non-zero exit is still authoritative -- the release
     # did NOT land (or it landed and was auto-rolled-back).
     # We ALSO scan the captured output for lines starting
-    # with "Error:" because helm has historically returned 0
+    # with "Error:" because helm can return 0
     # on certain post-render rejections (server-side
     # admission failures that surface only in the trailing
     # log). Either signal aborts the test sequence.

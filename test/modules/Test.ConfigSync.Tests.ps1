@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42b593af-6071-4283-9d94-0f1a2b3c4d5e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,6 +75,81 @@ Describe 'ConvertTo-MergedHashtable' {
         $tmpl = [ordered]@{ a = 1 }
         $m = ConvertTo-MergedHashtable -Template $tmpl -Current 'scalar'
         Assert-Equal 1 $m.a 'template default used when current is scalar'
+    }
+}
+
+Describe 'ConvertTo-AdditiveMergedHashtable' {
+    It 'fills missing template nodes/leaves, current value wins, current-only keys preserved' {
+        $tmpl = [ordered]@{ a = 1; b = [ordered]@{ x = 10; y = 20 }; net = [ordered]@{ p = ''; q = '' }; z = 'def' }
+        $cur  = [ordered]@{ a = 99; b = [ordered]@{ x = 11 }; legacy = 'keep'; oldNode = [ordered]@{ k = 'keep2' } }
+        $m = ConvertTo-AdditiveMergedHashtable -Template $tmpl -Current $cur
+        Assert-Equal 99 $m.a 'current scalar wins'
+        Assert-Equal 11 $m.b.x 'current nested scalar wins'
+        Assert-Equal 20 $m.b.y 'template fills missing nested leaf'
+        Assert-Equal 'def' $m.z 'template fills missing top-level leaf'
+        Assert-True ($m.Contains('net')) 'whole missing template node added'
+        Assert-Equal '' $m.net.p 'added node carries empty template default'
+        Assert-Equal 'keep'  $m.legacy 'current-only top-level key PRESERVED (not dropped)'
+        Assert-Equal 'keep2' $m.oldNode.k 'current-only nested node PRESERVED'
+    }
+    It 'preserves an operator scalar where the template has a node (shape conflict, no clobber)' {
+        $tmpl = [ordered]@{ node = [ordered]@{ x = 1 } }
+        $cur  = [ordered]@{ node = 'operatorScalar' }
+        $m = ConvertTo-AdditiveMergedHashtable -Template $tmpl -Current $cur
+        Assert-Equal 'operatorScalar' $m.node 'operator scalar kept, not overwritten with template sub-fields'
+    }
+    It 'deep-copies the added template subtree so later edits do not alias the template' {
+        $tmpl = [ordered]@{ net = [ordered]@{ p = '' } }
+        $cur  = [ordered]@{ a = 1 }
+        $m = ConvertTo-AdditiveMergedHashtable -Template $tmpl -Current $cur
+        $m.net.p = 'mutated'
+        Assert-Equal '' $tmpl.net.p 'mutating the merged result did not bleed into the template'
+    }
+    It 'returns current unchanged when current is not a dictionary' {
+        Assert-Equal 'scalar' (ConvertTo-AdditiveMergedHashtable -Template ([ordered]@{ a = 1 }) -Current 'scalar') 'non-dict current passthrough'
+    }
+}
+
+Describe 'Add-MissingTestConfigField' {
+    It 'adds missing schema fields, keeps the renamed-section orphan, writes no backup' {
+        $d = New-TempDir
+        try {
+            # Template renamed the old top-level poolStorage block to networkStorage.*
+            $tmpl = Join-Path $d 'template.yml'
+            Set-Content $tmpl "logLevel: Information`nnetworkStorage:`n  poolLocalPath: ''`n  poolNetworkPath: ''`n  poolNetworkUser: ''`n"
+            $cfg = Join-Path $d 'test.config.yml'
+            Set-Content $cfg "logLevel: Information`npoolStorage:`n  localPath: 'y:'`n  networkPath: '\\\\nas\\work'`n  networkUser: yuruna-pool`n"
+            $res = Add-MissingTestConfigField -Template (Get-Content -Raw $tmpl | ConvertFrom-Yaml -Ordered) `
+                                              -Current  (Get-Content -Raw $cfg  | ConvertFrom-Yaml -Ordered) `
+                                              -ConfigPath $cfg
+            Assert-True $res.Wrote 'file was rewritten (fields were missing)'
+            Assert-True ($res.Added -contains 'networkStorage.poolLocalPath') 'new schema field reported as added'
+            Assert-True ($res.Orphans -contains 'poolStorage.localPath') 'renamed-section old key reported as orphan'
+            Assert-True (-not (Test-Path "$cfg.backup")) 'additive enforcement leaves NO backup'
+
+            $onDisk = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
+            Assert-True ($onDisk.Contains('networkStorage')) 'new node written to disk'
+            Assert-Equal '' $onDisk.networkStorage.poolLocalPath 'new field is the empty default to fill in'
+            Assert-True ($onDisk.Contains('poolStorage')) 'operator old keys LEFT in place for hand-migration'
+            Assert-Equal 'y:' $onDisk.poolStorage.localPath 'old value preserved on disk (recoverable to copy across)'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'is a no-op (no rewrite) when the file already carries every schema field' {
+        $d = New-TempDir
+        try {
+            $tmpl = Join-Path $d 'template.yml'
+            Set-Content $tmpl "logLevel: Information`nnetworkStorage:`n  poolLocalPath: ''`n"
+            $cfg = Join-Path $d 'test.config.yml'
+            Set-Content $cfg "logLevel: Information`nnetworkStorage:`n  poolLocalPath: 'y:'`n"
+            $before = Get-Item -LiteralPath $cfg
+            $res = Add-MissingTestConfigField -Template (Get-Content -Raw $tmpl | ConvertFrom-Yaml -Ordered) `
+                                              -Current  (Get-Content -Raw $cfg  | ConvertFrom-Yaml -Ordered) `
+                                              -ConfigPath $cfg
+            Assert-True (-not $res.Wrote) 'nothing missing -> no rewrite'
+            Assert-Equal 0 $res.Added.Count 'no fields added'
+            Assert-Equal 0 $res.Orphans.Count 'no orphans'
+            Assert-Equal $before.LastWriteTimeUtc (Get-Item -LiteralPath $cfg).LastWriteTimeUtc 'file untouched on disk'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42f0a1b2-c3d4-4e56-9788-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -558,8 +558,8 @@ function Read-HostIdentityConfirm {
 }
 
 # Set-PoolStorageConfigValue round-trips test.config.yml (gitignored, per-host)
-# and writes the four poolStorage keys, preserving the rest of the document.
-# Returns $true on a successful write.
+# and writes the four POOL keys under the networkStorage node (preserving the
+# rest of the document, including any stash* keys). Returns $true on success.
 function Set-PoolStorageConfigValue {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -570,9 +570,9 @@ function Set-PoolStorageConfigValue {
         [Parameter(Mandatory)][string]$NetworkUser,
         [Parameter(Mandatory)][string]$LocalPath
     )
-    if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write poolStorage config')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write networkStorage (pool) config')) { return $false }
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
-        Write-Warning "poolStorage setup: powershell-yaml not available; cannot write $ConfigPath."
+        Write-Warning "networkStorage setup: powershell-yaml not available; cannot write $ConfigPath."
         return $false
     }
     try {
@@ -581,12 +581,15 @@ function Set-PoolStorageConfigValue {
             $doc = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered
         }
         if (-not ($doc -is [System.Collections.IDictionary])) { $doc = [ordered]@{} }
-        if (-not ($doc['poolStorage'] -is [System.Collections.IDictionary])) { $doc['poolStorage'] = [ordered]@{} }
-        $ps = $doc['poolStorage']
-        $ps['replicate']   = $Replicate
-        $ps['networkPath'] = $NetworkPath
-        $ps['networkUser'] = $NetworkUser
-        $ps['localPath']   = $LocalPath
+        if (-not ($doc['networkStorage'] -is [System.Collections.IDictionary])) { $doc['networkStorage'] = [ordered]@{} }
+        # networkReplicate is a pool behavior -> write it under the `pool` node;
+        # networkStorage carries only the path/credential keys.
+        if (-not ($doc['pool'] -is [System.Collections.IDictionary])) { $doc['pool'] = [ordered]@{} }
+        $doc['pool']['networkReplicate'] = $Replicate
+        $ps = $doc['networkStorage']
+        $ps['poolNetworkPath']  = $NetworkPath
+        $ps['poolNetworkUser']  = $NetworkUser
+        $ps['poolLocalPath']    = $LocalPath
         $yaml = ConvertTo-Yaml $doc
         $wrote = $false
         if (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue) {
@@ -596,7 +599,7 @@ function Set-PoolStorageConfigValue {
         if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
         return $true
     } catch {
-        Write-Warning "poolStorage setup: could not write $ConfigPath ($($_.Exception.Message))."
+        Write-Warning "networkStorage setup: could not write $ConfigPath ($($_.Exception.Message))."
         return $false
     }
 }
@@ -665,16 +668,16 @@ function Invoke-PoolStorageSetupAndReclaim {
     if ((Test-Path -LiteralPath $cfgPath) -and (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
         try {
             $cur = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Yaml -Ordered
-            if ($cur -is [System.Collections.IDictionary] -and $cur['poolStorage'] -is [System.Collections.IDictionary]) {
-                $curPath  = [string]$cur['poolStorage']['networkPath']
-                $curUser  = [string]$cur['poolStorage']['networkUser']
-                $curLocal = [string]$cur['poolStorage']['localPath']
+            if ($cur -is [System.Collections.IDictionary] -and $cur['networkStorage'] -is [System.Collections.IDictionary]) {
+                $curPath  = [string]$cur['networkStorage']['poolNetworkPath']
+                $curUser  = [string]$cur['networkStorage']['poolNetworkUser']
+                $curLocal = [string]$cur['networkStorage']['poolLocalPath']
             }
         } catch { $null = $_ }
     }
 
     Write-HostIdentityLine ''
-    Write-HostIdentityLine 'poolStorage (optional NAS replication + pool host-identity):'
+    Write-HostIdentityLine 'networkStorage pool (optional NAS replication + pool host-identity):'
     if ($uuidExists) {
         Write-HostIdentityLine "  This host already has a pool identity (runtime/host.uuid). Reclaim is not needed; you may still (re)configure NAS replication."
     } else {
@@ -691,7 +694,7 @@ function Invoke-PoolStorageSetupAndReclaim {
     if ([string]::IsNullOrWhiteSpace($networkPath)) { $networkPath = $curPath }
     $networkUser = Read-Host "  networkUser (storage-only NAS account)$(if ($curUser){" [$curUser]"})"
     if ([string]::IsNullOrWhiteSpace($networkUser)) { $networkUser = $curUser }
-    $localPath = Read-Host "  localPath (local mount point, e.g. /mnt/ypsp or 'y:')$(if ($curLocal){" [$curLocal]"})"
+    $localPath = Read-Host "  localPath (local mount point, e.g. /mnt/ypool-nas or 'y:')$(if ($curLocal){" [$curLocal]"})"
     if ([string]::IsNullOrWhiteSpace($localPath)) { $localPath = $curLocal }
 
     if ([string]::IsNullOrWhiteSpace($networkPath) -or [string]::IsNullOrWhiteSpace($networkUser) -or [string]::IsNullOrWhiteSpace($localPath)) {

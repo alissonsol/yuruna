@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.06.12  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.06.19  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -10,7 +10,7 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.12}"
+YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.19}"
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }

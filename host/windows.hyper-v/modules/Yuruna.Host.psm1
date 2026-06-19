@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.12
+.VERSION 2026.06.19
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,9 +140,9 @@ function Get-CacheVmCandidateIp {
              populated. Filtered by the VM's MAC across ALL host
              interfaces (Default Switch's vEthernet for guests on the
              internal NAT, plus the External-vSwitch vEthernet for the
-             caching-proxy VM after the External-vSwitch migration). The
-             MAC filter is sufficient -- it can only match neighbors of
-             this specific VM. Stale 'Permanent' entries across VM
+             caching-proxy VM on the External vSwitch). The MAC filter
+             is sufficient -- it can only match neighbors of this
+             specific VM. Stale 'Permanent' entries across VM
              rebuilds can map one MAC to multiple IPs; all returned so
              the caller's :3128 probe picks the live one.
     .OUTPUTS
@@ -1328,7 +1328,7 @@ Return the path to the shared caching-proxy TCP forwarder script.
 .DESCRIPTION
 Resolves host/macos.utm/Start-CachingProxyForwarder.ps1 against the
 repository root inferred from $PSScriptRoot. The forwarder script
-lives under host/macos.utm/ for historical reasons but is pure
+lives under host/macos.utm/ as the canonical copy but is pure
 PowerShell and runs unchanged on Windows.
 #>
 function Get-CachingProxyForwarderScriptPath {
@@ -2033,10 +2033,11 @@ public class HyperVCapture {
                 # Emitted at Write-Warning (not Write-Verbose) so the
                 # operator sees the troubleshooting pointer at the
                 # default log level -- Test-Sequence in particular runs
-                # interactively and silently-black framebuffers used to
-                # look like a Test-Sequence regression vs. the runner;
-                # surfacing the warning makes the host-side root cause
-                # (no monitor / RDP session / dummy plug) self-evident.
+                # interactively, where a silently-black framebuffer reads
+                # like a Test-Sequence regression rather than a host
+                # problem; surfacing the warning makes the host-side root
+                # cause (no monitor / RDP session / dummy plug)
+                # self-evident.
                 if (-not $script:__YurunaHyperVBlankWarned -and
                     [HyperVCapture]::IsImageMostlyBlack(
                         [byte[]]$result.ImageData, [int]$reqW, [int]$reqH, 0.99)) {

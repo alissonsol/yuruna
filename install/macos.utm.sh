@@ -21,6 +21,13 @@ die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 [[ "$(uname -s)" == "Darwin" ]] || die "This installer only supports macOS."
 [[ $EUID -ne 0 ]] || die "Do not run as root. The script will call sudo when needed."
 
+# -- Preflight: Apple Silicon required (HARD gate) -------------------------
+# Architecture is a hard incompatibility, not a tunable performance baseline:
+# the guest VMs are arm64 images and Homebrew publishes no x86_64 bottles for
+# the required formulae/casks (qemu, tesseract, UTM, ...). Fail up front with
+# an actionable message instead of part-way through the brew package phase.
+[[ "$(uname -m)" == "arm64" ]] || die "This installer requires Apple Silicon (arm64). This Mac reports '$(uname -m)', which cannot run the arm64 test VMs or install the required Homebrew arm64 bottles (qemu, tesseract, UTM)."
+
 log "Yuruna macOS installer starting"
 log "  repo   : $YURUNA_REPO ($YURUNA_BRANCH)"
 log "  target : $YURUNA_DIR"
@@ -34,10 +41,7 @@ preflight_system_requirements() {
   if [[ -z "${osmajor:-}" || ! "$osmajor" =~ ^[0-9]+$ || "$osmajor" -lt 26 ]]; then
     issues+=("macOS ${osver:-unknown} detected (need 26+)")
   fi
-  arch=$(uname -m)
-  if [[ "$arch" != "arm64" ]]; then
-    issues+=("architecture '$arch' detected (need arm64 -- Apple Silicon)")
-  fi
+  arch=$(uname -m)   # guaranteed arm64 by the hard gate above; kept for the summary line
   cores=$(sysctl -n hw.physicalcpu 2>/dev/null || echo 0)
   if (( cores < 16 )); then
     issues+=("$cores physical cores detected (need 16+)")
@@ -176,6 +180,13 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 # accumulate across the half-dozen brew ops in this script. Cosmetic;
 # the install works either way.
 export HOMEBREW_NO_ENV_HINTS=1
+# NONINTERACTIVE=1 keeps `brew install` / `brew upgrade` / `--cask` from
+# blocking on interactive confirmation prompts (e.g. a cask overwrite or
+# post-install confirmation) during the package phase. It is set inline
+# ABOVE only for the Homebrew bootstrap; without exporting it here the
+# per-package ops can stop and wait for a 'y'. The sudo keepalive already
+# handles the password, so this only suppresses Homebrew's own prompts.
+export NONINTERACTIVE=1
 
 BREW_SKIP_UPDATE=0
 if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then

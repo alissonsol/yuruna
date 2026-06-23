@@ -663,11 +663,13 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
             $recloneRemote = if ($actualRemote) { $actualRemote } else { $YurunaRepo }
             Write-Step "Cloning fresh Yuruna into $YurunaDir from $recloneRemote"
             & $gitExe clone --branch $YurunaBranch $recloneRemote $YurunaDir
+            if ($LASTEXITCODE -ne 0) { Write-Die "git clone --branch $YurunaBranch failed (exit $LASTEXITCODE) -- the branch/tag '$YurunaBranch' may not exist on $recloneRemote. No checkout was created." }
         }
     }
 } else {
     Write-Step "Cloning Yuruna into $YurunaDir from $YurunaRepo"
     & $gitExe clone --branch $YurunaBranch $YurunaRepo $YurunaDir
+    if ($LASTEXITCODE -ne 0) { Write-Die "git clone --branch $YurunaBranch failed (exit $LASTEXITCODE) -- the branch/tag '$YurunaBranch' may not exist on $YurunaRepo. No checkout was created." }
 }
 
 # -- Renormalize line endings under .gitattributes -------------------------

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42a7b8c9-d0e1-4f23-9456-7e8f9a0b1c20
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -259,7 +259,7 @@ function Get-TestVMName {
         [string]$HostId
     )
     $stem = ($GuestKey -replace '^guest\.', '') -replace '\.', '-'
-    # Pool (Phase 4): an 8-hex HostId segment scopes the VM name to this host so
+    # Pool: an 8-hex HostId segment scopes the VM name to this host so
     # multiple pool members on a SHARED store never collide. ABSENT (legacy /
     # single-host) -> byte-identical to the old name. The segment is alphanumeric,
     # satisfying the per-host New-VM.ps1 name validator.

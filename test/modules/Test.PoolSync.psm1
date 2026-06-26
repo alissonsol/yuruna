@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -235,7 +235,7 @@ function Write-YurunaPoolState {
 }
 
 # Write-YurunaPoolManifest persists the resolved pool's TEST-SET assignment to
-# runtime/pool.manifest.json so the FRESH inner-runner process (Phase 4) can drive
+# runtime/pool.manifest.json so the FRESH inner-runner process can drive
 # the cycle from the pool's test-sets instead of test.runner.yml. Atomic write,
 # same cross-process channel as pool.state.json. When the pool is $null OR has no
 # test-sets, any stale manifest is DELETED so the inner falls back to single-host
@@ -350,7 +350,7 @@ function Sync-YurunaPoolIntent {
         ConvertTo-PoolGatingRecord -Gating $pool['gating']
     } else { $null }
     $null = Write-YurunaPoolState -PoolId $poolId -DesiredState $state -IntentOk:$pullOk -Gating $gating -Confirm:$false
-    # Phase 4: publish (or clear, when this host is unpooled / the pool has no
+    # Publish (or clear, when this host is unpooled / the pool has no
     # test-sets) the resolved test-set assignment for the inner runner.
     $null = Write-YurunaPoolManifest -Pool $pool -Confirm:$false
     return $pool

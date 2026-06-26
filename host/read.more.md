@@ -56,6 +56,6 @@ Then `ssh <user>@<ip>` (Linux) or `mstsc /v:<ip>` / `ssh User@<ip>`
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.19
+Last review: 2026.06.26
 
 Back to [Yuruna](../README.md)

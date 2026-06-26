@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.19
+# Version: 2026.06.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -36,7 +36,6 @@ sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
 
 apt_retry sudo apt-get update -y
 
-# Install PostgreSQL 18 server and contrib modules
 apt_retry sudo apt-get install -y postgresql-18 postgresql-contrib-18
 
 # Stop PostgreSQL if running and wait for full shutdown before re-creating cluster

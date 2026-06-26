@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -187,7 +187,7 @@ $env:YURUNA_KEYSTROKE_MECHANISM = $script:DefaultKeystrokeMechanism
 $env:YURUNA_ALLOW_GUI_FALLBACK = if ($script:AllowGuiFallback) { 'true' } else { 'false' }
 Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
 
-# Phase 4: per-guest keystroke mechanism. The pool runner switches GUI<->SSH per
+# Per-guest keystroke mechanism. The pool runner switches GUI<->SSH per
 # guest (test-set perGuestOverrides.keystrokeMechanism). Both reads of the
 # mechanism -- the engine's direct $script:DefaultKeystrokeMechanism (path
 # resolution below) AND Get-SequenceMode's $env:YURUNA_KEYSTROKE_MECHANISM (the

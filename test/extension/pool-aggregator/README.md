@@ -236,4 +236,4 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.19
+Last review: 2026.06.26

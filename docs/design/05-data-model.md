@@ -7,7 +7,8 @@ See [Design overview](00-index.md) · [Yuruna Architecture](../architecture.md).
 
 Derived from `yuruna-project/{example,template}/<project>/`,
 `automation/Set-*` (which read `config/<cloud>/*.yml`), `test/test.config.yml`,
-and the `test/extension/authentication` + `notification` vault templates.
+and the `test/extension/{authentication,notification}` configs validated by
+`test/schemas/{users,vault,notification.transports}.schema.yml`.
 No secret values appear here — only field names.
 
 ## Project deploy data model
@@ -52,8 +53,9 @@ erDiagram
 ```mermaid
 erDiagram
     TEST_CONFIG ||--o{ GUEST : guestSequence
-    TEST_CONFIG ||--|| VAULT_USERS : "authentication ext"
+    TEST_CONFIG ||--|| USERS_MAP : "authentication ext"
     TEST_CONFIG ||--|| TRANSPORTS : "notification ext"
+    USERS_MAP ||--o{ VAULT_ENTRY : "vaultKey / localOsPasswordRef"
     GUEST ||--o{ STATUS_EVENT : "cycle events"
 
     TEST_CONFIG {
@@ -70,15 +72,21 @@ erDiagram
         string hostType
         string vmName
     }
-    VAULT_USERS {
-        string user
+    USERS_MAP {
+        bool strict
+        string localOsUser
+        map corporate "domain sam upn"
+        string vaultKey
+        string localOsPasswordRef
+    }
+    VAULT_ENTRY {
         string password
         string previousPassword
         datetime updatedUtc
     }
     TRANSPORTS {
-        string transport
-        string address
+        map transports "resend apiKey fromEmail"
+        map subscribers "event transport address"
     }
     STATUS_EVENT {
         string event
@@ -87,8 +95,14 @@ erDiagram
     }
 ```
 
+`USERS_MAP` (`users.yml`) maps each logical sequence username to a login
+identity; its `vaultKey` / `localOsPasswordRef` resolve into `VAULT_ENTRY`
+(`vault.yml`), the per-cycle secret store wiped on cycle success. `TRANSPORTS`
+(`transports.yml`) pairs provider credentials (`transports.resend`) with
+per-event-code `subscribers`. Six entities — within the [≤7 rule](00-index.md#the-7-rule-grouping-decisions).
+
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.19
+Last review: 2026.06.26

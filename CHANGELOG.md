@@ -4,6 +4,20 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.06.26
+
+- **Slip-proof release tagging.** The release tool now creates, pushes, and
+  validates the bare-CalVer tag itself (read from `VERSION`, never hand-typed;
+  refuses a `v`-prefixed variant or a moved tag), and the installers resolve a
+  pinned tag whether it was published with or without a `v` prefix — closing a
+  tag-drift break that may break one-line installs. See
+  [release.md](tools/release.md) and [install.md](docs/install.md).
+- **Installer and fetch resilience.** Transient-HTTP retries now cover bare
+  `500`s on helm/kubectl/tofu fetches, in-guest Kubernetes install steps retry,
+  and the three platform installers are hardened (arm64 hard gate, brew
+  `NONINTERACTIVE`, Windows `git clone` exit-code checks). See
+  [install.md](docs/install.md) and [opportunities-installer.md](docs/opportunities-installer.md).
+
 ## 2026.06.19
 
 - **Stash Service available.** The Stash Service is functional end-to-end — start
@@ -69,6 +83,6 @@ tagged release.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.19
+Last review: 2026.06.26
 
 Back to [Yuruna](README.md)

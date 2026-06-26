@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,10 +120,10 @@ function Add-CyclePrereqChainEntry {
 }
 
 # Shared per-top-level entry builder for Resolve-CyclePlan (legacy) AND
-# Resolve-TestSetCyclePlan (pool, Phase 4). Resolves one top-level sequence into
+# Resolve-TestSetCyclePlan (pool). Resolves one top-level sequence into
 # one (topLevel, guestKey, chain, cascade) entry per supported guest OS and
 # appends them to $Entries. The two callers differ only in the SOURCE of the
-# top-level list and in the optional Phase-4 args:
+# top-level list and in the optional pool args:
 #   -PerGuestOverrides: per-guestKey {keystrokeMechanism, username, variables}
 #       layered ON TOP of the chain cascade (override wins); keystrokeMechanism is
 #       tagged on the entry for the runner to thread per guest.
@@ -158,7 +158,7 @@ function Add-CyclePlanEntriesForTopLevel {
     }
     foreach ($osKey in $topSeq.baseline.Keys) {
         $guestKey = "guest.$osKey"
-        # Pool-planner host filter (Phase 4): a host emits only the guests it can run.
+        # Pool-planner host filter: a host emits only the guests it can run.
         if ($null -ne $RestrictGuests -and ($RestrictGuests -notcontains $guestKey)) { continue }
         $chain   = New-Object System.Collections.Generic.List[string]
         $visited = [System.Collections.Generic.HashSet[string]]::new()
@@ -191,7 +191,7 @@ function Add-CyclePlanEntriesForTopLevel {
                 $effectiveVars[$vk] = $vv
             }
         }
-        # Phase 4 per-guest overrides layer ON TOP of the cascade (override wins).
+        # Per-guest overrides layer ON TOP of the cascade (override wins).
         # keystrokeMechanism is tagged on the entry (not a variable) so the runner
         # can switch the dispatch mode for this guest's VM lifecycle.
         $guestKsm = $null
@@ -393,7 +393,7 @@ function Get-CyclePlanSequencesForGuest {
     # surfaced separately because every guest needs one for New-VM.
     $mergedVars     = [ordered]@{}
     $mergedUsername = ''
-    # Phase 4: per-guest keystrokeMechanism (set only on pool/test-set plans). First
+    # Per-guest keystrokeMechanism (set only on pool/test-set plans). First
     # non-null across this guest's entries wins -- same first-appearance rule as
     # effectiveUsername. $null on the legacy single-host path (the field is absent
     # or null there), so the runner inherits the global default.

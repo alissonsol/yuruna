@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.19
+# Version: 2026.06.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -34,7 +34,6 @@ if sudo systemctl is-active postgresql &>/dev/null; then
   done
 fi
 
-# Install PostgreSQL 17 server and contrib modules
 # PostgreSQL packages are available for both x86_64 and aarch64 via dnf
 dnf_retry sudo dnf install -y postgresql17-server postgresql17-contrib
 

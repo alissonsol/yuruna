@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -561,7 +561,7 @@ function Invoke-RunnerOuterLoop {
             Write-Warning "[outer cycle $cycle] poolStorage drain spawn error (non-fatal): $($_.Exception.Message)"
         }
 
-        # === pool push forwarder (Phase 6, best-effort, DETACHED) ===
+        # === pool push forwarder (best-effort, DETACHED) ===
         # Ship this cycle's NDJSON events to the aggregator's /ingest so they reach Loki
         # without waiting for the next 30s pull. Runs in its OWN detached process (same
         # idiom as the drain) so a slow/absent aggregator can NEVER delay the next cycle

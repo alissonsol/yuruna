@@ -43,7 +43,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.06.19`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.06.26`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` flips the three installers'
 `YURUNA_BRANCH` default from `main` to the release tag (pinning the clone),
 regenerates `install/install.sha256`, signs it (`install/install.sha256.sig`,
@@ -664,6 +664,6 @@ the first run.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.19
+Last review: 2026.06.26
 
 Back to [Yuruna](../README.md)

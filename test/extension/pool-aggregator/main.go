@@ -8,7 +8,7 @@
 // that pulls packages/images through the proxy shows up there -- then probes
 // each recent client IP's status server (/runtime/status.json) and keeps the
 // ones that answer. Discovery yields IPs, but IDENTITY is the stable hostId
-// (Phase 0's runtime/host.uuid), so the design is robust to a DHCP-served LAN:
+// (runtime/host.uuid), so the design is robust to a DHCP-served LAN:
 //   * a host that changes IP simply reappears at the new IP and resolves to the
 //     SAME hostId (one pool member, not two);
 //   * one host that cycles through many IPs over a short (e.g. 30-min) DHCP
@@ -244,7 +244,7 @@ type poolState struct {
 	gating       map[string]gatingPolicy   // pool -> authored gating policy (key present = authored)
 	poolGate     map[string]*poolGateState // pool -> advisory degraded/alert latch
 	last         time.Time
-	// Phase 6 push-ingest: the shared bearer token gating POST /ingest (empty ->
+	// Push-ingest: the shared bearer token gating POST /ingest (empty ->
 	// ingest disabled, never an unauthenticated write route), plus the Loki push URL
 	// + client the handler needs (set once in main before the server starts; not
 	// mutated under mu).
@@ -2279,7 +2279,7 @@ func main() {
 	}()
 
 	// TLS activates only when both cert + key name readable, non-empty files; a
-	// missing/empty pair degrades gracefully to plain HTTP (byte-identical to Phase 5),
+	// missing/empty pair degrades gracefully to plain HTTP,
 	// so a proxy provisioned without the leaf still runs. crypto/tls is stdlib -> the
 	// Windows toolchain still cross-builds this.
 	useTLS := fileReadable(*tlsCert) && fileReadable(*tlsKey)

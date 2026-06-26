@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -881,7 +881,7 @@ while ($true) {
     $plannerFatal     = $false
     $script:PoolCycle = $false
     try {
-        # Phase 4: a pooled host drives the cycle from its pool's assigned test-sets
+        # A pooled host drives the cycle from its pool's assigned test-sets
         # (runtime/pool.manifest.json, written by the outer loop's Sync-YurunaPoolIntent)
         # instead of test.runner.yml. Resolve-PoolCyclePlan returns $null when this
         # host has no manifest or no runnable guest for any assigned set -> fall
@@ -1013,7 +1013,7 @@ while ($true) {
         }
     }
     $Prefix = $Config.vmStart.testVmNamePrefix ?? "test-"
-    # Phase 4: on a POOL cycle, scope VM names by this host's id so pool members
+    # On a POOL cycle, scope VM names by this host's id so pool members
     # sharing a store never collide; the single-host path passes '' for a
     # byte-identical name. Also capture the cycle's baseline keystroke mechanism so
     # per-guest overrides can be applied + reset between guests below.
@@ -1349,7 +1349,7 @@ while ($true) {
         $script:ActiveVMName = $VMName
         Write-Output ""
         Write-Output "== $GuestKey (VM: $VMName) =="
-        # Phase 4: switch the dispatch mechanism for this guest's VM lifecycle when
+        # Switch the dispatch mechanism for this guest's VM lifecycle when
         # its test-set declares a per-guest keystrokeMechanism; else the cycle
         # baseline. Set once here -- before Start-GuestOS resolves any sequence -- so
         # both Start-GuestOS and Start-GuestWorkload see it, and reset to the baseline

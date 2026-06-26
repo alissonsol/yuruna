@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.19
+# Version: 2026.06.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -293,10 +293,21 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kub
 
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
 
-# Helm (official install script)
 echo ""
 echo -e "\e[1;36m==== Helm ====\e[0m"
-curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash || true
+# get-helm-3 downloads the helm binary from get.helm.sh using its own
+# un-retried curl/wget, so a single transient blip leaves helm
+# uninstalled. Capture the script, run it under _yuruna_retry, then
+# verify the binary landed: a swallowed failure here otherwise surfaces
+# far away as a `helm: not recognized` abort in the k8s.website workload.
+curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/get-helm-3.sh
+chmod +x /tmp/get-helm-3.sh
+_yuruna_retry helm_install /tmp/get-helm-3.sh || true
+rm -f /tmp/get-helm-3.sh
+if ! command -v helm >/dev/null 2>&1; then
+    echo "ERROR: Helm install failed; downstream chart-based workloads (helm repo add / upgrade) will fail at Set-Workload." >&2
+    exit 1
+fi
 
 # OpenTofu: deb install (primary) with standalone fallback, then verify.
 # The deb method fetches the signing key from get.opentofu.org and the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,11 +30,24 @@
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git\yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
-    [string]$YurunaBranch = '2026.06.19',
-    [switch]$SkipPreflight
+    [string]$YurunaBranch = '2026.06.26',
+    [switch]$SkipPreflight,
+    # On-disk transcript for this run. Generated once at first launch and
+    # forwarded verbatim through every relaunch so all stages append to one
+    # file. Operators do not normally pass this.
+    [string]$LogPath
 )
 
 $ErrorActionPreference = 'Stop'
+# This installer drives native tools (winget, git, dism) that signal status via
+# their EXIT CODE, not exceptions, and several are EXPECTED to exit non-zero
+# (`git diff-index --quiet` on a dirty tree, `winget upgrade` on an already-
+# current package). Every call that matters checks $LASTEXITCODE explicitly.
+# On PowerShell 7.4+ $PSNativeCommandUseErrorActionPreference can be $true, which
+# turns ANY non-zero native exit into a terminating error under EAP=Stop and
+# would abort the install on those benign cases. Pin it off so behaviour does
+# not depend on the host's PowerShell default. (Harmless no-op on PS 5.1.)
+$PSNativeCommandUseErrorActionPreference = $false
 
 $script:YurunaRepoPublic  = 'https://github.com/alissonsol/yuruna.git'
 $script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
@@ -42,6 +55,65 @@ $script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
 function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
 function Write-Die  { param([string]$m) Write-Error $m }
+
+# -- Install logging -------------------------------------------------------
+# The elevated relaunch runs in a SEPARATE console window that vanishes the
+# instant the script ends or dies, so a mid-install failure there leaves
+# nothing on screen to read. Transcript every elevated stage to a file under a
+# standard, discoverable location (%ProgramData%\Yuruna\logs, falling back to
+# %TEMP%) so the failure can be inspected after the window is gone. The path is
+# generated ONCE and forwarded through every relaunch via -LogPath, so the line
+# printed before the UAC relaunch names the exact file the elevated window
+# writes, and every stage appends to that one file.
+$script:InstallLogActive = $false
+
+function Resolve-InstallLogPath {
+    [OutputType([string])]
+    param([string]$Provided)
+    if ($Provided) { return $Provided }
+    $baseDir = $null
+    foreach ($candidate in @((Join-Path $env:ProgramData 'Yuruna\logs'),
+                             (Join-Path $env:TEMP 'yuruna-install-logs'))) {
+        if (-not $candidate) { continue }
+        try {
+            if (-not (Test-Path -LiteralPath $candidate)) {
+                New-Item -ItemType Directory -Path $candidate -Force -ErrorAction Stop | Out-Null
+            }
+            $baseDir = $candidate
+            break
+        } catch { continue }
+    }
+    if (-not $baseDir) { $baseDir = $env:TEMP }
+    return (Join-Path $baseDir ('windows.hyper-v.install.{0}.log' -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
+}
+
+function Start-InstallLog {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Best-effort transcript toggle; -WhatIf is meaningless and the install must proceed even if logging fails.')]
+    param([string]$Path)
+    if (-not $Path -or $script:InstallLogActive) { return }
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+    try {
+        Start-Transcript -Path $Path -Append -ErrorAction Stop | Out-Null
+        $script:InstallLogActive = $true
+    } catch {
+        Write-Warning "Could not start install transcript at ${Path}: $($_.Exception.Message)"
+    }
+}
+
+function Stop-InstallLog {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Best-effort transcript toggle; -WhatIf is meaningless.')]
+    param()
+    if (-not $script:InstallLogActive) { return }
+    try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { $null = $_ }
+    $script:InstallLogActive = $false
+}
+
+$LogPath = Resolve-InstallLogPath -Provided $LogPath
 
 # -- Preflight: Windows only -----------------------------------------------
 if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
@@ -224,6 +296,7 @@ if (-not $PSCommandPath) {
     if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $matArgs += @('-YurunaDir',    "`"$YurunaDir`"") }
     if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $matArgs += @('-YurunaRepo',   "`"$YurunaRepo`"") }
     if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $matArgs += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    $matArgs += @('-LogPath', "`"$LogPath`"")   # forward the one log file to every stage
     & $currentShellExe $matArgs
     return
 }
@@ -259,8 +332,25 @@ if (-not $isAdmin) {
     if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
     if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
     if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    $argList += @('-LogPath', "`"$LogPath`"")
+    # The elevated window closes the moment it finishes or fails, so name the
+    # log file here -- in THIS window, which stays open -- before launching it.
+    Write-Step ''
+    Write-Step 'The elevated window will write a full install log to:'
+    Write-Step "    $LogPath"
+    Write-Step 'If that window closes before finishing, open that file to see where it stopped.'
+    Write-Step ''
     Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList $argList
     return
+}
+
+# Elevated from here on. Begin the on-disk transcript so a failure in this
+# window (which closes on exit) is recoverable afterwards, and echo the path.
+Start-InstallLog -Path $LogPath
+if ($script:InstallLogActive) {
+    Write-Step "Logging this elevated session to: $LogPath"
+} else {
+    Write-Warn "Proceeding WITHOUT an install transcript (could not open $LogPath)."
 }
 
 Write-Step "Yuruna Windows installer starting"
@@ -288,7 +378,19 @@ Microsoft Store (or update Windows) and re-run this script.
             Write-Die "winget install Microsoft.PowerShell exited $LASTEXITCODE. Re-run after resolving the winget source error shown above (e.g. 'winget source reset --force' from an elevated prompt)."
         }
     } else {
-        Write-Step '  PowerShell 7 already installed (winget reports present)'
+        # Safe to UPGRADE here: this stage runs under Windows PowerShell
+        # (powershell.exe), a different binary from the pwsh.exe being
+        # replaced, so the upgrade can't terminate the running process. (The
+        # main package loop below runs UNDER pwsh and must NOT upgrade it --
+        # see the Microsoft.PowerShell self-upgrade guard there.) Best-effort:
+        # winget upgrade exits non-zero when nothing is outdated, which is not
+        # a failure, so don't gate on $LASTEXITCODE.
+        Write-Step '  PowerShell 7 already installed -- upgrading if outdated'
+        winget upgrade --id 'Microsoft.PowerShell' --exact --silent --source winget `
+            --accept-package-agreements --accept-source-agreements `
+            --disable-interactivity 2>&1 |
+            Where-Object { $_ -notmatch 'No applicable upgrade|No installed package' } |
+            ForEach-Object { Write-Output "     $_" }
     }
     $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
                 [Environment]::GetEnvironmentVariable('Path','User')
@@ -307,32 +409,172 @@ re-run this installer.
     if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
     if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
     if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    $argList += @('-LogPath', "`"$LogPath`"")
+    # Hand the transcript off to the PS7 child (it re-opens the same file with
+    # -Append); release our handle first so its Start-Transcript does not
+    # collide on the open file.
+    Stop-InstallLog
     & $pwshCmd.Source $argList
     return
 }
 
-# -- Stop running Yuruna processes -----------------------------------------
-function Stop-YurunaProcess {
-    [CmdletBinding(SupportsShouldProcess)]
-    param()
-    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestInnerRunner.ps1','Test-Sequence.ps1','Start-StatusService.ps1')
-    foreach ($pat in $patterns) {
-        $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine -like "*$pat*" -and $_.ProcessId -ne $PID }
-        foreach ($p in $procs) {
-            Write-Step "  stopping $pat (pid $($p.ProcessId))"
-            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+# -- Status-port lookup (lightweight YAML scan) ----------------------------
+# Read statusService.port from test.config.yml WITHOUT powershell-yaml: the
+# module may not be installed yet at this point in the bootstrap. Returns 0
+# when the file/key is absent so the caller falls back to the 8080 default.
+function Get-StatusServicePort {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+    try {
+        $lines = Get-Content -LiteralPath $ConfigPath -ErrorAction Stop
+    } catch {
+        Write-Verbose "Could not read $ConfigPath for status port: $($_.Exception.Message)"
+        return 0
+    }
+    $inBlock = $false
+    foreach ($line in $lines) {
+        if ($line -match '^\s*#') { continue }
+        if ($line -match '^statusService:\s*$') { $inBlock = $true; continue }
+        if ($inBlock) {
+            if ($line -match '^\S') { break }                 # next top-level key ends the block
+            if ($line -match '^\s+port:\s*(\d+)') { return [int]$Matches[1] }
         }
     }
-    try {
-        $conns = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
-        foreach ($c in $conns) {
-            if ($c.OwningProcess -and $c.OwningProcess -ne $PID) {
-                Write-Warn "  freeing port 8080 (pid $($c.OwningProcess))"
-                Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
-            }
+    return 0
+}
+
+# -- Stop running Yuruna host services -------------------------------------
+# Force-stop anything that would hold the checkout open or block the upgrade
+# (the outer runner, its per-cycle inner pwsh, and the detached status HTTP
+# server), then WAIT for it to actually exit before the caller renames the
+# checkout aside.
+#
+# Hyper-V VMs (the yuruna-caching-proxy cache) are NEVER touched here: they
+# run under vmwp.exe parented to the Hyper-V management service, not as
+# children of the runner, so the process-tree kill below never reaches them,
+# and this installer issues no Stop-VM / Remove-VM.
+#
+# Three resolution channels, union-ed so a service is caught even when one
+# channel misses it:
+#   1. The PID files the runner/server themselves write (runner.pid,
+#      inner.pid, server.pid under the runtime dir). Authoritative, and
+#      readable even when the process's WMI CommandLine is not -- a runner
+#      started under a different account (e.g. a dedicated "Yuruna Test"
+#      user) reports an EMPTY Win32_Process.CommandLine to this installer, so
+#      the command-line sweep (channel 2) silently skips it; the PID file
+#      does not.
+#   2. Command-line pattern match -- catches an ad-hoc runner started outside
+#      the managed runtime dir, whose PID-file location we can't predict.
+#      Includes the detached server's generated script name
+#      (.status-service.ps1), which does NOT contain "Start-StatusService.ps1".
+#   3. The status port's listening owner (configured port + the 8080 default).
+#
+# Every target is terminated with its whole child tree via `taskkill /T /F`.
+# /F is a hard TerminateProcess -- NOT the soft console Ctrl+C that a bare
+# taskkill (or a stray ^C) sends, which only flips the runner into "exit
+# after the current cycle" graceful shutdown. That graceful path can take
+# many minutes (a full VM cycle) to actually exit, and pins the checkout the
+# whole time -- the exact "the install proceeds while the runner is still
+# up" failure this guards against.
+function Stop-YurunaProcess {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$YurunaDir)
+
+    $candidatePids = New-Object System.Collections.Generic.List[int]
+
+    # (1) PID files under the runtime dir (env override wins, else the
+    #     <testRoot>/status/runtime default the runner uses).
+    $runtimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR }
+                  elseif ($YurunaDir) { Join-Path $YurunaDir 'test\status\runtime' }
+                  else { $null }
+    if ($runtimeDir -and (Test-Path -LiteralPath $runtimeDir)) {
+        foreach ($pidName in 'runner.pid','inner.pid','server.pid') {
+            $pidFile = Join-Path $runtimeDir $pidName
+            if (-not (Test-Path -LiteralPath $pidFile)) { continue }
+            try {
+                $raw = (Get-Content -LiteralPath $pidFile -Raw -ErrorAction Stop).Trim()
+                $n = 0
+                if ([int]::TryParse($raw, [ref]$n)) { $candidatePids.Add($n) }
+            } catch { Write-Verbose "Could not read ${pidFile}: $($_.Exception.Message)" }
         }
-    } catch { Write-Verbose "port 8080 check skipped: $($_.Exception.Message)" }
+    }
+
+    # (2) Command-line pattern match.
+    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestInnerRunner.ps1','Test-Sequence.ps1','Start-StatusService.ps1','.status-service.ps1')
+    foreach ($pat in $patterns) {
+        $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -like "*$pat*" }
+        foreach ($p in $procs) { $candidatePids.Add([int]$p.ProcessId) }
+    }
+
+    # (3) Status-port listener(s): the configured port plus the 8080 default.
+    $ports = New-Object System.Collections.Generic.List[int]
+    $ports.Add(8080)
+    if ($YurunaDir) {
+        $cfg = Join-Path $YurunaDir 'test\test.config.yml'
+        if (Test-Path -LiteralPath $cfg) {
+            $configuredPort = Get-StatusServicePort -ConfigPath $cfg
+            if ($configuredPort -gt 0) { $ports.Add($configuredPort) }
+        }
+    }
+    foreach ($port in ($ports | Select-Object -Unique)) {
+        try {
+            $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+            foreach ($c in $conns) { if ($c.OwningProcess) { $candidatePids.Add([int]$c.OwningProcess) } }
+        } catch { Write-Verbose "port $port check skipped: $($_.Exception.Message)" }
+    }
+
+    # Never target our own process; dedupe so a service found via two channels
+    # is killed once.
+    $targetPids = @($candidatePids | Where-Object { $_ -gt 0 -and $_ -ne $PID } | Select-Object -Unique)
+    if ($targetPids.Count -eq 0) {
+        Write-Step '  no running Yuruna runner / status server found'
+        return
+    }
+
+    foreach ($targetPid in $targetPids) {
+        $proc  = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+        if (-not $proc) { continue }   # already gone (e.g. killed as a child of an earlier target's tree)
+        # Identity-validate: only stop actual PowerShell processes (the runner /
+        # inner / status server are all pwsh). A PID read from a stale PID file
+        # may have been recycled by the OS to an unrelated process -- never
+        # taskkill /T /F an innocent recycled PID's whole tree.
+        if ($proc.ProcessName -notmatch '^(pwsh|powershell)$') {
+            Write-Verbose "  skipping pid $targetPid ($($proc.ProcessName)) -- not a PowerShell process (stale/recycled PID file?)"
+            continue
+        }
+        $label = "$($proc.ProcessName) (pid $targetPid)"
+        if (-not $PSCmdlet.ShouldProcess($label, 'Force-stop Yuruna service and its child processes')) { continue }
+        Write-Step "  stopping $label and its child processes"
+        # taskkill /T /F hard-terminates the whole tree. Guard the native call:
+        # taskkill exits 128 when the PID is already gone (it may have died as a
+        # child of an earlier target's /T tree), and under this script's
+        # $ErrorActionPreference='Stop' + $PSNativeCommandUseErrorActionPreference
+        # (default $true on PS 7.4+) a non-zero native exit throws -- which would
+        # abort the whole install. Swallow it and fall back to Stop-Process.
+        try {
+            & taskkill.exe /PID $targetPid /T /F *>$null
+        } catch {
+            Write-Verbose "taskkill /PID $targetPid failed ($($_.Exception.Message)); falling back to Stop-Process."
+            Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Wait for every target to actually exit before returning -- the caller
+    # renames the checkout aside next (Assert-YurunaCheckoutMovable + the
+    # update/re-clone), which fails while any of these still holds a handle
+    # inside the tree.
+    $deadline = (Get-Date).AddSeconds(20)
+    $alive = @()
+    do {
+        $alive = @($targetPids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+        if ($alive.Count -eq 0) { break }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+    if ($alive.Count -gt 0) {
+        Write-Warn "  PID(s) $($alive -join ', ') did not exit within 20s and may still hold the checkout; re-run the installer if the update step reports the checkout is in use."
+    }
 }
 
 # -- Preflight: the checkout is not held open ------------------------------
@@ -403,8 +645,8 @@ if (Test-CachingProxyRunning) {
     Write-Step 'yuruna-caching-proxy VM is running -- preserving cached content (no Stop-VM / Remove-VM in this installer)'
 }
 
-Write-Step 'Stopping anything that would block an upgrade'
-Stop-YurunaProcess
+Write-Step 'Stopping anything that would block an upgrade (runner + status server; VMs preserved)'
+Stop-YurunaProcess -YurunaDir $YurunaDir
 
 Write-Step 'Checking the Yuruna checkout is not locked by a shell / editor / Explorer'
 Assert-YurunaCheckoutMovable -Dir $YurunaDir
@@ -441,7 +683,18 @@ function Install-WingetPackage {
 
 # -- Install platform packages ---------------------------------------------
 Write-Step 'Installing / upgrading required packages via winget'
-Install-WingetPackage -Id 'Microsoft.PowerShell'              -FriendlyName 'PowerShell 7'
+# PowerShell 7 itself: do NOT `winget upgrade` the interpreter we are running
+# under. winget's MSI uses the Restart Manager to close every process holding
+# pwsh's files open -- including THIS one -- which terminates the installer
+# mid-step (the runspace dies with "The pipeline has been stopped"). PS7 is
+# installed-if-missing and upgraded-if-present in the bootstrap stage above,
+# which runs under Windows PowerShell and is therefore safe to replace pwsh
+# from. An in-place upgrade of the live pwsh has to come from another process.
+if ($PSVersionTable.PSEdition -eq 'Core') {
+    Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)) -- skipping its winget upgrade (would terminate this installer). Update it later from Windows PowerShell or a separate window: winget upgrade --id Microsoft.PowerShell"
+} else {
+    Install-WingetPackage -Id 'Microsoft.PowerShell'          -FriendlyName 'PowerShell 7'
+}
 Install-WingetPackage -Id 'Git.Git'                           -FriendlyName 'Git (brings openssl.exe used by Ubuntu guest New-VM.ps1 password hashing)'
 Install-WingetPackage -Id 'Microsoft.WindowsADK'              -FriendlyName 'Windows ADK (Deployment Tools / oscdimg)'
 Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img for guest.caching-proxy/Get-Image.ps1)'
@@ -571,6 +824,44 @@ function Restore-YurunaStatus {
 
 Backup-YurunaStatus
 
+# -- Tolerate a v / no-v tag mismatch --------------------------------------
+# Canonical Yuruna release tags are BARE CalVer (YYYY.MM.DD, no 'v'); the
+# release tool (tools/Update-YurunaReleasePins.ps1) validates VERSION as bare
+# CalVer and refuses to create a 'v'-variant. But a human or a tool (or a
+# -YurunaBranch arg) can still ask for the wrong form -- a recommended
+# 'v2026.06.19' when only '2026.06.19' was tagged is exactly what broke a past
+# install. If the requested ref is CalVer-shaped and does NOT resolve on the
+# remote but its v-toggled variant DOES, switch to the variant so the mismatch
+# self-heals instead of failing the clone. Non-CalVer refs (e.g. 'main') and
+# refs that already resolve are returned unchanged.
+function Resolve-YurunaRef {
+    [OutputType([string])]
+    param([string]$GitExe, [string]$Remote, [string]$Ref)
+    if (-not $GitExe -or -not $Remote -or -not $Ref) { return $Ref }
+    $variant = $null
+    if     ($Ref -match '^v(\d{4}\.\d{2}\.\d{2})$') { $variant = $Matches[1] }
+    elseif ($Ref -match '^(\d{4}\.\d{2}\.\d{2})$')  { $variant = "v$Ref" }
+    if (-not $variant) { return $Ref }
+    $prev = $env:GIT_TERMINAL_PROMPT
+    $env:GIT_TERMINAL_PROMPT = '0'   # never block on a credential prompt during the probe
+    try {
+        & $GitExe ls-remote --exit-code $Remote "refs/tags/$Ref" "refs/heads/$Ref" *> $null
+        if ($LASTEXITCODE -eq 0) { return $Ref }                 # requested form exists -- prefer it
+        & $GitExe ls-remote --exit-code $Remote "refs/tags/$variant" "refs/heads/$variant" *> $null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Warn "Requested ref '$Ref' not found on $Remote; using existing variant '$variant' (canonical Yuruna release tags are bare CalVer, no 'v')."
+            return $variant
+        }
+    } finally {
+        if ($null -eq $prev) { Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue } else { $env:GIT_TERMINAL_PROMPT = $prev }
+    }
+    # Neither form resolves. For a CalVer-shaped ref this usually means the
+    # pinned release tag has not been published yet (the VERSION/installer pin
+    # ran ahead of the tag). Surface that before the clone fails on it.
+    Write-Warn "Neither '$Ref' nor '$variant' resolves on $Remote -- the pinned release tag may not be published yet. To install the latest unreleased code, re-run with -YurunaBranch main."
+    return $Ref
+}
+
 # -- Clone / update the repo -----------------------------------------------
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step "Updating existing Yuruna checkout at $YurunaDir"
@@ -615,6 +906,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
     }
 
     if (-not $skipPull) {
+        if ($actualRemote) { $YurunaBranch = Resolve-YurunaRef -GitExe $gitExe -Remote $actualRemote -Ref $YurunaBranch }
         & $gitExe -C $YurunaDir fetch --tags origin
         & $gitExe -C $YurunaDir checkout $YurunaBranch
         & $gitExe -C $YurunaDir pull --ff-only origin $YurunaBranch 2>&1 | ForEach-Object {
@@ -667,6 +959,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
         }
     }
 } else {
+    $YurunaBranch = Resolve-YurunaRef -GitExe $gitExe -Remote $YurunaRepo -Ref $YurunaBranch
     Write-Step "Cloning Yuruna into $YurunaDir from $YurunaRepo"
     & $gitExe clone --branch $YurunaBranch $YurunaRepo $YurunaDir
     if ($LASTEXITCODE -ne 0) { Write-Die "git clone --branch $YurunaBranch failed (exit $LASTEXITCODE) -- the branch/tag '$YurunaBranch' may not exist on $YurunaRepo. No checkout was created." }
@@ -762,6 +1055,8 @@ $script:InstallSucceeded = $true
         Write-Output 'The installer did not complete. Review the messages above,'
         Write-Output 'address the problem, and re-run this script. Re-running is'
         Write-Output 'safe -- completed steps are skipped.'
+        Write-Output ''
+        Write-Output ("Full log of this run: " + $LogPath)
         if ($script:YurunaBackupCreated) {
             Write-Output ''
             Write-Output '================================================================'
@@ -947,3 +1242,7 @@ $script:InstallSucceeded = $true
 if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -match '^yuruna-windows-hyper-v-[0-9a-fA-F]{32}\.ps1$') {
     Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }
+
+# Close the transcript (best-effort). A hard failure earlier already flushed
+# its content to disk even if this footer line is never reached.
+Stop-InstallLog

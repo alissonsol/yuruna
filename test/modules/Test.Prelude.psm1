@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -210,7 +210,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.SequencePlanner.psm1',
             'Test.CachingProxy.psm1', 'Test.Perf.psm1',
             'Test.HostIO.psm1', 'Test.Capability.psm1',
-            # Test.PoolPlanner (Phase 4): resolve a pool's test-sets into this
+            # Test.PoolPlanner: resolve a pool's test-sets into this
             # host's runnable cycle plan. After Test.SequencePlanner + Test.Capability
             # (it calls Resolve-TestSetCyclePlan + Test-CyclePlanCapabilityFromPlan at
             # runtime); leaf at load time.

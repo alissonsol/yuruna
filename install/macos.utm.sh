@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.06.19  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.06.26  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -10,12 +10,48 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.19}"
+YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.26}"
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
+
+# -- Install log -----------------------------------------------------------
+# Mirror stdout+stderr to a file as well as the terminal so a mid-install
+# failure can be inspected afterwards. A FIFO + backgrounded tee (rather than
+# `exec > >(tee ...)`) lets the EXIT path wait for tee to flush, so the file is
+# complete even on an abrupt exit -- a plain process-substitution tee is left
+# an orphan that may be killed before flushing its block-buffered file write.
+# Standard per-user log dir, ${TMPDIR:-/tmp} fallback.
+if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
+  _yuruna_log_dir="$HOME/Library/Logs/Yuruna"
+  mkdir -p "$_yuruna_log_dir" 2>/dev/null || _yuruna_log_dir="${TMPDIR:-/tmp}"
+  YURUNA_INSTALL_LOG="$_yuruna_log_dir/macos.utm.install.$(date +%Y%m%d-%H%M%S).log"
+fi
+export YURUNA_INSTALL_LOG
+_yuruna_tee_pid=""
+_yuruna_logfifo="$(mktemp -u 2>/dev/null || echo "${TMPDIR:-/tmp}/yuruna-logfifo.$$")"
+if mkfifo "$_yuruna_logfifo" 2>/dev/null; then
+  tee -a "$YURUNA_INSTALL_LOG" < "$_yuruna_logfifo" &
+  _yuruna_tee_pid=$!
+  exec > "$_yuruna_logfifo" 2>&1
+  rm -f "$_yuruna_logfifo"        # fds keep the unlinked pipe alive
+fi
+# Flush + reap tee at exit so the on-disk log is complete. Called LAST from the
+# EXIT trap, after the sudo keepalive (another holder of the pipe) is killed.
+_yuruna_flush_log() {
+  if [[ -n "${_yuruna_tee_pid:-}" ]]; then
+    exec >&- 2>&- || true        # close the write end so tee sees EOF
+    wait "$_yuruna_tee_pid" 2>/dev/null || true
+  fi
+}
+if [[ -n "$_yuruna_tee_pid" ]]; then
+  log "Install log: $YURUNA_INSTALL_LOG"
+  log "  (inspect this file if the installer stops midway)"
+else
+  warn "Could not create an install log file; output goes to this terminal only."
+fi
 
 # -- Preflight: macOS only -------------------------------------------------
 [[ "$(uname -s)" == "Darwin" ]] || die "This installer only supports macOS."
@@ -98,10 +134,16 @@ SUDO_KEEPALIVE_PID=$!
 
 YURUNA_STATUS_BACKUP=""
 yuruna_install_cleanup() {
+  local rc=$?
   kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
   if [[ -n "${YURUNA_STATUS_BACKUP:-}" && -d "${YURUNA_STATUS_BACKUP:-}" ]]; then
     rm -rf "$YURUNA_STATUS_BACKUP" 2>/dev/null || true
   fi
+  if [[ $rc -ne 0 ]]; then
+    printf '\n\033[1;31mXX \033[0m installer exited with code %d.\n' "$rc" >&2
+    printf '   Full log: %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
+  fi
+  _yuruna_flush_log
 }
 trap yuruna_install_cleanup EXIT
 
@@ -263,34 +305,144 @@ quit_mac_app() {
   fi
 }
 
+# -- Stop running Yuruna host services -------------------------------------
+# Force-stop the outer runner, its per-cycle inner pwsh, and the detached
+# status HTTP server, then WAIT for them to exit before the repo update
+# renames the checkout aside. VMs (the yuruna-caching-proxy cache, a UTM
+# domain) are never touched here: they are not children of the runner, and
+# this installer issues no VM stop/destroy (UTM quit is gated separately on
+# PRESERVE_SQUID_CACHE).
+#
+# Targets are collected from three channels so a service is caught even when
+# one misses it: (1) the PID files the runner/server write (runner.pid,
+# inner.pid, server.pid under the runtime dir) -- authoritative; (2) a
+# command-line match, including the detached server's generated script name
+# .status-service.ps1, which does NOT contain "Start-StatusService.ps1"; and
+# (3) the status port's listener (configured port + the 8080 default).
 stop_yuruna_processes() {
-  local patterns=(
+  local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}"
+  local -a target_pids=()
+  local pid
+
+  # (1) PID files -- readable even when a process's command line is not.
+  local pidname pidfile raw
+  for pidname in runner.pid inner.pid server.pid; do
+    pidfile="$runtime_dir/$pidname"
+    if [[ -f "$pidfile" ]]; then
+      raw=$(tr -dc '0-9' < "$pidfile" 2>/dev/null || true)
+      if [[ -n "$raw" ]]; then target_pids+=("$raw"); fi
+    fi
+  done
+
+  # (2) Command-line pattern match.
+  local -a patterns=(
     "Invoke-TestRunner.ps1"
     "Invoke-TestInnerRunner.ps1"
     "Test-Sequence.ps1"
     "Start-StatusService.ps1"
+    ".status-service.ps1"
   )
+  local pat p
   for pat in "${patterns[@]}"; do
-    local pids
-    pids=$(pgrep -f "$pat" 2>/dev/null || true)
-    if [[ -n "$pids" ]]; then
-      log "  stopping $pat (pids: $pids)"
-      # shellcheck disable=SC2086
-      kill $pids 2>/dev/null || true
-      sleep 1
-      # shellcheck disable=SC2086
-      kill -9 $pids 2>/dev/null || true
+    while IFS= read -r p; do
+      if [[ -n "$p" ]]; then target_pids+=("$p"); fi
+    done < <(pgrep -f "$pat" 2>/dev/null || true)
+  done
+
+  # (3) Status-port listener(s): configured port + the 8080 default.
+  local -a ports=("8080")
+  local cfg="$YURUNA_DIR/test/test.config.yml"
+  if [[ -f "$cfg" ]]; then
+    local cport
+    cport=$(awk '
+      /^statusService:[[:space:]]*$/ { inblk=1; next }
+      inblk && /^[^[:space:]]/        { exit }
+      inblk && /^[[:space:]]+port:[[:space:]]*[0-9]+/ { gsub(/[^0-9]/,""); print; exit }
+    ' "$cfg" 2>/dev/null || true)
+    if [[ -n "$cport" && "$cport" != "8080" ]]; then ports+=("$cport"); fi
+  fi
+  local port plist pp
+  for port in "${ports[@]}"; do
+    plist=""
+    if command -v lsof >/dev/null 2>&1; then
+      plist=$(lsof -ti "tcp:$port" 2>/dev/null || true)
+    elif command -v ss >/dev/null 2>&1; then
+      plist=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 || true)
+    fi
+    if [[ -n "$plist" ]]; then
+      while IFS= read -r pp; do
+        if [[ -n "$pp" ]]; then target_pids+=("$pp"); fi
+      done <<< "$plist"
     fi
   done
-  if command -v lsof >/dev/null 2>&1; then
-    local port_pids
-    port_pids=$(lsof -ti tcp:8080 2>/dev/null || true)
-    if [[ -n "$port_pids" ]]; then
-      warn "  freeing port 8080 (pids: $port_pids)"
-      # shellcheck disable=SC2086
-      kill $port_pids 2>/dev/null || true
-    fi
+
+  # Dedupe, drop our own pid, and IDENTITY-VALIDATE each candidate: keep only
+  # PIDs whose executable is actually a PowerShell interpreter. Every real
+  # target (runner / inner / detached status server) is pwsh; a PID read from a
+  # PID file a crashed run left behind holds a raw integer the kernel may since
+  # have RECYCLED to an unrelated process, and on the `-c "<script>"` /
+  # `bash <(...)` launch a pgrep -f pattern can even match THIS installer or its
+  # sudo-keepalive subshell (the script text carries the .ps1 names in argv).
+  # Killing such a match could reap this installer's own log `tee` (-> SIGPIPE ->
+  # the installer dies; there is no PIPE trap) or its sudo keepalive. Gating on
+  # the executable name (comm) -- `pwsh` for every real target, `bash`/`tee`/
+  # `sleep`/... for everything we must NOT touch -- closes that. Mirrors the
+  # PowerShell side's PID-identity check (Invoke-TestRunner.ps1 stale-pid guard).
+  local -a uniq_pids=()
+  local seen=" " pcomm
+  for pid in "${target_pids[@]:-}"; do
+    if [[ -z "$pid" || "$pid" == "$$" ]]; then continue; fi
+    case "$seen" in *" $pid "*) continue ;; esac
+    seen="$seen$pid "
+    kill -0 "$pid" 2>/dev/null || continue   # dead or not ours -- nothing to stop
+    # Match the executable name (comm), NOT argv -- the script text contaminates
+    # argv with the .ps1 pattern names on the -c / bash <(...) launch. -ww so
+    # BSD/macOS ps does not truncate the path (feedback_bsd_ps_args_truncation).
+    # Empty comm on a LIVE pid means ps could not report it: keep the pid rather
+    # than silently disabling the stop (degrade to the pre-validation behavior).
+    pcomm="$(ps -ww -p "$pid" -o comm= 2>/dev/null || ps -p "$pid" -o comm= 2>/dev/null || true)"
+    case "$pcomm" in
+      ''|*pwsh*|*powershell*|*PowerShell*) uniq_pids+=("$pid") ;;
+      *) ;;   # alive and provably NOT a PowerShell process -- stale/recycled, skip
+    esac
+  done
+
+  if [[ ${#uniq_pids[@]} -eq 0 ]]; then
+    log "  no running Yuruna runner / status server found"
+    return 0
   fi
+
+  log "  stopping Yuruna services and waiting for exit (pids: ${uniq_pids[*]})"
+  kill "${uniq_pids[@]}" 2>/dev/null || true
+
+  # Wait up to 15s for a clean exit, then SIGKILL any straggler.
+  local waited alive
+  waited=0
+  while [[ $waited -lt 15 ]]; do
+    alive=0
+    for pid in "${uniq_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then alive=1; break; fi
+    done
+    if [[ $alive -eq 0 ]]; then break; fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  for pid in "${uniq_pids[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null || true; fi
+  done
+
+  # Final settle so the caller's checkout rename does not race a dying tree.
+  waited=0
+  while [[ $waited -lt 5 ]]; do
+    alive=0
+    for pid in "${uniq_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then alive=1; break; fi
+    done
+    if [[ $alive -eq 0 ]]; then return 0; fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  warn "  some Yuruna service PIDs did not exit; re-run the installer if the repo update reports the checkout is busy."
 }
 
 # -- Preserve yuruna-caching-proxy if running ------------------------------
@@ -455,6 +607,34 @@ restore_test_status() {
   YURUNA_STATUS_BACKUP=""
 }
 
+# -- Tolerate a v / no-v tag mismatch --------------------------------------
+# Canonical Yuruna release tags are BARE CalVer (YYYY.MM.DD, no 'v'); the
+# release tool refuses to create a 'v'-variant. But a human or a tool (or a
+# YURUNA_BRANCH=... arg) can ask for the wrong form -- a recommended
+# 'v2026.06.19' when only '2026.06.19' was tagged broke a past install. If the
+# requested ref is CalVer-shaped and does NOT resolve on the remote but its
+# v-toggled variant DOES, echo the variant so the mismatch self-heals; else
+# echo the requested ref unchanged. (warn -> stderr, so it never pollutes the
+# captured stdout used to set YURUNA_BRANCH.)
+resolve_yuruna_ref() {
+  local remote="$1" ref="$2" variant=""
+  if [[ -z "$remote" || -z "$ref" ]]; then printf '%s' "$ref"; return 0; fi
+  if   [[ "$ref" =~ ^v([0-9]{4}\.[0-9]{2}\.[0-9]{2})$ ]]; then variant="${BASH_REMATCH[1]}"
+  elif [[ "$ref" =~ ^([0-9]{4}\.[0-9]{2}\.[0-9]{2})$  ]]; then variant="v$ref"
+  else printf '%s' "$ref"; return 0; fi
+  if GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$remote" "refs/tags/$ref" "refs/heads/$ref" >/dev/null 2>&1; then
+    printf '%s' "$ref"; return 0
+  fi
+  if GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$remote" "refs/tags/$variant" "refs/heads/$variant" >/dev/null 2>&1; then
+    warn "Requested ref '$ref' not found on $remote; using existing variant '$variant' (canonical Yuruna release tags are bare CalVer, no 'v')."
+    printf '%s' "$variant"; return 0
+  fi
+  # Neither form resolves -- for a CalVer ref the pinned release tag is likely
+  # not published yet (the VERSION/installer pin ran ahead of the tag).
+  warn "Neither '$ref' nor '$variant' resolves on $remote -- the pinned release tag may not be published yet. To install the latest unreleased code, re-run with YURUNA_BRANCH=main."
+  printf '%s' "$ref"
+}
+
 # -- Clone / update the repo -----------------------------------------------
 YURUNA_BACKUP_CREATED=""
 preserve_test_status
@@ -488,6 +668,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
   fi
 
   if [[ $skip_pull -eq 0 ]]; then
+    YURUNA_BRANCH="$(resolve_yuruna_ref "$actual_remote" "$YURUNA_BRANCH")"
     git -C "$YURUNA_DIR" fetch --tags origin
     git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH"
     if ! git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; then
@@ -505,6 +686,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
     fi
   fi
 else
+  YURUNA_BRANCH="$(resolve_yuruna_ref "$YURUNA_REPO" "$YURUNA_BRANCH")"
   log "Cloning Yuruna into $YURUNA_DIR from $YURUNA_REPO"
   git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"
 fi

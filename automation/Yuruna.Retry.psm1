@@ -57,10 +57,16 @@ $script:RetryDefaults = @{
 # error does NOT match, so callers gating on it fail fast instead of
 # spending the whole backoff budget on an error that will never clear.
 #   * network blips:  failed to fetch, i/o timeout, connection refused/reset,
-#                     TLS handshake, 502/503/504/429, too many requests, ...
+#                     TLS handshake, 500/502/503/504/429, too many requests, ...
 #   * backend locks:  tofu remote-state contention ("Error acquiring the
 #                     state lock", DynamoDB ConditionalCheckFailedException).
-$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|connection refused|connection reset|client\.timeout|EOF|TLS handshake|temporary failure|503 |502 |504 |429 |too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
+# 500 sits alongside the gateway 5xx because the read-only manifest/chart
+# fetches gated here (helm/kubectl `-f <URL>`, tofu provider/registry GETs)
+# hit upstream CDNs/registries -- GitHub release assets in particular return
+# transient bare 500s that clear on retry. A genuinely deterministic 500
+# just burns the backoff budget and then fails, the same as any other code
+# in this list, so including it costs at most one backoff cycle.
+$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|connection refused|connection reset|client\.timeout|EOF|TLS handshake|temporary failure|500 |503 |502 |504 |429 |too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
 
 function Get-YurunaRetryDefault {
     [OutputType([int])]

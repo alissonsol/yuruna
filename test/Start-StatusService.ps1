@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,6 @@ if (Test-Path $PidFile) {
         $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
         # Verify PID is a pwsh process (not a recycled PID)
         if ($proc -and $proc.ProcessName -match 'pwsh|PowerShell') {
-            # Confirm port responds
             try {
                 $null = Invoke-WebRequest -Uri "http://localhost:$Port/status.json" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
                 $serverAlive = $true

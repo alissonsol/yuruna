@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.19
+.VERSION 2026.06.26
 .GUID 42d4e5f6-a7b8-4c90-9123-4d5e6f7a8b9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# Pool planner (Phase 4): turn a pool's assigned test-sets into a cycle plan THIS
+# Pool planner: turn a pool's assigned test-sets into a cycle plan THIS
 # host can run. Decentralized -- there is no central dispatch: each runner
 # autonomously keeps only the guests it can run (folder present + capability
 # supported + guest<->hypervisor compatible) and skips the rest, trusting another

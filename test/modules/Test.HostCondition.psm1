@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42b8c9d0-e1f2-4a34-9567-8f9a0b1c2d31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,8 +19,7 @@
 # Cross-platform host-condition facade -- registry-backed dispatcher.
 # Per-platform implementations live in Test.HostCondition.{Mac,Windows,
 # Linux}.psm1; each contributes a (Set, Assert, AssertMinimum,
-# RequiresElevation) record keyed by HostType, replacing the prior
-# if/elseif chain in Assert-HostConditionSet.
+# RequiresElevation) record keyed by HostType.
 #
 # Architecture (facade contract, registry shape, capability matrix):
 # https://yuruna.link/test/harness
@@ -141,11 +140,11 @@ function Clear-HostConditionProvider {
 }
 
 # Per-platform siblings. -Global so their exports stay reachable to
-# callers that imported only this facade. Order: Mac before Linux
-# because Set-LinuxHostConditionSet's install-time path uses
-# Initialize-SudoCache, which currently lives in the Mac sibling --
-# moving it into a dedicated sudo helper module would remove the
-# cross-sibling dependency.
+# callers that imported only this facade. Import order is immaterial:
+# self-registration (Register-IfAvailable, below) resolves each
+# platform's functions from the already-populated global session after
+# all three siblings have loaded, so no sibling depends on another
+# being imported first.
 Import-Module (Join-Path $PSScriptRoot 'Test.HostCondition.Mac.psm1')     -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.HostCondition.Windows.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.HostCondition.Linux.psm1')   -Global -Force -DisableNameChecking

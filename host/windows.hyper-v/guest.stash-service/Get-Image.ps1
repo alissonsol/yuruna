@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,12 @@ if (!(Test-Path -Path $downloadDir)) {
 #   * $baseImageFile exists
 #   * the sentinel records the same filename, URL, byte count, AND
 #     Last-Modified date as a fresh HEAD probe of $sourceUrl
+# Any mismatch -- including a legacy 3-line sentinel that lacks the
+# Last-Modified field -- forces a re-download. The only way to force a
+# re-download manually is to delete or rename $baseImageFile (or
+# $baseImageOrigin). The 4-line sentinel guards against the silent-skip
+# regression class where a noble->resolute style URL bump matches the
+# byte count by coincidence.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {

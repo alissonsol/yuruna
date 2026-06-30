@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 429b1c74-2a6d-4f38-91c0-7b3e8d2a4f16
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test pool push ingest tls
+.TAGS yuruna pool push ingest tls
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -90,9 +90,22 @@ function New-PoolX509Certificate {
         Justification = 'Pure loader: reads a cert file into an in-memory object, changes no external state.')]
     [OutputType([System.Security.Cryptography.X509Certificates.X509Certificate2])]
     param([Parameter(Mandatory)][string]$Path)
+    # Load via DER bytes so this works on EVERY platform and .NET version. The pool
+    # CA (pool-ca.crt, written by Get-PoolCaCertPath) is a cert-only PEM, which both
+    # prior strategies mishandle: X509CertificateLoader.LoadCertificateFromFile does
+    # NOT read PEM at all (throws on .NET 9), and the X509Certificate2 file ctor
+    # reads PEM on Windows but FAILS on macOS (DER-expecting backend). Strip the PEM
+    # armor and decode to DER (a raw DER file loads as-is), then prefer the modern
+    # X509CertificateLoader.LoadCertificate(byte[]) (.NET 9+), else the ctor.
+    $bytes  = [System.IO.File]::ReadAllBytes($Path)
+    $asText = [System.Text.Encoding]::ASCII.GetString($bytes)
+    if ($asText -match '-----BEGIN CERTIFICATE-----') {
+        $b64   = (($asText -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch '-----') }) -join ''
+        $bytes = [Convert]::FromBase64String($b64)
+    }
     $loader = 'System.Security.Cryptography.X509Certificates.X509CertificateLoader' -as [type]
-    if ($loader) { return $loader::LoadCertificateFromFile($Path) }
-    return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($Path)
+    if ($loader) { return $loader::LoadCertificate($bytes) }
+    return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($bytes)
 }
 
 function Get-PoolCaCertPath {

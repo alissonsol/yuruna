@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -281,7 +281,8 @@ if ($Commit -or $Tag -or $Push) {
         # Guard 2: the release artifacts must be committed, or HEAD would be
         # tagged WITHOUT the signed manifest. (-Commit above satisfies this.)
         foreach ($rel in $releaseFiles) {
-            if (& $git -C $RepoRoot status --porcelain -- $rel 2>$null) {
+            $relStatus = & $git -C $RepoRoot status --porcelain -- $rel 2>$null
+            if ($relStatus) {
                 throw "Release artifact '$rel' has uncommitted changes; tagging now would tag a commit without the signed manifest. Re-run with -Commit (or commit the artifacts), then tag."
             }
         }

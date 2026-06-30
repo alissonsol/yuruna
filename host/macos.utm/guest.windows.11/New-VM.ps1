@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -259,7 +259,7 @@ Write-Verbose "Network mode : $NetworkMode$(if ($NetworkMode -eq 'Bridged') { " 
 Write-Verbose ""
 Write-Verbose "Double-click '$VMName.utm' on your Desktop to import it into UTM and start the installation."
 Write-Verbose "When the VM first starts, press any key when you see 'Press any key to boot from CD or DVD'."
-Write-Verbose "The Windows installer will then run automatically. Default credentials: User / password"
+Write-Verbose "The Windows installer will then run automatically. Default credentials: ywuser1 / password"
 Write-Verbose ""
 Write-Verbose "After Windows installation completes (~15 min):"
 Write-Verbose "  1. Open UTM settings for this VM (VM must be stopped)."

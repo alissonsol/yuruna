@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e3f4a5-b6c7-4d89-9e01-3f4a5b6c7d8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@ Describe 'Get-YurunaPoolConfig (feature on/off)' {
     It 'is off when enabled is false (unless -IgnoreEnabled)' {
         $cfg = [ordered]@{ pool = [ordered]@{ enabled = $false; intentGitUrl = 'http://p/i.git' } }
         Assert-Null (Get-YurunaPoolConfig -Config $cfg) 'enabled:false -> off'
-        Assert-Equal 'http://p/i.git' (Get-YurunaPoolConfig -Config $cfg -IgnoreEnabled).IntentGitUrl '-IgnoreEnabled returns the object'
+        Assert-Equal -Expected 'http://p/i.git' -Actual (Get-YurunaPoolConfig -Config $cfg -IgnoreEnabled).IntentGitUrl -Because '-IgnoreEnabled returns the object'
     }
     It 'is off (loud) when enabled but intentGitUrl is empty' {
         $cfg = [ordered]@{ pool = [ordered]@{ enabled = $true; intentGitUrl = '' } }
@@ -49,8 +49,8 @@ Describe 'Get-YurunaPoolConfig (feature on/off)' {
         $cfg = [ordered]@{ pool = [ordered]@{ enabled = $true; intentGitUrl = ' http://proxy/pool-intent.git '; pullTimeoutSeconds = 20 } }
         $o = Get-YurunaPoolConfig -Config $cfg
         Assert-True $o.Enabled 'Enabled true'
-        Assert-Equal 'http://proxy/pool-intent.git' $o.IntentGitUrl 'url trimmed'
-        Assert-Equal 20 $o.PullTimeoutSec 'pull timeout'
+        Assert-Equal -Expected 'http://proxy/pool-intent.git' -Actual $o.IntentGitUrl -Because 'url trimmed'
+        Assert-Equal -Expected 20 -Actual $o.PullTimeoutSec -Because 'pull timeout'
         Assert-True (-not [string]::IsNullOrWhiteSpace($o.LocalClonePath)) 'clone path defaulted'
     }
     It 'carries NO poolId field (membership is pools.yml-only)' {
@@ -66,8 +66,8 @@ Describe 'Resolve-YurunaPoolForHost (member -> pool)' {
         [ordered]@{ poolId = 'prod'; members = @('42cccccccccccccccccccccccccccccc'); desiredState = 'run' }
     ) }
     It 'finds the pool whose members contain the hostId' {
-        Assert-Equal 'lab'  (Resolve-YurunaPoolForHost -Intent $intent -HostId '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb').poolId 'member of lab'
-        Assert-Equal 'prod' (Resolve-YurunaPoolForHost -Intent $intent -HostId '42cccccccccccccccccccccccccccccc').poolId 'member of prod'
+        Assert-Equal -Expected 'lab'  -Actual (Resolve-YurunaPoolForHost -Intent $intent -HostId '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb').poolId -Because 'member of lab'
+        Assert-Equal -Expected 'prod' -Actual (Resolve-YurunaPoolForHost -Intent $intent -HostId '42cccccccccccccccccccccccccccccc').poolId -Because 'member of prod'
     }
     It 'returns null for a non-member' {
         Assert-Null (Resolve-YurunaPoolForHost -Intent $intent -HostId '42ffffffffffffffffffffffffffffff') 'non-member'
@@ -81,38 +81,38 @@ Describe 'Resolve-YurunaPoolForHost (member -> pool)' {
 
 Describe 'Resolve-YurunaPoolDesiredState (fail-safe)' {
     It 'passes through run / paused / drain' {
-        Assert-Equal 'run'    (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'run' }))    'run'
-        Assert-Equal 'paused' (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'paused' })) 'paused'
-        Assert-Equal 'drain'  (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'drain' }))  'drain'
+        Assert-Equal -Expected 'run'    -Actual (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'run' }))    -Because 'run'
+        Assert-Equal -Expected 'paused' -Actual (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'paused' })) -Because 'paused'
+        Assert-Equal -Expected 'drain'  -Actual (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'drain' }))  -Because 'drain'
     }
     It 'defaults to run for null, missing field, or an unknown value' {
-        Assert-Equal 'run' (Resolve-YurunaPoolDesiredState -Pool $null) 'null -> run'
-        Assert-Equal 'run' (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ poolId = 'x' })) 'missing -> run'
-        Assert-Equal 'run' (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'banana' })) 'unknown -> run (fail-safe)'
+        Assert-Equal -Expected 'run' -Actual (Resolve-YurunaPoolDesiredState -Pool $null) -Because 'null -> run'
+        Assert-Equal -Expected 'run' -Actual (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ poolId = 'x' })) -Because 'missing -> run'
+        Assert-Equal -Expected 'run' -Actual (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'banana' })) -Because 'unknown -> run (fail-safe)'
     }
     It 'is case-insensitive' {
-        Assert-Equal 'paused' (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'PAUSED' })) 'PAUSED -> paused'
+        Assert-Equal -Expected 'paused' -Actual (Resolve-YurunaPoolDesiredState -Pool ([ordered]@{ desiredState = 'PAUSED' })) -Because 'PAUSED -> paused'
     }
 }
 
 Describe 'ConvertTo-PoolGatingRecord (gating normalization)' {
     It 'returns an empty record for a null or empty gating block (alert-with-defaults signal)' {
-        Assert-Equal 0 (ConvertTo-PoolGatingRecord -Gating $null).Count 'null -> empty record'
-        Assert-Equal 0 (ConvertTo-PoolGatingRecord -Gating ([ordered]@{})).Count 'empty -> empty record'
+        Assert-Equal -Expected 0 -Actual (ConvertTo-PoolGatingRecord -Gating $null).Count -Because 'null -> empty record'
+        Assert-Equal -Expected 0 -Actual (ConvertTo-PoolGatingRecord -Gating ([ordered]@{})).Count -Because 'empty -> empty record'
     }
     It 'copies only the known knobs from a full block' {
         $g = [ordered]@{ failuresBeforeAlert = 5; successesBeforeRearm = 4; extra = 'drop'; quorum = [ordered]@{ healthyThreshold = 0.75; degradedAfterMinutes = 10; junk = 1 } }
         $rec = ConvertTo-PoolGatingRecord -Gating $g
-        Assert-Equal 5 $rec['failuresBeforeAlert'] 'failuresBeforeAlert'
-        Assert-Equal 4 $rec['successesBeforeRearm'] 'successesBeforeRearm'
-        Assert-Equal 0.75 $rec['quorum']['healthyThreshold'] 'healthyThreshold'
-        Assert-Equal 10 $rec['quorum']['degradedAfterMinutes'] 'degradedAfterMinutes'
+        Assert-Equal -Expected 5 -Actual $rec['failuresBeforeAlert'] -Because 'failuresBeforeAlert'
+        Assert-Equal -Expected 4 -Actual $rec['successesBeforeRearm'] -Because 'successesBeforeRearm'
+        Assert-Equal -Expected 0.75 -Actual $rec['quorum']['healthyThreshold'] -Because 'healthyThreshold'
+        Assert-Equal -Expected 10 -Actual $rec['quorum']['degradedAfterMinutes'] -Because 'degradedAfterMinutes'
         Assert-True (-not $rec.Contains('extra')) 'extra key dropped'
         Assert-True (-not $rec['quorum'].Contains('junk')) 'junk quorum key dropped'
     }
     It 'omits the quorum sub-object when the block has only top-level knobs' {
         $rec = ConvertTo-PoolGatingRecord -Gating ([ordered]@{ failuresBeforeAlert = 2 })
-        Assert-Equal 2 $rec['failuresBeforeAlert'] 'failuresBeforeAlert kept'
+        Assert-Equal -Expected 2 -Actual $rec['failuresBeforeAlert'] -Because 'failuresBeforeAlert kept'
         Assert-True (-not $rec.Contains('quorum')) 'no quorum sub-object'
     }
 }
@@ -127,9 +127,9 @@ Describe 'Write-YurunaPoolState (gating round-trips through pool.state.json)' {
             $gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterMinutes = 30 } }
             $null = Write-YurunaPoolState -PoolId 'lab' -DesiredState 'run' -IntentOk:$true -Gating $gating -Confirm:$false
             $state = Get-Content -Raw -LiteralPath (Join-Path $runtimeDir 'pool.state.json') | ConvertFrom-Json
-            Assert-Equal 'lab' $state.poolId 'poolId'
-            Assert-Equal 3 $state.gating.failuresBeforeAlert 'gating.failuresBeforeAlert'
-            Assert-Equal 0.5 $state.gating.quorum.healthyThreshold 'gating.quorum.healthyThreshold'
+            Assert-Equal -Expected 'lab' -Actual $state.poolId -Because 'poolId'
+            Assert-Equal -Expected 3 -Actual $state.gating.failuresBeforeAlert -Because 'gating.failuresBeforeAlert'
+            Assert-Equal -Expected 0.5 -Actual $state.gating.quorum.healthyThreshold -Because 'gating.quorum.healthyThreshold'
         }
         It 'writes a null gating when the pool authored none' {
             $null = Write-YurunaPoolState -PoolId 'lab' -DesiredState 'run' -IntentOk:$true -Confirm:$false

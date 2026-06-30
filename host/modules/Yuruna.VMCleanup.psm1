@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42b8c9d0-e1f2-4a34-9567-89b0c1d2e3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,14 +20,14 @@
 .SYNOPSIS
     Shared helpers for the per-platform Remove-OrphanedVMFiles.ps1 scripts.
 .DESCRIPTION
-    The three platform scripts ([host/windows.hyper-v/Remove-OrphanedVMFiles.ps1](../host/windows.hyper-v/Remove-OrphanedVMFiles.ps1),
-    [host/macos.utm/Remove-OrphanedVMFiles.ps1](../host/macos.utm/Remove-OrphanedVMFiles.ps1),
-    [host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1](../host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1))
+    The three platform scripts ([host/windows.hyper-v/Remove-OrphanedVMFiles.ps1](../windows.hyper-v/Remove-OrphanedVMFiles.ps1),
+    [host/macos.utm/Remove-OrphanedVMFiles.ps1](../macos.utm/Remove-OrphanedVMFiles.ps1),
+    [host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1](../ubuntu.kvm/Remove-OrphanedVMFiles.ps1))
     need the same Write-Status routing function and (on Hyper-V + UTM)
-    the same base-image-name discovery loop. The Ubuntu copy is prone to
-    drifting -- it references `$Quiet` where Hyper-V and UTM reference
-    `$script:QuietOutput`, so a tweak to the quiet contract can miss one
-    of the three. Both helpers live here so the routing + naming stay in
+    the same base-image-name discovery loop. All three route -Quiet
+    through Set-VMCleanupQuiet here so the quiet contract stays in one
+    place; the scripts never touch the module-internal $script:QuietOutput
+    flag directly. Both helpers live here so the routing + naming stay in
     lockstep.
 #>
 

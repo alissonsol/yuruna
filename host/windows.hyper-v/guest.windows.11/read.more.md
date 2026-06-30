@@ -45,6 +45,6 @@ enables Remote Desktop. Default credentials: `User` / `password`
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -147,7 +147,7 @@ if ($IsMacOS -or $IsLinux) {
 if ($IsMacOS) {
     $HostDir      = Join-Path $RepoRoot 'host/macos.utm/guest.caching-proxy'
     $downloadDir  = Join-Path $HOME 'yuruna/image/caching-proxy'
-    $ImageFile    = Join-Path $downloadDir 'host.macos.utm.guest.caching-proxy.raw'
+    $ImageFile    = Join-Path $downloadDir 'host.macos.utm.guest.caching-proxy.qcow2'
     $UtmDir       = "$HOME/yuruna/guest.nosync/$VMName.utm"
 } elseif ($IsWindows) {
     $HostDir      = Join-Path $RepoRoot 'host/windows.hyper-v/guest.caching-proxy'
@@ -436,6 +436,59 @@ if ($cpStatusDecision.ShouldStart) {
     Write-Output "  statusService disabled (test.config.yml) -- the cache VM will fall back to github for collector/parser source."
 }
 
+# === Step 2.6: host config service (mTLS NAS-credential endpoint) ============
+# The cache VM mounts ystash-nas (for the Extension hosts crawl) and ypool-nas
+# using credentials it fetches at boot AND hourly from this service over mutual
+# TLS, so a rotated NAS password reaches the running VM with no rebuild (the fix
+# for the bake-once staleness). mTLS scopes access to VMs THIS host created --
+# each carries a client cert signed by this host's Config CA. Detached; persists
+# past this script. Best-effort: if it fails, the guest falls back to its baked
+# credential (rotation just won't propagate until the service is up). Honors
+# configService.isEnabled (default true).
+Write-Output ""
+Write-Output "== Step 2.6: host config service (serves NAS creds to this host's VMs over mTLS) =="
+# Shares the runner's lifecycle gate (Test.Prelude) so isEnabled / port / the
+# idempotent skip-if-healthy ensure behave identically here and on every runner
+# cycle -- the Config Service is no longer started ONLY by this one-shot script.
+$cpConfigDecision = Start-YurunaConfigServiceIfEnabled -Config $cpConfig -StartScript (Join-Path $PSScriptRoot 'Start-HostConfigService.ps1')
+if ($cpConfigDecision.ShouldStart) {
+    # The ensure above is best-effort: Start-HostConfigService only WARNS (it never
+    # fails) when its port never comes up, so verify it HERE, before Step 3 builds
+    # the VM. New-VM mints the cache VM's mTLS client cert from THIS host's Config CA
+    # (which this service initializes) and bakes it into the seed; the VM then fetches
+    # its ystash-nas/ypool-nas credentials from this endpoint at boot. A service that
+    # is DOWN at build time is the silent cause of a cache VM that bakes EMPTY mTLS
+    # materials, never mounts ystash-nas, and shows an empty "Extension hosts" panel.
+    # Surface it now (loudly) instead of leaving the operator to discover it later.
+    $cpConfigUp = $false
+    $cpProbe = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $cpAr = $cpProbe.BeginConnect('127.0.0.1', [int]$cpConfigDecision.Port, $null, $null)
+        $cpConfigUp = ($cpAr.AsyncWaitHandle.WaitOne(3000) -and $cpProbe.Connected)
+    } catch { $cpConfigUp = $false } finally { $cpProbe.Dispose() }
+    if ($cpConfigUp) {
+        Write-Output "  host config service verified accepting on :$($cpConfigDecision.Port) (mTLS; serves NAS creds to this host's VMs)."
+    } else {
+        # configService is enabled but the service did not come up -- REFUSE to build
+        # the cache VM. A VM built now bakes EMPTY mTLS materials into its seed (New-VM
+        # cannot mint a client cert against a down/unusable CA), so it could never fetch
+        # its ystash-nas/ypool-nas credentials: no password rotation, and an EMPTY
+        # "Extension hosts" panel (ystash-nas is never mounted). Failing here keeps the
+        # operator to ONE reliable step instead of silently shipping a broken VM to
+        # rediscover later. The opt-out is explicit: configService.isEnabled=false.
+        Write-Output ""
+        Write-Output "  Building the cache VM now would bake EMPTY mTLS materials into its seed: it could not fetch"
+        Write-Output "  its ystash-nas/ypool-nas credentials -- so NO password rotation, and an EMPTY 'Extension"
+        Write-Output "  Hosts' panel (the stash crawler never appears, since ystash-nas is never mounted)."
+        Write-Output "  Fix the Host Config Service first (check config-server.err under the runtime dir), then re-run"
+        Write-Output "  Start-CachingProxy.ps1. To build without it intentionally, set configService.isEnabled=false."
+        Write-Error "Host Config Service is NOT accepting on :$($cpConfigDecision.Port) -- refusing to build the cache VM (configService is enabled)."
+        exit 1
+    }
+} else {
+    Write-Output "  configService disabled (test.config.yml) -- VMs use their baked NAS credential; password rotation won't propagate until re-enabled."
+}
+
 # === Step 3: create the VM ==================================================
 
 Write-Output ""
@@ -551,29 +604,47 @@ if ($IsMacOS) {
         $httpPort  = Get-CachingProxyPort -Scheme http
         $httpsPort = Get-CachingProxyPort -Scheme https
         Import-Module (Join-Path $RepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1') -Global -Force -DisableNameChecking
-        # utmctl ip-address (works for the QEMU backend) + /var/db/dhcpd_leases
-        # fallback -- this is the VM's own 192.168.64.x lease, not the host.
-        $cacheIp = Wait-VMIp -VMName $VMName -TimeoutSeconds 900 -PollSeconds 5
+        # Identify the cache VM by its bundle MAC via ARP -- NOT by DHCP
+        # hostname. A rebuilt cache reuses the name 'yuruna-caching-proxy',
+        # so /var/db/dhcpd_leases accumulates stale same-named blocks from
+        # deleted predecessors; a name lookup that runs before THIS VM
+        # finishes DHCP locks onto a dead predecessor's IP and the forwarders
+        # then tunnel to an address nothing listens on (guards the stale-
+        # lease-discovery regression class). The VM is on UTM Shared NAT
+        # (192.168.64.0/24) with the host as its gateway, so it ARPs the host
+        # and appears in `arp -an`; Resolve-UtmGuestIpByMac also waits for
+        # squid on :$httpPort, so the IP it returns is one squid is serving.
+        $sharedGw     = Get-GuestReachableHostIp           # 192.168.64.1
+        $sharedPrefix = $sharedGw -replace '\d+$', ''      # 192.168.64.
+        Write-Output "  Discovering cache VM by bundle MAC on ${sharedPrefix}0/24 + waiting for squid on :${httpPort} (up to 15 min)..."
+        $cacheIp = Resolve-UtmGuestIpByMac -PlistPath (Join-Path $UtmDir 'config.plist') `
+            -SubnetPrefix $sharedPrefix -HostIp $sharedGw -ProbePort $httpPort -TimeoutMinutes 15 -PollSeconds 5
         if (-not $cacheIp) {
-            Write-Warning "Shared-NAT discovery found no IPv4 for '$VMName' after 15 min (utmctl ip-address + /var/db/dhcpd_leases both silent). The VM may still be running cloud-init -- re-run Start-CachingProxy.ps1, or open the UTM window to check."
+            Write-Warning "Shared-NAT discovery: our cache VM (by bundle MAC) did not appear on ${sharedPrefix}0/24 with squid on :${httpPort} within 15 min. The VM may still be running cloud-init -- re-run Start-CachingProxy.ps1, or open the UTM window to check."
         } else {
-            Write-Output "  Cache VM (Shared NAT) is at $cacheIp; waiting for squid on :${httpPort} (up to 10 min)..."
-            $deadline = (Get-Date).AddMinutes(10)
-            while ((Get-Date) -lt $deadline) {
-                $tcp = New-Object System.Net.Sockets.TcpClient
-                try {
-                    $async = $tcp.BeginConnect($cacheIp, $httpPort, $null, $null)
-                    if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) { break }
-                } catch { Write-Verbose "probe ${cacheIp}:${httpPort} failed: $($_.Exception.Message)" } finally { $tcp.Close() }
-                Start-Sleep -Seconds 5
-            }
+            Write-Output "  Cache VM (Shared NAT) is at $cacheIp (matched by bundle MAC; squid listening)."
             # Expose to the LAN via host port-forwarders (mirrors the Linux
             # NAT branch). squid's ACL already allows 192.168.0.0/16, which
-            # covers the host's 192.168.64.1 forwarder source, so plain
-            # forwarding works with no PROXY protocol. Re-import the host
-            # contract first so Add-PortMap / Get-BestHostIp resolve.
+            # covers the host's gateway forwarder source, so plain forwarding
+            # works with no PROXY protocol. Re-import the host contract first
+            # so Add-PortMap / Get-BestHostIp resolve.
             Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
             [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
+            # MAC/ARP discovery above can run minutes -- longer than the ~5-min
+            # sudo timestamp primed in Step 0. Add-PortMap launches the :80
+            # (sub-1024) forwarder via `sudo -E pwsh`; with a cold timestamp
+            # that sudo prompts for a password ASYNCHRONOUSLY on the TTY,
+            # racing this script's output with no context (the operator sees a
+            # bare "Password:" mid-bring-up). Re-warm sudo now, with a clear
+            # reason, so the privileged forwarder binds silently. Best-effort:
+            # a declined prime just skips the :80 forwarder (a remote-LAN
+            # CA-cert convenience); everything else still comes up.
+            if (Get-Command Initialize-SudoCache -ErrorAction SilentlyContinue) {
+                [void](Initialize-SudoCache -Reasons @("bind host port 80 to forward the cache VM's CA-cert page to remote LAN clients"))
+            } elseif ((& /usr/bin/id -u).Trim() -ne '0') {
+                Write-Output "  Re-priming sudo (the :80 forwarder needs root to bind a sub-1024 port)..."
+                & sudo -v
+            }
             $cacheForwarded = [bool](Add-PortMap -VMIp $cacheIp `
                     -Port @(80, 3000, 9302, $httpPort, $httpsPort) `
                     -PortRemap @{8022 = 22} -Confirm:$false)
@@ -615,77 +686,25 @@ if ($IsMacOS) {
         exit 1
     }
 
-    # Pull OUR VM's MAC out of the bundle's config.plist. The bundle is
-    # brand new (Step 3 just built it from scratch) so this is
-    # unambiguously the MAC the cache VM will boot with. Normalize to
-    # the form `arp -an` prints (lowercase, leading zero per octet
-    # stripped, e.g. '0F' -> 'f') so the later table lookup matches
-    # directly.
-    $plistPath = Join-Path $UtmDir 'config.plist'
-    $ourMacRaw = $null
-    if (Test-Path -LiteralPath $plistPath) {
-        $plistText = Get-Content -Raw -LiteralPath $plistPath
-        if ($plistText -match '<key>MacAddress</key>\s*<string>([0-9A-Fa-f:]+)</string>') {
-            $ourMacRaw = $matches[1]
-        }
-    }
-    if (-not $ourMacRaw) {
-        Write-Error "Could not extract MacAddress from $plistPath. Without the bundle's MAC we cannot distinguish our cache VM from any other squid on the LAN; refusing to guess."
-        exit 1
-    }
-    $macNeedle = (($ourMacRaw -split ':') |
-        ForEach-Object { ([Convert]::ToInt32($_, 16)).ToString('x') }) -join ':'
-
+    # Identify OUR VM by the bundle MAC via ARP (Resolve-UtmGuestIpByMac):
+    # the bundle is brand new (Step 3 just built it), so its config.plist
+    # MAC is unambiguously the one the cache VM boots with. The helper
+    # ICMP-sweeps the /24 to populate the ARP cache, matches our MAC, and
+    # waits for squid on :$httpPort before returning -- never "first :3128
+    # we find", which would lock onto a peer host's cache that DHCP'd first.
+    # Same helper the Shared-NAT branch uses, so both paths share one
+    # tested implementation.
     Write-Output ""
-    Write-Output "== Step 5: wait for our cache VM (MAC $ourMacRaw) to DHCP on ${lanPrefix}0/24 and squid to listen on :${httpPort} (up to 15 min) =="
-    Write-Output "  (first boot = cloud-init installs squid + apache2 + squid-cgi,"
+    Write-Output "== Step 5: wait for our cache VM (by bundle MAC) to DHCP on ${lanPrefix}0/24 and squid to listen on :${httpPort} (up to 15 min) =="
+    Write-Output "  (first boot = cloud-init installs squid + apache2,"
     Write-Output "   then pre-warms by pulling linux-firmware through the proxy)"
     Write-Output "  Cache VM is VZ-bridged to '${hostLanIp}'s NIC; IP is matched"
     Write-Output "  by MAC, so a peer host's cache on the same LAN cannot be"
     Write-Output "  misidentified as ours."
-    $deadline = (Get-Date).AddMinutes(15)
-    while ((Get-Date) -lt $deadline -and -not $cacheIp) {
-        # Populate the host's ARP cache by ICMP-pinging the /24 in
-        # parallel. ICMP triggers ARP resolve on every live LAN host;
-        # the cache VM answers ICMP from cloud-init very early (long
-        # before squid binds :3128), so our MAC appears in arp -an
-        # within the first iteration on most boots. /sbin/ping with
-        # -t 1 keeps the packet on the LAN (TTL 1); -W 200 caps the
-        # per-host wait at 200 ms. ThrottleLimit 32 keeps a single
-        # sweep around ~2 s on a typical home LAN.
-        2..254 |
-            Where-Object { "${lanPrefix}$_" -ne $hostLanIp } |
-            ForEach-Object -Parallel {
-                $c = "$using:lanPrefix$_"
-                try { & /sbin/ping -c 1 -W 200 -t 1 $c *>$null } catch { Write-Verbose "ping $c failed: $($_.Exception.Message)" }
-            } -ThrottleLimit 32 | Out-Null
-
-        # Find OUR MAC in the host's ARP table. macOS arp prints e.g.
-        # '? (192.168.7.93) at 4e:45:2e:88:60:33 on en0 ifscope ...'.
-        $candidateIp = $null
-        foreach ($line in (& /usr/sbin/arp -an 2>$null)) {
-            if ($line -match '^\? \(([\d.]+)\) at (\S+)' -and $matches[2] -eq $macNeedle) {
-                $candidateIp = $matches[1]
-                break
-            }
-        }
-        if ($candidateIp) {
-            $tcp = New-Object System.Net.Sockets.TcpClient
-            try {
-                $async = $tcp.BeginConnect($candidateIp, $httpPort, $null, $null)
-                if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
-                    $cacheIp = $candidateIp
-                    break
-                }
-            } catch {
-                Write-Verbose "probe ${candidateIp}:${httpPort} failed: $($_.Exception.Message)"
-            } finally { $tcp.Close() }
-            Write-Verbose "Step 5: cache VM is at $candidateIp (MAC match) but squid is not yet listening on :${httpPort} -- continuing wait."
-        }
-        if (-not $cacheIp) { Start-Sleep -Seconds 5 }
-    }
+    $cacheIp = Resolve-UtmGuestIpByMac -PlistPath (Join-Path $UtmDir 'config.plist') `
+        -SubnetPrefix $lanPrefix -HostIp $hostLanIp -ProbePort $httpPort -TimeoutMinutes 15 -PollSeconds 5
     if (-not $cacheIp) {
-        Write-Warning "Our cache VM (MAC $ourMacRaw) did not appear in the host's ARP table on ${lanPrefix}0/24 with squid on :${httpPort} after 15 min."
+        Write-Warning "Our cache VM (by bundle MAC) did not appear in the host's ARP table on ${lanPrefix}0/24 with squid on :${httpPort} after 15 min."
         Write-Warning "Likely causes:"
         Write-Warning "  * Wi-Fi AP filtering the cache's locally-administered MAC -- switch to Ethernet or allow the new MAC."
         Write-Warning "  * cloud-init still installing squid (rare on first run; check progress via UTM window)."
@@ -773,8 +792,8 @@ if ($IsMacOS) {
         } else {
             $hPort  = Get-CachingProxyPort -Scheme http
             $hsPort = Get-CachingProxyPort -Scheme https
-            # Port set: squid (3128 / 3129), Apache /cgi-bin/cachemgr.cgi
-            # + CA cert (80), Grafana (3000), caching-proxy-parser (9302),
+            # Port set: squid (3128 / 3129), Apache CA cert (80),
+            # Grafana (3000), caching-proxy-parser (9302),
             # SSH remap 8022 -> 22 for jump-host access.
             $cacheForwarded = [bool](Add-PortMap -VMIp $cacheIp `
                     -Port @(80, 3000, 9302, $hPort, $hsPort) `
@@ -874,7 +893,7 @@ if ($cacheIp) {
         Write-Output "  HTTPS bump:  http://${cacheIp}:${summaryHttpsPort}  (squid SSL-bump listener)"
         Write-Output "  Grafana:     http://${cacheIp}:3000  (anonymous Viewer)"
         Write-Output "  Recent 100:  http://${cacheIp}:9302/  (in-memory live tail)"
-        Write-Output "  cachemgr:    http://${cacheIp}/cgi-bin/cachemgr.cgi"
+        Write-Output "  cachemgr:    ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
         Write-Output "  CA cert:     http://${cacheIp}/yuruna-squid-ca.crt  (trust to enable :${summaryHttpsPort} HTTPS caching)"
         Write-Output ""
         Write-Output "  Remote LAN clients (other hosts on this network):"
@@ -884,21 +903,32 @@ if ($cacheIp) {
         Write-Output "    Quick check from the remote host:"
         Write-Output "      curl -x http://${cacheIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
     } elseif ($IsMacOS) {
-        # Wi-Fi/Shared NAT: the cache is at $cacheIp (192.168.64.x), reached
-        # directly by THIS host and other Shared-NAT UTM guests; remote LAN
-        # clients go through the host port-forwarders at $cacheLanIp.
-        Write-Output "  Local URL:   http://${cacheIp}:${summaryHttpPort}  (this host + Shared-NAT UTM guests)"
+        # Wi-Fi/Shared NAT: the cache is at $cacheIp (192.168.64.x). On macOS 26
+        # UTM vmnet-shared every VM joins one bridge (192.168.64.1) and guests
+        # route to each other directly, so THIS host AND a test VM started on
+        # the same Mac reach the cache at $cacheIp with no env var and no
+        # host-side forwarder -- the guest auto-discovers it. The pwsh
+        # forwarders at $cacheLanIp exist ONLY for remote LAN hosts and are
+        # best-effort: any cycle that runs Remove-PortMap (a test run, a
+        # status-service restart) tears them down, so $cacheLanIp is not a
+        # reliable steady-state address.
+        Write-Output "  Local URL:   http://${cacheIp}:${summaryHttpPort}  (this host + same-Mac UTM test VMs, auto-discovered)"
         Write-Output "  HTTPS bump:  http://${cacheIp}:${summaryHttpsPort}  (squid SSL-bump listener)"
         Write-Output "  Grafana:     http://${cacheIp}:3000  (anonymous Viewer)"
         Write-Output "  Recent 100:  http://${cacheIp}:9302/  (in-memory live tail)"
-        Write-Output "  cachemgr:    http://${cacheIp}/cgi-bin/cachemgr.cgi"
+        Write-Output "  cachemgr:    ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
         Write-Output "  CA cert:     http://${cacheIp}/yuruna-squid-ca.crt  (trust to enable :${summaryHttpsPort} HTTPS caching)"
+        Write-Output ""
+        Write-Output "  Same-Mac test VM: just run Invoke-TestRunner.ps1 -- do NOT set"
+        Write-Output "    YURUNA_CACHING_PROXY_IP. The guest finds the cache at ${cacheIp}."
         if ($cacheLanIp) {
             Write-Output ""
-            Write-Output "  LAN access:  via host $cacheLanIp -- the cache VM is on UTM Shared NAT at"
-            Write-Output "               $cacheIp and the host forwards these ports to it (pwsh socket-proxy)."
-            Write-Output "  Remote LAN clients (other hosts on this network):"
-            Write-Output "    export YURUNA_CACHING_PROXY_IP=${cacheLanIp}    # before Invoke-TestRunner.ps1"
+            Write-Output "  Remote LAN clients (OTHER physical hosts only) -- best-effort:"
+            Write-Output "    reach the cache via host $cacheLanIp, which forwards these ports to"
+            Write-Output "    $cacheIp (pwsh socket-proxy). NOTE: this forwarder is torn down by any"
+            Write-Output "    later Remove-PortMap (test run / status restart); if a remote client"
+            Write-Output "    gets 'connection refused', re-run Start-CachingProxy.ps1 to restore it."
+            Write-Output "    export YURUNA_CACHING_PROXY_IP=${cacheLanIp}    # remote host, before Invoke-TestRunner.ps1"
             Write-Output "      (or on Windows: setx YURUNA_CACHING_PROXY_IP ${cacheLanIp})"
             Write-Output "    quick check:  curl -x http://${cacheLanIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
         }
@@ -916,7 +946,7 @@ if ($cacheIp) {
         Write-Output "  Proxy URL:   http://${lanIp}:${summaryHttpPort}"
         Write-Output "  Grafana:     http://${lanIp}:3000  (anonymous Viewer)"
         Write-Output "  Recent 100:  http://${lanIp}:9302/  (in-memory live tail)"
-        Write-Output "  cachemgr:    http://${lanIp}/cgi-bin/cachemgr.cgi"
+        Write-Output "  cachemgr:    ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
         if ($cacheForwarded -and $cacheLanIp -ne $cacheIp) {
             Write-Output ""
             Write-Output "  Remote LAN clients (other hosts on this network):"

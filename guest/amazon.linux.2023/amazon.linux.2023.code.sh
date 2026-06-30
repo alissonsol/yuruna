@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.26
+# Version: 2026.06.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -8,7 +8,7 @@ ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
   x86_64)
-    echo "Environment: x86_64 (Hyper-V)"
+    echo "Environment: x86_64/amd64 (Hyper-V)"
     ;;
   aarch64)
     echo "Environment: aarch64/arm64 (UTM on Apple Silicon)"

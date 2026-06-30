@@ -172,9 +172,9 @@ watches /var/lib/grafana/dashboards for JSON; syncs post-boot edits.
 
 Yuruna host (status server) coordinates. Baked into the seed by the platform New-VM.ps1 (Get-GuestReachableHostIp + statusService.port). The runcmd build block below sources this to fetch the collector + parser source from the LOCAL host working tree (http://IP:PORT/yuruna-repo/) -- the host repo is the source of truth, so a rebuild never waits on the private->public github mirror. Same resolution as fetch-and-execute.sh. Empty IP/PORT (coordinates unavailable, e.g. status service disabled) make the build fall back to github.
 
-### Yuruna Pool dashboard inlined
+### Yuruna hosts dashboard inlined
 
-Yuruna Pool dashboard (Phase 1). INLINED (like squid.json) so it deploys from the local user-data -- independent of the pool-aggregator binary build AND of any GitHub fetch/mirror -- and therefore shows from first boot ("No data" until the collector is up). Keep in sync with the lintable canonical copy at test/extension/pool-aggregator/grafana-pool-dashboard.json.
+Yuruna hosts dashboard (Phase 1). INLINED (like squid.json) so it deploys from the local user-data -- independent of the pool-aggregator binary build AND of any GitHub fetch/mirror -- and therefore shows from first boot ("No data" until the collector is up). Keep in sync with the lintable canonical copy at test/extension/pool-aggregator/grafana-pool-dashboard.json.
 
 ### Squid dashboard inlined
 
@@ -210,7 +210,7 @@ pool-aggregator TLS leaf: mint a server cert for the aggregator's :9400 surface 
 
 ### Resolve pool dashboard aggregator URL
 
-Resolve the Yuruna Pool dashboard's aggregator base URL. The timeline's "open cycle results" data link points at this proxy's /go/cycle redirect, which resolves each host's CURRENT IP server-side (so the link survives a host IP change). The proxy's own LAN IP is only known at boot (DHCP), so substitute it here; scheme follows the aggregator's TLS leaf (https when minted, else http). Idempotent: a re-run finds no placeholder. The dashboard provider re-syncs the edited file, so this may land before or after grafana-server starts.
+Resolve the Yuruna hosts dashboard's aggregator base URL. The timeline's "open cycle results" data link points at this proxy's /go/cycle redirect, which resolves each host's CURRENT IP server-side (so the link survives a host IP change). The proxy's own LAN IP is only known at boot (DHCP), so substitute it here; scheme follows the aggregator's TLS leaf (https when minted, else http). Idempotent: a re-run finds no placeholder. The dashboard provider re-syncs the edited file, so this may land before or after grafana-server starts.
 
 ### Squid ssl_db initialization
 
@@ -300,7 +300,7 @@ Yuruna pool intent store (Phase 3): a bare git repo pooled hosts clone + pull RE
 
 ### Install community Zot dashboard
 
-Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna Caching Proxy dashboard. The upstream JSON uses a $DS_PROMETHEUS templating placeholder whose embedded default points at the original author's datasource ("VictoriaMetrics Bagno"); the rewriter (write_files) strips the picker and pins every panel to yuruna-prometheus + a stable uid + a friendly title so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/ dashboards/yuruna.yaml picks the file up on its next 30s tick. `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
+Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching proxy dashboard. The upstream JSON uses a $DS_PROMETHEUS templating placeholder whose embedded default points at the original author's datasource ("VictoriaMetrics Bagno"); the rewriter (write_files) strips the picker and pins every panel to yuruna-prometheus + a stable uid + a friendly title so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/ dashboards/yuruna.yaml picks the file up on its next 30s tick. `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
 
 ### Enable NAS replication timer conditionally
 
@@ -344,6 +344,6 @@ Single-quoted: the bare `: ` after "ready" makes YAML parse the scalar as a mapp
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,18 +21,27 @@
 # future health-checks) so the Windows HTTP.sys / netsh + Unix
 # lsof dispatch lives in one place.
 #
-# Two functions:
+# Functions:
 #
-#   Get-PortListenerPid   — pure: returns the PID(s) holding a TCP port.
-#                           Cross-platform: netsh on Windows (because
-#                           HTTP.sys hides the real owner from
-#                           Get-NetTCPConnection), lsof on macOS/Linux.
-#   Resolve-PortOrphan    — opinionated: free the port by stopping orphan
-#                           pwsh holders. Refuses to kill anything that
-#                           isn't pwsh. Calls `exit 1` if the port stays
-#                           held — this preserves the original semantics
-#                           of Start-StatusService's pre-flight, which is
-#                           the only legitimate caller today.
+#   Get-PortListenerPid     — pure: PID(s) holding a TCP port. Cross-platform:
+#                             netsh on Windows (because HTTP.sys hides the real
+#                             owner from Get-NetTCPConnection), lsof on
+#                             macOS/Linux. Empty when the holder is owned by
+#                             another user (lsof/netsh hide it without elevation).
+#   Test-PortListenerFree   — pure: $true when THIS process can bind
+#                             http://*:$Port/. The OS-agnostic source of truth:
+#                             a holder owned by another user still makes it
+#                             $false even when no PID is resolvable.
+#   Get-ProcessOwnerName    — pure: best-effort OS user owning a PID.
+#   Get-PortHolderServiceInfo — pure: best-effort identity of a Yuruna status
+#                             service already answering on the port.
+#   Resolve-PortOrphan      — opinionated: reclaim an orphan pwsh holder THIS
+#                             user owns; otherwise classify the port as a
+#                             'Conflict'. Returns a structured result and never
+#                             exits/throws — the caller (Start-StatusService)
+#                             decides how to refuse, so the refusal can
+#                             propagate and abort the cycle rather than letting
+#                             it run blind without a status server.
 
 function Get-PortListenerPid {
     <#
@@ -131,95 +140,269 @@ function Get-PortListenerPid {
     return @($pids)
 }
 
+function Test-PortListenerFree {
+    <#
+    .SYNOPSIS
+        $true when THIS process can bind http://*:$Port/ — the OS-agnostic
+        proof that the detached status server will be able to start.
+    .DESCRIPTION
+        The single source of truth across host environments. HttpListener
+        binds a real reservation, so a holder owned by ANOTHER USER (which
+        lsof/netsh cannot reveal without elevation) still makes this return
+        $false. -BudgetMs polls the bind until it succeeds or the budget
+        elapses: on Windows HTTP.sys releases a URL reservation asynchronously
+        after a Stop-Process'd pwsh exits, so a GC delay must not look like an
+        unresolvable conflict. BudgetMs 0 is a single immediate attempt.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][int]$Port,
+        [int]$BudgetMs = 0,
+        [int]$PollMs = 250
+    )
+    $iters = [Math]::Max(1, [int][Math]::Ceiling($BudgetMs / [double]$PollMs))
+    for ($i = 0; $i -lt $iters; $i++) {
+        $probe = [System.Net.HttpListener]::new()
+        $probe.Prefixes.Add("http://*:$Port/")
+        try {
+            $probe.Start(); $probe.Stop(); $probe.Close()
+            return $true
+        } catch {
+            try { $probe.Close() } catch { Write-Debug $_ }
+        }
+        if ($i -lt ($iters - 1)) { Start-Sleep -Milliseconds $PollMs }
+    }
+    return $false
+}
+
+function Get-ProcessOwnerName {
+    <#
+    .SYNOPSIS
+        Best-effort OS user that owns process $Id. Empty string when it cannot
+        be determined (process gone, or the query is access-restricted).
+    .DESCRIPTION
+        Used only to (a) refuse to commandeer a status-port listener owned by a
+        DIFFERENT user and (b) name that owner in the conflict banner. Ownership
+        only ever blocks a kill, never authorizes one.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][int]$Id)
+    try {
+        if ($PSVersionTable.Platform -eq 'Unix') {
+            $psCmd = Get-Command ps -CommandType Application -ErrorAction SilentlyContinue
+            if ($psCmd) {
+                $u = & $psCmd.Source -o user= -p $Id 2>$null | Select-Object -First 1
+                if ($u) { return ([string]$u).Trim() }
+            }
+            return ''
+        }
+        # Windows: the owner is not exposed on Get-Process; Win32_Process
+        # GetOwner is the reliable source.
+        $cim = Get-CimInstance Win32_Process -Filter "ProcessId=$Id" -ErrorAction SilentlyContinue
+        if ($cim) {
+            $owner = Invoke-CimMethod -InputObject $cim -MethodName GetOwner -ErrorAction SilentlyContinue
+            if ($owner -and $owner.User) {
+                if ($owner.Domain) { return "$($owner.Domain)\$($owner.User)" }
+                return [string]$owner.User
+            }
+        }
+        return ''
+    } catch {
+        Write-Verbose "Get-ProcessOwnerName($Id): $($_.Exception.Message)"
+        return ''
+    }
+}
+
+# Internal: the OS user this process runs as. Not exported — only the
+# ownership comparison below consumes it.
+function Get-CurrentUserName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    foreach ($candidate in @($env:USER, $env:USERNAME)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) { return $candidate }
+    }
+    try { return [System.Environment]::UserName } catch { return '' }
+}
+
+# Internal: $true only when $Owner is provably the current user. An unknown
+# ($null/empty) owner returns $false so an unidentified holder is never treated
+# as ours.
+function Test-OwnedByCurrentUser {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Owner)
+    if ([string]::IsNullOrWhiteSpace($Owner)) { return $false }
+    $me   = Get-CurrentUserName
+    $leaf = ($Owner -split '[\\/]')[-1]
+    return ($leaf -and $me -and $leaf.Equals($me, [System.StringComparison]::OrdinalIgnoreCase))
+}
+
+function Get-PortHolderServiceInfo {
+    <#
+    .SYNOPSIS
+        Best-effort identity of a Yuruna status service already answering on
+        $Port — the "go deeper" probe so the conflict banner can name WHICH
+        host/service (and thus, usually, which user) already owns the port.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][int]$Port)
+    $empty = @{ IsYuruna = $false; Hostname = ''; Host = ''; HostId = '' }
+    try {
+        $resp = Invoke-WebRequest -Uri "http://localhost:$Port/runtime/status.json" -TimeoutSec 2 `
+                    -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
+        $doc = $resp.Content | ConvertFrom-Json -ErrorAction Stop
+        if ($doc) {
+            $names = @($doc.PSObject.Properties.Name)
+            if (($names -contains 'hostname') -or ($names -contains 'host') -or ($names -contains 'schemaVersion')) {
+                return @{
+                    IsYuruna = $true
+                    Hostname = [string]$doc.hostname
+                    Host     = [string]$doc.host
+                    HostId   = [string]$doc.hostId
+                }
+            }
+        }
+    } catch {
+        Write-Verbose "Get-PortHolderServiceInfo($Port): $($_.Exception.Message)"
+    }
+    return $empty
+}
+
 function Resolve-PortOrphan {
     <#
     .SYNOPSIS
-        Free $Port by stopping orphan pwsh listeners. Refuses to kill
-        anything that isn't pwsh. Probes the port via HttpListener with
-        a 5-second budget BEFORE falling through to the kill path —
-        HTTP.sys release is asynchronous after Stop-Process so a brief
-        transient must not look like an unresolvable conflict.
+        Try to free $Port for THIS user's status server, distinguishing a
+        reclaimable orphan (our own detached pwsh holder) from an unrecoverable
+        conflict (port owned by another user, a non-pwsh process, or a holder
+        this user cannot even see). Returns a structured result; never exits or
+        throws — the caller decides how to refuse.
     .DESCRIPTION
-        Exits the calling SCRIPT with code 1 on the unresolvable path
-        (port held by a non-pwsh process, or still held after the kill).
-        This matches Start-StatusService's pre-flight semantics; future
-        callers that want graceful degradation should call
-        Get-PortListenerPid directly and decide for themselves.
+        Returns a classification rather than calling `exit`: Start-StatusService.ps1
+        runs under a call-operator invocation (`& $StartScript` from the shared
+        gate), and `exit` inside a `&`-invoked script only sets $LASTEXITCODE in
+        the parent — it does NOT abort it. A conflict reported that way would let
+        the parent cycle run on with the live dashboard and breakpoint controls
+        silently absent. Returning the classification lets the caller throw a
+        tagged, propagating error that actually aborts the cycle.
+    .OUTPUTS
+        [hashtable] @{
+            Status  = 'Free' | 'Recovered' | 'Conflict'
+            Port    = [int]
+            Pids    = [int[]]
+            Owner   = [string]    # owner of a foreign holder, when known
+            Service = [hashtable] # Get-PortHolderServiceInfo result, when held
+            Message = [string]    # operator banner, set when Status='Conflict'
+        }
+        'Free'      : the port is bindable now (nothing held it, or a transient
+                      HTTP.sys reservation cleared within budget).
+        'Recovered' : an orphan pwsh THIS user owns was stopped; port now free.
+        'Conflict'  : the port is held by something this user must not (or
+                      cannot) take over. The cycle must refuse to start.
     #>
     [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
-        '', Justification = 'Function already declares SupportsShouldProcess; PSSA may flag the inner call sites that we wrap in $PSCmdlet.ShouldProcess.')]
+        '', Justification = 'Function already declares SupportsShouldProcess; PSSA may flag the inner Stop-Process call site that we wrap in $PSCmdlet.ShouldProcess.')]
     param(
         [Parameter(Mandatory)][int]$Port,
         [string]$PidFile
     )
 
-    # Cheapest test that the detached launch will succeed: attempt the
-    # same HttpListener it will use. On Windows, HTTP.sys releases the URL
-    # reservation asynchronously after a Stop-Process'd pwsh exits -- the
-    # -Restart branch above already gave it 1s and netsh shows the URL
-    # registration gone, but HttpListener.Start still throws "conflicts
-    # with an existing registration" for a few hundred ms beyond that.
-    # Poll the probe until it succeeds or 5s elapses BEFORE falling
-    # through to the orphan-PID lookup: a transient HTTP.sys GC delay
-    # should not look like an unresolvable port conflict.
-    # 20 iter * 250ms = 5s budget; the happy path is usually 1-2 iters.
-    $portFree = $false
-    for ($i = 0; $i -lt 20; $i++) {
-        $probe = [System.Net.HttpListener]::new()
-        $probe.Prefixes.Add("http://*:$Port/")
-        try {
-            $probe.Start(); $probe.Stop(); $probe.Close()
-            $portFree = $true
-            break
-        } catch {
-            try { $probe.Close() } catch { Write-Debug $_ }
-        }
-        Start-Sleep -Milliseconds 250
+    # HTTP.sys releases a URL reservation asynchronously after a Stop-Process'd
+    # pwsh exits, so give the bind probe a 5 s budget before treating "cannot
+    # bind" as a real conflict — a GC delay must not look like a collision.
+    if (Test-PortListenerFree -Port $Port -BudgetMs 5000) {
+        return @{ Status = 'Free'; Port = $Port; Pids = @(); Owner = ''; Service = $null; Message = '' }
     }
-    if ($portFree) { return }
 
-    $diag = ''
+    $diag       = ''
     $holderPids = @(Get-PortListenerPid -Port $Port -Diagnostic ([ref]$diag))
-    if (-not $holderPids.Count) {
-        Write-Warning "Port $Port is in use but the OS did not expose a PID (netsh/lsof unavailable or empty)."
-        if ($diag) { Write-Warning "  Diagnostic: $diag" }
-        Write-Warning "Stop the conflicting listener manually and rerun:"
-        Write-Warning "  Windows: netsh http show servicestate"
-        Write-Warning "  Unix:    lsof -iTCP:$Port -sTCP:LISTEN  (or: sudo lsof -nP -iTCP:$Port)"
-        exit 1
+    $service    = Get-PortHolderServiceInfo -Port $Port
+
+    # "Who owns it" clause, reused by every conflict message.
+    $svcClause = ''
+    if ($service.IsYuruna) {
+        $who = @()
+        if ($service.Hostname) { $who += "hostname '$($service.Hostname)'" }
+        if ($service.Host)     { $who += "host '$($service.Host)'" }
+        $suffix = if ($who.Count) { " ($($who -join ', '))" } else { '' }
+        $svcClause = "A Yuruna status service is already answering on port $Port$suffix — started by another checkout or user."
     }
 
+    if (-not $holderPids.Count) {
+        # The port is provably held (bind failed) but no PID is visible. On
+        # macOS and Linux lsof without elevation cannot see sockets owned by
+        # OTHER users, and on Windows HTTP.sys hides a foreign url-group — so
+        # this is the signature of a listener owned by a DIFFERENT USER. Treat
+        # it as a hard conflict: a bind failure with no reclaimable owner means
+        # this user cannot host a status server here, and proceeding would run
+        # the cycle blind (no dashboard, no breakpoint controls).
+        $ownerLine = if ($svcClause) { "  $svcClause" }
+                     else { "  The holder is owned by another user (its socket is hidden from lsof/netsh without elevation)." }
+        $lines = @(
+            "Status-service port $Port is in use but no owning PID is visible to this user."
+            $ownerLine
+            "  Refusing to start: a second status server cannot bind the same port, and running the"
+            "  cycle without one hides the live dashboard / breakpoint controls (a hard-to-debug state)."
+            "  Resolve by ONE of:"
+            "    - stop the other owner's status service (it may belong to another user account); or"
+            "    - give this checkout its own port in test/test.config.yml (statusService.port) and rerun."
+            "  Diagnostic: $diag"
+        )
+        return @{ Status = 'Conflict'; Port = $Port; Pids = @(); Owner = ''; Service = $service; Message = ($lines -join [Environment]::NewLine) }
+    }
+
+    # We have PID(s). Reclaim ONLY an orphan pwsh holder THIS user owns; never
+    # touch another user's process or a non-pwsh listener.
     foreach ($holderPid in $holderPids) {
         $proc = Get-Process -Id $holderPid -ErrorAction SilentlyContinue
         if (-not $proc) { continue }   # exited since the OS query
-        if ($proc.ProcessName -notmatch '^(pwsh|PowerShell|powershell)$') {
-            Write-Warning "Port $Port is held by PID $holderPid ($($proc.ProcessName)) — not a pwsh process."
-            Write-Warning "Refusing to kill an unrelated listener. Stop it manually (Stop-Process -Id $holderPid) and rerun."
-            exit 1
+        $owner     = Get-ProcessOwnerName -Id $holderPid
+        $isPwsh    = $proc.ProcessName -match '^(pwsh|PowerShell|powershell)$'
+        $ownedByUs = Test-OwnedByCurrentUser -Owner $owner
+
+        if (-not $isPwsh -or ($owner -and -not $ownedByUs)) {
+            $ownerStr = if ($owner) { " owned by '$owner'" } else { '' }
+            $whyLine  = if ($svcClause) { "  $svcClause" }
+                        else { "  Refusing to commandeer a listener this harness does not own." }
+            $lines = @(
+                "Status-service port $Port is held by PID $holderPid ($($proc.ProcessName))$ownerStr."
+                $whyLine
+                "  Refusing to start so the cycle does not run without its status dashboard / breakpoint controls."
+                "  Resolve by stopping that process (it may belong to another user), or set a different"
+                "  statusService.port in test/test.config.yml and rerun."
+            )
+            return @{ Status = 'Conflict'; Port = $Port; Pids = $holderPids; Owner = $owner; Service = $service; Message = ($lines -join [Environment]::NewLine) }
         }
+
         if (-not $PSCmdlet.ShouldProcess("PID $holderPid", 'Stop orphan pwsh holder')) { continue }
-        Write-Output "Port $Port held by orphan pwsh PID $holderPid (started $($proc.StartTime)). Stopping it."
+        # Write-Information, not Write-Output: this function has a singular
+        # hashtable return contract, so a status line on the output stream would
+        # be captured alongside the result (Write-Output pipeline pollution).
+        Write-Information "Port $Port held by orphan pwsh PID $holderPid (started $($proc.StartTime)). Stopping it." -InformationAction Continue
         Stop-Process -Id $holderPid -Force -ErrorAction SilentlyContinue
     }
 
-    # HTTP.sys releases the URL reservation async after the owner exits;
-    # poll briefly until the probe succeeds.
-    for ($i = 0; $i -lt 10; $i++) {
-        Start-Sleep -Milliseconds 300
-        $probe = [System.Net.HttpListener]::new()
-        $probe.Prefixes.Add("http://*:$Port/")
-        try {
-            $probe.Start(); $probe.Stop(); $probe.Close()
-            if ($PidFile) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
-            return
-        } catch {
-            try { $probe.Close() } catch { Write-Debug $_ }
-        }
+    # HTTP.sys releases the reservation async after the owner exits; poll the
+    # bind probe briefly before declaring success or an unresolvable conflict.
+    if (Test-PortListenerFree -Port $Port -BudgetMs 3000) {
+        if ($PidFile) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
+        return @{ Status = 'Recovered'; Port = $Port; Pids = $holderPids; Owner = ''; Service = $null; Message = '' }
     }
-    Write-Warning "Port $Port is still held after stopping the orphan pwsh holder(s)."
-    Write-Warning "Inspect with 'netsh http show servicestate' (or 'lsof -iTCP:$Port -sTCP:LISTEN') and retry."
-    exit 1
+
+    # Stopped what we could but the port is still held — the holder was not ours
+    # to reclaim (e.g. another user's pwsh that Stop-Process could not touch).
+    $stillLines = @(
+        "Status-service port $Port is still held after stopping the orphan pwsh holder(s) ($($holderPids -join ', '))."
+    )
+    if ($svcClause) { $stillLines += "  $svcClause" }
+    $stillLines += "  Refusing to start. Inspect with 'lsof -iTCP:$Port -sTCP:LISTEN' (or 'netsh http show servicestate'),"
+    $stillLines += "  free the port, or set a different statusService.port in test/test.config.yml and rerun."
+    return @{ Status = 'Conflict'; Port = $Port; Pids = $holderPids; Owner = ''; Service = $service; Message = ($stillLines -join [Environment]::NewLine) }
 }
 
-Export-ModuleMember -Function Get-PortListenerPid, Resolve-PortOrphan
+Export-ModuleMember -Function Get-PortListenerPid, Test-PortListenerFree, Get-ProcessOwnerName, Get-PortHolderServiceInfo, Resolve-PortOrphan

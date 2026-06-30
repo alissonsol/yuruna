@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 421a7e34-5b82-4d60-8f13-2a6c9e0b4d75
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,20 +33,20 @@ function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condi
 Describe 'Get-PoolPushBatch (NDJSON batching, assignment-consumed)' {
     It 'splits into capped batches and drops blank lines' {
         $b = Get-PoolPushBatch -Lines @('a', '', 'b', 'c') -MaxLines 2
-        Assert-Equal 2 $b.Count 'two batches of <=2'
-        Assert-Equal 'a,b' (($b[0]) -join ',') 'first batch (blank dropped)'
-        Assert-Equal 'c'   (($b[1]) -join ',') 'second batch'
+        Assert-Equal -Expected 2 -Actual $b.Count -Because 'two batches of <=2'
+        Assert-Equal -Expected 'a,b' -Actual (($b[0]) -join ',') -Because 'first batch (blank dropped)'
+        Assert-Equal -Expected 'c'   -Actual (($b[1]) -join ',') -Because 'second batch'
     }
     It 'returns a single batch under the cap' {
         $b = Get-PoolPushBatch -Lines @('x', 'y') -MaxLines 1000
-        Assert-Equal 1 $b.Count 'one batch'
-        Assert-Equal 'x,y' (($b[0]) -join ',') 'all lines in it'
+        Assert-Equal -Expected 1 -Actual $b.Count -Because 'one batch'
+        Assert-Equal -Expected 'x,y' -Actual (($b[0]) -join ',') -Because 'all lines in it'
     }
     It 'returns no batches for empty / all-blank input' {
         $b = Get-PoolPushBatch -Lines @() -MaxLines 10
-        Assert-Equal 0 @($b).Count 'empty -> no batches'
+        Assert-Equal -Expected 0 -Actual @($b).Count -Because 'empty -> no batches'
         $b2 = Get-PoolPushBatch -Lines @('', '   ', "`t") -MaxLines 10
-        Assert-Equal 0 @($b2).Count 'all-blank -> no batches'
+        Assert-Equal -Expected 0 -Actual @($b2).Count -Because 'all-blank -> no batches'
     }
 }
 

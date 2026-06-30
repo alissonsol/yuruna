@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,9 +23,10 @@
 .DESCRIPTION
     Creates a UTM .utm bundle (QEMU backend with -vnc) that boots
     the arm64 Ubuntu cloud image from Get-Image.ps1 and runs Squid on
-    port 3128. Cloud-init (seed.iso) installs squid-openssl + apache2 +
-    squid-cgi + squid-cli, pre-warms linux-firmware through the proxy,
-    and exposes cachemgr.cgi at http://<vm-ip>/cgi-bin/cachemgr.cgi.
+    port 3128. Cloud-init (seed.iso) installs squid-openssl + apache2,
+    pre-warms linux-firmware through the proxy, and exposes the squid CA
+    cert + Grafana. Cache-manager data is via 'squidclient mgr:' on the VM
+    (the squid-cgi web UI was dropped in Ubuntu 26.04).
 
     Mirrors the Ubuntu UTM New-VM.ps1 pattern, minus:
       * nested-virt preflight (squid needs no KVM)
@@ -69,7 +70,7 @@ if (-not (Test-Path $utmPlist)) {
     exit 1
 }
 
-# === Seek the base image ===
+# === Locate base image ===
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.caching-proxy"
@@ -148,6 +149,12 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 # runtime state file is treated as the source of truth: Set-Password rewrites
 # the vault entry from it before Get-Password reads it back, so the
 # vault and the runtime state file stay aligned even if they ever diverge.
+#
+# Order of operations:
+#   1. If the runtime state file has a password, Set-Password 'yuruna' from it.
+#   2. Get-Password 'yuruna' returns either the rehydrated value or a
+#      fresh random one (first-ever install).
+#   3. Write the value back to the runtime state file (idempotent on rebuild).
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
@@ -213,14 +220,12 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
     Write-Warning "networkStorage pool: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
     $ypoolNasUser = ''; $ypoolNasNetPath = ''
 }
-$ypoolNasPwd = ''
-# Gate Get-Password on the read-only vault-readiness check so a networkUser that was
-# set in config but never Set-Password'd does NOT auto-generate + persist a junk
-# credential (and bake it). Mirrors the host-side drain's loud-fail.
-if ($ypoolNasCfg -and $ypoolNasUser -and (Test-PoolStorageVaultReady -Config $ypoolNasCfg -WarningAction SilentlyContinue)) {
-    try { $ypoolNasPwd = [string](Get-Password -Username $ypoolNasUser) } catch { Write-Verbose "ypool-nas networkUser password: $_" }
-}
-$ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasPwd) { 'true' } else { 'false' }
+# ypool-nas REPLICATE is enabled when pool storage is CONFIGURED (network path +
+# user). The password is NO LONGER baked -- it is served at runtime by the Host
+# Config Service (/v1/nas/pool) and written by yuruna-config-fetch, so a rotated
+# NAS password reaches a running VM without a rebuild. The service's own vault gate
+# returns 503 (no replication, self-healing) until the operator sets the password.
+$ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
 # Pool push-ingest shared bearer: resolve the operator-supplied token that
 # gates the aggregator's POST /ingest, mirroring the ypool-nas loud-fail gate. Read it ONLY
@@ -242,6 +247,29 @@ if ($poolAuthToken -match '[\r\n''"]') {
     $poolAuthToken = ''
 }
 
+# Host Config Service mTLS materials. Mint a per-VM client leaf signed by THIS
+# host's Config CA and bake it (with the CA cert + the service port) so the cache
+# VM can fetch ystash-nas (and ypool-nas) credentials at boot AND hourly over
+# mutual TLS -- a rotated NAS password then reaches the running VM without a
+# rebuild (the bake-once staleness fix). The client leaf chains to this host's
+# CA, so the service serves ONLY this host's VMs. PEMs are baked base64 so they
+# survive the cloud-init write_files block scalar (encoding: b64).
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.HostConfigCA.psm1') -Force
+$configPort = '8443'
+if ($tc -and $tc.configService -and $tc.configService.port) { $configPort = "$($tc.configService.port)" }
+$configClientCertB64 = ''
+$configClientKeyB64  = ''
+$configCaCertB64     = ''
+try {
+    $clientPem  = New-YurunaConfigClientCertificate -SubjectName $VMName -HostId $ypoolNasHostId
+    $utf8NoBom  = [System.Text.UTF8Encoding]::new($false)
+    $configClientCertB64 = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CertificatePem))
+    $configClientKeyB64  = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.PrivateKeyPem))
+    $configCaCertB64     = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CaCertificatePem))
+} catch {
+    Write-Warning "Host Config CA: could not mint a client cert ($($_.Exception.Message)); the cache VM falls back to its baked NAS credential (dynamic rotation disabled for this VM)."
+}
+
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
 # caching-proxy.*). Build-CloudInitUserData resolves the SSH-key and
 # password placeholders with literal .Replace(), so values with
@@ -259,9 +287,12 @@ $UserData = Build-CloudInitUserData `
         YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
         YPOOL_NAS_NETWORK_PATH_PLACEHOLDER  = $ypoolNasNetPath
         YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
-        YPOOL_NAS_PASSWORD_PLACEHOLDER      = $ypoolNasPwd
         YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
         POOL_AUTH_TOKEN_PLACEHOLDER    = $poolAuthToken
+        YURUNA_CONFIG_PORT_PLACEHOLDER               = $configPort
+        YURUNA_CONFIG_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
+        YURUNA_CONFIG_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64
+        YURUNA_CONFIG_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
     } `
     -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
     -Confirm:$false
@@ -418,7 +449,7 @@ verify all three checks below before starting guest installs):
        open '__UTM_DIR__'    # double-click equivalent
 
   2. Start the VM and wait 5-15 minutes for cloud-init
-     (install squid + apache2 + squid-cgi, then pre-warm):
+     (install squid + apache2, then pre-warm):
        utmctl start __VM_NAME__
 
   3. Find the VM's IP. `utmctl ip-address` does NOT work for Apple
@@ -439,7 +470,7 @@ verify all three checks below before starting guest installs):
        nc -z -w 3 "$ip" 3128 && echo 'squid OK' || echo 'squid DOWN'
 
   5. Verify pre-warm finished (cache occupancy should be > 0):
-       open "http://$ip/cgi-bin/cachemgr.cgi"    # -> 'storedir'
+       ssh yuruna@$ip "squidclient mgr:storedir"    # StoreEntries > 0
 
 If step 4 reports 'squid DOWN' after 15 minutes, access the VM:
   * UTM window:  login 'yuruna' / password '__PASSWORD__'

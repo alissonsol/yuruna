@@ -71,8 +71,11 @@ package_update: true
 packages:
   # --- See https://yuruna.link/vmconfig/caching-proxy#package-squid-openssl-not-squid
   - squid-openssl
-  # --- See https://yuruna.link/vmconfig/caching-proxy#package-squid-cgi-for-cachemgr
-  - squid-cgi
+  # squid-cgi (cachemgr.cgi web UI) is intentionally NOT listed: Ubuntu
+  # dropped the package in 26.04 (Squid 7), so requesting it has no
+  # installation candidate and FAILS the entire cloud-init package
+  # transaction. Cache-manager data is reached with `squidclient mgr:<page>`
+  # on the VM instead (cachemgr_passwd stays set in squid.conf below).
   # --- See https://yuruna.link/vmconfig/caching-proxy#squidclient-and-apache2
   - apache2
   # --- See https://yuruna.link/vmconfig/caching-proxy#monitoring-stack-packages
@@ -93,6 +96,8 @@ packages:
   # --- See https://yuruna.link/vmconfig/caching-proxy#packages-cifs-utils-and-sqlite3-for-nas-replication
   - cifs-utils
   - sqlite3
+  # jq: parse the Host Config Service JSON (NAS creds) without shell-quoting the password.
+  - jq
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
   # === YURUNA_OVERLAY_NIC_OFFLOAD ===
@@ -111,17 +116,9 @@ write_files:
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
-  # --- See https://yuruna.link/vmconfig/caching-proxy#restrict-cachemgr-to-rfc1918
-  - path: /etc/apache2/conf-available/yuruna-cachemgr.conf
-    permissions: '0644'
-    owner: root:root
-    content: |
-      <Location /cgi-bin/cachemgr.cgi>
-          Require ip 127.0.0.1
-          Require ip 10.0.0.0/8
-          Require ip 172.16.0.0/12
-          Require ip 192.168.0.0/16
-      </Location>
+  # No yuruna-cachemgr.conf: the cachemgr.cgi binary it guarded came from
+  # squid-cgi, which Ubuntu 26.04 no longer ships (see packages above). Use
+  # `squidclient mgr:<page>` on the VM for cache-manager data.
   # --- See https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-over-read-only-http
   - path: /etc/apache2/conf-available/yuruna-pool-intent.conf
     permissions: '0644'
@@ -958,17 +955,157 @@ write_files:
     content: |
       YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
       YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
-  # --- See https://yuruna.link/vmconfig/caching-proxy#yuruna-pool-dashboard-inlined
+  # --- Host Config Service (mTLS) client materials + dynamic NAS-credential fetch.
+  # The cache VM fetches ystash-nas (later ypool-nas) connection info + password
+  # from the host's Config Service at boot AND hourly, so a rotated NAS password
+  # reaches this running VM without a rebuild. The client cert chains to THIS
+  # host's Config CA, so the service serves only this host's VMs. PEMs are baked
+  # base64 (encoding: b64) so they survive YAML; single-quoted so an empty value
+  # (client cert not minted) parses as '' and the runcmd gate skips the fetch.
+  - path: /etc/yuruna/host-config/config.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_CONFIG_PORT=YURUNA_CONFIG_PORT_PLACEHOLDER
+      YURUNA_CONFIG_SAN=yuruna-host-config
+  - path: /etc/yuruna/host-config/ca.crt
+    permissions: '0644'
+    owner: root:root
+    encoding: b64
+    content: 'YURUNA_CONFIG_CA_CERT_BASE64_PLACEHOLDER'
+  - path: /etc/yuruna/host-config/client.crt
+    permissions: '0644'
+    owner: root:root
+    encoding: b64
+    content: 'YURUNA_CONFIG_CLIENT_CERT_BASE64_PLACEHOLDER'
+  - path: /etc/yuruna/host-config/client.key
+    permissions: '0600'
+    owner: root:root
+    encoding: b64
+    content: 'YURUNA_CONFIG_CLIENT_KEY_BASE64_PLACEHOLDER'
+  - path: /usr/local/bin/yuruna-config-fetch.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/sh
+      # Fetch one NAS credential set (stash|pool) from the host's Config Service
+      # over mutual TLS and, on a version change (or when not mounted), rewrite the
+      # 0600 cifs credentials file and remount. Best-effort: never fails hard. The
+      # stable TLS hostname (SAN) is mapped to the host's current IP via curl
+      # --connect-to, so a host DHCP change never invalidates the server leaf.
+      set -u
+      NAME="${1:-stash}"
+      CDIR=/etc/yuruna/host-config
+      # host.env holds only host-baked YURUNA_HOST_IP/PORT (no operator free-text), so
+      # sourcing is safe (feedback_findmnt_target_and_cloudinit_env_source_traps.md);
+      # operator-supplied env files must instead be sed-extracted.
+      [ -r /etc/yuruna/host.env ] && . /etc/yuruna/host.env
+      [ -r "$CDIR/config.env" ] && . "$CDIR/config.env"
+      HOST_IP="${YURUNA_HOST_IP:-}"
+      HOST_PORT="${YURUNA_HOST_PORT:-8080}"
+      PORT="${YURUNA_CONFIG_PORT:-8443}"
+      SAN="${YURUNA_CONFIG_SAN:-yuruna-host-config}"
+      # Per-name: mount point, credentials file to (re)write, and mount mode.
+      # stash mounts read-only for the aggregator's scan; pool mounts read-write so
+      # ypool-nas-replicate.sh can rsync into it. The pool credentials file is the
+      # path the replicate script already reads, so this fetch is the SINGLE owner
+      # of the ypool-nas mount + credential (refreshed at runtime, so a rotated NAS
+      # password reaches this VM without a rebuild).
+      case "$NAME" in
+        stash) MOUNT=/mnt/ystash-nas; CRED=/etc/yuruna/host-config/stash.cifs.cred; MODEOPT=,ro ;;
+        pool)  MOUNT=/mnt/ypool-nas;  CRED=/etc/yuruna/ypool-nas.cifs.cred;          MODEOPT= ;;
+        *)     MOUNT="/mnt/$NAME";     CRED="/etc/yuruna/host-config/$NAME.cifs.cred"; MODEOPT=,ro ;;
+      esac
+      # Breadcrumb (Apache serves /var/www/html) so "configured but not mounting" is
+      # diagnosable without SSH -- mirrors ypool-nas-status.
+      STATUS="/var/www/html/config-fetch-$NAME-status"
+      note() { printf 'last_attempt=%s name=%s mounted=%s detail=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$(mountpoint -q "$MOUNT" 2>/dev/null && echo 1 || echo 0)" "$1" > "$STATUS" 2>/dev/null || true; logger -t yuruna-config "$NAME: $1"; }
+      [ -n "$HOST_IP" ] || { note "no-host-ip (seed lacks host coordinates)"; exit 0; }
+      [ -s "$CDIR/client.crt" ] && [ -s "$CDIR/client.key" ] && [ -s "$CDIR/ca.crt" ] || { note "no-client-cert (mTLS materials absent)"; exit 0; }
+      command -v curl >/dev/null 2>&1 || { note "curl-missing"; exit 0; }
+      command -v jq   >/dev/null 2>&1 || { note "jq-missing"; exit 0; }
+      # Retry burst: at guest boot the host Config Service may not be accepting yet
+      # (host bring-up races VM boot). A few short retries beat waiting a whole hour
+      # for the next timer tick; idempotent, so this is harmless on the hourly path
+      # (it succeeds on the first try in steady state).
+      JSON=''
+      i=1
+      while [ "$i" -le 5 ]; do
+        JSON="$(curl -sS --max-time 20 --cacert "$CDIR/ca.crt" --cert "$CDIR/client.crt" --key "$CDIR/client.key" --connect-to "$SAN:$PORT:$HOST_IP:$PORT" "https://$SAN:$PORT/v1/nas/$NAME" 2>/dev/null)" && [ -n "$JSON" ] && break
+        JSON=''; i=$((i+1)); [ "$i" -le 5 ] && sleep 10
+      done
+      if [ -z "$JSON" ]; then
+        # Distinguish "host unreachable at the baked IP (stale after a host DHCP
+        # change)" from "host up but the Config Service is down/refusing".
+        if curl -s --max-time 5 -o /dev/null "http://$HOST_IP:$HOST_PORT/livecheck" 2>/dev/null; then
+          note "config-service-down-at-$HOST_IP:$PORT (host reachable; start the Host Config Service)"
+        else
+          note "host-unreachable-at-$HOST_IP (baked host IP may be stale; rebuild the VM or fix host networking)"
+        fi
+        exit 0
+      fi
+      NETPATH="$(printf '%s' "$JSON" | jq -r '.networkPath // empty')"
+      NAS_USER="$(printf '%s' "$JSON" | jq -r '.username // empty')"
+      NAS_PASS="$(printf '%s' "$JSON" | jq -r '.password // empty')"
+      VERSION="$(printf '%s' "$JSON" | jq -r '.version // empty')"
+      [ -n "$NETPATH" ] && [ -n "$NAS_USER" ] && [ -n "$NAS_PASS" ] && [ -n "$VERSION" ] || { note "incomplete-payload (NAS not configured or vault credential unset)"; exit 0; }
+      umask 077
+      # printf %s writes the password literally -- no shell re-parsing -- so vault
+      # special characters survive into the cifs credentials file intact.
+      printf 'username=%s\npassword=%s\n' "$NAS_USER" "$NAS_PASS" > "$CRED"
+      chmod 600 "$CRED" 2>/dev/null || true
+      VERF="$CDIR/$NAME.version"
+      PREV=''
+      [ -r "$VERF" ] && PREV="$(cat "$VERF" 2>/dev/null)"
+      mkdir -p "$MOUNT" 2>/dev/null || true
+      CHANGED=0
+      [ "$VERSION" != "$PREV" ] && CHANGED=1
+      mountpoint -q "$MOUNT" 2>/dev/null || CHANGED=1
+      if [ "$CHANGED" = "1" ]; then
+        mountpoint -q "$MOUNT" 2>/dev/null && timeout 30 umount "$MOUNT" >/dev/null 2>&1
+        # MODEOPT is ,ro for stash (read-only scan) and empty (read-write) for pool.
+        timeout 60 mount -t cifs "$NETPATH" "$MOUNT" -o "credentials=$CRED,vers=3.0,uid=0,gid=0,iocharset=utf8,nofail$MODEOPT" >/dev/null 2>&1 || true
+        printf '%s' "$VERSION" > "$VERF" 2>/dev/null || true
+      fi
+      if mountpoint -q "$MOUNT" 2>/dev/null; then note "mounted (credential current)"; else note "mount-failed (NAS unreachable or wrong credential)"; fi
+      exit 0
+  - path: /etc/systemd/system/yuruna-config-fetch@.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Yuruna Host Config fetch (%i) over mTLS
+      After=network-online.target
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/yuruna-config-fetch.sh %i
+      StandardOutput=journal
+      StandardError=journal
+  - path: /etc/systemd/system/yuruna-config-fetch@.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Run Yuruna Host Config fetch (%i) at boot and hourly
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=1h
+      AccuracySec=15s
+      Unit=yuruna-config-fetch@%i.service
+      [Install]
+      WantedBy=timers.target
+  # --- See https://yuruna.link/vmconfig/caching-proxy#yuruna-hosts-dashboard-inlined
   - path: /var/lib/grafana/dashboards/pool.json
     permissions: '0644'
     owner: root:root
     content: |
       {
         "uid": "yuruna-pool",
-        "title": "Yuruna Pool",
+        "title": "Yuruna hosts",
         "tags": ["yuruna", "pool"],
         "schemaVersion": 39,
-        "version": 2,
+        "version": 3,
         "editable": true,
         "refresh": "30s",
         "timezone": "utc",
@@ -1084,11 +1221,57 @@ write_files:
             "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "down", "color": "red", "index": 0 }, "1": { "text": "up", "color": "green", "index": 1 } } } ] }, "overrides": [] }
           },
           {
+            "id": 17,
+            "type": "table",
+            "title": "Extension hosts",
+            "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash server shows the same Host ID in both. No ystash-nas mount or Config Service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID links to that host's status page; Extension names the function (e.g. Stash service) and links to that service's UI -- the stash VM -- via the aggregator's /go/stash redirect (resolved to the host-advertised address server-side).",
+            "gridPos": { "h": 8, "w": 24, "x": 0, "y": 13 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "yuruna_pool_host_extension{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "transformations": [
+              {
+                "id": "organize",
+                "options": {
+                  "excludeByName": { "Time": true, "pool": true, "__name__": true, "job": true, "instance": true, "Value": true, "Value #A": true },
+                  "renameByName": { "hostId": "Host ID", "area": "Extension" },
+                  "indexByName": { "hostId": 0, "area": 1 }
+                }
+              }
+            ],
+            "fieldConfig": {
+              "defaults": { "custom": { "align": "left", "cellOptions": { "type": "auto" } } },
+              "overrides": [
+                {
+                  "matcher": { "id": "byName", "options": "Host ID" },
+                  "properties": [
+                    { "id": "custom.width", "value": 330 },
+                    { "id": "custom.align", "value": "right" },
+                    { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8})(.{4})(.{4})(.{4})(.{12})$", "result": { "text": "$1-$2-$3-$4-$5" } } } ] },
+                    { "id": "links", "value": [ { "title": "Open host status page", "url": "${__data.fields.baseUrl}", "targetBlank": true } ] }
+                  ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "Extension" },
+                  "properties": [
+                    { "id": "custom.width", "value": 240 },
+                    { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 } } } ] },
+                    { "id": "links", "value": [ { "title": "Open stash service UI", "url": "${__data.fields.target}", "targetBlank": true } ] }
+                  ]
+                },
+                { "matcher": { "id": "byName", "options": "baseUrl" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
+                { "matcher": { "id": "byName", "options": "target" }, "properties": [ { "id": "custom.hidden", "value": true } ] }
+              ]
+            },
+            "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Host ID", "desc": false } ] }
+          },
+          {
             "id": 6,
             "type": "table",
             "title": "Pool hosts",
             "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Host ID links to that host's own status page; Last cycle links to the cycle folder. Artifacts never leave the generating host.",
-            "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
+            "gridPos": { "h": 10, "w": 24, "x": 0, "y": 21 },
             "datasource": { "type": "datasource", "uid": "-- Mixed --" },
             "targets": [
               { "refId": "A", "expr": "yuruna_pool_host_info{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
@@ -1105,6 +1288,7 @@ write_files:
                   "renameByName": {
                     "hostId": "Host ID",
                     "hostType": "Type",
+                    "version": "Version",
                     "status": "Status",
                     "cycleId": "Last cycle",
                     "Value #B": "Last seen",
@@ -1118,9 +1302,10 @@ write_files:
                     "hostType": 3,
                     "Value #B": 4,
                     "cycleId": 5,
-                    "status": 6,
-                    "baseUrl": 7,
-                    "cycleFolderUrl": 8
+                    "version": 6,
+                    "status": 7,
+                    "baseUrl": 8,
+                    "cycleFolderUrl": 9
                   }
                 }
               }
@@ -1140,7 +1325,8 @@ write_files:
                           "fail": { "color": "#dc2626", "index": 1 },
                           "running": { "color": "#2563eb", "index": 2 },
                           "idle": { "text": "not running", "color": "#6b7280", "index": 3 },
-                          "unreachable": { "color": "#374151", "index": 4 }
+                          "unreachable": { "color": "#374151", "index": 4 },
+                          "paused": { "color": "#ca8a04", "index": 5 }
                         } }
                       ]
                     }
@@ -1165,6 +1351,10 @@ write_files:
                     { "id": "custom.width", "value": 180 },
                     { "id": "links", "value": [ { "title": "Open cycle folder", "url": "${__data.fields.baseUrl}/${__data.fields.cycleFolderUrl}", "targetBlank": true } ] }
                   ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "Version" },
+                  "properties": [ { "id": "custom.width", "value": 100 } ]
                 },
                 {
                   "matcher": { "id": "byName", "options": "Last seen" },
@@ -1225,10 +1415,11 @@ write_files:
                     "1": { "text": "running", "color": "#2563eb", "index": 1 },
                     "2": { "text": "pass", "color": "#16a34a", "index": 2 },
                     "3": { "text": "fail", "color": "#dc2626", "index": 3 },
-                    "4": { "text": "not running", "color": "#6b7280", "index": 4 }
+                    "4": { "text": "not running", "color": "#6b7280", "index": 4 },
+                    "5": { "text": "paused", "color": "#ca8a04", "index": 5 }
                   } }
                 ],
-                "thresholds": { "mode": "absolute", "steps": [ { "color": "#374151", "value": null }, { "color": "#2563eb", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#dc2626", "value": 3 }, { "color": "#6b7280", "value": 4 } ] }
+                "thresholds": { "mode": "absolute", "steps": [ { "color": "#374151", "value": null }, { "color": "#2563eb", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#dc2626", "value": 3 }, { "color": "#6b7280", "value": 4 }, { "color": "#ca8a04", "value": 5 } ] }
               },
               "overrides": []
             }
@@ -1238,7 +1429,7 @@ write_files:
             "type": "row",
             "title": "Drill-down: incidents & cycle events",
             "collapsed": true,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
             "panels": [
               {
                 "id": 13,
@@ -1329,7 +1520,7 @@ write_files:
     content: |
       {
         "uid": "yuruna-squid",
-        "title": "Yuruna Caching Proxy",
+        "title": "Yuruna caching proxy",
         "tags": ["yuruna"],
         "schemaVersion": 39,
         "version": 1,
@@ -1367,7 +1558,7 @@ write_files:
             "title": "Recent 100 requests (client IP / status / size / method / URL / User-Agent)",
             "description": "Last 100 client requests pulled from /var/log/squid/yuruna_access.log via Loki. Columns: client IP, status code, response bytes, HTTP method, URL, and User-Agent.",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
-            "gridPos": {"x": 0, "y": 8, "w": 24, "h": 12},
+            "gridPos": {"x": 0, "y": 16, "w": 24, "h": 12},
             "options": {
               "showTime": true,
               "showLabels": false,
@@ -1392,7 +1583,7 @@ write_files:
             "title": "Served (7 days)",
             "description": "Total bytes squid served to clients over the last 7 days, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 0, "y": 20, "w": 6, "h": 4},
+            "gridPos": {"x": 0, "y": 8, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1415,7 +1606,7 @@ write_files:
             "title": "From cache (7 days)",
             "description": "Bytes served from cache hits over the last 7 days -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 6, "y": 20, "w": 6, "h": 4},
+            "gridPos": {"x": 6, "y": 8, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1438,7 +1629,7 @@ write_files:
             "title": "Served (24 hours)",
             "description": "Total bytes squid served to clients over the last 24 hours, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 12, "y": 20, "w": 6, "h": 4},
+            "gridPos": {"x": 12, "y": 8, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1461,7 +1652,7 @@ write_files:
             "title": "From cache (24 hours)",
             "description": "Bytes served from cache hits over the last 24 hours -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 18, "y": 20, "w": 6, "h": 4},
+            "gridPos": {"x": 18, "y": 8, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1484,7 +1675,7 @@ write_files:
             "title": "Internet connectivity",
             "description": "1 = the cache VM can reach the upstream internet (HTTPS GET https://www.google.com/generate_204 succeeds within 5s, no proxy). 0 = upstream unreachable. Driven by squid_internet_reachable from squid-meta-exporter.sh.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 0, "y": 24, "w": 6, "h": 4},
+            "gridPos": {"x": 0, "y": 12, "w": 6, "h": 4},
             "options": {
               "colorMode": "background",
               "graphMode": "none",
@@ -1510,7 +1701,7 @@ write_files:
             "title": "Offline mode support",
             "description": "1 = squid's runtime config has `offline_mode on` (cache HITS served unconditionally on upstream 5xx). 0 = otherwise. Queried live from /squid-internal-mgr/config -- reflects what the daemon is actually applying.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 6, "y": 24, "w": 6, "h": 4},
+            "gridPos": {"x": 6, "y": 12, "w": 6, "h": 4},
             "options": {
               "colorMode": "background",
               "graphMode": "none",
@@ -1536,7 +1727,7 @@ write_files:
             "title": "Cached (Mem)",
             "description": "Currently cached content in memory ready to be served. Driven by squid_info_Storage_Mem_size (KB) from squid-exporter; converted to bytes for display.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 12, "y": 24, "w": 6, "h": 4},
+            "gridPos": {"x": 12, "y": 12, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1559,7 +1750,7 @@ write_files:
             "title": "Cached (Disk)",
             "description": "Currently cached content on disk ready to be served. Driven by squid_info_Storage_Swap_size (KB) from squid-exporter; converted to bytes for display.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
-            "gridPos": {"x": 18, "y": 24, "w": 6, "h": 4},
+            "gridPos": {"x": 18, "y": 12, "w": 6, "h": 4},
             "options": {
               "colorMode": "value",
               "graphMode": "none",
@@ -1734,13 +1925,10 @@ write_files:
       YPOOL_NAS_NETWORK_USER='YPOOL_NAS_NETWORK_USER_PLACEHOLDER'
       YPOOL_NAS_HOST_ID='YPOOL_NAS_HOST_ID_PLACEHOLDER'
       YPOOL_NAS_MOUNT='/mnt/ypool-nas'
-  # --- See https://yuruna.link/vmconfig/caching-proxy#nas-cifs-credentials
-  - path: /etc/yuruna/ypool-nas.cifs.cred
-    permissions: '0600'
-    owner: root:root
-    content: |
-      username=YPOOL_NAS_NETWORK_USER_PLACEHOLDER
-      password=YPOOL_NAS_PASSWORD_PLACEHOLDER
+  # /etc/yuruna/ypool-nas.cifs.cred is NO LONGER baked: the password is served at
+  # runtime by the Host Config Service (/v1/nas/pool) and written (0600) by
+  # yuruna-config-fetch.sh, so a rotated NAS password reaches this VM without a
+  # rebuild. The plaintext pool password therefore never ships in the seed.iso.
   # --- See https://yuruna.link/vmconfig/caching-proxy#pool-auth-token
   - path: /etc/yuruna/pool-auth.token
     permissions: '0640'
@@ -1768,12 +1956,13 @@ write_files:
       MOUNT="${YPOOL_NAS_MOUNT:-/mnt/ypool-nas}"
       STATUS=/var/www/html/ypool-nas-status
       mkdir -p "$MOUNT" 2>/dev/null || true
-      # mountpoint -q tests whether $MOUNT is ITSELF a mount (exact). findmnt
-      # --target would resolve a plain dir to its enclosing '/' mount and always
-      # report "mounted", silently skipping the mount and writing to the local root fs.
-      if ! mountpoint -q "$MOUNT" 2>/dev/null; then
-        timeout 60 mount -t cifs "$YPOOL_NAS_NETWORK_PATH" "$MOUNT" -o credentials=/etc/yuruna/ypool-nas.cifs.cred,vers=3.0,uid=0,gid=0,iocharset=utf8,nofail >/dev/null 2>&1 || true
-      fi
+      # The Host Config Service fetch owns the ypool-nas mount + credential: it
+      # (re)mounts $MOUNT read-write with a credential fetched over mTLS and refreshed
+      # on rotation, so a changed NAS password reaches this VM without a rebuild.
+      # Trigger it now (best-effort) in case its timer has not run yet, then replicate
+      # only when the share is actually mounted (mountpoint -q is exact; findmnt
+      # --target would false-pass on the enclosing '/' mount).
+      [ -x /usr/local/bin/yuruna-config-fetch.sh ] && /usr/local/bin/yuruna-config-fetch.sh pool >/dev/null 2>&1 || true
       MOUNTED=0
       mountpoint -q "$MOUNT" 2>/dev/null && MOUNTED=1
       RC_LOKI=skip; RC_PROM=skip; RC_GRAF=skip
@@ -1902,9 +2091,9 @@ runcmd:
   - systemctl enable squid
   - systemctl start squid
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-cachemgr-monitoring
-  - a2enmod cgi
-  - a2enconf yuruna-cachemgr
+  # No `a2enmod cgi` / `a2enconf yuruna-cachemgr`: the cachemgr.cgi web UI
+  # was removed (squid-cgi is gone in Ubuntu 26.04). Apache still serves the
+  # CA cert + pool-intent; cache-manager data is via `squidclient mgr:`.
   # --- See https://yuruna.link/vmconfig/caching-proxy#publish-squid-ca-cert
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
   # --- See https://yuruna.link/vmconfig/caching-proxy#publish-pool-ca-cert
@@ -1974,6 +2163,7 @@ runcmd:
     YR_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
     YR_FLAGS=""
     YR_SRC="github"
+    # Safe to source: host.env is host-baked IP/PORT only, never operator free-text -- so it cannot abort this runcmd phase (feedback_findmnt_target_and_cloudinit_env_source_traps.md).
     if [ -r /etc/yuruna/host.env ]; then
       . /etc/yuruna/host.env
       YR_HOST="${YURUNA_HOST_IP:-}"
@@ -2019,7 +2209,7 @@ runcmd:
       # instead of a generic "build failed".
       if [ ! -s "$f" ]; then PA_OK=0; echo "== YURUNA: pool-aggregator source '$f' empty/missing from ${YR_BASE}test/extension/pool-aggregator/$f (source=${YR_SRC}) =="; fi
     done
-    # NOTE: the Yuruna Pool dashboard is NOT fetched here -- it ships inline via
+    # NOTE: the Yuruna hosts dashboard is NOT fetched here -- it ships inline via
     # write_files (/var/lib/grafana/dashboards/pool.json) so it deploys even if
     # this collector build fails or the host repo is unreachable.
     if [ "$PA_OK" -eq 1 ] && /usr/bin/go build -o pool-aggregator . ; then
@@ -2027,7 +2217,7 @@ runcmd:
         install -m 0644 pool-aggregator.service /etc/systemd/system/pool-aggregator.service
         echo "yuruna: pool-aggregator built and installed at /usr/local/bin/pool-aggregator"
     else
-        echo "== YURUNA: pool-aggregator build failed -- pool COLLECTOR unavailable (the Yuruna Pool dashboard still deploys; it shows 'No data' until the collector is up). Source attempted: ${YR_SRC}. =="
+        echo "== YURUNA: pool-aggregator build failed -- pool COLLECTOR unavailable (the Yuruna hosts dashboard still deploys; it shows 'No data' until the collector is up). Source attempted: ${YR_SRC}. =="
     fi
     cd /
     rm -rf /root/go /opt/caching-proxy-parser /opt/pool-aggregator
@@ -2108,10 +2298,24 @@ runcmd:
     if grep -qx "YPOOL_NAS_REPLICATE='true'" /etc/yuruna/ypool-nas.env 2>/dev/null; then
       systemctl daemon-reload
       systemctl enable --now ypool-nas-replicate.timer || true
-      echo "yuruna ypool-nas: service replication timer enabled"
+      # Prime the ypool-nas mount + credential now via the Host Config Service (mTLS)
+      # so the first replication has a mounted share; gated on a baked client cert.
+      if [ -s /etc/yuruna/host-config/client.crt ]; then
+        /usr/local/bin/yuruna-config-fetch.sh pool || true
+        echo "yuruna ypool-nas: replication enabled (credential served by the Host Config Service, refreshed on rotation)"
+      else
+        echo "yuruna ypool-nas: replication enabled but no client certificate baked (mTLS materials absent); share stays unmounted until a cert is present"
+      fi
     else
       echo "yuruna ypool-nas: service replication disabled in seed (timer not enabled)"
     fi
+  # NOTE: the caching proxy does NOT mount ystash-nas. Extension hosts discovery is
+  # registration-driven -- the stash-server's host advertises activeExtensions in its
+  # host.registration.json and the pool-aggregator (which already polls every pool
+  # host's registration) emits the dashboard row. So there is no @stash fetch here,
+  # and no cross-host Config Service / ystash-nas credential dependency for the
+  # dashboard. (The Config Service + yuruna-config-fetch still serve ypool-nas
+  # replication above.)
   # --- See https://yuruna.link/vmconfig/caching-proxy#verify-promtail-supplementary-groups
   - |
     sleep 2
@@ -2143,7 +2347,7 @@ runcmd:
     echo "  Grafana:    http://${vm_ip}:3000 (anonymous Viewer -- no login required)"
     echo "  Prometheus: http://127.0.0.1:9090 (loopback only -- scrape via Grafana)"
     echo "  Loki:       http://127.0.0.1:3100 (loopback only -- scrape via Grafana)"
-    echo "  cachemgr:   http://${vm_ip}/cgi-bin/cachemgr.cgi (raw cachemgr fallback)"
+    echo "  cachemgr:   squidclient mgr:info  (on the VM; squid-cgi web UI dropped in Ubuntu 26.04)"
     echo "  CA cert:    http://${vm_ip}/yuruna-squid-ca.crt (trust to enable :3129 HTTPS caching)"
     echo "  Recent 100: http://${vm_ip}:9302/ (in-memory live tail; see test/extension/caching-proxy-parser/)"
     echo "  zot:        http://${vm_ip}:5000/v2/ (OCI registry, Docker Hub pull-through)"

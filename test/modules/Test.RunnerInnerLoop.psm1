@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,11 @@
 # "back in control" never does, the hang is in Start-Process / WaitForExit; if
 # they stop mid-cleanup, the inner itself is wedged on a specific cmdlet.
 function Write-InnerLog {
+<#
+.SYNOPSIS
+    Append a timestamped "[inner]" line to the runtime dir's outer.log so the
+    inner runner's exit-path progress is visible alongside the outer's entries.
+#>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Message)
     $stamp = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
@@ -60,6 +65,11 @@ function Write-InnerLog {
 # the correct-looking command line. Write-Warning bypasses logLevel filtering
 # so this surfaces regardless of test.config.yml's logLevel setting.
 function Convert-LocalRepoUrlToPath {
+<#
+.SYNOPSIS
+    Resolve a local repository URL to its filesystem path, accepting a
+    file:/// URL or a bare drive-letter path; returns $null for anything else.
+#>
     [CmdletBinding()]
     [OutputType([string])]
     param([string]$Url)
@@ -71,6 +81,12 @@ function Convert-LocalRepoUrlToPath {
     return $null
 }
 
+<#
+.SYNOPSIS
+    Warn (via Write-Warning, bypassing logLevel) when the framework or project
+    repo has uncommitted changes, since the guest-facing `git archive HEAD`
+    tarballs ship only committed content and will not include them.
+#>
 function Write-UncommittedChangesWarning {
     [CmdletBinding()]
     param(
@@ -117,6 +133,12 @@ function Write-UncommittedChangesWarning {
 # as http://ip:port. The down/up state is module-scoped: every probe goes
 # through this one function so the transition log stays coherent.
 $script:CachingProxyLastReachable = $true
+<#
+.SYNOPSIS
+    TCP-probe the startup-detected caching-proxy URL before a step and emit a
+    coherent transition log (one-shot LOST warning, terse still-unreachable
+    notes, recovered note) so a mid-cycle host network roam is visible.
+#>
 function Assert-CachingProxyStillReachable {
     param(
         [string]$ProxyUrl,
@@ -132,7 +154,11 @@ function Assert-CachingProxyStillReachable {
     $reachable = $false
     try {
         $async = $tcp.BeginConnect($ip, $port, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
+        # 3s cap, not 1s: a remote/cross-host cache (UTM/macOS squid over bridged
+        # networking) takes 600ms-1s+ to ACCEPT, so a 1s probe produced spurious
+        # per-step "Caching proxy LOST" warnings on a healthy remote proxy. The cap
+        # only matters when the port is slow/down; a fast cache returns on accept.
+        if ($async.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected) {
             $reachable = $true
         }
     } catch {
@@ -147,8 +173,8 @@ function Assert-CachingProxyStillReachable {
         }
     } else {
         if ($script:CachingProxyLastReachable) {
-            Write-Warning "  Caching proxy LOST at ${GuestKey}/${StepName}: $ProxyUrl no longer answers (1s TCP probe)."
-            Write-Warning "    Common cause: host Wi-Fi roamed to a different SSID/subnet mid-cycle."
+            Write-Warning "  Caching proxy LOST at ${GuestKey}/${StepName}: $ProxyUrl no longer answers (3s TCP probe)."
+            Write-Warning "    Common cause: host Wi-Fi roamed to a different SSID/subnet mid-cycle, or a remote/cross-host cache is briefly slow to accept."
             Write-Warning "    Guests configured at New-VM time with this URL will fall back to direct downloads."
         } else {
             Write-Warning "  Caching proxy still unreachable at $GuestKey/$StepName ($ProxyUrl)."
@@ -165,8 +191,16 @@ function Assert-CachingProxyStillReachable {
 # back to -CycleDelayFallback (the runner's -CycleDelaySeconds parameter) when
 # the config key is absent so a cmdline override survives a config edit.
 function Get-RunnerReloadableConfig {
+<#
+.SYNOPSIS
+    Resolve the reloadable per-cycle knobs (StopOnFailure, VM start timeout,
+    boot delay, image refresh hours, cycle delay) from a parsed test.config.yml,
+    falling back to defaults so the initialiser and the mid-cycle reload agree.
+.OUTPUTS
+    [System.Collections.Specialized.OrderedDictionary] the resolved knob values.
+#>
     [CmdletBinding()]
-    [OutputType([System.Collections.IDictionary])]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param(
         [Parameter(Mandatory)][AllowNull()]$Config,
         [Parameter(Mandatory)][int]$CycleDelayFallback
@@ -187,6 +221,14 @@ function Get-RunnerReloadableConfig {
 # the immutable inputs (cmdline log level, the -CycleDelaySeconds fallback), the
 # mtime parse-cache slots, and the reloadable knobs seeded to their defaults.
 function New-RunnerConfigState {
+<#
+.SYNOPSIS
+    Build the mutable per-run config-state hashtable threaded through
+    Sync-RunnerCycleConfig: immutable inputs, the mtime parse-cache slots, and
+    the reloadable knobs seeded to their defaults.
+.OUTPUTS
+    [hashtable] the fresh config-state object.
+#>
     [CmdletBinding()]
     [OutputType([hashtable])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -278,6 +320,11 @@ function Sync-RunnerCycleConfig {
 # sibling of the entry point's bootstrap Resolve-LogLevel): cmdline > JSON >
 # 'Information', re-publishing $env:YURUNA_LOG_LEVEL for child processes.
 function Resolve-RunnerLogLevel {
+<#
+.SYNOPSIS
+    Resolve the per-step log level from a config-state hashtable (cmdline > JSON
+    config > 'Information') and re-publish $env:YURUNA_LOG_LEVEL for children.
+#>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable]$State)
     $cfg = $State.Config
@@ -287,6 +334,12 @@ function Resolve-RunnerLogLevel {
 
 # === Failure-artifact capture for remote inspection ===
 function Copy-FailureArtifactsToStatusLog {
+<#
+.SYNOPSIS
+    Gather a failed guest's evidence (screenshot frames, frozen-moment shot, OCR
+    text, guest/host system diagnostics, the last fetch-and-execute log) into
+    the per-guest cycle folder and link it from the cycle log and status doc.
+#>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = '$global:__YurunaCycleFolder / $global:__YurunaLogFile are the cross-module channels with Yuruna.Log for the per-cycle folder and the HTML transcript handle this function appends the artifact link to.')]
     param(
@@ -470,6 +523,12 @@ function Copy-FailureArtifactsToStatusLog {
     }
 }
 
+<#
+.SYNOPSIS
+    Run the runner's single inner cycle: git pull, project clone, module
+    re-import, plan resolution, per-guest provision/sequence execution, failure
+    capture, notification gating, and the inter-cycle delay, driven by $State.
+#>
 function Invoke-RunnerInnerCycle {
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -868,6 +927,12 @@ while ($true) {
     # reflected; the shared gate honors isEnabled / -NoServer / port identically
     # to the startup path and Test-Sequence.
     $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer -Restart
+
+    # The Host Config Service is intentionally NOT ensured here: it is a
+    # caching-proxy companion (owned by Start-CachingProxy.ps1 on the caching-proxy
+    # host), not a per-cycle runner concern. Coupling it to the test loop would
+    # start it on plain runner hosts that never host a caching proxy, and would not
+    # help a dedicated caching-proxy host that doesn't run the runner.
 
     # Build per-cycle execution plan from project/test/test.runner.yml.
     # Each plan entry is a (top-level workload, guest, sequence chain) tuple;

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.26
+# Version: 2026.06.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -8,7 +8,6 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
-# Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
@@ -37,7 +36,6 @@ apt_retry sudo apt-get install git -y
 
 echo ""
 echo -e "\e[1;36m==== NVM and Node.js ====\e[0m"
-# Install NVM, Node.js, and OpenClaw
 bash << 'EOF'
 # Install NVM (installer is idempotent — updates existing installation)
 export NVM_DIR="$HOME/.nvm"

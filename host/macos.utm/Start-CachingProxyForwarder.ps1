@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,8 +21,13 @@
     Cross-platform userspace TCP forwarder for the caching-proxy VM.
 
 .DESCRIPTION
-    Needed on macOS UTM, where Apple Virtualization shared-NAT isolates
-    guest-to-guest traffic so guests can't reach a sibling VM directly.
+    On macOS UTM this exposes the Shared-NAT cache VM to REMOTE LAN hosts:
+    it binds the host's LAN IP and tunnels to the cache's 192.168.64.x
+    address. It is NOT needed for same-Mac UTM guests -- on macOS 26 every
+    vmnet-shared VM joins one bridge (192.168.64.1) and guests route to a
+    sibling VM directly, so a test guest reaches the cache at its
+    192.168.64.x IP without any host-side hop. (An older belief that
+    shared-NAT isolates guest-to-guest traffic did not reproduce there.)
     Also used on Windows when source-IP preservation matters -- e.g. for
     squid:3128/3129 with PROXY protocol, where netsh portproxy would lose
     the real client IP at the NAT hop.
@@ -30,7 +35,7 @@
     brew/socat/HAProxy dependency, runs anywhere pwsh runs.
 
     On macOS: typically launched detached by Start-CachingProxy.ps1 to
-    let UTM guests reach squid via http://192.168.64.1:3128.
+    let REMOTE LAN hosts reach squid via the Mac's LAN IP.
 
     On Windows: launched by Test.PortMap.psm1's Add-CachingProxyPortMap
     when -ProxyProtocolPort lists a port; -PrependProxyV1 then makes

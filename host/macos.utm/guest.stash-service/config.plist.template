@@ -48,6 +48,18 @@
 	</dict>
 	<key>QEMU</key>
 	<dict>
+		<!-- -vnc 127.0.0.1:N exposes a localhost-only RFB server. The
+		     headless stash VM doesn't need a console, but the harness uses
+		     the same Send-TextVNC / Get-VncScreenshot code path here as for
+		     the Linux install VMs, so the RFB endpoint is always wired up.
+		     No xres/yres -global pair (no OCR calibration concern on a
+		     headless service VM). -->
+		<!-- share=force-shared: keeps screenshot + keystroke RFB clients
+		     from kicking each other (see guest.amazon.linux.2023 template for
+		     the full rationale). Not strictly required for the headless stash
+		     VM (no harness keystroke step targets it today), but kept
+		     consistent with the install guests so the same console-capture
+		     tooling works against it for diagnostics. -->
 		<key>AdditionalArguments</key>
 		<array>
 			<string>-vnc</string>

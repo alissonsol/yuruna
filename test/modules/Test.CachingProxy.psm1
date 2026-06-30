@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -300,7 +300,11 @@ function Invoke-CachingProxyProbe {
     # attempt warms ARP / wakes the radio; a follow-up then connects in
     # milliseconds. A genuinely dead port still misses every attempt and FAILs.
     $connectAttempts    = 3
-    $connectTimeoutMs   = 1500
+    # 3s/attempt: a remote/cross-host cache (e.g. UTM/macOS squid over bridged
+    # networking) routinely takes 600ms-1s+ to ACCEPT, so 1500ms still flapped on
+    # a healthy remote proxy. The cap is free for a fast (local) cache -- connect
+    # returns the instant the port accepts.
+    $connectTimeoutMs   = 3000
     $connectBackoffMs   = 200
     foreach ($p in $ports) {
         $label = "{0,-5} ({1})" -f $p.Port, $p.Name
@@ -345,8 +349,10 @@ function Invoke-CachingProxyProbe {
             }
             if ($raw -match '-----BEGIN CERTIFICATE-----' -and $raw -match '-----END CERTIFICATE-----') {
                 try {
-                    $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
-                        [System.Text.Encoding]::UTF8.GetBytes($raw))
+                    # Decode the PEM to DER first: [X509Certificate2]::new(PEM bytes)
+                    # works on Windows but FAILS on macOS (DER-expecting backend).
+                    $caDerB64 = (($raw -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch '-----') }) -join ''
+                    $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($caDerB64))
                     $lines.Add("  [PASS] CA cert $caUrl -> $($cert.Subject) (expires $($cert.NotAfter.ToString('yyyy-MM-dd')))")
                     $passCount++
                 } catch {

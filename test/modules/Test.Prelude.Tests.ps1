@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c6a4b0-7182-4394-8ea5-1a2b3c4d5e6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,24 +38,45 @@ Describe 'Resolve-StatusServiceStart' {
         $cfg = @{ statusService = @{ isEnabled = $true; port = 9090 } }
         $d = Resolve-StatusServiceStart -Config $cfg
         Assert-True $d.ShouldStart 'enabled -> ShouldStart'
-        Assert-Equal 9090 $d.Port 'configured port honored'
+        Assert-Equal -Expected 9090 -Actual $d.Port -Because 'configured port honored'
     }
     It 'defaults the port to 8080 when absent' {
         $d = Resolve-StatusServiceStart -Config @{ statusService = @{ isEnabled = $true } }
         Assert-True $d.ShouldStart 'enabled -> ShouldStart'
-        Assert-Equal 8080 $d.Port 'default port'
+        Assert-Equal -Expected 8080 -Actual $d.Port -Because 'default port'
     }
     It 'does not start when -NoServer is requested even if enabled' {
         $cfg = @{ statusService = @{ isEnabled = $true; port = 9090 } }
         $d = Resolve-StatusServiceStart -Config $cfg -NoServer
         Assert-True (-not $d.ShouldStart) '-NoServer overrides isEnabled'
-        Assert-Equal 9090 $d.Port 'port still resolved (for diagnostics)'
+        Assert-Equal -Expected 9090 -Actual $d.Port -Because 'port still resolved (for diagnostics)'
     }
     It 'does not start when statusService is disabled, missing, or config is null' {
         Assert-True (-not (Resolve-StatusServiceStart -Config @{ statusService = @{ isEnabled = $false } }).ShouldStart) 'disabled'
         Assert-True (-not (Resolve-StatusServiceStart -Config @{}).ShouldStart) 'no statusService node'
         Assert-True (-not (Resolve-StatusServiceStart -Config $null).ShouldStart) 'null config'
-        Assert-Equal 8080 (Resolve-StatusServiceStart -Config $null).Port 'null config -> default port'
+        Assert-Equal -Expected 8080 -Actual (Resolve-StatusServiceStart -Config $null).Port -Because 'null config -> default port'
+    }
+}
+
+Describe 'Resolve-ConfigServiceStart' {
+    It 'defaults to ENABLED on port 8443 when the node/flag is absent' {
+        # Backward-compatible: existing configs without configService still serve
+        # NAS creds (matches Start-HostConfigService.ps1's in-code defaults).
+        $d = Resolve-ConfigServiceStart -Config @{}
+        Assert-True $d.ShouldStart 'absent node -> enabled by default'
+        Assert-Equal -Expected 8443 -Actual $d.Port -Because 'default config port'
+        $dn = Resolve-ConfigServiceStart -Config $null
+        Assert-True $dn.ShouldStart 'null config -> enabled by default'
+        Assert-Equal -Expected 8443 -Actual $dn.Port -Because 'null config -> default port'
+    }
+    It 'honors isEnabled and the configured port' {
+        $d = Resolve-ConfigServiceStart -Config @{ configService = @{ isEnabled = $true; port = 9443 } }
+        Assert-True $d.ShouldStart 'enabled'
+        Assert-Equal -Expected 9443 -Actual $d.Port -Because 'configured port honored'
+    }
+    It 'does not start when explicitly disabled' {
+        Assert-True (-not (Resolve-ConfigServiceStart -Config @{ configService = @{ isEnabled = $false } }).ShouldStart) 'isEnabled false -> off'
     }
 }
 
@@ -85,6 +106,42 @@ Describe 'Start-YurunaStatusServiceIfEnabled' {
         Assert-True (-not (Test-Path $marker)) 'disabled -> not invoked'
         $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $stub -NoServer
         Assert-True (-not (Test-Path $marker)) '-NoServer -> not invoked'
+    }
+
+    It 'aborts the entry point when the start script reports a tagged port conflict' {
+        # Start-StatusService.ps1 throws a YurunaPortConflict-tagged exception
+        # when the status port is held by another user / checkout; the gate must
+        # `exit` so the cycle refuses instead of running blind. `exit` cannot be
+        # asserted in-process (it would kill the test host), so drive it through
+        # a child pwsh and assert on the exit code + the absence of a marker the
+        # child writes only if the gate wrongly returned.
+        $preludePath = (Resolve-Path (Join-Path $here 'Test.Prelude.psm1')).Path
+        Assert-True (Test-Path $preludePath) 'prelude module resolves (guards against a false pass)'
+
+        $tmp           = [System.IO.Path]::GetTempPath()
+        $conflictStub  = Join-Path $tmp ("yrn-confstub-"  + [guid]::NewGuid().ToString('N') + ".ps1")
+        $childScript   = Join-Path $tmp ("yrn-confchild-" + [guid]::NewGuid().ToString('N') + ".ps1")
+        $continuedFlag = Join-Path $tmp ("yrn-continued-" + [guid]::NewGuid().ToString('N'))
+
+        Set-Content -LiteralPath $conflictStub -Value @'
+param([int]$Port,[switch]$Restart)
+$ex = [System.InvalidOperationException]::new("Status-service port $Port held; refusing to start.")
+$ex.Data['YurunaPortConflict'] = $true
+throw $ex
+'@
+        Set-Content -LiteralPath $childScript -Value @"
+Import-Module '$preludePath' -Force -DisableNameChecking
+`$null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = `$true; port = 8123 } } -StartScript '$conflictStub' -Restart
+Set-Content -LiteralPath '$continuedFlag' -Value 'CONTINUED'
+"@
+        try {
+            & pwsh -NoProfile -File $childScript *> $null
+            $rc = $LASTEXITCODE
+            Assert-True ($rc -ne 0) "gate exits non-zero on conflict (rc=$rc)"
+            Assert-True (-not (Test-Path $continuedFlag)) 'gate did not return/continue past the conflict'
+        } finally {
+            Remove-Item -LiteralPath $conflictStub, $childScript, $continuedFlag -Force -ErrorAction SilentlyContinue
+        }
     }
 
     Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue

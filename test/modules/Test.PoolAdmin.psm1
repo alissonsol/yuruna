@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,8 +28,10 @@
 
 $script:PoolAdminGitTimeoutSec = 60
 
-# Resolve-YurunaPoolSchemaPath maps a schema file name to its path under
-# test/schemas/ (this module lives in test/modules/).
+<#
+.SYNOPSIS
+Maps a schema file name to its path under test/schemas/ (this module lives in test/modules/).
+#>
 function Resolve-YurunaPoolSchemaPath {
     [CmdletBinding()]
     [OutputType([string])]
@@ -37,10 +39,13 @@ function Resolve-YurunaPoolSchemaPath {
     return (Join-Path (Split-Path -Parent $PSScriptRoot) (Join-Path 'schemas' $Name))
 }
 
-# Test-YurunaPoolDocValid validates an in-memory doc (IDictionary) against a
-# test/schemas/*.yml JSON-Schema via Test-Json. Returns @{ Ok; Errors }. When
-# Test-Json is unavailable it degrades to an Ok parse-only pass (the doc already
-# parsed) so the CLI still works on older PowerShell, just without enforcement.
+<#
+.SYNOPSIS
+Validates an in-memory doc (IDictionary) against a test/schemas/*.yml JSON-Schema via Test-Json.
+.DESCRIPTION
+Returns @{ Ok; Errors }. When Test-Json is unavailable it degrades to an Ok parse-only pass (the
+doc already parsed) so the CLI still works on older PowerShell, just without enforcement.
+#>
 function Test-YurunaPoolDocValid {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -63,9 +68,13 @@ function Test-YurunaPoolDocValid {
     }
 }
 
-# Open-YurunaPoolIntent ensures a working clone of the WRITABLE intent repo at
-# $IntentDir: clone when absent, else fetch + reset --hard origin/HEAD so the edit
-# is based on the latest remote state. Bounded + prompt-proof. Returns @{ Ok; Error }.
+<#
+.SYNOPSIS
+Ensures a working clone of the WRITABLE intent repo at $IntentDir.
+.DESCRIPTION
+Clones when absent, else fetches + reset --hard origin/HEAD so the edit is based on the latest
+remote state. Bounded + prompt-proof. Returns @{ Ok; Error }.
+#>
 function Open-YurunaPoolIntent {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -94,8 +103,11 @@ function Open-YurunaPoolIntent {
     return @{ Ok = $true; Error = '' }
 }
 
-# Read-YurunaPoolsDoc parses <IntentDir>/pools.yml into an ordered dictionary, or
-# returns a fresh empty doc ({schemaVersion:1, pools:[]}) when the file is absent.
+<#
+.SYNOPSIS
+Parses <IntentDir>/pools.yml into an ordered dictionary, or returns a fresh empty doc
+({schemaVersion:1, pools:[]}) when the file is absent.
+#>
 function Read-YurunaPoolsDoc {
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
@@ -109,10 +121,13 @@ function Read-YurunaPoolsDoc {
     return $doc
 }
 
-# Save-YurunaPoolDoc validates $Doc against $SchemaName then writes it to
-# <IntentDir>/<RelPath> as BOM-less UTF-8 (ConvertTo-Yaml can emit a BOM; the
-# bare-repo + git consumers must stay BOM-free). Returns @{ Ok; Error }. Does NOT
-# commit -- Publish-YurunaPoolIntent does.
+<#
+.SYNOPSIS
+Validates $Doc against $SchemaName then writes it to <IntentDir>/<RelPath> as BOM-less UTF-8.
+.DESCRIPTION
+ConvertTo-Yaml can emit a BOM; the bare-repo + git consumers must stay BOM-free. Returns
+@{ Ok; Error }. Does NOT commit -- Publish-YurunaPoolIntent does.
+#>
 function Save-YurunaPoolDoc {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -135,11 +150,14 @@ function Save-YurunaPoolDoc {
     } catch { return @{ Ok = $false; Error = $_.Exception.Message } }
 }
 
-# Publish-YurunaPoolIntent commits everything under $IntentDir and pushes to the
-# writable origin (bounded). A commit identity is passed inline so a fresh proxy
-# clone with no configured user.name/email still commits. Returns
-# @{ Ok; Pushed; Error }: Ok=committed locally, Pushed=reached the remote (a
-# read-only/offline remote leaves Pushed=$false with a hint, not a hard failure).
+<#
+.SYNOPSIS
+Commits everything under $IntentDir and pushes to the writable origin (bounded).
+.DESCRIPTION
+A commit identity is passed inline so a fresh proxy clone with no configured user.name/email still
+commits. Returns @{ Ok; Pushed; Error }: Ok=committed locally, Pushed=reached the remote (a
+read-only/offline remote leaves Pushed=$false with a hint, not a hard failure).
+#>
 function Publish-YurunaPoolIntent {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -170,11 +188,14 @@ function Publish-YurunaPoolIntent {
     return @{ Ok = $true; Pushed = $true; Error = '' }
 }
 
-# Resolve-YurunaPoolAdminTarget fills the WRITABLE intent url + the admin working
-# clone dir with sensible defaults: url falls back to pool.intentGitUrl from
-# test.config.yml; the clone dir defaults to <runtime>/pool-intent-admin (kept
-# separate from the runner's read-only pool-intent clone so admin edits never race
-# the runner's reset --hard).
+<#
+.SYNOPSIS
+Fills the WRITABLE intent url + the admin working clone dir with sensible defaults.
+.DESCRIPTION
+The url falls back to pool.intentGitUrl from test.config.yml; the clone dir defaults to
+<runtime>/pool-intent-admin (kept separate from the runner's read-only pool-intent clone so admin
+edits never race the runner's reset --hard).
+#>
 function Resolve-YurunaPoolAdminTarget {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -192,7 +213,10 @@ function Resolve-YurunaPoolAdminTarget {
     return @{ IntentGitUrl = $IntentGitUrl; IntentDir = $IntentDir }
 }
 
-# Get-YurunaPoolFromDoc returns the pool object with $PoolId from $Doc, or $null.
+<#
+.SYNOPSIS
+Returns the pool object with $PoolId from $Doc, or $null.
+#>
 function Get-YurunaPoolFromDoc {
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]

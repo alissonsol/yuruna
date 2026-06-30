@@ -23,7 +23,7 @@ variables:
 steps:
   - action: retry
     maxAttempts: 3
-    description: "First login, password change"
+    description: "Login, password rotation, and vault commit (restart on timeout)"
     steps:
       - action: waitForText
         pattern: "login:"
@@ -32,11 +32,11 @@ steps:
 
       - action: pressKey
         name: Enter
-        description: "Enter"
+        description: "Push agetty to redraw a fresh login"
 
       - action: waitForSeconds
         seconds: 2
-        description: "Pause: agetty redraw"
+        description: "Let agetty redraw"
 
       - action: passwdPrompt
         pattern: "login:"
@@ -68,7 +68,7 @@ steps:
         args:
           Username: "${username}"
           NewPassword: "${newPassword}"
-        description: "Update password: auth system"
+        description: "Commit new password to auth system"
 
   - action: fetchAndExecute
     text: "sudo bash /usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"

@@ -107,6 +107,11 @@ type hostStatus struct {
 	StartedAt      string `json:"startedAt"`
 	FinishedAt     string `json:"finishedAt"`
 	CycleFolderUrl string `json:"cycleFolderUrl"`
+	// CyclePaused mirrors the host's control.cycle-pause flag (status.json sets it on
+	// every write + the status server flips it on the pause toggle). Surfaces a paused
+	// host as its own "paused" status, the same effective-pause signal the host status
+	// page shows -- see statusLabel.
+	CyclePaused bool `json:"cyclePaused"`
 	// LastFailure is parsed DELIBERATELY NARROW: only the machine-routable
 	// failureClass + severity, never the host's richer lastFailure (errorMessage,
 	// vmName, reproCommand, relPath) which would leak host detail onto the
@@ -136,10 +141,30 @@ type hostView struct {
 	LastSeenUnixMs int64       `json:"lastSeenUnixMs"`
 	LastError      string      `json:"lastError,omitempty"`
 	Status         *hostStatus `json:"status,omitempty"`
+	// Version is the host's framework version (the one CalVer line in the repo's
+	// VERSION file, served at /yuruna-repo/VERSION -- the same source the host's
+	// own status pages read for their header). Refreshed each poll; kept across a
+	// transient fetch miss (it is stable). "" until first learned.
+	Version string `json:"version,omitempty"`
 	// PoolId is the pool this host advertises in its registration record, which
 	// the runner derived from pools.yml members[] (the single source of truth).
 	// Empty until learned; the aggregator then falls back to the -pool flag.
 	PoolId string `json:"poolId,omitempty"`
+	// ActiveExtensions are the extension areas this host is ACTIVELY running right
+	// now (e.g. "stash-service" when it hosts a stash-server VM) -- distinct from
+	// capabilities.extensions (what it COULD run). Read from the host's
+	// registration record each poll; drives the dashboard's Extension hosts table.
+	// Registration-sourced, so the aggregator never mounts ystash-nas to discover
+	// stash servers (no cross-host Config Service / NAS-credential dependency).
+	ActiveExtensions []string `json:"activeExtensions,omitempty"`
+	// ExtensionTargets maps an active extension area to the deep-link URL the host
+	// advertises for it (e.g. "stash-service" -> the stash VM's UI base URL the host
+	// resolved into its marker via Get-VMIp). Lets the dashboard's Extension cell
+	// /go/stash to the stash VM without the aggregator keeping an address store of its
+	// own. Registration-sourced like ActiveExtensions; empty until the host advertises
+	// one. Also exposed in /api/v1/pool-status for the stash UI's hostId->stashBaseUrl
+	// resolution (docs/design/stash-service-ui.md 3.4).
+	ExtensionTargets map[string]string `json:"extensionTargets,omitempty"`
 }
 
 // eventCursor tracks how far a host's current-cycle NDJSON event file has been
@@ -286,13 +311,21 @@ func isTerminal(status string) bool { return status == "pass" || status == "fail
 // dashboard's per-host table (a string cell); statusCode is the numeric twin
 // for the state-timeline panel. Derived from the same source so they never
 // disagree. Mapping: unreachable=0, running=1, pass=2, fail=3, idle=4 (reachable
-// but no/other cycle status).
+// but no/other cycle status), paused=5.
 func (hv *hostView) statusLabel() string {
 	if hv == nil || !hv.Reachable {
 		return "unreachable"
 	}
 	if hv.Status == nil {
 		return "idle"
+	}
+	// A host whose cycle-pause flag is set and that is NOT mid-cycle is sitting
+	// paused -- report that ABOVE the last cycle's pass/fail so it reads as paused,
+	// not as a stale terminal result. Matches the host status page's effective-pause
+	// badge (cyclePaused && overallStatus != "running"); a still-running cycle that is
+	// only pause-PENDING stays "running" until it stops.
+	if hv.Status.CyclePaused && hv.Status.OverallStatus != "running" {
+		return "paused"
 	}
 	switch hv.Status.OverallStatus {
 	case "running", "pass", "fail":
@@ -312,6 +345,8 @@ func (hv *hostView) statusCode() int {
 		return 3
 	case "idle":
 		return 4
+	case "paused":
+		return 5
 	default: // unreachable
 		return 0
 	}
@@ -384,11 +419,14 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	s.mu.Unlock()
 
 	type probeResult struct {
-		ip     string
-		st     *hostStatus
-		regOK  bool          // host.registration.json was fetched + parsed this poll
-		poolID string        // poolId from the registration record ("" = unpooled/not-yet-derived)
-		gating *gatingPolicy // authored gating policy from the record (nil = pool did not author one)
+		ip         string
+		st         *hostStatus
+		version    string            // framework VERSION ("" = not fetched this poll; caller keeps prior)
+		regOK      bool              // host.registration.json was fetched + parsed this poll
+		poolID     string            // poolId from the registration record ("" = unpooled/not-yet-derived)
+		gating     *gatingPolicy     // authored gating policy from the record (nil = pool did not author one)
+		activeExt  []string          // extension areas the host is actively running (registration activeExtensions)
+		extTargets map[string]string // per-area deep-link URLs the host advertises (registration extensionTargets)
 	}
 	ips := sortedKeys(cand)
 	results := make([]*probeResult, len(ips))
@@ -406,8 +444,13 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 				// Best-effort: learn the host's pool + gating policy from its
 				// registration record. A transient miss keeps the prior poolId +
 				// gating (handled at apply time).
-				if pid, g, rerr := fetchRegistration(client, base); rerr == nil {
-					pr.regOK, pr.poolID, pr.gating = true, pid, g
+				if pid, g, ext, tgt, rerr := fetchRegistration(client, base); rerr == nil {
+					pr.regOK, pr.poolID, pr.gating, pr.activeExt, pr.extTargets = true, pid, g, ext, tgt
+				}
+				// Best-effort: learn the host's framework version from VERSION. A
+				// transient miss leaves pr.version "" and keeps the prior value.
+				if v, verr := fetchVersion(client, base); verr == nil {
+					pr.version = v
 				}
 				results[i] = pr
 			}
@@ -431,11 +474,25 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		hv.CurrentIP, hv.BaseURL, hv.Reachable, hv.LastError = r.ip, base, true, ""
 		hv.LastSeenUnixMs = now.UnixMilli()
 		hv.Status = r.st
+		// Keep the prior version on a transient VERSION miss (it is stable; a blank
+		// must not wipe a known value, the same shape as the poolId guard below).
+		if r.version != "" {
+			hv.Version = r.version
+		}
 		// Update the advertised poolId only when the registration probe succeeded,
 		// so a transient registration miss never wipes a known pool (and a host that
 		// genuinely left a pool clears it: its record now carries poolId="").
 		if r.regOK {
 			hv.PoolId = r.poolID
+			// Active extension areas this host runs (e.g. stash-service) -> the
+			// Extension hosts table. Refreshed from registration each successful poll;
+			// a transient registration miss keeps the prior set (handled by the regOK
+			// gate, same as poolId).
+			hv.ActiveExtensions = r.activeExt
+			// Per-area deep-link URLs (e.g. the stash VM UI) the host advertises ->
+			// the Extension cell's /go/stash. Same regOK gate as ActiveExtensions, so a
+			// transient registration miss keeps the prior set rather than blanking it.
+			hv.ExtensionTargets = r.extTargets
 			// Gating is a pool-level property all members advertise identically;
 			// record it whenever a member carries one (last-writer-wins, they agree).
 			// A member that omits it does NOT delete a peer's authored gating -- so an
@@ -547,38 +604,83 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 	return &st, nil
 }
 
-// fetchRegistration reads poolId + the optional gating policy from
-// /runtime/host.registration.json (the runner derives both from pools.yml, the
-// single source of truth). Returns ("", nil, err) on any failure; the caller keeps
-// the prior poolId/gating on a transient miss and falls back to the -pool flag when
-// never learned. poolId may be "" for an unpooled host -- that is a successful read,
+// fetchVersion reads the host's framework version from VERSION at the repo root,
+// served by the status server at /yuruna-repo/VERSION -- the SAME source the
+// host's own status pages read for their header (their getHostInfo() fetches
+// yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
+// plain-text file (one CalVer line, e.g. "2026.06.30"), so it is lighter than any
+// status HTML page and fetchable server-side without a JS engine. Returns
+// ("", err) on any failure; the caller keeps the prior version on a transient
+// miss (the version is stable across polls). The value is capped + first-line
+// only so a garbage/oversized file can't bloat the metric label.
+func fetchVersion(client *http.Client, base string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/yuruna-repo/VERSION", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("VERSION HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", err
+	}
+	v := strings.TrimSpace(string(body))
+	if i := strings.IndexAny(v, "\r\n"); i >= 0 { // first line only
+		v = strings.TrimSpace(v[:i])
+	}
+	if len(v) > 64 {
+		v = v[:64]
+	}
+	return v, nil
+}
+
+// fetchRegistration reads poolId, the optional gating policy, the active extension
+// areas, and the per-area extension deep-links (extensionTargets) from
+// /runtime/host.registration.json (the runner derives poolId/gating from pools.yml,
+// the single source of truth; the host advertises extensionTargets for the service it
+// runs, e.g. the stash VM UI base URL). Returns ("", nil, nil, nil, err) on any
+// failure; the caller keeps the prior poolId/gating on a transient miss and falls back
+// to the -pool flag when never learned. poolId may be "" for an unpooled host -- that is a successful read,
 // not an error. The returned gating is nil when the pool authored none (so the pool
 // is observed via gauges but never paged); a partial block is completed with the
 // schema defaults.
-func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy, error) {
+func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy, []string, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/runtime/host.registration.json", nil)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, nil, err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, fmt.Errorf("host.registration.json HTTP %d", resp.StatusCode)
+		return "", nil, nil, nil, fmt.Errorf("host.registration.json HTTP %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, nil, err
 	}
 	// Pointers distinguish "field absent" from "authored as zero" so a partial
-	// gating block fills only the missing knobs from the defaults.
+	// gating block fills only the missing knobs from the defaults. activeExtensions
+	// is the RUNTIME list of extension areas the host is actively running (e.g.
+	// stash-service) -- the host sets it (Write-HostRegistrationRecord) only when
+	// the corresponding service is up, distinct from the static capabilities list.
 	var reg struct {
-		PoolID string `json:"poolId"`
-		Gating *struct {
+		PoolID           string            `json:"poolId"`
+		ActiveExtensions []string          `json:"activeExtensions"`
+		ExtensionTargets map[string]string `json:"extensionTargets"`
+		Gating           *struct {
 			FailuresBeforeAlert  *int `json:"failuresBeforeAlert"`
 			SuccessesBeforeRearm *int `json:"successesBeforeRearm"`
 			Quorum               *struct {
@@ -588,10 +690,10 @@ func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy,
 		} `json:"gating"`
 	}
 	if err := json.Unmarshal(body, &reg); err != nil {
-		return "", nil, fmt.Errorf("host.registration.json parse: %w", err)
+		return "", nil, nil, nil, fmt.Errorf("host.registration.json parse: %w", err)
 	}
 	if reg.Gating == nil {
-		return reg.PoolID, nil, nil
+		return reg.PoolID, nil, reg.ActiveExtensions, reg.ExtensionTargets, nil
 	}
 	g := defaultGatingPolicy()
 	if reg.Gating.FailuresBeforeAlert != nil && *reg.Gating.FailuresBeforeAlert > 0 {
@@ -608,7 +710,7 @@ func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy,
 			g.DegradedAfter = time.Duration(*reg.Gating.Quorum.DegradedAfterMinutes) * time.Minute
 		}
 	}
-	return reg.PoolID, &g, nil
+	return reg.PoolID, &g, reg.ActiveExtensions, reg.ExtensionTargets, nil
 }
 
 // pushLoki POSTs one cycle-status transition to Loki. Labels are strictly
@@ -1714,6 +1816,39 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, strings.TrimRight(base, "/"), http.StatusFound)
 }
 
+// handleGoStash bridges a dashboard Extension-cell click -> an extension's service
+// UI (today the stash VM), 302ing to the URL the owning host advertised in its
+// registration (extensionTargets[area], default area "stash-service"). Unlike
+// /go/host -- which re-resolves a host's CURRENT :8080 IP live -- the aggregator does
+// not probe the stash VM, so this redirect is only as fresh as the host's advertised
+// stashBaseUrl; the host re-resolves that each cycle (and on Start-StashServer) via
+// Get-VMIp, so it self-heals after a DHCP change. Host/target unknown -> 404, matching
+// the best-effort resolver contract in docs/design/stash-service-ui.md (3.4).
+func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	hostID := strings.TrimSpace(q.Get("host"))
+	if hostID == "" {
+		http.Error(w, "missing host", http.StatusBadRequest)
+		return
+	}
+	area := strings.TrimSpace(q.Get("area"))
+	if area == "" {
+		area = "stash-service"
+	}
+	s.mu.Lock()
+	target := ""
+	if hv := s.hosts[hostID]; hv != nil {
+		target = hv.ExtensionTargets[area] // nil map indexes to "" -- no panic
+	}
+	s.mu.Unlock()
+	if target == "" {
+		http.Error(w, "stash target not known to the pool", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, strings.TrimRight(target, "/"), http.StatusFound)
+}
+
 // handleGoCycle bridges a dashboard timeline click -> the host's own cycle-results
 // folder. The state-timeline series is intentionally IP-free (keyed on hostId so a
 // host's row doesn't split when its IP changes), so the link cannot carry the IP;
@@ -1882,8 +2017,8 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	// Per-host descriptive series that drive the dashboard's pool table.
-	// host_info carries the table's label cells (name, type, deep-link URLs,
-	// current cycle, derived status); the value is a constant 1. The series
+	// host_info carries the table's label cells (name, type, framework version,
+	// deep-link URLs, current cycle, derived status); the value is a constant 1. The series
 	// churns when cycleId/status/IP change -- fine for an INSTANT table query
 	// (old label-sets go stale immediately since only the current set is
 	// exported), but is why status/cycle are NOT labels on the timeline series.
@@ -1902,8 +2037,8 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// hostId (Format-CycleFolderBaseName), so this value is hostname-free too. (A
 		// legacy pre-hostId folder name still embeds the hostname until that host's
 		// next cycle re-names under hostId.)
-		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,hostId=%q,hostType=%q,baseUrl=%q,cycleId=%q,cycleFolderUrl=%q,status=%q} 1\n",
-			s.poolFor(h), h, hostType, hv.BaseURL, cycleId, cfu, hv.statusLabel())
+		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,hostId=%q,hostType=%q,version=%q,baseUrl=%q,cycleId=%q,cycleFolderUrl=%q,status=%q} 1\n",
+			s.poolFor(h), h, hostType, hv.Version, hv.BaseURL, cycleId, cfu, hv.statusLabel())
 	}
 	// host_status: the numeric twin of host_info's status, keyed on hostId so it
 	// forms one continuous series per host -- the input the state-timeline panel
@@ -1927,6 +2062,59 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 			continue
 		}
 		fmt.Fprintf(&b, "yuruna_pool_host_last_seen_seconds{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, hv.LastSeenUnixMs/1000)
+	}
+
+	// Extension hosts: hosts ACTIVELY running an extension function (e.g. a
+	// stash-server VM), learned from each host's registration record
+	// (activeExtensions) -- the SAME source + hostId namespace as the pool table, so
+	// the Extension hosts panel formats Host ID identically. No ystash-nas mount /
+	// Config Service: a host self-reports the service it runs, and the aggregator
+	// already polls its registration. area maps to a friendly label
+	// ("stash-service" -> "Stash service") in the dashboard; _last_seen_seconds is
+	// the host's last successful probe. One row per (hostId, area).
+	//
+	// baseUrl (the host's status page) and target (the service UI the host advertised
+	// in extensionTargets, e.g. the stash VM) ride as labels so the dashboard can deep-
+	// link each cell DIRECTLY. A Grafana table built from an instant query turns labels
+	// into string COLUMNS that carry no field labels, so a `${__field.labels.hostId}`
+	// redirect URL resolves to an empty host -- the working pattern (proven by
+	// yuruna_pool_host_info's baseUrl, which the Pool hosts table links identically) is a
+	// hidden URL column linked via `${__data.fields.<col>}`. Same instant-query label
+	// churn tradeoff as host_info: a changed IP exports a fresh label-set and the stale
+	// one drops. /go/stash stays for IP-free (hostId-only) consumers. target is "" until
+	// the host resolves the service VM's address.
+	type extRow struct {
+		host    string
+		area    string
+		baseURL string
+		target  string
+	}
+	extRows := []extRow{}
+	for _, h := range ids {
+		hv := s.hosts[h]
+		if hv == nil {
+			continue
+		}
+		for _, area := range hv.ActiveExtensions {
+			if area == "" {
+				continue
+			}
+			extRows = append(extRows, extRow{host: h, area: area, baseURL: hv.BaseURL, target: hv.ExtensionTargets[area]})
+		}
+	}
+	if len(extRows) > 0 {
+		b.WriteString("# HELP yuruna_pool_host_extension Per-host actively-running extension area (value always 1).\n# TYPE yuruna_pool_host_extension gauge\n")
+		for _, e := range extRows {
+			fmt.Fprintf(&b, "yuruna_pool_host_extension{pool=%q,hostId=%q,area=%q,baseUrl=%q,target=%q} 1\n", s.poolFor(e.host), e.host, e.area, e.baseURL, e.target)
+		}
+		b.WriteString("# HELP yuruna_pool_host_extension_last_seen_seconds Unix time of the last successful probe of this extension host.\n# TYPE yuruna_pool_host_extension_last_seen_seconds gauge\n")
+		for _, e := range extRows {
+			lastSeen := int64(0)
+			if hv := s.hosts[e.host]; hv != nil {
+				lastSeen = hv.LastSeenUnixMs / 1000
+			}
+			fmt.Fprintf(&b, "yuruna_pool_host_extension_last_seen_seconds{pool=%q,hostId=%q,area=%q} %d\n", s.poolFor(e.host), e.host, e.area, lastSeen)
+		}
 	}
 
 	// Incident correlation signals (N-failures-in-M-minutes).
@@ -2264,6 +2452,10 @@ func main() {
 	// status-page ROOT (not a cycle folder) -- the timeline's "open host status page"
 	// link, so the IP-free state-timeline rows reach the per-host status page too.
 	mux.HandleFunc("/go/host", state.handleGoHost)
+	// /go/stash: dashboard Extension-cell click -> 302 to the host's stash VM UI, from
+	// the URL that host advertised (extensionTargets). Open (no auth): it only redirects
+	// to a host's already-open stash UI, the same posture as /go/host.
+	mux.HandleFunc("/go/stash", state.handleGoStash)
 	// /ingest stays registered always; it self-gates on the auth token (503 when
 	// unconfigured). /metrics, /healthz, /api/v1/pool-status remain OPEN + plaintext-
 	// parseable so Prometheus, the host-side pool notifier, and the hostname-free

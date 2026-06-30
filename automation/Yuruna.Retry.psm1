@@ -68,6 +68,11 @@ $script:RetryDefaults = @{
 # in this list, so including it costs at most one backoff cycle.
 $script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|connection refused|connection reset|client\.timeout|EOF|TLS handshake|temporary failure|500 |503 |502 |504 |429 |too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
 
+<#
+.SYNOPSIS
+    Returns a positive integer from the named environment variable, or the
+    supplied fallback when the variable is unset or not a positive integer.
+#>
 function Get-YurunaRetryDefault {
     [OutputType([int])]
     param(
@@ -82,6 +87,11 @@ function Get-YurunaRetryDefault {
     return $Fallback
 }
 
+<#
+.SYNOPSIS
+    Returns the shared transient-failure regex string for callers that match
+    output inline instead of calling Test-YurunaTransientFailure.
+#>
 function Get-YurunaTransientPattern {
     # The regex string, for callers that match inline (e.g. a closure that
     # must run detached in the retry module's scope) rather than calling
@@ -91,6 +101,11 @@ function Get-YurunaTransientPattern {
     return $script:TransientFailurePattern
 }
 
+<#
+.SYNOPSIS
+    Returns $true when the given command output (string or array of lines)
+    matches the shared transient-failure pattern and is worth retrying.
+#>
 function Test-YurunaTransientFailure {
     # $true when command output looks like a transient failure worth
     # retrying. Accepts a string or an array of output lines/records.
@@ -101,6 +116,12 @@ function Test-YurunaTransientFailure {
     return ($text -match $script:TransientFailurePattern)
 }
 
+<#
+.SYNOPSIS
+    Runs a scriptblock under capped exponential backoff with optional jitter,
+    retrying on non-zero exit (or per the -ShouldRetry predicate) and returning
+    a result object describing the outcome.
+#>
 function Invoke-WithYurunaRetry {
     [OutputType([pscustomobject])]
     [CmdletBinding(PositionalBinding=$false)]
@@ -217,6 +238,11 @@ function Invoke-WithYurunaRetry {
     }
 }
 
+<#
+.SYNOPSIS
+    Computes the next backoff delay in seconds, capping the base delay to the
+    maximum and applying +/- jitter so parallel callers do not lock-step.
+#>
 function Get-YurunaRetryBackoff {
     [OutputType([int])]
     param(
@@ -234,6 +260,11 @@ function Get-YurunaRetryBackoff {
     return $result
 }
 
+<#
+.SYNOPSIS
+    Runs `tofu init -input=false` for the named resource under the shared retry
+    policy, returning the Invoke-WithYurunaRetry result object.
+#>
 function Invoke-TofuInitWithRetry {
     [OutputType([pscustomobject])]
     [CmdletBinding(PositionalBinding=$false)]

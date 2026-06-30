@@ -4,6 +4,19 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.06.30
+
+- **Stash stop now leaves no VM files behind.** `Stop-StashServer` gracefully
+  stops the VM and then removes it together with every on-disk file it owns (the
+  disk image, the cloud-init seed, and the host bundle), so the next
+  `Start-StashServer` builds from a clean slate. The durable stash data is
+  unaffected — received files, sidecar records, and the persisted SSH host key
+  live on the NAS share, not the disposable VM disk. See
+  [stash-service.md](docs/design/stash-service.md) (§3.2).
+- **Dashboards update.** Extension hosts panel added to the Yuruna hosts dashboard. The Pool hosts now reports the paused status. Other minor visual updates.
+- **Mid-week release.** Test release to verify automated scripts.
+
+
 ## 2026.06.26
 
 - **Slip-proof release tagging.** The release tool now creates, pushes, and
@@ -38,7 +51,7 @@ tagged release.
 - **Multi-host pool harness.** Test hosts can run as a named **pool** sharing
   sequences and reporting under one `poolId`, driven by a read-only intent store
   with no central dispatcher (default-off, falls back to standalone). A
-  self-discovering aggregator feeds the **Yuruna Pool** Grafana dashboard. See
+  self-discovering aggregator feeds the **Yuruna hosts** Grafana dashboard. See
   [pool-admin.md](docs/pool-admin.md) and [opportunities-hostpool.md](docs/opportunities-hostpool.md).
 - **poolStorage (ypsp) NAS replication.** Pool observability data replicates to a
   NAS share over SMB on Windows, Ubuntu, and macOS — async, fail-fast, atomic,
@@ -83,6 +96,6 @@ tagged release.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](README.md)

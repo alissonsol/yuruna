@@ -1,7 +1,7 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # KVM/libvirt overlay for caching-proxy.base.user-data.
-# Anchor sections in base-file order. Empty section = insert nothing at that anchor.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
   # qemu-guest-agent: the libvirt counterpart of hyperv-daemons. Lets
   # `virsh domifaddr --source agent` report the guest's IPv4 even before

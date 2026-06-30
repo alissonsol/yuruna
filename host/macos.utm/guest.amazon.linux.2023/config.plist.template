@@ -105,8 +105,7 @@
 		     image ships NoCloud already in datasource_list.
 		     SCHEMA: UTM's AdditionalArguments wants plain-string argv
 		     tokens; do not switch to {Argument:"..."} form (UTM v118
-		     drops the bundle on next launch - see
-		     feedback_utm_qemu_additional_arguments_schema). -->
+		     drops the bundle on next launch). -->
 		<key>AdditionalArguments</key>
 		<array>
 			<string>-vnc</string>

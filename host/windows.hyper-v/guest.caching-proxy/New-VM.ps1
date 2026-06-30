@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -239,14 +239,12 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
     Write-Warning "networkStorage pool: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
     $ypoolNasUser = ''; $ypoolNasNetPath = ''
 }
-$ypoolNasPwd = ''
-# Gate Get-Password on the read-only vault-readiness check so a networkUser that was
-# set in config but never Set-Password'd does NOT auto-generate + persist a junk
-# credential (and bake it). Mirrors the host-side drain's loud-fail.
-if ($ypoolNasCfg -and $ypoolNasUser -and (Test-PoolStorageVaultReady -Config $ypoolNasCfg -WarningAction SilentlyContinue)) {
-    try { $ypoolNasPwd = [string](Get-Password -Username $ypoolNasUser) } catch { Write-Verbose "ypool-nas networkUser password: $_" }
-}
-$ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasPwd) { 'true' } else { 'false' }
+# ypool-nas REPLICATE is enabled when pool storage is CONFIGURED (network path +
+# user). The password is NO LONGER baked -- it is served at runtime by the Host
+# Config Service (/v1/nas/pool) and written by yuruna-config-fetch, so a rotated
+# NAS password reaches a running VM without a rebuild. The service's own vault gate
+# returns 503 (no replication, self-healing) until the operator sets the password.
+$ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
 # Pool push-ingest shared bearer: resolve the operator-supplied token that
 # gates the aggregator's POST /ingest, mirroring the ypool-nas loud-fail gate. Read it ONLY
@@ -268,6 +266,29 @@ if ($poolAuthToken -match '[\r\n''"]') {
     $poolAuthToken = ''
 }
 
+# Host Config Service mTLS materials. Mint a per-VM client leaf signed by THIS
+# host's Config CA and bake it (with the CA cert + the service port) so the cache
+# VM can fetch ystash-nas (and ypool-nas) credentials at boot AND hourly over
+# mutual TLS -- a rotated NAS password then reaches the running VM without a
+# rebuild (the bake-once staleness fix). The client leaf chains to this host's
+# CA, so the service serves ONLY this host's VMs. PEMs are baked base64 so they
+# survive the cloud-init write_files block scalar (encoding: b64).
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.HostConfigCA.psm1') -Force
+$configPort = '8443'
+if ($tc -and $tc.configService -and $tc.configService.port) { $configPort = "$($tc.configService.port)" }
+$configClientCertB64 = ''
+$configClientKeyB64  = ''
+$configCaCertB64     = ''
+try {
+    $clientPem  = New-YurunaConfigClientCertificate -SubjectName $VMName -HostId $ypoolNasHostId
+    $utf8NoBom  = [System.Text.UTF8Encoding]::new($false)
+    $configClientCertB64 = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CertificatePem))
+    $configClientKeyB64  = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.PrivateKeyPem))
+    $configCaCertB64     = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CaCertificatePem))
+} catch {
+    Write-Warning "Host Config CA: could not mint a client cert ($($_.Exception.Message)); the cache VM falls back to its baked NAS credential (dynamic rotation disabled for this VM)."
+}
+
 # Render user-data from the shared base + Hyper-V overlay
 # (host/vmconfig/caching-proxy.*). Build-CloudInitUserData resolves the
 # SSH-key and password placeholders with literal .Replace(), so values
@@ -285,9 +306,12 @@ $UserData = Build-CloudInitUserData `
         YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
         YPOOL_NAS_NETWORK_PATH_PLACEHOLDER  = $ypoolNasNetPath
         YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
-        YPOOL_NAS_PASSWORD_PLACEHOLDER      = $ypoolNasPwd
         YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
         POOL_AUTH_TOKEN_PLACEHOLDER    = $poolAuthToken
+        YURUNA_CONFIG_PORT_PLACEHOLDER               = $configPort
+        YURUNA_CONFIG_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
+        YURUNA_CONFIG_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64
+        YURUNA_CONFIG_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
     } `
     -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
     -Confirm:$false
@@ -482,7 +506,7 @@ idempotent and will rebuild the VM cleanly.
 
 Write-Output "Cache VM candidate IP(s): $($cacheCandidateIps -join ', ')"
 Write-Output "Waiting for squid to listen on port 3128 (up to 15 minutes)..."
-Write-Output "  (cloud-init installs squid + apache2 + squid-cgi, then pre-warms"
+Write-Output "  (cloud-init installs squid + apache2, then pre-warms"
 Write-Output "   the cache by pulling linux-firmware through the local proxy --"
 Write-Output "   squid binds :3128 before pre-warm starts, so port response"
 Write-Output "   usually happens 3-5 minutes in on a responsive mirror.)"
@@ -514,7 +538,7 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
         Write-Output "  VM:        $VMName"
         Write-Output "  IP:        $cacheIp"
         Write-Output "  Proxy:     http://${cacheIp}:${cacheHttpPort}"
-        Write-Output "  Monitor:   http://${cacheIp}/cgi-bin/cachemgr.cgi"
+        Write-Output "  Monitor:   ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
         Write-Output ""
         Write-Output "  Console/SSH login:"
         Write-Output "    user:     yuruna"

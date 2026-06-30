@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42b8e1f4-7c2a-4d09-8e3b-1a5c9f0d2e64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,16 @@ $script:DollarSentinel = [char]0xE000
 # action; ${ext:...} is for value-producing reads. Parameter is named
 # ArgList (not Args) because $Args is a PowerShell automatic variable.
 function Invoke-ExtensionExpression {
+    <#
+    .SYNOPSIS
+        Invokes a single extension method and returns its value.
+    .DESCRIPTION
+        Lazily imports Test.Extension, resolves the active extension for
+        the given area, locates the named method, and dispatches it with
+        ArgList. Each call runs fresh with no caching, so value-producing
+        reads such as ${ext:authentication.NewRandomPassword()} return a
+        new value every time.
+    #>
     param(
         [Parameter(Mandatory)][string]$Area,
         [Parameter(Mandatory)][string]$Method,
@@ -62,6 +72,16 @@ function Invoke-ExtensionExpression {
 # fresh on every match. Plain `${var}` substitution remains the
 # responsibility of the surrounding regex pass.
 function Expand-ExtensionExpression {
+    <#
+    .SYNOPSIS
+        Resolves ${ext:area.Method(args)} expressions in a text string.
+    .DESCRIPTION
+        Matches each inline extension expression, expands any nested
+        ${var} placeholders inside its argument list against the supplied
+        Variables table, restores escaped dollars, then invokes the
+        extension fresh per match. Text without an ${ext: marker is
+        returned unchanged.
+    #>
     param([string]$Text, [hashtable]$Variables)
     if (-not $Text -or -not $Text.Contains('${ext:')) { return $Text }
     # Pre-materialize the variable map keys for the MatchEvaluator closure
@@ -95,6 +115,16 @@ function Expand-ExtensionExpression {
 }
 
 function Expand-Variable {
+    <#
+    .SYNOPSIS
+        Substitutes ${var} and ${ext:...} placeholders in step text.
+    .DESCRIPTION
+        Hides $$-escaped dollars behind a sentinel, resolves ${ext:...}
+        expressions first so their arguments see the current Variables
+        table, then literally replaces each ${var} placeholder with its
+        value, and finally restores the escaped dollars as plain $
+        characters.
+    #>
     param([string]$Text, [hashtable]$Variables)
     if ($null -eq $Text) { return $Text }
     # Escape pass: $$ → sentinel hides escaped dollars from both the

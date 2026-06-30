@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,8 +158,8 @@ $httpPort  = $probe.HttpPort
 # A stale system proxy (e.g. a previous Start-CachingProxy.ps1 -PromoteToHost
 # against an IP that has since moved) will silently redirect every
 # Invoke-WebRequest / curl in Invoke-TestRunner. .NET on macOS reads
-# networksetup; .NET on Windows reads WinINet per-user (what
-# Test.HostProxy.psm1 writes) and WinHTTP machine-wide. Env vars are
+# networksetup; .NET on Windows reads WinINet per-user (what the
+# driver's Set-WindowsHostProxy writes) and WinHTTP machine-wide. Env vars are
 # only consulted as a fallback, which is why a stale system setting
 # doesn't show up by dumping env vars alone.
 

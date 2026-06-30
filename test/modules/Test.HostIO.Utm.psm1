@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,8 +29,9 @@
 # pointer path here; UTM's QEMU does not expose mouse-state changes on
 # its VNC channel reliably enough).
 #
-# The actual Send-*UTM / Send-*VNC function bodies live in
-# Test.Transport.psm1; the registry primitives live in Test.HostIO.psm1.
+# The Send-KeyUTM / Send-KeyVNC / Send-TextUTM / Send-TextVNC / Send-ClickUtm
+# function bodies live in Test.Transport.psm1; the registry primitives
+# (Register-HostIOProvider, Invoke-HostIOAction) live in Test.HostIO.psm1.
 
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.psm1')   -Force -DisableNameChecking -Global
 Import-Module (Join-Path $PSScriptRoot 'Test.Transport.psm1') -Force -DisableNameChecking -Global

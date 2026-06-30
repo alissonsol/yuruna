@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42b9e1c4-7a3d-4f52-8e16-9c4d2a7b3e58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,7 +94,7 @@ steps:
     pattern: "x"
 "@
         $seq = Read-SequenceFile -Path $seqPath -NoCache
-        Assert-Equal 3 (@($seq.steps).Count) 'snippet (2 steps) + 1 inline = 3'
+        Assert-Equal -Expected 3 -Actual (@($seq.steps).Count) -Because 'snippet (2 steps) + 1 inline = 3'
         Assert-Equal 'pressKey'      $seq.steps[0].action
         Assert-Equal 'waitForSeconds' $seq.steps[1].action
         Assert-Equal 'waitForText'   $seq.steps[2].action
@@ -122,7 +122,7 @@ steps:
 "@
         $seq = Read-SequenceFile -Path $seqPath -NoCache
         $inner = @($seq.steps[0].steps)
-        Assert-Equal 2 $inner.Count 'snippet (1) + passwdPrompt (1)'
+        Assert-Equal -Expected 2 -Actual $inner.Count -Because 'snippet (1) + passwdPrompt (1)'
         Assert-Equal 'pressKey'     $inner[0].action
         Assert-Equal 'passwdPrompt' $inner[1].action
     }
@@ -227,7 +227,7 @@ steps:
 "@
         $seq = Read-SequenceFile -Path $seqPath -NoCache
         Assert-Equal 1 (@($seq.steps).Count)
-        Assert-Equal 'project' $seq.steps[0].text 'project library wins over framework'
+        Assert-Equal -Expected 'project' -Actual $seq.steps[0].text -Because 'project library wins over framework'
     }
 
     It 'throws when two project libraries define the same snippet name' {

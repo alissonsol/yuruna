@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42d4e5f6-a7b8-4c90-9123-4d5e6f7a8b9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,10 @@
 # registration record uses, so guests.compatibility.yml rules and the registration
 # agree on the token.
 function Get-PoolHostHypervisor {
+    <#
+    .SYNOPSIS
+    Derives the hypervisor token (hyper-v, kvm, utm) from a host.<os>.<hv> host type string.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$HostType)
@@ -42,8 +46,12 @@ function Get-PoolHostHypervisor {
 # caller treats $null as "permit": compatibility is advisory; folder + capability
 # still gate). Pure.
 function Get-CompatibleHypervisorList {
+    <#
+    .SYNOPSIS
+    Returns the array of hypervisors a guest is allowed on per the compatibility rules, or $null when no rule matches the guest.
+    #>
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string[]], [object[]])]
     param([Parameter()][AllowNull()]$Compatibility, [Parameter(Mandatory)][string]$GuestKey)
     if (-not ($Compatibility -is [System.Collections.IDictionary]) -or -not $Compatibility.Contains('rules')) { return $null }
     foreach ($rule in @($Compatibility['rules'])) {
@@ -60,6 +68,10 @@ function Get-CompatibleHypervisorList {
 # PERMISSIVE when the guest has no rule (or no compatibility file) -- a missing
 # rule never silently drops a guest the host can otherwise run. Pure.
 function Test-GuestCompatibleWithHost {
+    <#
+    .SYNOPSIS
+    Tests whether a guest is allowed on this host's hypervisor, returning $true when the guest has no compatibility rule.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -79,8 +91,12 @@ function Test-GuestCompatibleWithHost {
 # folder + capability booleans (they require I/O); compatibility is evaluated here
 # from the rules. Unit-testable without any disk.
 function Select-RunnableGuestList {
+    <#
+    .SYNOPSIS
+    Filters candidate guests to those this host can run (folder present, capability supported, hypervisor compatible), preserving candidate order.
+    #>
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string[]], [object[]])]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$CandidateGuests,
         [Parameter(Mandatory)][hashtable]$FolderPresent,
@@ -105,6 +121,10 @@ function Select-RunnableGuestList {
 # loop's Sync-YurunaPoolIntent). $null when absent/unparseable (the inner then
 # runs single-host).
 function Read-YurunaPoolManifest {
+    <#
+    .SYNOPSIS
+    Reads runtime/pool.manifest.json into a hashtable, returning $null when the file is absent or unparseable.
+    #>
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
     param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
@@ -121,6 +141,10 @@ function Read-YurunaPoolManifest {
 # Resolve the project test dir (where test.runner.yml / test-sets/ /
 # guests.compatibility.yml live) from the cycle-config path.
 function Get-PoolProjectTestDir {
+    <#
+    .SYNOPSIS
+    Resolves the project test directory for a repo root, using the cycle-config path when available and a default subpath otherwise.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$RepoRoot)
@@ -133,6 +157,10 @@ function Get-PoolProjectTestDir {
 # Read-YurunaGuestCompatibility reads project/test/guests.compatibility.yml.
 # $null when absent -> the compatibility gate is permissive (open-decision policy).
 function Read-YurunaGuestCompatibility {
+    <#
+    .SYNOPSIS
+    Reads project/test/guests.compatibility.yml into an ordered dictionary, returning $null when absent or unparseable.
+    #>
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
     param([Parameter(Mandatory)][string]$RepoRoot)
@@ -150,6 +178,10 @@ function Read-YurunaGuestCompatibility {
 # absent/malformed or schemaVersion!=1 -> the caller SKIPS that one set (other
 # sets still run) and never throws.
 function Read-YurunaTestSetManifest {
+    <#
+    .SYNOPSIS
+    Reads a named test-set manifest from project/test/test-sets, returning $null when it is absent, malformed, or not schemaVersion 1.
+    #>
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Name)
@@ -173,6 +205,10 @@ function Read-YurunaTestSetManifest {
 # (the inner runner then falls back to single-host). Best-effort; never throws
 # except PlannerFatal (a sequence typo must still abort, like the single-host path).
 function Resolve-PoolCyclePlan {
+    <#
+    .SYNOPSIS
+    Builds the combined cycle plan for a pooled host from its manifest's assigned test-sets, keeping only the guests this host can run, or $null when nothing is runnable.
+    #>
     [CmdletBinding()]
     [OutputType([System.Object[]])]
     param(

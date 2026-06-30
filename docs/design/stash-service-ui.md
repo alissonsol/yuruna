@@ -150,7 +150,7 @@ a reachable URL for one thing: the remote-host deep-link in §8.3. Rather
 than store addresses in stash metadata (which would go stale and would
 re-introduce host identity into the durable record), the UI **reuses the
 existing pool-aggregator** that already maintains a live, DHCP-resilient
-`hostId → current IP` mapping for the *Yuruna Pool* dashboard.
+`hostId → current IP` mapping for the *Yuruna hosts* dashboard.
 
 - The pool-aggregator runs on the caching-proxy
   ([pool-aggregator](../../test/extension/pool-aggregator/README.md)),

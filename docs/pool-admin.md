@@ -129,7 +129,7 @@ pwsh test/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and the
 
 There is nothing to "deploy": each runner picks up the new intent on its **next cycle** (it
 pulls at cycle start), so no host restart is needed. Once a pooled host completes a cycle,
-confirm it took effect on the **Yuruna Pool** Grafana dashboard (it groups every host under
+confirm it took effect on the **Yuruna hosts** Grafana dashboard (it groups every host under
 your `poolId`), or directly: `curl -sk https://<proxy>:9400/api/v1/pool-status`.
 
 ## Step 6 — Operate the pool
@@ -208,6 +208,6 @@ then to standalone — a pool never stops a host from testing.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../README.md)

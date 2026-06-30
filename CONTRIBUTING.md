@@ -83,7 +83,7 @@ No assistance will be provided to help migrate changes you made in the public re
       ```
        repositories:
          frameworkUrl: https://github.com/alissonsol/yurunadev
-         projectUrl: file:////Users/[username]/git/yuruna-project
+         projectUrl: file:///Users/[username]/git/yuruna-project
       ```
 
   - If you modify files that guest VMs fetch
@@ -169,9 +169,11 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 
 - **PowerShell** — run [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer):
   `Invoke-ScriptAnalyzer -Path . -Recurse`. The repo ships a
-  `PSScriptAnalyzerSettings.psd1` that PSSA auto-discovers; all
-  Error- and Warning-severity findings (including
-  `PSUseBOMForUnicodeEncodedFile`) must be zero before merge.
+  `PSScriptAnalyzerSettings.psd1` that PSSA auto-discovers; it does not
+  filter by severity, so findings of every severity must be zero before
+  merge — including Information-level results (missing comment help,
+  undeclared output types, positional-parameter calls) and
+  `PSUseBOMForUnicodeEncodedFile`.
 - **Commit hook** — a repo-tracked `tools/githooks/pre-commit` runs the
   ASCII/no-BOM gate (`test/Test-AsciiNoBom.ps1`) and blocks a commit that
   would put a BOM or non-ASCII byte into a byte-parsed bootstrap script
@@ -214,6 +216,6 @@ the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](README.md)

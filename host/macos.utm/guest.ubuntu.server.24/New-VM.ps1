@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -357,17 +357,29 @@ if ($Env:YURUNA_CACHING_PROXY_IP -and (Test-IpAddress $Env:YURUNA_CACHING_PROXY_
     if ($candidate -and (Test-IpAddress $candidate)) { $cacheVmIp = $candidate }
 }
 if ($CachingProxyUrl -and $cacheVmIp) {
+    Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
     $cacheVmHost = Format-IpUrlHost $cacheVmIp
     $cacheVmCaUrl = "http://${cacheVmHost}/yuruna-squid-ca.crt"
-    try {
-        $caResp = Invoke-WebRequest -Uri $cacheVmCaUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-        if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
-            $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
-            $CaCertBase64 = [Convert]::ToBase64String($caBytes)
-            Write-Verbose "  Fetched caching-proxy CA from $cacheVmCaUrl ($($caBytes.Length) bytes) -- embedded in seed."
+    # An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
+    # guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
+    # CA-less guest fails every HTTPS with curl rc=60 ("self-signed certificate
+    # in certificate chain"). Retry the fetch under the shared capped-backoff
+    # policy so one blip against a slow or flapping caching proxy does not
+    # strand the guest without the CA. See
+    # feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
+    $caFetch = Invoke-WithYurunaRetry -Label 'caching-proxy CA cert' -MaxAttempts 5 -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
+        $caResp = Invoke-WebRequest -Uri $cacheVmCaUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        if ($caResp.StatusCode -ne 200 -or $caResp.RawContentLength -le 0) {
+            throw "caching-proxy returned status=$($caResp.StatusCode) length=$($caResp.RawContentLength)"
         }
-    } catch {
-        Write-Warning "  Could not fetch CA cert from ${cacheVmCaUrl} : $($_.Exception.Message)"
+        $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
+        [Convert]::ToBase64String($caBytes)
+    }
+    if ($caFetch.Success) {
+        $CaCertBase64 = [string]($caFetch.LastOutput | Select-Object -Last 1)
+        Write-Verbose "  Fetched caching-proxy CA from $cacheVmCaUrl -- embedded in seed."
+    } else {
+        Write-Warning "  Could not fetch CA cert from ${cacheVmCaUrl} after $($caFetch.Attempts) attempt(s) : $($caFetch.LastError.Exception.Message)"
         Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
     }
 }

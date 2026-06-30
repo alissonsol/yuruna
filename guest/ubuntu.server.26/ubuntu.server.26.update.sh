@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.26
+# Version: 2026.06.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -153,7 +153,6 @@ if [ -n "$(apt-cache madison deborphan 2>/dev/null)" ]; then
   if [ -n "$orphans" ]; then apt_retry sudo apt-get -y remove --purge $orphans; fi
 fi
 
-# Determine the real user (even when running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 

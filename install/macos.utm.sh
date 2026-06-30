@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.06.26  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.06.30  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -10,7 +10,13 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.26}"
+# Track whether the operator pinned a ref explicitly. The development repo
+# (yurunadev) is only tagged at the weekly release, so its pinned-CalVer default
+# would never resolve mid-week; when targeting it we fall back to latest 'main'
+# unless the operator asked for a specific ref.
+YURUNA_BRANCH_EXPLICIT=0
+[[ -n "${YURUNA_BRANCH:-}" ]] && YURUNA_BRANCH_EXPLICIT=1
+YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.30}"
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -488,7 +494,7 @@ if is_squid_cache_running; then
   PRESERVE_SQUID_CACHE=1
 fi
 
-log "Stopping anything that would block an upgrade"
+log "Stopping anything that would block a repo update (runner + status server; VMs preserved)"
 stop_yuruna_processes
 if [[ $PRESERVE_SQUID_CACHE -eq 0 ]]; then
   quit_mac_app "UTM"
@@ -635,6 +641,18 @@ resolve_yuruna_ref() {
   printf '%s' "$ref"
 }
 
+# -- Development repo pulls latest main, not a release tag ------------------
+# yurunadev is only tagged at the weekly release, so the pinned-CalVer default
+# resolves to nothing mid-week. When the target repo is yurunadev and the
+# operator did not pin a ref explicitly, track 'main' (latest code) instead.
+use_dev_branch_if_needed() {
+  local basename="$1"
+  if [[ "$basename" == "yurunadev" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_BRANCH" != "main" ]]; then
+    log "  yurunadev is a development repo (tagged only at release) -- tracking latest 'main' instead of '$YURUNA_BRANCH'"
+    YURUNA_BRANCH="main"
+  fi
+}
+
 # -- Clone / update the repo -----------------------------------------------
 YURUNA_BACKUP_CREATED=""
 preserve_test_status
@@ -668,8 +686,18 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
   fi
 
   if [[ $skip_pull -eq 0 ]]; then
+    use_dev_branch_if_needed "$remote_basename"
     YURUNA_BRANCH="$(resolve_yuruna_ref "$actual_remote" "$YURUNA_BRANCH")"
-    git -C "$YURUNA_DIR" fetch --tags origin
+    # --force so a remote-moved release tag overwrites the stale local one. A
+    # CalVer tag (YYYY.MM.DD) can point at different commits in the public vs
+    # development repo, so a plain `fetch --tags` hits "would clobber existing
+    # tag", which makes git exit non-zero -- and unguarded under `set -e` that
+    # aborts the whole installer before checkout/pull. The guard degrades any
+    # remaining fetch error to a warning so the pull --ff-only fallback below
+    # still gets to run.
+    if ! git -C "$YURUNA_DIR" fetch --tags --force origin; then
+      warn "git fetch reported rejected/partial tag updates -- continuing; checkout/pull below will surface anything fatal."
+    fi
     git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH"
     if ! git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; then
       YURUNA_BACKUP_DIR="${YURUNA_DIR}.backup.$(date +%Y-%m-%d.%H-%M)"
@@ -686,6 +714,9 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
     fi
   fi
 else
+  clone_basename="$(basename "${YURUNA_REPO%/}" 2>/dev/null || true)"
+  clone_basename="${clone_basename%.git}"
+  use_dev_branch_if_needed "$clone_basename"
   YURUNA_BRANCH="$(resolve_yuruna_ref "$YURUNA_REPO" "$YURUNA_BRANCH")"
   log "Cloning Yuruna into $YURUNA_DIR from $YURUNA_REPO"
   git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"

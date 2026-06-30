@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a4829e-5f60-4172-8c83-9e0f1a2b3c4d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,7 +49,7 @@ Describe 'Start/Stop-RunnerHeartbeat' {
             $mtC = (Get-Item $f).LastWriteTimeUtc
             Start-Sleep -Milliseconds 200
             $mtD = (Get-Item $f).LastWriteTimeUtc
-            Assert-Equal $mtC $mtD 'mtime frozen after Stop'
+            Assert-Equal -Expected $mtC -Actual $mtD -Because 'mtime frozen after Stop'
         } finally {
             Stop-RunnerHeartbeat
             Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
@@ -65,7 +65,7 @@ Describe 'Start/Stop-RunnerHeartbeat' {
         try {
             Start-RunnerHeartbeat -Path $f -DueMs 40 -PeriodMs 40
             Start-Sleep -Milliseconds 200
-            Assert-Equal 0 (Get-RunnerHeartbeatError) 'no write errors on a writable path'
+            Assert-Equal -Expected 0 -Actual (Get-RunnerHeartbeatError) -Because 'no write errors on a writable path'
         } finally {
             Stop-RunnerHeartbeat
             Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue

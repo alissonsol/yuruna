@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,14 +18,12 @@
 
 # Host I/O wiring for host.windows.hyper-v.
 #
-# The actual Send-KeyHyperV / Send-TextHyperV / Send-ClickHyperV function
-# bodies live in Test.Transport.psm1 (the cross-platform transport layer);
-# this module is *only* the registry-wiring layer that exposes those
-# functions through the Send-Key / Send-Text / Send-Click dispatch
-# contract. A new host adds a parallel Test.HostIO.<NewHost>.psm1.
+# This module is *only* the registry-wiring layer that exposes the
+# Send-Key / Send-Text / Send-Click dispatch contract for this host.
 #
-# The registry primitives (Register-HostIOProvider, Invoke-HostIOAction)
-# live in Test.HostIO.psm1.
+# The Send-KeyHyperV / Send-TextHyperV / Send-ClickHyperV function bodies
+# live in Test.Transport.psm1; the registry primitives
+# (Register-HostIOProvider, Invoke-HostIOAction) live in Test.HostIO.psm1.
 
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.psm1')   -Force -DisableNameChecking -Global
 Import-Module (Join-Path $PSScriptRoot 'Test.Transport.psm1') -Force -DisableNameChecking -Global

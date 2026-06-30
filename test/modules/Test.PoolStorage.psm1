@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,8 +119,10 @@ function Invoke-PoolStorageBoundedScript {
     return @{ TimedOut = $false; Result = $res; Error = $err }
 }
 
-# Get-PoolStorageUncPath normalizes a share path to one platform's UNC form,
-# accepting either '\\srv\share' or '//srv/share' on input. Pure + testable.
+<#
+.SYNOPSIS
+Normalizes a share path to one platform's UNC form, accepting either '\\srv\share' or '//srv/share' on input. Pure + testable.
+#>
 function Get-PoolStorageUncPath {
     [CmdletBinding()]
     [OutputType([string])]
@@ -133,15 +135,10 @@ function Get-PoolStorageUncPath {
     return '//' + $bare
 }
 
-# Test-PoolStorageMountMatch is the pure, testable core of the non-Windows mount
-# check: does any `mount` output line show OUR share at OUR exact mount point?
-# BOTH halves are anchored -- the mount point by exact equality, and the
-# server/share by an exact (case-insensitive) compare after normalizing away the
-# scheme, leading slashes, an optional 'user@' prefix, and a trailing slash. A
-# substring test here would false-match a DIFFERENT share at the same point (e.g.
-# wanting 'srv/work' against a mounted '//srv/work2', or 'nas/p' against
-# '//other-nas/p'), causing Connect to no-op and replication to write to the
-# wrong share.
+<#
+.SYNOPSIS
+Pure, testable core of the non-Windows mount check: returns $true only when a `mount` output line shows OUR share at OUR exact mount point, anchoring both the mount point (exact equality) and the server/share (case-insensitive compare after normalizing scheme, leading slashes, optional 'user@', and trailing slash) so a different share at the same point is never mistaken for a live mount.
+#>
 function Test-PoolStorageMountMatch {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -173,11 +170,10 @@ function Test-PoolStorageMountMatch {
     return $false
 }
 
-# ConvertFrom-PoolStorageMountLine parses ONE `mount` output line (or a synthesized
-# "<remote> on <point>" line for Windows mappings) into its remote + mount-point +
-# host/share-sub parts, normalized the same way Test-PoolStorageMountMatch does
-# (scheme, leading slashes, an optional 'user@' prefix, a trailing slash all
-# stripped). Returns $null for a line that isn't a recognizable mount. Pure.
+<#
+.SYNOPSIS
+Parses ONE `mount` output line (or a synthesized "<remote> on <point>" line for Windows mappings) into its remote + mount-point + host/share-sub parts, normalized the same way Test-PoolStorageMountMatch does (scheme, leading slashes, optional 'user@', trailing slash all stripped); returns $null for a line that isn't a recognizable mount. Pure.
+#>
 function ConvertFrom-PoolStorageMountLine {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -208,15 +204,10 @@ function ConvertFrom-PoolStorageMountLine {
     }
 }
 
-# Find-PoolStorageConflictingMount returns the mounts that would BLOCK a fresh mount
-# of OUR share: the same server-relative 'share/sub' path mounted at a DIFFERENT
-# point than LocalPath. macOS mount_smbfs refuses a second mount of a share it
-# already holds and fails with a misleading "File exists" (EEXIST) -- a stale mount
-# left under an OLD host alias (whose name may no longer even resolve) is the
-# classic trigger, so the match is anchored on the host-relative 'share/sub' and
-# deliberately tolerates a different (or dead) host alias. Each result carries
-# HostMatches so the caller can tell the operator whether it is our exact host or a
-# look-alike before unmounting. Pure + testable.
+<#
+.SYNOPSIS
+Returns the mounts that would BLOCK a fresh mount of OUR share -- the same server-relative 'share/sub' path mounted at a DIFFERENT point than LocalPath -- anchored on the host-relative 'share/sub' (tolerating a different or dead host alias) because macOS mount_smbfs refuses a second mount of a share it already holds with a misleading "File exists"; each result carries HostMatches so the caller can tell our exact host from a look-alike. Pure + testable.
+#>
 function Find-PoolStorageConflictingMount {
     [CmdletBinding()]
     [OutputType([object[]])]
@@ -251,10 +242,10 @@ function Find-PoolStorageConflictingMount {
     return $out.ToArray()
 }
 
-# Get-PoolStorageConflictingMount is the OS-aware wrapper over the pure finder above:
-# it lists the live mounts (mount(8) on macOS/Linux; Get-SmbMapping rendered as
-# "<remote> on <local>" on Windows, bounded since the redirector can stall) and
-# returns the conflicting set. Best-effort; never throws.
+<#
+.SYNOPSIS
+OS-aware wrapper over Find-PoolStorageConflictingMount that lists the live mounts (mount(8) on macOS/Linux; Get-SmbMapping rendered as "<remote> on <local>" on Windows, bounded since the redirector can stall) and returns the conflicting set. Best-effort; never throws.
+#>
 function Get-PoolStorageConflictingMount {
     [CmdletBinding()]
     [OutputType([object[]])]
@@ -309,13 +300,10 @@ function Dismount-PoolStoragePoint {
     }
 }
 
-# Clear-PoolStorageConflictingMount finds any mount of OUR share at a point OTHER
-# than LocalPath (Get-PoolStorageConflictingMount) and unmounts it after operator
-# confirmation, clearing the macOS "File exists" block on the cycle's own mount.
-# Interactive by design (the cycle gate runs headless + in a loop and must never
-# prompt, so it only HINTS at conflicts; the operator runs this by hand to act).
-# Honors -WhatIf; prompts per mount unless -Force. Best-effort: an unmount that
-# fails logs + continues. Returns a summary object.
+<#
+.SYNOPSIS
+Finds any mount of OUR share at a point OTHER than LocalPath and unmounts it after operator confirmation, clearing the macOS "File exists" block on the cycle's own mount; interactive by design (the headless cycle gate only HINTS at conflicts, the operator runs this by hand), honors -WhatIf, prompts per mount unless -Force, and returns a summary object. Best-effort: a failed unmount logs + continues.
+#>
 function Clear-PoolStorageConflictingMount {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     [OutputType([pscustomobject])]
@@ -350,15 +338,10 @@ function Clear-PoolStorageConflictingMount {
     return $result
 }
 
-# Get-YurunaPoolStorageConfig returns a normalized config object, or $null when
-# the feature is OFF: replicate false (unless -IgnoreReplicate), or any of
-# networkPath/networkUser/localPath empty. The object's Replicate field carries the
-# real flag. Accepts an already-parsed config (IDictionary); when none is supplied it
-# reads test.config.yml via Read-TestConfig USING A RESOLVED PATH ($env:YURUNA_CONFIG_PATH).
-# It never calls Read-TestConfig with the path omitted: that command has a
-# Mandatory $Path, and a by-name call with the arg missing stalls forever on the
-# interactive "Supply values for the following parameters:" prompt under the
-# headless/operator runner (see feedback_byname_detection_mandatory_param_prompt_hang).
+<#
+.SYNOPSIS
+Returns a normalized pool config object, or $null when the feature is OFF (replicate false unless -IgnoreReplicate, or any of networkPath/networkUser/localPath empty); the object's Replicate field carries the real flag. Accepts an already-parsed config (IDictionary), else reads test.config.yml via Read-TestConfig using a RESOLVED path ($env:YURUNA_CONFIG_PATH) -- never with the path omitted, because Read-TestConfig's Mandatory $Path would stall forever on the interactive parameter prompt under the headless runner (see feedback_byname_detection_mandatory_param_prompt_hang).
+#>
 function Get-YurunaPoolStorageConfig {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -418,13 +401,10 @@ function Get-YurunaPoolStorageConfig {
     }
 }
 
-# Get-YurunaStashStorageConfig returns the normalized STASH storage record from
-# networkStorage.{stashNetworkPath,stashNetworkUser,stashLocalPath}, or $null when
-# any is unset. The stash storage is ISOLATED from the pool (its own share +
-# account); it has no replicate flag -- the stash daemon writes files directly.
-# Returns the SAME shape as Get-YurunaPoolStorageConfig so the generic mount /
-# credential helpers (Connect-YurunaPoolStorage, Test-PoolStorageStoredCredential,
-# Test-PoolStorageVaultReady, Get-PoolStorageUncPath) work unchanged.
+<#
+.SYNOPSIS
+Returns the normalized STASH storage record from networkStorage.{stashNetworkPath,stashNetworkUser,stashLocalPath}, or $null when any is unset; the stash storage is ISOLATED from the pool (its own share + account) and has no replicate flag (the stash daemon writes files directly). Returns the SAME shape as Get-YurunaPoolStorageConfig so the generic mount / credential helpers work unchanged.
+#>
 function Get-YurunaStashStorageConfig {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -462,11 +442,10 @@ function Get-YurunaStashStorageConfig {
     }
 }
 
-# Test-YurunaPoolStorageMounted returns $true only when LocalPath is already
-# connected to OUR share (so Connect can be a no-op). The match is anchored on the
-# exact mount point AND verifies the remote carries our share, so a different
-# share at the same point, or a path-prefix collision, is never mistaken for a
-# live mount. Per-OS; best-effort; bounded on Windows.
+<#
+.SYNOPSIS
+Returns $true only when LocalPath is already connected to OUR share (so Connect can be a no-op), anchoring the match on the exact mount point AND verifying the remote carries our share so a different share at the same point or a path-prefix collision is never mistaken for a live mount. Per-OS; best-effort; bounded on Windows.
+#>
 function Test-YurunaPoolStorageMounted {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -495,14 +474,10 @@ function Test-YurunaPoolStorageMounted {
     }
 }
 
-# Connect-YurunaPoolStorage mounts the share at LocalPath if not already mounted
-# correctly. Idempotent + best-effort (returns $true/$false, never throws, never
-# blocks: every network-touching call is wall-clock bounded). The password is
-# fetched in-process via Get-Password; it never lands in `ps` on Windows
-# (New-SmbMapping) or Linux (a 0600 credentials file). On macOS mount_smbfs has no
-# credentials-file option, so the (URL-encoded) password is on the argv for the
-# mount's lifetime -- a documented, accepted exposure; keychain is a future
-# hardening.
+<#
+.SYNOPSIS
+Mounts the share at LocalPath if not already mounted correctly -- idempotent + best-effort (returns $true/$false, never throws, never blocks: every network-touching call is wall-clock bounded). The password is fetched in-process via Get-Password and never lands in `ps` on Windows (New-SmbMapping) or Linux (a 0600 credentials file); on macOS mount_smbfs has no credentials-file option, so the URL-encoded password is on the argv for the mount's lifetime -- a documented, accepted exposure.
+#>
 function Connect-YurunaPoolStorage {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -601,17 +576,13 @@ function Connect-YurunaPoolStorage {
     return $true
 }
 
-# Get-PoolStorageLinuxSudoHint returns the operator-facing lines for the one-time
-# Linux passwordless-sudo precondition: an /etc/sudoers.d drop-in granting the
-# test account NOPASSWD mkdir/mount/umount (mkdir is needed when localPath sits
-# under a root-owned parent like /mnt). The mount path runs `sudo -n` (never
-# prompts) and writing under /etc/sudoers.d itself needs root, so this CANNOT be
-# auto-applied by the unattended runner -- the operator runs it once. Pure: the
-# caller resolves the account + binary paths and passes them in. Returns an empty
-# array for a blank user (nothing actionable to print).
+<#
+.SYNOPSIS
+Returns the operator-facing lines for the one-time Linux passwordless-sudo precondition: an /etc/sudoers.d drop-in granting the test account NOPASSWD mkdir/mount/umount (mkdir is needed when localPath sits under a root-owned parent like /mnt). Because the mount path runs `sudo -n` (never prompts) and writing under /etc/sudoers.d needs root, this CANNOT be auto-applied by the unattended runner -- the operator runs it once. Pure (caller passes the account + binary paths); returns an empty array for a blank user.
+#>
 function Get-PoolStorageLinuxSudoHint {
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string[]], [object[]])]
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string]$User,
         [Parameter()][string]$MkdirPath  = '/usr/bin/mkdir',
@@ -659,11 +630,10 @@ function Join-PoolStoragePath {
     return [System.IO.Path]::Combine($base, $SubPath)
 }
 
-# Sync-YurunaPoolStorageFolder copies a source directory to <LocalPath>/<DestSubPath>/
-# on the share. Cross-platform (robocopy / rsync / cp), every copy run through a
-# wall-clock-bounded subprocess so a NAS stalling mid-copy cannot freeze the loop.
-# Best-effort: a failure logs + returns $false, never throws. Cycle folders are
-# immutable, so this copies (does not mirror-delete).
+<#
+.SYNOPSIS
+Copies a source directory to <LocalPath>/<DestSubPath>/ on the share, cross-platform (robocopy / rsync / cp) with every copy run through a wall-clock-bounded subprocess so a NAS stalling mid-copy cannot freeze the loop. Best-effort: a failure logs + returns $false, never throws. Cycle folders are immutable, so this copies (does not mirror-delete).
+#>
 function Sync-YurunaPoolStorageFolder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -715,8 +685,10 @@ function Sync-YurunaPoolStorageFolder {
 # LOCAL ledger that is the source of truth). The pool share has no live reader, so
 # correctness rests on the local ledger, not on share-side atomicity.
 
-# Get-PoolStorageServerName extracts the bare server host from a share path:
-# '\\srv\share' / '//user@srv/share/sub' -> 'srv'. Pure + testable.
+<#
+.SYNOPSIS
+Extracts the bare server host from a share path: '\\srv\share' / '//user@srv/share/sub' -> 'srv'. Pure + testable.
+#>
 function Get-PoolStorageServerName {
     [CmdletBinding()]
     [OutputType([string])]
@@ -725,10 +697,10 @@ function Get-PoolStorageServerName {
     return (($bare -split '/', 2)[0]).Trim()
 }
 
-# Test-PoolStorageVaultDecision returns $true when poolStorage may proceed to
-# mount, $false when mounting would force Get-Password to AUTO-GENERATE a junk SMB
-# password (empty vaultKey AND no existing vault entry). A non-empty vaultKey, or
-# an already-stored entry, proceeds. Pure: takes the resolved booleans, no I/O.
+<#
+.SYNOPSIS
+Returns $true when poolStorage may proceed to mount, $false when mounting would force Get-Password to AUTO-GENERATE a junk SMB password (empty vaultKey AND no existing vault entry); a non-empty vaultKey or an already-stored entry proceeds. Pure: takes the resolved booleans, no I/O.
+#>
 function Test-PoolStorageVaultDecision {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -740,12 +712,13 @@ function Test-PoolStorageVaultDecision {
     return $EntryExists
 }
 
-# Get-PoolStoragePendingSet returns the cycle names present locally but not yet in
-# the ledger's replicated set, OLDEST FIRST (lexical order == cycle order via the
-# zero-padded 6-digit prefix). Pure: names + ledger in, names out.
+<#
+.SYNOPSIS
+Returns the cycle names present locally but not yet in the ledger's replicated set, OLDEST FIRST (lexical order == cycle order via the zero-padded 6-digit prefix). Pure: names + ledger in, names out.
+#>
 function Get-PoolStoragePendingSet {
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string[]], [object[]])]
     param(
         [Parameter()][AllowNull()][string[]]$LocalNames,
         [Parameter()][AllowNull()]$Ledger
@@ -768,13 +741,13 @@ function Get-PoolStoragePendingSet {
     return @($pending | Sort-Object)
 }
 
-# Merge-PoolStorageLedger produces a new ledger object = old replicated set + newly
-# committed cycles (name -> NowUtc) + updated scalar status fields, pruning any
-# replicated entry whose cycle no longer exists locally (rotation deletes local
-# folders; the share copy is then the durable one). Pure: no Get-Date, no I/O.
+<#
+.SYNOPSIS
+Produces a new ledger object = old replicated set + newly committed cycles (name -> NowUtc) + updated scalar status fields, pruning any replicated entry whose cycle no longer exists locally (rotation deletes local folders; the share copy is then the durable one). Pure: no Get-Date, no I/O.
+#>
 function Merge-PoolStorageLedger {
     [CmdletBinding()]
-    [OutputType([System.Collections.IDictionary])]
+    [OutputType([System.Collections.IDictionary], [System.Collections.Specialized.OrderedDictionary])]
     param(
         [Parameter()][AllowNull()]$Ledger,
         [Parameter()][AllowNull()][string[]]$Committed,
@@ -800,11 +773,13 @@ function Merge-PoolStorageLedger {
     return $out
 }
 
-# Read-PoolStorageLedger loads runtime/poolstorage.state.json, degrading to an
-# empty ledger shape on absence/corruption (never throws).
+<#
+.SYNOPSIS
+Loads runtime/poolstorage.state.json, degrading to an empty ledger shape on absence/corruption (never throws).
+#>
 function Read-PoolStorageLedger {
     [CmdletBinding()]
-    [OutputType([System.Collections.IDictionary])]
+    [OutputType([System.Collections.IDictionary], [System.Collections.Specialized.OrderedDictionary])]
     param([Parameter(Mandatory)][string]$RuntimeDir)
     $empty = [ordered]@{ replicated = [ordered]@{} }
     $path = Join-Path $RuntimeDir 'poolstorage.state.json'
@@ -824,8 +799,10 @@ function Read-PoolStorageLedger {
     }
 }
 
-# Write-PoolStorageLedger persists the ledger atomically (temp + rename) via the
-# shared state-file primitive, with a direct fallback if it is not loaded.
+<#
+.SYNOPSIS
+Persists the ledger atomically (temp + rename) via the shared state-file primitive, with a direct fallback if it is not loaded.
+#>
 function Write-PoolStorageLedger {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -849,13 +826,10 @@ function Write-PoolStorageLedger {
     }
 }
 
-# Get-PoolStorageCycleIdentity collapses a cycle folder's transient on-disk leaf
-# ('<base>.incomplete' / '<base>' / '<base>.aborted.<UTC>') to its STABLE identity
-# '<base>'. Keying the map/dest/ledger on this -- not the raw leaf -- is what stops
-# a SIGKILLed cycle from being replicated twice (once as .incomplete, again as
-# .aborted.<UTC> after boot-recovery renames it). Prefers the canonical
-# Get-CycleFolderIdentity (Test.Log.psm1) when loaded; the inline fallback mirrors
-# it so the module stays self-contained + unit-testable.
+<#
+.SYNOPSIS
+Collapses a cycle folder's transient on-disk leaf ('<base>.incomplete' / '<base>' / '<base>.aborted.<UTC>') to its STABLE identity '<base>'; keying the map/dest/ledger on this -- not the raw leaf -- stops a SIGKILLed cycle from being replicated twice (once as .incomplete, again as .aborted.<UTC> after boot-recovery renames it). Prefers the canonical Get-CycleFolderIdentity when loaded; the inline fallback mirrors it so the module stays self-contained + unit-testable.
+#>
 function Get-PoolStorageCycleIdentity {
     [CmdletBinding()]
     [OutputType([string])]
@@ -893,10 +867,10 @@ function Get-PoolStorageLocalCycleMap {
     return $map
 }
 
-# Test-PoolStorageServerReachable is the FAST-FAIL gate: a bounded TCP probe to
-# <server>:445 so a dead NAS is detected in seconds instead of paying the full
-# mount timeout. The faulted task (refused connect) is observed; the client is
-# always disposed.
+<#
+.SYNOPSIS
+FAST-FAIL gate: a bounded TCP probe to <server>:445 so a dead NAS is detected in seconds instead of paying the full mount timeout; the faulted task (refused connect) is observed and the client is always disposed.
+#>
 function Test-PoolStorageServerReachable {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -920,11 +894,10 @@ function Test-PoolStorageServerReachable {
     }
 }
 
-# Test-PoolStorageVaultReady is the LOUD-FAIL pre-check: resolve a user's vault key
-# (read-only) and refuse to mount when a mount would auto-generate a junk SMB
-# password (empty vaultKey AND no stored entry). All read-only -- never triggers
-# auto-generation, never writes the vault. networkUser is the single account used
-# for every NAS connection (host-side drain AND the guest caching-proxy mount).
+<#
+.SYNOPSIS
+LOUD-FAIL pre-check: resolves a user's vault key (read-only) and refuses to mount when a mount would auto-generate a junk SMB password (empty vaultKey AND no stored entry); all read-only -- never triggers auto-generation, never writes the vault. networkUser is the single account used for every NAS connection (host-side drain AND the guest caching-proxy mount).
+#>
 function Test-PoolStorageVaultReady {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -948,16 +921,10 @@ function Test-PoolStorageVaultReady {
     return $ready
 }
 
-# Test-PoolStorageStoredCredential is the STRICT pre-check: it requires a REAL
-# password to already be stored in the vault for the networkUser, returning
-# $false when there is none. Unlike Test-PoolStorageVaultReady (which also
-# accepts a mere non-empty vaultKey mapping and lets Get-Password
-# AUTO-GENERATE), this never permits auto-generation: an SMB networkUser must
-# authenticate to a PRE-EXISTING NAS account, so an auto-generated password is
-# always junk the NAS rejects (cifs mount error(13)). Read-only; never writes
-# the vault, never auto-generates. Use it before baking the credential into a
-# VM seed so a missing credential fails fast instead of producing a VM that
-# can never mount.
+<#
+.SYNOPSIS
+STRICT pre-check: requires a REAL password to already be stored in the vault for the networkUser, returning $false when there is none. Unlike Test-PoolStorageVaultReady (which also accepts a mere non-empty vaultKey mapping and lets Get-Password AUTO-GENERATE), this never permits auto-generation: an SMB networkUser must authenticate to a PRE-EXISTING NAS account, so an auto-generated password is always junk the NAS rejects (cifs mount error(13)). Read-only. Use it before baking the credential into a VM seed so a missing credential fails fast instead of producing a VM that can never mount.
+#>
 function Test-PoolStorageStoredCredential {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -1008,12 +975,10 @@ function Copy-PoolStorageCycle {
     return $true
 }
 
-# Invoke-PoolStorageDrain is the orchestrator: loud-fail vault pre-check -> TCP
-# fast-fail gate -> mount -> compute the backlog (local cycles minus the ledger,
-# oldest first) -> copy up to MaxPerRun cycles atomically -> persist the ledger.
-# Best-effort: returns a summary hashtable, never throws, never blocks the loop
-# (it runs in a detached child process). Stops draining on the first copy failure
-# (likely a lost connection) and resumes on the next run.
+<#
+.SYNOPSIS
+Orchestrator: loud-fail vault pre-check -> TCP fast-fail gate -> mount -> compute the backlog (local cycles minus the ledger, oldest first) -> copy up to MaxPerRun cycles atomically -> persist the ledger. Best-effort: returns a summary hashtable, never throws, never blocks the loop (it runs in a detached child process). Stops draining on the first copy failure (likely a lost connection) and resumes on the next run.
+#>
 function Invoke-PoolStorageDrain {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -1090,11 +1055,10 @@ function Invoke-PoolStorageDrain {
     return $summary
 }
 
-# Get-PoolStorageHostFolderPath returns the per-host destination ROOT on the
-# share -- '<localPath>/<HostId>' -- the parent of every replicated cycle folder
-# (Copy-PoolStorageCycle writes '<localPath>/<HostId>/<CycleName>/'). Pure +
-# testable; deriving the gate's pre-flight target and the real copy destination
-# from ONE helper keeps the two from drifting apart.
+<#
+.SYNOPSIS
+Returns the per-host destination ROOT on the share -- '<localPath>/<HostId>' -- the parent of every replicated cycle folder (Copy-PoolStorageCycle writes '<localPath>/<HostId>/<CycleName>/'). Pure + testable; deriving the gate's pre-flight target and the real copy destination from ONE helper keeps the two from drifting apart.
+#>
 function Get-PoolStorageHostFolderPath {
     [CmdletBinding()]
     [OutputType([string])]
@@ -1105,19 +1069,10 @@ function Get-PoolStorageHostFolderPath {
     return (Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath $HostId)
 }
 
-# Initialize-PoolStorageHostFolder is the ACTIVE write-path pre-flight: mount the
-# share at localPath and ensure the per-host folder '<localPath>/<HostId>' exists
-# (create it if missing). This exercises every precondition a cycle's replication
-# actually needs -- a working mount (so the networkUser credential, the share
-# name, and -- on Linux -- passwordless sudo are all good) AND a WRITABLE share
-# (so the per-host root can be created) -- catching the "reachable NAS but
-# replication silently never happens" class that a passive :445 reachability
-# probe cannot see. Best-effort + bounded: the mount is wall-clock-capped by
-# Connect-YurunaPoolStorage and the folder create/verify runs under a bounded
-# thread job, so a share that wedges AFTER mounting can't hang the caller.
-# Returns @{ ok; stage; folder; error }. Assumes the caller already found the
-# server reachable (Test-PoolStorageServerReachable) -- so a merely-offline NAS
-# stays a transient WARN upstream, never a hard failure here. Never throws.
+<#
+.SYNOPSIS
+ACTIVE write-path pre-flight: mounts the share at localPath and ensures the per-host folder '<localPath>/<HostId>' exists (creating it if missing), exercising every precondition a cycle's replication actually needs -- a working mount (networkUser credential, share name, and on Linux passwordless sudo all good) AND a WRITABLE share -- to catch the "reachable NAS but replication silently never happens" class a passive :445 probe cannot see. Best-effort + bounded (mount wall-clock-capped, folder create/verify under a bounded thread job); returns @{ ok; stage; folder; error }. Assumes the caller already found the server reachable. Never throws.
+#>
 function Initialize-PoolStorageHostFolder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -1175,15 +1130,10 @@ function Initialize-PoolStorageHostFolder {
     return $result
 }
 
-# Test-PoolStorageHostResolvable returns $true when an SMB server NAME still
-# resolves to at least one IP, $false when it resolves to nothing. A retired
-# hosts-file alias whose entry was removed (e.g. a renamed NAS) leaves a
-# persistent SMB mapping pointing at a name that no longer exists.
-# [System.Net.Dns]::GetHostAddresses walks the full Windows resolver order (hosts
-# file, DNS, then NetBIOS/LLMNR), so a LAN-only NetBIOS name (no DNS/hosts entry)
-# still resolves -- only a genuinely dead name throws. Two aliases for ONE NAS
-# resolving to the SAME IP is intentional and resolves fine, so it is never
-# flagged here. Best-effort: any resolver error => $false.
+<#
+.SYNOPSIS
+Returns $true when an SMB server NAME still resolves to at least one IP, $false when it resolves to nothing (a retired hosts-file alias leaves a persistent SMB mapping pointing at a name that no longer exists). [System.Net.Dns]::GetHostAddresses walks the full Windows resolver order (hosts file, DNS, then NetBIOS/LLMNR), so a LAN-only NetBIOS name still resolves and only a genuinely dead name throws; two aliases for ONE NAS resolving to the SAME IP is intentional and never flagged. Best-effort: any resolver error => $false.
+#>
 function Test-PoolStorageHostResolvable {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -1198,17 +1148,13 @@ function Test-PoolStorageHostResolvable {
     }
 }
 
-# Get-PoolStorageStaleAliasMount lists the Windows SMB mappings whose server name
-# no longer resolves to any IP -- a persistent drive left pointing at a retired
-# host alias. Such a mapping keeps Status OK from its cached connection yet BLOCKS
-# a fresh mount of the same physical NAS under a current alias, because the
-# redirector still holds the dead-name session and refuses a second credentialed
-# session to a server it is already (stale-) connected to. Returns objects
-# { LocalPath; RemotePath; ServerName }. Windows-only (Get-SmbMapping); empty array
-# elsewhere or on any error. Bounded so a wedged redirector cannot hang the caller.
+<#
+.SYNOPSIS
+Lists the Windows SMB mappings whose server name no longer resolves to any IP -- a persistent drive left pointing at a retired host alias. Such a mapping keeps Status OK from its cached connection yet BLOCKS a fresh mount of the same physical NAS under a current alias, because the redirector still holds the dead-name session and refuses a second credentialed session to a server it is already (stale-) connected to. Returns objects { LocalPath; RemotePath; ServerName }. Windows-only; empty array elsewhere or on any error. Bounded so a wedged redirector cannot hang the caller.
+#>
 function Get-PoolStorageStaleAliasMount {
     [CmdletBinding()]
-    [OutputType([pscustomobject[]])]
+    [OutputType([pscustomobject[]], [object[]])]
     param()
     if (-not $IsWindows) { return @() }
     $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ScriptBlock {
@@ -1230,9 +1176,10 @@ function Get-PoolStorageStaleAliasMount {
     return @($out)
 }
 
-# Remove-PoolStorageStaleAliasMount tears down ONE mapping by LocalPath when it has
-# a drive letter, else by RemotePath (a device-less connection). Bounded +
-# best-effort; returns $true on success. Windows-only.
+<#
+.SYNOPSIS
+Tears down ONE mapping by LocalPath when it has a drive letter, else by RemotePath (a device-less connection). Bounded + best-effort; returns $true on success. Windows-only.
+#>
 function Remove-PoolStorageStaleAliasMount {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -1254,18 +1201,10 @@ function Remove-PoolStorageStaleAliasMount {
     return (-not $r.TimedOut -and -not $r.Error)
 }
 
-# Initialize-PoolStorageTargetFolder ensures the network path's TARGET SUBFOLDER
-# exists on the share, creating it when missing. A share configured as
-# '\\server\share\yuruna.stash' targets a SUBFOLDER, not the share root, and
-# New-SmbMapping to a non-existent subfolder fails ("network name cannot be found"
-# / "device is no longer available") -- a failure the operator sees only as a
-# vague unreachable-mount. The subfolder cannot be created through a mount of
-# itself (it does not exist yet), so this mounts the PARENT share, creates the
-# leaf, then releases the parent mount. No-op (ok, nothing to create) when the
-# network path is a bare share root (a share is provisioned NAS-side, not over
-# SMB). Bounded + best-effort; returns @{ ok; created; folder; error }. Run AFTER
-# any stale-alias mapping is cleared so the parent mount is not pre-empted by a
-# dead-name session to the same NAS.
+<#
+.SYNOPSIS
+Ensures the network path's TARGET SUBFOLDER exists on the share, creating it when missing. A share configured as '\\server\share\yuruna.stash' targets a SUBFOLDER, not the share root, and New-SmbMapping to a non-existent subfolder fails ("network name cannot be found" / "device is no longer available"), which the operator sees only as a vague unreachable-mount. The subfolder cannot be created through a mount of itself, so this mounts the PARENT share, creates the leaf, then releases the parent mount. No-op (ok, nothing to create) for a bare share root. Bounded + best-effort; returns @{ ok; created; folder; error }. Run AFTER any stale-alias mapping is cleared so the parent mount is not pre-empted by a dead-name session to the same NAS.
+#>
 function Initialize-PoolStorageTargetFolder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -1320,18 +1259,13 @@ function Initialize-PoolStorageTargetFolder {
     return $result
 }
 
-# Get-PoolStorageDrainOrder picks the cycle names to copy THIS run from the
-# oldest-first pending list, as a hybrid of the NEWEST $NewestShare and the OLDEST
-# remainder (at most $Max total). Copying some newest each run makes TODAY's cycle
-# output appear on the share within ONE drain instead of lagging the whole backlog
-# (pure oldest-first leaves the share weeks behind on a deep backlog -- the data is
-# fine but an operator looking for recent cycles sees only old ones and concludes
-# replication is dead). The oldest remainder still backfills before local rotation
-# can prune it, so nothing is starved. Pure: names in, names out. When the backlog
-# fits in one run ($Max), ordering is irrelevant and the list is returned as-is.
+<#
+.SYNOPSIS
+Picks the cycle names to copy THIS run from the oldest-first pending list, as a hybrid of the NEWEST $NewestShare and the OLDEST remainder (at most $Max total). Copying some newest each run makes TODAY's cycle output appear on the share within ONE drain instead of lagging the whole backlog (pure oldest-first leaves the share weeks behind on a deep backlog, so an operator looking for recent cycles sees only old ones and concludes replication is dead); the oldest remainder still backfills before local rotation can prune it, so nothing is starved. Pure: names in, names out. When the backlog fits in one run ($Max), ordering is irrelevant and the list is returned as-is.
+#>
 function Get-PoolStorageDrainOrder {
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string[]], [object[]])]
     param(
         [Parameter()][AllowNull()][string[]]$PendingOldestFirst,
         [Parameter()][int]$Max = 100,
@@ -1358,15 +1292,10 @@ function Get-PoolStorageDrainOrder {
     return @($out)
 }
 
-# Get-PoolStorageHealthWarning returns a human-readable warning string when the
-# PRIOR drain's ledger indicates replication is failing/stalled (and replicate is
-# on), else $null. The drain is detached + best-effort, so a host that has STOPPED
-# replicating (bad credential, read-only share, a Windows drive-letter/credential
-# collision) otherwise records the failure ONLY in the ledger, where no operator
-# looks. The outer loop calls this each cycle so the failure surfaces loudly
-# (console + outer.log + whatever consumes those). Pure: ledger hashtable +
-# replicate flag in, message out. Distinguishes a genuine stall from healthy
-# states: caught-up (pending 0) and mid-backlog (copied > 0) both return $null.
+<#
+.SYNOPSIS
+Returns a human-readable warning string when the PRIOR drain's ledger indicates replication is failing/stalled (and replicate is on), else $null. The drain is detached + best-effort, so a host that has STOPPED replicating (bad credential, read-only share, a Windows drive-letter/credential collision) otherwise records the failure ONLY in the ledger, where no operator looks; the outer loop calls this each cycle so the failure surfaces loudly (console + outer.log). Pure: ledger hashtable + replicate flag in, message out. Distinguishes a genuine stall from healthy states: caught-up (pending 0) and mid-backlog (copied > 0) both return $null.
+#>
 function Get-PoolStorageHealthWarning {
     [CmdletBinding()]
     [OutputType([string])]
@@ -1397,15 +1326,10 @@ function Get-PoolStorageHealthWarning {
     return $null
 }
 
-# Get-YurunaStashSeedValue resolves the STASH storage coordinates the stash VM's
-# cloud-init seed needs: the share UNC (unix form), the stashNetworkUser, its
-# vault password, and this host's id -- read from the ISOLATED networkStorage
-# stash* keys (Get-YurunaStashStorageConfig), not the pool keys. Returns empty
-# strings when unavailable so a
-# caller bakes blanks (the guest then uses local fallback) -- the fail-fast gate
-# lives in Start-StashServer, not here. Mirrors the caching-proxy ypool-nas bake.
-# Get-YurunaHostId (Test.YurunaDir) and Get-Password (authentication extension)
-# must be loaded in the caller's session.
+<#
+.SYNOPSIS
+Resolves the STASH storage coordinates the stash VM's cloud-init seed needs -- the share UNC (unix form), the stashNetworkUser, its vault password, and this host's id -- read from the ISOLATED networkStorage stash* keys (Get-YurunaStashStorageConfig), not the pool keys. Returns empty strings when unavailable so a caller bakes blanks (the guest then uses local fallback); the fail-fast gate lives in Start-StashServer, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
+#>
 function Get-YurunaStashSeedValue {
     [CmdletBinding()]
     [OutputType([hashtable])]

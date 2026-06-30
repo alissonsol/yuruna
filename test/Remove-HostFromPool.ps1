@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f3a4b5-c6d7-4e89-9f01-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
 .PARAMETER PoolId
     Target pool id.
 .PARAMETER HostId
-    Stable hostId to remove.
+    Stable hostId to remove (runtime/host.uuid, 42-prefixed 32-hex).
 .EXAMPLE
     ./Remove-HostFromPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567
 #>

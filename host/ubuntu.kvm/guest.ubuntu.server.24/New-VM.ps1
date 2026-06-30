@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
       1. Build seed.iso from host/vmconfig/ubuntu.server.base.user-data + meta-data (CIDATA volume).
          Subiquity scans CD/DVD drives for cidata at boot and consumes the
          autoinstall config from there.
-      2. Create a fresh empty 32 G qcow2 disk -- subiquity installs onto it.
+      2. Create a fresh empty 64 G qcow2 disk -- subiquity installs onto it.
       3. virt-install with two CDs (live-server ISO + cidata seed) plus
          the empty install-target qcow2; --noautoconsole because the
          harness's Restart-VMConsole launches virt-viewer separately
@@ -130,8 +130,8 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 # owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
 # failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
 # so the public bytes seeded into the guest's authorized_keys MUST be
-# this key -- not an ad-hoc per-host pair. Prior versions of this
-# script generated test/status/ssh/host.ubuntu.kvm and silently broke
+# this key -- not an ad-hoc per-host pair. Seeding a different key (e.g.
+# a host-specific test/status/ssh/host.ubuntu.kvm pair) silently breaks
 # diagnostics (Permission denied (publickey,password)).
 $repoRoot      = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
@@ -215,23 +215,32 @@ $AptProxyBlock = @"
 # Mirrors host/macos.utm/guest.ubuntu.server.24/New-VM.ps1. The installer's
 # late-commands write the cert from CA_CERT_BASE64_PLACEHOLDER before
 # any HTTPS apt fetch, so SSL-bump caching works from the first install
-# request. Any failure (no URL, unreachable cache, HTTP error, empty
-# body) leaves $CaCertBase64 empty and the guest's HTTPS proxy block
-# becomes a no-op -- HTTP caching via :3128 still works.
+# request. An empty $CaCertBase64 is NOT a harmless no-op: the seed still
+# routes the guest's HTTPS through the bump (:3129) and locks direct :443
+# egress, so a CA-less guest fails every HTTPS with curl rc=60 ("self-signed
+# certificate in certificate chain"). Retry the fetch under the shared
+# capped-backoff policy so one blip against a slow or flapping caching proxy
+# does not strand the guest without the CA. See
+# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
 $CaCertBase64 = ""
 if ($CachingProxyUrl) {
-    try {
-        $uri = [System.Uri]$CachingProxyUrl
-        $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
-        $cacheCaUrl = "http://$cacheHost/yuruna-squid-ca.crt"
-        $caResp = Invoke-WebRequest -Uri $cacheCaUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-        if ($caResp.StatusCode -eq 200 -and $caResp.RawContentLength -gt 0) {
-            $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
-            $CaCertBase64 = [Convert]::ToBase64String($caBytes)
-            Write-Verbose "  Fetched caching-proxy CA from $cacheCaUrl ($($caBytes.Length) bytes) -- embedded in seed."
+    Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
+    $uri = [System.Uri]$CachingProxyUrl
+    $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
+    $cacheCaUrl = "http://$cacheHost/yuruna-squid-ca.crt"
+    $caFetch = Invoke-WithYurunaRetry -Label 'caching-proxy CA cert' -MaxAttempts 5 -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
+        $caResp = Invoke-WebRequest -Uri $cacheCaUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        if ($caResp.StatusCode -ne 200 -or $caResp.RawContentLength -le 0) {
+            throw "caching-proxy returned status=$($caResp.StatusCode) length=$($caResp.RawContentLength)"
         }
-    } catch {
-        Write-Warning "  Could not fetch CA cert from caching-proxy : $($_.Exception.Message)"
+        $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
+        [Convert]::ToBase64String($caBytes)
+    }
+    if ($caFetch.Success) {
+        $CaCertBase64 = [string]($caFetch.LastOutput | Select-Object -Last 1)
+        Write-Verbose "  Fetched caching-proxy CA from $cacheCaUrl -- embedded in seed."
+    } else {
+        Write-Warning "  Could not fetch CA cert from caching-proxy after $($caFetch.Attempts) attempt(s) : $($caFetch.LastError.Exception.Message)"
         Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
     }
 }
@@ -370,7 +379,6 @@ $installArgs = @(
     # stalls autoinstall before the post-install login prompt appears.
     # virtio-vga is paravirtual, has no DRM driver burn, and works
     # identically on noble, so we pin it for both 24 and 26.
-    # See log/000088 on host.ubuntu.kvm for the failure that triggered this.
     '--video',   'virtio'
 )
 switch ($virtArch) {

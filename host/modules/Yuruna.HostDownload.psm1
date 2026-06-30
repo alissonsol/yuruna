@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e0d1c8-9b3a-4f52-8c61-7d2e4a9b0f33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -290,7 +290,7 @@ function Get-SquidBumpCertValidator {
         invokes ServerCertificateCustomValidationCallback on a TLS worker
         thread that has no PowerShell runspace: a scriptblock there throws
         "There is no Runspace available to run scripts in this thread" and
-        fails every handshake. See feedback_scriptblock_timer_callback. The
+        fails every handshake. See feedback_scriptblock_timer_callback.md. The
         type compiles once per process (guarded) and is idempotent across
         -Force module re-imports.
     #>
@@ -344,10 +344,14 @@ function Invoke-HttpsViaSquidBump {
         [Parameter(Mandatory)][string]$ProxyUrl,
         [Parameter(Mandatory)][string]$CaPemPath
     )
-    # X509Certificate2::CreateFromPemFile expects cert+key in the same
-    # file; the yuruna-squid-ca.crt published by the cache is cert-only.
-    # The ctor auto-detects PEM/DER/PFX and works for cert-only PEM.
-    $extraCa = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CaPemPath)
+    # yuruna-squid-ca.crt is a cert-only PEM, so CreateFromPemFile (which expects
+    # cert+key in one file) is not an option. Load from the DER bytes parsed out of
+    # the PEM rather than the X509Certificate2 file constructor: the constructor's
+    # PEM auto-detection goes through the platform crypto backend, which reads PEM
+    # on Windows but FAILS on macOS. DER bytes load identically on every platform.
+    $caPemText = [System.IO.File]::ReadAllText($CaPemPath)
+    $caDerB64  = (($caPemText -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch 'CERTIFICATE') }) -join ''
+    $extraCa   = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($caDerB64))
 
     $handler = [System.Net.Http.HttpClientHandler]::new()
     $handler.UseProxy = $true

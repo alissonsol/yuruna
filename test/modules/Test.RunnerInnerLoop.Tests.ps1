@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,11 +63,11 @@ function New-TempConfigFile {
 Describe 'Get-RunnerReloadableConfig' {
     It 'applies defaults when the parsed config is null' {
         $r = Get-RunnerReloadableConfig -Config $null -CycleDelayFallback 30
-        Assert-Equal $false $r.StopOnFailure 'default StopOnFailure'
-        Assert-Equal 120    $r.VmStartTimeout 'default VmStartTimeout'
-        Assert-Equal 15     $r.VmBootDelay 'default VmBootDelay'
-        Assert-Equal 24     $r.GetImageRefreshHours 'default GetImageRefreshHours'
-        Assert-Equal 30     $r.CycleDelay 'CycleDelay falls back to -CycleDelayFallback'
+        Assert-Equal -Expected $false -Actual $r.StopOnFailure -Because 'default StopOnFailure'
+        Assert-Equal -Expected 120    -Actual $r.VmStartTimeout -Because 'default VmStartTimeout'
+        Assert-Equal -Expected 15     -Actual $r.VmBootDelay -Because 'default VmBootDelay'
+        Assert-Equal -Expected 24     -Actual $r.GetImageRefreshHours -Because 'default GetImageRefreshHours'
+        Assert-Equal -Expected 30     -Actual $r.CycleDelay -Because 'CycleDelay falls back to -CycleDelayFallback'
     }
     It 'reads operator values and coerces strings to int' {
         $cfg = @{
@@ -76,29 +76,29 @@ Describe 'Get-RunnerReloadableConfig' {
             vmImage   = @{ refreshHours = 6 }
         }
         $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelayFallback 30
-        Assert-Equal $true $r.StopOnFailure 'operator StopOnFailure'
-        Assert-Equal 200   $r.VmStartTimeout 'operator VmStartTimeout'
-        Assert-Equal 9     $r.VmBootDelay 'operator VmBootDelay'
-        Assert-Equal 6     $r.GetImageRefreshHours 'operator GetImageRefreshHours'
-        Assert-Equal 45    $r.CycleDelay 'config cycleDelaySeconds wins over fallback'
+        Assert-Equal -Expected $true -Actual $r.StopOnFailure -Because 'operator StopOnFailure'
+        Assert-Equal -Expected 200   -Actual $r.VmStartTimeout -Because 'operator VmStartTimeout'
+        Assert-Equal -Expected 9     -Actual $r.VmBootDelay -Because 'operator VmBootDelay'
+        Assert-Equal -Expected 6     -Actual $r.GetImageRefreshHours -Because 'operator GetImageRefreshHours'
+        Assert-Equal -Expected 45    -Actual $r.CycleDelay -Because 'config cycleDelaySeconds wins over fallback'
         Assert-True ($r.VmStartTimeout -is [int]) 'VmStartTimeout coerced to int'
     }
     It 'treats a 0/absent value as falling back to the default' {
         $r = Get-RunnerReloadableConfig -Config @{ vmStart = @{ startTimeoutSeconds = 0 } } -CycleDelayFallback 30
-        Assert-Equal 120 $r.VmStartTimeout '0 is falsy -> default 120'
+        Assert-Equal -Expected 120 -Actual $r.VmStartTimeout -Because '0 is falsy -> default 120'
     }
 }
 
 Describe 'New-RunnerConfigState' {
     It 'seeds cache slots null and knobs to defaults' {
         $s = New-RunnerConfigState -CmdLineLogLevel 'Debug' -CycleDelayFallback 42
-        Assert-Equal 'Debug' $s.CmdLineLogLevel 'cmdline level captured'
-        Assert-Equal 42      $s.CycleDelayFallback 'fallback captured'
+        Assert-Equal -Expected 'Debug' -Actual $s.CmdLineLogLevel -Because 'cmdline level captured'
+        Assert-Equal -Expected 42      -Actual $s.CycleDelayFallback -Because 'fallback captured'
         Assert-True ($null -eq $s.CachedConfigMtime) 'mtime cache empty'
         Assert-True ($null -eq $s.CachedConfigValue) 'value cache empty'
         Assert-True ($null -eq $s.Config) 'config empty'
-        Assert-Equal 120 $s.VmStartTimeout 'knob default seeded'
-        Assert-Equal 42  $s.CycleDelay 'CycleDelay seeded to fallback'
+        Assert-Equal -Expected 120 -Actual $s.VmStartTimeout -Because 'knob default seeded'
+        Assert-Equal -Expected 42  -Actual $s.CycleDelay -Because 'CycleDelay seeded to fallback'
     }
 }
 
@@ -110,13 +110,13 @@ Describe 'Sync-RunnerCycleConfig' {
             $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
             $alias = $s   # second reference to prove by-reference mutation (the scope-collapse guard)
             $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
-            Assert-Equal 'resolved' $status 'parsed + dict -> resolved'
-            Assert-Equal $true $s.StopOnFailure 'StopOnFailure mirrored'
-            Assert-Equal 300   $s.VmStartTimeout 'VmStartTimeout mirrored'
-            Assert-Equal 20    $s.VmBootDelay 'VmBootDelay mirrored'
-            Assert-Equal 12    $s.GetImageRefreshHours 'GetImageRefreshHours mirrored'
-            Assert-Equal 55    $s.CycleDelay 'CycleDelay mirrored'
-            Assert-Equal 300   $alias.VmStartTimeout 'the other reference sees the same mutation'
+            Assert-Equal -Expected 'resolved' -Actual $status -Because 'parsed + dict -> resolved'
+            Assert-Equal -Expected $true -Actual $s.StopOnFailure -Because 'StopOnFailure mirrored'
+            Assert-Equal -Expected 300   -Actual $s.VmStartTimeout -Because 'VmStartTimeout mirrored'
+            Assert-Equal -Expected 20    -Actual $s.VmBootDelay -Because 'VmBootDelay mirrored'
+            Assert-Equal -Expected 12    -Actual $s.GetImageRefreshHours -Because 'GetImageRefreshHours mirrored'
+            Assert-Equal -Expected 55    -Actual $s.CycleDelay -Because 'CycleDelay mirrored'
+            Assert-Equal -Expected 300   -Actual $alias.VmStartTimeout -Because 'the other reference sees the same mutation'
         } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
     }
     It 'returns the cached Config object on an unchanged file (no re-parse)' {
@@ -136,12 +136,12 @@ Describe 'Sync-RunnerCycleConfig' {
         $p = New-TempConfigFile -Content $yaml
         $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
         $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p
-        Assert-Equal 175 $s.VmStartTimeout 'resolved good value first'
+        Assert-Equal -Expected 175 -Actual $s.VmStartTimeout -Because 'resolved good value first'
         $prevConfig = $s.Config
         Remove-Item $p -Force -ErrorAction SilentlyContinue   # force a read failure on the next sync
         $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
-        Assert-Equal 'failed' $status 'read failure -> failed'
-        Assert-Equal 175 $s.VmStartTimeout 'knob kept at last-known-good'
+        Assert-Equal -Expected 'failed' -Actual $status -Because 'read failure -> failed'
+        Assert-Equal -Expected 175 -Actual $s.VmStartTimeout -Because 'knob kept at last-known-good'
         Assert-True ([object]::ReferenceEquals($prevConfig, $s.Config)) 'Config kept (not wiped) on failure'
     }
     It 'returns failed on malformed YAML without throwing' {
@@ -149,7 +149,7 @@ Describe 'Sync-RunnerCycleConfig' {
         try {
             $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
             $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p -WarningAction SilentlyContinue
-            Assert-Equal 'failed' $status 'malformed yaml -> failed'
+            Assert-Equal -Expected 'failed' -Actual $status -Because 'malformed yaml -> failed'
             Assert-True ($null -eq $s.Config) 'Config stays null when first parse fails'
         } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
     }
@@ -158,15 +158,15 @@ Describe 'Sync-RunnerCycleConfig' {
         try {
             $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
             $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
-            Assert-Equal 'nondict' $status 'scalar config -> nondict'
+            Assert-Equal -Expected 'nondict' -Actual $status -Because 'scalar config -> nondict'
         } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
     }
 }
 
 Describe 'Convert-LocalRepoUrlToPath' {
     It 'maps file:// URLs and bare drive paths, rejects remote/empty' {
-        Assert-Equal 'c:/git/yuruna-project' (Convert-LocalRepoUrlToPath -Url 'file:///c:/git/yuruna-project') 'file:// stripped'
-        Assert-Equal 'c:\git\yuruna' (Convert-LocalRepoUrlToPath -Url 'c:\git\yuruna') 'drive path passes through'
+        Assert-Equal -Expected 'c:/git/yuruna-project' -Actual (Convert-LocalRepoUrlToPath -Url 'file:///c:/git/yuruna-project') -Because 'file:// stripped'
+        Assert-Equal -Expected 'c:\git\yuruna' -Actual (Convert-LocalRepoUrlToPath -Url 'c:\git\yuruna') -Because 'drive path passes through'
         Assert-True ($null -eq (Convert-LocalRepoUrlToPath -Url 'https://github.com/x/y')) 'remote url -> null'
         Assert-True ($null -eq (Convert-LocalRepoUrlToPath -Url '')) 'empty -> null'
     }
@@ -178,7 +178,7 @@ Describe 'Assert-CachingProxyStillReachable' {
         $out += Assert-CachingProxyStillReachable -ProxyUrl '' -StepName 'New-VM' -GuestKey 'g' 3>&1
         $out += Assert-CachingProxyStillReachable -ProxyUrl 'not-a-url' -StepName 'New-VM' -GuestKey 'g' 3>&1
         $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
-        Assert-Equal 0 $warnings.Count 'no warnings on the no-op paths'
+        Assert-Equal -Expected 0 -Actual $warnings.Count -Because 'no warnings on the no-op paths'
     }
     It 'warns when the proxy URL does not answer (1s probe to TEST-NET-1)' {
         $out = Assert-CachingProxyStillReachable -ProxyUrl 'http://192.0.2.1:3128' -StepName 'New-VM' -GuestKey 'g' 3>&1

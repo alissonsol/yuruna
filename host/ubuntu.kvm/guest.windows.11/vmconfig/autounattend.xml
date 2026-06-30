@@ -17,13 +17,12 @@
              relies on SSH to drive the guest, where vmconnect (Hyper-V) and
              UTM's display window (macOS) provide native access.
          Items NOT in this file that DO appear in macos.utm/hyper-v:
-           * `net user <user> /logonpasswordchg:yes` (force password change).
-             KVM's SSH bits use password authentication; an expired password
-             makes Windows OpenSSH refuse the login (the SSH protocol has
-             no password-change challenge), so this command stays out until
-             the harness gains key-based SSH auth for Windows guests. -->
+           * `net user <user> /logonpasswordchg:yes` (force password change on
+             first login). Excluded here because this host drives the guest via
+             Windows OpenSSH, and SSH refuses logins with expired passwords
+             (no password-change challenge in the SSH protocol). -->
 
-    <!-- === Pass 1: windowsPE - Setup-time, before image is applied === -->
+    <!-- === Pass 1: windowsPE - Runs during Windows Setup (before install) === -->
     <settings pass="windowsPE">
         <component name="Microsoft-Windows-International-Core-WinPE"
                    processorArchitecture="amd64"

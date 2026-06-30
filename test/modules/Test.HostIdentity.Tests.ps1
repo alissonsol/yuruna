@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1c2d3-e4f5-4061-9273-8495a6b7c8d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,21 +72,21 @@ Describe 'Test-HostFingerprintValueUsable + ConvertTo-NormalizedFingerprintValue
         Assert-True (Test-HostFingerprintValueUsable -Value 'ABC-123') 'real value usable'
     }
     It 'normalizes case + trims, collapses junk to empty' {
-        Assert-Equal 'abc-123' (ConvertTo-NormalizedFingerprintValue -Value '  ABC-123 ') 'lowercased + trimmed'
-        Assert-Equal '' (ConvertTo-NormalizedFingerprintValue -Value 'Default String') 'junk -> empty'
+        Assert-Equal -Expected 'abc-123' -Actual (ConvertTo-NormalizedFingerprintValue -Value '  ABC-123 ') -Because 'lowercased + trimmed'
+        Assert-Equal -Expected '' -Actual (ConvertTo-NormalizedFingerprintValue -Value 'Default String') -Because 'junk -> empty'
     }
 }
 
 Describe 'ConvertTo-NormalizedMacList' {
     It 'lowercases, strips separators, de-dups, drops junk, sorts' {
         $r = ConvertTo-NormalizedMacList -Mac @('00:1A:2B:3C:4D:5E', '001a2b3c4d5e', 'AA-BB-CC-DD-EE-FF', '00:00:00:00:00:00', 'garbage', '')
-        Assert-Equal 2 $r.Count 'two unique MACs survive'
-        Assert-Equal '001a2b3c4d5e' $r[0] 'sorted first'
-        Assert-Equal 'aabbccddeeff' $r[1] 'sorted second'
+        Assert-Equal -Expected 2 -Actual $r.Count -Because 'two unique MACs survive'
+        Assert-Equal -Expected '001a2b3c4d5e' -Actual $r[0] -Because 'sorted first'
+        Assert-Equal -Expected 'aabbccddeeff' -Actual $r[1] -Because 'sorted second'
     }
     It 'yields nothing usable for no usable input (wraps cleanly to empty)' {
         $r = ConvertTo-NormalizedMacList -Mac @('', '00:00:00:00:00:00')
-        Assert-Equal 0 @($r).Count 'wraps to empty'
+        Assert-Equal -Expected 0 -Actual @($r).Count -Because 'wraps to empty'
     }
 }
 
@@ -125,7 +125,7 @@ Describe 'Get-HostIdentityMatchScore' {
         $m = Get-HostIdentityMatchScore -Mine $me -Candidate $cand
         Assert-False ($m.matchedFields -contains 'cpuCount') 'zero cpuCount not matched'
         Assert-False ($m.matchedFields -contains 'ramBytes') 'zero ramBytes not matched'
-        Assert-Equal 4 $m.score 'only platform(2)+hostType(2) corroborate'
+        Assert-Equal -Expected 4 -Actual $m.score -Because 'only platform(2)+hostType(2) corroborate'
     }
 }
 
@@ -137,32 +137,32 @@ Describe 'Get-HostIdentityReclaimDecision' {
         [pscustomobject]@{ uuid=$Uuid; hostname='h'; lastSeenUtc='2026-06-01T00:00:00Z'; score=$Score; matchedFields=@(); strong=$Strong }
     }
     It 'none for an empty list' {
-        Assert-Equal 'none' (Get-HostIdentityReclaimDecision -Ranked @()).action 'empty -> none'
+        Assert-Equal -Expected 'none' -Actual (Get-HostIdentityReclaimDecision -Ranked @()).action -Because 'empty -> none'
     }
     It 'none when the top score is below threshold' {
-        Assert-Equal 'none' (Get-HostIdentityReclaimDecision -Ranked @((New-Cand -Score 10 -Strong $false))).action 'below threshold -> none'
+        Assert-Equal -Expected 'none' -Actual (Get-HostIdentityReclaimDecision -Ranked @((New-Cand -Score 10 -Strong $false))).action -Because 'below threshold -> none'
     }
     It 'suggest for a single clear strong front-runner' {
         $d = Get-HostIdentityReclaimDecision -Ranked @((New-Cand -Score 100 -Strong $true -Uuid '42ffffffffffffffffffffffffffffff'))
-        Assert-Equal 'suggest' $d.action 'one strong -> suggest'
-        Assert-Equal '42ffffffffffffffffffffffffffffff' $d.candidate.uuid 'candidate is the front-runner'
+        Assert-Equal -Expected 'suggest' -Actual $d.action -Because 'one strong -> suggest'
+        Assert-Equal -Expected '42ffffffffffffffffffffffffffffff' -Actual $d.candidate.uuid -Because 'candidate is the front-runner'
     }
     It 'suggest when only one candidate clears the threshold' {
         $d = Get-HostIdentityReclaimDecision -Ranked @((New-Cand -Score 80 -Strong $true -Uuid '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), (New-Cand -Score 10 -Strong $false -Uuid '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'))
-        Assert-Equal 'suggest' $d.action 'second below threshold -> still suggest'
+        Assert-Equal -Expected 'suggest' -Actual $d.action -Because 'second below threshold -> still suggest'
     }
     It 'ambiguous for two strong candidates' {
         $d = Get-HostIdentityReclaimDecision -Ranked @((New-Cand -Score 100 -Strong $true -Uuid '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), (New-Cand -Score 60 -Strong $true -Uuid '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'))
-        Assert-Equal 'ambiguous' $d.action 'two strong -> ambiguous'
-        Assert-Equal 2 $d.candidates.Count 'lists both'
+        Assert-Equal -Expected 'ambiguous' -Actual $d.action -Because 'two strong -> ambiguous'
+        Assert-Equal -Expected 2 -Actual $d.candidates.Count -Because 'lists both'
     }
     It 'ambiguous for a near-tie at the top' {
         $d = Get-HostIdentityReclaimDecision -Ranked @((New-Cand -Score 29 -Strong $false -Uuid '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), (New-Cand -Score 27 -Strong $false -Uuid '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'))
-        Assert-Equal 'ambiguous' $d.action 'near-tie -> ambiguous'
+        Assert-Equal -Expected 'ambiguous' -Actual $d.action -Because 'near-tie -> ambiguous'
     }
     It 'suggest when the front-runner clears the runner-up by the gap' {
         $d = Get-HostIdentityReclaimDecision -Ranked @((New-Cand -Score 50 -Strong $true -Uuid '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), (New-Cand -Score 28 -Strong $false -Uuid '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'))
-        Assert-Equal 'suggest' $d.action 'clear gap + single strong -> suggest'
+        Assert-Equal -Expected 'suggest' -Actual $d.action -Because 'clear gap + single strong -> suggest'
     }
 }
 
@@ -170,13 +170,13 @@ Describe 'New-HostInfoRecordObject + ConvertFrom-HostInfoRecord (YAML round-trip
     It 'round-trips through ConvertTo/ConvertFrom-Yaml with fields intact' {
         $fp = Get-TestFingerprint -Mac @('00:1A:2B:3C:4D:5E', 'aa-bb-cc-dd-ee-ff')
         $rec = New-HostInfoRecordObject -HostId '42abcabcabcabcabcabcabcabcabcabc' -Fingerprint $fp -LastSeenUtc '2026-06-09T12:00:00Z'
-        Assert-Equal '42abcabcabcabcabcabcabcabcabcabc' $rec.hostUuid 'uuid set'
-        Assert-Equal 2 $rec.hardware.macAddresses.Count 'macs normalized into record'
+        Assert-Equal -Expected '42abcabcabcabcabcabcabcabcabcabc' -Actual $rec.hostUuid -Because 'uuid set'
+        Assert-Equal -Expected 2 -Actual $rec.hardware.macAddresses.Count -Because 'macs normalized into record'
         $yaml = ConvertTo-Yaml $rec
         $back = $yaml | ConvertFrom-Yaml -Ordered
         $flat = ConvertFrom-HostInfoRecord -Record $back
-        Assert-Equal $fp.smbiosUuid $flat.smbiosUuid 'smbios survives'
-        Assert-Equal 'boardserial123' (ConvertTo-NormalizedFingerprintValue -Value $flat.baseboardSerial) 'serial survives'
+        Assert-Equal -Expected $fp.smbiosUuid -Actual $flat.smbiosUuid -Because 'smbios survives'
+        Assert-Equal -Expected 'boardserial123' -Actual (ConvertTo-NormalizedFingerprintValue -Value $flat.baseboardSerial) -Because 'serial survives'
         # The reconstructed candidate scores as a strong self-match.
         $m = Get-HostIdentityMatchScore -Mine $fp -Candidate $flat
         Assert-True $m.strong 'round-tripped record self-matches strongly'
@@ -191,7 +191,7 @@ Describe 'Write-HostInfoRecord + Find-PriorHostIdentity (temp share)' {
             $myUuid = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
             $p = Write-HostInfoRecord -MountRoot $root -HostId $myUuid -Fingerprint $fp -Confirm:$false
             Assert-True ($null -ne $p) 'returns a path'
-            Assert-True (Test-Path -LiteralPath (Join-Path $root 'hosts' "info.$myUuid.yml")) 'record file exists'
+            Assert-True (Test-Path -LiteralPath (Join-Path -Path $root -ChildPath 'hosts' -AdditionalChildPath "info.$myUuid.yml")) 'record file exists'
 
             # A second, unrelated host record (no shared keys) must NOT rank.
             $other = @{ smbiosUuid='11111111-1111-1111-1111-111111111111'; baseboardSerial='ZZZ'; cpuModel='Other'; cpuCount=4; ramBytes=8589934592; macAddresses=@('99:99:99:99:99:99'); platform='windows'; hostType='windows.hyper-v'; hostname='box-b' }
@@ -200,7 +200,7 @@ Describe 'Write-HostInfoRecord + Find-PriorHostIdentity (temp share)' {
             # Search with MY fingerprint, excluding nothing: the strong self-match wins.
             $ranked = @(Find-PriorHostIdentity -MountRoot $root -Fingerprint $fp)
             Assert-True ($ranked.Count -ge 1) 'at least one match'
-            Assert-Equal $myUuid $ranked[0].uuid 'strong self-match ranks first'
+            Assert-Equal -Expected $myUuid -Actual $ranked[0].uuid -Because 'strong self-match ranks first'
             Assert-True $ranked[0].strong 'top match is strong'
 
             # Excluding my own uuid drops the self-match; the unrelated host does not score.
@@ -214,7 +214,7 @@ Describe 'Write-HostInfoRecord + Find-PriorHostIdentity (temp share)' {
         $root = New-TempDir
         try {
             $ranked = @(Find-PriorHostIdentity -MountRoot $root -Fingerprint (Get-TestFingerprint))
-            Assert-Equal 0 $ranked.Count 'no folder -> empty'
+            Assert-Equal -Expected 0 -Actual $ranked.Count -Because 'no folder -> empty'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -234,7 +234,7 @@ Describe 'Set-ReclaimedHostUuid (uuid shape gate)' {
             $f = Join-Path $root 'host.uuid'
             $u = '42abcdef0123456789abcdef01234567'
             Assert-True (Set-ReclaimedHostUuid -UuidFile $f -Uuid $u -Confirm:$false) 'good shape accepted'
-            Assert-Equal $u ([System.IO.File]::ReadAllText($f)).Trim() 'uuid persisted verbatim'
+            Assert-Equal -Expected $u -Actual ([System.IO.File]::ReadAllText($f)).Trim() -Because 'uuid persisted verbatim'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

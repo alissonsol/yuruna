@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,8 +83,8 @@ if (!(Test-Path -Path $baseImageFile)) {
 }
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
-# Provenance side-channel for the transcript. Emits "Provenance: <url>"
-# when the sidecar is healthy; warns otherwise.
+# Provenance side-channel for operators reading the transcript. Emits
+# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
@@ -146,6 +146,7 @@ Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Verbose "Generating seed.iso with autounattend configuration..."
+# OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
 
 # Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
@@ -217,4 +218,4 @@ Write-Verbose "  Start-VM -Name '$VMName'"
 Write-Verbose "  vmconnect.exe localhost '$VMName'"
 Write-Verbose "  # Press any key in the vmconnect window within 5 seconds"
 Write-Verbose "The Windows installer will run automatically via autounattend.xml."
-Write-Verbose "Default credentials - username: User, password: password (must be changed on first login)"
+Write-Verbose "Default credentials - username: ywuser1, password: password (must be changed on first login)"

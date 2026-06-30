@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.26
+# Version: 2026.06.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail

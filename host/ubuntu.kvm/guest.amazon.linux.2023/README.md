@@ -29,8 +29,7 @@ and defines the VM via `virt-install --import` against `qemu:///system`.
 | User | `yauser1` (test sequence target, see [test/sequences/gui/start.guest.amazon.linux.2023.yml](../../../test/sequences/gui/start.guest.amazon.linux.2023.yml)) and `ec2-user` (cloud-image default; SSH key-auth) |
 | Net  | libvirt `default` (NAT 192.168.122.0/24) |
 
-The test user's password is managed by the authentication extension; the per-cycle vault.yml lives under `test/status/extension/authentication/` and the code is
-under [test/extension/authentication/](../../../test/extension/authentication/);
+The password is managed by the authentication extension (per-cycle vault.yml at `test/status/extension/authentication/vault.yml`, code under [test/extension/authentication/](../../../test/extension/authentication/));
 cloud-init's chpasswd default `expire: true` triggers the
 Current/New/Retype rotation on first console login.
 
@@ -45,6 +44,6 @@ ssh -i ../../../test/status/ssh/yuruna_ed25519 yauser1@<ip>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../../README.md)

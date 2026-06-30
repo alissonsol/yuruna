@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 423e9a21-5b84-4f63-9c12-8e4a1d2f6b90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,7 +135,7 @@ function Get-PoolMetricsCandidateUrl {
         HTTP (a proxy not yet upgraded), so the notifier works across a TLS rollout.
     #>
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string[]], [object[]])]
     param([Parameter(Mandatory)][string]$MetricsUrl)
     if ($MetricsUrl -match '^https?://(.+)$') {
         $rest = $Matches[1]
@@ -225,7 +225,7 @@ function New-PoolAlertSpoolMessage {
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure builder: returns a new in-memory message object and changes no external state, so ShouldProcess would be noise.')]
-    [OutputType([System.Collections.IDictionary])]
+    [OutputType([System.Collections.IDictionary], [System.Collections.Specialized.OrderedDictionary])]
     param(
         [Parameter(Mandatory)][string]$Pool,
         [Parameter(Mandatory)][hashtable]$GaugePool,
@@ -316,6 +316,12 @@ function Read-PoolNotifierState {
 }
 
 function Write-PoolNotifierState {
+    <#
+    .SYNOPSIS
+        Persist the per-host edge-detection state (the @{ pools = ... } shape from
+        Read-PoolNotifierState) to runtime/pool.notifier.state.json as UTF-8 (no BOM).
+        Returns $true on success, $false on any write failure.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(

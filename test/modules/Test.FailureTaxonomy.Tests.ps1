@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42d4f1a7-6c83-4b29-9e05-2a7b8c1d3e60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,7 @@ Describe 'Test.FailureTaxonomy canonical arrays' {
         Assert-True ($fc -contains 'bootstrap_sync') 'has the infra bootstrap class'
         Assert-True ($fc -contains 'plan_invalid') 'has the infra plan class'
         Assert-True ($fc[-1] -eq 'unknown') "'unknown' stays last as the catch-all"
-        Assert-Equal 'hard|soft|unknown' ((Get-SeverityEnum) -join '|') 'severity set'
+        Assert-Equal -Expected 'hard|soft|unknown' -Actual ((Get-SeverityEnum) -join '|') -Because 'severity set'
     }
 }
 
@@ -62,13 +62,13 @@ Describe 'Assert-FailureTaxonomyInSync' {
 
 Describe 'taxonomy single-source invariant (the three lists are identical)' {
     It 'EventSchema enum == canonical' {
-        Assert-Equal ((Get-FailureClassEnum) -join '|') ((Get-CycleEventSchemaDescriptor).FailureClassEnum -join '|') 'EventSchema must derive from the canonical set'
-        Assert-Equal ((Get-SeverityEnum) -join '|') ((Get-CycleEventSchemaDescriptor).SeverityEnum -join '|') 'EventSchema severity must derive from the canonical set'
+        Assert-Equal -Expected ((Get-FailureClassEnum) -join '|') -Actual ((Get-CycleEventSchemaDescriptor).FailureClassEnum -join '|') -Because 'EventSchema must derive from the canonical set'
+        Assert-Equal -Expected ((Get-SeverityEnum) -join '|') -Actual ((Get-CycleEventSchemaDescriptor).SeverityEnum -join '|') -Because 'EventSchema severity must derive from the canonical set'
     }
     It 'Register-SequenceAction ValidateSet == canonical (the literal copy has not drifted)' {
         $vs = (Get-Command Register-SequenceAction).Parameters['FailureClass'].Attributes |
             Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] } |
             ForEach-Object { $_.ValidValues }
-        Assert-Equal ((Get-FailureClassEnum) -join '|') ($vs -join '|') 'the ValidateSet literal must match the canonical set'
+        Assert-Equal -Expected ((Get-FailureClassEnum) -join '|') -Actual ($vs -join '|') -Because 'the ValidateSet literal must match the canonical set'
     }
 }

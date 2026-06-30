@@ -20,7 +20,7 @@ variables:
 steps:
   - action: sshWaitReady
     timeoutSeconds: 300
-    description: "Wait for sshd + authorized_keys"
+    description: "Wait for sshd after reboot"
 
   - action: sshExec
     command: "whoami && hostname"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -261,14 +261,26 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
                 # every block, forcing a fresh regex compile per block.
                 $vmNameEscaped = [regex]::Escape($VMName)
                 $namePattern = "(?m)^\s*name=$vmNameEscaped\s*$"
+                # A rebuilt VM reuses its hostname, so dhcpd_leases can hold
+                # several name= blocks (live VM + stale deleted-predecessor
+                # leases). Pick the largest `lease=` expiry: the live VM keeps
+                # renewing while a dead VM's lease only ages. Returning the
+                # first match would hand back a predecessor's dead IP.
+                $bestIp = $null
+                $bestLease = -1
                 foreach ($b in $blocks) {
                     $text = $b.Value
-                    if ($text -match $namePattern) {
-                        if (($text -match "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") -and (Test-Ipv4Address $Matches[1])) {
-                            return [string]$Matches[1]
+                    if ($text -notmatch $namePattern) { continue }
+                    if (($text -match "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") -and (Test-Ipv4Address $Matches[1])) {
+                        $ip = [string]$Matches[1]
+                        $leaseVal = 0
+                        if ($text -match "(?m)^\s*lease=0x([0-9a-fA-F]+)\s*$") {
+                            $leaseVal = [Convert]::ToInt64($Matches[1], 16)
                         }
+                        if ($leaseVal -ge $bestLease) { $bestLease = $leaseVal; $bestIp = $ip }
                     }
                 }
+                if ($bestIp) { return $bestIp }
             } catch {
                 Write-Debug "dhcpd_leases lookup failed for ${VMName}: $_"
             }

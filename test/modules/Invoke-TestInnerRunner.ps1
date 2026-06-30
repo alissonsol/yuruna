@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -323,16 +323,26 @@ if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
 # script's session without any HostType branches.
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
+# Keep a stash host's advertised address current: re-resolve the stash VM's guest IP
+# (single-shot, now that Get-VMIp is wired) and rewrite the marker's stashBaseUrl when
+# it changes, so the Extension cell's /go/stash deep-link self-heals after a DHCP lease
+# change. The refreshed URL folds into host.registration.json on the next cycle's
+# Write-HostRegistrationRecord. No-op when this host runs no stash server.
+if (Get-Command Update-StashServerMarkerAddress -ErrorAction SilentlyContinue) {
+    $null = Update-StashServerMarkerAddress
+}
+
 if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
 
 # === UTM concurrent-VM pre-flight ===========================================
-# macOS vmnet-shared puts each new vmnet session on a separate host-side
-# bridge (bridge100, bridge101, ...) that don't route between each other.
-# Concurrent UTM VMs at cycle start split the test guests onto a different
-# bridge from the host's vmnet gateway, breaking the cloud-init host-proxy
-# URL baked into seed.iso. Refuse at cycle start
-# if anything else is running. No ExceptVmName here: the runner is about
-# to start its own test guests fresh; no carve-out is needed.
+# On some macOS versions vmnet-shared puts each vmnet session on a separate
+# host-side bridge (bridge100, bridge101, ...) that don't route between each
+# other, so a foreign concurrent VM can split the test guests onto a
+# different bridge from the host's vmnet gateway and break the cloud-init
+# host-proxy URL baked into seed.iso. Refuse at cycle start if a foreign VM
+# is running. The caching-proxy VM is exempt inside Assert-NoConcurrentUtmVm
+# (it is a dependency the guests consume, reachable on the shared bridge),
+# so a running cache no longer blocks the cycle.
 if ($HostType -eq 'host.macos.utm') {
     if (-not (Assert-NoConcurrentUtmVm)) { exit 1 }
 }
@@ -515,6 +525,12 @@ $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
 # downtime on the common no-change cycle). The shared gate (Test.Prelude) keeps
 # isEnabled / -NoServer / port handling identical across the entry-point trio.
 $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer
+
+# NOTE: the Host Config Service (mTLS NAS-credential endpoint) is NOT started here.
+# It is a companion of the CACHING PROXY (it serves NAS creds to the caching-proxy
+# / stash VMs a host created), so its lifecycle belongs to Start-CachingProxy.ps1
+# (Step 2.6) on the caching-proxy host -- not the test runner. A plain test-runner
+# host that never brings up a caching proxy must not start it.
 
 # === Graceful shutdown support ===
 # CancelKeyPress handler runs in a separate SessionState (Register-ObjectEvent

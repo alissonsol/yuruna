@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456722
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,11 +89,40 @@ function Get-PwshExePath {
     .SYNOPSIS
         Returns the path of the currently running pwsh binary so a child
         spawn uses the same edition (PS 7.x) as the parent.
+    .DESCRIPTION
+        Resolution order, most reliable first:
+          1. [Environment]::ProcessPath - the real executable image that
+             started this process (macOS _NSGetExecutablePath, Linux
+             /proc/self/exe, Windows post-alias-resolution path, so it
+             never hands back the zero-byte WindowsApps app-execution-alias
+             stub -- see feedback_windows_appalias_firewall_trap.md). Absent
+             on PS 7.0/7.1 (.NET below 6); the try/catch keeps it null there
+             (even under Set-StrictMode) instead of throwing, so resolution
+             falls through.
+          2. (Get-Process -Id $PID).Path - it equals MainModule.FileName,
+             which is null/empty on macOS (no /proc; libproc only best-effort
+             populates MainModule) and can throw on protected processes, so it
+             is wrapped too. This is the value the rest of the chain exists to
+             survive.
+          3. $PSHOME/pwsh[.exe] - the install dir of the running runtime,
+             always populated under #requires -version 7. Test-Path before
+             use so a stale path is never handed to the & call operator.
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    return (Get-Process -Id $PID).Path
+
+    $exe = $null
+    try { $exe = [Environment]::ProcessPath } catch { $exe = $null }
+    if ([string]::IsNullOrWhiteSpace($exe)) {
+        try { $exe = (Get-Process -Id $PID).Path } catch { $exe = $null }
+    }
+    if ([string]::IsNullOrWhiteSpace($exe)) {
+        $leaf      = $IsWindows ? 'pwsh.exe' : 'pwsh'
+        $candidate = Join-Path $PSHOME $leaf
+        if (Test-Path -LiteralPath $candidate) { $exe = $candidate }
+    }
+    return $exe
 }
 
 Export-ModuleMember -Function New-InnerRunnerArgList, Get-PwshExePath

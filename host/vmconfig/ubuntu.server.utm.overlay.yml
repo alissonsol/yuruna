@@ -1,8 +1,7 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# macOS UTM overlay for ubuntu.server.base.user-data.
-# Anchor sections (in order they appear in the base file). An empty
-# section means "do not insert anything at this anchor".
+# macOS/UTM (QEMU) overlay for ubuntu.server.base.user-data.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_NETWORK ===
   # --- See https://yuruna.link/vmconfig#pin-ipv4-dhcp-refuse-ipv6-ra
   network:

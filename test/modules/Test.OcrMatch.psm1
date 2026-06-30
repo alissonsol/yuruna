@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a9b3c7-d1e5-4f02-9b8a-6c3d7e1f4a52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -245,6 +245,15 @@ function Test-OCRMatch {
 # │                                                                        │
 # │ To switch: change the value below, or set $env:YURUNA_OCR_COMBINE.    │
 # └─────────────────────────────────────────────────────────────────────────┘
+
+<#
+.SYNOPSIS
+    Returns the OCR combine mode ('Or' or 'And'), honouring $env:YURUNA_OCR_COMBINE.
+.DESCRIPTION
+    Reads the YURUNA_OCR_COMBINE environment variable and returns 'And' when it
+    is set to that value, otherwise 'Or' (the default). Any other non-empty value
+    is rejected with a throw so a typo cannot silently fall back to the default.
+#>
 function Get-OcrCombineMode {
     $envVal = $env:YURUNA_OCR_COMBINE
     if ($envVal -and $envVal -notin @('Or', 'And')) {
@@ -254,40 +263,40 @@ function Get-OcrCombineMode {
     return 'Or'   # ← default
 }
 
+<#
+.SYNOPSIS
+    Runs all enabled OCR engines on a screen capture, tests each engine's
+    text against every pattern, and returns $true/$false based on the
+    combine mode.
+
+.DESCRIPTION
+    For each enabled OCR engine:
+      1. Run OCR on ImagePath → engine text
+      2. For each pattern, test engine text → boolean
+    Collect a boolean per engine (true if ANY pattern matched that engine's text).
+
+    Combine mode (Or/And) controls how the per-engine booleans are merged:
+      Or  → $true if at least one engine detected any pattern
+      And → $true only if every engine detected at least one pattern
+
+.PARAMETER ImagePath
+    Path to the screen capture PNG. The image is sent to each OCR engine
+    as-is — no preprocessing.
+
+.PARAMETER Pattern
+    One or more patterns to match (any pattern matching counts for that engine).
+
+.PARAMETER FreshMatchTailLines
+    When greater than 0, only the last N lines of each engine's OCR text are
+    tested. Defaults to 0 (test all lines). Typically set to 12 for freshMatch.
+
+.OUTPUTS
+    A hashtable with:
+      Match        — [bool] combined result
+      EngineResults — [ordered] engine-name → @{ Text; Matched; MatchedPattern }
+      AnyText      — [string] concatenation of all engine texts (for accumulation)
+#>
 function Test-CombinedOcrMatch {
-    <#
-    .SYNOPSIS
-        Runs all enabled OCR engines on a screen capture, tests each engine's
-        text against every pattern, and returns $true/$false based on the
-        combine mode.
-
-    .DESCRIPTION
-        For each enabled OCR engine:
-          1. Run OCR on ImagePath → engine text
-          2. For each pattern, test engine text → boolean
-        Collect a boolean per engine (true if ANY pattern matched that engine's text).
-
-        Combine mode (Or/And) controls how the per-engine booleans are merged:
-          Or  → $true if at least one engine detected any pattern
-          And → $true only if every engine detected at least one pattern
-
-    .PARAMETER ImagePath
-        Path to the screen capture PNG. The image is sent to each OCR engine
-        as-is — no preprocessing.
-
-    .PARAMETER Pattern
-        One or more patterns to match (any pattern matching counts for that engine).
-
-    .PARAMETER FreshMatchTailLines
-        When greater than 0, only the last N lines of each engine's OCR text are
-        tested. Defaults to 0 (test all lines). Typically set to 12 for freshMatch.
-
-    .OUTPUTS
-        A hashtable with:
-          .Match       — [bool] combined result
-          .EngineResults — [ordered] engine-name → @{ Text; Matched; MatchedPattern }
-          .AnyText     — [string] concatenation of all engine texts (for accumulation)
-    #>
     param(
         [Parameter(Mandatory)] [string]$ImagePath,
         [Parameter(Mandatory)] [string[]]$Pattern,

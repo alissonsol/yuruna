@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -599,10 +599,93 @@ function Start-YurunaStatusServiceIfEnabled {
     )
     $decision = Resolve-StatusServiceStart -Config $Config -NoServer:$NoServer
     if ($decision.ShouldStart) {
-        if ($Restart) { & $StartScript -Port $decision.Port -Restart }
-        else          { & $StartScript -Port $decision.Port }
+        try {
+            if ($Restart) { & $StartScript -Port $decision.Port -Restart }
+            else          { & $StartScript -Port $decision.Port }
+        } catch {
+            # Start-StatusService.ps1 tags an unrecoverable status-port conflict
+            # (port owned by another user / another checkout) so the cycle can
+            # refuse instead of running blind without its dashboard + breakpoint
+            # controls. The banner is already printed there; exit terminates the
+            # calling entry point (Test-Sequence, the inner runner,
+            # Start-CachingProxy) the same way Assert-NoOtherRunner's refusal
+            # does -- no stack trace. Re-throw anything that is not this tag.
+            if ($_.Exception.Data -and $_.Exception.Data['YurunaPortConflict']) {
+                exit (Get-EntryPointExitCode -Outcome Failure)
+            }
+            throw
+        }
     }
     return $decision
 }
 
-Export-ModuleMember -Function Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler, Resolve-StatusServiceStart, Start-YurunaStatusServiceIfEnabled
+function Resolve-ConfigServiceStart {
+    <#
+    .SYNOPSIS
+        Decide whether the Host Config Service (mTLS NAS-credential endpoint)
+        should run this host, and on which port, from test.config.yml's
+        configService node.
+    .DESCRIPTION
+        Pure decision (no I/O), the twin of Resolve-StatusServiceStart. The
+        service defaults to ENABLED when the node/flag is absent so existing
+        configs (and any host that has not adopted the configService node) still
+        serve NAS credentials -- matching the in-code defaults in
+        Start-HostConfigService.ps1. Default port 8443.
+    .OUTPUTS
+        [hashtable] @{ ShouldStart = [bool]; Port = [int] }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()]$Config)
+    $svc     = if ($Config -is [System.Collections.IDictionary]) { $Config['configService'] } else { $null }
+    $enabled = $true
+    if ($svc -is [System.Collections.IDictionary] -and $svc.Contains('isEnabled')) { $enabled = [bool]$svc['isEnabled'] }
+    $port    = if ($svc -is [System.Collections.IDictionary] -and $svc['port']) { [int]$svc['port'] } else { 8443 }
+    return @{ ShouldStart = $enabled; Port = $port }
+}
+
+function Start-YurunaConfigServiceIfEnabled {
+    <#
+    .SYNOPSIS
+        Ensure the Host Config Service is running when configService.isEnabled --
+        the gate every entry point shares so the mTLS NAS-credential endpoint has
+        the SAME runner-managed lifecycle as the status server.
+    .DESCRIPTION
+        Idempotent + best-effort. Start-HostConfigService.ps1 is a no-op when a
+        healthy instance is already serving (so the runner can call this every
+        cycle cheaply) and re-launches when none is, so the service self-heals
+        after a host reboot or crash -- the same way the status server is kept
+        alive, rather than relying on a one-shot Start-CachingProxy run. A failure
+        here NEVER aborts the caller: the harness keeps testing even when the
+        NAS-credential channel (Extension hosts + ypool-nas rotation) is down; it
+        is re-ensured on the next cycle. Pass -Restart to force a relaunch (new
+        service code).
+    .OUTPUTS
+        [hashtable] the Resolve-ConfigServiceStart decision (ShouldStart, Port).
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Thin gate over Start-HostConfigService.ps1, which owns its own skip-if-healthy / replace semantics.')]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$Config,
+        [Parameter(Mandatory)][string]$StartScript,
+        [switch]$Restart
+    )
+    $decision = Resolve-ConfigServiceStart -Config $Config
+    if ($decision.ShouldStart) {
+        if (Test-Path -LiteralPath $StartScript) {
+            try {
+                if ($Restart) { & $StartScript -Port $decision.Port -Restart }
+                else          { & $StartScript -Port $decision.Port }
+            } catch {
+                Write-Warning "Host Config Service ensure failed: $($_.Exception.Message). NAS-credential serving (Extension hosts + ypool-nas rotation) is unavailable until the next cycle re-ensures it."
+            }
+        } else {
+            Write-Verbose "Start-HostConfigService.ps1 not found at '$StartScript'; skipping config-service ensure."
+        }
+    }
+    return $decision
+}
+
+Export-ModuleMember -Function Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler, Resolve-StatusServiceStart, Start-YurunaStatusServiceIfEnabled, Resolve-ConfigServiceStart, Start-YurunaConfigServiceIfEnabled

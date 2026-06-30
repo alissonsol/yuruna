@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -445,15 +445,44 @@ function Write-HostRegistrationRecord {
                 if ($cfgDoc -and $cfgDoc['statusService'] -and $cfgDoc['statusService']['port']) { $statusPort = [int]$cfgDoc['statusService']['port'] }
             }
         } catch { $null = $_ }
+        # activeExtensions: the extension areas this host is ACTIVELY running right
+        # now (distinct from capabilities.extensions, which is what it COULD run --
+        # true for every host). The pool-aggregator reads this to populate the
+        # dashboard's Extension hosts table WITHOUT mounting ystash-nas (no cross-host
+        # Config Service / NAS-credential dependency). Driven by per-service runtime
+        # markers a host writes when it brings a service up -- Start-StashServer.ps1
+        # writes runtime/stash-server.json; Stop-StashServer.ps1 removes it. File I/O
+        # only (no foreign-module calls), matching this function's resolution policy.
+        # extensionTargets carries the per-area deep-link the host advertises for its
+        # service (the stash VM's UI base URL the host resolved via Get-VMIp into the
+        # marker's stashBaseUrl), so the aggregator can /go/stash to it without an
+        # address store of its own -- docs/design/stash-service-ui.md (3.4).
+        $activeExtensions = @()
+        $extensionTargets = [ordered]@{}
+        try {
+            $stashMarker = Join-Path $runtimeDir 'stash-server.json'
+            if (Test-Path -LiteralPath $stashMarker) {
+                $sm = Get-Content -Raw -LiteralPath $stashMarker | ConvertFrom-Json -ErrorAction Stop
+                # Marker presence = active; an explicit active:false clears it.
+                if ($null -eq $sm.active -or [bool]$sm.active) {
+                    $activeExtensions += 'stash-service'
+                    if (-not [string]::IsNullOrWhiteSpace([string]$sm.stashBaseUrl)) {
+                        $extensionTargets['stash-service'] = [string]$sm.stashBaseUrl
+                    }
+                }
+            }
+        } catch { Write-Verbose "activeExtensions (stash-server.json): $($_.Exception.Message)" }
         $record = [ordered]@{
-            schemaVersion   = 1
-            hostId          = [string]$global:__YurunaHostId
-            hostname        = [string]([System.Net.Dns]::GetHostName())
-            hostType        = $HostType
-            hypervisor      = $hypervisor
-            poolId          = $poolId
-            gating          = $gating
-            capabilities    = $cap
+            schemaVersion    = 1
+            hostId           = [string]$global:__YurunaHostId
+            hostname         = [string]([System.Net.Dns]::GetHostName())
+            hostType         = $HostType
+            hypervisor       = $hypervisor
+            poolId           = $poolId
+            gating           = $gating
+            capabilities     = $cap
+            activeExtensions = $activeExtensions
+            extensionTargets = $extensionTargets
             runId           = [string]$global:__YurunaRunId
             pid             = $PID
             statusPort      = $statusPort

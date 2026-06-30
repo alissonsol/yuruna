@@ -1,7 +1,7 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Hyper-V overlay for caching-proxy.base.user-data.
-# Anchor sections in base-file order. Empty section = insert nothing at that anchor.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
   # NOTE: hyperv-daemons (hv_kvp_daemon) is installed via runcmd with
   # `|| true`, not here. Its dep on linux-cloud-tools-$(uname -r) matching

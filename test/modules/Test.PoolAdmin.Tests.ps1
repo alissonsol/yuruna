@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f4a5b6-c7d8-4e90-8f12-4a5b6c7d8e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,8 +78,8 @@ Describe 'Read-YurunaPoolsDoc (default-empty)' {
         $d = New-TempDir
         try {
             $doc = Read-YurunaPoolsDoc -IntentDir $d
-            Assert-Equal 1 $doc['schemaVersion'] 'default schemaVersion'
-            Assert-Equal 0 @($doc['pools']).Count 'default empty pools'
+            Assert-Equal -Expected 1 -Actual $doc['schemaVersion'] -Because 'default schemaVersion'
+            Assert-Equal -Expected 0 -Actual @($doc['pools']).Count -Because 'default empty pools'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'round-trips a written pools.yml' {
@@ -89,7 +89,7 @@ Describe 'Read-YurunaPoolsDoc (default-empty)' {
             $yaml = ConvertTo-Yaml $doc
             [System.IO.File]::WriteAllText((Join-Path $d 'pools.yml'), $yaml, [System.Text.UTF8Encoding]::new($false))
             $back = Read-YurunaPoolsDoc -IntentDir $d
-            Assert-Equal 'lab' (Get-YurunaPoolFromDoc -Doc $back -PoolId 'lab').poolId 'lab present after round-trip'
+            Assert-Equal -Expected 'lab' -Actual (Get-YurunaPoolFromDoc -Doc $back -PoolId 'lab').poolId -Because 'lab present after round-trip'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -98,14 +98,14 @@ Describe 'Get-YurunaPoolFromDoc (lookup by id)' {
     $doc = [ordered]@{ schemaVersion = 1; pools = @(
         [ordered]@{ poolId = 'lab' }, [ordered]@{ poolId = 'prod' }
     ) }
-    It 'finds an existing pool' { Assert-Equal 'prod' (Get-YurunaPoolFromDoc -Doc $doc -PoolId 'prod').poolId 'prod found' }
+    It 'finds an existing pool' { Assert-Equal -Expected 'prod' -Actual (Get-YurunaPoolFromDoc -Doc $doc -PoolId 'prod').poolId -Because 'prod found' }
     It 'returns null for a missing pool' { Assert-Null (Get-YurunaPoolFromDoc -Doc $doc -PoolId 'nope') 'missing -> null' }
 }
 
 Describe 'Resolve-YurunaPoolAdminTarget (defaults)' {
     It 'defaults IntentDir under the runtime dir' {
         $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl 'http://p/i.git' -IntentDir ''
-        Assert-Equal 'http://p/i.git' $t.IntentGitUrl 'url passthrough'
+        Assert-Equal -Expected 'http://p/i.git' -Actual $t.IntentGitUrl -Because 'url passthrough'
         Assert-True ($t.IntentDir -match 'pool-intent-admin$') 'default clone dir'
     }
 }

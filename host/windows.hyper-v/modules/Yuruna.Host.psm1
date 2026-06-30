@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -7,8 +7,8 @@
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .RELEASENOTES
-    Yuruna host driver for Windows + Hyper-V. Implements the contract
-    documented in host/ubuntu.kvm/modules/Yuruna.Host.psm1.
+    Yuruna host driver for Windows + Hyper-V. Implements the Yuruna.Host
+    driver contract defined in host/Yuruna.Host.Contract.psm1 (rationale in docs/host-io.md).
 #>
 
 #requires -version 7
@@ -22,7 +22,7 @@
     Windows helpers it consumes. Cross-host helpers live in
     test/modules/Test.VMUtility.psm1 and Test.Ssh.psm1, imported below.
 
-    Module-qualified calls (e.g. `Test.HostProxy\Set-HostProxy`) appear
+    Module-qualified calls (e.g. `Yuruna.HostDownload\Save-CachedHttpUri`) appear
     where an external helper shares its name with the contract function
     -- without the qualifier the call would re-enter our own definition
     and recurse.
@@ -555,9 +555,17 @@ function Resolve-CacheHostIp {
     return $null
 }
 
-# Thin driver-local wrapper over the shared download stack. The closure binds
-# this driver's Resolve-CacheHostIp (Hyper-V VM discovery) so the shared module
-# stays platform-agnostic while still reaching Hyper-V-specific cache lookup.
+<#
+.SYNOPSIS
+    Downloads $Uri to $OutFile through the caching proxy, resolving the
+    Hyper-V cache VM's IP via this driver's Resolve-CacheHostIp.
+
+.DESCRIPTION
+    Thin driver-local wrapper over the shared download stack. The closure
+    binds this driver's Resolve-CacheHostIp (Hyper-V VM discovery) so the
+    shared module stays platform-agnostic while still reaching the
+    Hyper-V-specific cache lookup.
+#>
 function Save-CachedHttpUri {
     [CmdletBinding()]
     param(
@@ -2342,11 +2350,6 @@ function Save-VMDiskSnapshot {
 
 <#
 .SYNOPSIS
-    Revert the VM to a previously saved disk-only snapshot. VM is
-    stopped first if running and left stopped on return.
-#>
-<#
-.SYNOPSIS
     Returns $true when checkpoint $Id is present on $VMName, $false
     otherwise (including when the VM does not exist). Used by
     Test-Sequence.ps1's requiresSnapshot warm-path probe before
@@ -2493,15 +2496,7 @@ function Get-ImagePath {
     } catch { $null = $_; return $null }
 }
 
-# Helper for Get-Image: emits a line to the console AND -- if active -- to
-# the cycle's HTML log via $global:__YurunaLogFile. Bypasses the function
-# output pipeline so a `$r = Get-Image ...` capture doesn't accidentally
-# swallow the diagnostic stream alongside the return hashtable.
 # === VM I/O =================================================================
-# Send-Text / Send-Key / Send-Click / Get-VMScreenshot delegate to the
-# extension module (test/extensions/Invoke-Sequence.psm1) which the
-# runner already imports. Yuruna.Host's facade shape lets callers move
-# off direct `Send-TextHyperV` calls and onto the contract.
 
 <#
 .SYNOPSIS
@@ -2520,14 +2515,18 @@ function Send-Text {
         [int]$CharDelayMs = 30,
         [switch]$Sensitive
     )
-    # Sensitive is part of the contract for log redaction; the underlying
-    # Invoke-Sequence dispatcher gains it once bodies are lifted out.
+    # Sensitive is part of the contract for log redaction; current paths
+    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honour it.
     if ($Sensitive) { Write-Debug "Send-Text: -Sensitive set on '$VMName'; log redaction not yet implemented on Hyper-V." }
     if ($Mechanism -eq 'ssh') {
         if (-not $GuestKey) {
             Write-Warning "Send-Text -Mechanism ssh requires -GuestKey to determine the SSH login user."
             return $false
         }
+        # Test.Ssh\Invoke-GuestSsh resolves both the user (from GuestKey)
+        # and the address (from VMName) internally; surface .success, not the
+        # hashtable itself -- [bool] of a non-null hashtable is always $true
+        # (truthy-hashtable trap).
         $r = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $Text
         return [bool]$r.success
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@ param(
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Error "Invalid VMName '$VMName'."
+    Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
     exit 1
 }
 if (-not $IsLinux) {
@@ -215,22 +215,10 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# AL2023 image OS variant; libvirt's osinfo-db ships 'amazonlinux2023'
-# on newer libosinfo releases but Ubuntu 24.04's virtinst doesn't pull
-# in libosinfo-bin (so osinfo-query is usually absent). Ask virt-install
-# itself -- `--osinfo list` enumerates every short-id its loaded osinfo
-# library accepts, which is exactly what the upcoming `--os-variant`
-# call validates against. Default to the generic 'linux2022' variant
-# and opt into 'amazonlinux2023' only when confirmed -- avoids a
-# failed virt-install run on hosts whose osinfo-db is too old.
+# --- See https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
 if ($LASTEXITCODE -eq 0) {
-    # virt-install --osinfo list emits "<canonical-id>, <alias1> <alias2>"
-    # per line, NOT one id per line. Parse the canonical id (first
-    # whitespace-or-comma-separated token, trailing comma stripped)
-    # before equality-checking; otherwise the lookup never matches even
-    # when the variant is present.
     $canonicalIds = @($osList | ForEach-Object {
         $first = ("$_".Trim() -split '[\s,]', 2)[0]
         ($first -replace ',$', '').Trim()

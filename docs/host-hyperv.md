@@ -2,7 +2,7 @@
 
 ## Cleaning Up Old Files
 
-Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (VHDX, seed ISOs, NVRAM, etc.) for any VM that no longer exists in Hyper-V. Downloaded base images (named `host.windows.hyper-v.guest.<name>.*`) are explicitly KEPT so subsequent `New-VM.ps1` runs don't re-download them; refresh a base image with the matching `Get-Image.ps1`.
+Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (VHDX, seed ISOs, NVRAM, etc.) for any VM that no longer exists in Hyper-V. Downloaded base images (named `host.windows.hyper-v.guest.<name>.*`) are explicitly KEPT so subsequent `Get-Image.ps1` runs don't re-download them; refresh a base image with the matching `Get-Image.ps1`.
 
 ## Screen capture / OCR fails when no monitor is connected to the host
 
@@ -203,6 +203,6 @@ fires if any value changed.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../README.md)

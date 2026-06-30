@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -7,8 +7,8 @@
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .RELEASENOTES
-    Yuruna host driver for macOS + UTM. Implements the contract
-    documented in host/ubuntu.kvm/modules/Yuruna.Host.psm1.
+    Yuruna host driver for macOS + UTM. Implements the Yuruna.Host
+    driver contract defined in host/Yuruna.Host.Contract.psm1 (rationale in docs/host-io.md).
 #>
 
 #requires -version 7
@@ -21,6 +21,10 @@
     Self-contained host driver: contract surface plus the UTM/macOS
     helpers it consumes. Cross-host helpers live in
     test/modules/Test.VMUtility.psm1 and Test.Ssh.psm1, imported below.
+    Module-qualified calls (e.g. `Yuruna.HostDownload\Save-CachedHttpUri`) appear
+    where an external helper shares its name with the contract function
+    -- without the qualifier the call would re-enter our own definition
+    and recurse.
 #>
 
 # === Module setup ===========================================================
@@ -52,10 +56,10 @@ Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm
 
 .DESCRIPTION
     After `utmctl delete`, UTM.app (and its QEMUHelper.xpc) can hold file
-    handles on bundle contents for a few seconds ? most commonly on the
+    handles on bundle contents for a few seconds -- most commonly on the
     mmap'd sparse disk.img or on efi_vars.fd. A single-shot
     `Remove-Item -Recurse -Force` during that window fails with "Access
-    to the path '?' is denied" even though the bundle is deregistered
+    to the path '...' is denied" even though the bundle is deregistered
     and would remove cleanly moments later.
 
     Retries with 2,4,6,8s backoff (~20s total), absorbing the handle-
@@ -215,16 +219,19 @@ function Invoke-EntitledSwift {
     Launches (or stops) the caching-proxy TCP forwarder on the Mac host.
 
 .DESCRIPTION
-    Apple Virtualization.framework's shared-NAT isolates guest-to-guest
-    traffic on 192.168.64.0/24 ? guests can reach the gateway
-    (192.168.64.1 = the host) but not another guest's IP (ARP between
-    guests is not forwarded). Without a host-side shim, guests cannot
-    reach a caching-proxy VM and subiquity falls back to an offline install.
+    Exposes the Shared-NAT caching-proxy VM to REMOTE LAN hosts: it binds
+    a cache port on the host's LAN IP and tunnels to $CacheIp on the
+    192.168.64.0/24 vmnet subnet, so machines elsewhere on the LAN can use
+    the cache. Same-Mac UTM guests do NOT need this -- on macOS 26 every
+    vmnet-shared VM joins one bridge (192.168.64.1) and guests reach a
+    sibling VM's 192.168.64.x IP directly. (An older belief that shared-NAT
+    blocks guest-to-guest ARP on 192.168.64.0/24 did not reproduce there.)
 
     Start-CachingProxyForwarder spawns Start-CachingProxyForwarder.ps1
     as a detached `pwsh` subprocess that binds :3128 on the host and
-    tunnels to $CacheIp:3128. Guests then use http://192.168.64.1:3128.
-    Detached so the forwarder outlives Start-CachingProxy.ps1.
+    tunnels to $CacheIp:3128. Detached so the forwarder outlives
+    Start-CachingProxy.ps1 (it survives the launcher exiting -- it is
+    reparented to launchd -- but any Remove-PortMap still tears it down).
 
     PID is written to $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid.
     Stop-CachingProxyForwarder reads it and sends SIGTERM.
@@ -550,9 +557,15 @@ function Resolve-CacheHostIp {
     return $null
 }
 
-# Thin driver-local wrapper over the shared download stack. The closure binds
-# this driver's Resolve-CacheHostIp (UTM cache discovery) so the shared module
-# stays platform-agnostic while still reaching macOS-specific cache lookup.
+<#
+.SYNOPSIS
+    Download $Uri to $OutFile through the UTM caching proxy, falling back to
+    a direct fetch when no cache is reachable.
+.DESCRIPTION
+    Thin driver-local wrapper over the shared download stack. The closure binds
+    this driver's Resolve-CacheHostIp (UTM cache discovery) so the shared module
+    stays platform-agnostic while still reaching macOS-specific cache lookup.
+#>
 function Save-CachedHttpUri {
     [CmdletBinding()]
     param(
@@ -792,6 +805,69 @@ function Confirm-UtmVMStarted {
 
 <#
 .SYNOPSIS
+    Block until the VM's QEMU process is gone and every qcow2 disk is
+    unlocked, so a following qemu-img snapshot create/apply is safe.
+.DESCRIPTION
+    `utmctl stop` (default --force) returns when the power-off *event* is
+    sent, not when QEMUHelper has exited and released the qcow2. A
+    qemu-img snapshot -c/-a that runs while the helper is still alive
+    races its in-memory L1/L2 tables: the helper flushes its own
+    (un-reverted) view on exit and silently clobbers the change, so the
+    revert "succeeds" yet the guest resumes the pre-revert disk. This
+    waits that window out -- polling `utmctl status` to drive a hard
+    `--kill` escalation if the power-off stalls, and gating success on the
+    write lock actually being free. `qemu-img info` WITHOUT -U fails while
+    any process holds the lock, so a clean exit on every disk is the
+    unambiguous "safe to mutate" signal (a bare status check is not: a
+    'suspended'/'paused' guest still holds the lock).
+.OUTPUTS
+    [bool] $true once powered off and every disk is unlocked; $false on
+    timeout.
+#>
+function Wait-UtmVMPoweredOff {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$TimeoutSeconds = 30
+    )
+    $dataDir = "$HOME/yuruna/guest.nosync/$VMName.utm/Data"
+    $deadlineUtc  = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $escalateUtc  = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds / 2)
+    $killIssued   = $false
+    while ([DateTime]::UtcNow -lt $deadlineUtc) {
+        $status  = & utmctl status $VMName 2>&1
+        $running = ($status -match 'started|paused|suspended')
+        # Drive the kill escalation off status: the default power-off event
+        # is near-instant, but a stalled (or suspended) guest never frees
+        # the lock on its own. After half the budget, force-kill the
+        # process so the qcow2 is released deterministically.
+        if ($running -and -not $killIssued -and [DateTime]::UtcNow -ge $escalateUtc) {
+            & utmctl stop $VMName --kill 2>&1 | Out-Null
+            $killIssued = $true
+        }
+        # Gate on status FIRST: if UTM runs QEMU without an enforced write
+        # lock, the qemu-img probe below would pass while the process is
+        # still alive, so the lock check alone is not sufficient. Only once
+        # status leaves the running set do we confirm the lock is actually
+        # free (status can flip to 'stopped' a beat before QEMUHelper
+        # releases the file handle -- qemu-img info WITHOUT -U fails while
+        # the lock is held, so a clean exit on every disk is the all-clear).
+        if (-not $running) {
+            $allFree = $true
+            foreach ($disk in @(Get-ChildItem -LiteralPath $dataDir -Filter '*.qcow2' -File -ErrorAction SilentlyContinue)) {
+                & qemu-img info $disk.FullName 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) { $allFree = $false; break }
+            }
+            if ($allFree) { return $true }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
     Return the names of every UTM VM whose `utmctl list` Status is
     `started`. Empty array when none are running, when utmctl is missing,
     or when utmctl errors. Cheap (single `utmctl list` call).
@@ -835,20 +911,26 @@ function Get-RunningVmName {
     Returns $true on success (no concurrent VMs).
 
 .DESCRIPTION
-    macOS vmnet-shared assigns one host-side bridge interface per vmnet
-    "session" (bridge100, bridge101, ...). Two concurrent UTM VMs land
-    on different bridges that don't route between each other. Cycle
-    000062 evidence: an unrelated `macos-26-01` VM running before the
-    test cycle pushed both test guests onto bridge101 (192.168.65.x),
-    making the cloud-init host-proxy URL (baked into seed.iso from the
-    bridge100 host IP) unreachable -- the cycle failed at the first
-    fetch-and-execute step with "Connection timed out".
+    On some macOS versions UTM vmnet-shared assigns a separate host-side
+    bridge per vmnet "session" (bridge100, bridge101, ...); guests on
+    different bridges don't route to each other or to the host's vmnet
+    gateway, so the cloud-init host-proxy URL baked into seed.iso (from the
+    first bridge's host IP) becomes unreachable and the cycle fails at its
+    first fetch-and-execute step with "Connection timed out". This helper
+    is invoked at cycle start (Test-Sequence.ps1 and Invoke-TestInnerRunner.ps1)
+    to refuse the cycle before any test bundle is created, so the operator
+    can stop the offender(s) and re-run.
 
-    This helper is invoked at cycle start (Test-Sequence.ps1 and
-    Invoke-TestInnerRunner.ps1) to refuse the cycle before any test
-    bundle is created. The operator stops the offender(s) and re-runs.
-    Allowing $ExceptVmName covers the dev-loop case where Test-Sequence
-    is re-invoked against a VM the operator left running for inspection.
+    On macOS 26, every vmnet-shared VM observed instead shares ONE bridge
+    (bridge100 / 192.168.64.1) and all guests route to each other directly
+    -- so the split does not occur there. The guard stays for older hosts
+    where it still can, but two VM names never trip the refusal:
+      * the caching-proxy VM ('yuruna-caching-proxy') -- infrastructure
+        meant to run alongside cycles. Test guests consume its squid and,
+        on the shared bridge, reach it directly at its 192.168.64.x IP, so
+        a running cache is a dependency, not an offender.
+      * $ExceptVmName -- the dev-loop case where Test-Sequence is re-invoked
+        against a VM the operator left running for inspection.
 
 .PARAMETER ExceptVmName
     Optional. A single VM name to exclude from the running-VM list
@@ -858,7 +940,10 @@ function Assert-NoConcurrentUtmVm {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$ExceptVmName)
-    $running = @(Get-RunningVmName)
+    # The caching-proxy VM is infrastructure designed to coexist with test
+    # cycles; never let it count as a concurrent offender (see .DESCRIPTION).
+    $alwaysAllow = @('yuruna-caching-proxy')
+    $running = @(Get-RunningVmName | Where-Object { $alwaysAllow -notcontains $_ })
     if ($ExceptVmName) {
         $running = @($running | Where-Object { $_ -ne $ExceptVmName })
     }
@@ -867,16 +952,17 @@ function Assert-NoConcurrentUtmVm {
     Write-Warning " One or more UTM VMs are currently running:"
     foreach ($vm in $running) { Write-Warning "   - $vm" }
     Write-Warning ""
-    Write-Warning " macOS vmnet-shared puts each new vmnet session on its own bridge"
-    Write-Warning " (192.168.64.x, 192.168.65.x, ...) that don't route between each"
-    Write-Warning " other. Concurrent VMs split test guests onto a separate bridge"
-    Write-Warning " from the host's vmnet gateway, breaking the cloud-init proxy URL"
-    Write-Warning " baked into seed.iso. Stop the other VM(s)"
+    Write-Warning " On some macOS versions vmnet-shared puts each new vmnet session on"
+    Write-Warning " its own bridge (192.168.64.x, 192.168.65.x, ...) that don't route"
+    Write-Warning " between each other. A concurrent VM can then split test guests onto"
+    Write-Warning " a separate bridge from the host's vmnet gateway, breaking the"
+    Write-Warning " cloud-init proxy URL baked into seed.iso. Stop the other VM(s)"
     Write-Warning " before re-running this cycle:"
     foreach ($vm in $running) { Write-Warning "   utmctl stop '$vm'" }
+    Write-Warning ""
+    Write-Warning " (The 'yuruna-caching-proxy' cache VM is always allowed to coexist.)"
     if ($ExceptVmName) {
-        Write-Warning ""
-        Write-Warning " (Excluding the cycle's target VM '$ExceptVmName' from this check.)"
+        Write-Warning " (Also excluding the cycle's target VM '$ExceptVmName'.)"
     }
     Write-Warning "==================================================================="
     return $false
@@ -1608,7 +1694,7 @@ function Stop-VM {
 
 <#
 .SYNOPSIS
-    Force-stop a UTM VM via utmctl stop (synchronous; timeout parameter exists for parity with other hosts).
+    Force-stop a UTM VM via `utmctl stop --kill` (hard-kills the VM process; timeout parameter exists for parity with other hosts).
 #>
 function Stop-VMForce {
     [CmdletBinding(SupportsShouldProcess)]
@@ -1621,7 +1707,10 @@ function Stop-VMForce {
     # StopTimeoutSeconds is reserved for parity with Hyper-V Stop-VMForce;
     # utmctl stop is synchronous so the value is informational only.
     Write-Debug "Stop-VMForce on host.macos.utm: -StopTimeoutSeconds $StopTimeoutSeconds is informational (utmctl is synchronous)."
-    & utmctl stop $VMName 2>&1 | Out-Null
+    # --kill hard-kills the VM process instead of the default power-off
+    # event, so the qcow2 write lock is released without waiting on an
+    # ACPI shutdown that a busy or mid-reboot guest may ignore.
+    & utmctl stop $VMName --kill 2>&1 | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
@@ -1852,10 +1941,14 @@ function Save-VMDiskSnapshot {
         if (-not (Stop-VM -VMName $VMName)) {
             [void](Stop-VMForce -VMName $VMName)
         }
-        # utmctl stop is synchronous but the QEMU helper can still hold
-        # the qcow2 open briefly afterwards; a short settle pause avoids
-        # "Failed to lock byte 100" from qemu-img -c.
-        Start-Sleep -Seconds 2
+    }
+    # A snapshot created while the QEMU helper still holds the qcow2 open
+    # races its in-memory metadata: qemu-img -c either fails to lock
+    # ("Failed to lock byte 100") or captures an inconsistent disk. Block
+    # until the process is gone and the write lock is free before -c.
+    if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
+        Write-Warning "Save-VMDiskSnapshot: '$VMName' did not fully power off (qcow2 still locked); aborting to avoid an inconsistent snapshot."
+        return $false
     }
     foreach ($disk in $disks) {
         # Idempotent overwrite: drop a prior snapshot with the same id
@@ -1876,12 +1969,6 @@ function Save-VMDiskSnapshot {
     return $true
 }
 
-<#
-.SYNOPSIS
-    Revert each qcow2 disk in the UTM bundle to a previously saved
-    snapshot id. VM is stopped first if running and left stopped on
-    return.
-#>
 <#
 .SYNOPSIS
     Returns $true when snapshot $Id is present on every qcow2 disk of
@@ -1980,7 +2067,18 @@ function Restore-VMDiskSnapshot {
         if (-not (Stop-VM -VMName $VMName)) {
             [void](Stop-VMForce -VMName $VMName)
         }
-        Start-Sleep -Seconds 2
+    }
+    # The apply below must not race a still-live QEMU helper: it holds the
+    # qcow2's L1/L2 tables in memory and flushes its (un-reverted) view on
+    # exit, so `qemu-img snapshot -a` exits 0 yet the guest resumes the
+    # pre-revert disk -- "continues from where the last run left off"
+    # instead of starting from the snapshot. Blocking on a true power-off
+    # and lock release is what makes this revert as deterministic as a
+    # Hyper-V checkpoint restore. Runs unconditionally because Get-VMState
+    # maps 'suspended'/'paused' to 'stopped' yet those still hold the lock.
+    if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
+        Write-Warning "Restore-VMDiskSnapshot: '$VMName' did not fully power off (qcow2 still locked); aborting to avoid a clobbered revert."
+        return $false
     }
     # Removing vmstate at this point mirrors Start-UtmVM's cold-boot
     # prep -- the saved RAM (if any) belongs to the post-snapshot
@@ -2068,9 +2166,6 @@ function Get-ImagePath {
     return $paths[$GuestKey]
 }
 
-# Helper for Get-Image: console + cycle log without polluting the
-# function-output pipeline (callers do `$r = Get-Image ...` and would
-# otherwise capture the diagnostic stream alongside the hashtable).
 # === VM I/O =================================================================
 
 <#
@@ -2090,8 +2185,8 @@ function Send-Text {
         [int]$CharDelayMs = 30,
         [switch]$Sensitive
     )
-    # Sensitive is part of the contract for log redaction; underlying
-    # Send-Text* helpers gain it once bodies are lifted out of test/extensions.
+    # Sensitive is part of the contract for log redaction; current paths
+    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honour it.
     if ($Sensitive) { Write-Debug "Send-Text: -Sensitive set on '$VMName'; log redaction not yet implemented on UTM." }
     if ($Mechanism -eq 'ssh') {
         if (-not $GuestKey) {
@@ -2099,9 +2194,9 @@ function Send-Text {
             return $false
         }
         # Test.Ssh\Invoke-GuestSsh resolves both the user (from GuestKey)
-        # and the address (from VMName) internally; .success is the right
-        # bool to surface -- the prior `[bool]<hashtable>` cast always
-        # returned $true because a non-null hashtable is truthy.
+        # and the address (from VMName) internally; surface .success, not the
+        # hashtable itself -- [bool] of a non-null hashtable is always $true
+        # (truthy-hashtable trap).
         $r = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $Text
         return [bool]$r.success
     }
@@ -2250,20 +2345,34 @@ function Get-VMIp {
         }
     }
     # Fallback: macOS shared-NAT DHCP server's lease file. cloud-init sets
-    # the guest hostname to VMName, so the lease's name= matches.
+    # the guest hostname to VMName, so the lease's name= matches. A rebuilt
+    # cache VM reuses the same hostname, so dhcpd_leases can hold MULTIPLE
+    # name= blocks: the live VM PLUS stale leases from deleted predecessors.
+    # Returning the first match lets a dead predecessor's IP win (the cache
+    # forwarders then tunnel to an address nothing listens on). The lease's
+    # hw_address is a DHCP DUID, not the bundle's link MAC, so it can't
+    # disambiguate -- but the live VM keeps RENEWING its lease while a
+    # deleted VM's only ages, so the largest `lease=` expiry is the live one.
     $leaseFile = '/var/db/dhcpd_leases'
     if (Test-Path $leaseFile) {
         try {
             $content = Get-Content $leaseFile -Raw -ErrorAction Stop
             $blocks = [regex]::Matches($content, '\{[^}]*\}')
+            $bestIp = $null
+            $bestLease = -1
             foreach ($b in $blocks) {
                 $text = $b.Value
-                if ($text -match "(?m)^\s*name=$([regex]::Escape($VMName))\s*$") {
-                    if (($text -match "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") -and (Test-Ipv4Address $Matches[1])) {
-                        return [string]$Matches[1]
+                if ($text -notmatch "(?m)^\s*name=$([regex]::Escape($VMName))\s*$") { continue }
+                if (($text -match "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") -and (Test-Ipv4Address $Matches[1])) {
+                    $ip = [string]$Matches[1]
+                    $leaseVal = 0
+                    if ($text -match "(?m)^\s*lease=0x([0-9a-fA-F]+)\s*$") {
+                        $leaseVal = [Convert]::ToInt64($Matches[1], 16)
                     }
+                    if ($leaseVal -ge $bestLease) { $bestLease = $leaseVal; $bestIp = $ip }
                 }
             }
+            if ($bestIp) { return $bestIp }
         } catch {
             Write-Debug "Get-VMIp: dhcpd_leases lookup failed for ${VMName}: $_"
         }
@@ -2281,6 +2390,121 @@ function Get-VMMac {
     param([Parameter(Mandatory)][string]$VMName)
     Write-Verbose "Get-VMMac on host.macos.utm: not implemented for '$VMName' (utmctl does not expose MAC; would require config.plist parsing)."
     return $null
+}
+
+<#
+.SYNOPSIS
+    Resolve a freshly-built UTM bundle's current IPv4 by matching its
+    config.plist MAC against the host ARP table -- the reliable identity
+    signal for both Shared-NAT and bridged VMs.
+
+.DESCRIPTION
+    The bundle's MAC (random per build, written to config.plist) is the
+    ONLY stable identity for a just-created VM. Discovery by DHCP hostname
+    is unsafe: a rebuilt VM reuses the same hostname, so /var/db/dhcpd_leases
+    accumulates stale same-named blocks from deleted predecessors, and the
+    lease's hw_address is a DHCP DUID (not the link MAC), so it can't
+    disambiguate -- a name lookup that runs before THIS VM has DHCP'd locks
+    onto a dead predecessor's IP. Matching the MAC in `arp -an` instead
+    always returns the live VM, immune to the DHCP race and stale leases.
+
+    Populates the ARP cache by ICMP-sweeping the subnet in parallel (the VM
+    answers ICMP from cloud-init early, before squid binds), then matches
+    OUR MAC. When -ProbePort > 0, the candidate must also answer that TCP
+    port before it is accepted, so the returned IP is one squid is already
+    serving on. Polls until found or -TimeoutMinutes elapses.
+
+.PARAMETER PlistPath
+    Path to the bundle's config.plist (holds <key>MacAddress</key>).
+
+.PARAMETER SubnetPrefix
+    The /24 to sweep, e.g. '192.168.64.' (Shared-NAT) or the host's LAN
+    prefix (bridged). Octets 2..254 are pinged.
+
+.PARAMETER HostIp
+    Address to skip in the sweep (the host's own IP on that subnet).
+
+.PARAMETER ProbePort
+    If > 0, require this TCP port to answer on the MAC-matched IP before
+    accepting it (e.g. squid's 3128). 0 = accept on MAC match alone.
+
+.OUTPUTS
+    [string] the matched IPv4, or $null on timeout / missing-MAC.
+#>
+function Resolve-UtmGuestIpByMac {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$PlistPath,
+        [Parameter(Mandatory)][string]$SubnetPrefix,
+        [string]$HostIp,
+        [int]$ProbePort = 0,
+        [int]$TimeoutMinutes = 15,
+        [int]$PollSeconds = 5
+    )
+    if (-not (Test-Path -LiteralPath $PlistPath)) {
+        Write-Warning "Resolve-UtmGuestIpByMac: bundle plist not found at $PlistPath -- cannot identify the VM by MAC."
+        return $null
+    }
+    $plistText = Get-Content -Raw -LiteralPath $PlistPath
+    if ($plistText -notmatch '<key>MacAddress</key>\s*<string>([0-9A-Fa-f:]+)</string>') {
+        Write-Warning "Resolve-UtmGuestIpByMac: no MacAddress in $PlistPath -- cannot identify the VM by MAC."
+        return $null
+    }
+    $ourMacRaw = $matches[1]
+    # Normalize to the form `arp -an` prints: lowercase, leading zero per
+    # octet stripped (e.g. '0F' -> 'f') so the table lookup matches directly.
+    $macNeedle = (($ourMacRaw -split ':') |
+        ForEach-Object { ([Convert]::ToInt32($_, 16)).ToString('x') }) -join ':'
+    Write-Verbose "Resolve-UtmGuestIpByMac: matching MAC $ourMacRaw (needle '$macNeedle') on ${SubnetPrefix}0/24."
+
+    $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+    $found = $null
+    while ((Get-Date) -lt $deadline -and -not $found) {
+        # ICMP-sweep the /24 in parallel to populate the host ARP cache.
+        # -t 1 keeps packets on-LAN (TTL 1); -W 200 caps per-host wait at
+        # 200 ms; ThrottleLimit 32 keeps a sweep ~2 s on a typical LAN.
+        2..254 |
+            Where-Object { "$SubnetPrefix$_" -ne $HostIp } |
+            ForEach-Object -Parallel {
+                $c = "$using:SubnetPrefix$_"
+                try { & /sbin/ping -c 1 -W 200 -t 1 $c *>$null } catch { $null = $_ }
+            } -ThrottleLimit 32 | Out-Null
+
+        $candidateIp = $null
+        foreach ($line in (& /usr/sbin/arp -an 2>$null)) {
+            # Require the matched IP to be in the swept subnet, not just any
+            # ARP entry carrying our MAC. `arp -an` lists EVERY interface, so
+            # a stale/foreign entry with the same MAC (e.g. a recreated bundle
+            # MAC cached on another NIC) printed first would otherwise be
+            # selected and -- because of the break -- re-selected every poll,
+            # wedging the ProbePort wait against the wrong IP until timeout.
+            # $SubnetPrefix is always dot-terminated (e.g. '192.168.64.'), so
+            # StartsWith won't false-match a sibling /24 like 192.168.640.x.
+            if ($line -match '^\? \(([\d.]+)\) at (\S+)' -and
+                $matches[2] -eq $macNeedle -and
+                $matches[1].StartsWith($SubnetPrefix)) {
+                $candidateIp = $matches[1]
+                break
+            }
+        }
+        if ($candidateIp) {
+            if ($ProbePort -le 0) { $found = $candidateIp; break }
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            try {
+                $async = $tcp.BeginConnect($candidateIp, $ProbePort, $null, $null)
+                if ($async.AsyncWaitHandle.WaitOne(500) -and $tcp.Connected) {
+                    $found = $candidateIp
+                    break
+                }
+            } catch {
+                Write-Verbose "Resolve-UtmGuestIpByMac: probe ${candidateIp}:${ProbePort} failed: $($_.Exception.Message)"
+            } finally { $tcp.Close() }
+            Write-Verbose "Resolve-UtmGuestIpByMac: MAC match at $candidateIp but :$ProbePort not listening yet -- waiting."
+        }
+        if (-not $found) { Start-Sleep -Seconds $PollSeconds }
+    }
+    return $found
 }
 
 # === Networking =============================================================
@@ -2603,6 +2827,9 @@ function Set-HostProxy {
     if (-not $svc) {
         throw "Could not auto-detect the active macOS network service. Pass -NetworkService 'Wi-Fi' (or the name of your active service)."
     }
+    # Idempotent backup: only snapshot BEFORE the first apply, so a
+    # repeat Set-HostProxy doesn't overwrite the backup with the
+    # squid-promoted state.
     if (-not (Test-Path -LiteralPath $backupPath)) {
         $state = Read-MacProxyState -NetworkService $svc
         $state['timestamp']  = (Get-Date).ToUniversalTime().ToString('o')
@@ -2730,7 +2957,7 @@ Export-ModuleMember -Function `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
-    Wait-VMIp, Get-VMIp, Get-VMMac, `
+    Wait-VMIp, Get-VMIp, Get-VMMac, Resolve-UtmGuestIpByMac, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
     Test-CachingProxyAvailable, Get-CachingProxyVMIp, Get-HostLanPrefix, Test-MacDefaultRouteIsWiFi, `
@@ -2741,7 +2968,7 @@ Export-ModuleMember -Function `
     Test-DownloadAlreadyCurrent, Test-CachingProxyPort, Resolve-CacheHostIp, `
     Save-CachedHttpUri, `
     Stop-UtmDialogWatchdog, Start-UtmDialogWatchdog, `
-    Confirm-UtmVMCreated, Remove-UtmTestVM, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Restart-UtmConsole, `
+    Confirm-UtmVMCreated, Remove-UtmTestVM, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
     Get-RunningVmName, Assert-NoConcurrentUtmVm, `
     Get-MacProxyMarkerPath, Test-MacProxyIsYurunaManaged, Get-MacActiveNetworkService, Read-MacProxyState, `
     Invoke-MacElevationIfNeeded, Invoke-MacNetworksetup, `

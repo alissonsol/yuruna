@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f8c3d6-1a4b-4e29-9c70-5d8e1f2a3b40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,11 +68,11 @@ function Get-FunctionWriteOutputCount {
 
 Describe 'Test.SequenceRunner value-returning functions avoid Write-Output' {
     It 'Resolve-TestSequencePlan emits no Write-Output (return value is captured into $plan)' {
-        Assert-Equal 0 (Get-FunctionWriteOutputCount -Path $modulePath -FunctionName 'Resolve-TestSequencePlan') `
+        Assert-Equal -Expected 0 -Actual (Get-FunctionWriteOutputCount -Path $modulePath -FunctionName 'Resolve-TestSequencePlan') -Because `
             'Write-Output would pollute the returned hashtable into an object[].'
     }
     It 'Invoke-TestSequenceChain emits no Write-Output (return value is captured into $result)' {
-        Assert-Equal 0 (Get-FunctionWriteOutputCount -Path $modulePath -FunctionName 'Invoke-TestSequenceChain') `
+        Assert-Equal -Expected 0 -Actual (Get-FunctionWriteOutputCount -Path $modulePath -FunctionName 'Invoke-TestSequenceChain') -Because `
             'Write-Output would pollute the returned hashtable into an object[].'
     }
 }

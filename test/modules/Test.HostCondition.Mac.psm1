@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -348,11 +348,9 @@ function Set-MacHostConditionSet {
 
     # ── 2. Screen saver idle time → 0 (disabled) ─────────────────────────
     # MISSING idleTime key is NOT the same as 0: macOS falls back to
-    # ~1200s built-in default. The old "exit 0 AND value != 0" check
-    # skipped the write when absent and printed "already disabled",
-    # letting the screensaver engage after ~20min. Skip write only when
-    # the key EXISTS and is exactly "0"; any other case (missing, empty,
-    # other number) triggers an explicit write.
+    # ~1200s built-in default. Skip write only when the key EXISTS and is
+    # exactly "0"; any other case (missing, empty, other number) triggers
+    # an explicit write.
     $ssIdle = & defaults read com.apple.screensaver idleTime 2>$null
     $ssIdleRead = ($LASTEXITCODE -eq 0)
     if ($ssIdleRead -and "$ssIdle".Trim() -eq "0") {

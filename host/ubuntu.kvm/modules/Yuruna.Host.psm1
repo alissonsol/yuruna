@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -8,7 +8,7 @@
 .PROJECTURI https://yuruna.com
 .RELEASENOTES
     Yuruna host driver for Ubuntu KVM/libvirt hosts. Implements the
-    contract documented at the top of host/macos.utm/modules/Yuruna.Host.psm1.
+    Yuruna.Host driver contract defined in host/Yuruna.Host.Contract.psm1 (rationale in docs/host-io.md).
 #>
 
 #requires -version 7
@@ -29,6 +29,11 @@
     group so virsh / virt-install run without sudo for VM ops; some
     operations (apt, /etc/environment, systemctl) call sudo
     explicitly.
+
+    Module-qualified calls (e.g. `Yuruna.HostDownload\Save-CachedHttpUri`) appear
+    where an external helper shares its name with the contract function
+    -- without the qualifier the call would re-enter our own definition
+    and recurse.
 #>
 
 # === Module setup ===========================================================
@@ -160,10 +165,10 @@ function Stop-VM {
         [Parameter(Mandatory)][string]$VMName,
         [switch]$Force
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop VM')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, ($Force ? 'Force-stop VM' : 'Stop VM'))) { return $false }
     $state = Get-VirshDomState -VMName $VMName
     if (-not $state -or $state -eq 'shut off') { return $true }   # already stopped
-    if ($Force.IsPresent) { return [bool](Stop-VMForce -VMName $VMName -Confirm:$false) }
+    if ($Force) { return [bool](Stop-VMForce -VMName $VMName -Confirm:$false) }
     Invoke-Virsh -VirshArgs @('shutdown', $VMName) | Out-Null
     if ($LASTEXITCODE -ne 0) { return $false }
     # virsh shutdown is asynchronous (ACPI shutdown signal); poll up to ~30s
@@ -401,11 +406,6 @@ function Save-VMDiskSnapshot {
 
 <#
 .SYNOPSIS
-    Revert the VM to a previously saved disk-only snapshot. VM is
-    stopped first if running and left stopped on return.
-#>
-<#
-.SYNOPSIS
     Returns $true when snapshot $Id is present on $VMName, $false
     otherwise (including when the domain does not exist). Used by
     Test-Sequence.ps1's requiresSnapshot warm-path probe before
@@ -585,9 +585,9 @@ function Send-Text {
             return $false
         }
         # Test.Ssh\Invoke-GuestSsh resolves both the user (from GuestKey)
-        # and the address (from VMName) internally; .success is the right
-        # bool to surface -- the prior `[bool]<hashtable>` cast always
-        # returned $true because a non-null hashtable is truthy.
+        # and the address (from VMName) internally; surface .success, not the
+        # hashtable itself -- [bool] of a non-null hashtable is always $true
+        # (truthy-hashtable trap).
         $r = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $Text
         return [bool]$r.success
     }
@@ -2015,9 +2015,15 @@ function Resolve-CacheHostIp {
     return $null
 }
 
-# Thin driver-local wrapper over the shared download stack. The closure binds
-# this driver's Resolve-CacheHostIp (libvirt/state-file cache discovery) so the
-# shared module stays platform-agnostic while still reaching KVM-specific lookup.
+<#
+.SYNOPSIS
+    Download $Uri to $OutFile through the KVM caching proxy, falling back to
+    a direct fetch when no cache is reachable.
+.DESCRIPTION
+    Thin driver-local wrapper over the shared download stack. The closure binds
+    this driver's Resolve-CacheHostIp (libvirt/state-file cache discovery) so the
+    shared module stays platform-agnostic while still reaching KVM-specific lookup.
+#>
 function Save-CachedHttpUri {
     [CmdletBinding()]
     param(
@@ -2040,7 +2046,9 @@ function Set-HostProxy {
     if (-not $PSCmdlet.ShouldProcess('Linux host (apt + /etc/environment)', "Set proxy = $ProxyUrl")) { return $false }
     $parts = ConvertTo-ProxyHostPort -Url $ProxyUrl
     $backupPath = Get-HostProxyBackupPath
-    # Snapshot the current state once so Clear-HostProxy can restore it.
+    # Idempotent backup: only snapshot BEFORE the first apply, so a
+    # repeat Set-HostProxy doesn't overwrite the backup with the
+    # squid-promoted state.
     if (-not (Test-Path -LiteralPath $backupPath)) {
         $state = Read-LinuxProxyState
         $state['timestamp']  = (Get-Date).ToUniversalTime().ToString('o')
@@ -2065,6 +2073,7 @@ function Clear-HostProxy {
     param()
     if (-not $PSCmdlet.ShouldProcess('Linux host', 'Disable proxy / restore backup')) { return $false }
     $backupPath = Get-HostProxyBackupPath
+    $state = $null
     if (Test-Path -LiteralPath $backupPath) {
         try {
             $state = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json -AsHashtable

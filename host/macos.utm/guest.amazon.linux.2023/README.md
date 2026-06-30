@@ -33,8 +33,9 @@ amazon.linux.2023; the name is set in
 [test/sequences/gui/start.guest.amazon.linux.2023.yml](../../../test/sequences/gui/start.guest.amazon.linux.2023.yml)
 and mirrored as the `-Username` default of `New-VM.ps1`). cloud-init
 creates it on top of the cloud-image default `ec2-user`. The password
-is vault-managed under
-[test/extension/authentication/](../../../test/extension/authentication/);
+is managed by the authentication extension (per-cycle vault.yml at
+`test/status/extension/authentication/vault.yml`, code under
+[test/extension/authentication/](../../../test/extension/authentication/));
 cloud-init's chpasswd default `expire: true` triggers the
 Current/New/Retype rotation on first console login.
 
@@ -56,6 +57,6 @@ Read more: [Amazon Linux 2023 guest on macOS UTM host — Nerd-Level Details](re
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../../README.md)

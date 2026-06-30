@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git\yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
-    [string]$YurunaBranch = '2026.06.26',
+    [string]$YurunaBranch = '2026.06.30',
     [switch]$SkipPreflight,
     # On-disk transcript for this run. Generated once at first launch and
     # forwarded verbatim through every relaunch so all stages append to one
@@ -51,6 +51,12 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 $script:YurunaRepoPublic  = 'https://github.com/alissonsol/yuruna.git'
 $script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
+
+# Did the operator pin a ref explicitly? The development repo (yurunadev) is
+# only tagged at the weekly release, so its pinned-CalVer default would never
+# resolve mid-week; when targeting it we fall back to latest 'main' unless the
+# operator asked for a specific ref.
+$script:YurunaBranchExplicit = $PSBoundParameters.ContainsKey('YurunaBranch')
 
 function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
@@ -118,6 +124,50 @@ $LogPath = Resolve-InstallLogPath -Provided $LogPath
 # -- Preflight: Windows only -----------------------------------------------
 if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
     Write-Die 'This installer only supports Windows.'
+}
+
+# -- Preflight: Hyper-V-capable Windows edition (HARD requirement) ----------
+# Distinct from the "tested baseline" warnings below. Those (low RAM, fewer
+# cores, an untested-but-Hyper-V-capable Windows version) are soft, and the
+# operator may continue past them. A Windows Home / S mode edition is not
+# negotiable: it ships no Hyper-V platform at all, so every VM the test harness
+# needs is impossible and there is nothing the elevated stage can enable to
+# change that. Catch it HERE -- before the UAC elevation and the winget
+# installs -- and abort naming the real cause, rather than running on to a
+# misleading "INSTALL RESULT: SUCCESS" whose only hint is a buried "feature not
+# available on this SKU" warning emitted mid-run.
+function Assert-HyperVCapableEdition {
+    $os = $null
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+    } catch {
+        # Can't read the edition here -- defer to the elevated DISM feature
+        # probe (the authority) rather than risk a false abort on a capable box.
+        Write-Verbose "Win32_OperatingSystem query failed: $($_.Exception.Message); deferring the Hyper-V edition gate to the elevated DISM probe."
+        return
+    }
+    if (-not $os) { return }
+    $caption = [string]$os.Caption
+    # Consumer SKUs with no Hyper-V platform: Core/Home family = 98-101,
+    # Cloud / "S mode" = 178-179. Match by SKU number (language-independent),
+    # with the caption "Home" as a readable secondary signal.
+    $incapableSkus = 98, 99, 100, 101, 178, 179
+    if (($os.OperatingSystemSKU -notin $incapableSkus) -and ($caption -notmatch '\bHome\b')) {
+        return
+    }
+    Write-Die @"
+This Windows edition cannot run Hyper-V, which the Yuruna test harness requires.
+
+  Detected edition: $caption
+
+Hyper-V is available only on Windows 11/10 Pro, Enterprise, or Education, or on
+Windows Server. Windows Home and S mode editions do not include the Hyper-V
+platform, so there is nothing this installer can enable to make it work.
+
+To run Yuruna on this machine, upgrade it to a Hyper-V-capable edition (for
+example Windows 11 Pro) or use a different host. Aborting now, before any
+packages are installed or the Hyper-V feature is touched.
+"@
 }
 
 # -- Preflight: system requirements ----------------------------------------
@@ -188,6 +238,7 @@ function Test-SystemRequirement {
 }
 
 if (-not $SkipPreflight) {
+    Assert-HyperVCapableEdition
     Test-SystemRequirement
 }
 
@@ -645,7 +696,7 @@ if (Test-CachingProxyRunning) {
     Write-Step 'yuruna-caching-proxy VM is running -- preserving cached content (no Stop-VM / Remove-VM in this installer)'
 }
 
-Write-Step 'Stopping anything that would block an upgrade (runner + status server; VMs preserved)'
+Write-Step 'Stopping anything that would block a repo update (runner + status server; VMs preserved)'
 Stop-YurunaProcess -YurunaDir $YurunaDir
 
 Write-Step 'Checking the Yuruna checkout is not locked by a shell / editor / Explorer'
@@ -733,7 +784,15 @@ $infoOut  = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-
 $infoExit = $LASTEXITCODE
 if ($infoExit -ne 0) {
     if ($infoOut -match '0x800f080c' -or $infoOut -match 'Feature name .* is unknown') {
-        Write-Warn 'Microsoft-Hyper-V-All feature not available on this SKU (Home edition?). Skipping.'
+        Write-Die @'
+Hyper-V is not available on this Windows edition, so the test harness cannot run.
+
+DISM reports the Microsoft-Hyper-V-All feature is unknown on this SKU, which
+means a Windows Home or S mode edition with no Hyper-V platform. Upgrade to
+Windows 11 Pro/Enterprise/Education or Windows Server, or use a different host.
+(The pre-flight edition check normally stops this before elevation; it was
+reached here only because preflight was skipped or the edition was unrecognized.)
+'@
     } else {
         Write-Die "dism.exe /Get-FeatureInfo exited $infoExit. Output:`n$($infoOut -join [Environment]::NewLine)"
     }
@@ -862,6 +921,20 @@ function Resolve-YurunaRef {
     return $Ref
 }
 
+# -- Development repo pulls latest main, not a release tag ------------------
+# yurunadev is only tagged at the weekly release, so the pinned-CalVer default
+# resolves to nothing mid-week. When the target repo is yurunadev and the
+# operator did not pin a ref explicitly, track 'main' (latest code) instead.
+function Resolve-YurunaDevBranch {
+    [OutputType([string])]
+    param([string]$Basename, [string]$Ref)
+    if ($Basename -eq 'yurunadev' -and -not $script:YurunaBranchExplicit -and $Ref -ne 'main') {
+        Write-Warn "yurunadev is a development repo (tagged only at release) -- tracking latest 'main' instead of '$Ref'"
+        return 'main'
+    }
+    return $Ref
+}
+
 # -- Clone / update the repo -----------------------------------------------
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step "Updating existing Yuruna checkout at $YurunaDir"
@@ -906,8 +979,18 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
     }
 
     if (-not $skipPull) {
+        $YurunaBranch = Resolve-YurunaDevBranch -Basename $remoteBasename -Ref $YurunaBranch
         if ($actualRemote) { $YurunaBranch = Resolve-YurunaRef -GitExe $gitExe -Remote $actualRemote -Ref $YurunaBranch }
-        & $gitExe -C $YurunaDir fetch --tags origin
+        # --force so a remote-moved release tag overwrites the stale local one. A
+        # CalVer tag (YYYY.MM.DD) can point at different commits in the public vs
+        # development repo, so a plain `fetch --tags` hits "would clobber existing
+        # tag" and git exits non-zero. PSNativeCommandUseErrorActionPreference is
+        # $false here so that does not throw, but without --force the moved tag is
+        # silently never adopted; warn on any residual non-zero so it is visible.
+        & $gitExe -C $YurunaDir fetch --tags --force origin
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "git fetch reported rejected/partial tag updates (exit $LASTEXITCODE) -- continuing; checkout/pull below will surface anything fatal."
+        }
         & $gitExe -C $YurunaDir checkout $YurunaBranch
         & $gitExe -C $YurunaDir pull --ff-only origin $YurunaBranch 2>&1 | ForEach-Object {
             if ($_ -match 'Already up to date|Fast-forward|Updating') { Write-Output "     $_" }
@@ -959,6 +1042,8 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
         }
     }
 } else {
+    $cloneBasename = (($YurunaRepo.TrimEnd('/') -replace '\.git$','') -replace '.*[\\/:]','')
+    $YurunaBranch  = Resolve-YurunaDevBranch -Basename $cloneBasename -Ref $YurunaBranch
     $YurunaBranch = Resolve-YurunaRef -GitExe $gitExe -Remote $YurunaRepo -Ref $YurunaBranch
     Write-Step "Cloning Yuruna into $YurunaDir from $YurunaRepo"
     & $gitExe clone --branch $YurunaBranch $YurunaRepo $YurunaDir

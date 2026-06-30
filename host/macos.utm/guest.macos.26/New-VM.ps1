@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f2a3b4-c5d6-4e78-f901-2a3b4c5d6e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,6 +159,8 @@ Write-Verbose "All host prerequisites met."
 Write-Output ""
 
 # === Seek the base IPSW =====================================================
+# Auto-run Get-Image.ps1 once if the base IPSW is missing; recheck and
+# only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.macos.26"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.ipsw"
 if (-not (Test-Path $baseImageFile)) {
@@ -179,7 +181,8 @@ if (-not (Test-Path $baseImageFile)) {
 }
 
 Write-Verbose "Creating VM '$VMName' from IPSW: $baseImageFile"
-# Provenance side-channel for operators reading the transcript.
+# Provenance side-channel for operators reading the transcript. Emits
+# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile

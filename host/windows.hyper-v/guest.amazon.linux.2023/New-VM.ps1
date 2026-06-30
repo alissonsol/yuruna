@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,9 +20,8 @@
 param(
 	[Parameter(Position = 0)]
 	[string]$VMName = "amazon-linux01",
-	# OS user added on top of ec2-user. Force-expired via cloud-init's
-	# default chpasswd:expire so the test sequence's Current/New/Retype
-	# rotation flow is exercised.
+	# Greppable test user added on top of ec2-user; force-expired by
+	# cloud-init chpasswd default so the rotation flow runs.
 	[string]$Username = 'yauser1'
 )
 
@@ -141,7 +140,10 @@ $baseUserData    = Join-Path $hostVmConfigDir 'amazon.linux.2023.base.user-data'
 $overlayUserData = Join-Path $hostVmConfigDir 'amazon.linux.2023.hyperv.overlay.yml'
 $MetaDataTemplate = Join-Path $hostVmConfigDir 'amazon.linux.2023.meta-data'
 foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
-    if (-not (Test-Path -LiteralPath $f)) { Write-Error "Template missing: $f"; exit 1 }
+    if (-not (Test-Path -LiteralPath $f)) {
+        Write-Error "Template missing: $f"
+        exit 1
+    }
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 

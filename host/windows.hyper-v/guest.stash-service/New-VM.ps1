@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,9 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
+# Assert-HyperVEnabled (Yuruna.Host.psm1) calls dism.exe directly instead
+# of Get-WindowsOptionalFeature -- avoids the "Class not registered" COM
+# failure that breaks first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
 # === Remove existing VM ===
@@ -64,10 +67,16 @@ if ($existingVM) {
     try {
         Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
     } catch {
+        # A half-removed VM (locked vhdx, permission, etc.) would trip
+        # the next New-VM call with "already exists" and the outer loop
+        # has no signal to recover. Dump live Hyper-V state so the
+        # operator can clean orphan disks before retrying.
         $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
             Format-List Name, State, Status, Generation, Path | Out-String
         throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
     }
+    # Hyper-V can return Remove-VM success while leaving a ghost entry;
+    # a second Get-VM is the only reliable post-condition.
     if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
         throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
     }
@@ -79,6 +88,8 @@ $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.stash-service"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
 
+# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
+# only error out when it's still missing afterward.
 if (!(Test-Path -Path $baseImageFile)) {
     $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
     if (Test-Path -LiteralPath $getImageScript) {
@@ -109,6 +120,10 @@ Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
 # === Generate cloud-init seed ISO ===
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
+# 4-digit entropy is weak by design (10k cases) but enough to defeat
+# the deterministic-path symlink trap: an attacker dropping a symlink
+# at %TEMP%\seed_<VMName>\ before New-VM runs can't predict the
+# trailing 4 digits per run.
 $SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 10000))
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null

@@ -1,4 +1,4 @@
-# Ubuntu Server 26.04 guest on Windows Hyper-V
+# Ubuntu Server 26.04 guest on Windows Hyper-V host
 
 > Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
 > This file documents only what's HOST/GUEST-specific.
@@ -48,6 +48,6 @@ Get-VMDvdDrive -VMName 'ubuntu-server01' | Remove-VMDvdDrive
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../../README.md)

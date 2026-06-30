@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -204,6 +204,8 @@ if (-not $cloneRes.success) {
 # inner runner. -Restart: a re-invoked Test-Sequence must pick up edits.
 $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
 $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer -Restart
+# The Host Config Service is a caching-proxy companion (owned by Start-CachingProxy.ps1),
+# not a test-entry-point concern, so it is intentionally not started here.
 
 # === Detect host ===
 # HostType is resolved BEFORE sequence resolution so Resolve-SequencePath can
@@ -424,15 +426,15 @@ if (-not $VMName) {
 }
 
 # === UTM concurrent-VM pre-flight ===========================================
-# macOS vmnet-shared assigns one host-side bridge interface per vmnet
-# "session" (bridge100, bridge101, ...). Two concurrent UTM VMs land on
-# different bridges that don't route between each other. Observed: an
-# unrelated macos-26-01 running before the cycle pushed the test guests
-# onto bridge101, breaking the cloud-init host-proxy URL baked into
-# seed.iso. Refuse the cycle if anything else is running. The
-# operator's own target VM ($VMName) is exempted so the iterate-on-an-
-# existing-VM dev loop still works (Test-Sequence reuses a running VM
-# at line below).
+# On some macOS versions vmnet-shared assigns a separate host-side bridge
+# per vmnet "session" (bridge100, bridge101, ...) that don't route between
+# each other, so a foreign concurrent VM can push the test guests onto a
+# different bridge from the host's vmnet gateway and break the cloud-init
+# host-proxy URL baked into seed.iso. Refuse the cycle if a foreign VM is
+# running. Two names are exempt inside Assert-NoConcurrentUtmVm: the
+# caching-proxy VM (a dependency the guests consume, reachable on the
+# shared bridge) and the operator's own target VM ($VMName, so the
+# iterate-on-an-existing-VM dev loop still works).
 if ($HostType -eq 'host.macos.utm') {
     if (-not (Assert-NoConcurrentUtmVm -ExceptVmName $VMName)) { exit $ExitFailure }
 }

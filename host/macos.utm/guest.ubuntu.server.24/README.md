@@ -1,4 +1,4 @@
-# Ubuntu Server 24.04 guest on macOS UTM
+# Ubuntu Server 24.04 guest on macOS UTM host
 
 > Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
 > This file documents only what's HOST/GUEST-specific.
@@ -37,15 +37,15 @@ Default user is `yuuser24` (override with `-Username`; the same name is
 declared in
 [test/sequences/gui/start.guest.ubuntu.server.24.yml](../../../test/sequences/gui/start.guest.ubuntu.server.24.yml)).
 Initial password
-is vault-managed (see
-[test/extension/authentication/](../../../test/extension/authentication/))
-and **expired** on first login so the test sequence's Current/New/Retype
-rotation runs against the OS prompt.
+comes from the per-cycle authentication vault managed by the authentication extension at `test/extension/authentication/` and is **expired** on first login,
+so the test sequence's Current/New/Retype rotation runs against the
+OS prompt. See [Test Runner — Nerd-Level Details](../../../test/read.more.md) for the
+vault model.
 
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../../README.md)

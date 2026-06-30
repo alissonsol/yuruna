@@ -1,4 +1,4 @@
-# macOS 26 guest on macOS UTM
+# macOS 26 guest on macOS UTM host
 
 Boots a macOS **26** guest via the Apple Virtualization framework. The
 restore image is an `.ipsw` rather than an ISO; the disk has no
@@ -66,6 +66,6 @@ desktop and rotate the operator-chosen initial password.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../../README.md)

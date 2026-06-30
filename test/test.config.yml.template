@@ -1,24 +1,27 @@
+configService:
+  isEnabled: true
+  port: 8443
 guestSequence:
-  - guest.amazon.linux.2023
-  - guest.ubuntu.server.24
-  - guest.ubuntu.server.26
+- guest.amazon.linux.2023
+- guest.ubuntu.server.24
+- guest.ubuntu.server.26
 logLevel: Information
+networkStorage:
+  poolLocalPath: ""
+  poolNetworkPath: ""
+  poolNetworkUser: ""
+  stashLocalPath: ""
+  stashNetworkPath: ""
+  stashNetworkUser: ""
 notification:
   failuresBeforeAlert: 2
   successesBeforeRearm: 5
 pool:
   enabled: false
-  intentGitUrl: ''
-  localClonePath: ''
-  pullTimeoutSeconds: 30
+  intentGitUrl: ""
+  localClonePath: ""
   networkReplicate: false
-networkStorage:
-  poolNetworkPath: ''
-  poolNetworkUser: ''
-  poolLocalPath: ''
-  stashNetworkPath: ''
-  stashNetworkUser: ''
-  stashLocalPath: ''
+  pullTimeoutSeconds: 30
 repositories:
   frameworkUrl: https://github.com/alissonsol/yuruna
   projectUrl: https://github.com/alissonsol/yuruna-project
@@ -26,12 +29,12 @@ statusService:
   isEnabled: true
   port: 8080
 testCycle:
+  autoRemediationEnabled: false
+  autoRemediationMaxAttemptsPerCycle: 2
   cycleDelaySeconds: 300
   recentDisplayCount: 30
   shouldStopOnFailure: false
   stepTimeoutMinutes: 45
-  autoRemediationEnabled: false
-  autoRemediationMaxAttemptsPerCycle: 2
 vmCommunication:
   allowGuiFallback: false
   characterDelayMs: 20
@@ -44,6 +47,6 @@ vmImage:
   refreshHours: 168
 vmStart:
   bootDelaySeconds: 15
-  cachingProxyIP: ''
+  cachingProxyIP: ""
   startTimeoutSeconds: 120
   testVmNamePrefix: test-

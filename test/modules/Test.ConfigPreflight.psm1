@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456723
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,18 @@ function Invoke-ConfigGate {
     # The captured stream still includes 2>&1 so child stderr lands in
     # the same list and the FAILURES-block extractor sees the full
     # transcript regardless of which stream Test-Config used.
-    $pwshExe = (Get-Process -Id $PID).Path
+    # Resolve the running pwsh via the shared, macOS-hardened resolver: a
+    # bare (Get-Process -Id $PID).Path is null on macOS (no /proc) and a
+    # null child-pwsh path makes the spawn below throw. The Sequence entry
+    # point loads this gate WITHOUT Test.InnerSpawn, so import it on demand;
+    # -Global avoids the nested-import global-eviction class
+    # (feedback_module_force_import_evicts_global.md). The call is module-
+    # qualified because the Windows host module exports a same-named
+    # Get-PwshExePath with different semantics.
+    if (-not (Get-Module -Name 'Test.InnerSpawn')) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.InnerSpawn.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+    }
+    $pwshExe = Test.InnerSpawn\Get-PwshExePath
     $capturedLines = [System.Collections.Generic.List[string]]::new()
     & $pwshExe -NoProfile -ExecutionPolicy Bypass -File $gateScript -SkipSend -ConfigPath $ConfigPath 2>&1 |
         ForEach-Object { [void]$capturedLines.Add("$_") }

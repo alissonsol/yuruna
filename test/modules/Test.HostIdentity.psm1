@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f0a1b2-c3d4-4e56-9788-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,8 +46,10 @@ $script:HostIdJunkValues = @(
     'not applicable', 'o.e.m.', 'oem'
 )
 
-# Test-HostFingerprintValueUsable returns $false for empty/placeholder firmware
-# values so a junk key never contributes to a match score.
+<#
+.SYNOPSIS
+Returns $false for empty/placeholder firmware values so a junk key never contributes to a match score.
+#>
 function Test-HostFingerprintValueUsable {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -56,8 +58,10 @@ function Test-HostFingerprintValueUsable {
     return -not ($script:HostIdJunkValues -contains $Value.Trim().ToLowerInvariant())
 }
 
-# ConvertTo-NormalizedFingerprintValue lowercases + trims a scalar firmware value
-# and collapses any junk placeholder to '' so equality compares are meaningful.
+<#
+.SYNOPSIS
+Lowercases and trims a scalar firmware value and collapses any junk placeholder to '' so equality compares are meaningful.
+#>
 function ConvertTo-NormalizedFingerprintValue {
     [CmdletBinding()]
     [OutputType([string])]
@@ -66,9 +70,10 @@ function ConvertTo-NormalizedFingerprintValue {
     return $Value.Trim().ToLowerInvariant()
 }
 
-# ConvertTo-NormalizedMacList normalizes a set of MAC strings to lowercased
-# colon-free hex, drops blanks/all-zero, de-dups, and sorts -- so the same NICs
-# in any order/format compare equal.
+<#
+.SYNOPSIS
+Normalizes a set of MAC strings to lowercased colon-free hex, drops blanks/all-zero, de-dups, and sorts so the same NICs in any order/format compare equal.
+#>
 function ConvertTo-NormalizedMacList {
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -108,9 +113,10 @@ $script:HostIdWeights = [ordered]@{
 # put in front of the operator as "probably this host".
 $script:HostIdSuggestThreshold = 25
 
-# Get-HostIdentityMatchScore compares two fingerprints and returns
-# @{ score; matchedFields; strong }. Pure: no I/O, deterministic. `strong` is
-# true when a near-unique key (smbiosUuid or baseboardSerial) matched.
+<#
+.SYNOPSIS
+Compares two fingerprints and returns @{ score; matchedFields; strong }; pure and deterministic, with `strong` true when a near-unique key (smbiosUuid or baseboardSerial) matched.
+#>
 function Get-HostIdentityMatchScore {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -145,14 +151,16 @@ function Get-HostIdentityMatchScore {
     return @{ score = $score; matchedFields = [string[]]@($matched); strong = $strong }
 }
 
-# Get-HostIdentityReclaimDecision turns a ranked candidate list into a single
-# decision the orchestrator acts on -- pure so the auto-suggest / ambiguous /
-# none policy is unit-testable without any disk or prompt.
-#   none      : no candidate clears the suggest threshold.
-#   suggest   : exactly one clear front-runner -> offer it.
-#   ambiguous : two or more strong candidates, or a near-tie at the top -> list
-#               them and default to a NEW uuid (operator can still pick one).
-# Ranked must be sorted by score DESC (Find-PriorHostIdentity does this).
+<#
+.SYNOPSIS
+Turns a score-DESC-ranked candidate list into a single pure decision the orchestrator acts on.
+.DESCRIPTION
+Pure so the policy is unit-testable without disk or prompt. Returns one of:
+  none      : no candidate clears the suggest threshold.
+  suggest   : exactly one clear front-runner -> offer it.
+  ambiguous : two or more strong candidates, or a near-tie at the top -> list them and default to a NEW uuid (operator can still pick one).
+Ranked must be sorted by score DESC.
+#>
 function Get-HostIdentityReclaimDecision {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -175,8 +183,10 @@ function Get-HostIdentityReclaimDecision {
     return @{ action = 'suggest'; candidate = $top; candidates = $aboveThreshold }
 }
 
-# New-HostInfoRecordObject assembles the ordered object written to
-# hosts/info.<uuid>.yml. Pure so the YAML round-trip is testable.
+<#
+.SYNOPSIS
+Assembles the ordered object written to hosts/info.<uuid>.yml; pure so the YAML round-trip is testable.
+#>
 function New-HostInfoRecordObject {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure value constructor; assembles an in-memory object and mutates no state.')]
@@ -205,9 +215,10 @@ function New-HostInfoRecordObject {
     }
 }
 
-# ConvertFrom-HostInfoRecord lifts a parsed info.<uuid>.yml mapping back into the
-# flat fingerprint hashtable Get-HostIdentityMatchScore expects, tolerating a
-# missing 'hardware' subtree. Pure.
+<#
+.SYNOPSIS
+Lifts a parsed info.<uuid>.yml mapping back into the flat fingerprint hashtable Get-HostIdentityMatchScore expects, tolerating a missing 'hardware' subtree; pure.
+#>
 function ConvertFrom-HostInfoRecord {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -360,11 +371,12 @@ function Get-HostFingerprintMacOS {
     return $fp
 }
 
-# Get-HostHardwareFingerprint gathers the cross-platform fingerprint and (unless
-# -NoCache) writes it to runtime/host.hwid.json. Pass -AllowSudo from the
-# privileged Enable-TestAutomation path so the root-only Linux keys are captured;
-# the unprivileged drain omits it and gets a degraded (but still useful)
-# fingerprint. Never throws -- a field it cannot read stays empty.
+<#
+.SYNOPSIS
+Gathers the cross-platform hardware fingerprint and (unless -NoCache) writes it to runtime/host.hwid.json.
+.DESCRIPTION
+Pass -AllowSudo from the privileged path so the root-only Linux keys are captured; the unprivileged drain omits it and gets a degraded (but still useful) fingerprint. Never throws -- a field it cannot read stays empty.
+#>
 function Get-HostHardwareFingerprint {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -406,11 +418,12 @@ function Get-HostHardwareFingerprint {
     return $fp
 }
 
-# Get-CachedHostHardwareFingerprint reads runtime/host.hwid.json (the privileged
-# capture from Enable-TestAutomation). When the cache is absent it falls back to a
-# best-effort UNPRIVILEGED gather so the drain still emits something -- it does
-# NOT write, so it can never overwrite the better privileged cache with a
-# degraded one. Returns $null only if even the fallback gather is impossible.
+<#
+.SYNOPSIS
+Reads the privileged-capture runtime/host.hwid.json, falling back to a best-effort unprivileged gather when the cache is absent.
+.DESCRIPTION
+The fallback does NOT write, so it can never overwrite the better privileged cache with a degraded one. Returns $null only if even the fallback gather is impossible.
+#>
 function Get-CachedHostHardwareFingerprint {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -437,10 +450,12 @@ function Get-CachedHostHardwareFingerprint {
 # NAS-side host registry (hosts/info.<uuid>.yml).
 # ---------------------------------------------------------------------------
 
-# Write-HostInfoRecord publishes <MountRoot>/hosts/info.<HostId>.yml (creating
-# hosts/ if absent). Atomic temp+rename when Test.StateFile is available, with a
-# direct-write fallback. Best-effort: returns the path on success, $null on any
-# failure -- callers (the drain) must never break on a registry write.
+<#
+.SYNOPSIS
+Publishes <MountRoot>/hosts/info.<HostId>.yml (creating hosts/ if absent), atomically when Test.StateFile is available with a direct-write fallback.
+.DESCRIPTION
+Best-effort: returns the path on success, $null on any failure -- callers must never break on a registry write.
+#>
 function Write-HostInfoRecord {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
@@ -481,10 +496,12 @@ function Write-HostInfoRecord {
     }
 }
 
-# Find-PriorHostIdentity reads every <MountRoot>/hosts/info.*.yml, scores each
-# against $Fingerprint, and returns the matches ranked by score DESC. Records
-# whose own hostUuid equals -ExcludeHostId are dropped (a host never matches its
-# own record). Returns @() when the folder is absent or nothing scores > 0.
+<#
+.SYNOPSIS
+Reads every <MountRoot>/hosts/info.*.yml, scores each against the fingerprint, and returns the matches ranked by score DESC.
+.DESCRIPTION
+Records whose own hostUuid equals -ExcludeHostId are dropped (a host never matches its own record). Returns @() when the folder is absent or nothing scores > 0.
+#>
 function Find-PriorHostIdentity {
     [CmdletBinding()]
     [OutputType([object[]])]
@@ -640,11 +657,12 @@ function Initialize-HostIdentityDependency {
     }
 }
 
-# Invoke-PoolStorageSetupAndReclaim is the interactive Enable-TestAutomation step:
-# offer to configure poolStorage (write config + vault, enable replication, mount)
-# and, on a host with NO local uuid, scan the NAS host registry and offer to
-# reclaim a prior identity so a reimaged box keeps its pool history. Degrades to a
-# warned no-op when run non-interactively. Never throws.
+<#
+.SYNOPSIS
+Interactive setup step that offers to configure poolStorage (config + vault, replication, mount) and, on a host with no local uuid, reclaim a prior identity from the NAS host registry.
+.DESCRIPTION
+Lets a reimaged box keep its pool history. Degrades to a warned no-op when run non-interactively. Never throws.
+#>
 function Invoke-PoolStorageSetupAndReclaim {
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
@@ -821,9 +839,10 @@ function Invoke-PoolStorageSetupAndReclaim {
     }
 }
 
-# Set-ReclaimedHostUuid writes the chosen uuid to runtime/host.uuid so the next
-# Get-YurunaHostId adopts it (the reclaim). Validates the 42-prefixed 32-hex shape
-# so a typo can't poison the pool join key.
+<#
+.SYNOPSIS
+Writes the chosen uuid to runtime/host.uuid so the next Get-YurunaHostId adopts it, validating the 42-prefixed 32-hex shape so a typo can't poison the pool join key.
+#>
 function Set-ReclaimedHostUuid {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = 'Syncs $global:__YurunaHostId -- the single cache slot the harness reads the host id from -- so an already-cached id is consistent with the reclaimed runtime/host.uuid.')]

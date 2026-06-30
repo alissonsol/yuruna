@@ -34,6 +34,6 @@ Amazon Linux 2023; use one of the Ubuntu Server guests for `k8s`.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../README.md)

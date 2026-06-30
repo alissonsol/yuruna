@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,7 +154,22 @@ if (Test-Path $PidFile) {
 # Resolve port conflicts from untracked orphan detached servers.
 # Why it's needed and the Test.PortOwner.psm1 dispatch contract:
 # https://yuruna.link/test/harness
-Resolve-PortOrphan -Port $Port -PidFile $PidFile -Confirm:$false
+$portResolution = Resolve-PortOrphan -Port $Port -PidFile $PidFile -Confirm:$false
+if ($portResolution.Status -eq 'Conflict') {
+    foreach ($line in ($portResolution.Message -split "`n")) { Write-Warning $line.TrimEnd() }
+    # Refuse, and make the refusal PROPAGATE. A bare `exit 1` here would only
+    # set $LASTEXITCODE for the call-operator invocation the shared gate runs
+    # (`& $StartScript`), so the parent cycle would carry on without a status
+    # server — the blind-cycle trap this guards against. Throw a tagged
+    # exception instead: Start-YurunaStatusServiceIfEnabled recognizes the tag
+    # and aborts the entry point cleanly; a standalone run exits non-zero on the
+    # uncaught throw. The detection is OS-agnostic (HttpListener bind probe), so
+    # this fires identically on macOS/UTM, Ubuntu/KVM, and Windows/Hyper-V.
+    $conflict = [System.InvalidOperationException]::new("Status-service port $Port is held by another process; refusing to start.")
+    $conflict.Data['YurunaPortConflict'] = $true
+    $conflict.Data['YurunaPort'] = $Port
+    throw $conflict
+}
 
 # --- Ensure repoUrl is set in status.json ---
 $StatusFile = Join-Path $RuntimeDir "status.json"
@@ -664,6 +679,12 @@ try {
                     `$tmp = "`$testConfigFile.tmp"
                     `$writeOk = `$false
                     try {
+                        # Written in the JSON body's key/element order (NOT canonical
+                        # alphabetical). That is intentional: Sync-TestConfigToTemplate /
+                        # Update-TestConfigFromTemplate reconcile this file to canonical
+                        # sorted order (and prune orphans) on the next Test-Config run /
+                        # cycle start, and every reader parses via ConvertFrom-Yaml, which
+                        # is order-insensitive -- so the UI save does not need to sort here.
                         `$yamlOut = `$parsedDoc | ConvertTo-Yaml
                         Set-Content -LiteralPath `$tmp -Value `$yamlOut -Encoding utf8 -NoNewline
                         Move-Item -LiteralPath `$tmp -Destination `$testConfigFile -Force

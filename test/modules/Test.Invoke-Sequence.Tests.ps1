@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42d7b5c1-8293-44a5-9fb6-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,29 +50,29 @@ function New-StepList {
 Describe 'Select-SequenceStepWindow' {
     It 'returns all steps for a whole-sequence window (default)' {
         $s = New-StepList -Count 6
-        Assert-Equal 6 @(Select-SequenceStepWindow -Steps $s).Count 'default = whole'
-        Assert-Equal 6 @(Select-SequenceStepWindow -Steps $s -StartStep 1 -StopStep 0).Count '(1,0) = whole'
+        Assert-Equal -Expected 6 -Actual @(Select-SequenceStepWindow -Steps $s).Count -Because 'default = whole'
+        Assert-Equal -Expected 6 -Actual @(Select-SequenceStepWindow -Steps $s -StartStep 1 -StopStep 0).Count -Because '(1,0) = whole'
     }
     It 'slices an inclusive 1-based window and renumbers to the slice' {
         $w = @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 3 -StopStep 5)
-        Assert-Equal 3 $w.Count 'count'
-        Assert-Equal 'step3' $w[0].action 'first is the window start'
-        Assert-Equal 'step5' $w[-1].action 'last is the window stop'
+        Assert-Equal -Expected 3 -Actual $w.Count -Because 'count'
+        Assert-Equal -Expected 'step3' -Actual $w[0].action -Because 'first is the window start'
+        Assert-Equal -Expected 'step5' -Actual $w[-1].action -Because 'last is the window stop'
     }
     It 'runs from StartStep to the end when StopStep is 0' {
-        Assert-Equal 3 @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 4).Count '4..end of 6'
+        Assert-Equal -Expected 3 -Actual @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 4).Count -Because '4..end of 6'
     }
     It 'supports a single-step window' {
         $w = @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 2 -StopStep 2)
-        Assert-Equal 1 $w.Count 'single step'
-        Assert-Equal 'step2' $w[0].action 'the right step'
+        Assert-Equal -Expected 1 -Actual $w.Count -Because 'single step'
+        Assert-Equal -Expected 'step2' -Actual $w[0].action -Because 'the right step'
     }
     It 'clamps StopStep beyond the total' {
-        Assert-Equal 2 @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 5 -StopStep 99).Count 'clamped 5..6'
+        Assert-Equal -Expected 2 -Actual @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 5 -StopStep 99).Count -Because 'clamped 5..6'
     }
     It 'returns empty for an out-of-range window or empty input' {
-        Assert-Equal 0 @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 10 -StopStep 12).Count 'out of range'
-        Assert-Equal 0 @(Select-SequenceStepWindow -Steps @() -StartStep 1 -StopStep 0).Count 'empty input'
+        Assert-Equal -Expected 0 -Actual @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 10 -StopStep 12).Count -Because 'out of range'
+        Assert-Equal -Expected 0 -Actual @(Select-SequenceStepWindow -Steps @() -StartStep 1 -StopStep 0).Count -Because 'empty input'
     }
 }
 

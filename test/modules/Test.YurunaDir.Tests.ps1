@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1c8e7-5b34-4d29-9f06-1e7d3a2b4c58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ Describe 'Get-YurunaHostId' {
             $id = Get-YurunaHostId
             Assert-True ($id -match '^42[0-9a-fA-F]{30}$') "id shape: $id"
             $onDisk = ([System.IO.File]::ReadAllText((Join-Path $fx.Tmp 'host.uuid'))).Trim()
-            Assert-Equal $id $onDisk 'persisted value matches the returned id'
+            Assert-Equal -Expected $id -Actual $onDisk -Because 'persisted value matches the returned id'
         } finally { Remove-RuntimeFixture -Fixture $fx }
     }
 
@@ -70,7 +70,7 @@ Describe 'Get-YurunaHostId' {
         try {
             $a = Get-YurunaHostId
             $b = Get-YurunaHostId
-            Assert-Equal $a $b 'host id is stable across calls'
+            Assert-Equal -Expected $a -Actual $b -Because 'host id is stable across calls'
         } finally { Remove-RuntimeFixture -Fixture $fx }
     }
 
@@ -79,7 +79,7 @@ Describe 'Get-YurunaHostId' {
         try {
             $seed = '42' + ('a' * 30)
             [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'host.uuid'), $seed, [System.Text.UTF8Encoding]::new($false))
-            Assert-Equal $seed (Get-YurunaHostId) 'reads the existing file, does not regenerate'
+            Assert-Equal -Expected $seed -Actual (Get-YurunaHostId) -Because 'reads the existing file, does not regenerate'
         } finally { Remove-RuntimeFixture -Fixture $fx }
     }
 }

@@ -542,13 +542,13 @@ tree), boot the caching-proxy VM, run a cycle or two so hosts pull through the
 proxy, then
 confirm `:9400/healthz`, `:9400/api/v1/pool-status` lists the discovered hosts,
 the Prometheus `pool-aggregator` target UP, Loki `{pool}` streams, the
-**Yuruna Pool** Grafana dashboard across ≥2 hosts, and that
+**Yuruna hosts** Grafana dashboard across ≥2 hosts, and that
 killing the collector leaves runners testing.
 
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../README.md)

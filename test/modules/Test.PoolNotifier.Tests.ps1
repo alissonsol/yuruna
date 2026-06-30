@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 422d8f14-9a73-4e52-8c61-2d9b3a7e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,10 +61,10 @@ yuruna_pool_host_status{pool="lab",hostId="42aa"} 3
     It 'parses an authored, firing pool' {
         Assert-True  $pools['lab'].alertActive 'lab alertActive'
         Assert-True  $pools['lab'].degraded 'lab degraded'
-        Assert-Equal 0.25 $pools['lab'].healthyFraction 'lab fraction'
-        Assert-Equal 0.5  $pools['lab'].healthyThreshold 'lab threshold'
-        Assert-Equal 1 $pools['lab'].membersHealthy 'lab healthy'
-        Assert-Equal 4 $pools['lab'].membersTotal 'lab total'
+        Assert-Equal -Expected 0.25 -Actual $pools['lab'].healthyFraction -Because 'lab fraction'
+        Assert-Equal -Expected 0.5  -Actual $pools['lab'].healthyThreshold -Because 'lab threshold'
+        Assert-Equal -Expected 1 -Actual $pools['lab'].membersHealthy -Because 'lab healthy'
+        Assert-Equal -Expected 4 -Actual $pools['lab'].membersTotal -Because 'lab total'
     }
     It 'treats a pool with no alert_active series as not alerting (un-authored)' {
         Assert-True  $pools['wild'].degraded 'wild degraded gauge present'
@@ -72,7 +72,7 @@ yuruna_pool_host_status{pool="lab",hostId="42aa"} 3
     }
     It 'ignores unrelated/labelled series and an empty body' {
         Assert-True (-not $pools.ContainsKey('')) 'no empty pool key from host_status'
-        Assert-Equal 0 (ConvertFrom-PrometheusPoolGauge -MetricsText '').Count 'empty -> no pools'
+        Assert-Equal -Expected 0 -Actual (ConvertFrom-PrometheusPoolGauge -MetricsText '').Count -Because 'empty -> no pools'
     }
 }
 
@@ -80,12 +80,12 @@ Describe 'New-PoolAlertSpoolMessage (message shape)' {
     $g = @{ pool = 'lab'; alertActive = $true; healthyFraction = 0.25; healthyThreshold = 0.5; membersHealthy = 1; membersTotal = 4 }
     $m = New-PoolAlertSpoolMessage -Pool 'lab' -GaugePool $g -UnixSeconds 1700000000 -NowUtc '2026-01-01T00:00:00Z'
     It 'builds a stable id + the pool.alert event code + structured fields' {
-        Assert-Equal 'pool-lab-1700000000' $m['id'] 'id'
-        Assert-Equal 'pool.alert' $m['eventCode'] 'eventCode'
-        Assert-Equal 'pool_alert_fired' $m['event'] 'event'
-        Assert-Equal 1 $m['membersHealthy'] 'membersHealthy'
-        Assert-Equal 4 $m['membersTotal'] 'membersTotal'
-        Assert-Equal 0 $m['attempts'] 'attempts starts at 0'
+        Assert-Equal -Expected 'pool-lab-1700000000' -Actual $m['id'] -Because 'id'
+        Assert-Equal -Expected 'pool.alert' -Actual $m['eventCode'] -Because 'eventCode'
+        Assert-Equal -Expected 'pool_alert_fired' -Actual $m['event'] -Because 'event'
+        Assert-Equal -Expected 1 -Actual $m['membersHealthy'] -Because 'membersHealthy'
+        Assert-Equal -Expected 4 -Actual $m['membersTotal'] -Because 'membersTotal'
+        Assert-Equal -Expected 0 -Actual $m['attempts'] -Because 'attempts starts at 0'
         Assert-True ($m['subject'] -like "*DEGRADED*1/4*") 'subject carries the fraction'
     }
 }
@@ -99,15 +99,15 @@ Describe 'Add-PoolAlertSpoolEntry (rising-edge detection + cooldown)' {
             $gaugeOff = @{ lab = @{ pool = 'lab'; alertActive = $false; healthyFraction = 0.9; healthyThreshold = 0.5; membersHealthy = 5; membersTotal = 5 } }
 
             $n1 = Add-PoolAlertSpoolEntry -GaugeState $gaugeOn -State $state -SpoolRoot $root
-            Assert-Equal 1 $n1 'rising edge enqueues one'
+            Assert-Equal -Expected 1 -Actual $n1 -Because 'rising edge enqueues one'
             Assert-True $state['pools']['lab']['lastActive'] 'lastActive latched true'
-            Assert-Equal 1 (@(Get-ChildItem -LiteralPath (Join-Path $root 'outgoing') -Filter '*.json' -File).Count) 'one outgoing file'
+            Assert-Equal -Expected 1 -Actual (@(Get-ChildItem -LiteralPath (Join-Path $root 'outgoing') -Filter '*.json' -File).Count) -Because 'one outgoing file'
 
             $n2 = Add-PoolAlertSpoolEntry -GaugeState $gaugeOn -State $state -SpoolRoot $root
-            Assert-Equal 0 $n2 'still-active does not re-enqueue'
+            Assert-Equal -Expected 0 -Actual $n2 -Because 'still-active does not re-enqueue'
 
             $n3 = Add-PoolAlertSpoolEntry -GaugeState $gaugeOff -State $state -SpoolRoot $root
-            Assert-Equal 0 $n3 'falling edge does not enqueue'
+            Assert-Equal -Expected 0 -Actual $n3 -Because 'falling edge does not enqueue'
             Assert-False $state['pools']['lab']['lastActive'] 'lastActive cleared'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
@@ -118,14 +118,14 @@ Describe 'Add-PoolAlertSpoolEntry (rising-edge detection + cooldown)' {
             $on  = @{ lab = @{ pool = 'lab'; alertActive = $true;  healthyFraction = 0.2; healthyThreshold = 0.5; membersHealthy = 1; membersTotal = 5 } }
             $off = @{ lab = @{ pool = 'lab'; alertActive = $false; healthyFraction = 0.9; healthyThreshold = 0.5; membersHealthy = 5; membersTotal = 5 } }
 
-            Assert-Equal 1 (Add-PoolAlertSpoolEntry -GaugeState $on -State $state -SpoolRoot $root) 'first fire'
+            Assert-Equal -Expected 1 -Actual (Add-PoolAlertSpoolEntry -GaugeState $on -State $state -SpoolRoot $root) -Because 'first fire'
             $null = Add-PoolAlertSpoolEntry -GaugeState $off -State $state -SpoolRoot $root  # clear
             # Re-rise immediately: default 900s cooldown suppresses it (absorbs aggregator restart flap).
-            Assert-Equal 0 (Add-PoolAlertSpoolEntry -GaugeState $on -State $state -SpoolRoot $root) 're-fire suppressed by cooldown'
+            Assert-Equal -Expected 0 -Actual (Add-PoolAlertSpoolEntry -GaugeState $on -State $state -SpoolRoot $root) -Because 're-fire suppressed by cooldown'
 
             # With cooldown 0 the re-rise fires (proves it is the cooldown, not the edge logic).
             $null = Add-PoolAlertSpoolEntry -GaugeState $off -State $state -SpoolRoot $root  # clear again
-            Assert-Equal 1 (Add-PoolAlertSpoolEntry -GaugeState $on -State $state -SpoolRoot $root -RearmCooldownSeconds 0) 're-fire allowed when cooldown elapsed'
+            Assert-Equal -Expected 1 -Actual (Add-PoolAlertSpoolEntry -GaugeState $on -State $state -SpoolRoot $root -RearmCooldownSeconds 0) -Because 're-fire allowed when cooldown elapsed'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -157,11 +157,11 @@ Describe 'Test-PoolNotifierReady (self-election gate)' {
 Describe 'Get-PoolMetricsCandidateUrl (TLS rollout tolerance)' {
     It 'tries HTTPS first then HTTP for an http(s) URL' {
         $u = Get-PoolMetricsCandidateUrl -MetricsUrl 'http://10.0.0.5:9400/metrics'
-        Assert-Equal 'https://10.0.0.5:9400/metrics' $u[0] 'https first'
-        Assert-Equal 'http://10.0.0.5:9400/metrics'  $u[1] 'http fallback'
+        Assert-Equal -Expected 'https://10.0.0.5:9400/metrics' -Actual $u[0] -Because 'https first'
+        Assert-Equal -Expected 'http://10.0.0.5:9400/metrics'  -Actual $u[1] -Because 'http fallback'
         $h = Get-PoolMetricsCandidateUrl -MetricsUrl 'https://10.0.0.5:9400/metrics'
-        Assert-Equal 'https://10.0.0.5:9400/metrics' $h[0] 'https stays https first'
-        Assert-Equal 'http://10.0.0.5:9400/metrics'  $h[1] 'plus http fallback'
+        Assert-Equal -Expected 'https://10.0.0.5:9400/metrics' -Actual $h[0] -Because 'https stays https first'
+        Assert-Equal -Expected 'http://10.0.0.5:9400/metrics'  -Actual $h[1] -Because 'plus http fallback'
     }
 }
 
@@ -169,6 +169,6 @@ Describe 'Get-PoolNotifierSpoolRoot' {
     It 'is null without a pool storage config and joins notifications onto LocalPath otherwise' {
         Assert-Null (Get-PoolNotifierSpoolRoot -Config $null) 'null config -> null'
         $root = Get-PoolNotifierSpoolRoot -Config ([pscustomobject]@{ LocalPath = '/mnt/ypool-nas' })
-        Assert-Equal (Join-Path '/mnt/ypool-nas' 'notifications') $root 'LocalPath/notifications'
+        Assert-Equal -Expected (Join-Path '/mnt/ypool-nas' 'notifications') -Actual $root -Because 'LocalPath/notifications'
     }
 }

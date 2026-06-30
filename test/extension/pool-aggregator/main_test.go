@@ -591,26 +591,26 @@ func TestFetchRegistration(t *testing.T) {
 
 	pooled := serve(http.StatusOK, `{"schemaVersion":1,"hostId":"42aaa","poolId":"lab"}`)
 	defer pooled.Close()
-	if pid, g, err := fetchRegistration(client, pooled.URL); err != nil || pid != "lab" || g != nil {
+	if pid, g, _, _, err := fetchRegistration(client, pooled.URL); err != nil || pid != "lab" || g != nil {
 		t.Fatalf("pooled: got (%q,%v,%v), want (lab,nil,nil)", pid, g, err)
 	}
 
 	unpooled := serve(http.StatusOK, `{"schemaVersion":1,"hostId":"42bbb","poolId":null}`)
 	defer unpooled.Close()
-	if pid, g, err := fetchRegistration(client, unpooled.URL); err != nil || pid != "" || g != nil {
+	if pid, g, _, _, err := fetchRegistration(client, unpooled.URL); err != nil || pid != "" || g != nil {
 		t.Fatalf("unpooled: got (%q,%v,%v), want ('',nil,nil)", pid, g, err)
 	}
 
 	missing := serve(http.StatusNotFound, "")
 	defer missing.Close()
-	if _, _, err := fetchRegistration(client, missing.URL); err == nil {
+	if _, _, _, _, err := fetchRegistration(client, missing.URL); err == nil {
 		t.Fatalf("missing: expected an error on HTTP 404")
 	}
 
 	// Full gating block parses verbatim.
 	full := serve(http.StatusOK, `{"poolId":"lab","gating":{"failuresBeforeAlert":5,"successesBeforeRearm":4,"quorum":{"healthyThreshold":0.75,"degradedAfterMinutes":10}}}`)
 	defer full.Close()
-	if pid, g, err := fetchRegistration(client, full.URL); err != nil || pid != "lab" || g == nil ||
+	if pid, g, _, _, err := fetchRegistration(client, full.URL); err != nil || pid != "lab" || g == nil ||
 		g.FailuresBeforeAlert != 5 || g.SuccessesBeforeRearm != 4 || g.HealthyThreshold != 0.75 || g.DegradedAfter != 10*time.Minute {
 		t.Fatalf("full gating: got (%q,%+v,%v)", pid, g, err)
 	}
@@ -618,7 +618,7 @@ func TestFetchRegistration(t *testing.T) {
 	// Partial gating block fills the missing knobs from the schema defaults.
 	partial := serve(http.StatusOK, `{"poolId":"lab","gating":{"quorum":{"healthyThreshold":0.9}}}`)
 	defer partial.Close()
-	if _, g, err := fetchRegistration(client, partial.URL); err != nil || g == nil ||
+	if _, g, _, _, err := fetchRegistration(client, partial.URL); err != nil || g == nil ||
 		g.FailuresBeforeAlert != defaultFailuresBeforeAlert || g.SuccessesBeforeRearm != defaultSuccessesBeforeRearm ||
 		g.HealthyThreshold != 0.9 || g.DegradedAfter != defaultDegradedAfter {
 		t.Fatalf("partial gating: got (%+v,%v)", g, err)

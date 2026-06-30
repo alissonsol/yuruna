@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.26
+# Version: 2026.06.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -29,7 +29,6 @@ esac
 
 echo ""
 echo -e "\e[1;36m==== NVM and Node.js ====\e[0m"
-# Install NVM, Node.js, and n8n
 # NVM and npm handle architecture automatically
 bash << 'EOF'
 # Install NVM (installer is idempotent — updates existing installation)

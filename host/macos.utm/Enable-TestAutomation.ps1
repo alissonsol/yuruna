@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456754
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,13 @@
 param()
 
 $ErrorActionPreference = "Stop"
+
+# Surface the module's action-taken messages (Set-MacHostConditionSet
+# reports each setting via Write-Information). Without Continue, the
+# display-sleep / screen-lock / hot-corner / Spaces decisions print
+# nothing and the operator can't tell what changed.
+$InformationPreference = 'Continue'
+
 # Shared bootstrap (Test.HostContract import + powershell-yaml +
 # PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
 # Rationale + ordering are documented there.

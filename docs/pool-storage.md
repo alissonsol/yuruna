@@ -231,13 +231,21 @@ the share over cifs, and an hourly `ypool-nas-replicate.timer` rsyncs the data d
   `poolNetworkUser` — the same account the host uses for cycle replication. There is no
   separate guest credential. **Operator prerequisite:** scope `poolNetworkUser`
   **storage-only** on the NAS — write access to `poolNetworkPath` and nothing else — and
-  `Set-Password` its vault entry. **Accepted trade-off:** the credential is baked into
-  the proxy's cloud-init seed, so a compromised proxy leaks it; because the account is
-  storage-only, the blast radius is confined to the pool share (no host login, no other
-  service). Empty `poolNetworkUser` ⇒ service replication stays off.
-- **Enablement** is baked at VM-create time: the seed gets `YPOOL_NAS_REPLICATE=true` only
-  when poolStorage is configured **and** `poolNetworkUser` resolves a vault password;
-  otherwise the timer is never enabled.
+  `Set-Password` its vault entry. **The password is NOT baked into the seed:** the proxy
+  fetches it at boot and hourly from the **Host Config Service** over mutual TLS
+  (`yuruna-config-fetch pool` → `GET /v1/nas/pool`), writing `/etc/yuruna/ypool-nas.cifs.cred`
+  (0600) and remounting on change — so **rotating the vault password reaches the running
+  proxy without a rebuild** (the host serves the current value live via `Get-Password`).
+  Because the account is storage-only, a leaked credential is confined to the pool share
+  (no host login, no other service). Empty `poolNetworkUser` ⇒ service replication stays off.
+- **Enablement** is baked at VM-create time: the seed gets `YPOOL_NAS_REPLICATE=true`
+  whenever poolStorage is **configured** (`poolNetworkPath` + `poolNetworkUser` set) — the
+  password no longer needs to exist at bake time. Until the vault entry is set, the Config
+  Service answers `503` for `/v1/nas/pool`, the credential file stays empty, the mount
+  fails (`nofail`), and replication no-ops — self-healing on the next hourly run once you
+  `Set-Password`. Activating the dynamic fetch requires a baked **client certificate**
+  (minted by the host Config CA at VM-create); without it the proxy can't fetch and the
+  share stays unmounted.
 - **Reachability:** the proxy must be on a **LAN-routable (bridged)** network to reach
   the NAS; on a NAT proxy (Default Switch / UTM Shared / Hyper-V-on-Wi-Fi) the mount
   fails (nofail) and replication silently no-ops — visible at the breadcrumb below.
@@ -360,6 +368,6 @@ ever routed through it.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../README.md)

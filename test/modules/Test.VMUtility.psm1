@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -663,4 +663,75 @@ function Remove-GuestVMQuietly {
     }
 }
 
-Export-ModuleMember -Function Wait-VMRunning, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Test-IpAddress, Format-IpUrlHost, ConvertTo-Sha512CryptHash, Remove-GuestVMQuietly
+function Update-StashServerMarkerAddress {
+    <#
+    .SYNOPSIS
+        Resolve the stash VM's current IPv4 and record it as `stashBaseUrl`
+        (http://<ip>) in the stash-server.json marker, so the pool-aggregator
+        can deep-link the Extension hosts cell to the stash VM's UI.
+    .DESCRIPTION
+        Best-effort and never throws -- telemetry must not fail a bring-up or a
+        cycle. The stash VM's guest address is not known until the host's
+        virtualization stack reports it (KVP / dhcpd_leases / utmctl), which can
+        lag minutes after boot on a Hyper-V External vSwitch, so callers poll:
+        pass a -TimeoutSeconds budget when the VM may have just started
+        (Start-StashServer), or 0 for a single-shot refresh on an established VM
+        (the per-cycle runner call). Resolution goes through the host contract
+        Get-VMIp resolved at call time after Initialize-YurunaHost (the same
+        late-bind the teardown helpers use); a host without it loaded is a no-op.
+        The marker is rewritten only when the URL changes, atomic temp+rename so a
+        polling aggregator never reads a torn file. Format-IpUrlHost brackets an
+        IPv6 literal for the URL authority.
+    .OUTPUTS
+        System.String -- the resolved stash base URL, or $null when unresolved.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Best-effort single-file marker refresh; never throws, overwrite is idempotent.')]
+    [OutputType([string])]
+    param(
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
+        [string]$VMName,
+        [int]$TimeoutSeconds = 0
+    )
+    try {
+        if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return $null }
+        $markerPath = Join-Path $RuntimeDir 'stash-server.json'
+        if (-not (Test-Path -LiteralPath $markerPath)) { return $null }
+        $marker = Get-Content -Raw -LiteralPath $markerPath | ConvertFrom-Json -ErrorAction Stop
+        # A marker being torn down (active:false) must not be re-advertised.
+        if ($null -ne $marker.active -and -not [bool]$marker.active) { return $null }
+        if (-not $VMName) { $VMName = [string]$marker.vmName }
+        if ([string]::IsNullOrWhiteSpace($VMName)) { return $null }
+        if (-not (Get-Command Get-VMIp -ErrorAction SilentlyContinue)) { return $null }
+
+        $ip = $null
+        $deadline = (Get-Date).AddSeconds([Math]::Max(0, $TimeoutSeconds))
+        while (-not $ip) {
+            $candidate = $null
+            try { $candidate = [string](Get-VMIp -VMName $VMName) }
+            catch { Write-Verbose "Update-StashServerMarkerAddress: Get-VMIp '$VMName' failed: $($_.Exception.Message)" }
+            if ($candidate -and (Test-IpAddress $candidate)) { $ip = $candidate }
+            elseif ((Get-Date) -ge $deadline) { break }
+            else { Start-Sleep -Seconds 3 }
+        }
+        if (-not $ip) { return $null }
+
+        $url = "http://$(Format-IpUrlHost $ip)"
+        if ([string]$marker.stashBaseUrl -eq $url) { return $url }
+
+        # Preserve every existing marker field; set/replace stashBaseUrl only.
+        $record = [ordered]@{}
+        foreach ($prop in $marker.PSObject.Properties) { $record[$prop.Name] = $prop.Value }
+        $record['stashBaseUrl'] = $url
+        $tmp = "$markerPath.tmp"
+        [System.IO.File]::WriteAllText($tmp, ($record | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tmp -Destination $markerPath -Force -ErrorAction Stop
+        return $url
+    } catch {
+        Write-Verbose "Update-StashServerMarkerAddress: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+Export-ModuleMember -Function Wait-VMRunning, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Compare-Screenshot, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Test-IpAddress, Format-IpUrlHost, ConvertTo-Sha512CryptHash, Remove-GuestVMQuietly, Update-StashServerMarkerAddress

@@ -22,9 +22,11 @@ and VM reimage.
 
 The service exposes only two host-side cmdlets: `Start-StashServer` and
 `Stop-StashServer`. There is no `Get-StashServerStatus`,
-`Restart-StashServer`, or `Remove-StashServer`. VM teardown happens
-through existing infrastructure (e.g. `Remove-TestVMFiles`), exactly as
-for the caching proxy.
+`Restart-StashServer`, or `Remove-StashServer`: `Stop-StashServer`
+removes the VM and all of its on-disk files itself (§3.2), so the next
+`Start-StashServer` builds from a clean slate with no leftover VM files.
+Wholesale test-VM cleanup (e.g. `Remove-TestVMFiles`) still sweeps a
+stash VM like any other, exactly as for the caching proxy.
 
 The Stash Service **depends on its own stash storage being configured**
 (`networkStorage.stashNetworkPath`, `stashNetworkUser`,
@@ -81,11 +83,21 @@ lifecycle.
 
 ### 3.2 Stop-StashServer
 
-- Gracefully stops the VM.
-- In-flight uploads are not drained: a hard stop is acceptable. Partial
-  files, `status = pending` metadata records, and any not-yet-flushed
-  locally-buffered artifacts (§8.4) remain on disk per the atomicity
-  rules in §8.2.
+- Gracefully stops the VM, then removes it and **all of its on-disk
+  files** — the registry/domain entry, the copied disk image, the
+  cloud-init seed, and (UTM) the `.utm` bundle — so the next
+  `Start-StashServer` builds from a clean slate with no leftover VM
+  files. The graceful stop runs first so the daemon's flush worker
+  (§8.4) can push NAS-offline buffered uploads to the share before the
+  disk is deleted.
+- The durable stash data is untouched: received files, the per-artifact
+  sidecar records (§8.5), and the persisted SSH host key (§4.4) live on
+  the NAS stash share, not on the disposable VM disk.
+- In-flight uploads are not drained: a hard stop is acceptable. Any
+  partial files, `status = pending` records, and not-yet-flushed
+  locally-buffered artifacts (§8.4) still on the VM-local disk are
+  discarded with it — the same reimage caveat as §8.4. Committed
+  (on-share) artifacts and their sidecars are durable.
 
 ## 4. VM-side Service
 
@@ -408,9 +420,10 @@ Once exceeded, further uploads are rejected (§9 still returns the ID and
 the daemon logs the rejection) rather than filling the VM disk.
 
 **Reimage caveat.** The buffer and the VM-local index are on ephemeral
-disk. A VM reimage during a NAS outage loses any not-yet-flushed
-artifacts and their records. Committed (on-share) artifacts and their
-sidecars are unaffected.
+disk. A VM reimage — or a `Stop-StashServer`, which deletes the VM disk
+(§3.2) — during a NAS outage loses any not-yet-flushed artifacts and
+their records. Committed (on-share) artifacts and their sidecars are
+unaffected.
 
 ### 8.5 On-share Sidecar Records (durable metadata)
 
@@ -530,6 +543,6 @@ These items were left open in earlier drafts and are now resolved:
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../README.md)

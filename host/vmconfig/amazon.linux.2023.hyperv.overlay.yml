@@ -1,7 +1,7 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Hyper-V overlay for amazon.linux.2023.base.user-data.
-# Anchor sections in base-file order. An empty section deletes the anchor line.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
   # --- See https://yuruna.link/vmconfig#hyperv_fb-framebuffer-pin
   - grubby --update-kernel=ALL --args="video=hyperv_fb:1024x768" || true

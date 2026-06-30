@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,11 +40,15 @@
     config -- the verb signals "redacting from a logged view" not "deleting".
 #>
 
-# Overlay $Current onto $Template. Template shape wins (which keys exist);
-# current values win for overlapping scalars/arrays. Keys only in $Current
-# are dropped -- template is the schema source of truth. Keys emitted
-# alphabetically at every nesting level so regenerated test.config.yml
-# is stable regardless of the template's own key ordering.
+<#
+.SYNOPSIS
+    Overlay $Current onto $Template with the template as the schema source of truth.
+.DESCRIPTION
+    Template shape wins (which keys exist); current values win for overlapping
+    scalars/arrays. Keys present only in $Current are dropped. Keys are emitted
+    alphabetically at every nesting level so a regenerated test.config.yml is
+    stable regardless of the template's own key ordering.
+#>
 function ConvertTo-MergedHashtable {
     param($Template, $Current)
 
@@ -66,63 +70,51 @@ function ConvertTo-MergedHashtable {
     return $result
 }
 
-# Deep-clone a template subtree so the additive overlay never aliases a template
-# object into the operator's config: a later in-place edit of one must not mutate
-# the other (the template is read once per run and reused). Scalars/strings/bools
-# are immutable enough to return as-is; only dictionaries and lists need a fresh
-# copy. Lists are rebuilt so a copied default array is independent of the template.
-function Copy-ConfigSubtree {
+<#
+.SYNOPSIS
+    Return a copy of a config tree with every map key AND scalar-array element ordered alphabetically.
+.DESCRIPTION
+    Canonical form for a serialized test.config.yml: map keys are sorted at every
+    nesting level, and an array whose elements are all scalars has those elements
+    sorted by value. Arrays that contain dictionaries/sub-arrays keep their element
+    ORDER (there is no meaningful alphabetical key for a sub-map) but each such
+    element is still recursively key-sorted. Scalars pass through unchanged. Pure:
+    callers serialize the result with ConvertTo-Yaml to get a stable, diff-friendly
+    file regardless of the order keys/elements were authored or merged in.
+#>
+function ConvertTo-SortedConfig {
     param($Value)
     if ($Value -is [System.Collections.IDictionary]) {
-        $copy = [ordered]@{}
-        foreach ($k in $Value.Keys) { $copy[$k] = Copy-ConfigSubtree $Value[$k] }
-        return $copy
+        $out = [ordered]@{}
+        foreach ($key in ($Value.Keys | Sort-Object)) { $out[[string]$key] = ConvertTo-SortedConfig $Value[$key] }
+        return $out
     }
     if (($Value -is [System.Collections.IEnumerable]) -and ($Value -isnot [string])) {
-        $list = [System.Collections.Generic.List[object]]::new()
-        foreach ($i in $Value) { [void]$list.Add((Copy-ConfigSubtree $i)) }
-        return , $list.ToArray()
+        $items = [System.Collections.Generic.List[object]]::new()
+        foreach ($i in $Value) { [void]$items.Add((ConvertTo-SortedConfig $i)) }
+        $allScalar = $true
+        foreach ($i in $items) {
+            if (($i -is [System.Collections.IDictionary]) -or (($i -is [System.Collections.IEnumerable]) -and ($i -isnot [string]))) {
+                $allScalar = $false; break
+            }
+        }
+        # Return a List[object] (NOT an Object[]): a PowerShell function return
+        # unwraps a 0/1-element Object[] to $null/scalar, which would silently turn
+        # a one-guest guestSequence into a YAML scalar (and the UI editor keys its
+        # array widget off Array.isArray). A typed List survives the return + the
+        # parent's slot assignment at any element count, and an empty List still
+        # serializes as `[]`. See [[pwsh-typed-array-cast-if-empty-null]].
+        $sorted = [System.Collections.Generic.List[object]]::new()
+        foreach ($i in $(if ($allScalar) { $items | Sort-Object } else { $items })) { [void]$sorted.Add($i) }
+        return , $sorted
     }
     return $Value
 }
 
-# Additive overlay: returns $Current with every key/node the TEMPLATE defines but
-# $Current lacks filled in from the template default (recursively). This is the
-# MIRROR of ConvertTo-MergedHashtable: that function treats the template as the
-# schema source of truth and DROPS keys present only in $Current; this one
-# PRESERVES every current-only key untouched -- the operator's not-yet-migrated
-# values (e.g. a renamed section's old keys) stay in the file so they can be
-# hand-copied into the new fields and removed deliberately, never silently. An
-# existing current value always wins, including a shape conflict (current scalar
-# where the template has a node): the operator value is preserved rather than
-# overwritten with template sub-fields. Keys are emitted alphabetically at every
-# level to match how the maintained file is already serialized.
-function ConvertTo-AdditiveMergedHashtable {
-    param($Template, $Current)
-
-    if ($Current  -isnot [System.Collections.IDictionary]) { return $Current }
-    if ($Template -isnot [System.Collections.IDictionary]) { return $Current }
-
-    $keys = [System.Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($k in $Current.Keys)  { [void]$keys.Add([string]$k) }
-    foreach ($k in $Template.Keys) { [void]$keys.Add([string]$k) }
-
-    $result = [ordered]@{}
-    foreach ($key in $keys) {
-        $inCur = $Current.Contains($key)
-        $inTpl = $Template.Contains($key)
-        if ($inCur -and $inTpl -and ($Current[$key] -is [System.Collections.IDictionary]) -and ($Template[$key] -is [System.Collections.IDictionary])) {
-            $result[$key] = ConvertTo-AdditiveMergedHashtable -Template $Template[$key] -Current $Current[$key]
-        } elseif ($inCur) {
-            $result[$key] = $Current[$key]                       # operator value wins (incl. shape conflicts)
-        } else {
-            $result[$key] = Copy-ConfigSubtree $Template[$key]   # template-only -> fill in the default
-        }
-    }
-    return $result
-}
-
-# Shallow clone of $Config without top-level 'secrets' for diff comparison.
+<#
+.SYNOPSIS
+    Shallow clone of $Config without the top-level 'secrets' node, for diff comparison.
+#>
 function Copy-HashtableWithoutSecretNode {
     param($Config)
     if ($Config -isnot [System.Collections.IDictionary]) { return $Config }
@@ -134,14 +126,18 @@ function Copy-HashtableWithoutSecretNode {
     return $copy
 }
 
-# Returns $true when $Current has the same nested node shape as $Template:
-# every dictionary node in the template is present as a dictionary, and
-# $Current carries no unexpected top-level keys ('secrets' excepted -- it
-# is added out-of-band by the notification-credentials path). A flat
-# test.config.yml (vmBootDelaySeconds, frameworkRepoUrl, ... at the
-# root, where the current schema puts vmStart.bootDelaySeconds,
-# repositories.frameworkUrl, etc.) fails both tests. Leaf values are NOT
-# compared -- only container structure -- so any operator-set value passes.
+<#
+.SYNOPSIS
+    Returns $true when $Current has the same nested node shape as $Template.
+.DESCRIPTION
+    Every dictionary node in the template must be present as a dictionary in
+    $Current, and $Current must carry no unexpected top-level keys ('secrets'
+    excepted -- it is added out-of-band by the notification-credentials path). A
+    flat test.config.yml (vmBootDelaySeconds, frameworkRepoUrl, ... at the root,
+    where the current schema puts vmStart.bootDelaySeconds,
+    repositories.frameworkUrl, etc.) fails both tests. Leaf values are not
+    compared -- only container structure -- so any operator-set value passes.
+#>
 function Test-ConfigMatchesTemplateShape {
     param($Template, $Current)
     if ($Template -isnot [System.Collections.IDictionary]) { return $true }
@@ -158,10 +154,14 @@ function Test-ConfigMatchesTemplateShape {
     return $true
 }
 
-# Flatten a config dictionary to a path->value map of its LEAF nodes (every
-# non-dictionary value), keyed by dotted path (a.b.c). Pure. Used to compare what
-# the template overlay carried forward against the previous file, so a schema
-# migration can report exactly which fields did NOT map to the new schema.
+<#
+.SYNOPSIS
+    Flatten a config dictionary to a path->value map of its leaf nodes, keyed by dotted path (a.b.c).
+.DESCRIPTION
+    Every non-dictionary value becomes one entry. Pure. Used to compare what the
+    template overlay carried forward against the previous file, so a schema
+    migration can report exactly which fields did not map to the new schema.
+#>
 function Get-ConfigLeafValue {
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
@@ -181,13 +181,16 @@ function Get-ConfigLeafValue {
     return $out
 }
 
-# Given the previous config and the template-merged result, return the leaf paths
-# in $Current whose (meaningful, non-empty) value did NOT survive into $Merged --
-# the fields the new schema dropped (top-level orphans, or values under a node
-# whose shape changed). These are the only fields a schema migration cannot carry
-# forward automatically: the merge already copies every field that still maps to
-# the same path in the new schema. Pure; the caller surfaces these for the
-# operator to hand-migrate.
+<#
+.SYNOPSIS
+    Return the leaf paths in $Current whose meaningful, non-empty value did not survive into $Merged.
+.DESCRIPTION
+    These are the fields the new schema dropped (top-level orphans, or values
+    under a node whose shape changed) -- the only fields a schema migration cannot
+    carry forward automatically, since the merge already copies every field that
+    still maps to the same path in the new schema. Pure; the caller surfaces these
+    for the operator to hand-migrate.
+#>
 function Get-DroppedConfigField {
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -209,6 +212,24 @@ function Get-DroppedConfigField {
     return [string[]]@($dropped)
 }
 
+<#
+.SYNOPSIS
+    Reconcile the on-disk test.config.yml against its template and return the merged config.
+.DESCRIPTION
+    Bootstraps the config from the template when missing, drops deprecated
+    top-level keys, then overlays the live values on the template (template shape
+    wins). When the on-disk shape no longer matches the template, the previous
+    file is backed up and the value-preserving merge is written; if any populated
+    field genuinely no longer maps to the new schema the run is stopped so the
+    operator can hand-migrate from the backup. Legacy notification credentials
+    that have moved to a separate transports file are warned about, never
+    auto-moved. The file is rewritten only when the merge differs from disk
+    outside the 'secrets' subtree.
+.PARAMETER ConfigPath
+    Path to the live test.config.yml to reconcile (and rewrite in place).
+.PARAMETER TemplatePath
+    Path to the shipped template that defines the current schema.
+#>
 function Update-TestConfigFromTemplate {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -306,6 +327,13 @@ function Update-TestConfigFromTemplate {
         }
     }
 
+    # Canonicalise ordering before any write/diff: every map key and scalar-array
+    # element alphabetically, so a regenerated test.config.yml is byte-stable and
+    # diff-friendly regardless of the order keys/elements were authored or merged
+    # in (and a file that only differs by ordering converges to canonical on the
+    # next run instead of churning forever).
+    $merged = ConvertTo-SortedConfig $merged
+
     # --- Schema migration (shape departed) -------------------------------
     # The on-disk file no longer matches the template's nested shape (the schema
     # changed). Back the previous file up, then write the value-preserving merge
@@ -359,25 +387,40 @@ The run is stopping so you can review. Restarting will then proceed normally.
     return $merged
 }
 
-# Additively enforce the template schema on the on-disk config: write every
-# template field the file LACKS (its empty/default value, ready to fill in)
-# WITHOUT removing any operator key and WITHOUT a backup. This is the gentle
-# counterpart to Update-TestConfigFromTemplate (the runner's hard cycle-start
-# reconciliation, which backs up, resets the file to the template shape, and
-# drops orphan keys): here nothing the operator typed is ever destroyed -- the
-# file just gains the missing fields, and a renamed section's old keys are left
-# in place to migrate by hand and remove deliberately. The file is rewritten only
-# when at least one field is genuinely missing, so a repeat run is a no-op.
-#
-# Returns a result object:
-#   .Config  -- the additive-merged config (also on disk when .Wrote is $true)
-#   .Added   -- dotted leaf paths newly written (the empty fields to fill in)
-#   .Orphans -- populated leaf paths the file still carries that are NOT part of
-#               the current schema (e.g. a renamed section's old keys) -- copy
-#               each into its new field, then delete the old key, or the runner
-#               will back up + reset (dropping these) at cycle start
-#   .Wrote   -- $true when the file was rewritten (i.e. .Added was non-empty)
-function Add-MissingTestConfigField {
+<#
+.SYNOPSIS
+    Reconcile the on-disk config to the template as the schema source of truth: add missing fields, drop orphan keys, and rewrite in canonical alphabetical order.
+.DESCRIPTION
+    The strict reconciliation used by the operator-facing validator:
+      * every template field the file lacks is added with its empty/default value
+      * every key the template no longer defines (e.g. a renamed section's old
+        keys) is DROPPED
+      * the result is written with every map key AND scalar-array element ordered
+        alphabetically (ConvertTo-SortedConfig)
+    Operator values for keys that still map are kept. The top-level 'secrets' node
+    (legacy, operator-managed, never in the template) is preserved verbatim rather
+    than dropped, so credentials are never lost here.
+
+    The file is rewritten only when the canonical form differs from disk outside
+    'secrets', so a repeat run is a no-op. When a populated key is being dropped,
+    the previous file is first copied to <config>.backup so the removed value is
+    always recoverable; a pure add/sort rewrite loses nothing and writes no backup.
+.PARAMETER Template
+    The template dictionary that defines the current schema.
+.PARAMETER Current
+    The live config dictionary loaded from disk.
+.PARAMETER ConfigPath
+    Path to the live config file to reconcile (and rewrite in place).
+.OUTPUTS
+    A pscustomobject with these members:
+      Config     -- the reconciled, canonical-ordered config (also on disk when Wrote)
+      Added      -- dotted leaf paths newly written (the empty fields to fill in)
+      Removed    -- populated dotted leaf paths dropped because they are NOT part of
+                    the current schema (recoverable from BackupPath)
+      Wrote      -- $true when the file was rewritten
+      BackupPath -- <config>.backup when a populated key was dropped, else $null
+#>
+function Sync-TestConfigToTemplate {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
     param(
@@ -386,39 +429,57 @@ function Add-MissingTestConfigField {
         [Parameter(Mandatory)] [string]$ConfigPath
     )
 
-    $additive  = ConvertTo-AdditiveMergedHashtable -Template $Template -Current $Current
-    # 'secrets' is excluded from the diff the same way the runner's overlay
-    # excludes it (operator credentials always diverge from the template blanks).
+    # Strict merge: template shape wins (orphan keys dropped, missing fields filled,
+    # operator values kept), then re-attach the out-of-band 'secrets' node so the
+    # validator never strips credentials, then canonicalise key + array ordering.
+    $strict = ConvertTo-MergedHashtable -Template $Template -Current $Current
+    if (($Current -is [System.Collections.IDictionary]) -and $Current.Contains('secrets')) {
+        $strict['secrets'] = $Current['secrets']
+    }
+    $canonical = ConvertTo-SortedConfig $strict
+
+    # Added / Removed both exclude 'secrets' (operator credentials always diverge
+    # from the template blanks). Removed counts only populated leaves with no home
+    # in the schema -- the values worth backing up before they are dropped.
     $curLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $Current)
-    $newLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $additive)
+    $newLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $canonical)
     $added     = [System.Collections.Generic.List[string]]::new()
     foreach ($p in $newLeaves.Keys) { if (-not $curLeaves.Contains($p)) { [void]$added.Add($p) } }
+    $removed   = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $Current) -Merged $canonical)
 
-    # Orphans = populated current leaves that have no home in the template schema.
-    # Compared against the STRICT (template-shape-wins) merge, identical to how
-    # Update-TestConfigFromTemplate reports the fields it cannot carry forward.
-    $strictMerge = ConvertTo-MergedHashtable -Template $Template -Current $Current
-    $orphans     = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $Current) -Merged $strictMerge)
-
-    $wrote = $false
-    if ($added.Count -gt 0 -and $PSCmdlet.ShouldProcess($ConfigPath, "Add $($added.Count) missing schema field(s)")) {
-        $additive | ConvertTo-Yaml | Set-Content -Path $ConfigPath -Encoding utf8NoBOM
+    # Rewrite only when the canonical form differs from disk outside 'secrets'.
+    $changed = (((Copy-HashtableWithoutSecretNode $canonical) | ConvertTo-Yaml) -ne `
+               ((Copy-HashtableWithoutSecretNode $Current)   | ConvertTo-Yaml))
+    $wrote      = $false
+    $backupPath = $null
+    if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, "Reconcile to template (add missing, drop orphans, sort)")) {
+        if ($removed.Count -gt 0) {
+            $backupPath = "$ConfigPath.backup"
+            Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
+        }
+        $canonical | ConvertTo-Yaml | Set-Content -Path $ConfigPath -Encoding utf8NoBOM
         $wrote = $true
     }
 
     return [pscustomobject]@{
-        Config  = $additive
-        Added   = [string[]]@($added   | Sort-Object)
-        Orphans = [string[]]@($orphans | Sort-Object)
-        Wrote   = $wrote
+        Config     = $canonical
+        Added      = [string[]]@($added   | Sort-Object)
+        Removed    = [string[]]@($removed | Sort-Object)
+        Wrote      = $wrote
+        BackupPath = $backupPath
     }
 }
 
-# Strip everything under the top-level 'secrets' node before logging.
-# Hide- (rather than Remove-) keeps PSScriptAnalyzer's PSUseShouldProcess-
-# ForStateChangingFunctions rule quiet (it fires on Remove-/Set-/etc. but
-# not on Hide-); the function still mutates the passed config -- the verb
-# just signals "redacting from a logged view" rather than "deleting".
+<#
+.SYNOPSIS
+    Strip everything under the top-level 'secrets' node before a config is logged.
+.DESCRIPTION
+    The Hide- verb (rather than Remove-) keeps PSScriptAnalyzer's
+    PSUseShouldProcessForStateChangingFunctions rule quiet (it fires on
+    Remove-/Set-/etc. but not on Hide-); the function still mutates the passed
+    config -- the verb signals "redacting from a logged view" rather than
+    "deleting".
+#>
 function Hide-SecretsInConfig {
     param($Config)
     if ($Config -is [System.Collections.IDictionary] -and $Config.Contains('secrets')) {
@@ -430,7 +491,7 @@ function Hide-SecretsInConfig {
 }
 
 Export-ModuleMember -Function `
-    ConvertTo-MergedHashtable, ConvertTo-AdditiveMergedHashtable, Copy-ConfigSubtree, `
+    ConvertTo-MergedHashtable, ConvertTo-SortedConfig, `
     Copy-HashtableWithoutSecretNode, `
     Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, `
-    Update-TestConfigFromTemplate, Add-MissingTestConfigField, Hide-SecretsInConfig
+    Update-TestConfigFromTemplate, Sync-TestConfigToTemplate, Hide-SecretsInConfig

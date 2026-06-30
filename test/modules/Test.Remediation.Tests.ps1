@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c3a9e8-5b2d-4f17-8a04-1c6d3e5f7a92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,26 +43,26 @@ Describe 'Invoke-Remediation inner-cause routing' {
             stepNumber = 3; actionVerb = 'retry'
         }
         $r = Invoke-Remediation -FailureRecord $rec
-        Assert-Equal 'ocr_timeout' $r.FailureClass 'routed to inner class'
-        Assert-Equal 'retry_exhausted' $r.RoutedFromFailureClass 'outer class preserved'
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.FailureClass -Because 'routed to inner class'
+        Assert-Equal -Expected 'retry_exhausted' -Actual $r.RoutedFromFailureClass -Because 'outer class preserved'
     }
     It 'stays on the outer class when no inner cause is present' {
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'retry_exhausted'; severity = 'hard'; stepNumber = 1; actionVerb = 'retry' }
-        Assert-Equal 'retry_exhausted' $r.FailureClass 'no inner -> outer'
+        Assert-Equal -Expected 'retry_exhausted' -Actual $r.FailureClass -Because 'no inner -> outer'
         Assert-True (-not $r.Contains('RoutedFromFailureClass')) 'no routing audit when not routed'
     }
     It 'leaves a non-retry failure class untouched' {
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'ocr_timeout'; severity = 'hard'; stepNumber = 2 }
-        Assert-Equal 'ocr_timeout' $r.FailureClass 'plain class unchanged'
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.FailureClass -Because 'plain class unchanged'
     }
     It 'severity follows the routed class (unknown, not the outer value) when innerSeverity is absent' {
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'retry_exhausted'; severity = 'soft'; innerFailureClass = 'ocr_timeout'; stepNumber = 3 }
-        Assert-Equal 'ocr_timeout' $r.FailureClass 'routed to inner class'
-        Assert-Equal 'unknown' $r.Severity 'severity must NOT inherit the outer wrapper value'
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.FailureClass -Because 'routed to inner class'
+        Assert-Equal -Expected 'unknown' -Actual $r.Severity -Because 'severity must NOT inherit the outer wrapper value'
     }
     It 'does not self-route when the inner class equals the outer class' {
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'retry_exhausted'; severity = 'hard'; innerFailureClass = 'retry_exhausted'; stepNumber = 1 }
-        Assert-Equal 'retry_exhausted' $r.FailureClass 'inner==outer stays outer'
+        Assert-Equal -Expected 'retry_exhausted' -Actual $r.FailureClass -Because 'inner==outer stays outer'
         Assert-True (-not $r.Contains('RoutedFromFailureClass')) 'no misleading routed-audit when inner==outer'
     }
 }
@@ -96,11 +96,11 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
             $path = Join-Path $tmp 'last_remediation.json'
             Assert-True (Test-Path -LiteralPath $path) 'last_remediation.json written to the log dir'
             $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
-            Assert-Equal 1 $doc.schemaVersion 'schema-versioned record'
-            Assert-Equal 'ocr_timeout' $doc.failureClass 'failureClass captured'
-            Assert-Equal ([string]$r.Recommendation) ([string]$doc.recommendation) 'recommendation matches the returned decision'
-            Assert-Equal 'vm1' $doc.vmName 'correlation field captured'
-            Assert-Equal $false $doc.autoApply 'advisory-only: autoApply stays false'
+            Assert-Equal -Expected 1 -Actual $doc.schemaVersion -Because 'schema-versioned record'
+            Assert-Equal -Expected 'ocr_timeout' -Actual $doc.failureClass -Because 'failureClass captured'
+            Assert-Equal -Expected ([string]$r.Recommendation) -Actual ([string]$doc.recommendation) -Because 'recommendation matches the returned decision'
+            Assert-Equal -Expected 'vm1' -Actual $doc.vmName -Because 'correlation field captured'
+            Assert-Equal -Expected $false -Actual $doc.autoApply -Because 'advisory-only: autoApply stays false'
             # No BOM: the first byte must be the JSON open-brace, not EF BB BF.
             $bytes = [System.IO.File]::ReadAllBytes($path)
             Assert-True ($bytes[0] -ne 0xEF) 'record is written without a UTF-8 BOM'
@@ -117,8 +117,8 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
             $env:YURUNA_LOG_DIR = $tmp
             $null = Invoke-Remediation -FailureRecord @{ failureClass = 'retry_exhausted'; severity = 'hard'; innerFailureClass = 'ocr_timeout'; stepNumber = 3 }
             $doc = Get-Content -Raw -LiteralPath (Join-Path $tmp 'last_remediation.json') | ConvertFrom-Json
-            Assert-Equal 'ocr_timeout' $doc.failureClass 'routed inner class recorded'
-            Assert-Equal 'retry_exhausted' $doc.outerFailureClass 'masked outer class preserved in the record'
+            Assert-Equal -Expected 'ocr_timeout' -Actual $doc.failureClass -Because 'routed inner class recorded'
+            Assert-Equal -Expected 'retry_exhausted' -Actual $doc.outerFailureClass -Because 'masked outer class preserved in the record'
         } finally {
             $env:YURUNA_LOG_DIR = $savedLogDir
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -129,18 +129,18 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
 Describe 'Invoke-Remediation routes the infra-stage failure classes' {
     It 'routes provisioning_failure to retry_with_backoff (transient host provisioning)' {
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'provisioning_failure'; severity = 'hard'; vmName = 'vm1' }
-        Assert-Equal 'retry_with_backoff' $r.Recommendation 'provisioning is retryable'
+        Assert-Equal -Expected 'retry_with_backoff' -Actual $r.Recommendation -Because 'provisioning is retryable'
     }
     It 'routes bootstrap_sync and plan_invalid to operator_intervention_required' {
         $r1 = Invoke-Remediation -FailureRecord @{ failureClass = 'bootstrap_sync'; severity = 'hard'; vmName = '(bootstrap)' }
-        Assert-Equal 'operator_intervention_required' $r1.Recommendation 'git divergence needs an operator'
+        Assert-Equal -Expected 'operator_intervention_required' -Actual $r1.Recommendation -Because 'git divergence needs an operator'
         $r2 = Invoke-Remediation -FailureRecord @{ failureClass = 'plan_invalid'; severity = 'hard'; vmName = '(planner)' }
-        Assert-Equal 'operator_intervention_required' $r2.Recommendation 'plan errors need an operator'
+        Assert-Equal -Expected 'operator_intervention_required' -Actual $r2.Recommendation -Because 'plan errors need an operator'
     }
     It 'has a registered handler for every canonical FailureClass (no unrouted class)' {
         $enum = @(Get-FailureClassEnum)
         $registered = @(Get-RegisteredFailureClass)
         $missing = @($enum | Where-Object { $registered -notcontains $_ })
-        Assert-Equal 0 $missing.Count "every enum class must have a handler; missing: $($missing -join ', ')"
+        Assert-Equal -Expected 0 -Actual $missing.Count -Because "every enum class must have a handler; missing: $($missing -join ', ')"
     }
 }

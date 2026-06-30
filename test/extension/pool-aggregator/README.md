@@ -37,10 +37,33 @@ Every `-interval` (default 30s) it:
 5. Bumps **Prometheus** counters (`yuruna_pool_cycles_{pass,fail}_total` by
    `hostId`) once per terminal cycle, and on every scrape exposes per-host
    series that drive the dashboard table/timeline: `yuruna_pool_host_info`
-   (labels: hostType, baseUrl, cycleId, cycleFolderUrl, derived status — keyed
-   on `hostId`, **no** hostname), `yuruna_pool_host_status` (numeric 0–4:
+   (labels: hostType, version, baseUrl, cycleId, cycleFolderUrl, derived status —
+   keyed on `hostId`, **no** hostname; `version` is the host's framework
+   `VERSION`, fetched per poll from `<baseUrl>/yuruna-repo/VERSION`),
+   `yuruna_pool_host_status` (numeric 0–4:
    unreachable/running/pass/fail/idle), and `yuruna_pool_host_last_seen_seconds`.
    Served at `/metrics`. The whole pool telemetry is **hostname-free** (see below).
+5b. **Discovers extension hosts (registration-driven).** Each poll it reads every
+   pool host's `host.registration.json` (already fetched for poolId/gating) and, for
+   each `area` in that record's **`activeExtensions`** — the runtime list of
+   extension services the host is ACTIVELY running (e.g. `stash-service` when it
+   hosts a stash-server VM; the host writes it via `Start-StashServer` →
+   `runtime/stash-server.json` → `Write-HostRegistrationRecord`, which also refreshes
+   it on bring-up so the host appears WITHOUT waiting for a test cycle) — exposes
+   `yuruna_pool_host_extension{hostId,area,baseUrl,target}` (+`_last_seen_seconds`).
+   This keys on the SAME `hostId` namespace as the pool table, so a host that both runs
+   cycles and hosts a stash server shows one Host ID in both. It needs **no ystash-nas
+   mount and no Config Service** on the aggregator's host — a host self-reports the
+   service it runs and the aggregator already polls its registration. Drives the
+   dashboard's **Extension hosts** table (`stash-service` → "Stash service"). `baseUrl`
+   (the host's status page) and `target` (the service UI the host advertised in the
+   registration record's **`extensionTargets`**, e.g. the stash VM's base URL it
+   resolved via `Get-VMIp`) ride as labels so the table deep-links each cell
+   **directly** — Host ID → `baseUrl`, Extension → `target` — the SAME hidden-URL-column
+   pattern the Pool hosts table uses for `baseUrl` (a Grafana table column carries no
+   field labels, so a `${__field.labels.hostId}` redirect would resolve empty). The
+   `extensionTargets` map is also exposed in `/api/v1/pool-status` for the stash UI's
+   `hostId → stashBaseUrl` lookup, and `/go/stash` resolves it for IP-free consumers.
 6. **Survives its own restart:** on startup it rehydrates the cycle counters (and
    the seen/counted dedup state) from Loki — the durable transition record —
    over the trailing `-rehydrate-window`. The counter resumes at its prior value
@@ -71,9 +94,9 @@ Every `-interval` (default 30s) it:
 
 The pool view is rendered by **Grafana** (`grafana-pool-dashboard.json`, uid
 `yuruna-pool`) over Prometheus + Loki: summary tiles (incl. **Hosts in
-incident** and **Pool-wide incident**), a **per-host table** (status · last
-cycle · last seen · pass/fail, with deep-links to each host's own status page and
-cycle folder), a **host × time state-timeline**, and a collapsed **drill-down**
+incident** and **Pool-wide incident**), a **per-host table** (type · framework
+version · last cycle · status · last seen · pass/fail, with deep-links to each
+host's own status page and cycle folder), a **host × time state-timeline**, and a collapsed **drill-down**
 row (incidents · **failures by class & severity** · recent step failures · full
 cycle event stream · status transitions) over Loki. **Every** panel identifies
 each host by its opaque **Host ID** (the stable `hostId`, shown GUID-formatted)
@@ -131,6 +154,7 @@ the leaf is absent.
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
 | `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
+| `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash VM), resolved from the URL the host **advertised** in `extensionTargets` (refreshed each cycle / on `Start-StashServer` via `Get-VMIp`). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); disabled (503) until a shared bearer token is configured |
 
 ## Deploy + verify
@@ -153,7 +177,7 @@ raw — where the private collector source may be absent, so the collector is
 skipped (logged loudly in `/var/log/cloud-init-output.log`).
 
 The **dashboard does not share this dependency** — it deploys inline via
-`write_files` regardless of the build, so the *Yuruna Pool* dashboard is present
+`write_files` regardless of the build, so the *Yuruna hosts* dashboard is present
 from first boot (showing "No data" until the collector comes up).
 
 After install (no config needed — discovery is automatic). `:9400` is HTTPS once the
@@ -166,7 +190,7 @@ curl -sk https://localhost:9400/healthz            # -> ok
 curl -sk https://localhost:9400/api/v1/pool-status | jq   # discovered hosts (after some proxy traffic)
 curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 # Prometheus target pool-aggregator UP; Loki has {pool,hostId,cycleId} streams;
-# Grafana 'Yuruna Pool' dashboard renders the 24h cross-host view.
+# Grafana 'Yuruna hosts' dashboard renders the 24h cross-host view.
 ```
 
 ## MVP limits (Phase 1)
@@ -236,4 +260,4 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30

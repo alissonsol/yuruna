@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,18 +24,18 @@
 # Get-SequenceMode reads the keystroke mechanism from
 # $env:YURUNA_KEYSTROKE_MECHANISM (the engine mirrors its config value there),
 # so this module carries no engine $script: state.
-<#
-.SYNOPSIS
-    Parses a YAML sequence file into an OrderedDictionary.
-.DESCRIPTION
-    Centralises the powershell-yaml dependency for every sequence reader
-    (Invoke-Sequence, Test.SequencePlanner, Test-Sequence). Uses
-    -Ordered so the steps array and the variables map preserve their
-    on-disk order. The returned object is an [OrderedDictionary]; callers
-    must use .Keys / .Contains() rather than .PSObject.Properties, since
-    the YAML parser does not produce PSCustomObject.
-#>
 function Read-SequenceFile {
+    <#
+    .SYNOPSIS
+        Parses a YAML sequence file into an OrderedDictionary.
+    .DESCRIPTION
+        Centralises the powershell-yaml dependency for every sequence reader
+        (Invoke-Sequence, Test.SequencePlanner, Test-Sequence). Uses
+        -Ordered so the steps array and the variables map preserve their
+        on-disk order. The returned object is an [OrderedDictionary]; callers
+        must use .Keys / .Contains() rather than .PSObject.Properties, since
+        the YAML parser does not produce PSCustomObject.
+    #>
     param(
         [Parameter(Mandatory)][string]$Path,
         # Bypass the mtime-keyed cache for diagnostic / probe call
@@ -423,10 +423,15 @@ function Get-SnippetLibraryFile {
 }
 
 function Get-SnippetMap {
-    # Builds name -> @{Steps; File; Tier} for the snippet libraries visible to the
-    # sequence at $SequencePath. Framework loads first (base); project libraries
-    # then override by name. Two PROJECT libraries with the same name throw (an
-    # ambiguous plan), mirroring Find-ProjectSequenceFile's duplicate rule.
+    <#
+    .SYNOPSIS
+        Builds name -> @{Steps; File; Tier} for the snippet libraries visible to
+        the sequence at $SequencePath.
+    .DESCRIPTION
+        Framework libraries load first (base); project libraries then override by
+        name. Two PROJECT libraries defining the same name throw PlannerFatal (an
+        ambiguous plan), mirroring Find-ProjectSequenceFile's duplicate rule.
+    #>
     param([Parameter(Mandatory)][string]$SequencePath)
 
     $norm    = ($SequencePath -replace '\\', '/')

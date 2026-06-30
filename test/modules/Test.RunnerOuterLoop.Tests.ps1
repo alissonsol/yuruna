@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 428c1a6d-4b29-4e07-9d51-7a2c8e0b5f31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,15 +44,15 @@ function New-TempConfig {
 
 Describe 'Get-OuterPoolTestCycleOverride (pure extraction)' {
     It 'returns an empty map for null / no-config / no-testCycle pools' {
-        Assert-Equal 0 (Get-OuterPoolTestCycleOverride -Pool $null).Count 'null -> empty'
-        Assert-Equal 0 (Get-OuterPoolTestCycleOverride -Pool ([ordered]@{ poolId = 'lab' })).Count 'no config -> empty'
-        Assert-Equal 0 (Get-OuterPoolTestCycleOverride -Pool ([ordered]@{ config = [ordered]@{} })).Count 'no testCycle -> empty'
+        Assert-Equal -Expected 0 -Actual (Get-OuterPoolTestCycleOverride -Pool $null).Count -Because 'null -> empty'
+        Assert-Equal -Expected 0 -Actual (Get-OuterPoolTestCycleOverride -Pool ([ordered]@{ poolId = 'lab' })).Count -Because 'no config -> empty'
+        Assert-Equal -Expected 0 -Actual (Get-OuterPoolTestCycleOverride -Pool ([ordered]@{ config = [ordered]@{} })).Count -Because 'no testCycle -> empty'
     }
     It 'returns the testCycle map when present' {
         $pool = [ordered]@{ config = [ordered]@{ testCycle = [ordered]@{ autoRemediationEnabled = $true; stepTimeoutMinutes = 12 } } }
         $tc = Get-OuterPoolTestCycleOverride -Pool $pool
         Assert-True  $tc['autoRemediationEnabled'] 'flag carried'
-        Assert-Equal 12 $tc['stepTimeoutMinutes'] 'value carried'
+        Assert-Equal -Expected 12 -Actual $tc['stepTimeoutMinutes'] -Because 'value carried'
     }
 }
 
@@ -63,17 +63,17 @@ Describe 'Get-OuterAutoRemediation (pool override WINS over config > default)' {
         It 'reads the local config when there is no pool override' {
             $r = Get-OuterAutoRemediation -ConfigPath $cfgOn
             Assert-True  $r.Enabled 'config enabled'
-            Assert-Equal 4 $r.MaxAttempts 'config maxAttempts'
+            Assert-Equal -Expected 4 -Actual $r.MaxAttempts -Because 'config maxAttempts'
         }
         It 'defaults to off / 2 when the config omits the keys' {
             $r = Get-OuterAutoRemediation -ConfigPath $cfgOff
             Assert-False $r.Enabled 'config off'
-            Assert-Equal 2 $r.MaxAttempts 'default maxAttempts'
+            Assert-Equal -Expected 2 -Actual $r.MaxAttempts -Because 'default maxAttempts'
         }
         It 'lets a pool override ENGAGE remediation over a config that is off' {
             $r = Get-OuterAutoRemediation -ConfigPath $cfgOff -PoolTestCycleOverride @{ autoRemediationEnabled = $true; autoRemediationMaxAttemptsPerCycle = 3 }
             Assert-True  $r.Enabled 'override engages'
-            Assert-Equal 3 $r.MaxAttempts 'override maxAttempts wins'
+            Assert-Equal -Expected 3 -Actual $r.MaxAttempts -Because 'override maxAttempts wins'
         }
         It 'lets a pool override DISABLE remediation over a config that is on' {
             $r = Get-OuterAutoRemediation -ConfigPath $cfgOn -PoolTestCycleOverride @{ autoRemediationEnabled = $false }
@@ -89,16 +89,16 @@ Describe 'Get-OuterStepTimeoutMinute (pool override WINS over config > default)'
     $bare = New-TempConfig "testCycle: {}`n"
     try {
         It 'reads the config value when there is no override' {
-            Assert-Equal 20 (Get-OuterStepTimeoutMinute -ConfigPath $cfg -DefaultMinutes 90) 'config value'
+            Assert-Equal -Expected 20 -Actual (Get-OuterStepTimeoutMinute -ConfigPath $cfg -DefaultMinutes 90) -Because 'config value'
         }
         It 'falls back to the default when the config omits the key' {
-            Assert-Equal 90 (Get-OuterStepTimeoutMinute -ConfigPath $bare -DefaultMinutes 90) 'default'
+            Assert-Equal -Expected 90 -Actual (Get-OuterStepTimeoutMinute -ConfigPath $bare -DefaultMinutes 90) -Because 'default'
         }
         It 'lets a pool override win over both config and default' {
-            Assert-Equal 7 (Get-OuterStepTimeoutMinute -ConfigPath $cfg -DefaultMinutes 90 -PoolTestCycleOverride @{ stepTimeoutMinutes = 7 }) 'override wins'
+            Assert-Equal -Expected 7 -Actual (Get-OuterStepTimeoutMinute -ConfigPath $cfg -DefaultMinutes 90 -PoolTestCycleOverride @{ stepTimeoutMinutes = 7 }) -Because 'override wins'
         }
         It 'ignores a non-positive override (keeps the config value)' {
-            Assert-Equal 20 (Get-OuterStepTimeoutMinute -ConfigPath $cfg -DefaultMinutes 90 -PoolTestCycleOverride @{ stepTimeoutMinutes = 0 }) 'zero override ignored'
+            Assert-Equal -Expected 20 -Actual (Get-OuterStepTimeoutMinute -ConfigPath $cfg -DefaultMinutes 90 -PoolTestCycleOverride @{ stepTimeoutMinutes = 0 }) -Because 'zero override ignored'
         }
     } finally {
         Remove-Item -LiteralPath $cfg, $bare -Force -ErrorAction SilentlyContinue

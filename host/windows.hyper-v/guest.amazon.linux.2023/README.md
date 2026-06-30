@@ -53,6 +53,6 @@ Read more: [Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Detai
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../../../README.md)

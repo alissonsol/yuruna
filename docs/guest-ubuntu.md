@@ -5,7 +5,7 @@ pages — [24.04](guest-ubuntu-24.md) and [26.04](guest-ubuntu-26.md) —
 point here; substitute your release (`24`, `26`, …) for `<release>` in the
 paths below.
 
-## Boot issues
+## Boot Issues
 
 - Check `/var/log/installer/installer-journal.txt` for hints.
 - If the text-mode installer appears stuck:
@@ -33,6 +33,6 @@ timedatectl                       # verify
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../README.md)

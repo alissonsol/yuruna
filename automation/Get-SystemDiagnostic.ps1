@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -374,7 +374,7 @@ try {
     Write-Output ("Time (local) : {0}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))
 
     # ---- Software ----------------------------------------------------
-    # --- See https://yuruna.link/system-diagnostic#1-host-software-probe-resilience
+    # --- See https://yuruna.link/system-diagnostic#1-host--software-probe-resilience
     Write-Sub "Software"
     function Get-VersionLine {
         param(
@@ -1410,7 +1410,7 @@ try {
     }
 
     # ===== 11. HOST DETAIL =============================================
-    # --- See https://yuruna.link/system-diagnostic#11-host-detail-runner-process-tree
+    # --- See https://yuruna.link/system-diagnostic#11-host-detail--runner-process-tree
     Invoke-DiagnosticSection "HOST DETAIL" {
 
         # ---- Runner process tree (all platforms) ----------------------
@@ -1462,7 +1462,7 @@ try {
                     Write-Output "(Get-CimInstance Win32_Process failed: $($_.Exception.Message))"
                 }
             } elseif ($IsLinux -or $IsMacOS) {
-                # --- See https://yuruna.link/system-diagnostic#ps-ww-is-mandatory-on-macos-linux
+                # --- See https://yuruna.link/system-diagnostic#ps--ww-is-mandatory-on-macos--linux
                 try {
                     $psLines = & '/bin/ps' -ww -axo 'pid=,ppid=,etime=,pcpu=,args=' 2>$null
                     foreach ($line in $psLines) {
@@ -1821,7 +1821,7 @@ try {
     }
 
     # ===== 11b. INSTALL & EARLY-BOOT TIMELINE (Linux) ==================
-    # --- See https://yuruna.link/system-diagnostic#11b-install-early-boot-timeline-linux
+    # --- See https://yuruna.link/system-diagnostic#11b-install--early-boot-timeline-linux
     if ($IsLinux) {
         Invoke-DiagnosticSection "INSTALL & EARLY-BOOT TIMELINE (Linux)" {
             Write-Sub "/var/log/installer/ (dir listing)"

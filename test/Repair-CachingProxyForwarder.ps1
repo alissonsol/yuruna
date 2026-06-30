@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,7 +157,7 @@ Write-Output "  Proxy URL:   $foundUrl"
 Write-Output "  HTTPS bump:  http://${CacheIp}:${httpsPort}"
 Write-Output "  Grafana:     http://${CacheIp}:3000"
 Write-Output "  Recent 100:  http://${CacheIp}:9302/"
-Write-Output "  cachemgr:    http://${CacheIp}/cgi-bin/cachemgr.cgi"
+Write-Output "  cachemgr:    ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
 Write-Output "  CA cert:     http://${CacheIp}/yuruna-squid-ca.crt"
 Write-Output "  State file:  $StateFile  (refreshed)"
 Write-Output "================================================================="

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42b6d9f1-3c75-4e82-a0d4-6f8b1c2e3a49
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,12 +70,12 @@ Describe 'Write-HostRegistrationRecord' {
             $path = Write-HostRegistrationRecord -HostType 'host.windows.hyper-v' -RepoRoot $fx.Tmp
             Assert-True ($null -ne $path) 'returns the written path'
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
-            Assert-Equal 1 $rec.schemaVersion 'schemaVersion'
-            Assert-Equal ('42' + ('b' * 30)) $rec.hostId 'hostId from the process global'
-            Assert-Equal 'host.windows.hyper-v' $rec.hostType 'hostType passthrough'
-            Assert-Equal 'hyper-v' $rec.hypervisor 'hypervisor derived from hostType'
+            Assert-Equal -Expected 1 -Actual $rec.schemaVersion -Because 'schemaVersion'
+            Assert-Equal -Expected ('42' + ('b' * 30)) -Actual $rec.hostId -Because 'hostId from the process global'
+            Assert-Equal -Expected 'host.windows.hyper-v' -Actual $rec.hostType -Because 'hostType passthrough'
+            Assert-Equal -Expected 'hyper-v' -Actual $rec.hypervisor -Because 'hypervisor derived from hostType'
             Assert-True ($null -ne $rec.capabilities) 'capabilities block present'
-            Assert-Equal 'host.windows.hyper-v' $rec.capabilities.hostType 'capabilities carries hostType'
+            Assert-Equal -Expected 'host.windows.hyper-v' -Actual $rec.capabilities.hostType -Because 'capabilities carries hostType'
             # Reserved Horizon-B / planner fields exist (as null) so consumers can rely on the shape.
             foreach ($f in 'capacity','ipPool','disk','supportedGuests') {
                 Assert-True ($rec.PSObject.Properties.Name -contains $f) "reserved field present: $f"
@@ -89,10 +89,10 @@ Describe 'Write-HostRegistrationRecord' {
             $regPath = Join-Path $fx.Tmp 'host.registration.json'
             [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
             $kvm = (Get-Content -Raw $regPath | ConvertFrom-Json).hypervisor
-            Assert-Equal 'kvm' $kvm 'host.ubuntu.kvm -> kvm'
+            Assert-Equal -Expected 'kvm' -Actual $kvm -Because 'host.ubuntu.kvm -> kvm'
             [void](Write-HostRegistrationRecord -HostType 'host.macos.utm' -RepoRoot $fx.Tmp)
             $utm = (Get-Content -Raw $regPath | ConvertFrom-Json).hypervisor
-            Assert-Equal 'utm' $utm 'host.macos.utm -> utm'
+            Assert-Equal -Expected 'utm' -Actual $utm -Because 'host.macos.utm -> utm'
         } finally { Remove-RegFixture -Fixture $fx }
     }
 
@@ -115,9 +115,9 @@ Describe 'Write-HostRegistrationRecord' {
             [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'pool.state.json'), ($state | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
             [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
-            Assert-Equal 'lab' $rec.poolId 'poolId carried'
-            Assert-Equal 3 $rec.gating.failuresBeforeAlert 'gating.failuresBeforeAlert carried'
-            Assert-Equal 0.5 $rec.gating.quorum.healthyThreshold 'gating.quorum.healthyThreshold carried'
+            Assert-Equal -Expected 'lab' -Actual $rec.poolId -Because 'poolId carried'
+            Assert-Equal -Expected 3 -Actual $rec.gating.failuresBeforeAlert -Because 'gating.failuresBeforeAlert carried'
+            Assert-Equal -Expected 0.5 -Actual $rec.gating.quorum.healthyThreshold -Because 'gating.quorum.healthyThreshold carried'
         } finally { Remove-RegFixture -Fixture $fx }
     }
 
@@ -129,6 +129,31 @@ Describe 'Write-HostRegistrationRecord' {
             [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
             Assert-True ($null -eq $rec.gating) 'gating null when pool.state.json carries none'
+        } finally { Remove-RegFixture -Fixture $fx }
+    }
+
+    It 'folds an active stash-server marker into activeExtensions + extensionTargets' {
+        $fx = New-RegFixture
+        try {
+            $marker = [ordered]@{ active = $true; vmName = 'yuruna-stash-service';
+                hostType = 'host.windows.hyper-v'; stashBaseUrl = 'http://10.0.0.5' }
+            [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'stash-server.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+            [void](Write-HostRegistrationRecord -HostType 'host.windows.hyper-v' -RepoRoot $fx.Tmp)
+            $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
+            Assert-True ($rec.activeExtensions -contains 'stash-service') 'activeExtensions carries stash-service'
+            Assert-Equal -Expected 'http://10.0.0.5' -Actual $rec.extensionTargets.'stash-service' -Because 'extensionTargets carries the advertised stash URL'
+        } finally { Remove-RegFixture -Fixture $fx }
+    }
+
+    It 'does not advertise a torn-down stash marker (active:false)' {
+        $fx = New-RegFixture
+        try {
+            $marker = [ordered]@{ active = $false; vmName = 'yuruna-stash-service';
+                hostType = 'host.windows.hyper-v'; stashBaseUrl = 'http://10.0.0.5' }
+            [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'stash-server.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+            [void](Write-HostRegistrationRecord -HostType 'host.windows.hyper-v' -RepoRoot $fx.Tmp)
+            $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
+            Assert-True (-not ($rec.activeExtensions -contains 'stash-service')) 'active:false marker is not advertised'
         } finally { Remove-RegFixture -Fixture $fx }
     }
 }

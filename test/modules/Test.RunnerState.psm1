@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42bc8a7d-e6f5-4d23-9180-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna runner state-machine lifecycle
+.TAGS yuruna test runner state-machine lifecycle
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -22,11 +22,11 @@
     persistent state + schema-validated NDJSON transition events.
 
 .DESCRIPTION
-    Before this module the outer's lifecycle was implicit -- a
-    watchdog or dashboard had to reconstruct what the runner was
-    DOING from a mix of heartbeat mtimes, pidfile presence, and
-    cycle-folder existence. This module gives the lifecycle an
-    explicit observable shape:
+    The outer runner's lifecycle needs an explicit, observable
+    shape: without one a watchdog or dashboard must reconstruct
+    what the runner is DOING from a mix of heartbeat mtimes,
+    pidfile presence, and cycle-folder existence. This module
+    gives the lifecycle that shape:
 
       idle           runner is alive and ready for the next cycle
       cycle-start    a new cycle is starting; pre-spawn work in flight

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -168,6 +168,65 @@ if ($HostType -eq 'host.macos.utm') {
         Write-Warning "utmctl start '$VMName' returned non-zero -- check UTM."
     }
 }
+
+# Advertise that THIS host actively runs a stash server, so the pool-aggregator
+# lists it in the dashboard's Extension hosts table. The marker (stash-server.json)
+# is folded into host.registration.json (activeExtensions + extensionTargets) by
+# Write-HostRegistrationRecord; the aggregator -- already polling every pool host's
+# registration -- reads it WITHOUT mounting ystash-nas or needing a Config Service on
+# its own host. Stop-StashServer.ps1 removes the marker. Best-effort throughout;
+# never fails the bring-up.
+Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
+$runtimeDir = $null
+try {
+    $runtimeDir = Initialize-YurunaRuntimeDir
+    $marker = [ordered]@{
+        active       = $true
+        vmName       = $VMName
+        hostType     = $HostType
+        startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    }
+    [System.IO.File]::WriteAllText((Join-Path $runtimeDir 'stash-server.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+    Write-Output "  Recorded stash-server marker -- this host will appear under Extension hosts."
+} catch { Write-Verbose "stash-server marker write: $($_.Exception.Message)" }
+
+# Resolve the stash VM's guest address into the marker (stashBaseUrl) so the
+# dashboard's Extension cell deep-links to the stash UI. Best-effort + bounded: a
+# Hyper-V External vSwitch can report the address minutes after boot, so poll
+# briefly; if it is not up yet the link stays absent until a later refresh (the
+# per-cycle runner call, or a re-run) populates it. Uses the host contract Get-VMIp
+# wired by Initialize-YurunaHost above.
+if ($runtimeDir) {
+    try {
+        $stashUrl = Update-StashServerMarkerAddress -RuntimeDir $runtimeDir -VMName $VMName -TimeoutSeconds 180
+        if ($stashUrl) { Write-Output "  Stash VM address: $stashUrl (Extension cell deep-links here)." }
+        else { Write-Output "  Stash VM address not resolved yet -- the Extension deep-link populates on a later refresh." }
+    } catch { Write-Verbose "stash address resolve: $($_.Exception.Message)" }
+}
+
+# Publish the marker NOW: regenerate host.registration.json so the aggregator sees
+# the active extension on its next poll, without waiting for a test cycle (the only
+# other point Write-HostRegistrationRecord runs). It reads the runtime dir +
+# $global:__YurunaHostId; Set-Variable -Scope Global keeps PSAvoidGlobalVars quiet.
+try {
+    Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
+    Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
+    if (Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot) {
+        Write-Output "  Refreshed host.registration.json (Extension hosts updates within one aggregator poll)."
+    }
+} catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
+
+# The aggregator can only READ that registration if a status server is serving
+# /runtime/host.registration.json. A host that runs test cycles already has one up;
+# a stash-only host would not, so ensure it here -- making "start the stash service"
+# sufficient for the host to appear, no test runner required. Honors
+# statusService.isEnabled + port; a healthy server is left running (compare-and-skip).
+try {
+    $statusScript = Join-Path $RepoRoot 'test/Start-StatusService.ps1'
+    if ($tc -and (Test-Path -LiteralPath $statusScript)) {
+        [void](Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript)
+    }
+} catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
 
 Write-Output ""
 Write-Output "== stash-service start: complete =="

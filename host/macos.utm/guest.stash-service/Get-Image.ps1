@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,17 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
+# Skip-if-same-source guard. Test-DownloadAlreadyCurrent (Yuruna.Host.psm1)
+# returns $true only when ALL of the following match the on-disk state:
+#   * $baseImageFile exists
+#   * the sentinel records the same filename, URL, byte count, AND
+#     Last-Modified date as a fresh HEAD probe of $sourceUrl
+# Any mismatch -- including a legacy 3-line sentinel that lacks the
+# Last-Modified field -- forces a re-download. The only way to force a
+# re-download manually is to delete or rename $baseImageFile (or
+# $baseImageOrigin). The 4-line sentinel guards against the silent-skip
+# regression class where a noble->resolute style URL bump matches the
+# byte count by coincidence.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {

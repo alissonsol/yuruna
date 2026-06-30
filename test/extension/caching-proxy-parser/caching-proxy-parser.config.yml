@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../schemas/extension-config.schema.json
+# yaml-language-server: $schema=../../schemas/extension-config.schema.yml
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.

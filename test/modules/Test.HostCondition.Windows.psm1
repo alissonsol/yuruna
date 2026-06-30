@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -232,8 +232,8 @@ function Install-YurunaVirtualDisplay {
     # other state -- zero, several stacked, or one present-but-unhealthy --
     # reset deterministically: enableidd 0 disables ALL usbmmidd monitors,
     # then enableidd 1 brings up a single fresh one. The reset is independent
-    # of the health detection, so it cannot keep stacking the way the old
-    # "is one OK?" gate did when a monitor was present but not 'OK'.
+    # of the health detection, so it cannot keep stacking the way a boolean
+    # "is one OK?" gate would when a monitor is present but not 'OK'.
     $alreadyOne = (((& $healthyCount) -eq 1) -and ((& $presentCount) -eq 1))
     if ($alreadyOne) {
         $status = 'AlreadyActive'
@@ -1007,7 +1007,7 @@ function Set-YurunaDisplayScale100 {
         if ($u -gt [int32]::MaxValue) { return [int32]($u - 0x100000000) } else { return [int32]$u }
     }
 
-    # 7a. Per-monitor DPI
+    # ── 1. Per-monitor DPI ───────────────────────────────
     # foreach statement (not ForEach-Object) so $scaleChanged writes
     # reach function scope — ForEach-Object's scriptblock runs in a
     # child scope where the assignment would be silently local.
@@ -1038,8 +1038,9 @@ function Set-YurunaDisplayScale100 {
         Write-Verbose "HKCU:\Control Panel\Desktop\PerMonitorSettings absent; skipping per-monitor DPI override."
     }
 
-    # 7b. System-wide DPI (LogPixels fallback for non-per-monitor-aware
-    # apps). Touch only when LogPixels overrides the default (96).
+    # ── 2. System-wide DPI (LogPixels fallback) ────────────
+    # For non-per-monitor-aware
+    # apps. Touch only when LogPixels overrides the default (96).
     # Win8DpiScaling=1 is meaningful only alongside a non-96 LogPixels
     # — tells Windows to honor it. Default state (LogPixels=96,
     # Win8DpiScaling=0) is 100%; skip the write to avoid churning
@@ -1059,7 +1060,7 @@ function Set-YurunaDisplayScale100 {
         Write-Information "System DPI (LogPixels) is already 96 (100%)."
     }
 
-    # 7c. Windows 11 Accessibility "Text size"
+    # ── 3. Windows 11 Accessibility "Text size" ─────────
     $accPath = 'HKCU:\Software\Microsoft\Accessibility'
     if (-not (Test-Path -LiteralPath $accPath)) {
         if ($PSCmdlet.ShouldProcess($accPath, 'Create Accessibility key')) {

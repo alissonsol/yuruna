@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e6b2d9-4a17-4c83-9f25-3b8c1d6e0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,8 +55,8 @@ Describe 'status.json lastFailure surface' {
             -ReproCommand 'pwsh test/Test-Sequence.ps1 -SequenceName "wl.test"' -RelPath 'last_failure.json' `
             -GuestKey 'guest.x' -StepName 'Start-GuestWorkload' -ErrorMessage 'OCR timeout' -VmName 'vm1' -Confirm:$false
         $j2 = Get-Content -Raw $sf | ConvertFrom-Json
-        Assert-Equal 'ocr_timeout' $j2.lastFailure.failureClass 'cause recorded'
-        Assert-Equal 3 $j2.lastFailure.stepNumber 'step recorded'
+        Assert-Equal -Expected 'ocr_timeout' -Actual $j2.lastFailure.failureClass -Because 'cause recorded'
+        Assert-Equal -Expected 3 -Actual $j2.lastFailure.stepNumber -Because 'step recorded'
         Assert-True ([string]$j2.lastFailure.reproCommand -match 'Test-Sequence') 'repro recorded'
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
     }
@@ -71,9 +71,9 @@ Describe 'status.json lastFailure surface' {
         Set-LastFailureSummary -FailureClass 'provisioning_failure' -Severity 'hard' -GuestKey 'guest.x' -StepName 'New-VM' -ErrorMessage 'boom' -VmName 'vm1' -Confirm:$false
         Complete-Run -OverallStatus 'fail' -MaxHistoryRuns 5
         $j = Get-Content -Raw $sf | ConvertFrom-Json
-        Assert-Equal 'provisioning_failure' $j.history[0].lastFailure.failureClass 'history row snapshots the cause'
-        Assert-Equal 'boom' $j.history[0].guestSummary.'guest.x'.errorMessage 'per-guest errorMessage persisted'
-        Assert-Equal 'provisioning_failure' $j.history[0].guestSummary.'guest.x'.failureClass 'per-guest failureClass persisted'
+        Assert-Equal -Expected 'provisioning_failure' -Actual $j.history[0].lastFailure.failureClass -Because 'history row snapshots the cause'
+        Assert-Equal -Expected 'boom' -Actual $j.history[0].guestSummary.'guest.x'.errorMessage -Because 'per-guest errorMessage persisted'
+        Assert-Equal -Expected 'provisioning_failure' -Actual $j.history[0].guestSummary.'guest.x'.failureClass -Because 'per-guest failureClass persisted'
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
     }
 

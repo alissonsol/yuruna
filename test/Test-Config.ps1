@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,6 +99,11 @@ Import-Module (Join-Path $script:ModulesDir 'Test.ConfigValidator.psm1') -Global
 # absolute-path + mtime + content-hash so the repeated reads here (and
 # per-cycle re-spawns) reuse one parse.
 Import-Module (Join-Path $script:ModulesDir 'Test.Config.psm1')          -Global -Force
+# Test.InnerSpawn exports Get-PwshExePath, the macOS-hardened resolver the
+# bootstrap-encoding gate below uses to re-spawn an identical child pwsh. A
+# bare (Get-Process -Id $PID).Path is null on macOS (no /proc), so this gate
+# must route through the shared resolver. Leaf module (no transitive deps).
+Import-Module (Join-Path $script:ModulesDir 'Test.InnerSpawn.psm1')      -Global -Force
 Initialize-OutputState
 
 # ── Section 1: Config file ────────────────────────────────────────────────────
@@ -138,23 +143,25 @@ try {
 }
 
 # ── Section 2b: Config schema vs template ────────────────────────────────────
-# The template is the schema source of truth. By default this validator
-# ADDITIVELY enforces it: every template field the live test.config.yml lacks is
-# written into the file with its empty/default value (ready to fill in), WITHOUT
-# touching the operator's existing keys and WITHOUT a backup. So the operator is
-# never left without the new fields, and nothing they typed is destroyed -- a
-# renamed section's old keys stay in the file to migrate by hand and remove
-# deliberately (Add-MissingTestConfigField in Test.ConfigSync.psm1):
-#   * nothing missing, shape matches          -> PASS
-#   * fields were missing and got added       -> PASS, listing the empty fields to fill in
-#   * old keys remain that the schema dropped -> WARN or FAIL per -OnConfigSchemaDrift
-#                                                (copy their values across, then delete them)
-# Separately, at cycle start the runner does a HARDER reconciliation
-# (Update-TestConfigFromTemplate, the same path Invoke-TestRunner uses): if the
-# nested SHAPE still departs from the template it backs the file up to
-# test.config.yml.backup, resets it to the template shape, carries matching values
-# forward, and STOPS if a populated value no longer maps -- so the old keys must be
-# removed before then. -ApplyConfigMigration runs that hard reconciliation now.
+# The template is the schema source of truth. By default this validator fully
+# reconciles the live test.config.yml to it (Sync-TestConfigToTemplate in
+# Test.ConfigSync.psm1):
+#   * every template field the file lacks is added with its empty/default value
+#   * every key the template no longer defines (e.g. a renamed section's old keys)
+#     is REMOVED -- and when the removed key carried a value the previous file is
+#     first backed up to test.config.yml.backup so it is always recoverable
+#   * the file is rewritten with every map key AND scalar-array element in
+#     alphabetical order, so it is byte-stable and diff-friendly
+# Operator values for keys that still map are kept; the out-of-band 'secrets' node
+# is preserved untouched. Outcomes:
+#   * already canonical, shape matches        -> PASS (no rewrite)
+#   * fields added / re-sorted                -> PASS, listing any new fields to fill in
+#   * populated keys dropped from the schema  -> WARN or FAIL per -OnConfigSchemaDrift
+#                                                (recover from the .backup if needed)
+# Separately, at cycle start the runner does the same reconciliation via
+# Update-TestConfigFromTemplate (the path Invoke-TestRunner uses), which also STOPS
+# the run if a populated value no longer maps. -ApplyConfigMigration runs that
+# stop-on-unmappable reconciliation now instead of the validator's report-only one.
 
 Write-Section "Config schema vs template"
 
@@ -184,25 +191,32 @@ if (-not (Test-Path $TemplatePath)) {
             $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
             Write-Pass "Config migrated to the template schema; previous file backed up to $backupPath. Re-run Test-Config to validate the migrated file."
         } else {
-            # Default: ADDITIVELY enforce the schema so the operator is never left
-            # without the new fields to fill in. Write every template field the file
-            # lacks (empty/default value) without touching existing keys and without
-            # a backup; a renamed section's old keys stay put for hand-migration.
-            $res = Add-MissingTestConfigField -Template $templateDoc -Current $Config -ConfigPath $ConfigPath
+            # Default: reconcile the file to the template -- add missing fields,
+            # drop keys the template no longer defines (backing up first when a
+            # populated key is dropped), and rewrite in canonical alphabetical
+            # order. Operator values that still map are kept; 'secrets' untouched.
+            $res = Sync-TestConfigToTemplate -Template $templateDoc -Current $Config -ConfigPath $ConfigPath
             $Config = $res.Config
 
             if ($res.Wrote) {
-                $addedList = ($res.Added | ForEach-Object { "          - $_" }) -join "`n"
-                Write-Pass "test.config.yml was missing $($res.Added.Count) field(s) from the current schema; added them with empty/default values (existing values untouched, no backup). Fill these in:`n$addedList"
+                $summary = [System.Collections.Generic.List[string]]::new()
+                if ($res.Added.Count   -gt 0) { [void]$summary.Add("added $($res.Added.Count) missing field(s)") }
+                if ($res.Removed.Count -gt 0) { [void]$summary.Add("removed $($res.Removed.Count) key(s) not in the schema") }
+                [void]$summary.Add("sorted to alphabetical order")
+                Write-Pass "test.config.yml reconciled to the template: $($summary -join '; ')."
+                if ($res.Added.Count -gt 0) {
+                    $addedList = ($res.Added | ForEach-Object { "          - $_" }) -join "`n"
+                    Write-Info "New fields written with empty/default values -- fill these in:`n$addedList"
+                }
             } elseif ($shapeMatches) {
                 Write-Pass "test.config.yml matches the template's nested schema."
             } else {
-                Write-Info "test.config.yml schema differs from the template but already carries every current-schema field; nothing to add."
+                Write-Info "test.config.yml already carries every current-schema field in canonical order; nothing to change."
             }
 
-            if ($res.Orphans.Count -gt 0) {
-                $orphanList = ($res.Orphans | ForEach-Object { "          - $_" }) -join "`n"
-                $msg = "test.config.yml still has $($res.Orphans.Count) populated key(s) that are NOT part of the current schema (for example, left over from a renamed section). They were kept in place. Copy each value into its matching new field above, then DELETE the old key -- otherwise the runner backs the file up to $ConfigPath.backup and resets it (dropping these) at cycle start. Old keys:`n$orphanList`nTo instead reset to the template now (backup + carry matching values forward, dropping these), re-run with -ApplyConfigMigration."
+            if ($res.Removed.Count -gt 0) {
+                $removedList = ($res.Removed | ForEach-Object { "          - $_" }) -join "`n"
+                $msg = "test.config.yml had $($res.Removed.Count) populated key(s) that are NOT part of the current schema (for example, left over from a renamed section). They were REMOVED from the file; the previous file was backed up to $($res.BackupPath) so you can copy any value across by hand. Removed keys:`n$removedList"
                 if ($OnConfigSchemaDrift -eq 'Fail') {
                     Write-Fail $msg -FullPath $ConfigPath
                 } else {
@@ -1314,7 +1328,7 @@ $asciiGate = Join-Path $TestRoot "Test-AsciiNoBom.ps1"
 if (-not (Test-Path -LiteralPath $asciiGate)) {
     Write-Info "Test-AsciiNoBom.ps1 not found at ${asciiGate}; encoding gate skipped."
 } else {
-    $asciiPwsh = (Get-Process -Id $PID).Path
+    $asciiPwsh = Get-PwshExePath
     $asciiOut  = & $asciiPwsh -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Pass "irm|iex installer and guest scripts are BOM-less 7-bit ASCII."

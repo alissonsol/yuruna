@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,6 +115,17 @@ function Invoke-PerGuestNewVm {
 }
 
 function Write-GetImageLine {
+    <#
+    .SYNOPSIS
+        Echo a Get-Image progress line to the console and, when a per-cycle HTML
+        log is open, append its HTML-encoded copy to that log.
+    .DESCRIPTION
+        The console write is unconditional. The HTML-log append happens only
+        while global:__YurunaLogFile holds the runner's per-cycle log handle;
+        the line is HtmlEncode'd first so guest output containing <, >, or &
+        cannot break the surrounding log markup, and the append is best-effort
+        (a transient file error does not fail the caller).
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = 'global:__YurunaLogFile is the per-cycle HTML log handle, set/cleared by the runner; intentionally process-wide.')]
     [CmdletBinding()]
@@ -238,7 +249,13 @@ function Invoke-CachingProxyAvailableProbe {
         $tcp = New-Object System.Net.Sockets.TcpClient
         try {
             $async = $tcp.BeginConnect($externIp, $httpPort, $null, $null)
-            if ($async.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected) {
+            # 3s cap, not 1s: this is the EXTERNAL/remote proxy path. A cross-host
+            # cache (e.g. a UTM/macOS-hosted squid over bridged networking) routinely
+            # takes 600ms-1s+ to ACCEPT a TCP connection, so a 1s cap false-negatives
+            # and the runner reports a healthy remote cache as "did not answer." The
+            # cap is free for a fast cache (connect returns on accept); it only delays
+            # the verdict for a genuinely-down one.
+            if ($async.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected) {
                 return "http://$(Format-IpUrlHost $externIp):${httpPort}"
             }
         } catch {
@@ -246,7 +263,7 @@ function Invoke-CachingProxyAvailableProbe {
         } finally {
             $tcp.Close()
         }
-        Write-Warning "YURUNA_CACHING_PROXY_IP=${externIp} set but ${externIp}:${httpPort} did not answer."
+        Write-Warning "YURUNA_CACHING_PROXY_IP=${externIp} set but ${externIp}:${httpPort} did not answer within 3s."
         return $null
     }
 

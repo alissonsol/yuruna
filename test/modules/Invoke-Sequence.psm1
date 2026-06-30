@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -195,12 +195,22 @@ Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
 # getter returns the live value so the caller can capture the cycle baseline and
 # restore it between guests. No-op on the single-host path (never called).
 function Get-DefaultKeystrokeMechanism {
+    <#
+    .SYNOPSIS
+        Returns the live per-guest keystroke mechanism so a caller can capture
+        the cycle baseline and restore it between guests.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
     return [string]$script:DefaultKeystrokeMechanism
 }
 
+<#
+.SYNOPSIS
+    Sets the per-guest keystroke mechanism, writing both the engine variable
+    and its environment mirror so the two reads stay in lockstep.
+#>
 function Set-EngineKeystrokeMechanism {
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -238,9 +248,8 @@ function Send-Key {
     Host-aware dispatcher for sending a named key (e.g. Enter, Tab) to
     the guest VM's GUI keyboard input channel.
 .DESCRIPTION
-    Dispatches via the Test.HostIO registry. Per-host backends are
-    registered at module-load time below (search for
-    Register-HostIOProvider 'Send-Key'). Yuruna.Host's Send-Key contract
+    Routes by HostType to the matching backend (Send-KeyHyperV; VNC-first
+    then Send-KeyUTM on UTM; Send-KeyKvm). Yuruna.Host's Send-Key contract
     routes here so each host driver doesn't import the platform-specific
     helpers itself.
 #>
@@ -1122,6 +1131,11 @@ function Invoke-SequenceByName {
 # did, so step numbering, totals, and PASS/FAIL logging are identical for a
 # windowed run.
 function Select-SequenceStepWindow {
+    <#
+    .SYNOPSIS
+        Slices a sequence's steps to an optional 1-based window, renumbered 1..N,
+        so a step range can run without writing a sliced temp YAML.
+    #>
     [CmdletBinding()]
     [OutputType([object[]])]
     param(
@@ -1142,6 +1156,11 @@ function Select-SequenceStepWindow {
 # sequence so the next one targets the renamed VM -- one shared mechanism for
 # both the inner runner's Start-Guest* loops and Test-Sequence's chain runner.
 function Get-SequenceFinishedVMName {
+    <#
+    .SYNOPSIS
+        Returns the VM name in effect when the most recent Invoke-Sequence
+        returned, including any mid-sequence saveDiskSnapshot rename.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()

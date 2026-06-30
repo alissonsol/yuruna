@@ -316,7 +316,7 @@ The VM runs these services alongside squid:
 | Squid HTTPS     | 3129 | 0.0.0.0, RFC1918         | SSL-bump — caches HTTPS bodies. |
 
 **Grafana (primary UI)** — `http://<caching-proxy-vm-ip>:3000`. Anonymous
-Viewer. Pre-provisioned "Yuruna Caching Proxy" dashboard:
+Viewer. Pre-provisioned "Yuruna caching proxy" dashboard:
 
 - Client HTTP(S) data served (kB/s): total vs cached — Total:
   `rate(squid_client_http_kbytes_out_kbytes_total[5m])`,
@@ -849,6 +849,6 @@ these at deploy time rather than after a restart that fails to bind.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.26
+Last review: 2026.06.30
 
 Back to [Yuruna](../README.md)

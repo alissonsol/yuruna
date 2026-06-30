@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e9c5b7-2d18-4a3f-bc60-7f1e9a8d2c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,19 +44,19 @@ Describe 'New-YurunaDegradationRecord' {
             -Primary 'ssh-sequence' -Fallback 'gui-sequence' `
             -Reason 'no ssh variant for start.ubuntu.yml' -Severity 'soft' `
             -Timestamp '2026-06-08T12:00:00Z'
-        Assert-Equal 'degradation'          $r.event       'event name'
-        Assert-Equal 'keystroke-mechanism'  $r.dependency  'dependency'
-        Assert-Equal 'ssh-sequence'         $r.primary     'primary'
-        Assert-Equal 'gui-sequence'         $r.fallback    'fallback'
-        Assert-Equal 'no ssh variant for start.ubuntu.yml' $r.reason 'reason'
-        Assert-Equal 'soft'                 $r.severity    'severity'
-        Assert-Equal '2026-06-08T12:00:00Z' $r.timestamp   'timestamp passthrough'
+        Assert-Equal -Expected 'degradation'          -Actual $r.event       -Because 'event name'
+        Assert-Equal -Expected 'keystroke-mechanism'  -Actual $r.dependency  -Because 'dependency'
+        Assert-Equal -Expected 'ssh-sequence'         -Actual $r.primary     -Because 'primary'
+        Assert-Equal -Expected 'gui-sequence'         -Actual $r.fallback    -Because 'fallback'
+        Assert-Equal -Expected 'no ssh variant for start.ubuntu.yml' -Actual $r.reason -Because 'reason'
+        Assert-Equal -Expected 'soft'                 -Actual $r.severity    -Because 'severity'
+        Assert-Equal -Expected '2026-06-08T12:00:00Z' -Actual $r.timestamp   -Because 'timestamp passthrough'
     }
 
     It 'defaults severity to soft and reason to empty' {
         $r = New-YurunaDegradationRecord -Dependency 'caching-proxy' -Primary 'squid' -Fallback 'direct-internet' -Timestamp '2026-06-08T12:00:00Z'
-        Assert-Equal 'soft' $r.severity 'default severity'
-        Assert-Equal ''     $r.reason   'default reason'
+        Assert-Equal -Expected 'soft' -Actual $r.severity -Because 'default severity'
+        Assert-Equal -Expected ''     -Actual $r.reason   -Because 'default reason'
     }
 
     It 'stamps a UTC Z timestamp when none is supplied' {
@@ -68,7 +68,7 @@ Describe 'New-YurunaDegradationRecord' {
         $r = New-YurunaDegradationRecord -Dependency 'capture-feed' -Primary 'live-framebuffer' `
             -Fallback 'console-restart' -Reason 'frozen feed' -Severity 'soft' -Timestamp '2026-06-08T12:00:00Z'
         $violations = @(Test-CycleEventSchema -Record $r)
-        Assert-Equal 0 $violations.Count "schema violations: $($violations -join '; ')"
+        Assert-Equal -Expected 0 -Actual $violations.Count -Because "schema violations: $($violations -join '; ')"
     }
 
     It 'rejects an out-of-set severity at the parameter binder' {
@@ -125,8 +125,8 @@ Describe 'Stop-LogFile last_failure.json archiving' {
             Assert-True (Test-Path (Join-Path $fx.Final 'last_failure.json')) 'last_failure.json archived into the cycle folder'
             $man = Get-Content -Raw (Join-Path $fx.Final 'manifest.json') | ConvertFrom-Json
             $entry = @($man.artifacts | Where-Object { $_.path -eq 'last_failure.json' })
-            Assert-Equal 1 $entry.Count 'manifest lists last_failure.json exactly once'
-            Assert-Equal 'failure' $entry[0].kind 'manifest classifies it as kind=failure'
+            Assert-Equal -Expected 1 -Actual $entry.Count -Because 'manifest lists last_failure.json exactly once'
+            Assert-Equal -Expected 'failure' -Actual $entry[0].kind -Because 'manifest classifies it as kind=failure'
         } finally { Restore-ArchiveFixture -Fixture $fx }
     }
 
@@ -141,8 +141,8 @@ Describe 'Stop-LogFile last_failure.json archiving' {
             Assert-True (Test-Path (Join-Path $fx.Final 'last_remediation.json')) 'last_remediation.json archived into the cycle folder'
             $man = Get-Content -Raw (Join-Path $fx.Final 'manifest.json') | ConvertFrom-Json
             $entry = @($man.artifacts | Where-Object { $_.path -eq 'last_remediation.json' })
-            Assert-Equal 1 $entry.Count 'manifest lists last_remediation.json exactly once'
-            Assert-Equal 'remediation' $entry[0].kind 'manifest classifies it as kind=remediation'
+            Assert-Equal -Expected 1 -Actual $entry.Count -Because 'manifest lists last_remediation.json exactly once'
+            Assert-Equal -Expected 'remediation' -Actual $entry[0].kind -Because 'manifest classifies it as kind=remediation'
         } finally { Restore-ArchiveFixture -Fixture $fx }
     }
 
@@ -171,7 +171,7 @@ Describe 'Format-CycleFolderBaseName (hostname-free cycle folder)' {
 
     It 'uses the opaque hostId as the 4th segment, not the hostname' {
         $name = Format-CycleFolderBaseName -CycleNumber 1058 -CycleId '2026-06-10T15:46:13Z' -HostId '4253419c1f0b45a08260f36a1521a857'
-        Assert-Equal '001058.2026-06-10.15-46-13.4253419c1f0b45a08260f36a1521a857' $name 'hostId in the 4th segment, zero-padded cycle number'
+        Assert-Equal -Expected '001058.2026-06-10.15-46-13.4253419c1f0b45a08260f36a1521a857' -Actual $name -Because 'hostId in the 4th segment, zero-padded cycle number'
     }
 
     It 'keeps the 4-segment shape the rotation/recovery patterns require' {
@@ -181,7 +181,7 @@ Describe 'Format-CycleFolderBaseName (hostname-free cycle folder)' {
 
     It 'falls back to a placeholder (never empty / never the hostname) when no hostId is established' {
         $name = Format-CycleFolderBaseName -CycleNumber 1 -CycleId '2026-06-10T15:46:13Z' -HostId ''
-        Assert-Equal '000001.2026-06-10.15-46-13.unknown-host' $name 'empty hostId -> unknown-host placeholder'
+        Assert-Equal -Expected '000001.2026-06-10.15-46-13.unknown-host' -Actual $name -Because 'empty hostId -> unknown-host placeholder'
         Assert-True ($name -match '^\d{6}\..+\..+\..+$') 'placeholder still satisfies the 4-segment pattern'
     }
 }

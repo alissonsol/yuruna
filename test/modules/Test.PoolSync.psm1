@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,13 @@ $script:PoolSyncFetchTimeoutSec = 30
 # Mirrors Invoke-PoolStorageProcess; kept local so Test.PoolSync has no dependency
 # on Test.PoolStorage.
 function Invoke-PoolSyncGit {
+    <#
+    .SYNOPSIS
+        Runs a git command bounded by a wall-clock cap, killing the whole process tree on
+        timeout, with stdin closed and every interactive credential path neutralized so a
+        hung or prompting remote can never block the loop. Returns the exit code, 124 on
+        timeout, or -1 if git could not be started.
+    #>
     [CmdletBinding()]
     [OutputType([int])]
     param(
@@ -96,6 +103,13 @@ function Invoke-PoolSyncGit {
 # NOTE: the pool config carries NO poolId -- membership lives only in pools.yml
 # members[] (the single source of truth); the runner derives its pool from there.
 function Get-YurunaPoolConfig {
+    <#
+    .SYNOPSIS
+        Returns a normalized pool config object, or $null when the feature is off (no pool
+        block, enabled:false unless -IgnoreEnabled, or an empty intentGitUrl). Accepts an
+        already-parsed config; otherwise reads test.config.yml via the resolved
+        YURUNA_CONFIG_PATH. Carries no poolId -- membership lives only in pools.yml.
+    #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
@@ -145,6 +159,12 @@ function Get-YurunaPoolConfig {
 # host's stable hostId, return the pool object whose members[] contains the hostId
 # (the single-source-of-truth lookup), or $null. No I/O; unit-testable.
 function Resolve-YurunaPoolForHost {
+    <#
+    .SYNOPSIS
+        The pure core lookup: given parsed pool intent and this host's stable hostId,
+        returns the pool object whose members[] contains the hostId (the single source of
+        truth), or $null. No I/O; unit-testable.
+    #>
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
     param(
@@ -165,6 +185,12 @@ function Resolve-YurunaPoolForHost {
 # object, defaulting to 'run' when the pool is $null, the field is absent, or the
 # value is unrecognized (fail-safe: an unknown intent never silently pauses a host).
 function Resolve-YurunaPoolDesiredState {
+    <#
+    .SYNOPSIS
+        Returns run|paused|drain for a pool object, defaulting to 'run' when the pool is
+        $null, the field is absent, or the value is unrecognized (fail-safe: an unknown
+        intent never silently pauses a host). Pure; no I/O.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter()][AllowNull()]$Pool)
@@ -181,8 +207,16 @@ function Resolve-YurunaPoolDesiredState {
 # defaults" downstream; the caller passes $null only when the pool authored no gating
 # key at all (no alerts). Only the known numeric knobs are copied (extra keys dropped).
 function ConvertTo-PoolGatingRecord {
+    <#
+    .SYNOPSIS
+        Normalizes the operator-authored pools.yml gating block to the canonical record
+        carried to the aggregator (only the known numeric knobs are copied, extra keys
+        dropped). An empty block yields an empty ordered record (NOT $null) so it still
+        signals "alert with the schema defaults"; the caller passes $null only when the
+        pool authored no gating key at all.
+    #>
     [CmdletBinding()]
-    [OutputType([System.Collections.IDictionary])]
+    [OutputType([System.Collections.IDictionary], [System.Collections.Specialized.OrderedDictionary])]
     param([Parameter()][AllowNull()]$Gating)
     $rec = [ordered]@{}
     if ($Gating -is [System.Collections.IDictionary]) {
@@ -206,6 +240,14 @@ function ConvertTo-PoolGatingRecord {
 # Gating is null when the pool authored none (so registration carries no gating ->
 # the aggregator observes the pool's gauges but never pages it).
 function Write-YurunaPoolState {
+    <#
+    .SYNOPSIS
+        Persists the per-cycle pull result to runtime/pool.state.json so the fresh
+        inner-runner process can stamp the derived poolId + gating without re-pulling --
+        the filesystem is the cross-process channel. Atomic via Test.StateFile when
+        available, else a direct write. Returns $true on success. Gating is null when the
+        pool authored none.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -241,6 +283,14 @@ function Write-YurunaPoolState {
 # test-sets, any stale manifest is DELETED so the inner falls back to single-host
 # (the gate is "manifest present with a non-empty testSets[]"). Best-effort.
 function Write-YurunaPoolManifest {
+    <#
+    .SYNOPSIS
+        Persists the resolved pool's test-set assignment to runtime/pool.manifest.json so
+        the fresh inner-runner process drives the cycle from the pool's test-sets instead
+        of test.runner.yml. When the pool is $null or has no test-sets, any stale manifest
+        is deleted so the inner falls back to single-host. Best-effort; returns $true only
+        when a manifest was written.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter()][AllowNull()]$Pool)
@@ -287,6 +337,14 @@ function Write-YurunaPoolManifest {
 # last-good cloned pools.yml if present (stale-but-safe), else returns $null so the
 # host cycles as a single host. Never throws.
 function Sync-YurunaPoolIntent {
+    <#
+    .SYNOPSIS
+        The per-cycle pull, called in-process at the outer loop's cycle start: clone-or-
+        fetch the bare intent repo (bounded), parse pools.yml, find this host's pool by
+        hostId, persist the derived poolId + desiredState to runtime/pool.state.json, and
+        return the pool object (or $null). Falls back to the last-good cached pools.yml
+        when the remote is unreachable, else cycles as a single host. Never throws.
+    #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = 'Reads $global:__YurunaHostId -- the cross-host identity channel the entry point sets -- to find this host in pools.yml members[].')]

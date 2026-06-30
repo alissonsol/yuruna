@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42a7b8c9-d0e1-4f23-4567-8a9b0c112435
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,7 +49,7 @@ param (
     [string]$logLevel='Error'
 )
 
-# logLevel cascade — see Invoke-Clear.ps1 for rationale.
+# logLevel cascade -- see Invoke-Clear.ps1 for rationale.
 $_logRank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
 $_logEff  = $_logRank[$logLevel]
 $global:WarningPreference     = if ($_logRank.Warning     -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }

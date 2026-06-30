@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.26
+.VERSION 2026.06.30
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,11 @@
 # explicitly so the helpers stay testable.
 
 function Get-OuterCommitSha {
+    <#
+    .SYNOPSIS
+        Return the local HEAD SHA of the repo at $RepoRoot, or $null when
+        git fails (not a repo, detached/unborn HEAD, git error).
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$RepoRoot)
@@ -53,6 +58,12 @@ function Get-OuterCommitSha {
 }
 
 function Test-OuterNewCommitsAvailable {
+    <#
+    .SYNOPSIS
+        Fetch origin and report whether the upstream tracking branch's tip
+        now differs from $BaselineSha. $false on any git/fetch failure or
+        when there is no upstream.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -67,6 +78,11 @@ function Test-OuterNewCommitsAvailable {
 }
 
 function Invoke-OuterGitPull {
+    <#
+    .SYNOPSIS
+        Fast-forward-only pull of the repo at $RepoRoot, streaming git's
+        output. Returns $true when the pull succeeded, $false otherwise.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$RepoRoot)
@@ -74,11 +90,14 @@ function Invoke-OuterGitPull {
     return ($LASTEXITCODE -eq 0)
 }
 
-# Query a remote repo's current HEAD SHA without needing a local clone.
-# Used for the repositories.projectUrl probe (the project is wiped +
-# re-cloned at cycle start, so a local clone may not exist mid-pause).
-# Returns $null on any failure.
 function Get-OuterRemoteSha {
+    <#
+    .SYNOPSIS
+        Query a remote repo's current HEAD SHA via git ls-remote without
+        needing a local clone (the project is wiped + re-cloned at cycle
+        start, so a local clone may not exist mid-pause). $null on empty
+        URL or any failure.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$RemoteUrl)
@@ -88,12 +107,15 @@ function Get-OuterRemoteSha {
     return ([string]$line).Split("`t")[0].Trim()
 }
 
-# Snapshot the on-disk mtime of test.config.yml. Returns $null when
-# the file is missing -- pairs with the comparison logic in the pause
-# loop: a $null / non-null transition (file deleted or created mid-
-# pause) is itself a change worth breaking on, so the operator can
-# edit/create the config and expect a near-immediate cycle restart.
 function Get-OuterConfigMtime {
+    <#
+    .SYNOPSIS
+        Snapshot the on-disk UTC mtime of test.config.yml, or $null when
+        the file is missing. The pause loop compares two snapshots with
+        -ne, so a $null / non-null transition (config deleted or created
+        mid-pause) is itself a change worth breaking on, letting an
+        operator edit/create the config and get a near-immediate restart.
+    #>
     [CmdletBinding()]
     [OutputType([Nullable[datetime]])]
     param([Parameter(Mandatory)][string]$ConfigPath)
@@ -107,16 +129,17 @@ function Get-OuterConfigMtime {
     return $null
 }
 
-# Read testCycle.stepTimeoutMinutes from test.config.yml each cycle so
-# an operator can edit between cycles and the new bound takes effect
-# on the next spawn without restarting the outer.
-# Get-OuterPoolTestCycleOverride extracts a pool's config.testCycle override map
-# from the pool object Sync-YurunaPoolIntent returns. PURE + null-safe: returns @{}
-# for a null pool / no config / no testCycle, so a no-pool host overlays nothing
-# (identical to single-host today). Read straight off the pool object -- not the
-# pool.manifest.json -- so a pool that authors a testCycle override WITHOUT test-sets
-# still applies it (the manifest is deleted when a pool has no test-sets).
 function Get-OuterPoolTestCycleOverride {
+    <#
+    .SYNOPSIS
+        Extract a pool's config.testCycle override map from the pool object
+        Sync-YurunaPoolIntent returns. PURE + null-safe: returns @{} for a
+        null pool / no config / no testCycle, so a no-pool host overlays
+        nothing (identical to single-host). Reads straight off the pool
+        object -- not pool.manifest.json -- so a pool that authors a
+        testCycle override WITHOUT test-sets still applies it (the manifest
+        is deleted when a pool has no test-sets).
+    #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param([Parameter()][AllowNull()]$Pool)
@@ -133,6 +156,14 @@ function Get-OuterPoolTestCycleOverride {
 }
 
 function Get-OuterStepTimeoutMinute {
+    <#
+    .SYNOPSIS
+        Read testCycle.stepTimeoutMinutes from test.config.yml each cycle so
+        an operator can edit between cycles and the new bound takes effect on
+        the next spawn without restarting the outer. A positive per-pool
+        config.testCycle override WINS over the local config (precedence:
+        pool > config > default).
+    #>
     [CmdletBinding()]
     [OutputType([int])]
     param(
@@ -214,6 +245,12 @@ function Get-OuterLastFailureClass {
 }
 
 function Get-OuterProjectUrl {
+    <#
+    .SYNOPSIS
+        Return repositories.projectUrl from test.config.yml, or $null when
+        it is unset -- the remote the failure-pause polls for new project
+        commits.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$ConfigPath)

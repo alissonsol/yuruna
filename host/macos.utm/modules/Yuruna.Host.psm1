@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -681,7 +681,9 @@ function Confirm-UtmVMCreated {
         Write-Output "Verified: $configPlist"
         return $true
     }
-    Write-Error "VM verification failed: $configPlist not found."
+    # Write-Warning (not Write-Error) for this expected-negative outcome so the [bool] contract
+    # holds under a caller's ErrorActionPreference=Stop instead of throwing a terminating error.
+    Write-Warning "VM verification failed: $configPlist not found."
     return $false
 }
 
@@ -695,15 +697,14 @@ function Remove-UtmTestVM {
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove VM')) { return $false }
     & utmctl stop "$VMName" 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Output "Stopped UTM VM: $VMName"
-        $waited = 0
-        while ($waited -lt 30) {
-            Start-Sleep -Seconds 2
-            $waited += 2
-            $status = & utmctl status "$VMName" 2>&1
-            if ($status -match "stopped|shutdown") { break }
-        }
+    if ($LASTEXITCODE -eq 0) { Write-Output "Stopped UTM VM: $VMName" }
+    # Confirm the VM is actually powered off (escalating to `utmctl stop --kill`
+    # if the soft stop stalls) and its qcow2/bundle handles are released BEFORE
+    # delete -- otherwise `utmctl delete` can run against a still-locked bundle.
+    # Wait-UtmVMPoweredOff drives the same kill-escalation + lock check the
+    # snapshot paths use.
+    if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
+        Write-Warning "Remove-UtmTestVM: '$VMName' did not confirm powered-off within the timeout; proceeding with delete, but the bundle may still be locked."
     }
     & utmctl delete "$VMName" 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
@@ -799,7 +800,9 @@ function Confirm-UtmVMStarted {
         }
         Start-Sleep -Seconds 1
     }
-    Write-Error "UTM VM '$VMName' did not reach running state within ${TimeoutSeconds}s"
+    # Write-Warning (not Write-Error) for this expected-negative timeout so the [bool] contract
+    # holds under a caller's ErrorActionPreference=Stop instead of throwing a terminating error.
+    Write-Warning "UTM VM '$VMName' did not reach running state within ${TimeoutSeconds}s"
     return $false
 }
 
@@ -2365,11 +2368,13 @@ function Get-VMIp {
                 if ($text -notmatch "(?m)^\s*name=$([regex]::Escape($VMName))\s*$") { continue }
                 if (($text -match "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") -and (Test-Ipv4Address $Matches[1])) {
                     $ip = [string]$Matches[1]
-                    $leaseVal = 0
-                    if ($text -match "(?m)^\s*lease=0x([0-9a-fA-F]+)\s*$") {
-                        $leaseVal = [Convert]::ToInt64($Matches[1], 16)
-                    }
-                    if ($leaseVal -ge $bestLease) { $bestLease = $leaseVal; $bestIp = $ip }
+                    # A block with no parseable lease= is ineligible: it cannot prove it is the
+                    # live (renewing) VM, so it must not displace a block that has a real expiry.
+                    if ($text -notmatch "(?m)^\s*lease=0x([0-9a-fA-F]+)\s*$") { continue }
+                    $leaseVal = [Convert]::ToInt64($Matches[1], 16)
+                    # Strict -gt so an equal/zero-expiry later block cannot displace an earlier,
+                    # higher-expiry (more recently renewed) block already recorded.
+                    if ($leaseVal -gt $bestLease) { $bestLease = $leaseVal; $bestIp = $ip }
                 }
             }
             if ($bestIp) { return $bestIp }
@@ -2638,18 +2643,27 @@ function Add-PortMap {
     # leaves OTHER ports' forwarders alone -- mid-cycle :3000 refresh
     # MUST NOT disturb the running :3128 forwarder.
     $launched = @()
+    $failed = @()
+    $attempted = 0
     foreach ($m in $mappings) {
         $useProxy = $proxyProtoSet.ContainsKey([int]$m.HostPort)
         $proxyTag = if ($useProxy) { ' [PROXY v1]' } else { '' }
         if (-not $PSCmdlet.ShouldProcess("0.0.0.0:$($m.HostPort) -> ${VMIp}:$($m.VMPort)${proxyTag}", 'Launch macOS squid forwarder')) { continue }
+        $attempted++
         $started = if ($useProxy) {
             Start-CachingProxyForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort -PrependProxyV1
         } else {
             Start-CachingProxyForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort
         }
-        if ($started) { $launched += $m.HostPort }
+        if ($started) { $launched += $m.HostPort } else { $failed += $m.HostPort }
     }
-    return ($launched.Count -gt 0)
+    if ($failed.Count -gt 0) {
+        Write-Warning "Add-PortMap: forwarder(s) failed to launch for port(s): $($failed -join ', '). The cache pipeline for those ports is unavailable."
+    }
+    # Report success only when EVERY attempted forwarder launched. A partial launch reported as
+    # success hides a missing forwarder (e.g. :3128 / :3129 / SSH) so downstream guest fetches
+    # silently bypass or fail against the cache with no recovery triggered.
+    return ($attempted -gt 0 -and $launched.Count -eq $attempted)
 }
 
 <#

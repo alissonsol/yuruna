@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,12 +182,20 @@ $errors = 0
 foreach ($item in $orphanedItems) {
     try {
         # Belt-and-suspenders: make sure libvirt didn't pick up the domain
-        # between the initial scan and the actual delete. `virsh dominfo`
-        # exits non-zero when the domain is unknown -- that's the only
-        # case where the directory is truly orphaned.
-        $null = & virsh --connect $virshUri dominfo $item.Name 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        # between the initial scan and the actual delete.
+        $dominfoOutput = & virsh --connect $virshUri dominfo $item.Name 2>&1
+        $dominfoExit   = $LASTEXITCODE
+        if ($dominfoExit -eq 0) {
             Write-Warning "  Skipped: $($item.Path) -- domain '$($item.Name)' is registered with libvirt. Remove it first."
+            $errors++
+            continue
+        }
+        # Only a genuine "unknown domain" confirms the directory is orphaned. Any OTHER non-zero
+        # exit (libvirtd down, socket/permission, transient) must NOT be read as orphaned -- deleting
+        # then would destroy a live VM's disk. Require the not-found signature before deleting.
+        $dominfoText = ($dominfoOutput | Out-String)
+        if ($dominfoText -notmatch 'Domain not found|failed to get domain') {
+            Write-Warning "  Skipped: $($item.Path) -- could not confirm '$($item.Name)' is unregistered (virsh dominfo exit ${dominfoExit}): $($dominfoText.Trim())"
             $errors++
             continue
         }

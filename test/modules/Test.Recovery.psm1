@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42fa7b6c-d5e4-4a83-9170-2f3a4b5c6d94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -247,10 +247,16 @@ function Clear-StalePidFile {
     .DESCRIPTION
         Reads the pidfile, looks up the process, and removes the
         pidfile (plus its companion if -CompanionPath is given) when
-        the process is gone. A self-PID is left alone -- this helper
-        only clears pidfiles claimed by a DEAD prior occupant, never
-        the live caller. Returns the pid that was cleared, or $null
-        when no clear happened.
+        the process is gone -- OR when the PID is live but its StartTime
+        does not match the recorded companion StartTime, i.e. the OS
+        recycled a dead prior occupant's PID onto an unrelated process
+        (the failure mode that silently blocks crash takeover on a
+        long-uptime host). A self-PID is left alone; so is a live PID
+        that cannot be disproven (no companion StartTime recorded, or
+        the live StartTime is unreadable), because a false clear would
+        drop a genuinely live runner's pidfile -- worse than a missed
+        reclaim. Identity precedence mirrors Get-RunnerInstanceState.
+        Returns the pid that was cleared, or $null when no clear happened.
     .PARAMETER PidFile
         Absolute path to the pidfile (runner.pid, inner.pid, etc.).
     .PARAMETER CompanionPath
@@ -273,11 +279,46 @@ function Clear-StalePidFile {
     catch { $filePid = 0 }
     if ($filePid -le 0) {
         Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        # Take the companion with it: an orphan runner.start left behind
+        # feeds the next launch a StartTime for a pid that no longer
+        # exists, recreating the half-state the pairing exists to prevent.
+        if ($CompanionPath -and (Test-Path -LiteralPath $CompanionPath)) {
+            Remove-Item -LiteralPath $CompanionPath -Force -ErrorAction SilentlyContinue
+        }
         return @{ pidFile = (Split-Path -Leaf $PidFile); stalePid = 0; reason = 'unparseable' }
     }
     if ($filePid -eq $PID) { return $null }
     $proc = Get-Process -Id $filePid -ErrorAction SilentlyContinue
-    if ($proc) { return $null }
+    $recycled = $false
+    if ($proc) {
+        # The PID is live, but the OS may have recycled a dead prior
+        # occupant's PID onto an unrelated process. Trust the pidfile as
+        # live only when the live process's StartTime matches the recorded
+        # companion StartTime (runner.start, written by Write-RunnerPidFile
+        # as ToString('o')). 2s tolerance matches Get-RunnerInstanceState:
+        # DateTimeOffset.Parse + StartTime can lose precision across the
+        # round-trip on some kernels, but the window is far narrower than
+        # any real recycle. When identity cannot be established (no
+        # companion StartTime, or the live StartTime is unreadable), stay
+        # conservative and treat it as live.
+        $recordedStart = $null
+        if ($CompanionPath -and (Test-Path -LiteralPath $CompanionPath)) {
+            try {
+                $rawStart = (Get-Content -LiteralPath $CompanionPath -Raw -ErrorAction Stop).Trim()
+                if ($rawStart) { $recordedStart = [DateTimeOffset]::Parse($rawStart).UtcDateTime }
+            } catch {
+                Write-Verbose "Clear-StalePidFile: companion StartTime parse failed at $CompanionPath ($($_.Exception.Message))."
+            }
+        }
+        if ($null -eq $recordedStart) { return $null }
+        $liveStart = $null
+        try { $liveStart = $proc.StartTime.ToUniversalTime() }
+        catch { Write-Verbose "Clear-StalePidFile: live StartTime unreadable for pid $filePid ($($_.Exception.Message))." }
+        if ($null -eq $liveStart) { return $null }
+        if ([Math]::Abs(($recordedStart - $liveStart).TotalSeconds) -le 2) { return $null }
+        # StartTime mismatch -> the PID was recycled; fall through to clear.
+        $recycled = $true
+    }
     Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
     if ($CompanionPath -and (Test-Path -LiteralPath $CompanionPath)) {
         Remove-Item -LiteralPath $CompanionPath -Force -ErrorAction SilentlyContinue
@@ -285,7 +326,7 @@ function Clear-StalePidFile {
     return @{
         pidFile  = (Split-Path -Leaf $PidFile)
         stalePid = $filePid
-        reason   = 'process_not_running'
+        reason   = if ($recycled) { 'pid_recycled' } else { 'process_not_running' }
     }
 }
 

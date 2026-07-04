@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456728
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,8 +86,10 @@ function Test-AgainstSchema {
     $hasTestJson = Get-Command Test-Json -ErrorAction SilentlyContinue
     if ($hasTestJson) {
         try {
-            $schemaJson = Get-Content -Raw $SchemaPath | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 20
-            $docJson    = $doc | ConvertTo-Json -Depth 20
+            # Depth 32 (matching Publish-TestConfigSnapshot) so deep nodes are not silently
+            # serialized as '@{...}' strings, which would hand Test-Json a truncated document.
+            $schemaJson = Get-Content -Raw $SchemaPath | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 32
+            $docJson    = $doc | ConvertTo-Json -Depth 32
             if (Test-Json -Json $docJson -Schema $schemaJson -ErrorAction Stop) {
                 Write-Pass "${Label}: schema-valid ($YamlFull)"
             } else {

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -161,8 +161,10 @@ function Test-PortListenerFree {
         [int]$BudgetMs = 0,
         [int]$PollMs = 250
     )
-    $iters = [Math]::Max(1, [int][Math]::Ceiling($BudgetMs / [double]$PollMs))
-    for ($i = 0; $i -lt $iters; $i++) {
+    # Drive off a wall-clock deadline, not an iteration count: each bind attempt itself takes
+    # time, so counting iterations would let the real elapsed time overrun BudgetMs several-fold.
+    $deadline = [DateTime]::UtcNow.AddMilliseconds([Math]::Max(0, $BudgetMs))
+    while ($true) {
         $probe = [System.Net.HttpListener]::new()
         $probe.Prefixes.Add("http://*:$Port/")
         try {
@@ -171,7 +173,10 @@ function Test-PortListenerFree {
         } catch {
             try { $probe.Close() } catch { Write-Debug $_ }
         }
-        if ($i -lt ($iters - 1)) { Start-Sleep -Milliseconds $PollMs }
+        # BudgetMs 0 => a single immediate attempt; otherwise stop once the next poll would
+        # cross the deadline.
+        if ([DateTime]::UtcNow.AddMilliseconds($PollMs) -ge $deadline) { break }
+        Start-Sleep -Milliseconds $PollMs
     }
     return $false
 }

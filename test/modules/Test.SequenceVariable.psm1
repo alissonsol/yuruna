@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42b8e1f4-7c2a-4d09-8e3b-1a5c9f0d2e64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,9 +101,14 @@ function Expand-ExtensionExpression {
                 $a = $raw.Trim()
                 # Expand inner ${var} so e.g. ${ext:authentication.GetPassword(${username})}
                 # resolves to GetPassword('yauser1') before the call.
-                foreach ($key in $vars.Keys) {
-                    $a = $a -replace [regex]::Escape("`${$key}"), $vars[$key]
-                }
+                # Single regex pass so a value containing "${other}" is not re-expanded and the
+                # result is order-independent; the MatchEvaluator also returns the value literally
+                # (no -replace $1 backreference surprise). Unknown names are left verbatim.
+                $a = [regex]::Replace($a, '\$\{([^}]+)\}', {
+                        param($m)
+                        $name = $m.Groups[1].Value
+                        if ($vars.ContainsKey($name)) { [string]$vars[$name] } else { $m.Value }
+                    })
                 # Restore any $$ escapes the caller had in the arg text
                 # so the extension sees the user's intended literal `$`,
                 # not the internal sentinel.
@@ -138,9 +143,14 @@ function Expand-Variable {
     # [string]::Replace is literal substitution -- no regex compile, no
     # [regex]::Escape needed for $key, no $1-backreference surprise from
     # -replace if a Variables value contained dollar-digit text.
-    foreach ($key in $Variables.Keys) {
-        $result = $result.Replace("`${$key}", [string]$Variables[$key])
-    }
+    # Single regex pass: resolve each ${name} against $Variables WITHOUT feeding substituted text
+    # back into the scan, so a value that itself contains "${other}" is never re-expanded and the
+    # result is order-independent. Unknown names are left verbatim.
+    $result = [regex]::Replace($result, '\$\{([^}]+)\}', {
+            param($m)
+            $name = $m.Groups[1].Value
+            if ($Variables.ContainsKey($name)) { [string]$Variables[$name] } else { $m.Value }
+        })
     # Restore $$ escapes.
     return $result.Replace($script:DollarSentinel, '$')
 }

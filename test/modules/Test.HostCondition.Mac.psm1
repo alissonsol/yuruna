@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,33 @@
 # facade; callers continue to import the facade and resolve these
 # names through its Export-ModuleMember. See Test.HostCondition.psm1
 # for the per-platform split rationale.
+
+function Get-MacPmsetGuardList {
+    <#
+    .SYNOPSIS
+    The canonical extended-pmset guard list (key + wanted value) that keeps
+    macOS awake and CG-enumerable for unattended UTM capture. Consumed by BOTH
+    Set-MacHostConditionSet (to apply + decide re-apply) and Assert-ScreenLock
+    (to re-verify before each cycle), so the asserted set is exactly the applied
+    set -- a host that drifts (MDM re-enables a guard, pmset reverts on an OS
+    update) fails the gate instead of blanking UTM mid-run. Per-key rationale at
+    https://yuruna.link/host/macos.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param()
+    return @(
+        @{ Key = 'disablesleep'  ; Want = 1 }
+        @{ Key = 'powernap'      ; Want = 0 }
+        @{ Key = 'standby'       ; Want = 0 }
+        @{ Key = 'standbydelay'  ; Want = 0 }
+        @{ Key = 'autopoweroff'  ; Want = 0 }
+        @{ Key = 'hibernatemode' ; Want = 0 }
+        @{ Key = 'ttyskeepawake' ; Want = 1 }
+        @{ Key = 'tcpkeepalive'  ; Want = 1 }
+        @{ Key = 'proximitywake' ; Want = 0 }
+    )
+}
 
 function Assert-ScreenLock {
     <#
@@ -156,6 +183,34 @@ function Assert-ScreenLock {
         }
     } catch {
         Write-Debug "AutoLogOutDelay check failed: $_"
+    }
+
+    # 8. System sleep + disk sleep -> Never. Display-sleep alone (§1) isn't
+    #    enough: a system/disk-sleep wake re-locks the screen on Ventura+
+    #    regardless of screensaver settings. Set-MacHostConditionSet disables
+    #    both, so the gate must re-verify them.
+    # 9. Extended pmset guards (Power Nap, standby, autopoweroff, hibernate, ...)
+    #    that Set-MacHostConditionSet applies. The gate re-verifies them from the
+    #    same Get-MacPmsetGuardList Set- applies, so the asserted set is exactly
+    #    the applied set and a drifted host fails here instead of blanking UTM
+    #    mid-run. A key absent from 'pmset -g custom' (macOS-version dependent) is
+    #    skipped, matching how Set- decides.
+    try {
+        $pmCustom = & pmset -g custom 2>$null
+        foreach ($k in @('sleep', 'disksleep')) {
+            $line = $pmCustom | Select-String -Pattern ('^\s*' + $k + '\s+(\d+)') | Select-Object -First 1
+            if ($line -and [int]$line.Matches[0].Groups[1].Value -ne 0) {
+                $issues += "$k is set to $($line.Matches[0].Groups[1].Value) minute(s) -- a wake re-locks the screen (should be 0 / Never)."
+            }
+        }
+        foreach ($g in (Get-MacPmsetGuardList)) {
+            $gLine = $pmCustom | Select-String -Pattern ('^\s*' + [regex]::Escape($g.Key) + '\s+(\d+)') | Select-Object -First 1
+            if ($gLine -and [int]$gLine.Matches[0].Groups[1].Value -ne $g.Want) {
+                $issues += "pmset $($g.Key) is $($gLine.Matches[0].Groups[1].Value) (should be $($g.Want))."
+            }
+        }
+    } catch {
+        Write-Debug "pmset system-sleep / extended-guard check failed: $_"
     }
 
     if ($issues.Count -eq 0) { return $true }
@@ -443,22 +498,11 @@ function Set-MacHostConditionSet {
     }
 
     # Extended pmset guards: Power Nap, standby, autopoweroff, hibernate
-    # transitions hide UTM from CG enumeration on long runs. Per-key
-    # rationale, OptionalKey policy, and precheck-before-sudo logic at
-    # https://yuruna.link/host/macos
-    $pmsetGuards = @(
-        @{ Key = 'disablesleep'      ; Want = 1 },
-        @{ Key = 'powernap'          ; Want = 0 },
-        @{ Key = 'standby'           ; Want = 0 },
-        @{ Key = 'standbydelay'      ; Want = 0 },
-        @{ Key = 'standbydelaylow'   ; Want = 0 },
-        @{ Key = 'standbydelayhigh'  ; Want = 0 },
-        @{ Key = 'autopoweroff'      ; Want = 0 },
-        @{ Key = 'hibernatemode'     ; Want = 0 },
-        @{ Key = 'ttyskeepawake'     ; Want = 1 },
-        @{ Key = 'tcpkeepalive'      ; Want = 1 },
-        @{ Key = 'proximitywake'     ; Want = 0 }
-    )
+    # transitions hide UTM from CG enumeration on long runs. The guard list is
+    # shared with Assert-ScreenLock (Get-MacPmsetGuardList) so the gate re-checks
+    # exactly what is applied here. Per-key rationale, OptionalKey policy, and
+    # precheck-before-sudo logic at https://yuruna.link/host/macos
+    $pmsetGuards = Get-MacPmsetGuardList
     $pmCustom = & pmset -g custom 2>$null
     $pmsetAnyMismatch = $false
     foreach ($g in $pmsetGuards) {
@@ -474,15 +518,7 @@ function Set-MacHostConditionSet {
         Write-Warning "Extended pmset guards have a mismatch in 'pmset -g custom'; bash prelude may need updating for this macOS version. Skipping."
     } elseif ($PSCmdlet.ShouldProcess("Extended pmset guards", "Apply via sudo pmset -a")) {
         Write-Information "Applying extended pmset guards (powernap, standby, autopoweroff, hibernatemode, ttyskeepawake, tcpkeepalive)..."
-        & sudo pmset -a disablesleep 1 2>$null | Out-Null
-        & sudo pmset -a powernap       0 2>$null | Out-Null
-        & sudo pmset -a standby        0 2>$null | Out-Null
-        & sudo pmset -a standbydelay   0 2>$null | Out-Null
-        & sudo pmset -a autopoweroff   0 2>$null | Out-Null
-        & sudo pmset -a hibernatemode  0 2>$null | Out-Null
-        & sudo pmset -a ttyskeepawake  1 2>$null | Out-Null
-        & sudo pmset -a tcpkeepalive   1 2>$null | Out-Null
-        & sudo pmset -a proximitywake  0 2>$null | Out-Null
+        foreach ($g in $pmsetGuards) { & sudo pmset -a $g.Key $g.Want 2>$null | Out-Null }
         $changed = $true
     }
 

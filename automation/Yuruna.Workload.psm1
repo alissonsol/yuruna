@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,7 +193,12 @@ function Invoke-WorkloadChartDeployment {
     Add-Content -LiteralPath $helmLogFile -Value "== helm upgrade --install --atomic $installName --debug (exit=$installExit) =="
     $installOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
     Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
-    $installErrorLines = @($installOutput | Where-Object { $_ -match '^\s*Error:' })
+    # Match only helm's terminal error shapes: a real error line starts at column
+    # 0 with "Error: " (helm's stderr format), so an indented --debug / rendered
+    # line that merely contains "Error:" (a NOTES or manifest value) is not a helm
+    # failure and must not match. --atomic failures also carry an "INSTALLATION
+    # FAILED" / "UPGRADE FAILED" marker.
+    $installErrorLines = @($installOutput | Where-Object { $_ -match '^Error: ' -or $_ -match '(INSTALLATION|UPGRADE) FAILED' })
     if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
         Write-Information "helm upgrade --install --atomic '$installName' FAILED (exit $installExit, $($installErrorLines.Count) Error: line(s)) in $workFolder"
         $installOutput | ForEach-Object { Write-Information "$_" }
@@ -400,12 +405,20 @@ function Publish-WorkloadList {
 
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
         $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
-        # Context must exist
-        $originalContext = kubectl config current-context
+        # Context must exist. Probe by switching to it and reading back the
+        # current context, then restore. Capture kubectl's exit code on each
+        # call: a broken kubeconfig / unreachable cluster makes these fail, and
+        # blindly restoring an empty $originalContext (when the first read
+        # failed) in the finally below would error or clobber the operator's
+        # active context.
+        $originalContext = kubectl config current-context 2>$null
+        $originalContextRead = ($LASTEXITCODE -eq 0) -and (-not [string]::IsNullOrWhiteSpace($originalContext))
         kubectl config use-context $contextName *>&1 | Write-Verbose
-        $currentContext = kubectl config current-context
-        kubectl config use-context $originalContext *>&1 | Write-Verbose
-        if ($currentContext -ne $contextName) { Write-Information "K8S context not found: $contextName`nFile: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context not found: $contextName (workloads.yml: $workloadsFile)" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
+        $useContextExit = $LASTEXITCODE
+        $currentContext = kubectl config current-context 2>$null
+        $currentContextExit = $LASTEXITCODE
+        if ($originalContextRead) { kubectl config use-context $originalContext *>&1 | Write-Verbose }
+        if ($useContextExit -ne 0 -or $currentContextExit -ne 0 -or $currentContext -ne $contextName) { Write-Information "K8S context '$contextName' not usable (cluster unreachable or context not found)`nFile: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
         kubectl config use-context $contextName *>&1 | Write-Verbose
 
         # Restore $originalContext in a finally so every early-return failure
@@ -445,7 +458,7 @@ function Publish-WorkloadList {
         }
         }
         finally {
-            kubectl config use-context $originalContext *>&1 | Write-Verbose
+            if ($originalContextRead) { kubectl config use-context $originalContext *>&1 | Write-Verbose }
         }
     }
 

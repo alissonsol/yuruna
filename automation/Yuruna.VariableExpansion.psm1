@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42c1d2e3-f4a5-4678-9012-3c4d5e6f7a8b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,7 +145,20 @@ function Set-ExpandedResourcesOutput {
                 $raw = $ResourcesOutputYaml.$resource[$key]
             } else {
                 $resourceKey = "$resource.$key"
-                $raw = $ResourcesOutputYaml.$resource[$key].value
+                $leaf = $ResourcesOutputYaml.$resource[$key]
+                if ($leaf -is [System.Collections.IDictionary] -and $leaf.Contains('value')) {
+                    $raw = $leaf['value']
+                } else {
+                    # A non-global leaf that is not the expected { value:, sensitive: }
+                    # dict (a raw scalar, or a drifted key shape) would otherwise
+                    # dereference a missing .value to $null, silently writing an
+                    # empty env var / sink entry that surfaces far downstream (e.g.
+                    # a malformed helm image ref). Fall back to the raw scalar like
+                    # the globalVariables branch, and surface the shape so an empty
+                    # result is detected rather than passed through as success.
+                    $raw = $leaf
+                    Write-Warning "Set-ExpandedResourcesOutput: '$resourceKey' is not a { value: ... } leaf; using its raw value. Check resources.output.yml shape if unexpected."
+                }
             }
             $value = if ($NoExpand) { $raw } else { $ExecutionContext.InvokeCommand.ExpandString($raw) }
             if ($EmitDebug) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 4236e7f8-a9b0-4c23-d678-9e0f1a2b3c48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -197,6 +197,7 @@ foreach ($p in @($BaseUserData, $OverlayUserData)) {
     if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
 }
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 
 # SSH public key used by the test harness.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
@@ -273,29 +274,11 @@ To intentionally skip the cache:
 }
 }
 
-# Build the autoinstall apt block: always emit `geoip: false` + a pinned
-# `primary:` mirror (deterministic election; `primary:` not `sources_list:`,
-# see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
-# --- See https://yuruna.link/vmconfig#apt-proxy-block
-#
-# `$AptProxyLine` is appended to the end of the `uri:` line below: when a
-# proxy is configured we want a leading newline + 4-space indent so the
-# YAML lands at the same level as `geoip:` / `primary:`; when there's no
-# proxy the whole expansion is empty. The closing `"@` MUST stay on its
-# own line at column 0 -- required by PowerShell's here-string parser
-# (inlining `$(...)"@` raises "The string is missing the terminator").
-$AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
-$AptProxyBlock = @"
-  apt:
-    geoip: false
-    primary:
-      - arches: [default]
-        uri: http://archive.ubuntu.com/ubuntu$($AptProxyLine)
-    conf: |
-      Acquire::Retries "5";
-      Acquire::http::Timeout "120";
-      Acquire::https::Timeout "120";
-"@
+# Build the autoinstall apt block via the shared builder
+# (automation/Yuruna.GuestSeed.psm1). Hyper-V pins the archive.ubuntu.com mirror
+# (x86_64). See https://yuruna.link/vmconfig#apt-proxy-block and
+# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+$AptProxyBlock = Build-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyUrl $CachingProxyUrl
 
 # Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the
 # install VM gets a real LAN IP via DHCP and can reach the squid cache

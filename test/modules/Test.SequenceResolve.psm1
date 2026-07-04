@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,11 +54,18 @@ function Read-SequenceFile {
     # (~300-500 ms). Cache key is absolute path + LastWriteTimeUtc.
     if (-not $script:SequenceFileCache) { $script:SequenceFileCache = @{} }
     if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
-        $resolved = (Resolve-Path -LiteralPath $Path).Path
-        $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
-        if ($script:SequenceFileCache.ContainsKey($resolved)) {
-            $entry = $script:SequenceFileCache[$resolved]
-            if ($entry.Mtime -eq $mtime) { return (Expand-SequenceSnippet -Sequence $entry.Parsed -Path $Path) }
+        try {
+            $resolved = (Resolve-Path -LiteralPath $Path).Path
+            $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+            if ($script:SequenceFileCache.ContainsKey($resolved)) {
+                $entry = $script:SequenceFileCache[$resolved]
+                if ($entry.Mtime -eq $mtime) { return (Expand-SequenceSnippet -Sequence $entry.Parsed -Path $Path) }
+            }
+        } catch {
+            # A mid-cycle rename/delete between the Test-Path above and Resolve-Path here would
+            # throw a TERMINATING error outside the main try/catch below; swallow it and fall
+            # through to the guarded read, which surfaces the real not-found/parse error cleanly.
+            Write-Verbose "Read-SequenceFile: cache probe of '$Path' raced a rename/delete: $($_.Exception.Message)"
         }
     }
     try {
@@ -171,11 +178,27 @@ function Get-ProjectTestSearchDir {
     )
     $projectRoot = Join-Path $RepoRoot 'project'
     if (-not (Test-Path $projectRoot)) { return @() }
-    return @(
+    # The planner resolves 50+ chain members repeatedly per cycle and each call
+    # previously re-ran a full recursive Get-ChildItem over the whole project
+    # clone. Cache the search-dir list keyed by RepoRoot+Mode, invalidated by the
+    # project root's mtime (which changes when the clone is refreshed between
+    # cycles), parallel to $script:SequenceFileCache. The test/<mode>/ directory
+    # set is static within a cycle, so this is safe; individual sequence files
+    # keep their own mtime cache in Read-SequenceFile.
+    if (-not $script:ProjectSearchDirCache) { $script:ProjectSearchDirCache = @{} }
+    $cacheKey  = "$RepoRoot|$Mode"
+    $rootMtime = (Get-Item -LiteralPath $projectRoot -ErrorAction SilentlyContinue).LastWriteTimeUtc
+    if ($script:ProjectSearchDirCache.ContainsKey($cacheKey)) {
+        $entry = $script:ProjectSearchDirCache[$cacheKey]
+        if ($entry.Mtime -eq $rootMtime) { return $entry.Dirs }
+    }
+    $dirs = @(
         Get-ChildItem -Path $projectRoot -Directory -Recurse -Filter $Mode -ErrorAction SilentlyContinue |
             Where-Object { (Split-Path -Leaf (Split-Path -Parent $_.FullName)) -eq 'test' } |
             ForEach-Object { $_.FullName }
     )
+    $script:ProjectSearchDirCache[$cacheKey] = @{ Mtime = $rootMtime; Dirs = $dirs }
+    return $dirs
 }
 
 <#
@@ -205,7 +228,10 @@ function Find-ProjectSequenceFile {
     $hits = @(
         foreach ($d in (Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode $Mode)) {
             $candidate = Join-Path $d $FileName
-            if (Test-Path $candidate) { $candidate }
+            # -LiteralPath: a sequence/snippet name can contain PowerShell wildcard
+            # metacharacters ([ ] * ?), which a bare Test-Path would glob-expand
+            # rather than probe literally.
+            if (Test-Path -LiteralPath $candidate) { $candidate }
         }
     )
     if ($hits.Count -gt 1) {
@@ -285,21 +311,22 @@ function Resolve-SequencePath {
         }
     }
 
-    # Tier 2/3: framework SequencesDir.
+    # Tier 2/3: framework SequencesDir. -LiteralPath throughout so a $Name with
+    # wildcard metacharacters ([ ] * ?) is probed literally, not glob-expanded.
     if ($hostShort) {
         $hostModePath = Join-Path (Join-Path $SequencesDir $mode) "$Name.$hostShort.yml"
-        if (Test-Path $hostModePath) { return $hostModePath }
+        if (Test-Path -LiteralPath $hostModePath) { return $hostModePath }
     }
     $modePath = Join-Path (Join-Path $SequencesDir $mode) "$Name.yml"
-    if (Test-Path $modePath) { return $modePath }
+    if (Test-Path -LiteralPath $modePath) { return $modePath }
     # gui/ fallback only when explicitly allowed (independent mechanisms by default).
     if ($mode -ne 'gui' -and (Test-GuiFallbackAllowed)) {
         if ($hostShort) {
             $hostGuiPath = Join-Path (Join-Path $SequencesDir 'gui') "$Name.$hostShort.yml"
-            if (Test-Path $hostGuiPath) { return $hostGuiPath }
+            if (Test-Path -LiteralPath $hostGuiPath) { return $hostGuiPath }
         }
         $guiPath = Join-Path (Join-Path $SequencesDir 'gui') "$Name.yml"
-        if (Test-Path $guiPath) { return $guiPath }
+        if (Test-Path -LiteralPath $guiPath) { return $guiPath }
     }
     # Nothing matched. Returning the last-tried path here would lie about
     # where the file "lives" -- callers Test-Path'd it and emitted warnings

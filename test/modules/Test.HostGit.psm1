@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,8 +58,17 @@ function Get-GitUpstreamStatus {
     # remote is an ancestor of local (ahead), ahead == 0 iff local is an
     # ancestor of remote (behind), both > 0 iff the histories diverged.
     $behind = 0; $ahead = 0
-    $null = [int]::TryParse(("$(& git -C $Path rev-list --count "$local..$remote" 2>$null)").Trim(), [ref]$behind)
-    $null = [int]::TryParse(("$(& git -C $Path rev-list --count "$remote..$local" 2>$null)").Trim(), [ref]$ahead)
+    $behindRaw = & git -C $Path rev-list --count "$local..$remote" 2>$null
+    $behindExit = $LASTEXITCODE
+    $aheadRaw = & git -C $Path rev-list --count "$remote..$local" 2>$null
+    $aheadExit = $LASTEXITCODE
+    if ($behindExit -ne 0 -or $aheadExit -ne 0 -or
+        -not [int]::TryParse("$behindRaw".Trim(), [ref]$behind) -or
+        -not [int]::TryParse("$aheadRaw".Trim(), [ref]$ahead)) {
+        # A failed / unparseable rev-list count must NOT collapse to 'up-to-date' (a false
+        # healthy). Report 'unknown' so callers treat it as WARN/skip rather than clean.
+        return @{ State = 'unknown'; Ahead = 0; Behind = 0; Local = $local; Remote = $remote }
+    }
     $state = if ($behind -gt 0 -and $ahead -eq 0) { 'behind' }
              elseif ($ahead -gt 0 -and $behind -eq 0) { 'ahead' }
              elseif ($ahead -gt 0 -and $behind -gt 0) { 'diverged' }
@@ -82,8 +91,11 @@ function Invoke-GitPull {
     # runner and has recovered past a 5s wait in observed runs. 5
     # retries with 10/20/30/40/50s waits cover ~2.5 min of blip without
     # masking a genuine outage.
-    $maxRetries  = 5
-    $attempt     = 0
+    $maxRetries      = 5
+    $maxTotalSeconds = 180   # wall-clock cap (in addition to the attempt count) so a hung/slow
+                             # fetch cannot stretch the loop far past the intended ~2.5 min window
+    $startUtc        = [DateTime]::UtcNow
+    $attempt         = 0
     while ($true) {
         $attempt++
         $totalAttempts = $maxRetries + 1
@@ -91,11 +103,13 @@ function Invoke-GitPull {
         $output = & git -C $RepoRoot fetch 2>&1
         Write-Information "$output" -InformationAction Continue
         if ($LASTEXITCODE -eq 0) { break }
-        if ($attempt -gt $maxRetries) {
-            Write-Error "git fetch failed (exit $LASTEXITCODE) after $totalAttempts attempts."
+        $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
+        if ($attempt -gt $maxRetries -or $elapsed -ge $maxTotalSeconds) {
+            Write-Error "git fetch failed (exit $LASTEXITCODE) after $attempt attempt(s) / ${elapsed}s (cap ${maxTotalSeconds}s)."
             return $false
         }
-        $waitSeconds = 10 * $attempt
+        # Clamp the backoff so we never sleep past the wall-clock deadline.
+        $waitSeconds = [Math]::Min(10 * $attempt, [Math]::Max(1, $maxTotalSeconds - $elapsed))
         Write-Information "  git fetch failed (exit $LASTEXITCODE); retrying in ${waitSeconds}s..." -InformationAction Continue
         Start-Sleep -Seconds $waitSeconds
     }
@@ -126,6 +140,12 @@ function Invoke-GitPull {
             }
             Write-Error "git pull --ff-only failed (exit $LASTEXITCODE): $pullOutput"
             return $false
+        }
+        'unknown' {
+            # Could not determine ahead/behind (rev-list failed). Do not block the cycle on an
+            # undeterminable status -- warn and skip the ahead/behind check.
+            Write-Warning "Could not determine upstream status (git rev-list failed); skipping ahead/behind check."
+            return $true
         }
         default {
             # diverged (no-tree cannot reach here -- the fetch above already ran)

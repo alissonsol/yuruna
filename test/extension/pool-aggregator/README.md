@@ -37,9 +37,13 @@ Every `-interval` (default 30s) it:
 5. Bumps **Prometheus** counters (`yuruna_pool_cycles_{pass,fail}_total` by
    `hostId`) once per terminal cycle, and on every scrape exposes per-host
    series that drive the dashboard table/timeline: `yuruna_pool_host_info`
-   (labels: hostType, version, baseUrl, cycleId, cycleFolderUrl, derived status —
+   (labels: hostType, version, commit, commitUrl, projectCommitUrl, baseUrl,
+   cycleId, cycleFolderUrl, derived status —
    keyed on `hostId`, **no** hostname; `version` is the host's framework
-   `VERSION`, fetched per poll from `<baseUrl>/yuruna-repo/VERSION`),
+   `VERSION`, fetched per poll from `<baseUrl>/yuruna-repo/VERSION`; `commit` is
+   the current cycle's short SHAs (framework, project) from `status.json`'s
+   `gitCommits`, with `commitUrl`/`projectCommitUrl` the per-repo
+   `…/commit/<sha>` deep-links the table's Commit column resolves),
    `yuruna_pool_host_status` (numeric 0–4:
    unreachable/running/pass/fail/idle), and `yuruna_pool_host_last_seen_seconds`.
    Served at `/metrics`. The whole pool telemetry is **hostname-free** (see below).
@@ -260,4 +264,4 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.30
+Last review: 2026.07.03

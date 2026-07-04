@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42b8c9d0-e1f2-4a34-9567-8f9a0b1c2d31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -176,7 +176,10 @@ function script:Register-IfAvailable {
         if (-not (Get-Command -Name $fn -ErrorAction SilentlyContinue)) { $missing += $fn }
     }
     if ($missing.Count -gt 0) {
-        Write-Verbose "Test.HostCondition: skipping $HostType registration; missing functions: $($missing -join ', ')"
+        # Write-Warning (not Write-Verbose) so a torn registration -- a known HostType whose
+        # provider module half-loaded -- is visible at default verbosity instead of silently
+        # skipped (which later surfaces only as "unknown host type, skipping checks" and passes).
+        Write-Warning "Test.HostCondition: skipping $HostType registration; missing functions: $($missing -join ', ')"
         return
     }
     $displayBlock = $null

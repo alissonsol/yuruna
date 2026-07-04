@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42f0a1b2-c3d4-4e56-9788-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,14 +243,36 @@ function ConvertFrom-HostInfoRecord {
 
 # Get-HostIdentityRuntimeDir resolves the runtime dir, preferring Test.YurunaDir's
 # canonical resolver (which also creates it) and falling back to the env var.
+# Returns '' when it genuinely cannot resolve, so callers can treat that as
+# UNKNOWN rather than a confident "no runtime dir".
 function Get-HostIdentityRuntimeDir {
     [CmdletBinding()]
     [OutputType([string])]
     param()
     if (Get-Command Initialize-YurunaRuntimeDir -ErrorAction SilentlyContinue) {
-        try { return [string](Initialize-YurunaRuntimeDir) } catch { Write-Verbose "Initialize-YurunaRuntimeDir failed: $($_.Exception.Message)" }
+        try {
+            $d = [string](Initialize-YurunaRuntimeDir)
+            if (-not [string]::IsNullOrWhiteSpace($d)) { return $d }
+        } catch { Write-Verbose "Initialize-YurunaRuntimeDir failed: $($_.Exception.Message)" }
     }
-    return [string]$env:YURUNA_RUNTIME_DIR
+    # Fall back to YURUNA_RUNTIME_DIR. An installer may have set it at User or
+    # Machine scope without also updating this process's environment block, so a
+    # plain $env: read is empty here even though the value exists. Resolve
+    # process -> User -> Machine (the User/Machine stores exist only on Windows)
+    # and refresh $env: so the value is visible to this process and any children.
+    $val = [string]$env:YURUNA_RUNTIME_DIR
+    if (-not [string]::IsNullOrWhiteSpace($val)) { return $val }
+    if ($IsWindows) {
+        foreach ($scope in @([System.EnvironmentVariableTarget]::User, [System.EnvironmentVariableTarget]::Machine)) {
+            $scoped = ''
+            try { $scoped = [string][System.Environment]::GetEnvironmentVariable('YURUNA_RUNTIME_DIR', $scope) } catch { $null = $_ }
+            if (-not [string]::IsNullOrWhiteSpace($scoped)) {
+                $env:YURUNA_RUNTIME_DIR = $scoped
+                return $scoped
+            }
+        }
+    }
+    return ''
 }
 
 function Get-HostIdentityPlatform {
@@ -321,6 +343,66 @@ function Get-HostFingerprintWindows {
     return $fp
 }
 
+# True only for a real physical Ethernet NIC. Software/virtual NICs -- libvirt
+# virbr*, docker0, veth, bond, tap -- carry host-assigned MACs that are commonly
+# randomized per boot/recreate; feeding them to the fingerprint inflates and
+# destabilizes the cross-host match, so this drops them to mirror the Windows
+# PhysicalAdapter intent.
+function Test-LinuxPhysicalNic {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$InterfaceName,
+        [Parameter(Mandatory)][string]$InterfacePath
+    )
+    # ARPHRD_ETHER == 1. Loopback (772), tunnels, and other non-Ethernet link
+    # types report a different value and carry no stable burned-in Ethernet MAC.
+    # A physical wireless NIC also reports type 1 and is intentionally kept -- its
+    # permanent MAC (preferred via ethtool -P, which defeats per-connection MAC
+    # randomization) is a valid box identifier.
+    $typeFile = Join-Path $InterfacePath 'type'
+    if (-not (Test-Path -LiteralPath $typeFile)) { return $false }
+    $type = ''
+    try { $type = ([System.IO.File]::ReadAllText($typeFile)).Trim() } catch { return $false }
+    if ($type -ne '1') { return $false }
+    # Virtual/software NICs are enumerated under /sys/devices/virtual/net (the
+    # /sys/class/net/<if> symlink resolves there). virbr0/docker0/veth are ARPHRD
+    # type 1 too, so this path check -- not the type -- is what excludes them.
+    if (Test-Path -LiteralPath (Join-Path '/sys/devices/virtual/net' $InterfaceName)) { return $false }
+    return $true
+}
+
+# Prefer a NIC's permanent (burned-in) MAC over its current address, so bonding,
+# a MACVLAN, or a manual override does not change the fingerprint of the same
+# physical box. ethtool may be absent or unprivileged; fall back to the current
+# /sys .../address. Never throws.
+function Get-LinuxNicPermanentMac {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$InterfaceName,
+        [Parameter(Mandatory)][string]$InterfacePath
+    )
+    if (Get-Command ethtool -ErrorAction SilentlyContinue) {
+        try {
+            # -join to a single string before matching: some ethtool builds print
+            # an extra notice line to stdout, and array `-match` would filter the
+            # elements and leave $Matches unset. [regex]::Match avoids depending on
+            # the $Matches automatic variable entirely.
+            $out = (& ethtool -P $InterfaceName 2>$null) -join "`n"
+            if ($LASTEXITCODE -eq 0) {
+                $m = [regex]::Match($out, '([0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5})')
+                if ($m.Success -and $m.Value -ne '00:00:00:00:00:00') { return $m.Value }
+            }
+        } catch { $null = $_ }
+    }
+    $addrFile = Join-Path $InterfacePath 'address'
+    if (Test-Path -LiteralPath $addrFile) {
+        try { return ([System.IO.File]::ReadAllText($addrFile)).Trim() } catch { $null = $_ }
+    }
+    return ''
+}
+
 function Get-HostFingerprintLinux {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -341,10 +423,14 @@ function Get-HostFingerprintLinux {
     try {
         $macs = foreach ($n in (Get-ChildItem -Path '/sys/class/net' -ErrorAction Stop)) {
             if ($n.Name -eq 'lo') { continue }
-            $addrFile = Join-Path $n.FullName 'address'
-            if (Test-Path -LiteralPath $addrFile) { (Get-Content -LiteralPath $addrFile -ErrorAction SilentlyContinue).Trim() }
+            if (-not (Test-LinuxPhysicalNic -InterfaceName $n.Name -InterfacePath $n.FullName)) { continue }
+            $mac = Get-LinuxNicPermanentMac -InterfaceName $n.Name -InterfacePath $n.FullName
+            if ($mac) { $mac }
         }
         $fp.macAddresses = [string[]]@($macs)
+        if (@($fp.macAddresses).Count -eq 0) {
+            Write-Verbose "Get-HostFingerprintLinux: no physical NIC MAC captured (all NICs virtual/non-Ethernet); the fingerprint relies on firmware/CPU keys."
+        }
     } catch { $null = $_ }
     return $fp
 }
@@ -413,6 +499,8 @@ function Get-HostHardwareFingerprint {
             } else {
                 try { [System.IO.File]::WriteAllText($cachePath, ($fp | ConvertTo-Json -Depth 6 -Compress), [System.Text.UTF8Encoding]::new($false)) } catch { $null = $_ }
             }
+        } else {
+            Write-Verbose "Get-HostHardwareFingerprint: runtime dir unresolved; skipping host.hwid.json cache write."
         }
     }
     return $fp
@@ -676,8 +764,13 @@ function Invoke-PoolStorageSetupAndReclaim {
     Initialize-HostIdentityDependency
 
     $runtimeDir = Get-HostIdentityRuntimeDir
-    $uuidFile = if ($runtimeDir) { Join-Path $runtimeDir 'host.uuid' } else { '' }
-    $uuidExists = $uuidFile -and (Test-Path -LiteralPath $uuidFile)
+    $runtimeResolved = -not [string]::IsNullOrWhiteSpace($runtimeDir)
+    $uuidFile = if ($runtimeResolved) { Join-Path $runtimeDir 'host.uuid' } else { '' }
+    # When the runtime dir is unresolved, uuid-presence is UNKNOWN (not 'absent'):
+    # an empty path can neither confirm an existing host.uuid nor be written to,
+    # so the reclaim/mint flow below is skipped rather than forking pool history
+    # under a fresh id and attempting a write to an empty path.
+    $uuidExists = $runtimeResolved -and (Test-Path -LiteralPath $uuidFile)
     $cfgPath = Join-Path $RepoRoot 'test/test.config.yml'
 
     # Current values (defaults for the prompts), read raw so a stale config cache
@@ -696,13 +789,15 @@ function Invoke-PoolStorageSetupAndReclaim {
 
     Write-HostIdentityLine ''
     Write-HostIdentityLine 'networkStorage pool (optional NAS replication + pool host-identity):'
-    if ($uuidExists) {
+    if (-not $runtimeResolved) {
+        Write-HostIdentityLine "  NOTE: the runtime directory could not be resolved here, so this host's pool identity cannot be determined. You may still configure NAS replication; reclaim/mint is skipped until the runtime dir is available."
+    } elseif ($uuidExists) {
         Write-HostIdentityLine "  This host already has a pool identity (runtime/host.uuid). Reclaim is not needed; you may still (re)configure NAS replication."
     } else {
         Write-HostIdentityLine "  This host has NO pool identity yet. Configuring poolStorage now lets it scan the NAS for a prior identity and RECLAIM its uuid (e.g. after a reimage)."
     }
     if (-not (Read-HostIdentityConfirm -Prompt 'Configure poolStorage now?' -DefaultYes:$false)) {
-        if (-not $uuidExists) {
+        if ($runtimeResolved -and -not $uuidExists) {
             Write-Warning "Skipped. A NEW host.uuid will be minted on the first cycle; reconnecting this host's pool history later (after a reimage) is harder once a fresh uuid is in use."
         }
         return
@@ -793,6 +888,11 @@ function Invoke-PoolStorageSetupAndReclaim {
     # unprivileged per-cycle drain can publish the strong keys from the cache.
     $fp = Get-HostHardwareFingerprint -AllowSudo
     Write-HostIdentityLine "  Captured hardware fingerprint (smbiosUuid$(if($fp.smbiosUuid){' present'}else{' absent'}), $($fp.macAddresses.Count) MAC(s))."
+
+    if (-not $runtimeResolved) {
+        Write-Warning "poolStorage setup: the runtime directory is unresolved (YURUNA_RUNTIME_DIR not visible in-process and Test.YurunaDir unavailable), so this host's uuid can neither be read nor written. Skipping reclaim/mint to avoid forking pool history under a fresh id. Set YURUNA_RUNTIME_DIR (or make Test.YurunaDir importable) and re-run to reclaim this host's identity."
+        return
+    }
 
     if ($uuidExists) {
         $myUuid = ''

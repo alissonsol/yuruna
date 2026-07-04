@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456703
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -530,10 +530,17 @@ function Send-CycleFailureNotification {
         -CycleId      $CycleId `
         -GitCommit    $GitCommit `
         -EventData    $payload
+    # -Synchronous: cycle-failure notifications are the delivery-critical path,
+    # and bootstrap failures (GitPull/ProjectClone) call this immediately before
+    # the process exits -- a fire-and-forget thread job would be killed on exit
+    # before the send completes, silently losing the escalation. The transport
+    # is bounded (the Resend extension POSTs with -TimeoutSec 30, per subscriber),
+    # so a synchronous send adds a bounded delay, never an unbounded stall.
     Send-Notification -EventCode    'cycle.failure' `
                       -EventMessage "Yuruna Test: FAIL on $HostType / $SubjectSuffix" `
                       -EventNote    $body `
-                      -EventData    $payload
+                      -EventData    $payload `
+                      -Synchronous
 }
 
 Export-ModuleMember -Function Send-Notification, Format-FailureMessage, Get-FailureEventData, Write-NotificationDelivery, Send-CycleFailureNotification

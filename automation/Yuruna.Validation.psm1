@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d2f4a5-b6c7-4890-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,8 +82,11 @@ function Invoke-SecretFolderValidation {
     $files = Get-ChildItem -Path $SecretsFolder -Filter *.txt
     foreach ($file in $files) {
         Write-Verbose "Checking secret file: $file"
-        $content = Get-Content $file
-        if ([string]::IsNullOrEmpty($content)) {
+        # Read as one raw string and test for whitespace, so a whitespace-only or multi-line-blank
+        # vault file is caught too: Get-Content (no -Raw) returns a string[] on which
+        # IsNullOrEmpty is $false, letting a blank secret pass and bake a malformed cluster Secret.
+        $content = Get-Content $file -Raw
+        if ([string]::IsNullOrWhiteSpace($content)) {
             Write-Information "Empty secret file: $file"
             if ($RequireNonEmpty) { return $false }
         }
@@ -254,11 +257,12 @@ function Confirm-WorkloadList {
         if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return $false; }
         if (-not $seenContexts.Add($contextRaw)) { Write-Information "Duplicate workload context '$contextRaw' in file: $workloadsFile"; return $false; }
         if (-not $seenContextsExpanded.Add($contextName)) { Write-Information "Duplicate workload context '$contextName' (expanded from '$contextRaw') in file: $workloadsFile"; return $false; }
-        $originalContext = kubectl config current-context
-        kubectl config use-context $contextName *>&1 | Write-Verbose
-        $currentContext = kubectl config current-context
-        kubectl config use-context $originalContext *>&1 | Write-Verbose
-        if ($currentContext -ne $contextName) { Write-Debug "K8S context not found: $contextName`nFile: $workloadsFile"; }
+        # Non-mutating existence probe: `kubectl config get-contexts <name>` exits non-zero when
+        # the context is absent WITHOUT switching the operator's current context. The old
+        # use-context/restore dance mutated live state and left it on the wrong context if
+        # anything threw between the switch and the restore.
+        $null = kubectl config get-contexts $contextName *>&1
+        if ($LASTEXITCODE -ne 0) { Write-Debug "K8S context not found: $contextName`nFile: $workloadsFile"; }
         foreach ($deployment in $workload.deployments) {
             # Effective deployment kind + the kinds phrase come from the
             # shared Yuruna.DeploymentKind catalog so a new kind is one

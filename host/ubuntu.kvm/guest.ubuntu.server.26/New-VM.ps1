@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -195,21 +195,10 @@ if (Test-Path -LiteralPath $cfg) {
 }
 
 # -- Build the autoinstall apt block --------------------------------------
-# Always emit `geoip: false` + a pinned `primary:` mirror (deterministic
-# election; `primary:` not `sources_list:`).
-# --- See https://yuruna.link/vmconfig#apt-proxy-block
-$AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
-$AptProxyBlock = @"
-  apt:
-    geoip: false
-    primary:
-      - arches: [default]
-        uri: $primaryUri$($AptProxyLine)
-    conf: |
-      Acquire::Retries "5";
-      Acquire::http::Timeout "120";
-      Acquire::https::Timeout "120";
-"@
+# Shared builder (automation/Yuruna.GuestSeed.psm1); $primaryUri is the arch-
+# resolved mirror knob. See https://yuruna.link/vmconfig#apt-proxy-block
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
+$AptProxyBlock = Build-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyUrl $CachingProxyUrl
 
 # -- Fetch caching-proxy CA cert (base64-embedded in seed) -------------------
 # Mirrors host/macos.utm/guest.ubuntu.server.26/New-VM.ps1. The installer's

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,13 +68,25 @@ if (-not $pwshPath) {
 # module lands in the same PSModulePath the in-guest sequence planner and
 # Get-SystemDiagnostic.ps1 use. Administrator elevation (checked at the
 # top of this script) makes `-Scope AllUsers` succeed without an
-# interactive UAC prompt. The trailing Import-Module check guards
-# against the case where the manifest landed but the module won't load
-# (which Install-Module reports as success).
+# interactive UAC prompt. powershell-yaml is a HARD dependency (the in-guest
+# sequence planner and Get-SystemDiagnostic.ps1 need it), so the install is
+# retried and the ConvertFrom-Yaml round-trip smoke test is fatal on failure
+# (Install-Module can report success yet leave the module unimportable) --
+# never swallow a missing parser with a soft note.
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
-pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force"
-pwsh -NoProfile -Command "Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v' | Out-Null"
+$yamlInstall = "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false"
+$yamlOk = $false
+for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {
+    pwsh -NoProfile -Command $yamlInstall
+    pwsh -NoProfile -Command "Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -ne 'v') { exit 1 }"
+    if ($LASTEXITCODE -eq 0) { $yamlOk = $true }
+    else { Write-Output "powershell-yaml install/import attempt $attempt/3 failed; retrying..."; Start-Sleep -Seconds ($attempt * 5) }
+}
+if (-not $yamlOk) {
+    Write-Error "powershell-yaml failed to install/import after 3 attempts; it is required by the in-guest sequence planner and Get-SystemDiagnostic.ps1."
+    exit 1
+}
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # ===== Early yuruna framework extraction (host-side diagnostic prereq) =====
@@ -161,7 +173,18 @@ Write-Output "<<< Windows Update module ready."
 
 Write-Output ""
 Write-Output ">>> Checking for Windows updates..."
-Get-WindowsUpdate -AcceptAll -Install -AutoReboot:$false -Verbose
+# Bound Windows Update with a wall-clock timeout: run it in a job so a hung WU session can not
+# stall the whole guest-provisioning cycle. Log and continue on timeout rather than blocking
+# forever (the job runspace re-imports PSWindowsUpdate; jobs do not inherit the parent's modules).
+$wuTimeoutSec = 1800
+$wuJob = Start-Job -ScriptBlock { Import-Module PSWindowsUpdate; Get-WindowsUpdate -AcceptAll -Install -AutoReboot:$false -Verbose }
+if (Wait-Job -Job $wuJob -Timeout $wuTimeoutSec) {
+    Receive-Job -Job $wuJob
+} else {
+    Write-Warning "Get-WindowsUpdate exceeded ${wuTimeoutSec}s; stopping the update job and continuing provisioning."
+    Stop-Job -Job $wuJob -ErrorAction SilentlyContinue
+}
+Remove-Job -Job $wuJob -Force -ErrorAction SilentlyContinue
 Write-Output "<<< Windows update check complete."
 
 # ===== Ensure Git is installed =====

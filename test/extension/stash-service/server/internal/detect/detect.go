@@ -24,6 +24,7 @@ package detect
 
 import (
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -72,7 +73,17 @@ func (Heuristic) DetectFile(path, originalFilename string) Result {
 	}
 	defer f.Close()
 	head := make([]byte, sniffLen)
-	n, _ := io.ReadFull(f, head)
+	n, err := io.ReadFull(f, head)
+	// EOF (empty file) and ErrUnexpectedEOF (file shorter than the sniff
+	// window -- the common case for small text files) are normal: classify
+	// the n bytes actually read. Any other read error means the buffer is
+	// not a faithful prefix of the file, so classifying it would mislabel an
+	// unreadable file as empty text; fall back to the same best-effort
+	// "other" result an Open failure yields.
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		log.Printf("detect: read %s failed: %v", path, err)
+		return Result{MimeType: "application/octet-stream", ContentClass: config.ClassOther}
+	}
 	head = head[:n]
 	return Classify(head, originalFilename)
 }

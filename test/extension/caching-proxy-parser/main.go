@@ -26,6 +26,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -34,6 +35,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -44,6 +46,11 @@ const (
 	ringSize          = 100
 	pollInterval      = 200 * time.Millisecond
 	backfillBytes     = 64 * 1024 // bytes scanned from EOF on first open
+
+	// Cap on unmatched sample lines written to the log, so a total
+	// logformat drift (every line failing lineRE) cannot flood the
+	// journal. The running skipped counter on /healthz stays exact.
+	maxUnmatchedLogged = 5
 )
 
 // yuruna logformat (see /etc/squid/conf.d/yuruna.conf):
@@ -100,13 +107,36 @@ func (r *ring) snapshot() []Entry {
 	return out
 }
 
-func parseLine(line string) (Entry, bool) {
+// stats holds the follower's observability counters and last-activity
+// markers. Every field is written only from the single follow goroutine
+// and read concurrently by /healthz, so all access goes through
+// sync/atomic. Surfacing these lets an operator (or a watchdog) see
+// whether the tailer can read the log (last_open_err, last_read) and
+// spot logformat drift (skipped/fielderr).
+type stats struct {
+	parsed   atomic.Int64 // lines that matched lineRE and were pushed to the ring
+	skipped  atomic.Int64 // lines that did not match lineRE (logformat drift)
+	fieldErr atomic.Int64 // matched lines with an unparseable ts/bytes field (pushed with a zero fallback)
+	logged   atomic.Int64 // unmatched sample lines already logged (bounded by maxUnmatchedLogged)
+
+	lastReadUnixMs atomic.Int64 // wall-clock ms of the last line read from the log
+	lastOpenErr    atomic.Value // string: most recent open/stat failure, "" while the log is open
+}
+
+func parseLine(line string, s *stats) (Entry, bool) {
 	m := lineRE.FindStringSubmatch(line)
 	if m == nil {
 		return Entry{}, false
 	}
-	ts, _ := strconv.ParseFloat(m[1], 64)
-	bytes, _ := strconv.ParseInt(m[4], 10, 64)
+	ts, tsErr := strconv.ParseFloat(m[1], 64)
+	bytes, bytesErr := strconv.ParseInt(m[4], 10, 64)
+	if tsErr != nil || bytesErr != nil {
+		// The line matched the logformat shape but a numeric field would
+		// not parse (most plausibly a "-" bytes value). Keep the row with
+		// a zero fallback rather than dropping it, but count the miss so a
+		// field-level drift shows up on /healthz.
+		s.fieldErr.Add(1)
+	}
 	whole := int64(ts)
 	frac := int64((ts - float64(whole)) * 1e9)
 	return Entry{
@@ -132,7 +162,7 @@ func inodeOf(fi os.FileInfo) uint64 {
 // from the last ~64 KB of the file (so the panel is non-empty on cold
 // start). It detects logrotate by stat'ing the path and comparing
 // inodes; on rotation it closes the old fd and re-opens from byte 0.
-func follow(path string, r *ring) {
+func follow(path string, r *ring, s *stats) {
 	var (
 		f         *os.File
 		rd        *bufio.Reader
@@ -143,16 +173,24 @@ func follow(path string, r *ring) {
 		if f == nil {
 			fh, err := os.Open(path)
 			if err != nil {
+				s.lastOpenErr.Store(fmt.Sprintf("open %s: %v", path, err))
 				log.Printf("open %s: %v", path, err)
 				time.Sleep(time.Second)
 				continue
 			}
 			st, statErr := fh.Stat()
 			if statErr != nil {
+				// A stat failure must be surfaced, not silently retried: an
+				// unrecorded stat error is invisible on /healthz and
+				// indistinguishable there from a healthy tailer that is merely
+				// caught up. Record + log it like the open failure above.
+				s.lastOpenErr.Store(fmt.Sprintf("stat %s: %v", path, statErr))
+				log.Printf("stat %s: %v", path, statErr)
 				_ = fh.Close()
 				time.Sleep(time.Second)
 				continue
 			}
+			s.lastOpenErr.Store("") // open+stat succeeded; clear any prior failure
 			seenInode = inodeOf(st)
 			if firstOpen {
 				size := st.Size()
@@ -173,13 +211,33 @@ func follow(path string, r *ring) {
 		}
 		line, err := rd.ReadString('\n')
 		if err == nil {
+			s.lastReadUnixMs.Store(time.Now().UnixMilli())
 			line = strings.TrimRight(line, "\n")
-			if e, ok := parseLine(line); ok {
+			if line == "" {
+				continue // a blank line is not logformat drift; don't count it as skipped
+			}
+			if e, ok := parseLine(line, s); ok {
+				s.parsed.Add(1)
 				r.push(e)
+			} else {
+				s.skipped.Add(1)
+				if s.logged.Load() < maxUnmatchedLogged {
+					s.logged.Add(1)
+					log.Printf("unmatched line (logformat drift?): %q", line)
+				}
 			}
 			continue
 		}
-		// EOF or read error -- check for rotation, otherwise wait for new data.
+		if err != io.EOF {
+			// A non-EOF read error (bad fd, underlying I/O error) will not clear by waiting, so
+			// close and force a reopen instead of spinning on / stalling behind a broken
+			// descriptor. Only io.EOF means "caught up -- wait for more data / check rotation".
+			_ = f.Close()
+			f, rd = nil, nil
+			continue
+		}
+		// io.EOF: caught up. If the file rotated (new inode) reopen; otherwise wait for new data.
+		// Keep rd so the next read resumes where bufio left off.
 		st, statErr := os.Stat(path)
 		if statErr == nil && inodeOf(st) != seenInode {
 			_ = f.Close()
@@ -279,8 +337,22 @@ func handleHTML(w http.ResponseWriter, req *http.Request) {
 	_, _ = io.WriteString(w, indexHTML)
 }
 
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	_, _ = io.WriteString(w, "ok\n")
+// handleHealth reports liveness plus the follower's counters and last-
+// activity markers. It keeps the leading "ok" token (probes and the
+// README example match on it) and appends the diagnostics: last_open_err
+// distinguishes a tailer that cannot open/stat the log (set) from one
+// reading fine (empty), while last_read shows when a line last arrived
+// (old for any idle log, so it is a value to read, not a health verdict).
+func handleHealth(s *stats) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		lastRead := "never"
+		if ms := s.lastReadUnixMs.Load(); ms > 0 {
+			lastRead = time.UnixMilli(ms).UTC().Format("2006-01-02T15:04:05.000Z")
+		}
+		openErr, _ := s.lastOpenErr.Load().(string)
+		_, _ = fmt.Fprintf(w, "ok parsed=%d skipped=%d fielderr=%d last_read=%s last_open_err=%s\n",
+			s.parsed.Load(), s.skipped.Load(), s.fieldErr.Load(), lastRead, openErr)
+	}
 }
 
 func main() {
@@ -289,11 +361,13 @@ func main() {
 	flag.Parse()
 
 	r := &ring{}
-	go follow(*logPath, r)
+	s := &stats{}
+	s.lastOpenErr.Store("") // seed the atomic.Value with its concrete string type
+	go follow(*logPath, r, s)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/recent-requests", handleJSON(r))
-	mux.HandleFunc("/healthz", handleHealth)
+	mux.HandleFunc("/healthz", handleHealth(s))
 	mux.HandleFunc("/", handleHTML)
 
 	log.Printf("caching-proxy-parser listening on http://%s, tailing %s", *addr, *logPath)

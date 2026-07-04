@@ -16,6 +16,7 @@ package id
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -58,10 +59,15 @@ func (a *Allocator) Allocate(t time.Time) (string, error) {
 	seen, ok := a.seenByDay[dayKey]
 	if !ok {
 		seen = make(map[string]struct{})
-		a.seenByDay[dayKey] = seen
 		for _, root := range a.filesRoots {
-			a.populateFromDisk(root, t.UTC(), seen)
+			if err := a.populateFromDisk(root, t.UTC(), seen); err != nil {
+				// A real (non-not-exist) read error means the on-disk seed is incomplete. Do NOT
+				// cache the partial set or hand out an ID -- we could reissue one an existing
+				// artifact already claims. Fail so the caller can retry.
+				return "", fmt.Errorf("seed id scan for %s: %w", dayKey, err)
+			}
 		}
+		a.seenByDay[dayKey] = seen
 	}
 	for tries := 0; tries < 10000; tries++ {
 		candidate := a.random()
@@ -85,13 +91,19 @@ func (a *Allocator) random() string {
 // filesRoot/yyyy/mm/dd/. The ID is always the first IDLength characters
 // of the filename: <id>, <id>.ext, <id>.yuruna.archive.zip, or the
 // <id>.yuruna.meta.json sidecar.
-func (a *Allocator) populateFromDisk(filesRoot string, t time.Time, seen map[string]struct{}) {
+func (a *Allocator) populateFromDisk(filesRoot string, t time.Time, seen map[string]struct{}) error {
 	dayDir := filepath.Join(filesRoot, t.Format("2006/01/02"))
 	entries, err := os.ReadDir(dayDir)
 	if err != nil {
-		// Day folder doesn't exist yet — that's fine. First allocation
-		// will create it via Store.DayDir; the seen set starts empty.
-		return
+		if os.IsNotExist(err) {
+			// Day folder doesn't exist yet — fine. First allocation creates it via
+			// Store.DayDir; the seen set starts empty.
+			return nil
+		}
+		// A real read error (permission, transient I/O) must be surfaced: proceeding with an
+		// empty seen set risks reissuing an ID already stored on disk.
+		log.Printf("id: scan %s for existing IDs failed: %v", dayDir, err)
+		return err
 	}
 	for _, e := range entries {
 		name := e.Name()
@@ -108,6 +120,7 @@ func (a *Allocator) populateFromDisk(filesRoot string, t time.Time, seen map[str
 			}
 		}
 	}
+	return nil
 }
 
 func isValidID(s string) bool {

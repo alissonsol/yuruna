@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d7e6c5-b4a3-4928-8f16-5a4b3c2d1e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,7 +68,8 @@ function Test-DrainLockHeldLive {
     if (-not $j.pid) { return $false }
     $liveStart = Get-DrainProcStartUtc -ProcId ([int]$j.pid)
     if (-not $liveStart) { return $false }                       # PID not running -> stale
-    if ($j.startUtc -and ($liveStart -ne [string]$j.startUtc)) { return $false }  # PID reused -> stale
+    if (-not $j.startUtc) { return $false }                      # no recorded start -> identity unprovable, treat as stale/reclaimable (matches the push forwarder)
+    if ($liveStart -ne [string]$j.startUtc) { return $false }    # PID reused -> stale
     return $true
 }
 function Add-DrainLockFile {

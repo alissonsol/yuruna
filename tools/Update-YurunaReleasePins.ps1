@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,10 +37,13 @@
     byte -- the authoritative backstop the per-cycle gate and the pre-commit
     hook (Item 6) point at for the published artifact.
 
-    It also repoints the release pins -- the installer clone defaults and the
-    README one-liners/verified path from `main` to `refs/tags/<VERSION>`. Pins
-    are rewritten by default; use -SkipPins to regenerate and gate the manifest
-    without touching the refs.
+    It also repoints the one release pin that is still hard-coded -- the README
+    verified-path snippet (the signed-download URL) to `refs/tags/<VERSION>`.
+    The installers themselves carry no baked version: -PinVersion / PIN_VERSION
+    reads the repo's VERSION file at install time, and the clone DEFAULT stays on
+    the moving `main` branch so normal installs auto-update. The pin is rewritten
+    by default; use -SkipPins to regenerate and gate the manifest without
+    touching the ref.
 
 .PARAMETER PrivateKeyPath
     Path to the release RSA private key (PEM). Read only at release time from a
@@ -119,24 +122,24 @@ $installers = @(
 )
 
 function Update-ReleasePin {
-    # Repoint the pinned ref everywhere a fresh host reads it -- the three
-    # installer branch defaults (main -> <Version>) and the install/README.md
-    # one-liners + verified-path snippet (refs/heads/main, or an older
-    # refs/tags/<calver>, -> refs/tags/<Version>). Idempotent: re-running with
-    # the same Version is a no-op. The existing clone/checkout/pull logic
-    # handles a CalVer tag transparently (detached checkout + no-op ff-only
-    # pull), so no installer logic change is needed -- only this default flip.
+    # Repoint the install/README.md verified-path snippet (the signed-download
+    # URL) from refs/tags/<calver> to refs/tags/<Version>. The installers do NOT
+    # carry a baked version: -PinVersion / PIN_VERSION reads the repo's VERSION
+    # file at install time, and the clone DEFAULT stays on the moving 'main'
+    # branch -- so a release never re-pins a fresh install and there is nothing
+    # to rewrite in the three installer scripts. Idempotent: re-running with the
+    # same Version is a no-op.
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Version)
     $utf8   = [System.Text.UTF8Encoding]::new($false)
-    $calver = '\d{4}\.\d{2}\.\d{2}'
+    $calver = '\d{4}\.\d{2}\.\d{2}(?:\.\d+)?'
     $edits = @(
-        @{ file = 'install/ubuntu.kvm.sh';       pat = '(YURUNA_BRANCH:-)(main|' + $calver + ')(\})';          rep = '${1}' + $Version + '${3}' }
-        @{ file = 'install/macos.utm.sh';        pat = '(YURUNA_BRANCH:-)(main|' + $calver + ')(\})';          rep = '${1}' + $Version + '${3}' }
-        @{ file = 'install/windows.hyper-v.ps1'; pat = '(\$YurunaBranch\s*=\s*'')(main|' + $calver + ')('')';  rep = '${1}' + $Version + '${3}' }
-        # Only the verified-path snippet (refs/tags/<calver>) is repinned; the
-        # convenience one-liners deliberately stay on refs/heads/main (unverified
-        # latest). The CLONE is what gets pinned, via the YURUNA_BRANCH defaults.
+        # The installers read the release from the repo's VERSION file at install
+        # time (and the clone DEFAULT stays on 'main' for auto-update), so there
+        # is no baked installer version to bump -- a release never re-pins a fresh
+        # install. Only the README verified-path snippet hard-codes a tag in its
+        # signed-download URL; bump that to the new release. The convenience
+        # one-liners deliberately stay on refs/heads/main (unverified latest).
         @{ file = 'install/README.md';           pat = '(alissonsol/yuruna/)refs/tags/' + $calver; rep = '${1}refs/tags/' + $Version }
     )
     foreach ($e in $edits) {
@@ -157,8 +160,8 @@ function Update-ReleasePin {
 
 if (-not (Test-Path -LiteralPath $versionFile)) { throw "VERSION file not found at $versionFile" }
 $version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
-if ($version -notmatch '^\d{4}\.\d{2}\.\d{2}$') {
-    throw "VERSION '$version' is not bare CalVer (YYYY.MM.DD)."
+if ($version -notmatch '^\d{4}\.\d{2}\.\d{2}(\.\d+)?$') {
+    throw "VERSION '$version' is not bare CalVer (YYYY.MM.DD or YYYY.MM.DD.N)."
 }
 Write-Information "Release version (from VERSION): $version" -InformationAction Continue
 
@@ -172,12 +175,13 @@ if (Test-Path -LiteralPath $asciiGate) {
     Write-Warning "Test-AsciiNoBom.ps1 not found at $asciiGate; ASCII gate SKIPPED."
 }
 
-# --- Pin the release ref (installer defaults + README one-liners/verified
-# path). Run by default; -SkipPins regenerates the manifest without touching
-# the refs. This is the step that flips `main` -> `refs/tags/<VERSION>` at the
-# release. The per-release work is: bump VERSION, then run this with
-# `-Commit -Tag -Push` -- which pins, signs, commits, and creates+pushes the
-# bare-CalVer tag for you (no hand-typed tag name; see the publish block below).
+# --- Pin the README verified-download path to the release tag. Run by default;
+# -SkipPins regenerates the manifest without touching it. The installers read
+# the release from the repo's VERSION file at install time and their clone
+# DEFAULT stays on `main`, so nothing in the installer scripts needs repinning.
+# The per-release work is: bump VERSION, then run this with `-Commit -Tag -Push`
+# -- which pins, signs, commits, and creates+pushes the bare-CalVer tag for you
+# (no hand-typed tag name; see the publish block).
 if (-not $SkipPins) {
     Write-Information "Pinning release refs to $version ..." -InformationAction Continue
     Update-ReleasePin -Root $RepoRoot -Version $version

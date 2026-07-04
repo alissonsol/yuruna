@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.30
+# Version: 2026.07.03
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -52,7 +52,7 @@ sudo ln -sf /usr/local/dotnet/dotnet /usr/local/bin/dotnet
 if ! grep -q 'export DOTNET_ROOT=/usr/local/dotnet' /etc/bashrc 2>/dev/null; then
   echo 'export DOTNET_ROOT=/usr/local/dotnet' | sudo tee -a /etc/bashrc
 fi
-dotnet --version
+dotnet --version || echo "dotnet: version probe failed (non-fatal)"
 
 echo ""
 echo -e "\e[1;36m==== VS Code ====\e[0m"
@@ -63,12 +63,14 @@ dnf_retry sudo dnf -y install code
 
 echo ""
 echo "== Installation Summary =="
-echo "DotNet: $(dotnet --version)"
-echo "Git: $(git --version)"
-echo "Java: $(javac -version)"
+# A benign non-zero from a version probe must never fail provisioning (the script runs under
+# set -e); capture stderr too so the summary shows the real version line.
+echo "DotNet: $(dotnet --version 2>&1 || echo 'version probe failed')"
+echo "Git: $(git --version 2>&1 || echo 'version probe failed')"
+echo "Java: $(javac -version 2>&1 || echo 'version probe failed')"
 if [ -z "${TMPDIR:-}" ]; then
 	TMPDIR=$(mktemp -d)
     export TMPDIR
 	echo "TMPDIR not set. Created and set TMPDIR to $TMPDIR"
 fi
-echo "Visual Studio Code: $(code --version --no-sandbox --user-data-dir "$TMPDIR")"
+echo "Visual Studio Code: $(code --version --no-sandbox --user-data-dir "$TMPDIR" 2>&1 || echo 'installed, version probe failed')"

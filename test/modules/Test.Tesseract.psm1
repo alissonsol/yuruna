@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,6 +81,19 @@ function Find-Tesseract {
     # macOS: check Homebrew locations
     if ($IsMacOS) {
         foreach ($candidate in @("/usr/local/bin/tesseract", "/opt/homebrew/bin/tesseract")) {
+            if (Test-Path $candidate) {
+                $script:CachedTesseractPath = $candidate
+                return $candidate
+            }
+        }
+    }
+
+    # Linux: check standard package-manager and snap locations, so a tesseract
+    # present on disk but absent from a stripped-down PATH (e.g. a non-login
+    # service shell) is still found, matching the Windows/macOS filesystem
+    # fallbacks above.
+    if ($IsLinux) {
+        foreach ($candidate in @("/usr/bin/tesseract", "/usr/local/bin/tesseract", "/snap/bin/tesseract")) {
             if (Test-Path $candidate) {
                 $script:CachedTesseractPath = $candidate
                 return $candidate
@@ -185,15 +198,28 @@ function Invoke-TesseractOcr {
     # Why not --psm 11 (sparse text): fragments every word onto its own
     # output line, breaking the `Wait-ForText -ContainsString` substring
     # match used by the test harness.
-    $output = & $tesseractExe $absPath stdout --psm 6 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        $errOutput = & $tesseractExe $absPath stdout --psm 6 2>&1 |
-            Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
+    # Capture stdout and stderr in a single pass. 2>&1 merges tesseract's
+    # stderr (surfaced as ErrorRecord objects) into the success stream, so a
+    # failure is diagnosable from THIS run's stderr -- re-running tesseract to
+    # fetch stderr could diverge (the image may have changed or been deleted
+    # between runs) and doubles the process spawn. $LASTEXITCODE survives the
+    # variable assignment (no pipeline) and is snapshotted immediately.
+    #
+    # $PSNativeCommandUseErrorActionPreference is pinned $false in this scope so
+    # a non-zero tesseract exit reaches the explicit branch below instead of
+    # throwing a bare NativeCommandExitException that bypasses the diagnostic
+    # message (the preference defaults $true on PS 7.4+ under EAP=Stop; see
+    # feedback_winget_self_upgrade_kills_running_pwsh for the guard class).
+    $PSNativeCommandUseErrorActionPreference = $false
+    $merged = & $tesseractExe $absPath stdout --psm 6 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
         $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
-        throw "Tesseract failed with exit code $LASTEXITCODE.`n$errMsg"
+        throw "Tesseract failed with exit code $exitCode.`n$errMsg"
     }
 
-    $text = ($output | Where-Object { $_ -is [string] }) -join "`n"
+    $text = ($merged | Where-Object { $_ -is [string] }) -join "`n"
     return $text
 }
 
@@ -226,10 +252,21 @@ function Get-TesseractWordBox {
     #   level page_num block_num par_num line_num word_num left top width height conf text
     # --psm 6 matches Invoke-TesseractOcr above so word boxes line up with
     # the text output (otherwise word ordering and line grouping diverge).
-    $output = & $tesseractExe $absPath stdout --psm 6 tsv 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Tesseract TSV mode failed with exit code $LASTEXITCODE."
+    # Single invocation with merged stderr (see Invoke-TesseractOcr): a TSV
+    # failure carries tesseract's own stderr into the thrown message, and the
+    # EAP pin keeps the exit-code branch reachable on PS 7.4+.
+    $PSNativeCommandUseErrorActionPreference = $false
+    $merged = & $tesseractExe $absPath stdout --psm 6 tsv 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
+        $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
+        throw "Tesseract TSV mode failed with exit code $exitCode.`n$errMsg"
     }
+    # A successful run can still emit stderr chatter (e.g. resolution warnings)
+    # as ErrorRecords; keep only stdout strings so they are not mis-parsed as
+    # TSV rows below.
+    $output = $merged | Where-Object { $_ -is [string] }
 
     $boxes = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($line in $output) {

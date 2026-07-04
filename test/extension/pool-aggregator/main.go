@@ -112,6 +112,17 @@ type hostStatus struct {
 	// host as its own "paused" status, the same effective-pause signal the host status
 	// page shows -- see statusLabel.
 	CyclePaused bool `json:"cyclePaused"`
+	// GitCommits mirrors status.json's gitCommits array (framework FIRST, project
+	// SECOND by the runner's convention -- see Test.RunnerInnerLoop's
+	// GitCommitsList): the source-tree commit(s) the current cycle ran. Drives the
+	// pool table's Commit column -- short SHAs plus a per-repo deep-link. Only the
+	// machine-routable sha + repoUrl are parsed; a commit id and a repo URL are
+	// hostname-free, so they stay safe on the unauthenticated pool surface this
+	// struct serializes.
+	GitCommits []struct {
+		Sha     string `json:"sha"`
+		RepoURL string `json:"repoUrl"`
+	} `json:"gitCommits"`
 	// LastFailure is parsed DELIBERATELY NARROW: only the machine-routable
 	// failureClass + severity, never the host's richer lastFailure (errorMessage,
 	// vmName, reproCommand, relPath) which would leak host detail onto the
@@ -130,6 +141,62 @@ func (s *hostStatus) failClassOf() string {
 		return "unknown"
 	}
 	return s.LastFailure.FailureClass
+}
+
+// shaCommitRE gates a git SHA into a commit deep-link: hex-ish (alphanumeric)
+// only, mirroring the status page's renderCommitLinks (yuruna.common.js) so the
+// pool table links a commit exactly when that page would.
+var shaCommitRE = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+
+// commitURL builds a repoUrl/commit/<sha> deep-link, or "" when the inputs can't
+// form a safe link. Mirrors yuruna.common.js renderCommitLinks: link only when
+// repoUrl is http(s) and the sha is hex-ish, so an "unknown" SHA or a non-URL
+// repo renders as plain text rather than a broken anchor.
+func commitURL(repoURL, sha string) string {
+	repoURL, sha = strings.TrimSpace(repoURL), strings.TrimSpace(sha)
+	if repoURL == "" || sha == "" {
+		return ""
+	}
+	if !strings.HasPrefix(repoURL, "http://") && !strings.HasPrefix(repoURL, "https://") {
+		return ""
+	}
+	if !shaCommitRE.MatchString(sha) {
+		return ""
+	}
+	return strings.TrimRight(repoURL, "/") + "/commit/" + sha
+}
+
+// commitCells derives the pool table's Commit column from a host's status.json
+// gitCommits (framework first, project second by the runner's convention).
+// Returns the display string (8-char short SHAs, comma-joined, both repos) plus
+// the framework and project commit deep-link URLs the table's two data-links
+// resolve; any return is "" when the host has not reported that piece. The
+// short-SHA + link policy mirrors the host status page's Commit block
+// (renderCommitLinks in yuruna.common.js) so the pool view and the host page
+// agree on what a commit looks like and when it is clickable.
+func commitCells(st *hostStatus) (display, frameworkURL, projectURL string) {
+	if st == nil {
+		return "", "", ""
+	}
+	shorts := make([]string, 0, len(st.GitCommits))
+	for i, c := range st.GitCommits {
+		sha := strings.TrimSpace(c.Sha)
+		if sha == "" {
+			continue
+		}
+		short := sha
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		shorts = append(shorts, short)
+		u := commitURL(c.RepoURL, sha)
+		if i == 0 {
+			frameworkURL = u
+		} else if projectURL == "" && u != "" {
+			projectURL = u // first non-framework repo that yields a linkable commit
+		}
+	}
+	return strings.Join(shorts, ", "), frameworkURL, projectURL
 }
 
 // hostView is a discovered pool member, keyed by the stable hostId.
@@ -608,7 +675,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.06.30"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.03"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1599,10 +1666,18 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	for _, id := range ids {
 		out.Hosts = append(out.Hosts, s.hosts[id])
 	}
+	// Marshal while still holding s.mu: out.Hosts holds *hostView/*hostStatus pointers that the
+	// poll goroutine mutates, so encoding them after Unlock is a data race (torn JSON / crash
+	// under -race). Serialize to bytes under the lock, then release and write.
+	body, err := json.Marshal(out)
 	s.mu.Unlock()
+	if err != nil {
+		http.Error(w, "failed to encode pool status", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(out)
+	_, _ = w.Write(body)
 }
 
 // cycleCand is one Loki transition line parsed for /go/cycle's time->cycle match.
@@ -1985,7 +2060,6 @@ func pickFolderFromListing(body, hostID string, t time.Time) string {
 
 func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	total := len(s.hosts)
 	reachable := 0
 	for _, h := range s.hosts {
@@ -2018,10 +2092,11 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 
 	// Per-host descriptive series that drive the dashboard's pool table.
 	// host_info carries the table's label cells (name, type, framework version,
-	// deep-link URLs, current cycle, derived status); the value is a constant 1. The series
-	// churns when cycleId/status/IP change -- fine for an INSTANT table query
-	// (old label-sets go stale immediately since only the current set is
-	// exported), but is why status/cycle are NOT labels on the timeline series.
+	// commit + its deep-link URLs, other deep-link URLs, current cycle, derived
+	// status); the value is a constant 1. The series churns when
+	// cycleId/status/IP change -- fine for an INSTANT table query (old label-sets
+	// go stale immediately since only the current set is exported), but is why
+	// status/cycle are NOT labels on the timeline series.
 	b.WriteString("# HELP yuruna_pool_host_info Per-host descriptive labels for the pool table (value always 1).\n# TYPE yuruna_pool_host_info gauge\n")
 	for _, h := range ids {
 		hv := s.hosts[h]
@@ -2029,16 +2104,21 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 			continue
 		}
 		hostType, cycleId, cfu := "", "", ""
+		commitDisplay, commitURLVal, projectCommitURL := "", "", ""
 		if hv.Status != nil {
 			hostType, cycleId, cfu = hv.Status.Host, hv.Status.CycleId, hv.Status.CycleFolderUrl
+			// commit is the current cycle's short SHAs (framework, project); the two
+			// URL labels are the per-repo deep-links the table's Commit cell resolves.
+			commitDisplay, commitURLVal, projectCommitURL = commitCells(hv.Status)
 		}
 		// No hostname label (pool view is hostname-free). cycleFolderUrl stays --
 		// the table's cycle-folder deep-link needs it; the folder name is the opaque
 		// hostId (Format-CycleFolderBaseName), so this value is hostname-free too. (A
 		// legacy pre-hostId folder name still embeds the hostname until that host's
-		// next cycle re-names under hostId.)
-		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,hostId=%q,hostType=%q,version=%q,baseUrl=%q,cycleId=%q,cycleFolderUrl=%q,status=%q} 1\n",
-			s.poolFor(h), h, hostType, hv.Version, hv.BaseURL, cycleId, cfu, hv.statusLabel())
+		// next cycle re-names under hostId.) commit/commitUrl/projectCommitUrl are a
+		// commit id + repo URLs -- hostname-free, so they stay safe here too.
+		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,hostId=%q,hostType=%q,version=%q,commit=%q,commitUrl=%q,projectCommitUrl=%q,baseUrl=%q,cycleId=%q,cycleFolderUrl=%q,status=%q} 1\n",
+			s.poolFor(h), h, hostType, hv.Version, commitDisplay, commitURLVal, projectCommitURL, hv.BaseURL, cycleId, cfu, hv.statusLabel())
 	}
 	// host_status: the numeric twin of host_info's status, keyed on hostId so it
 	// forms one continuous series per host -- the input the state-timeline panel
@@ -2151,7 +2231,19 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	if s.poolIncident != nil {
 		poolInc = 1
 	}
-	crossCut := time.Now().UTC().Add(-s.crossWin)
+	// Window this count against the last completed poll's clock (not scrape
+	// time) so it stays consistent with the latched yuruna_pool_wide_incident
+	// above: evaluateIncidents decides that flag at the poll using the same
+	// window, so a scrape-time cut would let hosts age out and disagree with a
+	// still-set flag between polls. Before the first poll s.last is zero, but a
+	// Loki rehydrate can already have seeded failWindow and restored the
+	// incident, so fall back to scrape time there to report the true recent
+	// count rather than a forced zero that would disagree with the restored flag.
+	ref := s.last
+	if ref.IsZero() {
+		ref = time.Now().UTC()
+	}
+	crossCut := ref.Add(-s.crossWin)
 	recentHosts := 0
 	for _, fw := range s.failWindow {
 		if len(fw) > 0 && fw[len(fw)-1].t.After(crossCut) {
@@ -2224,8 +2316,13 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	for _, h := range ids {
 		fmt.Fprintf(&b, "yuruna_pool_cycles_fail_total{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, s.fail[h])
 	}
+	// Materialize the metrics text and release the lock before writing to the client, so a slow
+	// scraper connection cannot hold s.mu across the network write and stall the poll goroutine
+	// (mirrors handlePoolStatus).
+	out := b.String()
+	s.mu.Unlock()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	_, _ = io.WriteString(w, b.String())
+	_, _ = io.WriteString(w, out)
 }
 
 // requestSourceIP returns the connection's source IP (no port). RemoteAddr is the

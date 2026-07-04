@@ -33,7 +33,13 @@
     #config-status.ok    { color: var(--pass-fg); background: var(--pass-bg); }
 
     #config-footer {
+      /* Shorthand first as the fallback; browsers that understand env()/max() override with the
+         safe-area-aware values so the Save/Discard action row clears the iPhone home indicator
+         and notch (this is the bottom-most element of the full-height flex column). */
       padding: .75rem 1.5rem;
+      padding-bottom: calc(.75rem + env(safe-area-inset-bottom));
+      padding-left: max(1.5rem, env(safe-area-inset-left));
+      padding-right: max(1.5rem, env(safe-area-inset-right));
       border-top: 1px solid var(--border);
       display: flex;
       background: var(--bg-elevated);

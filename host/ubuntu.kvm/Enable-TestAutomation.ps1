@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,7 +96,8 @@ $wrapperPrimed = ($env:YURUNA_SUDO_PRIMED -eq '1')
 
 if ($wrapperPrimed) {
     foreach ($unit in @('libvirtd', 'virtlogd')) {
-        $active = (& systemctl is-active $unit 2>$null).Trim()
+        $raw = & systemctl is-active $unit 2>$null
+        $active = if ($raw) { "$raw".Trim() } else { '' }
         if ($active -ne 'active') {
             Write-Warning "$unit not active despite install/ubuntu.kvm.sh wrapper -- check 'systemctl status $unit'."
         }
@@ -104,19 +105,29 @@ if ($wrapperPrimed) {
 } else {
     Invoke-Step -Description 'Enable + start libvirtd' -Action {
         & sudo systemctl enable --now libvirtd | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "systemctl enable --now libvirtd failed (exit $LASTEXITCODE); check 'systemctl status libvirtd'." }
     }
     Invoke-Step -Description 'Enable + start virtlogd' -Action {
         & sudo systemctl enable --now virtlogd | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "systemctl enable --now virtlogd failed (exit $LASTEXITCODE); check 'systemctl status virtlogd'." }
     }
 
     $netListed = & sudo virsh net-list --name 2>$null
     if (-not ($netListed -match '^default$')) {
         Invoke-Step -Description "Start libvirt 'default' network" -Action {
             & sudo virsh net-start default 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Warning "virsh net-start default failed (exit $LASTEXITCODE)." }
         }
     }
     Invoke-Step -Description "Set libvirt 'default' network to autostart" -Action {
         & sudo virsh net-autostart default 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "virsh net-autostart default failed (exit $LASTEXITCODE)." }
+    }
+    # Verify the 'default' network is actually active before declaring success -- a failed
+    # net-start above otherwise leaves guests on the default network with no address.
+    $netActive = & sudo virsh net-list --name 2>$null
+    if (-not ($netActive -match '^default$')) {
+        Write-Warning "libvirt 'default' network is not active after net-start/net-autostart; check 'sudo virsh net-list --all'."
     }
 }
 

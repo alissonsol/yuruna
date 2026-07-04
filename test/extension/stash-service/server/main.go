@@ -114,6 +114,10 @@ func main() {
 	// Two listeners in one process (stash-service-ui.md §2.1): the SCP/SFTP
 	// sink on :22 and the UI/API HTTP server (default :80). Both stop on ctx
 	// cancel and return nil; a real bind/serve failure on either is fatal.
+	// Each goroutine sends exactly one result to errCh when its
+	// ListenAndServe returns; listeners counts how many were started so the
+	// shutdown drain below reads every pending send.
+	listeners := 1
 	errCh := make(chan error, 2)
 	go func() { errCh <- srv.ListenAndServe(ctx, *listenAddr) }()
 	if *httpAddr != "" {
@@ -126,16 +130,49 @@ func main() {
 			Version:        version,
 		})
 		log.Printf("stash-server UI on %s (pool window %dd, refresh %ds, aggregator=%q)", *httpAddr, *poolWindowDays, *poolRefreshSecs, *aggregatorURL)
+		listeners++
 		go func() { errCh <- ui.ListenAndServe(ctx) }()
 	} else {
 		log.Printf("stash-server UI disabled (--http-addr empty)")
 	}
 
+	// Block until the OS signals shutdown (ctx.Done) or a listener returns
+	// early. pending tracks how many listener results still owe a send to
+	// errCh so the drain below can surface every one; the select consumes at
+	// most one, so decrement only in the errCh case.
+	pending := listeners
 	select {
 	case <-ctx.Done():
 	case err := <-errCh:
+		pending--
 		if err != nil {
 			log.Fatalf("listen: %v", err)
+		}
+	}
+	// Either a listener returned nil on its own or the signal fired: cancel so
+	// every remaining listener observes it and returns (idempotent when the
+	// signal already cancelled ctx), which guarantees the drain below cannot
+	// block waiting on a still-serving listener.
+	cancel()
+
+	// Graceful shutdown: drain in-flight SCP/SFTP handlers -- an active
+	// finalize/commit -- before the deferred m.Close() tears down the meta DB
+	// the commit path writes to. Explicit (not deferred) so it runs before
+	// that already-registered defer.
+	if cerr := srv.Close(); cerr != nil {
+		log.Printf("sshsrv close: %v", cerr)
+	}
+
+	// Drain the remaining listener results before exit. A non-nil error here
+	// is a bind/serve failure that surfaced as the listeners wound down; log
+	// it so it reaches journald instead of being dropped. It is not fatal:
+	// this is an intentional, signal-initiated teardown, so completing the
+	// graceful close (including the deferred m.Close) beats aborting via
+	// log.Fatalf, which the errCh channel buffer (cap 2) lets us do without
+	// the senders having blocked.
+	for i := 0; i < pending; i++ {
+		if err := <-errCh; err != nil {
+			log.Printf("listen (shutdown): %v", err)
 		}
 	}
 	log.Printf("stash-server stopped")

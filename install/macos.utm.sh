@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.06.30  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.03  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- See https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -16,7 +16,18 @@ YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
 # unless the operator asked for a specific ref.
 YURUNA_BRANCH_EXPLICIT=0
 [[ -n "${YURUNA_BRANCH:-}" ]] && YURUNA_BRANCH_EXPLICIT=1
-YURUNA_BRANCH="${YURUNA_BRANCH:-2026.06.30}"
+YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
+# Pin opt-in: PIN_VERSION=1 (env -- used by the remote one-liners) or the
+# --pin-version flag (local runs). The default 'main' is a tracking branch the
+# runner fast-forwards every cycle (auto-update). When pinning, the host is
+# frozen at the CURRENT release AFTER the clone -- the repo's own VERSION file
+# (single source of truth, top of the repository) is read and that tag checked
+# out as a detached HEAD, so nothing is hard-coded here and a release never
+# needs to re-pin the installer. An explicit YURUNA_BRANCH=<ref> wins.
+PIN_VERSION="${PIN_VERSION:-0}"
+for _yuruna_arg in "$@"; do
+  [[ "$_yuruna_arg" == "--pin-version" ]] && PIN_VERSION=1
+done
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -625,8 +636,8 @@ restore_test_status() {
 resolve_yuruna_ref() {
   local remote="$1" ref="$2" variant=""
   if [[ -z "$remote" || -z "$ref" ]]; then printf '%s' "$ref"; return 0; fi
-  if   [[ "$ref" =~ ^v([0-9]{4}\.[0-9]{2}\.[0-9]{2})$ ]]; then variant="${BASH_REMATCH[1]}"
-  elif [[ "$ref" =~ ^([0-9]{4}\.[0-9]{2}\.[0-9]{2})$  ]]; then variant="v$ref"
+  if   [[ "$ref" =~ ^v([0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?)$ ]]; then variant="${BASH_REMATCH[1]}"
+  elif [[ "$ref" =~ ^([0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?)$  ]]; then variant="v$ref"
   else printf '%s' "$ref"; return 0; fi
   if GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$remote" "refs/tags/$ref" "refs/heads/$ref" >/dev/null 2>&1; then
     printf '%s' "$ref"; return 0
@@ -698,8 +709,14 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
     if ! git -C "$YURUNA_DIR" fetch --tags --force origin; then
       warn "git fetch reported rejected/partial tag updates -- continuing; checkout/pull below will surface anything fatal."
     fi
-    git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH"
-    if ! git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; then
+    # Guard the checkout (not just the pull): under `set -e` an unguarded
+    # `git checkout` that fails -- e.g. switching a dirty tree between the
+    # moving 'main' branch and a pinned tag, which would overwrite local
+    # changes -- aborts the whole installer before the move-aside-and-reclone
+    # rescue below can run. Routing a failed checkout into the same rescue
+    # keeps a mode flip (PIN_VERSION on/off) robust to a dirty working tree.
+    if ! { git -C "$YURUNA_DIR" checkout "$YURUNA_BRANCH" \
+           && git -C "$YURUNA_DIR" pull --ff-only origin "$YURUNA_BRANCH"; }; then
       YURUNA_BACKUP_DIR="${YURUNA_DIR}.backup.$(date +%Y-%m-%d.%H-%M)"
       warn "git pull --ff-only failed -- moving the existing checkout aside and re-cloning."
       warn "  from: $YURUNA_DIR"
@@ -742,6 +759,25 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
     git -C "$YURUNA_DIR" rm -r --cached --quiet .
     git -C "$YURUNA_DIR" reset --hard HEAD >/dev/null
     log "  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)"
+  fi
+fi
+
+# -- Pin to the current release (opt-in) -----------------------------------
+# PIN_VERSION / --pin-version: now that 'main' is cloned/updated, read the
+# repo's own VERSION file (single source of truth -- top of the repository) and
+# detach HEAD at that release tag so the host freezes there and the per-cycle
+# `git pull` is a no-op. An explicit YURUNA_BRANCH already chose a ref, so skip.
+# If VERSION runs ahead of the published tag, warn and leave the host on 'main'
+# rather than fail the install.
+if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
+  if [[ -f "$YURUNA_DIR/VERSION" ]]; then
+    pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"
+    log "Pinning to release $pin_tag (from VERSION) -- this host will NOT auto-update"
+    if ! git -C "$YURUNA_DIR" checkout "$pin_tag"; then
+      warn "Could not check out '$pin_tag' (the release tag may not be published yet) -- leaving the host on 'main' (it will auto-update). Re-run with PIN_VERSION=1 after the tag is cut, or set YURUNA_BRANCH=<tag>."
+    fi
+  else
+    warn "No VERSION file in $YURUNA_DIR -- cannot resolve a release to pin; leaving the host on 'main'."
   fi
 fi
 restore_test_status

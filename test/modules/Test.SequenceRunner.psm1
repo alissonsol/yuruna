@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42f2c5e4-b9a0-4367-cd15-4e6f9b3c2d51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
 #                                and detect a warm-path requiresSnapshot.
 #                                Returns @{ chainEntries; chainPlan;
 #                                effectiveUser; chainTotalSteps;
-#                                requiredSnapshotId; warmPath }.
+#                                requiredSnapshotId; warmPath; resolveFailed }.
 #
 #   Invoke-TestSequenceChain  -- Run the requested step range across the
 #                                planned chain. Returns @{ ok; finishedVmName }
@@ -161,11 +161,36 @@ function Resolve-TestSequencePlan {
         $requiredSnapshotId = [string]$topLevelEntry.sequence.requiresSnapshot.id
     }
     if ($requiredSnapshotId) {
-        $snapPresent = $false
-        try {
-            $snapPresent = [bool](Test-VMDiskSnapshot -VMName $requiredSnapshotId -Id $requiredSnapshotId)
-        } catch {
-            Write-Verbose "Test-VMDiskSnapshot threw ($($_.Exception.Message)); assuming cold path."
+        # Distinguish "snapshot absent" (a normal cold-path build) from "could
+        # not determine" (a probe error). Treating a query failure as absent
+        # would trigger a full cold rebuild whose saveDiskSnapshot renames a
+        # build VM onto <X> -- clobbering a snapshot that may in fact exist.
+        # Retry briefly to ride out a transient hypervisor blip; if the probe
+        # still cannot answer, fail the plan loudly rather than silently
+        # rebuilding on an unconfirmed "absent".
+        $snapPresent     = $false
+        $probeDetermined = $false
+        $probeError      = $null
+        for ($probeAttempt = 1; $probeAttempt -le 3 -and -not $probeDetermined; $probeAttempt++) {
+            try {
+                $snapPresent     = [bool](Test-VMDiskSnapshot -VMName $requiredSnapshotId -Id $requiredSnapshotId)
+                $probeDetermined = $true
+            } catch {
+                $probeError = $_.Exception.Message
+                if ($probeAttempt -lt 3) { Start-Sleep -Milliseconds (250 * $probeAttempt) }
+            }
+        }
+        if (-not $probeDetermined) {
+            Write-Warning "requiresSnapshot: could not determine whether snapshot '$requiredSnapshotId' exists after 3 probe attempts ($probeError). Failing the plan rather than risk a cold rebuild that clobbers an existing snapshot."
+            return @{
+                chainEntries       = $null
+                chainPlan          = $ChainPlan
+                effectiveUser      = $effectiveUser
+                chainTotalSteps    = 0
+                requiredSnapshotId = $requiredSnapshotId
+                warmPath           = $false
+                resolveFailed      = $true
+            }
         }
         if ($snapPresent) {
             Write-Information "requiresSnapshot: snapshot '$requiredSnapshotId' present on persisted VM '$requiredSnapshotId' -- skipping baseline chain (warm path)." -InformationAction Continue

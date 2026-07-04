@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -552,7 +552,6 @@ function Invoke-RunnerInnerCycle {
     $cachingProxyUrl   = $State.CachingProxyUrl
     $startScript       = $State.StartScript
     $StepHeartbeatFile = $State.StepHeartbeatFile
-    $ExitFailure       = $State.ExitFailure
     # Shared with the entry point's Ctrl+C handler (same dictionary instance),
     # so a flip of ['Requested'] there ends this cycle.
     $ShutdownState     = $State.ShutdownState
@@ -572,6 +571,13 @@ try {
     if ($prevStatus.cycle) { $CycleCount = [int]$prevStatus.cycle }
 } catch { Write-Warning "Could not read previous cycle count from status file: $_" }
 $OverallPassed       = $true
+# Consecutive unhandled-crash counter driving the escalating auto-retry backoff
+# and the hard MaxConsecutiveCrashes abort further down. Loaded from
+# runner.gating.json below and carried back so it survives the single-cycle
+# respawn: a process-local counter would reset to 0 every respawn, so the
+# backoff could never escalate past the first step and the abort could never
+# fire. A cycle that reaches finalization (pass OR guest-failure) resets it to
+# 0, since reaching finalization proves the engine ran without crashing.
 $ConsecutiveCrashes  = 0
 $MaxConsecutiveCrashes = 3
 
@@ -599,6 +605,7 @@ if (Test-Path -LiteralPath $GatingFile) {
         if ($null -ne $gating.consecutiveFailures)  { $ConsecutiveFailures  = [int]$gating.consecutiveFailures }
         if ($null -ne $gating.consecutiveSuccesses) { $ConsecutiveSuccesses = [int]$gating.consecutiveSuccesses }
         if ($null -ne $gating.alertArmed)           { $AlertArmed           = [bool]$gating.alertArmed }
+        if ($null -ne $gating.consecutiveCrashes)   { $ConsecutiveCrashes   = [int]$gating.consecutiveCrashes }
     } catch {
         Write-Warning "Could not parse $GatingFile (resetting gating state): $($_.Exception.Message)"
     }
@@ -787,17 +794,37 @@ while ($true) {
             # before the notification so its EventData picks up the real class.
             $gitClass = if (-not $dnsOk -or -not $tcpOk) { 'network_timeout' } else { 'bootstrap_sync' }
             & $writeInfraFailure -Stage 'GitPull' -FailureClass $gitClass -GuestKey '(bootstrap)' -ErrorMessage $gitPullErr
-            Send-CycleFailureNotification `
-                -HostType            $HostType `
-                -SubjectSuffix       'GitPull' `
-                -GuestKey            '(bootstrap)' `
-                -StepName            'GitPull' `
-                -ErrorMessage        $gitPullErr `
-                -CycleId             '(not yet assigned)' `
-                -GitCommit           $gitPullCommit `
-                -DefaultFailureClass $gitClass `
-                -DefaultSeverity     'hard'
-            exit $ExitFailure
+            # Route this bootstrap failure through the SAME notification gating as
+            # an in-cycle failure: bump the consecutive-failure counter and alert
+            # only once it reaches the threshold while armed, so a flapping network
+            # throttles to one email per streak instead of one per cycle. break
+            # (not exit) so the carry-back persists the gating counters across the
+            # single-cycle respawn; $OverallPassed=$false makes the process exit
+            # non-zero so the outer enters its failure-pause. A sync failure is
+            # not a code crash, so $ConsecutiveCrashes is left untouched -- a
+            # persistent outage is throttled by the outer failure-pause, not the
+            # MaxConsecutiveCrashes abort.
+            $ConsecutiveSuccesses = 0
+            $ConsecutiveFailures++
+            $OverallPassed = $false
+            Write-Output "  Alert:   $ConsecutiveFailures/$FailuresBeforeAlert failures $(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})"
+            if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
+                Send-CycleFailureNotification `
+                    -HostType            $HostType `
+                    -SubjectSuffix       'GitPull' `
+                    -GuestKey            '(bootstrap)' `
+                    -StepName            'GitPull' `
+                    -ErrorMessage        $gitPullErr `
+                    -CycleId             '(not yet assigned)' `
+                    -GitCommit           $gitPullCommit `
+                    -DefaultFailureClass $gitClass `
+                    -DefaultSeverity     'hard'
+                $AlertArmed = $false
+                Write-Output "  Notification sent. Alert suppressed until $SuccessesBeforeRearm consecutive successes or runner restart."
+            } else {
+                Write-Output "  Notification suppressed ($ConsecutiveFailures/$FailuresBeforeAlert failures, armed=$AlertArmed)."
+            }
+            break
         }
     } else {
         $Warnings.Add("Git pull was skipped (-NoGitPull).")
@@ -839,23 +866,34 @@ while ($true) {
         # the canonical 'bootstrap_sync' / 'hard'; pass the same so extensions
         # route on failureClass instead of free-text grep.
         & $writeInfraFailure -Stage 'ProjectClone' -FailureClass 'bootstrap_sync' -GuestKey '(bootstrap)' -ErrorMessage $cloneRes.errorMessage
-        Send-CycleFailureNotification `
-            -HostType            $HostType `
-            -SubjectSuffix       'ProjectClone' `
-            -GuestKey            '(bootstrap)' `
-            -StepName            'ProjectClone' `
-            -ErrorMessage        $cloneRes.errorMessage `
-            -CycleId             '(not yet assigned)' `
-            -GitCommit           $GitCommit `
-            -DefaultFailureClass 'bootstrap_sync' `
-            -DefaultSeverity     'hard'
-        # Single-cycle runner: project-clone failure exits with the
-        # generic "cycle failed" code so the outer Invoke-TestRunner's
-        # backoff loop pauses (60-min cap, polled by new commits) before
-        # respawning. Network blips and transient git auth failures
-        # surface there as the natural retry path; the inner doesn't
-        # sleep here since the outer already gates re-spawning.
-        $script:InnerCycleFailed = $true
+        # Route through the same notification gating as an in-cycle failure so a
+        # persistent clone problem alerts once per streak, not every cycle. Mark
+        # the cycle failed ($OverallPassed=$false) so the carry-back persists the
+        # gating counters AND the process exits non-zero -- the outer then enters
+        # its failure-pause (60-min cap, polled for new commits) rather than
+        # respawning at full speed. The inner does not sleep here; the outer gates
+        # re-spawning. Like git-pull, this is not a code crash, so
+        # $ConsecutiveCrashes is left untouched.
+        $ConsecutiveSuccesses = 0
+        $ConsecutiveFailures++
+        $OverallPassed = $false
+        Write-Output "  Alert:   $ConsecutiveFailures/$FailuresBeforeAlert failures $(if ($AlertArmed) {'(armed)'} else {'(suppressed)'})"
+        if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
+            Send-CycleFailureNotification `
+                -HostType            $HostType `
+                -SubjectSuffix       'ProjectClone' `
+                -GuestKey            '(bootstrap)' `
+                -StepName            'ProjectClone' `
+                -ErrorMessage        $cloneRes.errorMessage `
+                -CycleId             '(not yet assigned)' `
+                -GitCommit           $GitCommit `
+                -DefaultFailureClass 'bootstrap_sync' `
+                -DefaultSeverity     'hard'
+            $AlertArmed = $false
+            Write-Output "  Notification sent. Alert suppressed until $SuccessesBeforeRearm consecutive successes or runner restart."
+        } else {
+            Write-Output "  Notification suppressed ($ConsecutiveFailures/$FailuresBeforeAlert failures, armed=$AlertArmed)."
+        }
         break
     }
 
@@ -1799,6 +1837,13 @@ while ($true) {
     if (-not $OverallPassed) {
         $ConsecutiveSuccesses = 0
         $ConsecutiveFailures++
+        # A guest-failure cycle still reached finalization -- the engine ran
+        # end-to-end without an unhandled crash (a crash is caught below and
+        # never reaches here) -- so it breaks the consecutive-crash streak just
+        # like a pass does. Only a crash without completion keeps the count
+        # climbing toward the MaxConsecutiveCrashes abort, which exists to stop a
+        # tight crash loop making no forward progress.
+        $ConsecutiveCrashes = 0
         # Final reload so an edit made during the last step's cleanup
         # affects the cycle-end abort decision (matches per-step semantics).
         $null = Sync-RunnerCycleConfig -State $cfg -ConfigPath $ConfigPath
@@ -2177,6 +2222,7 @@ while ($true) {
     $State.ProjectGitCommit     = $ProjectGitCommit
     $State.ConsecutiveFailures  = $ConsecutiveFailures
     $State.ConsecutiveSuccesses = $ConsecutiveSuccesses
+    $State.ConsecutiveCrashes   = $ConsecutiveCrashes
     $State.AlertArmed           = $AlertArmed
     $State.FailuresBeforeAlert  = $FailuresBeforeAlert
     $State.GatingFile           = $GatingFile

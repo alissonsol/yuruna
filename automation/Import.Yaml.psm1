@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42e8bceb-f7aa-4ae8-a633-1fc36173d278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,11 @@ function ConvertFrom-Content {
         $Content
     )
 
-    if (-Not (Get-Module -ListAvailable -Name powershell-yaml)) { Write-Information "Need to install powershell-yaml using:`nInstall-Module -Name powershell-yaml" -InformationAction Stop; Exit -1 }
+    # Throw a terminating error the caller can catch, rather than killing the whole host process
+    # with Exit -1 (which tears down the runner / any embedding script with no chance to recover).
+    if (-Not (Get-Module -ListAvailable -Name powershell-yaml)) {
+        throw "powershell-yaml is required. Install it with: Install-Module -Name powershell-yaml"
+    }
 
     if ($Content -is [string[]]) { $Content = $Content -join "`n" }
     return ConvertFrom-YAML -Ordered $Content
@@ -36,6 +40,12 @@ function ConvertFrom-File {
 }
 
 function Find-KeyValue {
+    <#
+    .SYNOPSIS
+    Return the value for $KeyName from a list of {key,value} items, or $null when
+    the key is absent -- so a legitimately empty ('') value stays distinguishable
+    from "not found".
+    #>
     param (
         [Parameter(Mandatory=$true, Position=0)]
         $Items,
@@ -43,7 +53,7 @@ function Find-KeyValue {
         $KeyName
     )
 
-    $keyValue = ''
+    $keyValue = $null
     foreach ($item in $Items) {
         $key = $item.key
         Write-Debug "$key"

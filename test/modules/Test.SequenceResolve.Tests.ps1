@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42b9e1c4-7a3d-4f52-8e16-9c4d2a7b3e58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -250,5 +250,34 @@ steps:
   - snippet: dup
 "@
         Assert-Throw { Read-SequenceFile -Path $seqPath -NoCache } 'two project libraries'
+    }
+}
+
+Describe 'Resolve-SequencePath literal-path probing (Test-Path -LiteralPath)' {
+
+    # A sequence name can contain PowerShell wildcard metacharacters; brackets are
+    # a character-class. These guard that the framework-tier probes match the name
+    # literally rather than glob-expanding it. RepoRoot points at a project-free
+    # temp dir so resolution falls through to the framework SequencesDir tier.
+
+    It 'resolves a bracketed sequence name to its literal file' {
+        $root = New-SnippetTestDir
+        $mode = Get-SequenceMode
+        $seqDir = Join-Path $root 'sequences'
+        $file = Join-Path (Join-Path $seqDir $mode) 'odd[1].yml'
+        Write-TextFile $file 'x'
+        $resolved = Resolve-SequencePath -SequencesDir $seqDir -Name 'odd[1]' -RepoRoot $root
+        Assert-Equal -Expected $file -Actual $resolved -Because 'odd[1] must resolve to its literal odd[1].yml'
+    }
+
+    It 'does not glob-match a different file when the literal name is absent' {
+        $root = New-SnippetTestDir
+        $mode = Get-SequenceMode
+        $seqDir = Join-Path $root 'sequences'
+        # Only the literal-digit file exists; a bracketed query [1] must NOT match
+        # it (a bare Test-Path would glob odd[1].yml onto odd1.yml).
+        Write-TextFile (Join-Path (Join-Path $seqDir $mode) 'odd1.yml') 'x'
+        $resolved = Resolve-SequencePath -SequencesDir $seqDir -Name 'odd[1]' -RepoRoot $root
+        Assert-True ($null -eq $resolved) 'odd[1] must not glob-match odd1.yml'
     }
 }

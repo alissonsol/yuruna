@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,14 +191,27 @@ function Invoke-WithDeadline {
     param(
         [Parameter(Mandatory)][scriptblock]$ScriptBlock,
         [int]$TimeoutSeconds = 5,
-        [object[]]$ArgumentList = @()
+        [object[]]$ArgumentList = @(),
+        # Pure-PowerShell work (e.g. the recursive file-tree walks) can run in a
+        # far cheaper in-process thread job instead of spawning a brand-new pwsh
+        # process per call. Native-tool probes must NOT set this: an
+        # out-of-process Start-Job is force-killable when a wedged daemon call
+        # hangs, whereas a native call blocked inside an in-process runspace may
+        # not abort on Stop-Job. Falls back to Start-Job when Start-ThreadJob
+        # (the ThreadJob module) is unavailable.
+        [switch]$InProcess
     )
-    $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+    $useThread = $InProcess -and [bool](Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)
+    $job = if ($useThread) {
+        Start-ThreadJob -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+    } else {
+        Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+    }
     $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
     if ($null -eq $completed) {
         try { Stop-Job -Job $job -ErrorAction SilentlyContinue } catch { $null = $_ }
         try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
-        return @{ TimedOut = $true; Output = $null; ExitCode = -1 }
+        return @{ TimedOut = $true; Output = $null }
     }
     $out = $null
     try {
@@ -208,16 +221,22 @@ function Invoke-WithDeadline {
     } finally {
         try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch { $null = $_ }
     }
-    # --- See https://yuruna.link/system-diagnostic#invoke-withdeadline (exit-code recovery)
-    return @{ TimedOut = $false; Output = $out; ExitCode = $null }
+    # The native exit code is recovered by Invoke-Tool from the tail of Output
+    # (its scriptblock appends $LASTEXITCODE), not from this result -- so there is
+    # deliberately no ExitCode key here to imply a signal this never populated.
+    # --- See https://yuruna.link/system-diagnostic#invoke-withdeadline
+    return @{ TimedOut = $false; Output = $out }
 }
 
 # Recursive project-tree walks can wedge for minutes on a huge or
 # network-mounted checkout. Run each behind Invoke-WithDeadline so a slow
 # walk degrades to a partial/empty result plus a marker line instead of
-# stalling the whole diagnostic. Job serialization preserves the FileInfo
-# note properties the callers read (FullName, Length, Extension, Name,
-# LastWriteTime), so downstream code is unchanged on the success path.
+# stalling the whole diagnostic. These are pure-PowerShell (Get-ChildItem)
+# walks, so they run -InProcess (Start-ThreadJob) to avoid a full pwsh
+# process spawn per call. Both job kinds return objects exposing the FileInfo
+# properties the callers read (FullName, Length, Extension, Name,
+# LastWriteTime) -- Start-Job via serialized note properties, Start-ThreadJob
+# via the live objects -- so downstream code is unchanged on the success path.
 #
 # The function has a singular collection contract, so the timeout marker is
 # emitted by the caller (statement level) rather than from here -- a
@@ -230,7 +249,7 @@ function Get-FileTreeWithDeadline {
         [object[]]$ArgumentList = @(),
         [int]$TimeoutSeconds = 30
     )
-    $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList $ArgumentList -ScriptBlock $ScriptBlock
+    $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList $ArgumentList -ScriptBlock $ScriptBlock -InProcess
     if ($result.TimedOut) {
         Add-Problem ("DIAG: {0} recursive walk timed out after {1}s; results below may be incomplete." -f $Label, $TimeoutSeconds)
         return @{ TimedOut = $true; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @() }
@@ -296,6 +315,33 @@ function Invoke-Tool {
         if ($ProblemTag) { Add-Problem "$($ProblemTag): $($_.Exception.Message)" }
         Write-Output "  (error: $($_.Exception.Message))"
     }
+}
+
+# Probe the localhost:5000 registry's /v2/_catalog once. Returns $null when the
+# registry is unreachable, returns non-JSON, or omits/nulls the repositories
+# field -- all of which callers report as "no registry" (normal on hosts that
+# don't use the localhost flow) -- or the repository list, possibly empty (@())
+# when the registry is reachable but nothing has been pushed. The DOCKER section
+# and the GAP HEURISTICS cross-check both call this so the URL, timeout, and
+# reachable-vs-empty handling live in one place.
+function Get-LocalRegistryCatalog {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([int]$TimeoutSec = 3)
+    try {
+        $probe = Invoke-WebRequest -Uri 'http://localhost:5000/v2/_catalog' -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
+    } catch {
+        Write-Verbose ("local registry probe failed: {0}" -f $_.Exception.Message)
+        return $null
+    }
+    if (-not ($probe -and $probe.Content)) { return $null }
+    # 2>$null: ConvertFrom-Json still writes a red parse error to the transcript
+    # on non-JSON content even under -ErrorAction SilentlyContinue (PS7).
+    $catalog = $probe.Content | ConvertFrom-Json -ErrorAction SilentlyContinue 2>$null
+    if (-not $catalog -or -not ($catalog.PSObject.Properties.Name -contains 'repositories')) { return $null }
+    $reposVal = $catalog.repositories
+    if ($null -eq $reposVal) { return $null }   # "repositories": null -> treat as no catalog
+    return , @($reposVal)
 }
 
 function Test-CommandAvailable {
@@ -1244,23 +1290,15 @@ try {
             Invoke-Tool -Tool 'docker' -ToolArgs @('system','df') -TimeoutSeconds 5
 
             Write-Sub "Local registry catalog (probe http://localhost:5000/v2/_catalog)"
-            try {
-                $probe = Invoke-WebRequest -Uri 'http://localhost:5000/v2/_catalog' -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-                if ($probe -and $probe.Content) {
-                    $catalog = $probe.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
-                    if ($catalog -and $catalog.repositories) {
-                        $repos = @($catalog.repositories)
-                        Write-Output "Repositories ($($repos.Count)):"
-                        foreach ($repo in $repos) { Write-Output ("  {0}" -f $repo) }
-                        if ($repos.Count -eq 0) {
-                            Add-Problem "REGISTRY: local registry on :5000 is reachable but its catalog is empty -- no images have been pushed (or the registry's storage was reset)."
-                        }
-                    } else {
-                        Write-Output "(registry returned non-JSON content)"
-                    }
-                }
-            } catch {
+            $repos = Get-LocalRegistryCatalog
+            if ($null -eq $repos) {
                 Write-Output "(no registry on http://localhost:5000 -- this is normal on hosts that don't use the localhost flow)"
+            } else {
+                Write-Output "Repositories ($($repos.Count)):"
+                foreach ($repo in $repos) { Write-Output ("  {0}" -f $repo) }
+                if ($repos.Count -eq 0) {
+                    Add-Problem "REGISTRY: local registry on :5000 is reachable but its catalog is empty -- no images have been pushed (or the registry's storage was reset)."
+                }
             }
         }
     }
@@ -2460,16 +2498,8 @@ try {
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
         } else {
-            $registryRepos = @()
-            try {
-                $probe = Invoke-WebRequest -Uri 'http://localhost:5000/v2/_catalog' -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-                if ($probe -and $probe.Content) {
-                    $catalog = $probe.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
-                    if ($catalog -and $catalog.repositories) { $registryRepos = @($catalog.repositories) }
-                }
-            } catch {
-                Write-Verbose ("local registry probe failed: {0}" -f $_.Exception.Message)
-            }
+            $registryRepos = Get-LocalRegistryCatalog
+            if ($null -eq $registryRepos) { $registryRepos = @() }
             if ($registryRepos.Count -eq 0) {
                 Write-Output "(no local registry at :5000 or its catalog is empty; nothing to cross-check)"
             } else {

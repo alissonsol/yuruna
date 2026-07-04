@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d7b5c1-8293-44a5-9fb6-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,5 +107,25 @@ Describe 'Get-OcrDegradationGrace' {
         try { [void](Get-OcrDegradationGrace -Action 'reboot-guest' -AlreadyGrantedSeconds 0 -MaxGrantSeconds 120 -BaseWindowSeconds 45) }
         catch { $threw = $true }
         Assert-True $threw 'ValidateSet should reject an unknown action'
+    }
+}
+
+Describe 'Module export surface' {
+    # Assert against the Export-ModuleMember statement text, not ExportedFunctions:
+    # Get-PollDelay is defined in Test.Backoff (never in this module), so PowerShell
+    # silently ignores an Export-ModuleMember entry for it -- it is absent from
+    # ExportedFunctions either way. Guarding the SOURCE list is what actually
+    # catches a regression that re-adds the misleading re-export.
+    $exportStmt = [regex]::Match((Get-Content -Raw (Join-Path $here 'Invoke-Sequence.psm1')), '(?s)Export-ModuleMember.*').Value
+
+    It 'does not list Get-PollDelay in Export-ModuleMember (it is owned by Test.Backoff, resolved via the -Global import)' {
+        Assert-True ($exportStmt.Length -gt 0) 'located the Export-ModuleMember statement'
+        Assert-True ($exportStmt -notmatch '\bGet-PollDelay\b') 'Get-PollDelay belongs to Test.Backoff; callers resolve it via the global import, not an Invoke-Sequence re-export'
+    }
+    It 'still exports the core dispatch surface and pure helpers' {
+        $exported = (Get-Module Invoke-Sequence).ExportedFunctions.Keys
+        foreach ($fn in 'Invoke-Sequence', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace') {
+            Assert-True ($exported -contains $fn) "expected export missing: $fn"
+        }
     }
 }

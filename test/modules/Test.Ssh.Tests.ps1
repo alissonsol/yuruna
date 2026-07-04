@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d3b9c1-7e4a-4f86-9b21-5c0d8a6f1e23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,8 +62,15 @@ Describe 'Get-SshReadinessFailureCause' {
         Assert-Equal 'host_key_changed' (Get-SshReadinessFailureCause -IpDiscovered $true -LastError 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!')
     }
 
-    It 'classifies the per-probe cap (half-dead post-TCP session)' {
+    It 'classifies the per-probe cap (half-dead post-TCP session) as probe_timeout only with a discovered IP' {
         Assert-Equal 'probe_timeout' (Get-SshReadinessFailureCause -IpDiscovered $true -LastError 'probe timed out after 15s (ssh hung post-TCP; process killed)')
+    }
+
+    It 'classifies a no-IP probe timeout as ip_not_discovered, not probe_timeout (discovery lateness)' {
+        # A probe that hung against the unresolved bare-VMName fallback (no IP ever
+        # discovered) is the recoverable discovery-lateness class -- ssh never had a
+        # real host to reach -- not a genuine post-TCP hang.
+        Assert-Equal 'ip_not_discovered' (Get-SshReadinessFailureCause -IpDiscovered $false -LastError 'probe timed out after 15s (ssh hung post-TCP; process killed)')
     }
 
     It 'classifies an unreachable network path to a discovered IP' {

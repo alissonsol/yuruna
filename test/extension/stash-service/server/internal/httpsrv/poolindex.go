@@ -41,10 +41,12 @@ type PoolIndex struct {
 	windowDays      int
 	refreshInterval time.Duration
 
-	mu          sync.RWMutex
-	cache       []Item
-	builtAt     time.Time
-	lastScanErr string // dedupes the stashRoot-unreadable warning
+	mu                 sync.RWMutex
+	cache              []Item
+	builtAt            time.Time
+	lastScanErr        string // dedupes the stashRoot-unreadable warning
+	lastRefreshPartial bool   // the last Refresh could not read every remote dir (cache may miss hosts)
+	lastScanPartial    bool   // dedupes the partial-scan warning (any scan path)
 }
 
 // NewPoolIndex constructs the index. windowDays <= 0 / refresh <= 0 fall back
@@ -85,17 +87,21 @@ func (p *PoolIndex) windowCutoffUTC() time.Time {
 }
 
 // Refresh rebuilds the in-memory cache from remote sidecars within the
-// window. Errors are logged; a partial scan still updates the cache.
+// window. Scan errors are logged (deduped) inside scan; a partial scan still
+// updates the cache, and its partial flag is retained so the Recent() path
+// can tell callers the cached view may be missing hosts.
 func (p *PoolIndex) Refresh() {
 	cutoff := p.windowCutoffUTC()
-	items, err := p.scan(func(day time.Time) bool { return !day.Before(cutoff) })
-	if err != nil {
-		log.Printf("poolindex: refresh: %v", err)
-	}
+	items, partial, errReads := p.scan(func(day time.Time) bool { return !day.Before(cutoff) })
 	p.mu.Lock()
 	p.cache = items
 	p.builtAt = time.Now().UTC()
+	p.lastRefreshPartial = partial
 	p.mu.Unlock()
+	// Drive the deduped partial-scan warning from the steady refresh only (not
+	// the sporadic on-demand DeepScan), called outside the lock notePartialScan
+	// takes itself.
+	p.notePartialScan(partial, errReads)
 }
 
 // Recent returns a snapshot of the cached in-window remote items.
@@ -123,9 +129,11 @@ func (p *PoolIndex) Evict(hostID, id string) {
 // DeepScan reads remote sidecars whose day is within [from,to], bypassing
 // the cache. Used when a query's date range predates the in-memory window
 // (§3.2). from/to are inclusive day bounds; a zero from means "no lower
-// bound" and a zero to means "up to today".
-func (p *PoolIndex) DeepScan(from, to time.Time) []Item {
-	items, err := p.scan(func(day time.Time) bool {
+// bound" and a zero to means "up to today". The bool return is true when the
+// walk could not read every directory it should have, so the caller can flag
+// a partial result instead of trusting a short/empty list.
+func (p *PoolIndex) DeepScan(from, to time.Time) ([]Item, bool) {
+	items, partial, _ := p.scan(func(day time.Time) bool {
 		if !from.IsZero() && day.Before(dayFloor(from)) {
 			return false
 		}
@@ -134,17 +142,18 @@ func (p *PoolIndex) DeepScan(from, to time.Time) []Item {
 		}
 		return true
 	})
-	if err != nil {
-		log.Printf("poolindex: deep scan: %v", err)
-	}
-	return items
+	return items, partial
 }
 
 // scan walks <stashRoot>/<hostId>/files/yyyy/mm/dd and reads every sidecar
 // in an accepted day folder. Directory descent is pruned by the day filter
 // so an out-of-window scan never opens those day folders. The local host's
 // folder is skipped (its records come from the live index).
-func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, error) {
+// The int return is the count of non-ErrNotExist directory-read failures, for
+// the caller's deduped partial-scan logging; partial (the bool) is true when
+// that count is non-zero OR the stashRoot itself was unreadable for a real
+// reason.
+func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, bool, int) {
 	hosts, err := os.ReadDir(p.stashRoot)
 	if err != nil {
 		// stashRoot unavailable (share offline/unmounted, or not yet created)
@@ -154,10 +163,29 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, error) {
 		// is logged ONCE per state change so it stays diagnosable without
 		// spamming every rescan.
 		p.noteScanError(err)
-		return nil, nil
+		return nil, !os.IsNotExist(err), 0
 	}
 	p.noteScanError(nil)
+
+	// errReads counts directories the walk should have been able to read but
+	// could not for a reason OTHER than absence (EACCES/EIO/ESTALE). An absent
+	// path (ErrNotExist) is ordinary — a host with no files/ yet, or a folder
+	// that vanished between listing and descent — and is not counted. A
+	// non-zero count means the resulting item set is short, so the caller must
+	// treat it as a partial pool view rather than an authoritative one.
 	var items []Item
+	errReads := 0
+	tryReadDir := func(path string) ([]os.DirEntry, bool) {
+		entries, e := os.ReadDir(path)
+		if e != nil {
+			if !os.IsNotExist(e) {
+				errReads++
+			}
+			return nil, false
+		}
+		return entries, true
+	}
+
 	for _, h := range hosts {
 		if !h.IsDir() {
 			continue
@@ -167,9 +195,9 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, error) {
 			continue
 		}
 		filesRoot := filepath.Join(p.stashRoot, hostID, config.FilesDirName)
-		years, err := os.ReadDir(filesRoot)
-		if err != nil {
-			continue // host with no files/ yet
+		years, ok := tryReadDir(filesRoot)
+		if !ok {
+			continue
 		}
 		for _, yE := range years {
 			if !yE.IsDir() {
@@ -179,8 +207,8 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, error) {
 			if !ok {
 				continue
 			}
-			months, err := os.ReadDir(filepath.Join(filesRoot, yE.Name()))
-			if err != nil {
+			months, ok := tryReadDir(filepath.Join(filesRoot, yE.Name()))
+			if !ok {
 				continue
 			}
 			for _, mE := range months {
@@ -191,8 +219,8 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, error) {
 				if !ok || mN < 1 || mN > 12 {
 					continue
 				}
-				dayDirs, err := os.ReadDir(filepath.Join(filesRoot, yE.Name(), mE.Name()))
-				if err != nil {
+				dayDirs, ok := tryReadDir(filepath.Join(filesRoot, yE.Name(), mE.Name()))
+				if !ok {
 					continue
 				}
 				for _, dE := range dayDirs {
@@ -208,12 +236,16 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, error) {
 						continue
 					}
 					dir := filepath.Join(filesRoot, yE.Name(), mE.Name(), dE.Name())
-					items = appendDaySidecars(items, dir, hostID)
+					var bad bool
+					items, bad = appendDaySidecars(items, dir, hostID)
+					if bad {
+						errReads++
+					}
 				}
 			}
 		}
 	}
-	return items, nil
+	return items, errReads > 0, errReads
 }
 
 // noteScanError logs a stashRoot-unreadable warning at most once per distinct
@@ -233,10 +265,41 @@ func (p *PoolIndex) noteScanError(err error) {
 	}
 }
 
-func appendDaySidecars(items []Item, dir, hostID string) []Item {
+// notePartialScan logs, at most once per transition into a partial state,
+// that the walk skipped one or more directories it should have been able to
+// read (a real read error, not an absent path). Only the steady periodic
+// refresh drives this dedup — a sporadic on-demand DeepScan surfaces its own
+// partiality to its caller instead — so the warning stays quiet while the
+// condition persists and re-arms once a refresh reads everything, keeping a
+// broken mount diagnosable without spamming every rescan.
+func (p *PoolIndex) notePartialScan(partial bool, errReads int) {
+	p.mu.Lock()
+	changed := partial != p.lastScanPartial
+	p.lastScanPartial = partial
+	p.mu.Unlock()
+	if changed && partial {
+		log.Printf("poolindex: scan skipped %d unreadable dir(s) under %s; pool view is partial", errReads, p.stashRoot)
+	}
+}
+
+// LastRefreshPartial reports whether the most recent background Refresh could
+// not read every remote directory, so the cached Recent() view may be missing
+// hosts. The list handler surfaces this so a short/empty result is not
+// mistaken for an authoritative one.
+func (p *PoolIndex) LastRefreshPartial() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.lastRefreshPartial
+}
+
+// appendDaySidecars appends the sidecars in a single day folder. The bool is
+// true when the day folder itself could not be read for a reason other than
+// absence, so the caller can account it toward a partial scan; a corrupt
+// individual sidecar is skipped without flagging the whole folder.
+func appendDaySidecars(items []Item, dir, hostID string) ([]Item, bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return items
+		return items, !os.IsNotExist(err)
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), config.SidecarExtension) {
@@ -248,7 +311,7 @@ func appendDaySidecars(items []Item, dir, hostID string) []Item {
 		}
 		items = append(items, Item{HostID: hostID, Rec: rec})
 	}
-	return items
+	return items, false
 }
 
 // looksLikeHostID accepts only hostId-shaped directory names (hex, length

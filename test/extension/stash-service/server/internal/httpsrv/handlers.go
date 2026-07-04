@@ -295,13 +295,18 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 			views = append(views, s.viewFromRecord(rc, s.localHostID))
 		}
 	}
-	// Remote hosts (unless the host facet pins the local host).
+	// Remote hosts (unless the host facet pins the local host). poolPartial
+	// carries through whether the remote scan was incomplete (a directory that
+	// should have been readable was not), so the client can tell a genuinely
+	// empty remote result from a degraded one.
+	poolPartial := false
 	if f.Host != s.localHostID {
 		var items []Item
 		if s.pool.fromBeforeWindow(f.From) || s.pool.toBeforeWindow(f.To) {
-			items = s.pool.DeepScan(f.From, f.To)
+			items, poolPartial = s.pool.DeepScan(f.From, f.To)
 		} else {
 			items = s.pool.Recent()
+			poolPartial = s.pool.LastRefreshPartial()
 		}
 		for _, it := range items {
 			if f.Host != "" && it.HostID != f.Host {
@@ -324,6 +329,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		"limit":       limit,
 		"offset":      offset,
 		"localHostId": s.localHostID,
+		"poolPartial": poolPartial,
 		"version":     s.version,
 	})
 }
@@ -483,6 +489,15 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// ParseMultipartForm spills form parts larger than its in-memory limit to temp files under
+	// os.TempDir(); those are only removed by MultipartForm.RemoveAll(). Without this, every
+	// multi-megabyte or many-file POST leaves orphaned temp files that accumulate until the disk
+	// fills and future ingests silently break.
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
 	author := authorOrWeb(r.FormValue("author"))
 	title := r.FormValue("title")
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,6 +265,28 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
         # checks/s -- a rounding error on any modern Windows VM. Worst-
         # case latency is one poll interval (~250 ms); average is half.
         $breakPollMs = 250
+        # Optional wall-clock bound so an UNATTENDED cycle does not wedge here
+        # forever: step.timeoutSeconds, else a global YURUNA_BREAK_MAX_SECONDS,
+        # bounds the wait. With neither set the wait is effectively unbounded --
+        # the interactive default when an operator is present. On timeout the
+        # break auto-resumes IN PLACE (resumedVia='timeout'); the continue-button
+        # snapshot-restore path below is intentionally skipped for a timeout.
+        # Parse the optional timeout defensively. A bare [int] cast throws on a
+        # non-numeric value (e.g. an operator typo like '5m' in the free-text
+        # YURUNA_BREAK_MAX_SECONDS, or a bad step.timeoutSeconds the schema does not
+        # constrain for break). This handler's dispatch wrapper has a finally but no
+        # catch, so an escaping throw would bypass the break's soft/return-$false
+        # envelope and abort the cycle -- the opposite of the unattended-wedge guard
+        # intended here. Default to 0 (unbounded interactive wait) when unparseable.
+        $breakMaxRaw = if ($c.Step.timeoutSeconds) { $c.Step.timeoutSeconds }
+        elseif ($env:YURUNA_BREAK_MAX_SECONDS) { $env:YURUNA_BREAK_MAX_SECONDS }
+        else { $null }
+        $breakMaxSeconds = 0
+        if ($null -ne $breakMaxRaw) {
+            try { $breakMaxSeconds = [int]$breakMaxRaw }
+            catch { Write-Warning "    [break] ignoring non-numeric break timeout '$breakMaxRaw'; using the unbounded interactive wait." }
+        }
+        $breakDeadlineUtc = if ($breakMaxSeconds -gt 0) { [DateTime]::UtcNow.AddSeconds($breakMaxSeconds) } else { $null }
         while ($true) {
             if (Test-Path -LiteralPath $breakContinueFlag) {
                 $resumedVia = 'continue-button'
@@ -272,6 +294,11 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
                 break
             }
             if (-not (Test-Path -LiteralPath $markerPath)) { break }
+            if ($breakDeadlineUtc -and [DateTime]::UtcNow -ge $breakDeadlineUtc) {
+                $resumedVia = 'timeout'
+                Write-Warning "    [break] auto-resumed after ${breakMaxSeconds}s wall-clock (no operator Continue; step.timeoutSeconds/YURUNA_BREAK_MAX_SECONDS)."
+                break
+            }
             Start-Sleep -Milliseconds $breakPollMs
         }
         if ($resumedVia -eq 'continue-button') {
@@ -328,8 +355,11 @@ Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false
                     }
                 }
             }
-            Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
         }
+        # Clean the per-step marker + active sidecar however we resumed
+        # (continue-button, marker-delete no-op, or timeout) so no stale on-disk
+        # break state outlives the pause.
+        Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $breakActivePath -Force -ErrorAction SilentlyContinue
         Write-Information "    [break] Resumed (via $resumedVia)."
         return $true
@@ -779,19 +809,32 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
         $ok = Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Enter'
         if ($ok -eq $false) { return $false }
         $waitPattern = & $c.ExpandVariable $c.Step.waitPattern $c.Vars
+        if ([string]::IsNullOrWhiteSpace($waitPattern)) {
+            # fetchAndExecute REQUIRES a waitPattern (the completion marker). An empty/missing one
+            # makes Wait-ForText poll @('') -- which either "matches" any frame (false pass) or
+            # burns the full timeout. Fail fast with a clear message instead.
+            Write-Warning "fetchAndExecute: step has no waitPattern (completion marker); failing the step."
+            return $false
+        }
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $poll    = $c.Step.pollSeconds    ? [int]$c.Step.pollSeconds    : $c.DefaultPollSeconds
         $failPatterns = @()
         if ($c.Step.failPattern) {
             $failPatterns = @(& $c.ExpandVariable $c.Step.failPattern $c.Vars)
-        } elseif ($waitPattern -match '^\s*FETCHED AND EXECUTED:') {
-            # Must stay in sync with automation/fetch-and-execute.sh. The marker
-            # avoids the words "fetch"/"execute" on purpose: Test-OCRMatch is
-            # fuzzy, so a failure pattern containing them fuzzy-matches the
-            # echoed 'fetch-and-execute.sh ...' command line on the first poll
-            # and fails a healthy run in ~4 s before any output appears (the
-            # false-failure class). "NONZERO" can't collide with a command or
-            # normal script output.
+        } else {
+            # This IS the fetchAndExecute action, so its fetch-and-execute
+            # contract (automation/fetch-and-execute.sh) always applies: the
+            # wrapper prints "NONZERO SCRIPT EXIT:" on a non-zero child exit.
+            # Derive the fast-fail from the ACTION, never from the literal
+            # waitPattern text -- keying it off the waitPattern (e.g. matching
+            # "FETCHED AND EXECUTED:") silently disabled this seconds-fast crash
+            # detection the moment anyone decorated or reworded the human-facing
+            # completion marker, leaving a crashed fetch to burn the full timeout.
+            # The marker deliberately avoids the words "fetch"/"execute"
+            # (Test-OCRMatch is fuzzy and would otherwise match the echoed
+            # 'fetch-and-execute.sh ...' command line on the first poll and fail
+            # a healthy run in ~4 s); "NONZERO" cannot collide with a command or
+            # normal script output. A step can still override via failPattern.
             $failPatterns = @('NONZERO SCRIPT EXIT:')
         }
         Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch); failurePatterns=$($failPatterns -join ', ')"
@@ -1147,7 +1190,7 @@ Register-SequenceAction -Name 'recoverFromSnapshot' -HostIORequirement @() -OcrR
                 }
             }
         }
-        Write-Information "      recoverFromSnapshot: prior step $script:Fail.LastFailedStepNumber failed; restoring '$snapId' on $($c.VMName)."
+        Write-Information "      recoverFromSnapshot: prior step $($script:Fail.LastFailedStepNumber) failed; restoring '$snapId' on $($c.VMName)."
         try { $restored = [bool](Restore-VMDiskSnapshot -VMName $c.VMName -Id $snapId -Confirm:$false) }
         catch { Write-Warning "      recoverFromSnapshot: $($_.Exception.Message)"; return $false }
         if (-not $restored) { return $false }

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -405,6 +405,12 @@ while ($null -ne ($imagePath = [Console]::In.ReadLine())) {
 $script:WinRtOcrWorkerScriptPath = $null
 $script:WinRtOcrWorker = $null
 
+# Process-lifetime count of worker->one-shot fallbacks. A chronically broken
+# worker (falls back every poll) would otherwise surface only under -Verbose;
+# Invoke-WinRtOcr emits a structured, rate-limited event keyed off this counter
+# so a remediator sees the degraded OCR surface in the cycle event stream.
+$script:WinRtOcrWorkerFallbackCount = 0
+
 # Win32 Job Object bound to this pwsh process. Anything we
 # AssignProcessToJobObject into this job is killed by the OS when the
 # last handle to the job closes -- and the only handle exists in our
@@ -526,6 +532,58 @@ function Get-WinRtOcrWorkerScriptPath {
     return $scriptFile
 }
 
+# Read deadline for the persistent worker. StandardOutput.ReadLine() has no
+# timeout, so a worker that spawned fine but then wedges (WinRT/COM stall,
+# GPU-driver hang -- never emits its end-of-response marker) would block the OCR
+# call until the full Wait-ForText timeout (minutes), turning a recoverable glitch
+# into a full-timeout burn with no fast-fail. Bounding the read lets
+# Invoke-WinRtOcr fall back to a one-shot spawn within seconds. Generous vs the
+# ms-scale normal OCR: a rare false-timeout only costs one slower one-shot call
+# plus a fresh worker, never a wrong OCR result. Override with a positive
+# YURUNA_OCR_WORKER_TIMEOUT_SEC.
+$script:WinRtOcrWorkerReadTimeoutSec = 30
+$envOcrTimeout = $env:YURUNA_OCR_WORKER_TIMEOUT_SEC -as [int]
+if ($envOcrTimeout -and $envOcrTimeout -gt 0) {
+    $script:WinRtOcrWorkerReadTimeoutSec = $envOcrTimeout
+}
+
+# Deadline-bounded StandardOutput.ReadLine for the persistent worker: ReadLine()
+# blocks with no timeout, so drive ReadLineAsync() and bound the WAIT with the
+# deadline. Returns the line, or $null on a clean stream close / faulted read
+# (worker exited). Throws [TimeoutException] on deadline expiry -- the caller
+# then kills the worker and throws so Invoke-WinRtOcr falls back to one-shot. A
+# timed-out read abandons a pending ReadLineAsync, which poisons the reader for
+# reuse; every caller honors this by killing the worker rather than reading again.
+function Read-WinRtOcrWorkerLine {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Worker,
+        [Parameter(Mandatory)][datetime]$DeadlineUtc
+    )
+    $readTask = $Worker.StandardOutput.ReadLineAsync()
+    # Clamp the wait to Task.Wait's int-millisecond range. Both bounds are typed
+    # [double] so overload resolution never coerces the TotalMilliseconds double
+    # down to Int32 (which would THROW for a > ~24.8-day deadline instead of
+    # clamping); the [int] cast then floors an already-in-range value.
+    $remainingMs = [int][Math]::Max([double]0, [Math]::Min([double]2147483647, ($DeadlineUtc - [DateTime]::UtcNow).TotalMilliseconds))
+    $completed = $false
+    try {
+        $completed = $readTask.Wait($remainingMs)
+    } catch {
+        # Faulted read (pipe broken / worker died mid-read): treat as a closed
+        # stream so the caller tears the worker down and falls back. Surface the
+        # real cause under -Verbose so a non-EOF fault is not silently read as a
+        # clean close.
+        Write-Verbose "WinRT OCR worker read faulted: $($_.Exception.Message)"
+        return $null
+    }
+    if (-not $completed) {
+        throw [System.TimeoutException]::new("WinRT OCR worker read exceeded its $($script:WinRtOcrWorkerReadTimeoutSec)s deadline.")
+    }
+    return $readTask.Result
+}
+
 function Start-WinRtOcrWorker {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([System.Diagnostics.Process])]
@@ -567,8 +625,15 @@ function Start-WinRtOcrWorker {
     # else printed before READY (provider noise, Add-Type warnings) is
     # logged Verbose so it surfaces with -Verbose without polluting
     # normal output.
+    $startDeadlineUtc = [DateTime]::UtcNow.AddSeconds($script:WinRtOcrWorkerReadTimeoutSec)
     while ($true) {
-        $line = $p.StandardOutput.ReadLine()
+        $line = $null
+        try {
+            $line = Read-WinRtOcrWorkerLine -Worker $p -DeadlineUtc $startDeadlineUtc
+        } catch [System.TimeoutException] {
+            try { $p.Kill() } catch { $null = $_ }
+            throw "WinRT OCR worker did not signal ready within $($script:WinRtOcrWorkerReadTimeoutSec)s (wedged during startup); killed."
+        }
         if ($null -eq $line) {
             $stderr = ''
             try { $stderr = $p.StandardError.ReadToEnd() } catch { $null = $_ }
@@ -619,9 +684,20 @@ function Invoke-WinRtOcrViaWorker {
         Stop-WinRtOcrWorker -Confirm:$false
         throw "WinRT OCR worker stdin write failed: $($_.Exception.Message)"
     }
+    # Bound the whole response with a deadline: a wedged worker (spawned fine but
+    # never emits the end-of-response marker) must fast-fail here instead of
+    # blocking the OCR call until the full Wait-ForText timeout. On expiry Kill the
+    # worker and throw so Invoke-WinRtOcr's catch falls back to a one-shot spawn.
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds($script:WinRtOcrWorkerReadTimeoutSec)
     $lines = [System.Collections.Generic.List[string]]::new()
     while ($true) {
-        $line = $w.StandardOutput.ReadLine()
+        $line = $null
+        try {
+            $line = Read-WinRtOcrWorkerLine -Worker $w -DeadlineUtc $deadlineUtc
+        } catch [System.TimeoutException] {
+            Stop-WinRtOcrWorker -Confirm:$false
+            throw "WinRT OCR worker read timed out after $($script:WinRtOcrWorkerReadTimeoutSec)s (worker wedged); killed."
+        }
         if ($null -eq $line) {
             Stop-WinRtOcrWorker -Confirm:$false
             throw "WinRT OCR worker stdout closed mid-response"
@@ -681,16 +757,47 @@ function Invoke-WinRtOcr {
         try {
             return (Invoke-WinRtOcrViaWorker -ImagePath $absPath)
         } catch {
-            Write-Verbose "WinRT OCR worker failed ($($_.Exception.Message)); falling back to one-shot spawn for this call."
+            $workerErr = $_
+            $script:WinRtOcrWorkerFallbackCount++
+            Write-Verbose "WinRT OCR worker failed ($($workerErr.Exception.Message)); falling back to one-shot spawn for this call."
+            # Structured, rate-limited fallback signal (first occurrence, then
+            # every 10th) so chronic worker breakage surfaces in the cycle event
+            # stream instead of only under -Verbose -- without one event per poll
+            # when the worker is permanently broken. Guard: Test.OcrEngine does
+            # not import Test.Log, so this must not throw when the logger is absent.
+            if ((($script:WinRtOcrWorkerFallbackCount -eq 1) -or ($script:WinRtOcrWorkerFallbackCount % 10 -eq 0)) -and
+                (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) {
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event         = 'ocr_worker_fallback'
+                    fallbackCount = $script:WinRtOcrWorkerFallbackCount
+                    error         = $workerErr.Exception.Message
+                    failureClass  = 'instrumentation_failure'
+                    severity      = 'soft'
+                }
+            }
             # fall through to the one-shot path
         }
     }
 
     $scriptFile = Get-WinRtOcrScriptPath
+    # Pin the native-command EAP so a non-zero powershell.exe exit reaches the
+    # explicit branch below instead of throwing a bare NativeCommandExitException
+    # on PS 7.4+ under EAP=Stop (feedback_winget_self_upgrade_kills_running_pwsh
+    # class). $LASTEXITCODE survives the 2>&1 variable assignment (no pipeline)
+    # and is snapshotted immediately.
+    $PSNativeCommandUseErrorActionPreference = $false
     $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptFile $absPath 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $errLines = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
-        throw "WinRT OCR failed (exit $LASTEXITCODE): $errLines"
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        # Include BOTH stderr (ErrorRecord) and stdout (string) lines: a failing
+        # powershell.exe commonly writes its diagnostic to stdout, so filtering
+        # to ErrorRecord alone can throw with an empty detail. Join whatever is
+        # present so the failure is always diagnosable.
+        $errText = (@($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })) -join "`n"
+        $outText = (@($output | Where-Object { $_ -is [string] })) -join "`n"
+        $detail  = (@($errText, $outText) | Where-Object { $_ }) -join "`n"
+        throw "WinRT OCR failed (exit $exitCode): $detail"
     }
     $text = ($output | Where-Object { $_ -is [string] }) -join "`n"
     return $text
@@ -903,6 +1010,42 @@ for row in rows {
 # Invoke-MacVisionOcr falls back to the original `swift script.swift`
 # code path so behavior is preserved (just slower) on those hosts.
 $script:VisionOcrBinaryPath = $null
+# Process-lifetime negative cache: once swiftc is found missing or a compile
+# fails, Get-VisionOcrBinaryPath returns $null without re-probing swiftc or
+# re-attempting the compile on every OCR poll (the `swift script.swift`
+# interpreter fallback costs ~1-2s per call). The runner is a per-cycle process,
+# so a newly-installed swiftc is re-probed on the next cycle.
+$script:VisionOcrBinaryProbeFailed = $false
+
+function Clear-VisionOcrBinaryCache {
+    <#
+    .SYNOPSIS
+        Drops the compiled-binary path and the negative probe cache (test seam /
+        env-change hook), mirroring Clear-EnabledOcrProviderCache.
+    #>
+    $script:VisionOcrBinaryPath = $null
+    $script:VisionOcrBinaryProbeFailed = $false
+}
+
+function Write-VisionOcrSlowPathEvent {
+    # Latch the negative cache and emit a ONE-TIME structured event so a
+    # remediator sees macOS OCR has dropped to the slow `swift script.swift`
+    # interpreter path. Idempotent: the flag both suppresses repeat events and
+    # short-circuits future probes. Guard: Test.OcrEngine does not import
+    # Test.Log, so this must not throw when the logger is absent.
+    param([Parameter(Mandatory)][string]$Reason)
+    if ($script:VisionOcrBinaryProbeFailed) { return }
+    $script:VisionOcrBinaryProbeFailed = $true
+    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+        Send-CycleEventSafely -EventRecord @{
+            timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            event        = 'ocr_vision_slowpath'
+            reason       = [string]$Reason
+            failureClass = 'instrumentation_failure'
+            severity     = 'soft'
+        }
+    }
+}
 
 function Get-VisionOcrBinaryPath {
     [CmdletBinding()]
@@ -913,8 +1056,12 @@ function Get-VisionOcrBinaryPath {
         return $script:VisionOcrBinaryPath
     }
     $script:VisionOcrBinaryPath = $null
-    if (-not (Get-Command swiftc -ErrorAction SilentlyContinue)) { return $null }
 
+    # Adopt a canonical binary already on disk (e.g. compiled by a concurrent
+    # cycle) BEFORE consulting the negative cache, so a process that latched the
+    # slow path on a transient compile failure can still recover the fast native
+    # binary. Hashing the few-KB source is microseconds; the expensive swiftc -O
+    # recompile below is still skipped once the negative cache is latched.
     $hash = [BitConverter]::ToString(
         [System.Security.Cryptography.SHA256]::HashData(
             [System.Text.Encoding]::UTF8.GetBytes($script:VisionOcrSwift)
@@ -926,6 +1073,14 @@ function Get-VisionOcrBinaryPath {
         return $binPath
     }
 
+    # Negative cache: don't re-probe swiftc or re-attempt the (expensive) compile
+    # on every OCR poll once known bad.
+    if ($script:VisionOcrBinaryProbeFailed) { return $null }
+    if (-not (Get-Command swiftc -ErrorAction SilentlyContinue)) {
+        Write-VisionOcrSlowPathEvent -Reason 'swiftc_unavailable'
+        return $null
+    }
+
     # Compile into a sibling tmp path then Move-Item over the canonical
     # name so a partial/aborted compile can't leave a half-written binary
     # that subsequent calls would execute. -O is the standard optimisation
@@ -933,11 +1088,17 @@ function Get-VisionOcrBinaryPath {
     # heavier -O level would not materially help.
     $swiftFile = [System.IO.Path]::GetTempFileName() + '.swift'
     $tmpBin    = "$binPath.tmp.$PID"
+    # Pin the native-command EAP so a non-zero swiftc exit reaches the explicit
+    # branch below (and latches the negative cache with a precise reason) rather
+    # than throwing into the catch on PS 7.4+ under EAP=Stop.
+    $PSNativeCommandUseErrorActionPreference = $false
     try {
         $script:VisionOcrSwift | Set-Content -Path $swiftFile -Encoding UTF8
         & swiftc -O $swiftFile -o $tmpBin 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpBin)) {
-            Write-Verbose "Vision OCR swiftc compile failed (exit $LASTEXITCODE); falling back to 'swift script.swift' invocation path."
+        $swiftcExit = $LASTEXITCODE
+        if ($swiftcExit -ne 0 -or -not (Test-Path $tmpBin)) {
+            Write-Verbose "Vision OCR swiftc compile failed (exit $swiftcExit); falling back to 'swift script.swift' invocation path."
+            Write-VisionOcrSlowPathEvent -Reason 'swiftc_compile_failed'
             return $null
         }
         Move-Item -Path $tmpBin -Destination $binPath -Force
@@ -945,6 +1106,7 @@ function Get-VisionOcrBinaryPath {
         return $binPath
     } catch {
         Write-Verbose "Vision OCR swiftc compile threw: $($_.Exception.Message); using script-path fallback."
+        Write-VisionOcrSlowPathEvent -Reason 'swiftc_compile_threw'
         return $null
     } finally {
         if (Test-Path $swiftFile) { Remove-Item $swiftFile -Force -ErrorAction SilentlyContinue }
@@ -1010,6 +1172,7 @@ Export-ModuleMember -Function @(
     'Invoke-OcrProvider'
     'Get-EnabledOcrProvider'
     'Clear-EnabledOcrProviderCache'
+    'Clear-VisionOcrBinaryCache'
     'Invoke-AllEnabledOcr'
     'Invoke-WinRtOcr'
     'Invoke-MacVisionOcr'

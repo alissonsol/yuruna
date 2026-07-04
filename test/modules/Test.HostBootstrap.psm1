@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d0e1f2-a3b4-4c56-9789-0b1c2d3e4f53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,16 +23,18 @@
 # Test.Host{Detection,Condition,Git} siblings with -Global so importing
 # THIS module alone gives a caller the full Test.Host* surface area.
 
-# Re-import the three sibling modules so a caller that only imports
+# Import the three sibling modules so a caller that only imports
 # Test.HostBootstrap (or Test.HostContract -- the facade re-imports
-# Bootstrap) still gets the full Test.Host* surface area. -Global so
-# the names land in the caller's session; -Force so a stale cached
-# copy is evicted; -DisableNameChecking because Get-* / Test-* /
-# Assert-* / Set-* / Update-* / Install-* span many noun families.
+# Bootstrap) still gets the full Test.Host* surface area. -Global so the
+# names land in the caller's session; -DisableNameChecking because Get-* /
+# Test-* / Assert-* / Set-* / Update-* / Install-* span many noun families.
+# NOT -Force: these are SHARED siblings other modules pull in transitively,
+# and a -Force re-import would evict/reinitialize them (and their $script:
+# state) out from under those callers -- import only when absent.
 foreach ($mod in @('Test.HostDetection.psm1','Test.HostCondition.psm1','Test.HostGit.psm1')) {
     $p = Join-Path $PSScriptRoot $mod
-    if (Test-Path $p) {
-        Import-Module $p -Global -Force -DisableNameChecking
+    if ((Test-Path $p) -and -not (Get-Module -Name ([System.IO.Path]::GetFileNameWithoutExtension($mod)))) {
+        Import-Module $p -Global -DisableNameChecking
     }
 }
 
@@ -84,8 +86,10 @@ function Initialize-YurunaHost {
     # the driver so callers can rely on either set without a separate
     # bootstrap step.
     $vmCommonPath = Join-Path $RepoRoot 'test/modules/Test.VMUtility.psm1'
-    if (Test-Path $vmCommonPath) {
-        Import-Module $vmCommonPath -Force -DisableNameChecking -Global
+    # Import once: Test.VMUtility is a shared helper other modules pull in transitively, so a
+    # -Force re-import would reset its state out from under them.
+    if ((Test-Path $vmCommonPath) -and -not (Get-Module -Name 'Test.VMUtility')) {
+        Import-Module $vmCommonPath -DisableNameChecking -Global
     }
     Write-Verbose "Initialize-YurunaHost: imported $modulePath"
     return $modulePath

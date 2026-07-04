@@ -4,6 +4,30 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.03
+
+- **Hosts auto-update the framework by default.** Fresh installs now clone the
+  moving `main` branch, so the runner's per-cycle `git pull --ff-only`
+  fast-forwards each host to the latest framework every cycle — previously the
+  installers cloned a release tag, leaving a detached HEAD that the pull
+  silently no-op'd, freezing hosts at their install-time version. Pinning is now
+  opt-in via `-PinVersion` (Windows) / `PIN_VERSION=1` / `--pin-version`
+  (macOS, Ubuntu), which reads the repo's own `VERSION` as the single source of
+  truth. See [install.md](docs/install.md) and
+  [opportunities-installer.md](docs/opportunities-installer.md).
+- **Reliability & self-healing hardening sweep.** Roughly 66 review findings plus
+  targeted fixes across the automation and diagnostic paths: hard wall-clock
+  bounds on the VNC handshake, `Wait-SshReady`, and the persistent OCR WinRT
+  worker; safer macOS/UTM teardown (verified deregistration, powered-off before
+  delete); bounded retries on guest provisioning; crash-counter persistence
+  across respawn; stale-PID and stale `last_failure.json` misattribution guards;
+  and more diagnosable OCR, transport, and workload failure paths. See
+  [opportunities-resilience.md](docs/opportunities-resilience.md).
+- **Commit column on the Yuruna hosts dashboard.** The Pool hosts table now shows
+  each host's current framework and project short SHAs with per-repo deep-links,
+  sourced from every host's `status.json` — the same data the host status page's
+  Commit block renders. See [pool-admin.md](docs/pool-admin.md).
+
 ## 2026.06.30
 
 - **Stash stop now leaves no VM files behind.** `Stop-StashServer` gracefully
@@ -96,6 +120,6 @@ tagged release.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.30
+Last review: 2026.07.03
 
 Back to [Yuruna](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,11 @@ function Read-OverlaySection {
                 $sections[$currentKey] = $current.ToArray()
             }
             $currentKey = $Matches[1]
+            # A repeated header would silently overwrite the earlier payload (and the merge-time
+            # consumed/orphan validation cannot see the loss); fail loudly instead.
+            if ($sections.Contains($currentKey)) {
+                throw "Duplicate overlay section '$currentKey' in ${OverlayPath}: a repeated header would silently overwrite the earlier payload."
+            }
             $current    = New-Object System.Collections.Generic.List[string]
             continue
         }
@@ -234,7 +239,11 @@ function Resolve-CloudInitPlaceholder {
         [string[]]$AllowedUnresolved = @()
     )
     $result = $TemplateContent
-    foreach ($key in $Replacement.Keys) {
+    # Replace longer placeholder names first. A shorter name that is a tail-substring of a
+    # longer one (e.g. PASSWORD_PLACEHOLDER inside YSTASH_NAS_PASSWORD_PLACEHOLDER) would
+    # otherwise rewrite the inside of the longer token and silently bake in the wrong value;
+    # hashtable key order is unspecified, so the ordering must be made explicit here.
+    foreach ($key in ($Replacement.Keys | Sort-Object -Property Length -Descending)) {
         $value = if ($null -eq $Replacement[$key]) { '' } else { [string]$Replacement[$key] }
         $result = $result.Replace([string]$key, $value)
     }

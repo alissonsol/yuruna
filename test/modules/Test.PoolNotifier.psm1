@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 423e9a21-5b84-4f63-9c12-8e4a1d2f6b90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,8 +167,17 @@ function Get-PoolAlertGaugeState {
             $iwrArgs = @{ Uri = $u; TimeoutSec = $TimeoutSec; UseBasicParsing = $true; ErrorAction = 'Stop' }
             if ($u -like 'https://*') { $iwrArgs['SkipCertificateCheck'] = $true }
             $resp = Invoke-WebRequest @iwrArgs -Verbose:$false
-            if ($resp.StatusCode -eq 200) { return (ConvertFrom-PrometheusPoolGauge -MetricsText ([string]$resp.Content)) }
-            Write-Verbose "pool metrics ${u} HTTP $($resp.StatusCode)"
+            if ($resp.StatusCode -eq 200) {
+                $parsed = ConvertFrom-PrometheusPoolGauge -MetricsText ([string]$resp.Content)
+                if ($parsed -and $parsed.Count -gt 0) { return $parsed }
+                # A 200 whose body has NO recognized yuruna_pool_* series is not a valid scrape
+                # (proxy/error page, wrong endpoint, truncated body). Do NOT parse it as
+                # "no pools alerting" -- fall through so the loop ends at $null and the caller
+                # PRESERVES prior alert state instead of falsely clearing a live alert.
+                Write-Verbose "pool metrics ${u}: 200 but no recognized yuruna_pool_* series; treating as unrecognized."
+            } else {
+                Write-Verbose "pool metrics ${u} HTTP $($resp.StatusCode)"
+            }
         } catch {
             Write-Verbose "Get-PoolAlertGaugeState ${u}: $($_.Exception.Message)"
         }

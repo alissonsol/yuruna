@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d1e2f3-a4b5-4c67-8d90-1e2f3a4b5c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,11 +185,17 @@ function Get-VersionStatus {
         [Parameter(Mandatory)][string]$Kind
     )
     if ([string]::IsNullOrWhiteSpace($Latest)) { return 'check failed' }
-    if ($Kind -eq 'major') {
-        $p = [int]$Pinned; $l = [int]$Latest
-    } else {
-        # 'minor' and 'full' both compare cleanly as [version] (X.Y or X.Y.Z).
-        $p = [version]$Pinned; $l = [version]$Latest
+    try {
+        if ($Kind -eq 'major') {
+            $p = [int]$Pinned; $l = [int]$Latest
+        } else {
+            # 'minor' and 'full' both compare cleanly as [version] (X.Y or X.Y.Z).
+            $p = [version]$Pinned; $l = [version]$Latest
+        }
+    } catch {
+        # A malformed pin ('1.30+', 'latest', a typo) or unparsable upstream string must degrade
+        # THIS row -- the call site is unguarded, so a throw here would abort the whole report.
+        return 'unparsable pin'
     }
     if ($l -gt $p) { return 'UPDATE AVAILABLE' }
     if ($l -lt $p) { return 'pinned ahead' }

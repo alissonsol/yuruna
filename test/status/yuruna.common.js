@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.06.30
+  Version: 2026.07.03
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.06.30';
+  var VERSION = '2026.07.03';
 
   // fetch shim for Safari iOS 9.x. (Target support for Yuruna UI).
   if (!window.fetch) {
@@ -1513,7 +1513,14 @@
             var isguestSequence = isguestSequenceArray(value) && availableGuestFolders;
             value.forEach(function(item, idx) {
               var childNode = renderConfigNode(item, value, idx, renderArrayChildren);
-              var childRow = childNode.querySelector(':scope > .tree-row');
+              // Find the direct-child .tree-row WITHOUT the :scope selector, which throws a
+              // SyntaxError on Safari < 10 and would abort the whole config-tree render. The
+              // row is the node's own first element child; scan direct children defensively.
+              var childRow = null;
+              var rowKids = childNode.children;
+              for (var rk = 0; rk < rowKids.length; rk++) {
+                if ((' ' + rowKids[rk].className + ' ').indexOf(' tree-row ') !== -1) { childRow = rowKids[rk]; break; }
+              }
               if (childRow) {
                 var del = document.createElement('button');
                 del.type = 'button';
@@ -1988,13 +1995,12 @@
           if (item.disabled) el.classList.add('is-disabled');
           el.setAttribute('role', 'option');
           el.textContent = item.label;
-          // pointerdown unifies mouse + touch + pen so iPhone / Android
-          // taps fire the same handler the desktop mouse hits. Falling
-          // back to mousedown for any browser without Pointer Events
-          // would be redundant on the supported target set (iOS 13+,
-          // Chrome 55+, Firefox 59+); skip the duplicate listener.
-          el.onpointerdown = function (e) {
-            e.preventDefault();
+          // pointerdown unifies mouse + touch + pen where Pointer Events exist. Older iOS
+          // Safari (< 13) has no Pointer Events, so without a fallback an option could not be
+          // selected at all; there, use mousedown (desktop) + touchstart (touch), whose
+          // preventDefault suppresses the emulated mouse events so the handler fires once.
+          var selectItem = function (e) {
+            if (e && e.preventDefault) e.preventDefault();
             if (item.disabled) return;
             selectedValue = item.value;
             close();
@@ -2003,6 +2009,12 @@
               opts.onChange(selectedValue);
             }
           };
+          if (window.PointerEvent) {
+            el.onpointerdown = selectItem;
+          } else {
+            el.onmousedown = selectItem;
+            el.addEventListener('touchstart', selectItem, false);
+          }
           // Desktop-only highlight-on-hover; touch devices have no hover
           // and rely on tap-to-select (above) without a preview state.
           el.onmouseenter = function () {
@@ -2028,6 +2040,9 @@
         }
       }
 
+      // Pointer Events where available; otherwise the mouse+touch pair (older iOS Safari)
+      // so an outside tap still closes the menu.
+      var docCloseEvents = window.PointerEvent ? ['pointerdown'] : ['mousedown', 'touchstart'];
       function open() {
         if (!menu.hidden) return;
         menu.hidden = false;
@@ -2040,7 +2055,9 @@
           }
         }
         updateActive();
-        document.addEventListener('pointerdown', onDocPointerDown, true);
+        for (var dci = 0; dci < docCloseEvents.length; dci++) {
+          document.addEventListener(docCloseEvents[dci], onDocPointerDown, true);
+        }
       }
 
       function close() {
@@ -2052,7 +2069,9 @@
         for (var i = 0; i < optionEls.length; i++) {
           optionEls[i].classList.remove('is-active');
         }
-        document.removeEventListener('pointerdown', onDocPointerDown, true);
+        for (var dcj = 0; dcj < docCloseEvents.length; dcj++) {
+          document.removeEventListener(docCloseEvents[dcj], onDocPointerDown, true);
+        }
       }
 
       function onDocPointerDown(e) {
@@ -2238,8 +2257,10 @@
           if (isRunning) {
             var ok = window.confirm(
               'A cycle is currently running. Save the config, abort the ' +
-              'running cycle, and start a new one? In-progress VMs will be ' +
-              'removed.'
+              'running cycle, and start a new one? In-progress VMs are removed ' +
+              'first -- this is not instant: each running VM is given up to ' +
+              '~30 seconds to shut down (macOS/UTM is the slowest), so with ' +
+              'several VMs up the new cycle can take a minute or two to begin.'
             );
             if (!ok) return;
           }
@@ -2248,8 +2269,9 @@
         ['catch'](function(e) {
           var ok = window.confirm(
             'Could not determine runner status (' + e.message + '). ' +
-            'Save and start cycle anyway? In-progress VMs (if any) will ' +
-            'be removed.'
+            'Save and start cycle anyway? In-progress VMs (if any) are removed ' +
+            'first -- up to ~30 seconds per running VM (macOS/UTM is the ' +
+            'slowest), so the new cycle may take a minute or two to begin.'
           );
           if (ok) doSaveAndStartCycle();
         });
@@ -2287,7 +2309,7 @@
             var msg = (body && body.error) ? body.error : ('HTTP ' + res.status);
             throw new Error(msg);
           }
-          status.textContent = 'Saved. Stopping VMs and starting new cycle…';
+          status.textContent = 'Saved. Stopping in-progress VMs (up to ~30s each) and starting a new cycle -- this can take a minute or two…';
           return fetch('control/start-cycle', {
             method: 'POST',
             cache: 'no-store'

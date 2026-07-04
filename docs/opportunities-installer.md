@@ -66,7 +66,7 @@ policy or security-posture choice.
 | # | Decision | Recommendation | Why it is an operator call |
 |---|---|---|---|
 | D1 | Root of trust for the first fetch (Item 1): sha256 only, or a real signature? | sha256 now (closes cache-poisoning / partial / corruption / `main`-drift and gives Item 4 a working hash primitive); open a **P1 for a detached signature** so the operator consciously owns the residual MITM gap | A signature adds key management and a new trust surface |
-| D2 | Canonical tag scheme (Item 2). Three live dialects: tag `2026.05.29` (no `v`), tag `v2026.05.22` (with `v`), installer `.VERSION 2026.06.30` | Bare CalVer `YYYY.MM.DD` — already matches the newest tag AND the installer's own `.VERSION`, minimizing churn. Pin URLs/clones to the tag **and record the tag→commit SHA** in the manifest | Tag naming is project policy; do not pick unilaterally |
+| D2 | Canonical tag scheme (Item 2). Three live dialects: tag `2026.05.29` (no `v`), tag `v2026.05.22` (with `v`), installer `.VERSION 2026.07.03` | Bare CalVer `YYYY.MM.DD` — already matches the newest tag AND the installer's own `.VERSION`, minimizing churn. Pin URLs/clones to the tag **and record the tag→commit SHA** in the manifest | Tag naming is project policy; do not pick unilaterally |
 | D3 | Pin granularity: tag name vs full commit SHA | Tag in URLs/clones for readability; record + (optionally) verify the tag→SHA mapping in `install.sha256`; pair with D5 | Trades usability vs immutability |
 | D4 | `main`-fallback policy when the pinned tag clone fails | Fall back to `main` **only on explicit operator opt-in** (`-YurunaBranch main` / env var) with a loud warning — never silently | Silent fallback re-opens the moving-target hole |
 | D5 | Fail-hard vs warn on mismatch (Items 4, 5, and the clone fallback) | **Hard-fail** on guest sha mismatch (Item 4) and key-fingerprint mismatch (Item 5) — a mismatch there is corruption or attack, never benign. **Warn-and-fall-back** on a missing clone tag (Item 2 / D4), since a missing tag on a fresh checkout is an operational reality | Hard-fail trades availability for integrity on upstream rotations |
@@ -193,18 +193,20 @@ tag-scheme reconciliation.
 
 **Implementation.** No installer clone/pull change was needed: the existing
 `clone --branch <ref>` + `checkout <ref>` + `pull --ff-only origin <ref>`
-handles a CalVer tag transparently (detached checkout + no-op ff-only pull,
-verified against a throwaway local repo). So Item 2 is just the release
-script's pin-rewrite — `tools/Update-YurunaReleasePins.ps1` flips the three
-`YURUNA_BRANCH` defaults `main`→`<VERSION>` and the verified-path tag, then
-regenerates + signs `install.sha256` and runs the ASCII gate (idempotent;
-syntax of the rewritten installers re-checked). The convenience one-liners
-deliberately stay on `refs/heads/main` (unverified latest); the CLONE is what
-is pinned. Opt-in `main` fallback (D4) is the existing `YURUNA_BRANCH=main`
-override. The pin is applied AT RELEASE TIME (the tag must exist first), so it
-is NOT pre-applied to `main`: between releases the installers use `main`, and
-the script flips them when the tag is cut — making the per-release work just
-"bump VERSION, run the script, cut the tag."
+handles either a branch or a CalVer tag transparently. The clone DEFAULT stays
+on the moving `main` branch, so a normal install **auto-updates the framework
+every cycle** (the runner's per-cycle `pull --ff-only` fast-forwards the
+tracking branch). Pinning to a release is OPT-IN via `-PinVersion` (Windows) /
+`PIN_VERSION=1` or `--pin-version` (bash): after cloning, the installer reads
+the repo's own `VERSION` file (top of the repository) and checks that tag out as
+a detached HEAD, which has no upstream, so the per-cycle pull is a no-op and the
+host freezes. `tools/Update-YurunaReleasePins.ps1` regenerates + signs
+`install.sha256` and bumps the README verified-download tag (ASCII gate as a
+hard gate); the installers carry no baked version and their `main` clone default
+is untouched, so a release never re-pins a fresh install. The convenience
+one-liners deliberately stay on `refs/heads/main` (unverified latest). An
+explicit `YURUNA_BRANCH=<tag>` / `-YurunaBranch <tag>` pins to any specific
+release. Per-release work is just "bump VERSION, run the script, cut the tag."
 
 ### Item 3 — Collapse the Windows-installer multi-fetch
 
@@ -728,6 +730,6 @@ architecture.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.30
+Last review: 2026.07.03
 
 Back to [Yuruna](../README.md)

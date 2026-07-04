@@ -43,15 +43,22 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.06.30`) is the source of truth for releases.
-At release time `tools/Update-YurunaReleasePins.ps1` flips the three installers'
-`YURUNA_BRANCH` default from `main` to the release tag (pinning the clone),
-regenerates `install/install.sha256`, signs it (`install/install.sha256.sig`,
-RSA-4096), and runs the ASCII/no-BOM gate as a hard precondition — so the
-per-release work is just: bump `VERSION`, run the script, cut the tag. The
-existing clone/checkout/pull logic handles a CalVer tag transparently (detached
-checkout + no-op `--ff-only` pull), so pinning is only that default flip; opt
-back onto a moving branch with `YURUNA_BRANCH=main` / `-YurunaBranch main`.
+`VERSION` (bare CalVer, e.g. `2026.07.03`) is the source of truth for releases.
+At release time `tools/Update-YurunaReleasePins.ps1` regenerates
+`install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
+runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
+hard-coded in a URL — the README verified-download path — so the per-release
+work is just: bump `VERSION`, run the script, cut the tag. The installers carry
+no baked version; they read `VERSION` at install time.
+
+The clone DEFAULT stays on the moving `main` branch, so a normal install
+**auto-updates the framework every cycle** (the runner's per-cycle `git pull
+--ff-only` fast-forwards the tracking branch). To freeze a host at the current
+release, pass `-PinVersion` (Windows) / `PIN_VERSION=1` or `--pin-version`
+(macOS, Ubuntu): after cloning, the installer reads the repo's `VERSION` file
+and checks that tag out as a detached HEAD, which the per-cycle pull leaves
+untouched (no upstream → no-op). An explicit `-YurunaBranch <tag>` /
+`YURUNA_BRANCH=<tag>` pins to any specific release instead.
 
 The convenience one-liners stay on `refs/heads/main` (latest, UNVERIFIED). The
 **verified** install path — download the installer + `install.sha256` + `.sig`
@@ -664,6 +671,6 @@ the first run.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.30
+Last review: 2026.07.03
 
 Back to [Yuruna](../README.md)

@@ -105,4 +105,4 @@ per-event-code `subscribers`. Six entities — within the [≤7 rule](00-index.m
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.30
+Last review: 2026.07.03

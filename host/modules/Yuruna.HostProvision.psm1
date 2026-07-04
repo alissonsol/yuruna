@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,13 @@
 $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.VMUtility.psm1')    -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CachingProxy.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
+# Verify the by-name dependencies resolved at LOAD time, so a broken/moved module surfaces here
+# instead of on the one caching-proxy probe per cycle (where it looks like a cache outage).
+foreach ($dep in @('Get-CachingProxyPort', 'Test-IpAddress', 'Format-IpUrlHost', 'Read-CachingProxyState')) {
+    if (-not (Get-Command -Name $dep -ErrorAction SilentlyContinue)) {
+        Write-Warning "Yuruna.HostProvision: required command '$dep' is not available after importing Test.VMUtility / Test.CachingProxy -- the caching-proxy probe will fail. Verify those modules loaded correctly."
+    }
+}
 
 function Invoke-PerGuestNewVm {
     <#

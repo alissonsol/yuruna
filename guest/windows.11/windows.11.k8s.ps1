@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,8 +61,21 @@ Write-Output "PowerShell 7 found at $($pwshPath.Source)"
 
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
-pwsh -NoProfile -Command "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false" 2>$null
-if ($LASTEXITCODE -ne 0) { Write-Output "Note: powershell-yaml module installation attempted" }
+$yamlInstall = "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false"
+$yamlOk = $false
+for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {
+    pwsh -NoProfile -Command $yamlInstall
+    # powershell-yaml is a HARD dependency (sequence planner + Get-SystemDiagnostic);
+    # Install-Module can report success yet leave it unimportable, so the fresh-process
+    # ConvertFrom-Yaml round-trip is the real gate -- do not swallow failure with 2>$null.
+    pwsh -NoProfile -Command "Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -ne 'v') { exit 1 }"
+    if ($LASTEXITCODE -eq 0) { $yamlOk = $true }
+    else { Write-Output "powershell-yaml install/import attempt $attempt/3 failed; retrying..."; Start-Sleep -Seconds ($attempt * 5) }
+}
+if (-not $yamlOk) {
+    Write-Error "powershell-yaml failed to install/import after 3 attempts; it is required by the in-guest sequence planner and Get-SystemDiagnostic.ps1."
+    exit 1
+}
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # ===== Cloud CLIs =====

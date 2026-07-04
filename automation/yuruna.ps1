@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,6 +145,10 @@ if (-Not $isOk) {
         Write-Output $result
     }
     Write-Output $(Get-Content -Path $transcriptFileName)
+    # Propagate failure as a non-zero process exit so a `set -e` shell wrapper sees this
+    # dispatcher fail, matching the `exit 1` the Set-Component/Set-Resource/Set-Workload
+    # wrappers already emit for the same failure.
+    exit 1
 }
 else {
     Write-Debug "`n-- See transcript with command: Write-Output `$(Get-Content -Path $transcriptFileName)"

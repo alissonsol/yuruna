@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,7 +181,8 @@ func (s *Store) FinalizeStaging(stagingDir, dayDir, id string, recursive bool, f
 		if err := os.Rename(src, dst); err != nil {
 			return nil, fmt.Errorf("rename single file: %w", err)
 		}
-		_ = os.RemoveAll(stagingDir)
+		syncDir(dayDir) // make the rename durable before removing the staging source
+		removeStaging(stagingDir)
 		fi, err := os.Stat(dst)
 		if err != nil {
 			return nil, fmt.Errorf("stat final: %w", err)
@@ -199,7 +201,8 @@ func (s *Store) FinalizeStaging(stagingDir, dayDir, id string, recursive bool, f
 	if err := zipDir(stagingDir, dst); err != nil {
 		return nil, fmt.Errorf("zip staging: %w", err)
 	}
-	_ = os.RemoveAll(stagingDir)
+	syncDir(dayDir) // make the new archive's directory entry durable before removing staging
+	removeStaging(stagingDir)
 	fi, err := os.Stat(dst)
 	if err != nil {
 		return nil, fmt.Errorf("stat archive: %w", err)
@@ -216,15 +219,23 @@ func (s *Store) FinalizeStaging(stagingDir, dayDir, id string, recursive bool, f
 	}, nil
 }
 
+// removeStaging deletes a staging directory after its content has already been
+// committed to its final path. A failure here is a disk leak, not a lost
+// artifact, so it must not fail the finalize; log it (deduping is unnecessary
+// -- one line per finalize) so an accumulating <id>.staging leak is visible.
+func removeStaging(stagingDir string) {
+	if err := os.RemoveAll(stagingDir); err != nil {
+		log.Printf("stash store: staging cleanup %s: %v", stagingDir, err)
+	}
+}
+
 func zipDir(srcDir, dstZip string) error {
 	out, err := os.Create(dstZip)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 	zw := zip.NewWriter(out)
-	defer zw.Close()
-	return filepath.Walk(srcDir, func(p string, info os.FileInfo, walkErr error) error {
+	archiveErr := filepath.Walk(srcDir, func(p string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -253,6 +264,27 @@ func zipDir(srcDir, dstZip string) error {
 		_, err = io.Copy(w, f)
 		return err
 	})
+	// Finalize with explicit, error-checked closes. A deferred Close discards the error from
+	// writing the zip central directory (zw.Close) or flushing the file to disk (out), so a
+	// truncated / corrupt archive would be reported as success and FinalizeStaging would then
+	// delete the staging source -- permanent, undetected data loss. Close in order:
+	// writer, then fsync, then file; keep the first error.
+	if cerr := zw.Close(); cerr != nil && archiveErr == nil {
+		archiveErr = cerr
+	}
+	if archiveErr == nil {
+		if serr := out.Sync(); serr != nil {
+			archiveErr = serr
+		}
+	}
+	if cerr := out.Close(); cerr != nil && archiveErr == nil {
+		archiveErr = cerr
+	}
+	if archiveErr != nil {
+		// Never leave a partial archive that the caller would stat and accept as good.
+		_ = os.Remove(dstZip)
+	}
+	return archiveErr
 }
 
 // ShareOnline reports whether the share-side StashFolder is backed by a
@@ -391,5 +423,18 @@ func AtomicCopyFile(src, dst string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, dst)
+	if err := os.Rename(tmpName, dst); err != nil {
+		return err
+	}
+	syncDir(filepath.Dir(dst))
+	return nil
+}
+
+// syncDir fsyncs a directory so a rename/create within it survives a crash (Linux). Best-effort:
+// not every platform supports directory sync, and the service runs on Linux where it does.
+func syncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
 }

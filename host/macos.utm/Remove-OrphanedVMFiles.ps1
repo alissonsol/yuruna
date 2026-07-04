@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,7 +41,7 @@ Write-CleanupMessage "==========================================================
 Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
 Write-CleanupMessage "================================================================"
 Write-CleanupMessage ""
-Write-CleanupMessage "  This script deletes UTM VM bundles (.utm) from ~/Desktop"
+Write-CleanupMessage "  This script deletes UTM VM bundles (.utm) from ~/yuruna/guest.nosync"
 Write-CleanupMessage "  that are NOT registered in UTM."
 Write-CleanupMessage ""
 Write-CleanupMessage "  THIS CANNOT BE UNDONE."
@@ -148,7 +148,7 @@ foreach ($bundle in $utmBundles) {
 
 # === List registered VMs and their associated files ===
 if ($registeredVMs.Count -gt 0) {
-    Write-CleanupMessage "Currently registered VMs and their associated Desktop files:"
+    Write-CleanupMessage "Currently registered VMs and their associated bundle files:"
     Write-CleanupMessage ""
 }
 
@@ -164,7 +164,7 @@ foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
             Write-CleanupMessage "    $($f.FullName)  ($sizeStr)"
         }
     } else {
-        Write-CleanupMessage "    (no bundle found on Desktop)"
+        Write-CleanupMessage "    (no bundle found in ~/yuruna/guest.nosync)"
     }
     Write-CleanupMessage ""
 }
@@ -266,14 +266,17 @@ foreach ($item in $orphanedItems) {
             & utmctl delete $item.Name 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) { $deregistered = $true }
         }
-        # Verify no longer registered before removing files.
+        # Verify no longer registered before removing files. Prefer the UUID
+        # (unambiguous); otherwise re-query by NAME, because a name-based
+        # `utmctl delete` can silently fail -- and without a probe a UUID-less
+        # bundle would be removed while its VM is still registered in UTM,
+        # deleting the on-disk state of a live registration.
         $stillRegistered = $false
-        if ($bundleUUID) {
-            $null = & utmctl status $bundleUUID 2>&1
-            if ($LASTEXITCODE -eq 0) { $stillRegistered = $true }
-        }
+        $probeTarget = if ($bundleUUID) { $bundleUUID } else { $item.Name }
+        $null = & utmctl status $probeTarget 2>&1
+        if ($LASTEXITCODE -eq 0) { $stillRegistered = $true }
         if ($stillRegistered) {
-            Write-Warning "  Skipped: $($item.Path) -- VM still registered in UTM. Remove it from UTM first."
+            Write-Warning "  Skipped: $($item.Path) -- VM still registered in UTM (probe '$probeTarget'). Remove it from UTM first."
             $errors++
             continue
         }

@@ -66,7 +66,15 @@ $script:RetryDefaults = @{
 # transient bare 500s that clear on retry. A genuinely deterministic 500
 # just burns the backoff budget and then fails, the same as any other code
 # in this list, so including it costs at most one backoff cycle.
-$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|connection refused|connection reset|client\.timeout|EOF|TLS handshake|temporary failure|500 |503 |502 |504 |429 |too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
+#
+# The codes are matched with word boundaries (\b429\b ... \b504\b) so "HTTP 500"
+# matches wherever the code stands alone (mid-line or end-of-line) while "1500"/
+# "2500" and other embedded digits do not; the boundaries allow any surrounding
+# context (HTTP/status/bare). EOF is likewise a bounded token (\bEOF\b) so a
+# standalone transient read -- "unexpected EOF", ": EOF while reading", a
+# trailing ": EOF" -- matches, while EOF embedded in an unrelated token (EOFError
+# in a stack trace, an EOF-prefixed identifier) does not.
+$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|connection refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
 
 <#
 .SYNOPSIS

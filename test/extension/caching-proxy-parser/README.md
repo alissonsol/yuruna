@@ -57,7 +57,13 @@ on the caching-proxy VM):
   `method`, `url`, `ua`. `Cache-Control: no-store`, `CORS: *`.
 - `GET /` — self-contained dark-mode HTML page; auto-refreshes
   every 5 s; no external resources (works offline).
-- `GET /healthz` — `ok\n`.
+- `GET /healthz` — a single line beginning `ok`, followed by follower
+  diagnostics: `ok parsed=<N> skipped=<M> fielderr=<K> last_read=<iso|never> last_open_err=<msg|empty>`.
+  `parsed`/`skipped` are the matched vs. logformat-drift line counts,
+  `fielderr` counts matched lines with an unparseable `ts`/`bytes`,
+  `last_read` is when a line was last read, and `last_open_err` is the
+  most recent open/stat failure (empty while the log is open) — so a
+  wedged tailer is distinguishable from a healthy-but-quiet one.
 
 ## Operating notes
 
@@ -77,7 +83,7 @@ on the caching-proxy VM):
 ```
 ssh yuruna@<cache-ip>
 systemctl status caching-proxy-parser
-curl -s http://localhost:9302/healthz             # → "ok"
+curl -s http://localhost:9302/healthz             # → begins "ok parsed=… skipped=… last_open_err=…"
 curl -s http://localhost:9302/recent-requests | jq '. | length'
 xdg-open http://<cache-ip>:9302/                  # the live HTML view
 ```
@@ -97,6 +103,6 @@ xdg-open http://<cache-ip>:9302/                  # the live HTML view
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.30
+Last review: 2026.07.03
 
 Back to [Yuruna](../../../README.md)

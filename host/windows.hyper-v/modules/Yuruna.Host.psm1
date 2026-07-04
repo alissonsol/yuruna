@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -725,8 +725,16 @@ function Stop-HyperVVMForce {
     # Escalate: kill the vmwp.exe worker process hosting this VM.
     $vmId = $vm.Id.Guid
     Write-Warning "  Stop-VM did not bring '$VMName' to Off within ${StopTimeoutSeconds}s (state: $($vm.State)). Killing vmwp.exe for VM $vmId..."
-    $workers = Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -ieq 'vmwp.exe' -and $_.CommandLine -and $_.CommandLine -match [regex]::Escape($vmId) }
+    # vmwp.exe workers run under the per-VM virtual account 'NT VIRTUAL MACHINE\<vmId>', so
+    # Win32_Process.CommandLine is frequently empty (the process is owned by another account)
+    # and a CommandLine-only match silently skips the worker, defeating the force-stop. Match on
+    # the command line when it is readable, and otherwise on the owning account, whose user name
+    # is the VM GUID.
+    $workers = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='vmwp.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.CommandLine -and ($_.CommandLine -match [regex]::Escape($vmId))) -or
+            (($_ | Invoke-CimMethod -MethodName GetOwner -ErrorAction SilentlyContinue).User -eq $vmId)
+        })
     if (-not $workers) {
         Write-Warning "  No vmwp.exe worker found for VM $vmId. VM may already be transitioning; will retry Stop-VM."
         $retryJob = Start-Job -ScriptBlock {
@@ -2538,10 +2546,12 @@ function Send-Text {
     # exported Invoke-Sequence\Send-Text avoids the visibility trap.
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
-        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
-        # refresh it in place instead.
-        Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
+        # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
+        # nested modules + $script: state) the outer loop still calls, and doing it on every
+        # keystroke is pure overhead (feedback_module_force_import_evicts_global,
+        # feedback_module_script_state_reset_by_force_reimport).
+        if (-not (Get-Module -Name Invoke-Sequence)) { Import-Module $invokeSequence -DisableNameChecking -Global }
         return [bool](Invoke-Sequence\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
     Write-Warning "Send-Text -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
@@ -2569,10 +2579,12 @@ function Send-Key {
     # not resolvable from this module's scope).
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
-        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
-        # refresh it in place instead.
-        Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
+        # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
+        # nested modules + $script: state) the outer loop still calls, and doing it on every
+        # keystroke is pure overhead (feedback_module_force_import_evicts_global,
+        # feedback_module_script_state_reset_by_force_reimport).
+        if (-not (Get-Module -Name Invoke-Sequence)) { Import-Module $invokeSequence -DisableNameChecking -Global }
         return [bool](Invoke-Sequence\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
     }
     Write-Warning "Send-Key -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
@@ -2593,10 +2605,12 @@ function Send-Click {
     )
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
-        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
-        # refresh it in place instead.
-        Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
+        # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
+        # nested modules + $script: state) the outer loop still calls, and doing it on every
+        # keystroke is pure overhead (feedback_module_force_import_evicts_global,
+        # feedback_module_script_state_reset_by_force_reimport).
+        if (-not (Get-Module -Name Invoke-Sequence)) { Import-Module $invokeSequence -DisableNameChecking -Global }
         return [bool](Invoke-Sequence\Send-Click -HostType $script:HostTag -VMName $VMName -X $X -Y $Y)
     }
     Write-Warning "Send-Click: Invoke-Sequence.psm1 not found at '$invokeSequence'."
@@ -2814,6 +2828,10 @@ function Add-PortMap {
     # Tear down every prior Yuruna mapping (state-file ports + firewall-
     # rule ports + live forwarder pidfiles) before adding the new set.
     [void](Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
+    # Track which host ports actually came up so the state file records only live mappings and
+    # the caller can detect (and re-drive) a partial setup instead of trusting a complete state.
+    $launched = [System.Collections.Generic.List[int]]::new()
+    $failed   = [System.Collections.Generic.List[int]]::new()
     foreach ($m in $mappings) {
         $hostPort = $m.HostPort; $vmPort = $m.VMPort
         $useProxy = $proxyProtoSet.ContainsKey([int]$hostPort)
@@ -2827,6 +2845,7 @@ function Add-PortMap {
             $spawn = Start-WindowsCachingProxyForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
             if (-not $spawn.Success) {
                 Write-Warning "Add-PortMap: pwsh forwarder failed for host ${hostPort} -> ${VMIp}:${vmPort} (PROXY v1)."
+                $failed.Add($hostPort)
                 continue
             }
             # Self-heal the per-program rule if Get-PwshExePath's pre-spawn
@@ -2851,15 +2870,20 @@ function Add-PortMap {
             & netsh interface portproxy add v4tov4 listenport=$hostPort listenaddress=0.0.0.0 connectport=$vmPort connectaddress=$VMIp | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning "Add-PortMap: netsh portproxy add failed for host ${hostPort} -> ${VMIp}:${vmPort} (exit $LASTEXITCODE)."
+                $failed.Add($hostPort)
                 continue
             }
         }
+        $launched.Add($hostPort)
         Write-Information "  Port map added: host:${hostPort} -> ${VMIp}:${vmPort}${proxyTag}"
     }
+    # Persist ONLY the ports that actually came up, so a later reader / self-heal never treats a
+    # partially-installed map as complete.
+    $liveMappings = @($mappings | Where-Object { $launched -contains $_.HostPort })
     $state = [ordered]@{
         vmIp      = $VMIp
-        ports     = @($mappings | ForEach-Object { $_.HostPort })
-        mappings  = @($mappings | ForEach-Object {
+        ports     = @($liveMappings | ForEach-Object { $_.HostPort })
+        mappings  = @($liveMappings | ForEach-Object {
             [ordered]@{
                 hostPort      = $_.HostPort
                 vmPort        = $_.VMPort
@@ -2871,6 +2895,10 @@ function Add-PortMap {
     $tmp = "$statePath.tmp"
     $state | ConvertTo-Json -Depth 5 | Set-Content -Path $tmp -Encoding utf8
     Move-Item -Path $tmp -Destination $statePath -Force
+    if ($failed.Count -gt 0) {
+        Write-Warning "Add-PortMap: $($failed.Count) of $($mappings.Count) port mapping(s) failed to come up (port(s): $($failed -join ', ')); state records only the live ports."
+        return $false
+    }
     return $true
 }
 

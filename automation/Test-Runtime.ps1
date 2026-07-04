@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a7b8c9-d0e1-4f23-4567-8a9b0c112435
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,8 +61,16 @@ $problems = [System.Collections.Generic.List[string]]::new()
 
 # 1. Docker — running and healthy
 Write-Verbose "Checking Docker..."
-$null = docker info 2>&1
-if ($LASTEXITCODE -ne 0) {
+# Confirm the binary exists before trusting $LASTEXITCODE: a missing native command raises
+# CommandNotFound without updating $LASTEXITCODE, so a stale exit code from an earlier step
+# could otherwise be read as a passing verdict.
+if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
+    $dockerExit = 127
+} else {
+    $null = docker info 2>&1
+    $dockerExit = $LASTEXITCODE
+}
+if ($dockerExit -ne 0) {
     $problems.Add("DOCKER: Docker is not running or is unhealthy.")
     if ($IsWindows) {
         $dockerDesktopExe = $null
@@ -97,8 +105,13 @@ if ($LASTEXITCODE -ne 0) {
 
 # 2. Kubectl — available and able to connect to the cluster
 Write-Verbose "Checking kubectl..."
-$null = kubectl version --client 2>&1
-if ($LASTEXITCODE -ne 0) {
+if ($null -eq (Get-Command kubectl -ErrorAction SilentlyContinue)) {
+    $kubectlVersionExit = 127
+} else {
+    $null = kubectl version --client 2>&1
+    $kubectlVersionExit = $LASTEXITCODE
+}
+if ($kubectlVersionExit -ne 0) {
     $problems.Add("KUBECTL: kubectl is not installed or not in PATH.")
     $problems.Add("  -> Install kubectl: https://kubernetes.io/docs/tasks/tools/")
 } else {
@@ -108,16 +121,20 @@ if ($LASTEXITCODE -ne 0) {
         $problems.Add("  -> Verify your kubeconfig with: kubectl config view")
         $problems.Add("  -> If using Docker Desktop, enable Kubernetes in Docker Desktop settings.")
         if ($IsLinux) {
-            $swapInfo = swapon --show 2>&1
-            if (-not [string]::IsNullOrWhiteSpace($swapInfo)) {
-                $problems.Add("  -> Swap is ON. Kubernetes requires swap to be disabled:")
-                $problems.Add("       sudo swapoff -a")
-                $problems.Add("       sudo systemctl restart kubelet")
+            if (Get-Command swapon -ErrorAction SilentlyContinue) {
+                $swapInfo = swapon --show 2>&1
+                if (-not [string]::IsNullOrWhiteSpace($swapInfo)) {
+                    $problems.Add("  -> Swap is ON. Kubernetes requires swap to be disabled:")
+                    $problems.Add("       sudo swapoff -a")
+                    $problems.Add("       sudo systemctl restart kubelet")
+                }
             }
-            $kubeletStatus = systemctl is-active kubelet 2>&1
-            if ($kubeletStatus -ne "active") {
-                $problems.Add("  -> kubelet is not active. Try:")
-                $problems.Add("       sudo systemctl start kubelet")
+            if (Get-Command systemctl -ErrorAction SilentlyContinue) {
+                $kubeletStatus = systemctl is-active kubelet 2>&1
+                if ($kubeletStatus -ne "active") {
+                    $problems.Add("  -> kubelet is not active. Try:")
+                    $problems.Add("       sudo systemctl start kubelet")
+                }
             }
         }
     } else {
@@ -130,19 +147,28 @@ Write-Verbose "Checking Kubernetes cluster health..."
 if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
     Write-Verbose "Skipping cluster health check because kubectl is not connected."
 } else {
-    $notReadyNodes = kubectl get nodes --no-headers 2>&1 | Where-Object { $_ -notmatch "\bReady\b" -and $_ -notmatch "^error" -and $_ -ne "" }
+    $nodeLines = @(kubectl get nodes --no-headers 2>&1 | Where-Object { $_ -ne "" })
     if ($LASTEXITCODE -ne 0) {
         $problems.Add("CLUSTER: Could not retrieve node status.")
+        foreach ($line in $nodeLines) { $problems.Add("  $line") }
         $problems.Add("  -> Run 'kubectl get nodes' manually to investigate.")
-    } elseif ($notReadyNodes) {
-        $problems.Add("CLUSTER: One or more nodes are not in Ready state:")
-        foreach ($line in $notReadyNodes) {
-            $problems.Add("  $line")
-        }
-        $problems.Add("  -> Run 'kubectl describe node <node-name>' for details.")
-        $problems.Add("  -> On Linux, check: sudo systemctl status kubelet")
     } else {
-        Write-Verbose "All Kubernetes nodes are Ready."
+        # Do not filter error lines out (that hid failures) and do not treat zero nodes as
+        # healthy: require at least one Ready node. `\bReady\b` matches "Ready" but not "NotReady".
+        $readyNodes    = @($nodeLines | Where-Object { $_ -match "\bReady\b" })
+        $notReadyNodes = @($nodeLines | Where-Object { $_ -notmatch "\bReady\b" })
+        if ($readyNodes.Count -eq 0) {
+            $problems.Add("CLUSTER: No Ready nodes reported.")
+            foreach ($line in $nodeLines) { $problems.Add("  $line") }
+            $problems.Add("  -> Run 'kubectl get nodes' manually; the cluster reports no schedulable nodes.")
+        } elseif ($notReadyNodes.Count -gt 0) {
+            $problems.Add("CLUSTER: One or more nodes are not in Ready state:")
+            foreach ($line in $notReadyNodes) { $problems.Add("  $line") }
+            $problems.Add("  -> Run 'kubectl describe node <node-name>' for details.")
+            $problems.Add("  -> On Linux, check: sudo systemctl status kubelet")
+        } else {
+            Write-Verbose "All Kubernetes nodes are Ready."
+        }
     }
 }
 

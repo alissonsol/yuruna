@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d9c8b7-6f5e-4a23-9c81-7e4f3a2d1b50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,10 +146,18 @@ function Stop-StaleRunner {
         if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { break }
         Start-Sleep -Milliseconds 500
     }
+    # Surface a runner that outlived the kill: the takeover assumes the PID is gone before it
+    # clears orphan VMs, so a survivor means the new cycle may contend with the old one.
+    if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+        Write-Warning "Stop-StaleRunner: PID $ProcessId is still alive after ${WaitForExitMs}ms; the new cycle may contend with the old runner. Investigate a wedged process."
+    }
     $cleanup = Join-Path $TestRoot 'Remove-TestVMFiles.ps1'
     if (Test-Path -LiteralPath $cleanup) {
         try {
             & pwsh -NoProfile -File $cleanup -Prefix $CleanupPrefix
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Remove-TestVMFiles.ps1 exited $LASTEXITCODE during single-instance takeover; orphan VMs may remain -- the next cycle could fight them."
+            }
         } catch {
             Write-Warning "Remove-TestVMFiles.ps1 failed during single-instance takeover: $($_.Exception.Message)"
         }

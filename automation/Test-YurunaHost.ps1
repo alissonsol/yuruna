@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d4e5f6-a7b8-4c90-1d23-4e5f6a7b8c91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,12 +116,23 @@ if (-not $hostPort) {
 
 Write-Result 'INFO' "host.env: YURUNA_HOST_IP=$hostIp YURUNA_HOST_PORT=$hostPort"
 
-# --- 2. /etc/hosts has the yuruna-host entry ---
+# --- 2. /etc/hosts maps yuruna-host to YURUNA_HOST_IP ---
+# Parse the mapped IP (first field of the "<ip> <name>..." line) and compare it
+# to host.env: a stale mapping resolves the name to the wrong host even though
+# IP-based URLs still work. Commented lines are skipped.
 $hostsFile = '/etc/hosts'
+$hostsNameMapsHostIp = $false
 if (Test-Path $hostsFile) {
-    $hostsLine = Select-String -Path $hostsFile -Pattern '\byuruna-host\b' -SimpleMatch:$false -ErrorAction SilentlyContinue
+    $hostsLine = @(Get-Content -LiteralPath $hostsFile -ErrorAction SilentlyContinue |
+        Where-Object { $_ -notmatch '^\s*#' -and $_ -match '\byuruna-host\b' }) | Select-Object -First 1
     if ($hostsLine) {
-        Write-Result 'OK' "/etc/hosts contains yuruna-host: $($hostsLine.Line.Trim())"
+        $mappedIp = ($hostsLine.Trim() -split '\s+')[0]
+        if ($mappedIp -eq $hostIp) {
+            Write-Result 'OK' "/etc/hosts maps yuruna-host to $mappedIp (matches YURUNA_HOST_IP)."
+            $hostsNameMapsHostIp = $true
+        } else {
+            Write-Result 'WARN' "/etc/hosts maps yuruna-host to $mappedIp but YURUNA_HOST_IP is $hostIp -- stale name->IP mapping; name-based URLs will hit the wrong host."
+        }
     } else {
         Write-Result 'WARN' '/etc/hosts has no yuruna-host entry -- only IP-based URLs will work.'
     }
@@ -161,6 +172,23 @@ if ($payload.service -ne 'yuruna-status-service') {
     Write-Result 'FAIL' "/livecheck JSON does not identify as yuruna-status-service (service='$($payload.service)')"
     Show-Remediation
     exit 1
+}
+
+# --- 5. Exercise the name->IP path so a broken /etc/hosts mapping surfaces
+#        (the IP probe above bypasses name resolution). Advisory: the IP path is
+#        authoritative, so a name-path problem is a WARN, not a failure. ---
+if ($hostsNameMapsHostIp) {
+    $nameUrl = "http://yuruna-host:${hostPort}/livecheck"
+    try {
+        $nameResp = Invoke-WebRequest -Uri $nameUrl -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
+        if ($nameResp.StatusCode -eq 200) {
+            Write-Result 'OK' "yuruna-host name resolves and $nameUrl is reachable."
+        } else {
+            Write-Result 'WARN' "$nameUrl returned HTTP $($nameResp.StatusCode) (IP path works; name path degraded)."
+        }
+    } catch {
+        Write-Result 'WARN' "$nameUrl failed ($($_.Exception.Message)); the name->IP path is broken though the IP path works."
+    }
 }
 
 Write-Result 'OK' "yuruna-host is reachable. Server time: $($payload.time)"

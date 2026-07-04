@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456791
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,7 +132,15 @@ function Write-Error {
                     [System.Net.WebUtility]::HtmlEncode($text) + [Environment]::NewLine)
             } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
         }
-        $PSBoundParameters.Remove('InputObject') | Out-Null
+        # Splat the caller's own bound parameters straight through. This proxy's
+        # parameter sets mirror Write-Error's (NoException = Message,
+        # WithException = Exception [+ optional Message]), so $PSBoundParameters
+        # is always a valid Write-Error invocation and never a Message+Exception
+        # combination Write-Error rejects. Forwarding it verbatim also preserves
+        # the common parameters (-ErrorAction, -ErrorVariable, ...) that an
+        # explicit per-set reconstruction would silently drop. (There is no
+        # InputObject parameter here to strip -- this is Write-Error, not the
+        # Write-Output proxy.)
         Microsoft.PowerShell.Utility\Write-Error @PSBoundParameters
     }
 }

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a9b3c7-d1e5-4f02-9b8a-6c3d7e1f4a52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,7 +133,9 @@ function Test-OCRMatch {
         $normPattern = Get-OCRNormalized $Pattern
         $script:OcrPatternCache[$Pattern] = $normPattern
     }
-    if ($normPattern.Length -eq 0) { return $true }
+    # A pattern with no matchable content (normalizes to empty, e.g. "]$") must NOT auto-pass a
+    # wait condition -- returning $true would "match" any text, including a blank/degraded screen.
+    if ($normPattern.Length -eq 0) { return $false }
     # Require at least 85% of normalized pattern chars to appear in order.
     # This allows ~1 dropped char per 7 pattern chars (e.g. "Password:" → "assuord:")
     # while rejecting scattered coincidental matches in long log lines.

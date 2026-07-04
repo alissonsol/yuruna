@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42b1e7d3-c9a4-4f82-a571-6c8d3e5f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,7 +97,15 @@ function Resolve-UbuntuServerStableImage {
         Write-Warning "No ISO matching pattern '$IsoPattern' found at $ReleaseBaseUrl"
         return $null
     }
-    $iso = ($found | Sort-Object Value -Descending | Select-Object -First 1).Value
+    # Sort by the parsed [version], not lexically: as strings '24.04.2' sorts ABOVE '24.04.10',
+    # so a lexical sort would pick the wrong (older) point release.
+    $iso = ($found |
+        Sort-Object -Property @{ Expression = {
+                $m = [regex]::Match($_.Value, '(\d+(?:\.\d+)+)')
+                if ($m.Success) { try { [version]$m.Groups[1].Value } catch { [version]'0.0' } } else { [version]'0.0' }
+            }
+        } -Descending |
+        Select-Object -First 1).Value
     return [pscustomobject]@{
         IsoFileName = $iso
         SourceUrl   = "$ReleaseBaseUrl/$iso"

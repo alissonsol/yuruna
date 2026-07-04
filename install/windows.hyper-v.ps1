@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,12 @@
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git\yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
-    [string]$YurunaBranch = '2026.06.30',
+    [string]$YurunaBranch = 'main',
+    # Freeze the checkout at the current release instead of tracking 'main':
+    # after cloning, the repo's own VERSION file is read and that release tag is
+    # checked out as a detached HEAD, so the per-cycle `git pull` is a no-op and
+    # the host never auto-updates. An explicit -YurunaBranch wins over this.
+    [switch]$PinVersion,
     [switch]$SkipPreflight,
     # On-disk transcript for this run. Generated once at first launch and
     # forwarded verbatim through every relaunch so all stages append to one
@@ -347,6 +352,7 @@ if (-not $PSCommandPath) {
     if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $matArgs += @('-YurunaDir',    "`"$YurunaDir`"") }
     if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $matArgs += @('-YurunaRepo',   "`"$YurunaRepo`"") }
     if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $matArgs += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    if ($PinVersion) { $matArgs += '-PinVersion' }
     $matArgs += @('-LogPath', "`"$LogPath`"")   # forward the one log file to every stage
     & $currentShellExe $matArgs
     return
@@ -383,6 +389,7 @@ if (-not $isAdmin) {
     if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
     if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
     if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    if ($PinVersion) { $argList += '-PinVersion' }
     $argList += @('-LogPath', "`"$LogPath`"")
     # The elevated window closes the moment it finishes or fails, so name the
     # log file here -- in THIS window, which stays open -- before launching it.
@@ -460,6 +467,7 @@ re-run this installer.
     if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
     if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
     if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
+    if ($PinVersion) { $argList += '-PinVersion' }
     $argList += @('-LogPath', "`"$LogPath`"")
     # Hand the transcript off to the PS7 child (it re-opens the same file with
     # -Append); release our handle first so its Start-Transcript does not
@@ -898,8 +906,8 @@ function Resolve-YurunaRef {
     param([string]$GitExe, [string]$Remote, [string]$Ref)
     if (-not $GitExe -or -not $Remote -or -not $Ref) { return $Ref }
     $variant = $null
-    if     ($Ref -match '^v(\d{4}\.\d{2}\.\d{2})$') { $variant = $Matches[1] }
-    elseif ($Ref -match '^(\d{4}\.\d{2}\.\d{2})$')  { $variant = "v$Ref" }
+    if     ($Ref -match '^v(\d{4}\.\d{2}\.\d{2}(\.\d+)?)$') { $variant = $Matches[1] }
+    elseif ($Ref -match '^(\d{4}\.\d{2}\.\d{2}(\.\d+)?)$')  { $variant = "v$Ref" }
     if (-not $variant) { return $Ref }
     $prev = $env:GIT_TERMINAL_PROMPT
     $env:GIT_TERMINAL_PROMPT = '0'   # never block on a credential prompt during the probe
@@ -992,11 +1000,22 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
             Write-Warn "git fetch reported rejected/partial tag updates (exit $LASTEXITCODE) -- continuing; checkout/pull below will surface anything fatal."
         }
         & $gitExe -C $YurunaDir checkout $YurunaBranch
-        & $gitExe -C $YurunaDir pull --ff-only origin $YurunaBranch 2>&1 | ForEach-Object {
-            if ($_ -match 'Already up to date|Fast-forward|Updating') { Write-Output "     $_" }
-            else { Write-Warn $_ }
+        $checkoutExit = $LASTEXITCODE
+        if ($checkoutExit -eq 0) {
+            # Match the shell installers' { checkout && pull } semantics: only pull when the
+            # branch switch actually succeeded. A failed checkout must trigger the same move-
+            # aside-and-re-clone rescue as a failed pull, otherwise the update proceeds on the
+            # wrong ref.
+            & $gitExe -C $YurunaDir pull --ff-only origin $YurunaBranch 2>&1 | ForEach-Object {
+                if ($_ -match 'Already up to date|Fast-forward|Updating') { Write-Output "     $_" }
+                else { Write-Warn $_ }
+            }
+            $pullExit = $LASTEXITCODE
         }
-        $pullExit = $LASTEXITCODE
+        else {
+            Write-Warn "git checkout $YurunaBranch failed (exit $checkoutExit) -- skipping pull; moving the existing checkout aside and re-cloning."
+            $pullExit = $checkoutExit
+        }
         if ($pullExit -ne 0) {
             # Seconds-precision stamp so re-running the installer within
             # the same minute (transient git failure -> immediate retry)
@@ -1073,6 +1092,26 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
         & $gitExe -C $YurunaDir rm -r --cached --quiet . | Out-Null
         & $gitExe -C $YurunaDir reset --hard HEAD 2>&1 | Out-Null
         Write-Step '  Working tree rebuilt under current .gitattributes (LF for *.sh, etc.)'
+    }
+}
+
+# -- Pin to the current release (opt-in) -----------------------------------
+# -PinVersion: now that 'main' is cloned/updated, read the repo's own VERSION
+# file (single source of truth -- top of the repository) and detach HEAD at that
+# release tag so the host freezes there and the per-cycle `git pull` is a no-op.
+# An explicit -YurunaBranch already chose a ref, so skip. If VERSION runs ahead
+# of the published tag, warn and leave the host on 'main' rather than fail.
+if ($PinVersion -and -not $script:YurunaBranchExplicit -and (Test-Path (Join-Path $YurunaDir '.git'))) {
+    $versionFile = Join-Path $YurunaDir 'VERSION'
+    if (Test-Path -LiteralPath $versionFile) {
+        $pinTag = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+        Write-Step "Pinning to release $pinTag (from VERSION) -- this host will NOT auto-update"
+        & $gitExe -C $YurunaDir checkout $pinTag 2>&1 | ForEach-Object { Write-Output "     $_" }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Could not check out '$pinTag' (the release tag may not be published yet) -- leaving the host on 'main' (it will auto-update). Re-run -PinVersion after the tag is cut, or use -YurunaBranch <tag>."
+        }
+    } else {
+        Write-Warn "No VERSION file at $versionFile -- cannot resolve a release to pin; leaving the host on 'main'."
     }
 }
 Restore-YurunaStatus

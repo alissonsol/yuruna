@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456724
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,12 +110,16 @@ function Invoke-HostIOAction {
         [Parameter(Mandatory)][string]$Action,
         [hashtable]$Arguments = @{}
     )
-    if (-not (Test-HostIOActionAvailable -HostType $HostType -Action $Action)) {
-        $hostMap = & $script:HostIORegistry.Get $HostType
+    # Single registry lookup on the hot send path (this dispatcher runs on every
+    # keystroke/click), then branch on the local reference. The availability
+    # decision and the not-available message are derived from this one $hostMap
+    # instead of re-invoking the registry Get inside Test-HostIOActionAvailable
+    # and again here.
+    $hostMap = & $script:HostIORegistry.Get $HostType
+    if (-not $hostMap -or -not $hostMap.Contains($Action)) {
         $known = if ($hostMap) { ($hostMap.Keys -join ', ') } else { '<host not registered>' }
         throw "Host I/O action '$Action' is not available on '$HostType' (available actions: $known)."
     }
-    $hostMap = & $script:HostIORegistry.Get $HostType
     $impl = $hostMap[$Action]
     return (& $impl $Arguments)
 }

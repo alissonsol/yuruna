@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42e0d1c8-9b3a-4f52-8c61-7d2e4a9b0f33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,6 +182,35 @@ function Write-ImageSentinel {
     }
 }
 
+function Invoke-DownloadWithRetry {
+    <#
+    .SYNOPSIS
+        Bounded retry around a download scriptblock, driven by a wall-clock deadline (not an
+        attempt count), for transient network failures on CA / image / checksum fetches.
+        Re-throws the last error once the deadline is exhausted so callers still fail closed.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][scriptblock]$Download,
+        [int]$TimeoutSeconds = 60,
+        [int]$InitialBackoffSeconds = 2,
+        [int]$MaxBackoffSeconds = 15
+    )
+    $deadline = [DateTime]::UtcNow.AddSeconds([Math]::Max(1, $TimeoutSeconds))
+    $backoff = [Math]::Max(1, $InitialBackoffSeconds)
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        try { & $Download; return }
+        catch {
+            if ([DateTime]::UtcNow -ge $deadline) { throw }
+            Write-Warning "Download attempt $attempt failed ($($_.Exception.Message)); retrying in ${backoff}s."
+            Start-Sleep -Seconds $backoff
+            $backoff = [Math]::Min($backoff * 2, $MaxBackoffSeconds)
+        }
+    }
+}
+
 function Get-CacheProxyForHostDownload {
     <#
     .SYNOPSIS
@@ -230,9 +259,13 @@ function Get-CacheProxyForHostDownload {
     $caUrl = "http://${cacheHost}/yuruna-squid-ca.crt"
     $caPem = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-squid-ca.pem'
     try {
-        Invoke-WebRequest -Uri $caUrl -OutFile $caPem -ErrorAction Stop -UseBasicParsing | Out-Null
+        # Retry the CA fetch on a transient blip: a single failed fetch here otherwise drops the
+        # guest to a bumped-but-untrusted chain (empty-CA class) with no HTTPS fallback.
+        Invoke-DownloadWithRetry -TimeoutSeconds 30 -Download {
+            Invoke-WebRequest -Uri $caUrl -OutFile $caPem -ErrorAction Stop -UseBasicParsing | Out-Null
+        }
     } catch {
-        Write-Verbose "Get-CacheProxyForHostDownload: CA fetch from $caUrl failed: $($_.Exception.Message); HTTPS goes direct."
+        Write-Verbose "Get-CacheProxyForHostDownload: CA fetch from $caUrl failed after retries: $($_.Exception.Message); HTTPS goes direct."
         return $null
     }
     return @{ Proxy = "http://${cacheHost}:${httpsPort}"; CaPemPath = $caPem }

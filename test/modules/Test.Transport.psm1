@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,10 +157,15 @@ function Read-VncBuffer {
         a short read so we loop until we have the full count or the
         connection drops (in which case we throw).
     #>
-    param([System.IO.Stream]$Stream, [int]$Count)
+    param([System.IO.Stream]$Stream, [int]$Count, [DateTime]$Deadline = [DateTime]::MaxValue)
     $buf = [byte[]]::new($Count)
     $offset = 0
     while ($offset -lt $Count) {
+        # Bound the WHOLE multi-read handshake by wall-clock: the socket's
+        # per-read ReceiveTimeout does not cap a server that trickles bytes just
+        # under the timeout across many partial reads, so check the deadline
+        # before each blocking Read (each Read still returns within ReceiveTimeout).
+        if ([DateTime]::UtcNow -gt $Deadline) { throw "VNC read exceeded the handshake deadline" }
         $n = $Stream.Read($buf, $offset, $Count - $offset)
         if ($n -eq 0) { throw "VNC connection closed during read" }
         $offset += $n
@@ -214,9 +219,14 @@ function Connect-VNC {
         $tcp.Connect("127.0.0.1", $Port)
         $stream = $tcp.GetStream()
 
+        # One wall-clock bound for the whole handshake, so the sum of the reads
+        # below cannot exceed it even if each individual read stays under the 5s
+        # per-read ReceiveTimeout.
+        $handshakeDeadline = [DateTime]::UtcNow.AddSeconds(15)
+
         # ── RFB 3.8 handshake ──────────────────────────────────────────
         # Server sends protocol version (12 bytes): "RFB 003.008\n"
-        $verBytes = Read-VncBuffer -Stream $stream -Count 12
+        $verBytes = Read-VncBuffer -Stream $stream -Count 12 -Deadline $handshakeDeadline
         $serverVersion = [System.Text.Encoding]::ASCII.GetString($verBytes).Trim()
         Write-Debug "      VNC server version: $serverVersion"
 
@@ -225,20 +235,20 @@ function Connect-VNC {
         $stream.Write($clientVer, 0, 12)
 
         # Server sends security types: [1 byte count] [count × 1 byte type]
-        $countBuf = Read-VncBuffer -Stream $stream -Count 1
+        $countBuf = Read-VncBuffer -Stream $stream -Count 1 -Deadline $handshakeDeadline
         $numTypes = [int]$countBuf[0]
         if ($numTypes -eq 0) {
             # Server sent an error — read the reason string
-            $reasonLenBuf = Read-VncBuffer -Stream $stream -Count 4
+            $reasonLenBuf = Read-VncBuffer -Stream $stream -Count 4 -Deadline $handshakeDeadline
             [Array]::Reverse($reasonLenBuf)
             $reasonLen = [BitConverter]::ToInt32($reasonLenBuf, 0)
-            $reasonBuf = Read-VncBuffer -Stream $stream -Count $reasonLen
+            $reasonBuf = Read-VncBuffer -Stream $stream -Count $reasonLen -Deadline $handshakeDeadline
             $reason = [System.Text.Encoding]::ASCII.GetString($reasonBuf)
             Write-Warning "VNC connection refused: $reason"
             $tcp.Dispose()
             return $null
         }
-        $typesBuf = Read-VncBuffer -Stream $stream -Count $numTypes
+        $typesBuf = Read-VncBuffer -Stream $stream -Count $numTypes -Deadline $handshakeDeadline
 
         # Select security type 1 (None) — safe for localhost-only VNC
         if ($typesBuf -notcontains 1) {
@@ -249,7 +259,7 @@ function Connect-VNC {
         $stream.WriteByte(1)
 
         # RFB 3.8: read SecurityResult (4 bytes big-endian, 0 = OK)
-        $resultBuf = Read-VncBuffer -Stream $stream -Count 4
+        $resultBuf = Read-VncBuffer -Stream $stream -Count 4 -Deadline $handshakeDeadline
         [Array]::Reverse($resultBuf)
         $secResult = [BitConverter]::ToInt32($resultBuf, 0)
         if ($secResult -ne 0) {
@@ -262,12 +272,12 @@ function Connect-VNC {
         $stream.WriteByte(1)
 
         # ServerInit: 2 (width) + 2 (height) + 16 (pixel format) + 4 (name len) = 24 fixed bytes
-        $initBuf = Read-VncBuffer -Stream $stream -Count 24
+        $initBuf = Read-VncBuffer -Stream $stream -Count 24 -Deadline $handshakeDeadline
         $nameLenBytes = $initBuf[20..23]
         [Array]::Reverse($nameLenBytes)
         $nameLen = [BitConverter]::ToInt32($nameLenBytes, 0)
         if ($nameLen -gt 0) {
-            $nameBuf = Read-VncBuffer -Stream $stream -Count $nameLen
+            $nameBuf = Read-VncBuffer -Stream $stream -Count $nameLen -Deadline $handshakeDeadline
             Write-Debug "      VNC desktop: $([System.Text.Encoding]::UTF8.GetString($nameBuf))"
         }
 
@@ -650,9 +660,9 @@ function Send-KeyKvm {
     # write KEY_LEFTMETA, KEY_F2, etc. directly.
     $code = (Get-KeyCodeMap -Kind 'KVM-Named')[$KeyName]
     if (-not $code) { $code = $KeyName }
-    & virsh --connect qemu:///system send-key $VMName $code 2>$null | Out-Null
+    $out = & virsh --connect qemu:///system send-key $VMName $code 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Send-KeyKvm: virsh send-key '$code' failed for '$VMName'"
+        Write-Warning "Send-KeyKvm: virsh send-key '$code' failed for '$VMName': $((@($out) | Out-String).Trim())"
         return $false
     }
     return $true
@@ -679,9 +689,9 @@ function Send-TextKvm {
         # Splat the chord onto the virsh command line: with `&` the array
         # elements become positional args, which is exactly what virsh
         # send-key wants (one chord per call).
-        & virsh --connect qemu:///system send-key $VMName @codes 2>$null | Out-Null
+        $out = & virsh --connect qemu:///system send-key $VMName @codes 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Send-TextKvm: virsh send-key failed at char '$ch' (codes=$($codes -join ','))"
+            Write-Warning "Send-TextKvm: virsh send-key failed at char '$ch' (codes=$($codes -join ',')): $((@($out) | Out-String).Trim())"
             return $false
         }
         $sentChars++
@@ -1222,8 +1232,14 @@ var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMo
 "@
     $clickScript = ($clickScript -replace '__X__', $screenX) -replace '__Y__', $screenY
     $clickResult = & osascript -l JavaScript -e $clickScript 2>&1
+    # CGEventPost has no synchronous delivery confirmation -- an 'ok' here only
+    # means osascript ran and posted the events, not that the guest received
+    # them, so the one-time AXIsProcessTrusted probe above is the only guard
+    # against silently-dropped clicks. On any failure, re-arm that probe so the
+    # next click re-checks Accessibility, which can be revoked mid-run.
     if ($LASTEXITCODE -ne 0 -or "$clickResult".Trim() -ne 'ok') {
         Write-Warning "osascript CGEventPost failed: $clickResult"
+        $script:YurunaAxChecked = $false
         return $false
     }
     return $true

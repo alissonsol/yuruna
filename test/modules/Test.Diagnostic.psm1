@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,7 +102,10 @@ function Get-RemoteDiagnosticsCommand {
 
     Bash conditional rather than `&&` so an exit code from pwsh
     inside the bootstrap branch doesn't suppress the trailing
-    `rm /tmp/yuruna-diag.ps1` cleanup.
+    `rm /tmp/yuruna-diag.ps1` cleanup. `rc=$?` captures pwsh's real
+    exit BEFORE the rm and re-raises it via `exit $rc`, so the SSH rung
+    (which decides success purely on exit code) can't read the rm's 0
+    as a clean capture when pwsh actually failed.
 #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -116,7 +119,7 @@ function Get-RemoteDiagnosticsCommand {
     return ("if [ -f $remote ]; then " +
             "pwsh -NoProfile -File $remote; " +
             "elif curl -fsSL '$u/yuruna-repo/automation/Get-SystemDiagnostic.ps1' -o /tmp/yuruna-diag.ps1; then " +
-            "pwsh -NoProfile -File /tmp/yuruna-diag.ps1; rm -f /tmp/yuruna-diag.ps1; " +
+            "pwsh -NoProfile -File /tmp/yuruna-diag.ps1; rc=`$?; rm -f /tmp/yuruna-diag.ps1; exit `$rc; " +
             "else echo 'diag-bootstrap: yuruna not extracted and status server unreachable' >&2; exit 64; fi")
 }
 
@@ -469,6 +472,10 @@ function Wait-DiagnosticsFile {
     1-second cadence -- fast enough to confirm a healthy capture
     within a few seconds of curl returning, slow enough not to
     saturate the disk.
+.PARAMETER NewerThanUtc
+    When supplied, a file already present at the target counts as this
+    attempt's capture only if its LastWriteTimeUtc is strictly newer than
+    this baseline, so a stale same-minute file is not mistaken for arrival.
 #>
     [CmdletBinding()]
     # Returns [long] on success, $null on timeout. PSUseOutputTypeCorrectly
@@ -478,14 +485,21 @@ function Wait-DiagnosticsFile {
     param(
         [Parameter(Mandatory)][string]$FailureFolderPath,
         [Parameter(Mandatory)][string]$DiagnosticsFileName,
-        [int]$TimeoutSeconds = 240
+        [int]$TimeoutSeconds = 240,
+        [Nullable[datetime]]$NewerThanUtc = $null
     )
     $target  = Join-Path $FailureFolderPath $DiagnosticsFileName
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         if (Test-Path -LiteralPath $target -PathType Leaf) {
-            $size = (Get-Item -LiteralPath $target).Length
-            if ($size -gt 0) { return [long]$size }
+            $item = Get-Item -LiteralPath $target
+            # Filenames are minute-precision and the Id is caller-supplied, so
+            # two same-minute captures target the identical path. Requiring the
+            # mtime to advance past the pre-injection baseline stops a stale
+            # pre-existing file from being reported as this attempt's upload.
+            if ($item.Length -gt 0 -and ($null -eq $NewerThanUtc -or $item.LastWriteTimeUtc -gt $NewerThanUtc)) {
+                return [long]$item.Length
+            }
         }
         Start-Sleep -Seconds 1
     }
@@ -551,6 +565,15 @@ function Invoke-RemoteDiagnosticsConsole {
 
     Write-Verbose "  Diagnostics: console keystroke fallback via $($endpoint.url) (line length=$($cmd.Length))"
 
+    # Snapshot the target's mtime before typing so a stale same-minute
+    # file from an earlier capture can't be mistaken for this upload; the
+    # console POST rewrites the file and advances its mtime past this.
+    $targetFile = Join-Path $FailureFolderPath $DiagnosticsFileName
+    $baselineMtimeUtc = $null
+    if (Test-Path -LiteralPath $targetFile -PathType Leaf) {
+        try { $baselineMtimeUtc = (Get-Item -LiteralPath $targetFile).LastWriteTimeUtc } catch { $null = $_ }
+    }
+
     # Send-Text returns $true on success per the host facade; we tolerate
     # $false because some hosts (KVM virsh send-key) don't bubble up a
     # useful status. The deciding signal is whether the file lands on
@@ -566,7 +589,8 @@ function Invoke-RemoteDiagnosticsConsole {
     }
 
     $bytes = Wait-DiagnosticsFile -FailureFolderPath $FailureFolderPath `
-            -DiagnosticsFileName $DiagnosticsFileName -TimeoutSeconds $TimeoutSeconds
+            -DiagnosticsFileName $DiagnosticsFileName -TimeoutSeconds $TimeoutSeconds `
+            -NewerThanUtc $baselineMtimeUtc
     if ($null -eq $bytes) {
         Write-Warning "Invoke-RemoteDiagnosticsConsole: diagnostics file did not arrive within ${TimeoutSeconds}s."
         return $failResult
@@ -741,9 +765,14 @@ function Save-GuestDiagnostic {
         Write-Warning ("Save-GuestDiagnostic: total {0}s budget already exhausted before Wait-SshReady; skipping." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
         return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="total $($script:SaveGuestDiagnosticTotalTimeoutSeconds)s budget exhausted before Wait-SshReady" }
     }
+    $sshReady = $true
     if (-not (Test.Ssh\Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $waitBudget -PollSeconds 5)) {
-        Write-Warning ("Save-GuestDiagnostic: SSH did not become ready within {0}s for VM '{1}' (mid-reboot, late-binding KVP, or sshd not yet up); skipping diagnostics capture." -f $waitBudget, $VMName)
-        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="SSH not ready within ${waitBudget}s for VM '$VMName' (mid-reboot or sshd not yet up)" }
+        # Do NOT return here. The console-keystroke rung below is the fallback built precisely
+        # for the sshd-down / auth-broken / network-partitioned cases -- the exact scenarios
+        # where SSH readiness fails. Skip only the two SSH rungs and still give console a chance.
+        Write-Warning ("Save-GuestDiagnostic: SSH did not become ready within {0}s for VM '{1}' (mid-reboot, late-binding KVP, or sshd not yet up); skipping SSH rungs, will try the console fallback." -f $waitBudget, $VMName)
+        $sshReady = $false
+        $attempted += 'ssh-not-ready'
     }
 
     # Wait-SshReady proved we can reach $user@$target via key auth, so
@@ -753,8 +782,10 @@ function Save-GuestDiagnostic {
     # last poll and here.
     $address = Test.Ssh\Get-GuestAddress -VMName $VMName
     if (-not $address -or $address -eq $VMName) {
-        Write-Warning "Save-GuestDiagnostic: Wait-SshReady passed but Get-GuestAddress no longer returns an IP for '$VMName' (guest may have rebooted again); skipping."
-        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="Get-GuestAddress no longer returns an IP for '$VMName'" }
+        # No routable IP means the SSH rungs cannot run, but the console rung drives the VM
+        # console (tty1 keystrokes) and needs no IP -- fall through to it instead of returning.
+        Write-Warning "Save-GuestDiagnostic: no routable IP for '$VMName' (guest may be mid-reboot); skipping SSH rungs, will try the console fallback."
+        $sshReady = $false
     }
 
     $sshpassPath = (Get-Command sshpass -ErrorAction SilentlyContinue)?.Source
@@ -796,9 +827,12 @@ function Save-GuestDiagnostic {
     # $attempted was hoisted to the top of the function so the early-
     # return manifests below can include rungs that were tried.
 
-    # Primary: key SSH (most reliable rung on a healthy guest).
-    $keyBudget = Get-PerCmdBudget
-    if ($keyBudget -le 0) {
+    # Primary: key SSH (most reliable rung on a healthy guest). Skipped when the pre-flight
+    # showed SSH is unreachable -- the console rung below is the fallback for that case.
+    $keyBudget = if ($sshReady) { Get-PerCmdBudget } else { 0 }
+    if (-not $sshReady) {
+        Write-Verbose "  Diagnostics: SSH not reachable; skipping key-ssh rung."
+    } elseif ($keyBudget -le 0) {
         Write-Warning ("Save-GuestDiagnostic: total {0}s budget exhausted before key-ssh rung; skipping further rungs." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
     } else {
         $attempted += 'key-ssh'
@@ -825,7 +859,7 @@ function Save-GuestDiagnostic {
         $pwBudget = Get-PerCmdBudget
         if ($pwBudget -le 0) {
             Write-Warning ("Save-GuestDiagnostic: total {0}s budget exhausted before password-ssh rung; skipping further rungs." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
-        } elseif ($sshpassPath -and $password) {
+        } elseif ($sshReady -and $sshpassPath -and $password) {
             $attempted += 'password-ssh'
             Write-Verbose ("  Diagnostics: ssh {0}@{1} (password auth via sshpass, budget {2}s)" -f $user, $address, $pwBudget)
             $passwordResult = Invoke-RemoteDiagnosticsPasswordSsh `
@@ -848,7 +882,8 @@ function Save-GuestDiagnostic {
             # mean the vault plumbing itself is broken and the cycle's
             # operator needs to inspect the authentication extension.
             $reason =
-                if (-not $sshpassPath) { 'sshpass not on PATH' }
+                if (-not $sshReady) { 'SSH not reachable' }
+                elseif (-not $sshpassPath) { 'sshpass not on PATH' }
                 elseif ($pwReason -eq 'auth-extension-load-failed') { "authentication extension failed to load (no stored password for '$user')" }
                 elseif ($pwReason -eq 'get-password-not-exported')  { "authentication extension does not export Get-Password (no stored password for '$user')" }
                 elseif ($pwReason -eq 'get-password-threw')         { "Get-Password threw for '$user' (vault may be corrupted)" }
@@ -889,11 +924,15 @@ function Save-GuestDiagnostic {
     # All rungs exhausted -- surface whatever output we collected so the
     # operator sees error text instead of an empty folder.
     if (-not $result) {
-        if ($lastResult) {
-            $result = $lastResult
-        } else {
-            $result = @{ success = $false; output = '(all diagnostics rungs failed: console, key ssh, password ssh)'; exitCode = -1; mechanism = 'none' }
+        if (-not $lastResult) {
+            # No rung produced any guest output (all failed early or were
+            # skipped for budget). A header-only stub reads like a capture
+            # but holds no guest state; an empty per-guest folder is the
+            # clearer signal, so skip the write and return nothing on disk.
+            Write-Verbose "  Diagnostics: no rung produced output for VM '$VMName'; leaving folder empty rather than writing a header-only stub."
+            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=-1; bytes=0L; skipped=$false; reason='(all diagnostics rungs failed: no guest output)' }
         }
+        $result = $lastResult
     }
 
     $body = [System.Text.StringBuilder]::new()

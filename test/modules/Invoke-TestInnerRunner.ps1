@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -574,7 +574,7 @@ $cycleState = @{
     RepoRoot=$RepoRoot; TestRoot=$TestRoot; SequencesDir=$SequencesDir; ScreenshotsDir=$ScreenshotsDir
     StatusFile=$StatusFile; ConfigPath=$ConfigPath; TemplatePath=$TemplatePath; HostType=$HostType; ModulesDir=$ModulesDir
     NoServer=[bool]$NoServer; NoGitPull=[bool]$NoGitPull; NoProjectClone=[bool]$NoProjectClone; CycleDelaySeconds=$CycleDelaySeconds
-    CachingProxyUrl=$cachingProxyUrl; StartScript=$startScript; StepHeartbeatFile=$StepHeartbeatFile; ExitFailure=$ExitFailure
+    CachingProxyUrl=$cachingProxyUrl; StartScript=$startScript; StepHeartbeatFile=$StepHeartbeatFile
     ShutdownState=$script:ShutdownState; RunnerCfgState=$script:RunnerCfgState; Config=$script:Config
 }
 Invoke-RunnerInnerCycle -State $cycleState
@@ -588,6 +588,7 @@ $GitCommit            = $cycleState.GitCommit
 $ProjectGitCommit     = $cycleState.ProjectGitCommit
 $ConsecutiveFailures  = $cycleState.ConsecutiveFailures
 $ConsecutiveSuccesses = $cycleState.ConsecutiveSuccesses
+$ConsecutiveCrashes   = [int]$cycleState.ConsecutiveCrashes
 $AlertArmed           = $cycleState.AlertArmed
 $FailuresBeforeAlert  = $cycleState.FailuresBeforeAlert
 $GatingFile           = $cycleState.GatingFile
@@ -603,6 +604,7 @@ try {
     $null = Write-YurunaStateFileJson -Path $GatingFile -Depth 4 -Compress:$false -WithBom -Confirm:$false -InputObject @{
         consecutiveFailures  = $ConsecutiveFailures
         consecutiveSuccesses = $ConsecutiveSuccesses
+        consecutiveCrashes   = $ConsecutiveCrashes
         alertArmed           = $AlertArmed
         savedAt              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     }
@@ -737,6 +739,7 @@ try {
     $null = Write-YurunaStateFileJson -Path $GatingFile -Depth 4 -Compress:$false -WithBom -Confirm:$false -InputObject @{
         consecutiveFailures  = $ConsecutiveFailures
         consecutiveSuccesses = $ConsecutiveSuccesses
+        consecutiveCrashes   = $ConsecutiveCrashes
         alertArmed           = $AlertArmed
         savedAt              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     }

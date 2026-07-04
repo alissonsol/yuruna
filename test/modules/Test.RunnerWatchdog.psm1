@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42d4e5f6-a7b8-4c91-9234-5d6e7f8a9b0c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,14 +102,22 @@ function Start-Watchdog {
             return
         }
         Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid thresholdSec=$thresholdSec pollSec=$pollSec signal=runner.stepHeartbeat"
+        # Arm timestamp: when no step heartbeat has been published yet, staleness is aged from
+        # here so a hang BEFORE the first step write is still detected (not ignored forever).
+        $armedAt = Get-Date
         while ($true) {
             Start-Sleep -Seconds $pollSec
             if (-not (Get-Process -Id $innerPid -ErrorAction SilentlyContinue)) {
                 Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner pid $innerPid exited normally; watchdog disarming."
                 return
             }
-            if (-not (Test-Path $stepHbFile)) { continue }
-            $age = ((Get-Date) - (Get-Item -LiteralPath $stepHbFile).LastWriteTime).TotalSeconds
+            if (Test-Path $stepHbFile) {
+                $age = ((Get-Date) - (Get-Item -LiteralPath $stepHbFile).LastWriteTime).TotalSeconds
+            } else {
+                # No step heartbeat file yet -> age from arm time so a never-published heartbeat
+                # (inner wedged before its first step write) is treated as stale past the threshold.
+                $age = ((Get-Date) - $armedAt).TotalSeconds
+            }
             if ($age -gt $thresholdSec) {
                 Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > $thresholdSec s; killing inner PID $innerPid"
                 Stop-Process -Id $innerPid -Force -ErrorAction SilentlyContinue

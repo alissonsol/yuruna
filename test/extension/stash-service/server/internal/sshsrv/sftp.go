@@ -228,7 +228,10 @@ func (u *sftpUpload) Close() error {
 	if err != nil {
 		log.Printf("sftp finalize id=%s: %v", u.id, err)
 		_ = u.srv.Meta.UpdateOnPartial(u.id, u.size, time.Now().UTC())
-		return nil
+		// Return the error so the SFTP client sees the upload FAILED rather than a silent
+		// success -- a fully-received-then-dropped upload is exactly the undetected loss the
+		// buffer/flush design exists to prevent. The staging dir is retained for retry/backfill.
+		return err
 	}
 	status := meta.StatusComplete
 	if u.truncated {

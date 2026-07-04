@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -580,7 +580,17 @@ function Write-StatusJson {
     # fetch().json() in the browser) and keeps the per-PID temp-name concurrency
     # safety in one place. -Compress:$false preserves the pretty-printed on-disk
     # shape; -Depth 10 matches the document nesting.
-    $null = Write-YurunaStateFileJson -Path $script:File -InputObject $script:Doc -Depth 10 -Compress:$false -Confirm:$false
+    $ok = Write-YurunaStateFileJson -Path $script:File -InputObject $script:Doc -Depth 10 -Compress:$false -Confirm:$false
+    if (-not $ok) {
+        # Surface the write failure explicitly rather than leaving it to be inferred from a
+        # frozen UI (mirrors the status_doc_corrupt event emitted on the read path).
+        Write-Warning "Write-StatusJson: failed to write status document to $script:File"
+        Send-CycleEventSafely -EventRecord @{
+            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            event     = 'status_doc_write_failed'
+            path      = [string]$script:File
+        }
+    }
 }
 
 <#

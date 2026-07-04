@@ -54,6 +54,6 @@ infrastructure and audit items in parallel.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.30
+Last review: 2026.07.03
 
 Back to [Yuruna](../README.md)

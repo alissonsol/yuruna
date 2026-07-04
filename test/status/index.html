@@ -13,7 +13,11 @@
   <title>Yuruna Status</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
-    body { padding-bottom: 3rem; }
+    /* Reserve space for the fixed footer bar. The plain value is the fallback
+       (kept for parsers without env() support); the env() term additionally
+       clears the iPhone home-indicator inset when viewport-fit=cover lets the
+       fixed bar extend under it (0 on devices without a safe area). */
+    body { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
 
     #banner-dash-row {
       margin-left: auto; flex: 0 0 auto;
@@ -175,7 +179,11 @@
     #footer-bar {
       position: fixed; bottom: 0; left: 0; right: 0;
       background: var(--footer-bg); color: var(--footer-fg); font-size: .6875rem;
-      padding: .35rem 1rem; display: flex; justify-content: space-between;
+      padding: .35rem 1rem;
+      /* Lift the controls above the iPhone home-indicator gesture bar; the bar
+         is fixed to bottom:0 and viewport-fit=cover lets it sit under it. */
+      padding-bottom: calc(.35rem + env(safe-area-inset-bottom));
+      display: flex; justify-content: space-between;
       align-items: center;
     }
     #footer-bar a { color: var(--footer-fg); }
@@ -197,6 +205,12 @@
        shared .css max-width: 600px block does; #footer-ips claims its
        own row so the IP textarea is legible at 320 px. */
     @media (max-width: 600px) {
+      /* The footer wraps to two rows here (#footer-ips claims its own full-width
+         row), so the bar is taller than the single-row default reserve and would
+         otherwise overlap the bottom of the history table. Enlarge the body
+         bottom reserve to clear both rows; the plain value is the fallback and
+         the env() term keeps the same home-indicator inset as the wide layout. */
+      body { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
       #footer-bar { padding-left: .5rem; padding-right: .5rem; flex-wrap: wrap; }
       #footer-ips { flex-basis: 100%; max-width: 100%; }
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a9d4e1-7c3b-4f08-9e21-3b6c5d8a1f02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,5 +101,36 @@ Describe 'break handler gates snapshot-restore behind restoreOnContinue' {
             }
             Assert-True $gated "Restore-VMDiskSnapshot at $($call.Extent.StartLineNumber) is not gated by an if referencing restoreOnContinue."
         }
+    }
+}
+
+Describe 'break handler bounds the wait with an optional wall-clock deadline' {
+    It 'consults step.timeoutSeconds / YURUNA_BREAK_MAX_SECONDS and a UtcNow deadline' {
+        $handler = Get-BreakHandlerScriptBlockAst -Path $modulePath
+        $t = $handler.Extent.Text
+        Assert-True ($t -match 'YURUNA_BREAK_MAX_SECONDS') 'handler must consult the global break-max env var'
+        Assert-True ($t -match 'timeoutSeconds')           'handler must consult step.timeoutSeconds'
+        Assert-True ($t -match '\[DateTime\]::UtcNow')     'handler must bound the wait with a UtcNow wall-clock deadline'
+    }
+    It 'auto-resumes in place on timeout (resumedVia = timeout, so the restore path is skipped)' {
+        $handler = Get-BreakHandlerScriptBlockAst -Path $modulePath
+        Assert-True ($handler.Extent.Text -match "resumedVia\s*=\s*'timeout'") 'a timeout must set resumedVia=timeout (the restore path only fires on continue-button)'
+    }
+    It 'parses the timeout defensively so a non-numeric value cannot throw and abort the cycle' {
+        # The [int] conversion of the (operator-typo-prone, schema-unconstrained)
+        # break timeout must sit in a try so a bad value defaults to unbounded
+        # rather than escaping the break's soft/return-$false envelope.
+        $handler = Get-BreakHandlerScriptBlockAst -Path $modulePath
+        Assert-True ($handler.Extent.Text -match 'try\s*\{\s*\$breakMaxSeconds\s*=\s*\[int\]') 'the break-timeout [int] parse must be inside a try/catch'
+    }
+}
+
+Describe 'recoverFromSnapshot log interpolates the failed-step number correctly' {
+    It 'wraps LastFailedStepNumber in a subexpression so it is not rendered as literal text' {
+        # A bare "$script:Fail.LastFailedStepNumber" in a double-quoted string
+        # interpolates only $script:Fail (the hashtable) and appends the literal
+        # ".LastFailedStepNumber"; the subexpression $(...) renders the member.
+        $src = Get-Content -Raw -LiteralPath $modulePath
+        Assert-True ($src -match '\$\(\$script:Fail\.LastFailedStepNumber\)') 'the log must use $($script:Fail.LastFailedStepNumber)'
     }
 }

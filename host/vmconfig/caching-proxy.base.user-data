@@ -1105,7 +1105,7 @@ write_files:
         "title": "Yuruna hosts",
         "tags": ["yuruna", "pool"],
         "schemaVersion": 39,
-        "version": 3,
+        "version": 4,
         "editable": true,
         "refresh": "30s",
         "timezone": "utc",
@@ -1289,6 +1289,7 @@ write_files:
                     "hostId": "Host ID",
                     "hostType": "Type",
                     "version": "Version",
+                    "commit": "Commit",
                     "status": "Status",
                     "cycleId": "Last cycle",
                     "Value #B": "Last seen",
@@ -1303,9 +1304,12 @@ write_files:
                     "Value #B": 4,
                     "cycleId": 5,
                     "version": 6,
-                    "status": 7,
-                    "baseUrl": 8,
-                    "cycleFolderUrl": 9
+                    "commit": 7,
+                    "status": 8,
+                    "baseUrl": 9,
+                    "cycleFolderUrl": 10,
+                    "commitUrl": 11,
+                    "projectCommitUrl": 12
                   }
                 }
               }
@@ -1357,6 +1361,16 @@ write_files:
                   "properties": [ { "id": "custom.width", "value": 100 } ]
                 },
                 {
+                  "matcher": { "id": "byName", "options": "Commit" },
+                  "properties": [
+                    { "id": "custom.width", "value": 150 },
+                    { "id": "links", "value": [
+                      { "title": "Open framework commit", "url": "${__data.fields.commitUrl}", "targetBlank": true },
+                      { "title": "Open project commit", "url": "${__data.fields.projectCommitUrl}", "targetBlank": true }
+                    ] }
+                  ]
+                },
+                {
                   "matcher": { "id": "byName", "options": "Last seen" },
                   "properties": [ { "id": "unit", "value": "s" }, { "id": "decimals", "value": 0 }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 } ]
                 },
@@ -1374,6 +1388,14 @@ write_files:
                 },
                 {
                   "matcher": { "id": "byName", "options": "cycleFolderUrl" },
+                  "properties": [ { "id": "custom.hidden", "value": true } ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "commitUrl" },
+                  "properties": [ { "id": "custom.hidden", "value": true } ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "projectCommitUrl" },
                   "properties": [ { "id": "custom.hidden", "value": true } ]
                 }
               ]

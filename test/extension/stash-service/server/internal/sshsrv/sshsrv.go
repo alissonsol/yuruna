@@ -64,6 +64,16 @@ type Server struct {
 	// orphan the on-share artifact + sidecar (the DB row goes, the share
 	// copy survives and is resurrected by the sidecar rebuild).
 	mutateMu sync.Mutex
+
+	// Graceful-shutdown drain. connMu guards conns + closing; wg tracks the
+	// live connection handlers. Close sets closing (so no newly-accepted
+	// connection is registered), then waits for in-flight handlers -- an active
+	// finalize/commit -- to finish, force-closing any straggler after a bounded
+	// deadline instead of letting process exit race a mid-write commit.
+	wg      sync.WaitGroup
+	connMu  sync.Mutex
+	conns   map[net.Conn]struct{}
+	closing bool
 }
 
 // New wires everything up. The host key is loaded from
@@ -99,6 +109,7 @@ func New(s *store.Store, buffer *store.Store, m *meta.Store, ids *id.Allocator) 
 		sshCfg:       cfg,
 		ShareOnline:  func() bool { return store.ShareOnline(s.Folder) },
 		flushTrigger: make(chan struct{}, 1),
+		conns:        make(map[net.Conn]struct{}),
 	}, nil
 }
 
@@ -125,13 +136,32 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		_ = ln.Close()
 	}()
 
+	var acceptDelay time.Duration
 	for {
 		nc, err := ln.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			log.Printf("accept: %v", err)
+			// Back off with capped exponential delay on a transient accept error (e.g. EMFILE
+			// "too many open files") instead of hot-spinning the CPU until the condition clears,
+			// mirroring net/http.Server.Serve.
+			if acceptDelay == 0 {
+				acceptDelay = 5 * time.Millisecond
+			} else {
+				acceptDelay *= 2
+			}
+			if maxDelay := 1 * time.Second; acceptDelay > maxDelay {
+				acceptDelay = maxDelay
+			}
+			log.Printf("accept: %v; retrying in %v", err, acceptDelay)
+			time.Sleep(acceptDelay)
+			continue
+		}
+		acceptDelay = 0
+		if !s.trackConn(nc) {
+			// Shutting down: refuse the just-accepted connection.
+			_ = nc.Close()
 			continue
 		}
 		go s.handle(nc)
@@ -139,6 +169,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 }
 
 func (s *Server) handle(nc net.Conn) {
+	defer s.wg.Done()
+	defer s.untrackConn(nc)
 	defer nc.Close()
 	remote := nc.RemoteAddr().String()
 	conn, chans, reqs, err := ssh.NewServerConn(nc, s.sshCfg)
@@ -361,13 +393,42 @@ func (s *Server) commit(id, status string, final *store.FinalizeResult, buffered
 	} else {
 		if rec, gerr := s.Meta.Get(id); gerr != nil {
 			log.Printf("sidecar: load record id=%s: %v", id, gerr)
-		} else if serr := meta.WriteSidecar(rec); serr != nil {
-			log.Printf("sidecar: write id=%s: %v", id, serr)
+			return fmt.Errorf("sidecar: load record id=%s: %w", id, gerr)
+		} else if serr := writeSidecarWithRetry(rec); serr != nil {
+			log.Printf("sidecar: write id=%s failed after retries: %v", id, serr)
+			// The sidecar IS the reimage-rebuild guarantee (§8.5), so a failure
+			// surviving the retries is returned rather than logged-and-swallowed
+			// -- otherwise the client/operator see a clean success while the
+			// artifact is un-reconstructable. The artifact itself is already
+			// stored; no commit() caller deletes it on this error.
+			return fmt.Errorf("sidecar write failed for id=%s (artifact stored but not durably reconstructable): %w", id, serr)
 		}
 	}
 	log.Printf("stash ok: id=%s user=%s path=%s archive=%v size=%d status=%s buffered=%v",
 		id, username, final.StoredPath, final.IsArchive, final.SizeBytes, status, buffered)
 	return nil
+}
+
+const (
+	sidecarWriteAttempts = 3
+	sidecarRetryBackoff  = 200 * time.Millisecond
+)
+
+// writeSidecarWithRetry writes the durable on-share sidecar with a short
+// bounded backoff so a transient share blip during the write does not silently
+// lose the reimage-rebuild record (§8.5). Returns the last error if every
+// attempt fails.
+func writeSidecarWithRetry(rec *meta.Record) error {
+	var err error
+	for attempt := 1; attempt <= sidecarWriteAttempts; attempt++ {
+		if err = meta.WriteSidecar(rec); err == nil {
+			return nil
+		}
+		if attempt < sidecarWriteAttempts {
+			time.Sleep(time.Duration(attempt) * sidecarRetryBackoff)
+		}
+	}
+	return err
 }
 
 // detectAndStore classifies final's artifact and writes the §10 type fields
@@ -523,10 +584,68 @@ func writeHostKey(path string, pemBytes []byte) error {
 	return os.WriteFile(path, pemBytes, 0o600)
 }
 
-// Close stops the listener (used on graceful shutdown).
-func (s *Server) Close() error {
-	if s.listener != nil {
-		return s.listener.Close()
+// trackConn registers a just-accepted connection for the shutdown drain,
+// returning false when the server is already closing (the caller then drops the
+// connection). The wg.Add happens under connMu together with the closing check
+// so it can never race Close's post-closing wg.Wait.
+func (s *Server) trackConn(c net.Conn) bool {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if s.closing {
+		return false
 	}
-	return nil
+	s.conns[c] = struct{}{}
+	s.wg.Add(1)
+	return true
+}
+
+func (s *Server) untrackConn(c net.Conn) {
+	s.connMu.Lock()
+	delete(s.conns, c)
+	s.connMu.Unlock()
+}
+
+// shutdownDrainTimeout bounds how long Close waits for in-flight connection
+// handlers to finish before force-closing whatever is still connected.
+const shutdownDrainTimeout = 10 * time.Second
+
+// Close stops the listener and drains in-flight connection handlers so an
+// active upload's finalize/commit completes (or is force-aborted after a
+// bounded deadline) instead of being torn down mid-write by process exit.
+func (s *Server) Close() error {
+	// Set closing first (under connMu) so trackConn registers no new handler
+	// after this point; the wg.Wait below then sees a counter that only decreases.
+	s.connMu.Lock()
+	s.closing = true
+	s.connMu.Unlock()
+
+	var lerr error
+	if s.listener != nil {
+		// The ctx watcher may already have closed the listener on graceful
+		// shutdown; that benign already-closed error is not worth surfacing.
+		if err := s.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			lerr = err
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(shutdownDrainTimeout):
+		// Deadline hit: force-close whatever is still connected so its handler
+		// unblocks and the process can exit; those handlers finish shortly after
+		// as their reads error out.
+		s.connMu.Lock()
+		n := len(s.conns)
+		for c := range s.conns {
+			_ = c.Close()
+		}
+		s.connMu.Unlock()
+		log.Printf("stash-server: shutdown drain exceeded %v; force-closed %d connection(s)", shutdownDrainTimeout, n)
+	}
+	return lerr
 }

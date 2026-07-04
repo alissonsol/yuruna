@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -422,7 +422,11 @@ handshake_failed.
     if ($e -match 'Permission denied|publickey|Too many authentication')     { return 'auth_denied' }
     if ($e -match 'Connection refused')                                      { return 'connection_refused' }
     if ($e -match 'Host key verification failed|REMOTE HOST IDENTIFICATION') { return 'host_key_changed' }
-    if ($e -match 'probe timed out')                                         { return 'probe_timeout' }
+    # A probe timeout is a genuine post-TCP hang (probe_timeout) only when a real
+    # IP was discovered. With no discovered IP the ssh probe stalled on the
+    # unresolved bare-VMName fallback, so the true cause is the discovery-lateness
+    # class below, not a generic probe timeout.
+    if ($IpDiscovered -and $e -match 'probe timed out')                      { return 'probe_timeout' }
     # 2. Never reached sshd. No discovered IP => the host-side discovery layer
     #    (KVP integration services / DHCP lease / utmctl ip-address) never
     #    answered -- the recoverable lateness class, distinct from an sshd or
@@ -539,7 +543,8 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             $proc = [System.Diagnostics.Process]::Start($psi)
         } catch {
             $lastError = "Process.Start('ssh') threw: $($_.Exception.Message)"
-            Start-Sleep -Seconds $thisPollSeconds
+            $remainingSec = ($deadline - (Get-Date)).TotalSeconds
+            if ($remainingSec -gt 0) { Start-Sleep -Seconds ([Math]::Min([double]$thisPollSeconds, $remainingSec)) }
             continue
         }
         # Read both streams asynchronously to avoid the classic "child
@@ -548,7 +553,13 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         # confirms the streams are closed.
         $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
         $stderrTask = $proc.StandardError.ReadToEndAsync()
-        $completed  = $proc.WaitForExit($probeCapSeconds * 1000)
+        # Cap this probe at the smaller of the fixed per-probe cap and the time
+        # left to the overall deadline, so the final probe cannot push past
+        # TimeoutSeconds -- WaitForExit is otherwise a flat probeCapSeconds no
+        # matter how little budget remains. Doubles throughout so [Math]::Min/Max
+        # never bind the (int,int) overload on a large millisecond value.
+        $probeMs    = [int][Math]::Max([double]0, [Math]::Min([double]($probeCapSeconds * 1000), ($deadline - (Get-Date)).TotalMilliseconds))
+        $completed  = $proc.WaitForExit($probeMs)
         $stdoutText = ''
         $stderrText = ''
         $exit       = -1
@@ -561,7 +572,12 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             # doesn't accumulate across iterations. .Kill($true) is
             # the .NET 5+ "kill entire process tree" call.
             try { $proc.Kill($true) } catch { Write-Verbose "Process.Kill failed: $($_.Exception.Message)" }
-            $lastError = "probe timed out after ${probeCapSeconds}s (ssh hung post-TCP; process killed)"
+            $probeSeconds = [Math]::Round($probeMs / 1000.0, 1)
+            # A full-cap timeout is a genuine post-TCP hang; a short cap means the
+            # overall deadline was reached mid-probe, so name that case accurately.
+            # Either way keep the "probe timed out" token Get-SshReadinessFailureCause matches on.
+            $probeReason = if ($probeMs -ge $probeCapSeconds * 1000) { 'ssh hung post-TCP' } else { 'deadline reached mid-probe' }
+            $lastError = "probe timed out after ${probeSeconds}s ($probeReason; process killed)"
         }
         $proc.Dispose()
         if ($completed) {
@@ -572,7 +588,13 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             }
             $lastError = $resultText.Trim()
         }
-        Start-Sleep -Seconds $thisPollSeconds
+        # Poll before the next attempt, but never sleep past the deadline:
+        # TimeoutSeconds is a hard wall-clock bound, so clamp the sleep to the
+        # time left (and skip it entirely once the budget is spent).
+        $remainingSec = ($deadline - (Get-Date)).TotalSeconds
+        if ($remainingSec -gt 0) {
+            Start-Sleep -Seconds ([Math]::Min([double]$thisPollSeconds, $remainingSec))
+        }
     }
 
     # Failure path. Classify WHY before dumping diagnostics, so the dumps and
@@ -616,20 +638,41 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             } catch { Write-Warning "  icacls failed: $_" }
         }
 
-        # 3. One verbose handshake so the actual reason is in the log.
+        # 3. One verbose handshake so the actual reason is in the log. Bounded
+        # by the same Process.Start + WaitForExit + Kill($true) harness as the
+        # probe loop: `ssh -v` reintroduces a foreground ssh, so a guest that
+        # accepts TCP then stalls in banner/kex would otherwise hang the runner
+        # during the failure/diagnostics phase (saveDiagnostics is downstream --
+        # the worst place to block).
         Write-Warning "  --- verbose handshake follows ---"
         try {
-            $vout = & ssh -v -i $key `
-                -o BatchMode=yes `
-                -o StrictHostKeyChecking=no `
-                -o UserKnownHostsFile=/dev/null `
-                -o GlobalKnownHostsFile=/dev/null `
-                -o ConnectTimeout=5 `
-                "$user@$lastTarget" "echo yuruna-ssh-ready" 2>&1
-            foreach ($line in (($vout | Out-String) -split "`r?`n")) {
-                if ($line.Trim()) { Write-Warning "    [ssh -v] $($line.TrimEnd())" }
+            $vpsi = [System.Diagnostics.ProcessStartInfo]::new()
+            $vpsi.FileName = 'ssh'
+            $vpsi.RedirectStandardOutput = $true
+            $vpsi.RedirectStandardError  = $true
+            $vpsi.UseShellExecute = $false
+            foreach ($a in @('-v', '-i', $key,
+                    '-o', 'BatchMode=yes',
+                    '-o', 'StrictHostKeyChecking=no',
+                    '-o', 'UserKnownHostsFile=/dev/null',
+                    '-o', 'GlobalKnownHostsFile=/dev/null',
+                    '-o', 'ConnectTimeout=5',
+                    "$user@$lastTarget", 'echo yuruna-ssh-ready')) {
+                $vpsi.ArgumentList.Add($a)
             }
-        } catch { Write-Warning "  verbose dump failed: $_" }
+            $vproc = [System.Diagnostics.Process]::Start($vpsi)
+            $voTask = $vproc.StandardOutput.ReadToEndAsync()
+            $veTask = $vproc.StandardError.ReadToEndAsync()
+            if ($vproc.WaitForExit($probeCapSeconds * 1000)) {
+                foreach ($line in (($voTask.Result + $veTask.Result) -split "`r?`n")) {
+                    if ($line.Trim()) { Write-Warning "    [ssh -v] $($line.TrimEnd())" }
+                }
+            } else {
+                try { $vproc.Kill($true) } catch { Write-Verbose "verbose-dump Kill failed: $($_.Exception.Message)" }
+                Write-Warning "    [ssh -v] verbose handshake exceeded ${probeCapSeconds}s (ssh hung post-TCP; killed)."
+            }
+            $vproc.Dispose()
+        } catch { Write-Warning "  verbose dump failed: $($_.Exception.Message)" }
         Write-Warning "  --- end verbose handshake ---"
     }
 
@@ -692,42 +735,62 @@ System.Collections.Hashtable with keys: success (bool), exitCode (int), output (
     $target  = "$user@$address"
     Write-Debug "Invoke-GuestSsh: target=$target command=$Command timeout=${TimeoutSeconds}s"
 
-    # Run ssh in a background job so TimeoutSeconds bounds total runtime, not
-    # just TCP setup. ConnectTimeout still guards the handshake phase.
-    # Start-ThreadJob (in-process runspace) avoids the ~200-500 ms pwsh spawn
-    # cost of Start-Job. The ThreadJob module ships with PowerShell 7+.
-    $job = Start-ThreadJob -ScriptBlock {
-        $out = & ssh -i $using:keyPath `
-            -o BatchMode=yes `
-            -o StrictHostKeyChecking=no `
-            -o UserKnownHostsFile=/dev/null `
-            -o GlobalKnownHostsFile=/dev/null `
-            -o ConnectTimeout=10 `
-            -o ServerAliveInterval=30 `
-            -o LogLevel=ERROR `
-            $using:target $using:Command 2>&1
-        [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($out | Out-String) }
+    # Run ssh via an in-process .NET Process with a hard WaitForExit cap so TimeoutSeconds
+    # bounds TOTAL runtime, not just TCP setup (ssh's ConnectTimeout only guards the
+    # handshake). On timeout the child ssh is killed directly with Process.Kill($true) (whole
+    # process tree): a Start-ThreadJob Stop-Job cannot terminate the native ssh child, so those
+    # processes leaked and accumulated across a run, and a half-dead session kept consuming the
+    # target. This mirrors the bounded-probe technique in Wait-SshReady.
+    $cmd = [string]$Command
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName               = 'ssh'
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+    foreach ($sshArg in @(
+            '-i', $keyPath,
+            '-o', 'BatchMode=yes',
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'GlobalKnownHostsFile=/dev/null',
+            '-o', 'ConnectTimeout=10',
+            '-o', 'ServerAliveInterval=30',
+            '-o', 'LogLevel=ERROR',
+            $target, $cmd)) {
+        $psi.ArgumentList.Add($sshArg)
     }
 
-    $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
+    $proc = $null
+    try {
+        $proc = [System.Diagnostics.Process]::Start($psi)
+    } catch {
+        Write-Warning "Invoke-GuestSsh: Process.Start('ssh') threw: $($_.Exception.Message)"
+        return @{ success = $false; exitCode = -1; output = "Process.Start('ssh') failed: $($_.Exception.Message)" }
+    }
+    # Read both streams asynchronously to avoid the classic full-pipe deadlock; read .Result
+    # only after WaitForExit confirms the streams are closed.
+    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+    $stderrTask = $proc.StandardError.ReadToEndAsync()
+    $completed  = $proc.WaitForExit($TimeoutSeconds * 1000)
     if (-not $completed) {
-        Write-Warning "Invoke-GuestSsh timed out after ${TimeoutSeconds}s: $user@$VMName"
-        Stop-Job  -Job $job -ErrorAction SilentlyContinue
-        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        Write-Warning "Invoke-GuestSsh timed out after ${TimeoutSeconds}s: $target"
+        try { $proc.Kill($true) } catch { Write-Verbose "Invoke-GuestSsh Process.Kill failed: $($_.Exception.Message)" }
+        $proc.Dispose()
         return @{
             success  = $false
             exitCode = -1
             output   = "Timed out after ${TimeoutSeconds}s"
         }
     }
-
-    $jobResult = Receive-Job -Job $job
-    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-    $exit = [int]$jobResult.ExitCode
+    $stdoutText = $stdoutTask.Result
+    $stderrText = $stderrTask.Result
+    $exit       = [int]$proc.ExitCode
+    $proc.Dispose()
     return @{
         success  = ($exit -eq 0)
         exitCode = $exit
-        output   = ("$($jobResult.Output)").TrimEnd()
+        output   = ("$stdoutText$stderrText").TrimEnd()
     }
 }
 

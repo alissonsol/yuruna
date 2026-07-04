@@ -75,4 +75,4 @@ note (e.g. the pool tier in doc 6).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.06.30
+Last review: 2026.07.03

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42e9f8a7-b6c5-4d34-9281-3e4f5a6b7c93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,7 +67,10 @@ function Write-YurunaStateFile {
         return $false
     }
     try {
-        Move-Item -LiteralPath $tmp -Destination $Path -Force -ErrorAction Stop
+        # [File]::Move with overwrite=$true is an atomic MoveFileEx/ReplaceFile on Windows;
+        # Move-Item -Force is delete-then-rename, so a concurrent reader can catch the gap
+        # where the destination briefly does not exist.
+        [System.IO.File]::Move($tmp, $Path, $true)
     } catch {
         Write-Verbose "Write-YurunaStateFile: rename $tmp -> $Path failed: $($_.Exception.Message)"
         # Best-effort clean-up of the orphan .tmp so a future run isn't

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456716
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,6 +98,7 @@ function Start-GuestOS {
     }
     foreach ($s in $SequenceNames) {
         Write-Information "  Running: $s" -InformationAction Continue
+        $seqStartUtc = [DateTime]::UtcNow
         $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s -EffectiveVariables $EffectiveVariables
         if (-not $ok) {
             $errMsg = "Start sequence '$s' failed"
@@ -105,8 +106,18 @@ function Start-GuestOS {
             $failFile = Join-Path $logDir "last_failure.json"
             if (Test-Path $failFile) {
                 try {
-                    $failInfo = Get-Content -Raw $failFile | ConvertFrom-Json
-                    $errMsg = "Step [$($failInfo.stepNumber)/$($failInfo.totalSteps)] $($failInfo.action) - $($failInfo.description) (sequence: $s)"
+                    # Trust last_failure.json only when it was written DURING this
+                    # sequence: a stale file from an earlier sequence (or a prior
+                    # same-cycle attempt) would misattribute its step location to
+                    # '$s' and send triage to the wrong step. Gate on the mtime
+                    # advancing past this sequence's start (2s clock tolerance).
+                    $failItem = Get-Item -LiteralPath $failFile -ErrorAction Stop
+                    if ($failItem.LastWriteTimeUtc -ge $seqStartUtc.AddSeconds(-2)) {
+                        $failInfo = Get-Content -Raw $failFile | ConvertFrom-Json
+                        $errMsg = "Step [$($failInfo.stepNumber)/$($failInfo.totalSteps)] $($failInfo.action) - $($failInfo.description) (sequence: $s)"
+                    } else {
+                        Write-Verbose "last_failure.json predates sequence '$s'; using the generic message rather than a stale step location."
+                    }
                 } catch {
                     Write-Verbose "Could not parse failure details: $_"
                 }

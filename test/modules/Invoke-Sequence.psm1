@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -896,17 +896,27 @@ function Wait-ForText {
                     $noTextPolls++
                     if ($noTextPolls -ge 4 -and $ringRepairs -lt 2) {
                         $noTextPolls = 0
-                        $ringRepairs++
-                        Write-Verbose "      Wait-ForText: no OCR text for 4 polls; self-heal repair $ringRepairs/2 (clear VNC handle + screenshot ring)."
-                        if (Get-Command Repair-VncConnection -ErrorAction SilentlyContinue) { [void](Repair-VncConnection -VMName $VMName -HostType $HostType -Confirm:$false) }
-                        if (Get-Command Repair-ScreenshotRing -ErrorAction SilentlyContinue) { [void](Repair-ScreenshotRing -VMName $VMName -Confirm:$false) }
-                        # F6: grant bounded grace so the reset feed can deliver
-                        # text before the deadline, and record the degradation.
-                        $grace = Get-OcrDegradationGrace -Action 'ring-repair' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
-                        if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
-                        if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
-                            Send-YurunaDegradation -Dependency 'capture-feed' -Primary 'ocr-text-feed' -Fallback 'vnc-handle-reset' `
-                                -Reason "no OCR text 4 polls seeking '$patternLabel'; repair $ringRepairs/2, deadline +${grace}s"
+                        # Only count a repair + grant deadline grace when a repair primitive
+                        # actually exists and ran. A feed with NO self-heal available must not
+                        # keep extending its own deadline (that masks a dead feed as recovering);
+                        # record the degradation but let the normal budget expire.
+                        $ringRepaired = $false
+                        if (Get-Command Repair-VncConnection -ErrorAction SilentlyContinue) { [void](Repair-VncConnection -VMName $VMName -HostType $HostType -Confirm:$false); $ringRepaired = $true }
+                        if (Get-Command Repair-ScreenshotRing -ErrorAction SilentlyContinue) { [void](Repair-ScreenshotRing -VMName $VMName -Confirm:$false); $ringRepaired = $true }
+                        if ($ringRepaired) {
+                            $ringRepairs++
+                            Write-Verbose "      Wait-ForText: no OCR text for 4 polls; self-heal repair $ringRepairs/2 (clear VNC handle + screenshot ring)."
+                            # F6: grant bounded grace so the reset feed can deliver text before the
+                            # deadline, and record the degradation.
+                            $grace = Get-OcrDegradationGrace -Action 'ring-repair' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
+                            if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
+                            if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+                                Send-YurunaDegradation -Dependency 'capture-feed' -Primary 'ocr-text-feed' -Fallback 'vnc-handle-reset' `
+                                    -Reason "no OCR text 4 polls seeking '$patternLabel'; repair $ringRepairs/2, deadline +${grace}s"
+                            }
+                        } elseif (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+                            Send-YurunaDegradation -Dependency 'capture-feed' -Primary 'ocr-text-feed' -Fallback 'none' `
+                                -Reason "no OCR text 4 polls seeking '$patternLabel'; no repair primitive available, deadline NOT extended"
                         }
                     }
                 }
@@ -1541,8 +1551,12 @@ function Invoke-Sequence {
     # closing and reopening it forces a full framebuffer refresh.
     # Yuruna.Host's Restart-VMConsole is in scope here because
     # Initialize-YurunaHost is called by Test-Sequence.ps1 /
-    # Invoke-TestRunner.ps1 before sequences run.
-    [void](Restart-VMConsole -VMName $VMName -Confirm:$false)
+    # Invoke-TestRunner.ps1 before sequences run. Guard it like the other contract calls so a
+    # missing/failed host contract degrades to "no repaint" instead of crashing the sequence.
+    if (Get-Command Restart-VMConsole -ErrorAction SilentlyContinue) {
+        try { [void](Restart-VMConsole -VMName $VMName -Confirm:$false) }
+        catch { Write-Verbose "      Restart-VMConsole failed: $($_.Exception.Message)" }
+    }
 
     # takeScreenshot debug PNGs land under test/status/captures/sequences/
     # (gitignored runtime data, lives with the rest of the harness state
@@ -1868,7 +1882,11 @@ function Invoke-Sequence {
         if ($script:Fail.LastFailedAction -ne "waitForText" -and $script:Fail.LastFailedAction -ne "waitForAndEnter" -and $script:Fail.LastFailedAction -ne "passwdPrompt" -and $script:Fail.LastFailedAction -ne "fetchAndExecute") {
             $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
             $captured = Get-VMScreenshot -VMName $VMName -OutFile $failScreenPath
-            if ($captured) {
+            # Confirm the file landed before advertising it: Get-VMScreenshot can
+            # report truthy without writing the file, so verify it is on disk
+            # before logging -- the capture and Wait-ForText failure paths in this
+            # module gate on Test-Path the same way.
+            if ($captured -and (Test-Path $failScreenPath)) {
                 Write-Information "      Failure screenshot saved: $failScreenPath"
             }
         }
@@ -1986,6 +2004,6 @@ function Invoke-Sequence {
 # store ($script:Fail), so this module stays the pure executor.
 
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
-    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, Get-PollDelay, `
+    Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
     Get-DefaultKeystrokeMechanism, Set-EngineKeystrokeMechanism

@@ -513,6 +513,85 @@ func TestRedactEventLine(t *testing.T) {
 	}
 }
 
+// TestCommitCells covers the pool table's Commit column derivation from a host's
+// status.json gitCommits: display string (short SHAs, comma-joined) plus the
+// framework/project deep-link URLs, including the non-linkable cases the host
+// status page also renders as plain text (non-URL repo, "unknown" SHA).
+func TestCommitCells(t *testing.T) {
+	fw := struct {
+		Sha     string `json:"sha"`
+		RepoURL string `json:"repoUrl"`
+	}{"1583275bdeadbeef", "https://github.com/org/yuruna"}
+	proj := fw
+	proj.Sha, proj.RepoURL = "a1b2c3d4c0ffee", "https://github.com/org/project"
+
+	// framework + project -> both short SHAs, both URLs.
+	st := &hostStatus{}
+	st.GitCommits = append(st.GitCommits, fw, proj)
+	disp, fwURL, projURL := commitCells(st)
+	if disp != "1583275b, a1b2c3d4" {
+		t.Fatalf("display = %q, want %q", disp, "1583275b, a1b2c3d4")
+	}
+	if fwURL != "https://github.com/org/yuruna/commit/1583275bdeadbeef" {
+		t.Fatalf("framework URL = %q", fwURL)
+	}
+	if projURL != "https://github.com/org/project/commit/a1b2c3d4c0ffee" {
+		t.Fatalf("project URL = %q", projURL)
+	}
+
+	// framework only -> one short SHA, no project URL.
+	st1 := &hostStatus{}
+	st1.GitCommits = append(st1.GitCommits, fw)
+	if disp, _, projURL := commitCells(st1); disp != "1583275b" || projURL != "" {
+		t.Fatalf("framework-only: disp=%q projURL=%q", disp, projURL)
+	}
+
+	// nil status / no commits -> all empty.
+	if disp, fwURL, projURL := commitCells(nil); disp != "" || fwURL != "" || projURL != "" {
+		t.Fatalf("nil status must yield empties, got %q/%q/%q", disp, fwURL, projURL)
+	}
+
+	// non-http repo and "unknown" SHA still show in the display but don't link.
+	bad := struct {
+		Sha     string `json:"sha"`
+		RepoURL string `json:"repoUrl"`
+	}{"unknown", "git@github.com:org/x.git"}
+	stBad := &hostStatus{}
+	stBad.GitCommits = append(stBad.GitCommits, bad)
+	if disp, fwURL, _ := commitCells(stBad); disp != "unknown" || fwURL != "" {
+		t.Fatalf("non-linkable commit: disp=%q fwURL=%q", disp, fwURL)
+	}
+}
+
+// TestHostInfoCommitLabels drives handleMetrics and asserts the Commit column's
+// three labels ride on yuruna_pool_host_info so the dashboard's Commit cell + its
+// two deep-links resolve.
+func TestHostInfoCommitLabels(t *testing.T) {
+	s := newPoolState("default", 8080)
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.03"}
+	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleId: "c1", OverallStatus: "pass"}
+	hv.Status.GitCommits = append(hv.Status.GitCommits,
+		struct {
+			Sha     string `json:"sha"`
+			RepoURL string `json:"repoUrl"`
+		}{"1583275bcafef00d", "https://github.com/org/yuruna"})
+	s.hosts[hv.HostId] = hv
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+	s.handleMetrics(w, req)
+	body := w.Body.String()
+	for _, want := range []string{
+		`commit="1583275b"`,
+		`commitUrl="https://github.com/org/yuruna/commit/1583275bcafef00d"`,
+		`projectCommitUrl=""`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("host_info missing %q\n%s", want, body)
+		}
+	}
+}
+
 // TestHostViewJSONHostnameFree guards the unauthenticated /api/v1/pool-status
 // surface (which serializes []*hostView): even when a host's parsed status
 // carries a hostname, it must never be emitted -- hostStatus.Hostname is

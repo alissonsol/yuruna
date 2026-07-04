@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,18 +115,14 @@ Write-Output "== Step 1: tear down any legacy host-side forwarders =="
 Write-Output ""
 Write-Output "== Step 2: locate the cache VM on the LAN =="
 if ($CacheIp) {
-    $tcp = [System.Net.Sockets.TcpClient]::new()
-    $reachable = $false
-    try {
-        $async = $tcp.BeginConnect($CacheIp, $httpPort, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne(1500) -and $tcp.Connected) { $reachable = $true }
-    } catch {
-        Write-Verbose "-CacheIp probe ${CacheIp}:${httpPort} failed: $($_.Exception.Message)"
-    } finally {
-        $tcp.Close()
-    }
-    if (-not $reachable) {
-        Write-Error "${CacheIp}:${httpPort} did not answer. The IP you passed is not serving squid. If the VM is up but on a different LAN IP, omit -CacheIp and let the LAN scan find it."
+    # Use the shared multi-attempt probe (3 attempts / 3000 ms / 200 ms backoff) rather than a
+    # single 1500 ms connect: a healthy remote / Wi-Fi cache routinely takes 600 ms-1 s+ to
+    # ACCEPT, so a one-shot 1500 ms deadline spuriously rejects the very IP the operator passed
+    # to override the LAN scan.
+    $probe = Invoke-CachingProxyProbe -CacheIp $CacheIp -CacheSource '-CacheIp parameter'
+    foreach ($probeLine in $probe.Lines) { Write-Output $probeLine }
+    if (-not $probe.HttpProxyReachable) {
+        Write-Error "${CacheIp}:${httpPort} did not answer squid HTTP after retries. The IP you passed is not serving squid. If the VM is up but on a different LAN IP, omit -CacheIp and let the LAN scan find it."
         exit 1
     }
     Write-Output "  -CacheIp parameter probed OK: ${CacheIp}:${httpPort} answered."

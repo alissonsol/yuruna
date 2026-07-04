@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42c5d6e7-f8a9-4b01-9234-5e6f7a8b9c0d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,7 +91,10 @@ function Assert-LinuxHostConditionSet {
         Write-Error "/dev/kvm character device missing -- kvm.ko not loaded. Try: 'sudo modprobe kvm_intel' (Intel) or 'sudo modprobe kvm_amd' (AMD)."
         return $false
     }
-    $active = (& systemctl is-active libvirtd 2>$null).Trim()
+    # Coerce before .Trim(): a missing systemctl / empty output makes (& ...) return $null, and
+    # $null.Trim() throws "cannot call a method on a null-valued expression".
+    $raw = & systemctl is-active libvirtd 2>$null
+    $active = if ($raw) { "$raw".Trim() } else { '' }
     if ($active -ne 'active') {
         Write-Error "libvirtd is not active (state=$active). Try: 'sudo systemctl start libvirtd' and check 'systemctl status libvirtd'."
         return $false
@@ -102,10 +105,17 @@ function Assert-LinuxHostConditionSet {
     # gets actionable steps, not a generic "permission denied".
     $activeGroups   = (& id -nG 2>$null) -split '\s+'
     $libvirtLine    = & getent group libvirt 2>$null
-    $libvirtMembers = if ($libvirtLine) { (($libvirtLine -split ':',4)[3]) -split ',' } else { @() }
-    if ($libvirtMembers -contains $env:USER -and $activeGroups -notcontains 'libvirt') {
+    # getent joins members with commas and no spaces; the group-line split can
+    # leave a trailing newline on the last token, so trim and drop empties.
+    $libvirtMembers = if ($libvirtLine) { (($libvirtLine -split ':',4)[3]) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } } else { @() }
+    # Use the process's REAL identity, not $env:USER: under sg/newgrp/sudo/systemd
+    # the inherited USER can be empty or wrong, which would select the wrong
+    # remediation branch -- the opposite of the actionable diagnostics intended.
+    $me = (& id -un 2>$null); if (-not $me) { $me = $env:USER }
+    $me = ([string]$me).Trim()
+    if ($libvirtMembers -contains $me -and $activeGroups -notcontains 'libvirt') {
         Write-Error @"
-Cannot reach libvirtd from this process: '$env:USER' IS in the 'libvirt'
+Cannot reach libvirtd from this process: '$me' IS in the 'libvirt'
 group per /etc/group, but THIS shell's running group set does NOT include
 libvirt -- so virt-install and virsh hit 'Permission denied' on the
 libvirt socket. A desktop logout/login does NOT always refresh the group
@@ -122,8 +132,8 @@ Fix (pick one) and re-run Invoke-TestRunner.ps1:
 "@
         return $false
     }
-    if ($libvirtMembers -notcontains $env:USER) {
-        Write-Error "'$env:USER' is not in the 'libvirt' group at all -- re-run install/ubuntu.kvm.sh, or: 'sudo usermod -aG libvirt $env:USER' then log out / back in."
+    if ($libvirtMembers -notcontains $me) {
+        Write-Error "'$me' is not in the 'libvirt' group at all -- re-run install/ubuntu.kvm.sh, or: 'sudo usermod -aG libvirt $me' then log out / back in."
         return $false
     }
     Write-Error "virsh round-trip against libvirtd failed but the usual causes (kvm missing, libvirtd down, stale group set) don't apply. Run 'virsh -c qemu:///system list' manually for the verbatim error."

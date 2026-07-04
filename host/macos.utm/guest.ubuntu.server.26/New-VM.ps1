@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -208,6 +208,7 @@ foreach ($p in @($BaseUserData, $OverlayUserData)) {
     if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
 }
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 
 # Load the SSH public key used by the test harness to drive the VM over SSH.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
@@ -318,24 +319,11 @@ To intentionally skip the cache:
 }
 }
 
-# Build the autoinstall apt block: always emit `geoip: false` + a pinned
-# `primary:` mirror (deterministic election; `primary:` not `sources_list:`,
-# see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
-# --- See https://yuruna.link/vmconfig#apt-proxy-block
-#
-# Primary URI is the ports mirror because macOS UTM is always aarch64.
-$AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
-$AptProxyBlock = @"
-  apt:
-    geoip: false
-    primary:
-      - arches: [default]
-        uri: http://ports.ubuntu.com/ubuntu-ports$($AptProxyLine)
-    conf: |
-      Acquire::Retries "5";
-      Acquire::http::Timeout "120";
-      Acquire::https::Timeout "120";
-"@
+# Build the autoinstall apt block via the shared builder
+# (automation/Yuruna.GuestSeed.psm1). UTM pins the aarch64 ports mirror. See
+# https://yuruna.link/vmconfig#apt-proxy-block and
+# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+$AptProxyBlock = Build-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyUrl $CachingProxyUrl
 
 # Fetch the caching-proxy CA on the host so it can be base64-embedded in
 # the autoinstall seed. Guests on VZ shared-NAT cannot reach the cache

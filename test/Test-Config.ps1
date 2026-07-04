@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -776,7 +776,9 @@ if (Test-Path $UsersPath) {
                                     $u = [string]$seq['variables']['username']
                                     if ($u.Trim()) {
                                         $uTrim = $u.Trim()
-                                        if ([void]$referenced.Add($uTrim)) { $referencedBy[$uTrim] = $_.FullName }
+                                        # Do not [void] the Add() whose Boolean result gates the map: HashSet.Add returns
+                                        # $true only on first insert, which is exactly when we want to record the source file.
+                                        if ($referenced.Add($uTrim)) { $referencedBy[$uTrim] = $_.FullName }
                                     }
                                 }
                             }

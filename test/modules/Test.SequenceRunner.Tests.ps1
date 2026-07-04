@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42f8c3d6-1a4b-4e29-9c70-5d8e1f2a3b40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,5 +127,32 @@ Describe 'Test-Sequence.ps1 passes ChainEntries without an @() wrap' {
         $arg = Get-CallArgumentAst -Path $testSequenceScript -Command 'Invoke-TestSequenceChain' -ParameterName 'ChainEntries'
         Assert-True ($arg -is [System.Management.Automation.Language.VariableExpressionAst]) `
             "Expected a bare variable, got $($arg.GetType().Name). Wrapping the planner List in @() yields an array a Mandatory [IList] parameter rejects with 'Argument types do not match'."
+    }
+}
+
+function Get-FunctionText {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$FunctionName)
+    $errs = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
+    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
+    $func = $ast.FindAll({
+        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
+    }, $true) | Select-Object -First 1
+    if (-not $func) { throw "Function '$FunctionName' not found in $Path" }
+    return $func.Extent.Text
+}
+
+Describe 'Resolve-TestSequencePlan snapshot probe distinguishes absent from could-not-determine' {
+    $planText = Get-FunctionText -Path $modulePath -FunctionName 'Resolve-TestSequencePlan'
+
+    It 'retries the Test-VMDiskSnapshot probe instead of swallowing the first exception' {
+        Assert-True ($planText -match 'Test-VMDiskSnapshot') 'the snapshot probe is present'
+        Assert-True ($planText -match '\$probeAttempt') 'the probe runs inside a retry loop'
+    }
+    It 'fails the plan loudly on an undetermined probe rather than assuming cold' {
+        Assert-True ($planText -match 'Write-Warning') 'an undetermined probe surfaces a warning, not just Write-Verbose'
+        Assert-True ($planText -notmatch 'assuming cold path') 'a swallowed probe exception must not silently fall through to the cold path'
     }
 }

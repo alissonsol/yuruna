@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,8 +180,17 @@ function Add-CyclePlanEntriesForTopLevel {
         for ($i = $chain.Count - 1; $i -ge 0; $i--) {
             $sName = $chain[$i]
             $sPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $sName -HostType $HostType -RepoRoot $RepoRoot
-            if (-not $sPath) { continue }
-            try { $sSeq = Read-SequenceFile -Path $sPath } catch { continue }
+            if (-not $sPath) {
+                # This member IS in the chain, so it resolved earlier; not resolving now (e.g. a
+                # mid-cycle rename) is an inconsistency. Surface it -- silently dropping its
+                # variables lets the chain run with missing vars instead of failing visibly.
+                Write-Warning "Cascade: chain member '$sName' no longer resolves to a path; its variables are dropped from the cascade."
+                continue
+            }
+            try { $sSeq = Read-SequenceFile -Path $sPath } catch {
+                Write-Warning "Cascade: chain member '$sName' ($sPath) failed to re-read ($($_.Exception.Message)); its variables are dropped from the cascade."
+                continue
+            }
             if (-not $sSeq.variables) { continue }
             foreach ($vk in $sSeq.variables.Keys) {
                 if ($effectiveVars.Contains($vk)) { continue }   # higher level already won

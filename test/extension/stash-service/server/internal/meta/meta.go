@@ -87,27 +87,62 @@ func Open(dbPath string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// migrate adds the UI columns (stash-service-ui.md §10) to a uploads table
-// created by an earlier schema. CREATE TABLE IF NOT EXISTS does not alter
-// an existing table, so ADD COLUMN runs idempotently here: a duplicate-
-// column error means the column is already present and is ignored. A
-// brand-new DB created from `schema` above already has the columns, so
-// every ADD reports "duplicate column" and is skipped.
+// migrate adds the UI columns (stash-service-ui.md §10) to an uploads table
+// created by an earlier schema. CREATE TABLE IF NOT EXISTS does not alter an
+// existing table, so the columns are added here. It reads the current columns
+// via PRAGMA table_info and issues ADD COLUMN only for those missing, so it is
+// idempotent (a brand-new DB from `schema` above already has them all; a
+// re-run adds nothing) without inferring "already present" from a driver-
+// specific error string, which varies between SQLite bindings.
 func migrate(db *sql.DB) error {
-	adds := []string{
-		`ALTER TABLE uploads ADD COLUMN mimeType     TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE uploads ADD COLUMN contentClass TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE uploads ADD COLUMN isText       INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE uploads ADD COLUMN typeLabel    TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE uploads ADD COLUMN typeScore    REAL NOT NULL DEFAULT 0`,
-		`ALTER TABLE uploads ADD COLUMN source       TEXT NOT NULL DEFAULT ''`,
+	have, err := tableColumns(db, "uploads")
+	if err != nil {
+		return err
 	}
-	for _, stmt := range adds {
-		if _, err := db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+	adds := []struct{ col, stmt string }{
+		{"mimeType", `ALTER TABLE uploads ADD COLUMN mimeType     TEXT NOT NULL DEFAULT ''`},
+		{"contentClass", `ALTER TABLE uploads ADD COLUMN contentClass TEXT NOT NULL DEFAULT ''`},
+		{"isText", `ALTER TABLE uploads ADD COLUMN isText       INTEGER NOT NULL DEFAULT 0`},
+		{"typeLabel", `ALTER TABLE uploads ADD COLUMN typeLabel    TEXT NOT NULL DEFAULT ''`},
+		{"typeScore", `ALTER TABLE uploads ADD COLUMN typeScore    REAL NOT NULL DEFAULT 0`},
+		{"source", `ALTER TABLE uploads ADD COLUMN source       TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, a := range adds {
+		if have[a.col] {
+			continue
+		}
+		if _, err := db.Exec(a.stmt); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// tableColumns returns the set of column names on table via PRAGMA table_info.
+// table is an internal constant (never client input), so it is interpolated
+// directly -- PRAGMA does not accept a bound parameter for the table name.
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notNull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
+			return nil, err
+		}
+		cols[name] = true
+	}
+	return cols, rows.Err()
 }
 
 // Close releases the underlying connection pool.
@@ -503,7 +538,11 @@ func (s *Store) RebuildFromSidecars(filesRoot string) (int, error) {
 		}
 		data, rerr := os.ReadFile(path)
 		if rerr != nil {
-			return rerr
+			// Skip a sidecar we cannot read (transient share I/O, permission) rather than
+			// aborting the whole rebuild: on a fresh reimage one unreadable file must not leave
+			// the remaining (possibly thousands of) sidecars unindexed and invisible. Matches
+			// the corrupt/empty-JSON skip below.
+			return nil
 		}
 		var sc Sidecar
 		if json.Unmarshal(data, &sc) != nil || sc.ID == "" {
@@ -617,5 +656,21 @@ func atomicWriteFile(dst string, data []byte, perm os.FileMode) error {
 	if err := os.Chmod(tmpName, perm); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, dst)
+	if err := os.Rename(tmpName, dst); err != nil {
+		return err
+	}
+	// Best-effort fsync of the destination directory so the rename itself is durable: without it
+	// a crash right after Rename can lose the new directory entry even though the file bytes were
+	// fsync'd. Best-effort because not every platform supports directory sync (the service runs
+	// on Linux, where it does).
+	syncDir(filepath.Dir(dst))
+	return nil
+}
+
+// syncDir fsyncs a directory so a rename/create within it survives a crash (Linux). Best-effort.
+func syncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
 }

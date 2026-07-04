@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42c0b1a2-d3e4-4f56-9a87-6b5c4d3e2f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,7 +71,10 @@ if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGi
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if ($pool) {
-    $pool['displayName']  = $DisplayName
+    # Only overwrite displayName when the caller actually passed -DisplayName; re-running
+    # New-Pool just to change desiredState must not wipe an existing name (members/testSets
+    # are already preserved on update).
+    if ($PSBoundParameters.ContainsKey('DisplayName')) { $pool['displayName'] = $DisplayName }
     $pool['desiredState'] = $DesiredState
     $action = 'update'
 } else {

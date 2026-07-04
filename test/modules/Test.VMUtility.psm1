@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,7 +74,12 @@ function Wait-VMRunning {
     )
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        if ((Get-VMState -VMName $VMName) -eq 'running') {
+        # A transient Get-VMState throw (e.g. WMI/virsh hiccup during boot) must not abort the
+        # wait under ErrorActionPreference=Stop; treat it as "not running yet" and keep polling
+        # until the deadline.
+        $state = $null
+        try { $state = Get-VMState -VMName $VMName } catch { Write-Verbose "Wait-VMRunning: Get-VMState threw: $($_.Exception.Message)" }
+        if ($state -eq 'running') {
             Write-Verbose "Verified: VM '$VMName' is running"
             if ($BootDelaySeconds -gt 0) {
                 Write-Verbose "VM is running. Waiting ${BootDelaySeconds}s for guest OS to initialize..."

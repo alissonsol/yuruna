@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.06.30
+# Version: 2026.07.03
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -253,7 +253,35 @@ EOF
 sudo sysctl --system
 
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
-sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+
+# kubeadm init is the most failure-prone step (control-plane image pulls, etcd
+# bring-up, kubelet handshake) and, unlike every other network-touching step in
+# this script, was unretried -- a single transient blip on a shared-NAT guest
+# left a half-initialized control plane and aborted the whole sequence. Retry
+# with a full reset between attempts so a transient failure self-heals.
+kubeadm_init_ok=false
+for kubeadm_attempt in 1 2 3; do
+    if sudo kubeadm init --pod-network-cidr=10.244.0.0/16; then
+        kubeadm_init_ok=true
+        break
+    fi
+    echo "kubeadm init attempt ${kubeadm_attempt}/3 failed."
+    if [ "$kubeadm_attempt" -lt 3 ]; then
+        echo "Resetting kubeadm state before retry..."
+        sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock || true
+        sudo rm -rf /etc/cni/net.d
+        sudo systemctl restart containerd || true
+        for i in $(seq 1 30); do
+            if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then break; fi
+            sleep 1
+        done
+        sleep $((kubeadm_attempt * 10))
+    fi
+done
+if [ "$kubeadm_init_ok" != true ]; then
+    echo "ERROR: kubeadm init failed after 3 attempts; aborting." >&2
+    exit 1
+fi
 
 mkdir -p "${REAL_HOME}/.kube"
 sudo cp /etc/kubernetes/admin.conf "${REAL_HOME}/.kube/config"

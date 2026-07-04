@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.06.30
+.VERSION 2026.07.03
 .GUID 42f9c4d6-8a2b-4e73-9d51-7c3e4f5a6b72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,11 +42,29 @@ if (-not $pid_value) {
 }
 
 $proc = Get-Process -Id $pid_value -ErrorAction SilentlyContinue
-if ($proc) {
+if (-not $proc) {
+    Write-Output "Process $pid_value is not running. Service was already stopped."
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+    exit 0
+}
+# PID-reuse guard: the PID file persists across crashes and reboots and the OS
+# recycles PIDs, so confirm this PID is still the config service before force-
+# killing it. The service launched and then wrote this PID file, so a genuine
+# match started at/before the file's mtime; a process that reused the PID after
+# the service died started later. If the start time is unreadable we cannot
+# confirm identity, so treat the PID file as stale (remove it, no kill) rather
+# than risk force-killing an unrelated process.
+$identityOk = $false
+try {
+    $pidFileMtime = (Get-Item -LiteralPath $PidFile).LastWriteTime
+    $identityOk = ($proc.StartTime -le $pidFileMtime.AddSeconds(2))
+} catch {
+    Write-Verbose "Identity check failed for PID $pid_value : $($_.Exception.Message)"
+}
+if ($identityOk) {
     Stop-Process -Id $pid_value -Force
     Write-Output "Host Config Service stopped (PID $pid_value)."
 } else {
-    Write-Output "Process $pid_value is not running. Service was already stopped."
+    Write-Warning "PID $pid_value is not the config service (start time post-dates the PID file, or is unreadable) -- likely recycled after a crash/reboot. Removing the stale PID file without killing it."
 }
-
 Remove-Item $PidFile -Force -ErrorAction SilentlyContinue

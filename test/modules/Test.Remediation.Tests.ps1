@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42c3a9e8-5b2d-4f17-8a04-1c6d3e5f7a92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,5 +142,51 @@ Describe 'Invoke-Remediation routes the infra-stage failure classes' {
         $registered = @(Get-RegisteredFailureClass)
         $missing = @($enum | Where-Object { $registered -notcontains $_ })
         Assert-Equal -Expected 0 -Actual $missing.Count -Because "every enum class must have a handler; missing: $($missing -join ', ')"
+    }
+}
+
+Describe 'Invoke-Remediation guards a parsed-but-non-object last_failure.json' {
+    # A last_failure.json that is valid JSON but not an object (a bare string /
+    # number / array, or most subtly a literal `null`) must route to the
+    # parse-error fallback, never NRE at the first .Contains(). The `null` case
+    # is the load-bearing one: the [hashtable] parameter type coerces-and-throws
+    # for the scalar/array cases, but a JSON `null` assigns cleanly as $null and
+    # would otherwise reach .Contains() on a $null record.
+
+    It 'routes a JSON null last_failure.json to the parse-error fallback without throwing' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-rem-nonobj-$([guid]::NewGuid().ToString('N'))"
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        try {
+            $lf = Join-Path $dir 'last_failure.json'
+            Set-Content -LiteralPath $lf -Value 'null' -Encoding utf8
+            $r = Invoke-Remediation -LastFailurePath $lf
+            Assert-Equal -Expected '(parse-error fallback)' -Actual ([string]$r.HandledBy) -Because 'a JSON null must route to the fallback, not throw at .Contains() on $null'
+            Assert-Equal -Expected 'operator_intervention_required' -Actual ([string]$r.Recommendation) -Because 'the parse-error fallback recommends operator intervention'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'routes valid-but-non-object JSON (string / number / array) to the parse-error fallback' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-rem-nonobj-$([guid]::NewGuid().ToString('N'))"
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        try {
+            $lf = Join-Path $dir 'last_failure.json'
+            foreach ($content in @('"a string"', '42', '[1,2,3]')) {
+                Set-Content -LiteralPath $lf -Value $content -Encoding utf8
+                $r = Invoke-Remediation -LastFailurePath $lf
+                Assert-Equal -Expected '(parse-error fallback)' -Actual ([string]$r.HandledBy) -Because "non-object JSON ($content) must route to the fallback"
+            }
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'still reads a valid JSON-object last_failure.json normally' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-rem-nonobj-$([guid]::NewGuid().ToString('N'))"
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        try {
+            $lf = Join-Path $dir 'last_failure.json'
+            Set-Content -LiteralPath $lf -Value '{"failureClass":"ocr_timeout","severity":"hard","stepNumber":2}' -Encoding utf8
+            $r = Invoke-Remediation -LastFailurePath $lf
+            Assert-Equal -Expected 'ocr_timeout' -Actual ([string]$r.FailureClass) -Because 'a real object is parsed and classified normally'
+            Assert-True ([string]$r.HandledBy -ne '(parse-error fallback)') 'a valid object does NOT hit the parse-error fallback'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

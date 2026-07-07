@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,12 +86,19 @@ function Reset-StatusDocumentForCycleStart {
                 $dst = $StatusFilePath -replace '\.json$', ".corrupt.$tsStamp.json"
                 Move-Item -LiteralPath $StatusFilePath -Destination $dst -Force -ErrorAction Stop
                 Write-Warning "  preserved corrupt copy at: $dst"
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    event         = 'status_doc_corrupt'
-                    original      = [string]$StatusFilePath
-                    preservedAt   = [string]$dst
-                    parseError    = [string]$reasonMsg
+                # Test.Status does not import the cycle-event logger, so gate the
+                # emit on command existence: in a degraded context where the
+                # logger is absent, the Write-Warning above is the documented
+                # fallback and this must not throw (mirrors the Get-YurunaHostId
+                # guard pattern).
+                if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                    Send-CycleEventSafely -EventRecord @{
+                        timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        event         = 'status_doc_corrupt'
+                        original      = [string]$StatusFilePath
+                        preservedAt   = [string]$dst
+                        parseError    = [string]$reasonMsg
+                    }
                 }
             } catch {
                 Write-Verbose "Test.Status: could not rename corrupt status doc: $($_.Exception.Message)"
@@ -585,10 +592,14 @@ function Write-StatusJson {
         # Surface the write failure explicitly rather than leaving it to be inferred from a
         # frozen UI (mirrors the status_doc_corrupt event emitted on the read path).
         Write-Warning "Write-StatusJson: failed to write status document to $script:File"
-        Send-CycleEventSafely -EventRecord @{
-            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-            event     = 'status_doc_write_failed'
-            path      = [string]$script:File
+        # Same command-existence guard as the status_doc_corrupt emit above: the
+        # Write-Warning is the fallback when the cycle-event logger is absent.
+        if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+            Send-CycleEventSafely -EventRecord @{
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                event     = 'status_doc_write_failed'
+                path      = [string]$script:File
+            }
         }
     }
 }

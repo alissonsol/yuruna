@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456783
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,7 +46,7 @@
     the row writer was missing context.
 #>
 
-# --- Module state ---------------------------------------------------------
+# --- REGION: Module state
 # Schema version: bump on any breaking row-shape change so future
 # readers can branch.
 $script:Schema = 1
@@ -66,7 +66,7 @@ $script:Guest    = $null
 # get monotonic occurrence numbers.
 $script:Sequence = $null
 
-# --- Helpers --------------------------------------------------------------
+# --- REGION: Helpers
 
 function Get-PerfRootDir {
 <#
@@ -141,8 +141,32 @@ function Get-PerfHostUuid {
     if (-not (Test-Path -LiteralPath $root)) {
         New-Item -ItemType Directory -Path $root -Force -ErrorAction SilentlyContinue | Out-Null
     }
-    [System.IO.File]::WriteAllText($uuidFile, $uuid)
-    return $uuid
+    # Atomic first-write: two processes hitting first-use at once would each
+    # generate a DIFFERENT UUID and clobber the file, so each returns its own id
+    # and the machine ends up with two identities. Instead write a per-process temp
+    # file and rename it into place -- the two-arg Move throws if the destination
+    # already exists, so exactly one racer wins and every loser adopts the winner's
+    # value. Result: one UUID per machine even under concurrent first use.
+    $tmpFile = "$uuidFile.$PID.tmp"
+    try {
+        [System.IO.File]::WriteAllText($tmpFile, $uuid)
+        [System.IO.File]::Move($tmpFile, $uuidFile)
+        return $uuid
+    } catch {
+        Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue
+        try {
+            $winner = ([System.IO.File]::ReadAllText($uuidFile)).Trim()
+            if ($winner) { return $winner }
+        } catch {
+            Write-Verbose "Get-PerfHostUuid: post-race read failed: $($_.Exception.Message)"
+        }
+        # Last resort: the rename failed for a NON-race reason (the destination
+        # never materialized) and the re-read also failed, so return our own id.
+        # Two processes on this degraded path can diverge, but that is bounded to a
+        # genuine IO fault (matching this module's never-crash contract) and beats
+        # returning $null to callers that must have an id.
+        return $uuid
+    }
 }
 
 function Get-PerfContentHash {
@@ -188,7 +212,7 @@ function Get-PerfContentHash {
     return $tag
 }
 
-# --- Lifecycle ------------------------------------------------------------
+# --- REGION: Lifecycle
 
 function Start-PerfCycle {
 <#
@@ -350,7 +374,7 @@ function Clear-PerfSequenceContext {
     $script:Sequence = $null
 }
 
-# --- Row emit -------------------------------------------------------------
+# --- REGION: Row emit
 
 function Write-PerfStepRow {
 <#

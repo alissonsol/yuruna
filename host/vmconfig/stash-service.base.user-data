@@ -1,7 +1,7 @@
 #cloud-config
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- See https://yuruna.link/vmconfig and https://yuruna.link/stash-service
+# --- REGION: https://yuruna.link/vmconfig and https://yuruna.link/stash-service
 # Cloud-init for the stash-service VM: ssh + console login, mount the stash
 # share (ystash-nas), fetch the framework, then run the bring-up script that
 # builds + launches the daemon. `users:` without `- default` suppresses the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module -Name (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.VMCleanup.psm1') -Force
 Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 
-# === Warning ===
+# --- REGION: Warning
 Write-CleanupMessage ""
 Write-CleanupMessage "================================================================"
 Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
@@ -63,7 +63,7 @@ if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# === Scan for VM bundles ===
+# --- REGION: Scan for VM bundles
 $scanPath = "$HOME/yuruna/guest.nosync"
 if (-not (Test-Path $scanPath)) {
     Write-CleanupMessage "No yuruna/guest.nosync folder found at '$scanPath'. Nothing to scan."
@@ -98,7 +98,7 @@ System Settings -> Privacy & Security -> Automation -> pwsh -> UTM.
     exit 1
 }
 
-# --- See https://yuruna.link/memory#why-utmctl-list-needs-a-uuid-anchored-parser
+# --- REGION: https://yuruna.link/memory#why-utmctl-list-needs-a-uuid-anchored-parser
 $registeredVMs = @{}
 $registeredUUIDs = @{}
 foreach ($line in $utmOutput) {
@@ -146,7 +146,7 @@ foreach ($bundle in $utmBundles) {
     $bundleMap[$vmName] = $bundle.FullName
 }
 
-# === List registered VMs and their associated files ===
+# --- REGION: List registered VMs and their associated files
 if ($registeredVMs.Count -gt 0) {
     Write-CleanupMessage "Currently registered VMs and their associated bundle files:"
     Write-CleanupMessage ""
@@ -169,7 +169,7 @@ foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
     Write-CleanupMessage ""
 }
 
-# === Identify orphaned bundles (excluding base images) ===
+# --- REGION: Identify orphaned bundles (excluding base images)
 $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $protectedItems = [System.Collections.Generic.List[hashtable]]::new()
 
@@ -206,7 +206,7 @@ foreach ($vmName in $bundleMap.Keys) {
     }
 }
 
-# === List protected base images ===
+# --- REGION: List protected base images
 if ($protectedItems.Count -gt 0) {
     Write-CleanupMessage "The following base images are KEPT (not associated with a registered VM, but needed as base images):"
     Write-CleanupMessage ""
@@ -219,7 +219,7 @@ if ($protectedItems.Count -gt 0) {
     Write-CleanupMessage ""
 }
 
-# === Delete orphaned bundles ===
+# --- REGION: Delete orphaned bundles
 if ($orphanedItems.Count -eq 0) {
     Write-CleanupMessage "No orphaned VM bundles found. Nothing to clean up."
     exit 0
@@ -288,7 +288,7 @@ foreach ($item in $orphanedItems) {
     }
 }
 
-# === Cleanup result ===
+# --- REGION: Cleanup result
 Write-CleanupMessage ""
 if ($errors -eq 0) {
     Write-CleanupMessage "Cleanup complete. All orphaned bundles deleted."

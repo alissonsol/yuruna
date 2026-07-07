@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -249,6 +249,11 @@ function New-RunnerConfigState {
         VmBootDelay          = $defaults.VmBootDelay
         GetImageRefreshHours = $defaults.GetImageRefreshHours
         CycleDelay           = $defaults.CycleDelay
+        # Consecutive Sync-RunnerCycleConfig 'failed' reloads and a one-shot latch,
+        # so a sustained config-reload outage (the runner coasting on stale config)
+        # is surfaced once instead of degrading silently. Reset on any good reload.
+        SyncFailedStreak     = 0
+        SyncFailureWarned    = $false
     }
 }
 
@@ -330,6 +335,43 @@ function Resolve-RunnerLogLevel {
     $cfg = $State.Config
     $configLevel = if ($cfg -is [System.Collections.IDictionary] -and $cfg.Contains('logLevel')) { [string]$cfg.logLevel } else { $null }
     $null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $State.CmdLineLogLevel -ConfigLevel $configLevel
+}
+
+# Per-step config-reload hook for the inner loop: re-read test.config.yml into
+# $State (Sync-RunnerCycleConfig) and refresh the per-step log level
+# (Resolve-RunnerLogLevel) in one call, so a step boundary is a single call plus
+# the knob mirror rather than the reload/log-level pair repeated after every step.
+# It also captures Sync-RunnerCycleConfig's result to track a sustained reload
+# outage: the primitive warns per failed reload, but a run of consecutive failures
+# means the runner is coasting on the last good config, so that is surfaced once,
+# loudly, instead of degrading silently.
+function Sync-RunnerStepConfig {
+<#
+.SYNOPSIS
+    Inner-loop per-step config hook: Sync-RunnerCycleConfig + Resolve-RunnerLogLevel
+    in one call, with a one-shot warning when config reloads fail repeatedly.
+.DESCRIPTION
+    The caller mirrors the refreshed knobs off $State after this returns. The
+    consecutive-failure counter and its one-shot latch live on $State
+    (SyncFailedStreak / SyncFailureWarned) and reset on any successful reload.
+#>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][string]$ConfigPath
+    )
+    $syncResult = Sync-RunnerCycleConfig -State $State -ConfigPath $ConfigPath
+    if ($syncResult -eq 'failed') {
+        $State.SyncFailedStreak = [int]$State.SyncFailedStreak + 1
+        if ($State.SyncFailedStreak -ge 3 -and -not $State.SyncFailureWarned) {
+            $State.SyncFailureWarned = $true
+            Write-Warning "Config reload from '$ConfigPath' has failed $($State.SyncFailedStreak) times in a row -- the runner is coasting on the last good config. The file may be mid-edit or corrupt; reloadable knobs (logLevel, timeouts, cycleDelay) stay frozen until a reload succeeds."
+        }
+    } else {
+        $State.SyncFailedStreak = 0
+        $State.SyncFailureWarned = $false
+    }
+    $null = Resolve-RunnerLogLevel -State $State
 }
 
 # === Failure-artifact capture for remote inspection ===
@@ -694,7 +736,7 @@ while ($true) {
     Write-Output "  (inner cycle starting -- local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
     Write-Output "============================================="
 
-    # --- Authentication vault: fresh per cycle ---
+    # --- REGION: Authentication vault: fresh per cycle
     # Initialize-VaultConnection creates an empty vault.yml if missing.
     # If a prior failed cycle left one in place, we reuse it as a
     # debugging aid. On cycle success the vault is wiped further down.
@@ -712,7 +754,7 @@ while ($true) {
     # populates the fully-shaped doc once the guest list is known.
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
 
-    # --- Git pull ---
+    # --- REGION: Git pull
     # Unconditional single-shot pull at cycle start by design. Gating on
     # `git ls-remote HEAD` SHA vs local to skip no-op fetches would be
     # two round-trips to github.com (ls-remote + pull) where one already
@@ -831,7 +873,7 @@ while ($true) {
     }
     $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
 
-    # --- Refresh <RepoRoot>/project from test.config.yml's repositories.projectUrl ---
+    # --- REGION: Refresh <RepoRoot>/project from test.config.yml's repositories.projectUrl
     # Cycle starts from a clean project tree so previous cycle artifacts
     # (resources.output*.yml, helm renders, generated kubeconfigs) cannot
     # leak forward. Skipped when repositories.projectUrl is empty - that path is
@@ -897,7 +939,7 @@ while ($true) {
         break
     }
 
-    # --- Capture project repo HEAD ---
+    # --- REGION: Capture project repo HEAD
     # Now that the project is freshly cloned at <RepoRoot>/project/, snapshot
     # its HEAD short-SHA so the dashboard can link both repos' latest changes
     # for this cycle. Empty/skipped repositories.projectUrl (in-tree fallback path)
@@ -913,7 +955,7 @@ while ($true) {
         }
     }
 
-    # --- Unconditional working-tree-drift warning ---
+    # --- REGION: Unconditional working-tree-drift warning
     # /yuruna-archive.tar.gz and /yuruna-project-archive.tar.gz only ship
     # COMMITTED content (`git archive HEAD`). Surface uncommitted local
     # changes via Write-Warning -- bypasses logLevel -- so the operator
@@ -921,7 +963,7 @@ while ($true) {
     # trap caused by host code referencing a path that isn't yet in HEAD.
     Write-UncommittedChangesWarning -RepoRoot $RepoRoot -ProjectUrl $projUrl
 
-    # --- Re-import modules so a mid-run `git pull` propagates code changes ---
+    # --- REGION: Re-import modules so a mid-run `git pull` propagates code changes
     # Unconditional, both platforms: same guarantee regardless of how the
     # cycle loop is structured. The failure class this guards against: on
     # macOS (which loops in-process via `continue` near the bottom of the
@@ -953,14 +995,14 @@ while ($true) {
     # "Wait-VMRunning is not recognized" without this defense.
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-    # --- Re-read config (may have changed via git pull); sync against template ---
+    # --- REGION: Re-read config (may have changed via git pull); sync against template
     try {
         $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
     } catch {
         Write-Warning "Could not reload config after git pull, using previous config: $_"
     }
 
-    # --- Restart status server to pick up any file/config changes ---
+    # --- REGION: Restart status server to pick up any file/config changes
     # -Restart forces a relaunch so a mid-cycle git pull / config edit is
     # reflected; the shared gate honors isEnabled / -NoServer / port identically
     # to the startup path and Test-Sequence.
@@ -1076,7 +1118,7 @@ while ($true) {
         }
     }
 
-    # --- Capability gate ----------------------------------------------------
+    # --- REGION: Capability gate
     # Print the matrix once per cycle (helps post-mortem readers in the
     # cycle log) and refuse the cycle when the plan references a host
     # I/O action no backend on this host has registered — catching it
@@ -1130,7 +1172,7 @@ while ($true) {
         $VMNames[$GuestKey] = Get-TestVMName -GuestKey $GuestKey -Prefix $Prefix -HostId $_poolHostId
     }
 
-    # --- Derive step list from cycle plan and screenshot schedules ---
+    # --- REGION: Derive step list from cycle plan and screenshot schedules
     # $hasExtensions is true iff the cycle plan has any non-start sequence
     # for any guest (since Start-GuestWorkload now runs the workload-phase
     # sequences from the plan rather than discovering .ps1 files).
@@ -1165,7 +1207,7 @@ while ($true) {
     $GetImageRefreshHours = $reloadable.GetImageRefreshHours
     $StopOnFailure        = $reloadable.StopOnFailure
 
-    # --- Initialize status for this cycle ---
+    # --- REGION: Initialize status for this cycle
     # Build the gitCommits array: framework FIRST (the dashboard's
     # logFileUrl helper treats element [0] as the primary log key, and
     # the framework SHA is what Start-LogFile actually used to name
@@ -1203,7 +1245,7 @@ while ($true) {
         }
     }
 
-    # --- Start log file (transcript captures console output) ---
+    # --- REGION: Start log file (transcript captures console output)
     # CycleNumber is read AFTER Initialize-StatusDocument so it sees the
     # incremented value (1, 2, 3, ...). Drives the 6-digit prefix in the
     # cycleFolder name; Start-LogFile also publishes the folder URL onto
@@ -1213,7 +1255,7 @@ while ($true) {
     $LogFile = Start-LogFile -TestRoot $TestRoot -CycleId $CycleId -Hostname (hostname) -CycleNumber $CycleNumber
     Write-Output "Log file: $LogFile"
 
-    # --- Cycle-start host diagnostic ---
+    # --- REGION: Cycle-start host diagnostic
     # Capture host state at cycle start so a cycle that later gets stuck
     # still leaves behind a baseline of host facts (docker/kubectl state,
     # disk pressure, listening sockets, recent kernel events, top
@@ -1387,7 +1429,7 @@ while ($true) {
         }
     }
 
-    # --- Abort cycle early if a pre-pipeline step failed under shouldStopOnFailure ---
+    # --- REGION: Abort cycle early if a pre-pipeline step failed under shouldStopOnFailure
     if ($StopOnFailure -and -not $OverallPassed) {
         Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount)
         $prePipelineReason = if ($FailedGuest -and $FailedStep) { "$FailedGuest / $FailedStep (pre-pipeline)" } else { 'shouldStopOnFailure tripped pre-pipeline' }
@@ -1395,7 +1437,7 @@ while ($true) {
         break
     }
 
-    # --- Cycle-start VM sweep -------------------------------------------------
+    # --- REGION: Cycle-start VM sweep
     # Remove every test-<prefix>* VM left over from a previous cycle that was
     # killed before its teardown ran (e.g. stepTimeoutMinutes firing mid-
     # sequence, or the outer being SIGKILL'd). The per-guest "Cleanup previous
@@ -1433,7 +1475,7 @@ while ($true) {
     # global contract for the sequence engine.
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-    # --- Test each guest sequentially: cleanup → create → start → verify → screenshots → pool test → stop ---
+    # --- REGION: Test each guest sequentially: cleanup → create → start → verify → screenshots → pool test → stop
     # One guest VM at a time, so failures don't leave other VMs active.
     foreach ($GuestKey in $GuestList) {
         if ($ShutdownState['Requested']) {
@@ -1486,7 +1528,7 @@ while ($true) {
             Set-GuestFailureArtifact -GuestKey $GuestKey -RelativeUrl "log/$cycleBaseName/$VMName/"
         }
 
-        # --- Cleanup stale per-VM failure artifacts from prior cycles ---
+        # --- REGION: Cleanup stale per-VM failure artifacts from prior cycles
         # failure_screenshot_<VM>.png and failure_ocr_<VM>.txt still live
         # at the YURUNA_LOG_DIR root (shared across cycles, keyed only by
         # VM name) so without this drop, a later cycle that fails before
@@ -1503,10 +1545,10 @@ while ($true) {
         Remove-Item -LiteralPath $staleScreen -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $staleOcr    -Force -ErrorAction SilentlyContinue
 
-        # --- Cleanup previous VM ---
+        # --- REGION: Cleanup previous VM
         Remove-GuestVMQuietly -VMName $VMName -SkipStop
 
-        # --- New-VM ---
+        # --- REGION: New-VM
         Set-GuestVMName -GuestKey $GuestKey -VMName $VMName
         Set-GuestStatus -GuestKey $GuestKey -Status "running"
         # Surface the cycle-plan top-level workload(s) covering this
@@ -1552,9 +1594,8 @@ while ($true) {
         } else {
             $r = New-VM -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName -CachingProxyUrl $newVmProxy -Confirm:$false
         }
-        $null = Sync-RunnerCycleConfig -State $cfg -ConfigPath $ConfigPath
+        Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
         $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
-        $null = Resolve-RunnerLogLevel -State $cfg
         if ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
             $prov = Get-GuestProvenance -GuestKey $GuestKey
@@ -1582,13 +1623,12 @@ while ($true) {
             continue
         }
 
-        # --- Start-VM ---
+        # --- REGION: Start-VM
         Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-VM" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "running"
         $r = Start-VM -VMName $VMName -Confirm:$false
-        $null = Sync-RunnerCycleConfig -State $cfg -ConfigPath $ConfigPath
+        Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
         $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
-        $null = Resolve-RunnerLogLevel -State $cfg
         if ($r.success) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "pass"
             # Resolve the guest's host-side IP so the operator can ssh /
@@ -1632,7 +1672,7 @@ while ($true) {
             continue
         }
 
-        # --- Start-GuestOS (start.guest.* sequences from the cycle plan) ---
+        # --- REGION: Start-GuestOS (start.guest.* sequences from the cycle plan)
         Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-GuestOS" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "running"
         $startSeqs       = @()
@@ -1656,9 +1696,8 @@ while ($true) {
             }
         }
         $r = Start-GuestOS -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -SequenceNames $startSeqs -EffectiveVariables $cascadeVarsMap
-        $null = Sync-RunnerCycleConfig -State $cfg -ConfigPath $ConfigPath
+        Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
         $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
-        $null = Resolve-RunnerLogLevel -State $cfg
         if ($r.skipped) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "skipped" -Skipped $true
         } elseif ($r.success) {
@@ -1680,14 +1719,13 @@ while ($true) {
             continue
         }
 
-        # --- New-VM.Resource (poll until running, wait boot delay) ---
+        # --- REGION: New-VM.Resource (poll until running, wait boot delay)
         Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "New-VM.Resource" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "New-VM.Resource" -Status "running"
         $ok = Wait-VMRunning -VMName $VMName `
             -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
-        $null = Sync-RunnerCycleConfig -State $cfg -ConfigPath $ConfigPath
+        Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
         $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
-        $null = Resolve-RunnerLogLevel -State $cfg
         if (-not $ok) {
             $err = "VM '$VMName' did not reach running state after start."
             Write-Warning "  ERROR [$GuestKey / New-VM.Resource]: $err"
@@ -1708,15 +1746,14 @@ while ($true) {
         Write-Output "  $GuestKey New-VM.Resource: PASS"
         Set-StepStatus -GuestKey $GuestKey -StepName "New-VM.Resource" -Status "pass"
 
-        # --- Screenshots (compare against trained references) ---
+        # --- REGION: Screenshots (compare against trained references)
         if ($hasScreenshots) {
             Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Screenshots" -GuestKey $GuestKey
             Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "running"
             $r = Invoke-ScreenshotTest -GuestKey $GuestKey `
                 -VMName $VMName -ScreenshotsDir $ScreenshotsDir
-            $null = Sync-RunnerCycleConfig -State $cfg -ConfigPath $ConfigPath
+            Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
             $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
-            $null = Resolve-RunnerLogLevel -State $cfg
             if ($r.skipped) {
                 Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "skipped" -Skipped $true
             } elseif ($r.success) {
@@ -1738,14 +1775,13 @@ while ($true) {
             }
         }
 
-        # --- Start-GuestWorkload (workload sequences from the cycle plan) ---
+        # --- REGION: Start-GuestWorkload (workload sequences from the cycle plan)
         if ($hasExtensions) {
             Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-GuestWorkload" -GuestKey $GuestKey
             Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "running"
             $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap
-            $null = Sync-RunnerCycleConfig -State $cfg -ConfigPath $ConfigPath
+            Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
             $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
-            $null = Resolve-RunnerLogLevel -State $cfg
             if ($r.skipped) {
                 Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "skipped" -Skipped $true
             } elseif ($r.success) {
@@ -1784,7 +1820,7 @@ while ($true) {
             }
         }
 
-        # --- Stop and remove this guest VM before starting the next ---
+        # --- REGION: Stop and remove this guest VM before starting the next
         Set-GuestStatus -GuestKey $GuestKey -Status "pass"
         Write-Output "  ${GuestKey}: PASS"
         # Guest passed → discard the per-VM ring-buffer of pre-OCR screen
@@ -1846,9 +1882,8 @@ while ($true) {
         $ConsecutiveCrashes = 0
         # Final reload so an edit made during the last step's cleanup
         # affects the cycle-end abort decision (matches per-step semantics).
-        $null = Sync-RunnerCycleConfig -State $cfg -ConfigPath $ConfigPath
+        Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
         $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
-        $null = Resolve-RunnerLogLevel -State $cfg
         if ($StopOnFailure) {
             break
         }
@@ -1925,7 +1960,7 @@ while ($true) {
     }
 
   } catch {
-    # --- Cycle-restart abort (expected) -----------------------------------
+    # --- REGION: Cycle-restart abort (expected)
     # Invoke-Sequence's per-step gate throws "YurunaCycleRestart: ..." when
     # /control/start-cycle requests an abort mid-cycle. This is the
     # operator clicking "Save and start cycle" while a cycle is actively
@@ -1971,7 +2006,7 @@ while ($true) {
         $script:CycleRestartHandled = $false
     }
     if (-not $script:CycleRestartHandled) {
-    # --- Unhandled exception in cycle — emergency cleanup ---
+    # --- REGION: Unhandled exception in cycle — emergency cleanup
     $ConsecutiveCrashes++
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -2232,4 +2267,5 @@ Export-ModuleMember -Function `
     Write-InnerLog, Convert-LocalRepoUrlToPath, `
     Write-UncommittedChangesWarning, Assert-CachingProxyStillReachable, `
     Get-RunnerReloadableConfig, New-RunnerConfigState, Sync-RunnerCycleConfig, `
+    Sync-RunnerStepConfig, `
     Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Invoke-RunnerInnerCycle

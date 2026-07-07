@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     Run this script in an elevated PowerShell terminal.
 #>
 
-# ===== Ensure running as Administrator =====
+# --- REGION: Ensure running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
     Write-Output "=============================================================="
@@ -33,10 +33,10 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# ===== Ensure execution policy allows scripts =====
+# --- REGION: Ensure execution policy allows scripts
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 
-# ===== Detect architecture =====
+# --- REGION: Detect architecture
 $arch = $env:PROCESSOR_ARCHITECTURE
 Write-Output "Detected architecture: $arch"
 switch ($arch) {
@@ -49,7 +49,7 @@ switch ($arch) {
     }
 }
 
-# ===== Ensure PowerShell is installed =====
+# --- REGION: Ensure PowerShell is installed
 Write-Output ""
 Write-Output ">>> Checking for PowerShell 7..."
 $pwshPath = Get-Command pwsh -ErrorAction SilentlyContinue
@@ -63,7 +63,7 @@ if (-not $pwshPath) {
     Write-Output "PowerShell 7 found at $($pwshPath.Source)"
 }
 
-# ===== Install powershell-yaml module =====
+# --- REGION: Install powershell-yaml module
 # Installed for all users via pwsh 7 (not Windows PowerShell 5.1) so the
 # module lands in the same PSModulePath the in-guest sequence planner and
 # Get-SystemDiagnostic.ps1 use. Administrator elevation (checked at the
@@ -89,7 +89,7 @@ if (-not $yamlOk) {
 }
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
-# ===== Early yuruna framework extraction (host-side diagnostic prereq) =====
+# --- REGION: Early yuruna framework extraction (host-side diagnostic prereq)
 # The host's failure-path diagnostic shells back as
 # `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
 # If a later step in this script stalls the cycle watchdog fires, the
@@ -136,7 +136,7 @@ if ($env:YURUNA_HOST_IP -and $env:YURUNA_HOST_PORT -and -not (Test-Path -Literal
     Write-Output "yuruna: host.env not present or yuruna already extracted -- skipping early extract."
 }
 
-# ===== Disable services that may suspend the machine =====
+# --- REGION: Disable services that may suspend the machine
 # Mirrors the Linux `systemctl mask sleep.target ...` block. Test cycles
 # must not be interrupted by standby/hibernate/monitor-off. powercfg
 # applies to the active power scheme; `/hibernate off` disables the
@@ -153,7 +153,7 @@ powercfg /change monitor-timeout-ac 0 | Out-Null
 powercfg /change monitor-timeout-dc 0 | Out-Null
 powercfg /hibernate off 2>$null
 
-# ===== Update system packages =====
+# --- REGION: Update system packages
 Write-Output ""
 Write-Output ">>> Updating winget packages..."
 winget upgrade --all --accept-source-agreements --accept-package-agreements --silent
@@ -187,7 +187,7 @@ if (Wait-Job -Job $wuJob -Timeout $wuTimeoutSec) {
 Remove-Job -Job $wuJob -Force -ErrorAction SilentlyContinue
 Write-Output "<<< Windows update check complete."
 
-# ===== Ensure Git is installed =====
+# --- REGION: Ensure Git is installed
 Write-Output ""
 Write-Output ">>> Ensuring Git is installed..."
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -200,8 +200,8 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 git --version
 Write-Output "<<< Git ready."
 
-# ===== Materialize the yuruna framework and project repos =====
-# --- See https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+# --- REGION: Materialize the yuruna framework and project repos
+# --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
 # Two-stage materialization, identical in spirit to the Linux scripts:
 #   1. Tarball from the host status server when YURUNA_HOST_IP/PORT are
 #      set (typically populated by C:\ProgramData\yuruna\host.env --
@@ -301,7 +301,7 @@ if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
     }
 }
 
-# ===== Clean up temporary files =====
+# --- REGION: Clean up temporary files
 Write-Output ""
 Write-Output ">>> Cleaning up temporary files..."
 Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue

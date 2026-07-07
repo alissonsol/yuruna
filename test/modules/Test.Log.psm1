@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,6 +169,13 @@ function Invoke-CycleLogRotation {
         [Parameter(Mandatory)][string]$LogDir
     )
     if (-not (Test-Path -LiteralPath $LogDir)) { return 0 }
+    # Cheap pre-count: enumerate names only and bail before the Sort-Object when
+    # below the cap (the common per-cycle case), so the steady-state per-cycle cost
+    # is a directory listing rather than a full sort of up to CycleHistoryLimit
+    # folders. The full listing + sort runs only when a rotation actually fires.
+    $cycleCount = @(Get-ChildItem -LiteralPath $LogDir -Directory -Name -ErrorAction SilentlyContinue |
+        Where-Object { $_ -match '^\d{6}\..+\..+\..+' }).Count
+    if ($cycleCount -lt $script:CycleHistoryLimit) { return 0 }
     $cycleFolders = @(Get-ChildItem -LiteralPath $LogDir -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match '^\d{6}\..+\..+\..+' } |
         Sort-Object Name -Descending)

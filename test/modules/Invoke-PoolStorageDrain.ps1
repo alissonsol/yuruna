@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d7e6c5-b4a3-4928-8f16-5a4b3c2d1e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,7 +54,7 @@ if ([string]::IsNullOrWhiteSpace($HostId) -and (Get-Command Get-YurunaHostId -Er
 if ([string]::IsNullOrWhiteSpace($HostId)) { $HostId = 'unknown-host' }
 if (-not (Test-Path -LiteralPath $runtimeDir)) { New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null }
 
-# --- single-instance lock (pidfile, hardened) ---------------------------------
+# --- REGION: single-instance lock (pidfile, hardened)
 # Acquisition is ATOMIC via [File]::Open CreateNew (an OS create-if-not-exists),
 # not a check-then-write, so two near-simultaneous drains can't both win. The
 # lock records PID + the holder's process StartTime; the liveness check requires

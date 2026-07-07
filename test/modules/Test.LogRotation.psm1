@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42ef9d8b-c7a6-4d34-9182-3d4e5f6a7bc8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,9 +77,11 @@ function Test-LogRotationDue {
     .DESCRIPTION
         The actual rotation check is cheap (one Get-Item.Length) but
         a high-frequency writer (Write-VaultEvent in a tight loop)
-        would still pay it on every event. This predicate caches the
-        last check time per-path and returns $false until
-        CheckIntervalSeconds has elapsed since the prior $true.
+        would still pay it on every event. This predicate reads the
+        per-path last-check time and returns $false until
+        CheckIntervalSeconds has elapsed. It does NOT record the time:
+        Invoke-LogRotation stamps it only after a size check actually
+        completes, so a transient read failure does not burn the window.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -93,7 +95,6 @@ function Test-LogRotationDue {
             return $false
         }
     }
-    $script:LastChecked[$abs] = $now
     return $true
 }
 
@@ -130,9 +131,18 @@ function Invoke-LogRotation {
     if (-not $Force -and -not (Test-LogRotationDue -Path $Path)) { return $false }
     $size = 0
     try { $size = (Get-Item -LiteralPath $Path -ErrorAction Stop).Length } catch {
+        # Do NOT stamp the throttle on a failed read -- the next call should retry
+        # immediately rather than wait out the interval on a transient FS error.
         Write-Verbose "Invoke-LogRotation: size check failed for $Path : $($_.Exception.Message)"
         return $false
     }
+    # The size check completed: record it against the per-path throttle so a
+    # high-frequency writer re-checks at most once per CheckIntervalSeconds. Keyed
+    # identically to Test-LogRotationDue (GetFullPath) so the read and the stamp
+    # share one entry.
+    $throttleKey = $Path
+    try { $throttleKey = [System.IO.Path]::GetFullPath($Path) } catch { $null = $_ }
+    $script:LastChecked[$throttleKey] = Get-Date
     if ($size -lt $MaxBytes) { return $false }
     if (-not $PSCmdlet.ShouldProcess($Path, "Rotate (size=$size threshold=$MaxBytes)")) { return $false }
     # Drop the eldest if it exists. Without this, the for-loop below
@@ -158,6 +168,15 @@ function Invoke-LogRotation {
     } catch {
         Write-Verbose "Invoke-LogRotation: rotate live file failed: $($_.Exception.Message)"
         return $false
+    }
+    # Recreate an empty live file immediately so there is no window in which the
+    # live path is absent (a concurrent reader/tailer always sees a file). The
+    # Add-Content that follows would create it anyway; doing it here closes the
+    # gap. Guarded so a writer that already recreated it in the interim is not
+    # truncated.
+    if (-not (Test-Path -LiteralPath $Path)) {
+        try { New-Item -ItemType File -Path $Path -Force -ErrorAction Stop | Out-Null }
+        catch { Write-Verbose "Invoke-LogRotation: recreate live file failed: $($_.Exception.Message)" }
     }
     return $true
 }

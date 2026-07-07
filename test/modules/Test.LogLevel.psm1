@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 425458ca-5060-4a2d-b2e3-2fb297ec265e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,11 @@ $script:LogLevelRank = [ordered]@{
     Debug       = 5
 }
 
+# The caller's ProgressPreference, captured the first time
+# Set-LogLevelPreference suppresses it (at Verbose/Debug) and restored when the
+# level rises back above Verbose. $null means "nothing suppressed to restore".
+$script:SavedProgressPreference = $null
+
 function Get-LogLevelRank {
     <#
     .SYNOPSIS
@@ -64,9 +69,20 @@ function Set-LogLevelPreference {
     $global:InformationPreference = if ($script:LogLevelRank.Information -le $eff) { 'Continue' } else { 'SilentlyContinue' }
     $global:VerbosePreference     = if ($script:LogLevelRank.Verbose     -le $eff) { 'Continue' } else { 'SilentlyContinue' }
     $global:DebugPreference       = if ($script:LogLevelRank.Debug       -le $eff) { 'Continue' } else { 'SilentlyContinue' }
-    # Verbose and below want a quiet progress bar — Write-Progress otherwise
+    # Verbose and below want a quiet progress bar -- Write-Progress otherwise
     # overwrites the per-poll OCR debug lines and makes the transcript unreadable.
-    if ($eff -ge $script:LogLevelRank.Verbose) { $global:ProgressPreference = 'SilentlyContinue' }
+    # Restore is symmetric with the four stream preferences above, but puts back
+    # the CAPTURED value rather than forcing 'Continue': a caller that set
+    # SilentlyContinue for a reason (Write-Progress trips SetCursorPosition on
+    # tmux/vscode/sshd -- feedback_pwsh_linux_write_progress_setcursor) keeps its
+    # choice instead of having the progress bar force-enabled under it.
+    if ($eff -ge $script:LogLevelRank.Verbose) {
+        if ($null -eq $script:SavedProgressPreference) { $script:SavedProgressPreference = $global:ProgressPreference }
+        $global:ProgressPreference = 'SilentlyContinue'
+    } elseif ($null -ne $script:SavedProgressPreference) {
+        $global:ProgressPreference = $script:SavedProgressPreference
+        $script:SavedProgressPreference = $null
+    }
 }
 
 function Resolve-LogLevel {

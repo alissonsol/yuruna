@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 4292b214-b454-46f0-976c-81a548f8de5d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,7 +121,7 @@ function Stop-WithReason {
     exit $Code
 }
 
-# --- Pre-flight: repo layout ------------------------------------------------
+# --- REGION: Pre-flight: repo layout
 if (-not (Test-Path -LiteralPath $InnerScript)) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason "Inner test runner not found at $InnerScript. The yuruna repo layout appears wrong; verify your clone is intact."
@@ -136,7 +136,7 @@ and set repositories.projectUrl before re-running.
 "@
 }
 
-# --- Pre-flight: powershell-yaml + projectUrl --------------------------------
+# --- REGION: Pre-flight: powershell-yaml + projectUrl
 if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight' `
         -Reason "powershell-yaml is not installed. Install with: Install-Module powershell-yaml -Scope CurrentUser"
@@ -164,7 +164,7 @@ Set repositories.projectUrl to a clonable URL and retry.
 "@
 }
 
-# --- Bootstrap runtime + log dirs ------------------------------------------
+# --- REGION: Bootstrap runtime + log dirs
 # Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir publish
 # YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR; the inner inherits them so its
 # pidfile, heartbeats, status.json, and per-cycle log all land in the
@@ -217,7 +217,7 @@ Write-Output "  Inner:      $InnerScript"
 Write-Output "  Stop:       Ctrl+C (or completes when the inner exits)"
 Write-Output '============================================='
 
-# --- Pre-cycle config gate (mirrors Invoke-TestRunner + Test-Sequence) -------
+# --- REGION: Pre-cycle config gate (mirrors Invoke-TestRunner + Test-Sequence)
 # Test-Project re-clones the project then runs one cycle. Without this gate
 # a misconfigured framework config (vault, users, transports) would only
 # surface mid-cycle as a confusing step failure. Bypass with -NoConfigGate
@@ -228,7 +228,7 @@ if (-not $gate.passed) {
         -Reason "Test-Config.ps1 exited $($gate.exitCode). Fix the FAIL items above (test.config.yml, vault.yml, users.yml, transports.yml, ...) then re-run. To bypass for an in-progress edit, pass -NoConfigGate."
 }
 
-# --- Step 1+2: wipe + re-clone project --------------------------------------
+# --- REGION: Step 1+2: wipe + re-clone project
 # Update-ProjectClone is the same helper Invoke-TestInnerRunner uses every
 # cycle -- by calling it here, a regression in clone removal, git clone
 # itself, or the safety check (refuse to delete outside RepoRoot) surfaces
@@ -246,7 +246,7 @@ if (-not $cloneRes.success) {
 }
 Write-Output '[Test-Project] Step 1+2: complete.'
 
-# --- Step 3: spawn one inner cycle ------------------------------------------
+# --- REGION: Step 3: spawn one inner cycle
 # Mirror Invoke-TestRunner's spawn pattern so Test-Project exercises the
 # same boundary the recurring runner does:
 #   * call operator (not Start-Process) -- the inner inherits our env,
@@ -296,7 +296,7 @@ try {
 Write-Output ''
 Write-Output "[Test-Project] Step 3: inner cycle exited with code $innerExit."
 
-# --- Step 4: stop -----------------------------------------------------------
+# --- REGION: Step 4: stop
 # Not a repeated process. Surface the inner's exit code so a CI step or
 # upstream wrapper can branch on cycle pass/fail just as if Invoke-Test-
 # InnerRunner had been called directly.

@@ -6,7 +6,7 @@ per-guest `vmconfig/` artifacts (`user-data`, `meta-data`,
 topic collapses to a single line of the form:
 
 ```
-# --- See https://yuruna.link/vmconfig#<topic-slug>
+# --- REGION: https://yuruna.link/vmconfig#<topic-slug>
 ```
 
 The fragment resolves to a `### <topic name>` heading in this file.
@@ -899,7 +899,7 @@ first successful run.
 ## Maintenance notes
 
 - New topics: add a `### <topic name>` section here, then in user-data
-  emit a single line `# --- See https://yuruna.link/vmconfig#<topic-slug>`.
+  emit a single line `# --- REGION: https://yuruna.link/vmconfig#<topic-slug>`.
   Pick heading text whose GitHub-slug is readable — avoid `=`, `/`, `:`,
   `(`, `)` and other punctuation that the slugifier strips silently
   (those make slugs like `console-quiet-quietloglevel3show_statusno`).
@@ -915,6 +915,6 @@ first successful run.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](../README.md)

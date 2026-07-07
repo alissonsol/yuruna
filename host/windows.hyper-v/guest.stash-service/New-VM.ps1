@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # failure that breaks first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
-# === Remove existing VM ===
+# --- REGION: Remove existing VM
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
@@ -83,7 +83,7 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-# === Locate base image ===
+# --- REGION: Seek the base image
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.stash-service"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
@@ -108,7 +108,7 @@ if (!(Test-Path -Path $baseImageFile)) {
     }
 }
 
-# === Create VM disk (copy of base image) ===
+# --- REGION: Copy base image -> per-VM disk
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
@@ -117,7 +117,7 @@ $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
 Write-Output "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
 
-# === Generate cloud-init seed ISO ===
+# --- REGION: Generate cloud-init seed ISO
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 # 4-digit entropy is weak by design (10k cases) but enough to defeat
@@ -130,6 +130,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
 
+# --- REGION: Yuruna harness SSH key + vault password
 # Yuruna harness SSH key + vault-managed yuruna password. Shared with the
 # caching-proxy and the test guests under the same username, so a single
 # vault entry serves every VM the harness creates.
@@ -144,7 +145,7 @@ if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# === Pick a vSwitch (BEFORE the seed render) ===
+# --- REGION: Pick a vSwitch (BEFORE building user-data)
 # The share + source coordinates baked into cloud-init depend on the chosen
 # network, so resolve it first. Prefer Yuruna-External so the VM gets a LAN
 # IP and can reach the NAS + the host status server; fall back to Default
@@ -206,7 +207,7 @@ Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VM
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# === Create and configure Hyper-V VM ===
+# --- REGION: Create and configure Hyper-V VM
 # 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
 # + future in-VM UI. Roughly 4x caching-proxy's working-set baseline at
 # 1/3 of its cache_mem allocation -- room to grow without locking the
@@ -217,7 +218,7 @@ Set-VM -Name $VMName -MemoryStartupBytes 8GB -MemoryMinimumBytes 8GB -MemoryMaxi
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -228,7 +229,7 @@ Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Start VM and wait for IP ===
+# --- REGION: Start VM and wait for IP
 Write-Output "Starting VM '$VMName'..."
 Hyper-V\Start-VM -Name $VMName
 

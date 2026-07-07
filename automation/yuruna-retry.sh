@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -7,7 +7,7 @@
 # scripts. Sourced via /usr/local/lib/yuruna/yuruna-retry.sh after
 # cloud-init deploys this file at install time.
 #
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 
 _yuruna_retry() {
     local label="$1"; shift
@@ -41,12 +41,12 @@ _yuruna_retry() {
 apt_retry() { _yuruna_retry apt_retry "$@"; }
 dnf_retry() { _yuruna_retry dnf_retry "$@"; }
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 curl_retry() {
     _yuruna_retry curl_retry curl --retry 3 --retry-connrefused --retry-delay 5 "$@"
 }
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 # wget counterpart of curl_retry, for the scripts that pipe a remote
 # install.sh straight to bash (nvm, nodesource). The inner --tries/--waitretry
 # rides out a single connection blip; the outer _yuruna_retry loop re-runs the
@@ -55,7 +55,7 @@ wget_try() {
     _yuruna_retry wget_try wget --tries=3 --waitretry=5 --retry-connrefused "$@"
 }
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 pwsh_retry() {
     local log_file="$1"
     if [ -z "$log_file" ]; then

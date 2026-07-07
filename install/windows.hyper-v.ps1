@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,7 +67,7 @@ function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
 function Write-Die  { param([string]$m) Write-Error $m }
 
-# -- Install logging -------------------------------------------------------
+# --- REGION: Install log
 # The elevated relaunch runs in a SEPARATE console window that vanishes the
 # instant the script ends or dies, so a mid-install failure there leaves
 # nothing on screen to read. Transcript every elevated stage to a file under a
@@ -126,12 +126,12 @@ function Stop-InstallLog {
 
 $LogPath = Resolve-InstallLogPath -Provided $LogPath
 
-# -- Preflight: Windows only -----------------------------------------------
+# --- REGION: Preflight: Windows only
 if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
     Write-Die 'This installer only supports Windows.'
 }
 
-# -- Preflight: Hyper-V-capable Windows edition (HARD requirement) ----------
+# --- REGION: Preflight: Hyper-V-capable Windows edition (HARD requirement)
 # Distinct from the "tested baseline" warnings below. Those (low RAM, fewer
 # cores, an untested-but-Hyper-V-capable Windows version) are soft, and the
 # operator may continue past them. A Windows Home / S mode edition is not
@@ -175,7 +175,7 @@ packages are installed or the Hyper-V feature is touched.
 "@
 }
 
-# -- Preflight: system requirements ----------------------------------------
+# --- REGION: Preflight: system requirements
 function Test-SystemRequirement {
     $issues = New-Object System.Collections.Generic.List[string]
     $os = $null
@@ -247,8 +247,8 @@ if (-not $SkipPreflight) {
     Test-SystemRequirement
 }
 
-# -- Preflight: display scaling --------------------------------------------
-# --- See https://yuruna.link/install/explained#display-scaling-check
+# --- REGION: Preflight: display scaling
+# --- REGION: https://yuruna.link/install/explained#display-scaling-check
 function Test-DisplayScaling {
     $asSignedDword = {
         param($raw)
@@ -320,7 +320,7 @@ if (-not $SkipPreflight) {
     Test-DisplayScaling
 }
 
-# -- Single-fetch materialization (irm|iex path) ---------------------------
+# --- REGION: Single-fetch materialization (irm|iex path)
 # Under `irm | iex` there is no $PSCommandPath, so the elevation and PS7
 # relaunches below would each RE-FETCH the installer from the moving ref --
 # extra unverified swings, two of them in the elevated context (the Rank-4
@@ -358,7 +358,7 @@ if (-not $PSCommandPath) {
     return
 }
 
-# -- Elevation announcement + self-relaunch --------------------------------
+# --- REGION: Elevation announcement + self-relaunch
 $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent())
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -416,7 +416,7 @@ Write-Step "  repo   : $YurunaRepo ($YurunaBranch)"
 Write-Step "  target : $YurunaDir"
 Write-Step "  shell  : $((Get-Process -Id $PID).ProcessName) (PowerShell $($PSVersionTable.PSVersion))"
 
-# -- PowerShell 7 bootstrap (PS 5.1 -> PS 7) -------------------------------
+# --- REGION: PowerShell 7 bootstrap (PS 5.1 -> PS 7)
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Step 'Bootstrapping PowerShell 7 (Windows PowerShell 5.x detected)'
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
@@ -477,7 +477,7 @@ re-run this installer.
     return
 }
 
-# -- Status-port lookup (lightweight YAML scan) ----------------------------
+# --- REGION: Status-port lookup (lightweight YAML scan)
 # Read statusService.port from test.config.yml WITHOUT powershell-yaml: the
 # module may not be installed yet at this point in the bootstrap. Returns 0
 # when the file/key is absent so the caller falls back to the 8080 default.
@@ -503,7 +503,7 @@ function Get-StatusServicePort {
     return 0
 }
 
-# -- Stop running Yuruna host services -------------------------------------
+# --- REGION: Stop running Yuruna host services
 # Force-stop anything that would hold the checkout open or block the upgrade
 # (the outer runner, its per-cycle inner pwsh, and the detached status HTTP
 # server), then WAIT for it to actually exit before the caller renames the
@@ -636,7 +636,7 @@ function Stop-YurunaProcess {
     }
 }
 
-# -- Preflight: the checkout is not held open ------------------------------
+# --- REGION: Preflight: the checkout is not held open
 # The update path (below) may have to move the existing checkout aside to
 # re-clone, and Move-Item of a directory is a rename that fails when the
 # folder is held open -- most often a shell sitting inside it (its current
@@ -685,7 +685,7 @@ function Assert-YurunaCheckoutMovable {
     }
 }
 
-# -- yuruna-caching-proxy detection ----------------------------------------
+# --- REGION: yuruna-caching-proxy detection
 function Test-CachingProxyRunning {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -710,7 +710,7 @@ Stop-YurunaProcess -YurunaDir $YurunaDir
 Write-Step 'Checking the Yuruna checkout is not locked by a shell / editor / Explorer'
 Assert-YurunaCheckoutMovable -Dir $YurunaDir
 
-# -- winget availability ---------------------------------------------------
+# --- REGION: winget availability
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     Write-Die @'
 winget is not available on this system. Install "App Installer" from the
@@ -740,7 +740,7 @@ function Install-WingetPackage {
     }
 }
 
-# -- Install platform packages ---------------------------------------------
+# --- REGION: Install platform packages
 Write-Step 'Installing / upgrading required packages via winget'
 # PowerShell 7 itself: do NOT `winget upgrade` the interpreter we are running
 # under. winget's MSI uses the Restart Manager to close every process holding
@@ -770,7 +770,7 @@ foreach ($cmd in 'git','pwsh') {
     }
 }
 
-# -- PowerShell modules ----------------------------------------------------
+# --- REGION: PowerShell modules
 Write-Step 'Installing required PowerShell modules'
 if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
     Write-Step '  powershell-yaml already installed'
@@ -785,7 +785,7 @@ if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinu
     }
 }
 
-# -- Hyper-V feature -------------------------------------------------------
+# --- REGION: Hyper-V feature
 Write-Step 'Enabling Hyper-V Windows Feature (if not already enabled)'
 $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
 $infoOut  = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All 2>&1
@@ -835,7 +835,7 @@ reached here only because preflight was skipped or the edition was unrecognized.
     }
 }
 
-# -- Preserve test/status runtime state ------------------------------------
+# --- REGION: Preserve test/status runtime state
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
 $gitExe = if ($gitCmd) { $gitCmd.Source } else { $null }
 if (-not $gitExe) { Write-Die 'git not found after install -- open a new terminal and re-run.' }
@@ -891,7 +891,7 @@ function Restore-YurunaStatus {
 
 Backup-YurunaStatus
 
-# -- Tolerate a v / no-v tag mismatch --------------------------------------
+# --- REGION: Tolerate a v / no-v tag mismatch
 # Canonical Yuruna release tags are BARE CalVer (YYYY.MM.DD, no 'v'); the
 # release tool (tools/Update-YurunaReleasePins.ps1) validates VERSION as bare
 # CalVer and refuses to create a 'v'-variant. But a human or a tool (or a
@@ -929,7 +929,7 @@ function Resolve-YurunaRef {
     return $Ref
 }
 
-# -- Development repo pulls latest main, not a release tag ------------------
+# --- REGION: Development repo pulls latest main, not a release tag
 # yurunadev is only tagged at the weekly release, so the pinned-CalVer default
 # resolves to nothing mid-week. When the target repo is yurunadev and the
 # operator did not pin a ref explicitly, track 'main' (latest code) instead.
@@ -943,7 +943,7 @@ function Resolve-YurunaDevBranch {
     return $Ref
 }
 
-# -- Clone / update the repo -----------------------------------------------
+# --- REGION: Clone / update the repo
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step "Updating existing Yuruna checkout at $YurunaDir"
     $actualRemote   = (& $gitExe -C $YurunaDir remote get-url origin 2>$null)
@@ -1069,7 +1069,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
     if ($LASTEXITCODE -ne 0) { Write-Die "git clone --branch $YurunaBranch failed (exit $LASTEXITCODE) -- the branch/tag '$YurunaBranch' may not exist on $YurunaRepo. No checkout was created." }
 }
 
-# -- Renormalize line endings under .gitattributes -------------------------
+# --- REGION: Renormalize line endings under .gitattributes
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step 'Renormalizing repo line endings (per .gitattributes)'
     & $gitExe -C $YurunaDir config core.autocrlf input | Out-Null
@@ -1095,7 +1095,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
     }
 }
 
-# -- Pin to the current release (opt-in) -----------------------------------
+# --- REGION: Pin to the current release (opt-in)
 # -PinVersion: now that 'main' is cloned/updated, read the repo's own VERSION
 # file (single source of truth -- top of the repository) and detach HEAD at that
 # release tag so the host freezes there and the per-cycle `git pull` is a no-op.
@@ -1116,7 +1116,7 @@ if ($PinVersion -and -not $script:YurunaBranchExplicit -and (Test-Path (Join-Pat
 }
 Restore-YurunaStatus
 
-# -- Seed test.config.yml from template ------------------------------------
+# --- REGION: Seed test.config.yml from template
 $testDir = Join-Path $YurunaDir 'test'
 $cfg     = Join-Path $testDir 'test.config.yml'
 $tpl     = Join-Path $testDir 'test.config.yml.template'
@@ -1125,7 +1125,7 @@ if (-not (Test-Path $cfg) -and (Test-Path $tpl)) {
     Copy-Item $tpl $cfg
 }
 
-# -- Baseline reset: remove test-* VMs -------------------------------------
+# --- REGION: Baseline reset: remove test-* VMs
 $removeTestVMs = Join-Path $YurunaDir 'test\Remove-TestVMFiles.ps1'
 if ($script:RestartNeeded) {
     Write-Warn 'Skipping test\Remove-TestVMFiles.ps1 until after the pending Hyper-V restart.'
@@ -1145,7 +1145,7 @@ if ($script:RestartNeeded) {
     Write-Warn "test\Remove-TestVMFiles.ps1 not found under $YurunaDir -- skipping test-VM cleanup."
 }
 
-# -- Enable-TestAutomation.ps1 hint ----------------------------------------
+# --- REGION: Enable-TestAutomation.ps1 hint
 $setHost = Join-Path $YurunaDir 'host\windows.hyper-v\Enable-TestAutomation.ps1'
 Write-Step ''
 Write-Step 'Host configuration (test-host setup) is NOT auto-applied.'
@@ -1358,7 +1358,7 @@ $script:InstallSucceeded = $true
     }
 }
 
-# -- Clean up the single-fetch materialization temp ------------------------
+# --- REGION: Clean up the single-fetch materialization temp
 # Only the final stage reaches here (relaunch stages return earlier). When this
 # run arrived via the irm|iex materialization gate, $PSCommandPath is that temp
 # file -- remove it now. A crash before this point leaves it for the >1h sweep

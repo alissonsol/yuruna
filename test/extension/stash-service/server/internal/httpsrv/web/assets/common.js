@@ -27,23 +27,35 @@ const Y = {
   },
 
   async api(path, opts) {
-    const res = await fetch(path, opts);
-    let body = null;
-    try { body = await res.json(); } catch (_) { /* non-JSON */ }
-    if (!res.ok || (body && body.ok === false)) {
-      const msg = (body && body.error) || ('HTTP ' + res.status);
-      const err = new Error(msg);
-      err.status = res.status;
-      err.body = body;
-      throw err;
+    // Bound the request so a stalled daemon cannot hang the page load (and its
+    // footer) forever; the abort surfaces as a thrown error the caller's catch
+    // already handles. opts.timeoutMs overrides the 10s default.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), (opts && opts.timeoutMs) || 10000);
+    try {
+      const res = await fetch(path, Object.assign({}, opts, { signal: controller.signal }));
+      let body = null;
+      try { body = await res.json(); } catch (_) { /* non-JSON */ }
+      if (!res.ok || (body && body.ok === false)) {
+        const msg = (body && body.error) || ('HTTP ' + res.status);
+        const err = new Error(msg);
+        err.status = res.status;
+        err.body = body;
+        throw err;
+      }
+      return body;
+    } finally {
+      clearTimeout(timer);
     }
-    return body;
   },
 
   humanSize(n) {
     if (n == null) return '';
     const u = ['B', 'KB', 'MB', 'GB', 'TB'];
     let i = 0, v = Number(n);
+    // A non-numeric / non-finite size falls back to the same empty placeholder
+    // as null instead of rendering 'NaN B'.
+    if (!Number.isFinite(v)) return '';
     while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
     return (i === 0 ? v : v.toFixed(1)) + ' ' + u[i];
   },
@@ -67,8 +79,10 @@ const Y = {
     }
   },
 
-  rawURL(view) { return '/raw/' + view.hostId + pathTail(view); },
-  downloadURL(view) { return '/download/' + view.hostId + pathTail(view); },
+  // Propagate pathTail's null so a bad permalink yields no link: Y.el skips a
+  // null href/src attribute, rather than building a broken URL from it.
+  rawURL(view) { const tail = pathTail(view); return tail === null ? null : '/raw/' + view.hostId + tail; },
+  downloadURL(view) { const tail = pathTail(view); return tail === null ? null : '/download/' + view.hostId + tail; },
 
   shortHost(h) { return h ? h.slice(0, 8) : '?'; },
 
@@ -150,6 +164,9 @@ function safeUrl(v) {
 // pathTail derives /<yyyy>/<mm>/<dd>/<id> from a view's permalink, which is
 // the authoritative /s/<host>/<yyyy>/<mm>/<dd>/<id> the server built.
 function pathTail(view) {
+  // A malformed view (missing or non-string permalink) returns null instead of
+  // throwing, so one bad row cannot crash the render of every other row.
+  if (!view || typeof view.permalink !== 'string') return null;
   // permalink = /s/<host>/<y>/<m>/<d>/<id>
   const parts = view.permalink.split('/').filter(Boolean); // [s, host, y, m, d, id]
   return '/' + parts.slice(2).join('/');

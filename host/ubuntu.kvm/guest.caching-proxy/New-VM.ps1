@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,7 +65,7 @@ if (-not $IsLinux) {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# -- libvirt-qemu search ACL on $HOME (self-heal) --------------------------
+# --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
 # Ubuntu 24.04+ cloud images create /home/<user> at mode 0750, which
 # blocks the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu
 # processes from traversing $HOME to reach the qcow2 below it. virt-install
@@ -81,7 +81,7 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     }
 }
 
-# === Locate base image ===
+# --- REGION: Seek the base image
 $downloadDir   = "$HOME/yuruna/image/caching-proxy"
 $baseImageName = "host.ubuntu.kvm.guest.caching-proxy"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
@@ -113,7 +113,7 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDi
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Per-VM directory + disk ===
+# --- REGION: Per-VM directory + disk
 # The caching-proxy VM is long-lived (one job: serve the cache to every
 # subsequent guest install), so we COPY the base image into the VM
 # directory rather than chaining a qcow2 overlay against it. Overlay
@@ -127,7 +127,7 @@ $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
 New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
-# === Tear down any existing VM with the same name ===
+# --- REGION: Remove existing VM
 # Idempotent rebuild: destroy + undefine (with --nvram so the EFI vars
 # go with the domain) before laying down new files. virsh returns
 # non-zero when the domain isn't defined; swallow that via `2>$null`.
@@ -152,7 +152,7 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# === Copy base image -> per-VM disk ===
+# --- REGION: Copy base image -> per-VM disk
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 Write-Output "Copying base image to per-VM disk (sparse copy)..."
 # `cp --sparse=always` preserves qcow2 hole semantics on ext4/btrfs/xfs.
@@ -164,7 +164,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# === Yuruna harness SSH key ===
+# --- REGION: Yuruna harness SSH key
 # The harness uses one ed25519 key pair at test/status/ssh/yuruna_ed25519,
 # owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
 # failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
@@ -175,7 +175,7 @@ Import-Module $TestSshModule -Force -DisableNameChecking
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# === Cache-VM yuruna password (cross-host persistence) ===
+# --- REGION: Cache-VM yuruna password
 # Same model as the Hyper-V and macOS UTM caching-proxy New-VM.ps1: the
 # vault persists across cycles (external-auth simulation), but the
 # cache VM's yuruna password also lives in
@@ -203,7 +203,7 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 [void](Save-CachingProxyState -Secret $YurunaPassword -Confirm:$false)
 $PasswordFile = Get-CachingProxyStatePath
 
-# === Render user-data / meta-data ===
+# --- REGION: Render user-data / meta-data
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/caching-proxy.base.user-data'
 $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/caching-proxy.kvm.overlay.yml'
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/caching-proxy.meta-data'
@@ -365,7 +365,7 @@ Write-Output "    virt-viewer --connect $virshUri $VMName"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# === Pick libvirt network ===
+# --- REGION: Pick libvirt network
 # $networkName was resolved above via Resolve-GuestHostBinding (prefers
 # a bridged 'yuruna-external' network so the cache VM gets a real LAN IP via
 # the upstream DHCP server and remote LAN clients reach it directly by IP;
@@ -391,7 +391,7 @@ if ($networkName -eq 'default') {
     Write-Output "Using libvirt network: $networkName (cache VM will get a LAN-routable IP)"
 }
 
-# === virt-install ===
+# --- REGION: virt-install
 # `--import` (no install phase) since the cloud image is bootable.
 # `--events on_reboot=restart` matches the amazon.linux.2023 guest -- a
 # system_reset inside the VM (e.g. unattended-upgrades pulling a kernel)
@@ -432,7 +432,7 @@ if ($LASTEXITCODE -eq 0) {
 # ~10 GB peak squid + ~1.5 GB for the rest of the stack. 4 vCPU stays
 # -- caching is I/O- and memory-bound, not CPU-bound. Swap is masked
 # in user-data, so an OOM event is unrecoverable.
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -479,10 +479,10 @@ if ($virtInstallExit -ne 0) {
     exit 1
 }
 
-# === Cleanup temporary folders ===
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Wait for VM IP ===
+# --- REGION: Wait for VM IP
 # On the bridged 'yuruna-external' network the host is NOT the DHCP
 # server, so `virsh domifaddr` (default --source lease) returns nothing.
 # qemu-guest-agent (installed via cloud-init) lets `--source agent`

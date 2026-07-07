@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# === Seek the base image ===
+# --- REGION: Seek the base image
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward. The Win11 ISO has
 # no machine-fetchable URL -- the per-guest Get-Image.ps1 prints manual-
@@ -111,7 +111,7 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-# === Create copies and files for VM ===
+# --- REGION: Create copies and files for VM
 
 # 512GB dynamically expanding VHDX
 $vmDir = Join-Path $downloadDir $VMName
@@ -184,7 +184,7 @@ Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -206,10 +206,10 @@ Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 
 # Note: EnhancedSessionTransportType only accepts VMBus or HvSocket; disable at host level instead.
 Set-VMHost -EnableEnhancedSessionMode $false
 
-# === Cleanup temporary folders ===
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Guidance ===
+# --- REGION: Guidance
 Write-Verbose "VM '$VMName' created and configured."
 Write-Verbose "The test runner will start the VM, open vmconnect, and send the"
 Write-Verbose "'Press any key to boot from CD/DVD' keystroke automatically."

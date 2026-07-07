@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -769,6 +769,20 @@ function Merge-PoolStorageLedger {
         $replicated = $kept
     }
     $out = [ordered]@{ replicated = $replicated }
+    # Carry forward the prior scalar fields before overlaying $Status: a failure
+    # run supplies a $Status that omits lastCopied (only a successful copy sets
+    # it), so rebuilding purely from $Status would erase the prior run's
+    # lastCopied/lastConnectOk. Seeding from $Ledger first preserves an omitted
+    # key while a key present in $Status still overwrites it. 'replicated' is
+    # skipped -- it is already rebuilt (and pruned to LocalNames) above. This
+    # carries EVERY other ledger key forward (today all status scalars); a ledger
+    # key that must NOT persist across runs would need an explicit exclusion here.
+    if ($Ledger -is [System.Collections.IDictionary]) {
+        foreach ($lk in $Ledger.Keys) {
+            if ([string]$lk -eq 'replicated') { continue }
+            $out[[string]$lk] = $Ledger[$lk]
+        }
+    }
     if ($Status) { foreach ($sk in $Status.Keys) { $out[[string]$sk] = $Status[$sk] } }
     return $out
 }

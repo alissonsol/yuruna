@@ -10,7 +10,7 @@ The source files themselves stay short — each formerly large comment
 block now collapses to a single line of the form:
 
 ```
-# --- See https://yuruna.link/memory#<topic-slug>
+# --- REGION: https://yuruna.link/memory#<topic-slug>
 ```
 
 The fragment resolves to a `### Why <topic>?` heading in this file.
@@ -21,7 +21,7 @@ with hyphens. So `### Why we patch virt-install's phase-1 XML?` becomes
 
 This file is the sibling of [Yuruna definitions](definition.md) (for
 terminology entries) and of [vmconfig topic reference](vmconfig.md)
-(for `user-data` topic rationale). The same `# --- See` convention is
+(for `user-data` topic rationale). The same `# --- REGION:` convention is
 used in all three.
 
 Adding a new entry:
@@ -29,7 +29,7 @@ Adding a new entry:
 1. Pick the source comment block.
 2. Add a `### Why <topic>?` heading here with the migrated content.
 3. Replace the source comment with a single
-   `# --- See https://yuruna.link/memory#<slug>` line (or `// --- See …`
+   `# --- REGION: https://yuruna.link/memory#<slug>` line (or `// --- REGION: …`
    for Go, etc.).
 4. The yuruna.link `memory` key already redirects to this file on
    GitHub — no `yuruna.link.json` edit needed for individual topics.
@@ -241,7 +241,7 @@ Source:
 ### Why the amazonlinux KVM guest uses SeaBIOS, not UEFI?
 
 x86_64 amazon.linux.2023 on KVM uses the libvirt default (i440fx + SeaBIOS).
-Commit `766e0a7` previously switched to UEFI/q35 chasing a
+An earlier approach switched to UEFI/q35 chasing a
 `dracut-initqueue: starting timeout scripts` stall the original author
 observed; that change broke fresh boots with "No bootable option or
 device was found", because the AL2023 KVM cloud image's EFI System
@@ -943,6 +943,6 @@ Source:
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](../README.md)

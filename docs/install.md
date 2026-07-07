@@ -8,8 +8,8 @@ installers:
 - [install/ubuntu.kvm.sh](../install/ubuntu.kvm.sh)
 
 The scripts themselves stay deliberately small — each section in this file
-maps to a `# -- Section name --` divider in the script body. The single
-`# --- See https://yuruna.link/install/explained` line near the top of
+maps to a `# --- REGION: Section name` divider in the script body. The single
+`# --- REGION: https://yuruna.link/install/explained` line near the top of
 each installer is the operator's entry point to this document; from there
 they can navigate to the section that matches the block divider in front
 of the code they are studying.
@@ -18,7 +18,7 @@ Anchors follow the GitHub Markdown rule: lowercase the heading, strip
 punctuation, replace spaces with hyphens. So `## Section name` becomes
 `#section-name`.
 
-The same `# --- See https://yuruna.link/<key>#<slug>` convention is also
+The same `# --- REGION: https://yuruna.link/<key>#<slug>` convention is also
 used by [memory.md](memory.md), [definition.md](definition.md),
 [vmconfig.md](vmconfig.md), and [network.md](network.md).
 
@@ -43,7 +43,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.07.03`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.07.07`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -671,6 +671,6 @@ the first run.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,12 @@
     on Remove-/Set-/etc. but not Hide-; the function still mutates the passed
     config -- the verb signals "redacting from a logged view" not "deleting".
 #>
+
+# The atomic test.config.yml rewrites below route through Test.StateFile's
+# Write-YurunaStateFile. Import it here so EVERY consumer of this module has the
+# primitive in scope -- both the per-cycle Inner runner and the operator validator
+# Test-Config.ps1 -- not only callers that happen to load the full runner module set.
+Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -DisableNameChecking
 
 <#
 .SYNOPSIS
@@ -334,7 +340,7 @@ function Update-TestConfigFromTemplate {
     # next run instead of churning forever).
     $merged = ConvertTo-SortedConfig $merged
 
-    # --- Schema migration (shape departed) -------------------------------
+    # --- REGION: Schema migration (shape departed)
     # The on-disk file no longer matches the template's nested shape (the schema
     # changed). Back the previous file up, then write the value-preserving merge
     # (NOT a bare template reset): every field that still maps to the same path in
@@ -350,7 +356,11 @@ function Update-TestConfigFromTemplate {
         Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
         $dropped = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)
         if ($PSCmdlet.ShouldProcess($ConfigPath, "Migrate to new schema (carry matching values forward)")) {
-            $merged | ConvertTo-Yaml | Set-Content -Path $ConfigPath -Encoding utf8NoBOM
+            # Atomic temp+rename: the status server serves this working tree, so a
+            # non-atomic write would let a concurrent reader catch a torn file.
+            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content ($merged | ConvertTo-Yaml) -Confirm:$false)) {
+                Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
+            }
         }
         if ($dropped.Count -gt 0) {
             $list = ($dropped | ForEach-Object { "      - $_" }) -join "`n"
@@ -380,7 +390,11 @@ The run is stopping so you can review. Restarting will then proceed normally.
     if ($mergedYaml -ne $currentYaml) {
         if ($PSCmdlet.ShouldProcess($ConfigPath, "Rewrite with template overlay")) {
             Write-Information "test.config.yml: applying template overlay to pick up schema changes." -InformationAction Continue
-            $merged | ConvertTo-Yaml | Set-Content -Path $ConfigPath -Encoding utf8NoBOM
+            # Atomic temp+rename: the status server serves this working tree, so a
+            # non-atomic write would let a concurrent reader catch a torn file.
+            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content ($merged | ConvertTo-Yaml) -Confirm:$false)) {
+                Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
+            }
         }
     }
 
@@ -457,8 +471,14 @@ function Sync-TestConfigToTemplate {
             $backupPath = "$ConfigPath.backup"
             Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
         }
-        $canonical | ConvertTo-Yaml | Set-Content -Path $ConfigPath -Encoding utf8NoBOM
-        $wrote = $true
+        # Atomic temp+rename: the status server serves this working tree, so a
+        # non-atomic write would let a concurrent reader catch a torn file. Report Wrote
+        # from the actual result so the operator summary never claims a reconcile that
+        # did not land.
+        $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content ($canonical | ConvertTo-Yaml) -Confirm:$false)
+        if (-not $wrote) {
+            Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
+        }
     }
 
     return [pscustomobject]@{

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42990764-3373-4051-8f39-084f655b6d63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,7 +69,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# -- Validate -----------------------------------------------------------
+# --- REGION: Validate
 if ($AccountName -notmatch '^[A-Za-z_][A-Za-z0-9._-]*$') {
     throw "AccountName '$AccountName' is invalid. Must start with a letter or underscore and contain only ASCII letters, digits, '.', '_', or '-'."
 }
@@ -81,7 +81,7 @@ foreach ($p in @('FirstName', 'LastName')) {
 
 $FullName = "$FirstName $LastName"
 
-# -- Locate users.yml files --------------------------------------------
+# --- REGION: Locate users.yml files
 $TestRoot      = $PSScriptRoot
 $UsersTemplate = Join-Path $TestRoot 'extension/authentication/users.yml.template'
 $UsersRuntime  = Join-Path $TestRoot 'status/extension/authentication/users.yml'
@@ -90,13 +90,13 @@ if (-not (Test-Path -LiteralPath $UsersTemplate)) {
     throw "users.yml.template not found at $UsersTemplate. Is this script under test/ in a Yuruna checkout?"
 }
 
-# -- powershell-yaml dependency ----------------------------------------
+# --- REGION: powershell-yaml dependency
 if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
     throw "powershell-yaml is not installed. Install with: Install-Module powershell-yaml -Scope CurrentUser"
 }
 Import-Module powershell-yaml -Verbose:$false -ErrorAction Stop
 
-# -- Elevation check ---------------------------------------------------
+# --- REGION: Elevation check
 function Test-IsElevated {
     if ($IsWindows) {
         $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -133,7 +133,7 @@ if ($IsWindows) {
     throw "Unsupported OS. This script supports Windows, macOS, and Linux."
 }
 
-# -- Pre-flight: does the OS account already exist? --------------------
+# --- REGION: Pre-flight: does the OS account already exist?
 function Test-OsUser {
     param([string]$Name)
     if ($IsWindows) {
@@ -148,7 +148,7 @@ if (Test-OsUser -Name $AccountName) {
     throw "OS account '$AccountName' already exists on this host. New-LocalTestUser refuses to modify existing accounts."
 }
 
-# -- Pre-flight: does users.yml already declare this name? -------------
+# --- REGION: Pre-flight: does users.yml already declare this name?
 function Test-YurunaUserDeclared {
     param([string]$Name, [string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
@@ -167,7 +167,7 @@ foreach ($p in @($UsersTemplate, $UsersRuntime)) {
     }
 }
 
-# -- Create the OS account ---------------------------------------------
+# --- REGION: Create the OS account
 function New-WindowsLocalUser {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Name, [string]$Display)
@@ -228,7 +228,7 @@ if     ($IsWindows) { New-WindowsLocalUser -Name $AccountName -Display $FullName
 elseif ($IsMacOS)   { New-MacLocalUser     -Name $AccountName -Display $FullName }
 elseif ($IsLinux)   { New-LinuxLocalUser   -Name $AccountName -Display $FullName }
 
-# -- Append to users.yml (runtime + template) --------------------------
+# --- REGION: Append to users.yml (runtime + template)
 # YAML literal preserves the exact formatting used by the committed
 # users.yml.template entries (2-space indent under `users:`, inline-
 # flow `corporate: { domain: "", sam: "", upn: "" }`, padded keys for
@@ -262,7 +262,7 @@ foreach ($p in @($UsersTemplate, $UsersRuntime)) {
     $null = $wrote.Add($p)
 }
 
-# -- Inform the operator -----------------------------------------------
+# --- REGION: Inform the operator
 Write-Information ""
 Write-Information "=========================================================="
 Write-Information "  Local test user created: $AccountName ($FullName)"

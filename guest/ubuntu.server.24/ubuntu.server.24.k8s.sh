@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -27,7 +27,7 @@ case "$ARCH" in
     ;;
 esac
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
 
 echo "== Installing Kubernetes requirements for Ubuntu =="
@@ -169,7 +169,7 @@ echo -e "\e[1;36m==== K8S ====\e[0m"
 apt_retry sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 
-# --- See https://yuruna.link/definition#defining-containerd-hoststoml-cache-mirror
+# --- REGION: https://yuruna.link/definition#defining-containerd-hoststoml-cache-mirror
 sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
@@ -253,7 +253,35 @@ EOF
 sudo sysctl --system
 
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
-sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+
+# kubeadm init is the most failure-prone step (control-plane image pulls, etcd
+# bring-up, kubelet handshake) and, unlike every other network-touching step in
+# this script, was unretried -- a single transient blip on a shared-NAT guest
+# left a half-initialized control plane and aborted the whole sequence. Retry
+# with a full reset between attempts so a transient failure self-heals.
+kubeadm_init_ok=false
+for kubeadm_attempt in 1 2 3; do
+    if sudo kubeadm init --pod-network-cidr=10.244.0.0/16; then
+        kubeadm_init_ok=true
+        break
+    fi
+    echo "kubeadm init attempt ${kubeadm_attempt}/3 failed."
+    if [ "$kubeadm_attempt" -lt 3 ]; then
+        echo "Resetting kubeadm state before retry..."
+        sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock || true
+        sudo rm -rf /etc/cni/net.d
+        sudo systemctl restart containerd || true
+        for i in $(seq 1 30); do
+            if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then break; fi
+            sleep 1
+        done
+        sleep $((kubeadm_attempt * 10))
+    fi
+done
+if [ "$kubeadm_init_ok" != true ]; then
+    echo "ERROR: kubeadm init failed after 3 attempts; aborting." >&2
+    exit 1
+fi
 
 mkdir -p "${REAL_HOME}/.kube"
 sudo cp /etc/kubernetes/admin.conf "${REAL_HOME}/.kube/config"
@@ -261,8 +289,24 @@ sudo chown "$REAL_USER:$REAL_USER" "${REAL_HOME}/.kube/config"
 export KUBECONFIG="${REAL_HOME}/.kube/config"
 
 FLANNEL_MANIFEST=/tmp/kube-flannel.yml
-if ! curl_retry -fsSL "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml" -o "$FLANNEL_MANIFEST"; then
-    echo "ERROR: Failed to download kube-flannel.yml from github.com/flannel-io/flannel" >&2
+# Track the newest flannel release, but fetch the in-tree manifest at that tag
+# instead of releases/latest/download/kube-flannel.yml. That download URL relies
+# on the maintainers attaching a kube-flannel.yml *release asset*, and a release
+# can ship without one (v0.28.6 did) -- releases/latest then 302s to an assetless
+# tag and the download 404s, aborting the whole install under `set -euo pipefail`.
+# Documentation/kube-flannel.yml is generated from the repo tree, so it is present
+# at every tag and is byte-for-byte equivalent to the release asset. Resolve the
+# tag from the releases/latest web redirect, NOT the api.github.com "latest"
+# endpoint, which 403s once many guests share one NAT egress IP (the same
+# constraint documented for the OpenTofu install below).
+FLANNEL_TAG="$(curl_retry -fsSI "https://github.com/flannel-io/flannel/releases/latest${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" \
+    | tr -d '\r' | awk 'tolower($1)=="location:"{n=split($2,a,"/"); print a[n]}')"
+if [ -z "$FLANNEL_TAG" ]; then
+    echo "ERROR: Could not resolve the latest flannel release tag from github.com/flannel-io/flannel" >&2
+    exit 1
+fi
+if ! curl_retry -fsSL "https://raw.githubusercontent.com/flannel-io/flannel/${FLANNEL_TAG}/Documentation/kube-flannel.yml" -o "$FLANNEL_MANIFEST"; then
+    echo "ERROR: Failed to download kube-flannel.yml for flannel ${FLANNEL_TAG} from raw.githubusercontent.com" >&2
     exit 1
 fi
 if [ ! -s "$FLANNEL_MANIFEST" ]; then

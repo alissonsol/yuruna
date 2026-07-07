@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 422d8f14-9a73-4e52-8c61-2d9b3a7e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -170,5 +170,155 @@ Describe 'Get-PoolNotifierSpoolRoot' {
         Assert-Null (Get-PoolNotifierSpoolRoot -Config $null) 'null config -> null'
         $root = Get-PoolNotifierSpoolRoot -Config ([pscustomobject]@{ LocalPath = '/mnt/ypool-nas' })
         Assert-Equal -Expected (Join-Path '/mnt/ypool-nas' 'notifications') -Actual $root -Because 'LocalPath/notifications'
+    }
+}
+
+Describe 'Invoke-PoolNotifierDelivery: claim stamps claimedUtc and reclaim measures grace from it' {
+    It 'stamps claimedUtc into a claimed message before delivery' {
+        $root = New-TempDir
+        try {
+            $out = Join-Path $root 'outgoing'; New-Item -ItemType Directory -Force -Path $out | Out-Null
+            $msgPath = Join-Path $out 'pool-lab-1.json'
+            Set-Content -LiteralPath $msgPath -Value '{"id":"pool-lab-1","eventCode":"pool.alert"}' -Encoding utf8
+            Mock -ModuleName Test.PoolNotifier Send-PoolAlertViaExtension { $false }
+            $null = Invoke-PoolNotifierDelivery -SpoolRoot $root -WorkDir (Join-Path $root 'work')
+            # Delivery failed (mock) so the message retried back to outgoing/ -- read it and
+            # confirm the claim loop stamped claimedUtc en route.
+            $retried = Get-Content -Raw -LiteralPath $msgPath | ConvertFrom-Json -AsHashtable
+            Assert-True ($retried.ContainsKey('claimedUtc')) 'claim stamps claimedUtc'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'does NOT reclaim a freshly-claimed message even when its file mtime is old' {
+        $root = New-TempDir
+        try {
+            $null = Join-Path $root 'outgoing' | ForEach-Object { New-Item -ItemType Directory -Force -Path $_ }
+            $send = Join-Path $root 'sending'; New-Item -ItemType Directory -Force -Path $send | Out-Null
+            $claim = Join-Path $send 'pool-lab-2.json'
+            $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            Set-Content -LiteralPath $claim -Value ('{"id":"pool-lab-2","claimedUtc":"' + $nowUtc + '"}') -Encoding utf8
+            (Get-Item -LiteralPath $claim).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddHours(-1)  # old mtime
+            Mock -ModuleName Test.PoolNotifier Send-PoolAlertViaExtension { $false }
+            $r = Invoke-PoolNotifierDelivery -SpoolRoot $root -WorkDir (Join-Path $root 'work')
+            # Fresh claimedUtc within the 600s grace -> not reclaimed; outgoing/ stays empty so
+            # nothing drains. (mtime-based reclaim WOULD have reclaimed + retried it.)
+            Assert-Equal -Expected 0 -Actual $r.retried -Because 'fresh claim not reclaimed'
+            Assert-True (Test-Path -LiteralPath $claim) 'message stays in sending/'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reclaims an orphaned claim by an old claimedUtc even when its file mtime is fresh' {
+        $root = New-TempDir
+        try {
+            $null = Join-Path $root 'outgoing' | ForEach-Object { New-Item -ItemType Directory -Force -Path $_ }
+            $send = Join-Path $root 'sending'; New-Item -ItemType Directory -Force -Path $send | Out-Null
+            $claim = Join-Path $send 'pool-lab-3.json'
+            $oldUtc = (Get-Date).ToUniversalTime().AddHours(-1).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            Set-Content -LiteralPath $claim -Value ('{"id":"pool-lab-3","claimedUtc":"' + $oldUtc + '"}') -Encoding utf8
+            (Get-Item -LiteralPath $claim).LastWriteTimeUtc = (Get-Date).ToUniversalTime()  # fresh mtime
+            Mock -ModuleName Test.PoolNotifier Send-PoolAlertViaExtension { $false }
+            $r = Invoke-PoolNotifierDelivery -SpoolRoot $root -WorkDir (Join-Path $root 'work')
+            # Old claimedUtc past the grace -> reclaimed to outgoing/, then drained (delivery
+            # mocked false) -> retried. (mtime-based reclaim would have SKIPPED it -> retried 0.)
+            Assert-Equal -Expected 1 -Actual $r.retried -Because 'old claim reclaimed then drained'
+            Assert-False (Test-Path -LiteralPath $claim) 'reclaimed out of sending/ (directly observable)'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'falls back to the file mtime when a claim carries no claimedUtc stamp' {
+        $root = New-TempDir
+        try {
+            $null = Join-Path $root 'outgoing' | ForEach-Object { New-Item -ItemType Directory -Force -Path $_ }
+            $send = Join-Path $root 'sending'; New-Item -ItemType Directory -Force -Path $send | Out-Null
+            $claim = Join-Path $send 'pool-lab-4.json'
+            Set-Content -LiteralPath $claim -Value '{"id":"pool-lab-4"}' -Encoding utf8   # no claimedUtc
+            (Get-Item -LiteralPath $claim).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddHours(-1)  # old mtime
+            Mock -ModuleName Test.PoolNotifier Send-PoolAlertViaExtension { $false }
+            $r = Invoke-PoolNotifierDelivery -SpoolRoot $root -WorkDir (Join-Path $root 'work')
+            Assert-Equal -Expected 1 -Actual $r.retried -Because 'unstamped + old mtime -> reclaimed via mtime fallback'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Get-PoolNotifierReadiness distinguishes ready / unconfigured / unreadable' {
+    $dir = New-TempDir
+    try {
+        $configured = Join-Path $dir 'configured.yml'
+        Set-Content -LiteralPath $configured -Value "subscribers:`n  pool.alert:`n    - transport: email`n      address: ops@example.com`n" -Encoding utf8
+        It 'reports ready for a configured pool.alert email subscriber' {
+            $r = Get-PoolNotifierReadiness -TransportsPath $configured
+            Assert-Equal -Expected 'ready' -Actual $r.State -Because 'configured -> ready'
+            Assert-True $r.Ready 'Ready flag true'
+        }
+        It 'reports unconfigured for an absent transports file' {
+            $r = Get-PoolNotifierReadiness -TransportsPath (Join-Path $dir 'nope.yml')
+            Assert-Equal -Expected 'unconfigured' -Actual $r.State -Because 'absent -> unconfigured'
+            Assert-False $r.Ready 'not ready'
+        }
+        It 'reports unconfigured for a present file with no pool.alert subscriber' {
+            $empty = Join-Path $dir 'empty.yml'
+            Set-Content -LiteralPath $empty -Value "subscribers:`n  pool.alert: []`n" -Encoding utf8
+            $r = Get-PoolNotifierReadiness -TransportsPath $empty
+            Assert-Equal -Expected 'unconfigured' -Actual $r.State -Because 'no subscriber -> unconfigured'
+        }
+        It 'reports unreadable (distinct from unconfigured) for a present file whose parse throws' {
+            $bad = Join-Path $dir 'bad.yml'
+            Set-Content -LiteralPath $bad -Value 'subscribers: {oops' -Encoding utf8
+            Mock -ModuleName Test.PoolNotifier ConvertFrom-Yaml { throw 'parse boom' }
+            $r = Get-PoolNotifierReadiness -TransportsPath $bad
+            Assert-Equal -Expected 'unreadable' -Actual $r.State -Because 'present but parse-throws -> unreadable'
+            Assert-False $r.Ready 'unreadable is not ready'
+        }
+    } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but no-ops when unconfigured' {
+    BeforeAll {
+        # Shim the poolStorage cmdlets the cycle self-guards on when that module is not loaded
+        # (the isolated Invoke-Pester case), so the Mocks below have a target. The Mocks then
+        # force the values regardless of whether the real module leaked into the session.
+        if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) {
+            function global:Get-YurunaPoolStorageConfig { param($Config) $null = $Config }
+            $script:pnStorageShim = $true
+        }
+        if (-not (Get-Command Test-YurunaPoolStorageMounted -ErrorAction SilentlyContinue)) {
+            function global:Test-YurunaPoolStorageMounted { param($Config) $null = $Config; $true }
+            $script:pnMountShim = $true
+        }
+    }
+    AfterAll {
+        if ($script:pnStorageShim) { Remove-Item Function:\Get-YurunaPoolStorageConfig -Force -ErrorAction SilentlyContinue }
+        if ($script:pnMountShim)   { Remove-Item Function:\Test-YurunaPoolStorageMounted -Force -ErrorAction SilentlyContinue }
+    }
+    It 'warns + drains already-queued messages when readiness is unreadable' {
+        $saved = $env:YURUNA_RUNTIME_DIR
+        try {
+            $env:YURUNA_RUNTIME_DIR = 'pn-rt'
+            Mock -ModuleName Test.PoolNotifier Get-YurunaPoolStorageConfig { @{ LocalPath = 'x' } }
+            Mock -ModuleName Test.PoolNotifier Test-YurunaPoolStorageMounted { $true }
+            Mock -ModuleName Test.PoolNotifier Get-PoolNotifierSpoolRoot { 'pn-spool' }
+            Mock -ModuleName Test.PoolNotifier Get-PoolNotifierReadiness { @{ Ready = $false; State = 'unreadable'; Reason = 'transports.yml unreadable this cycle: boom' } }
+            Mock -ModuleName Test.PoolNotifier Initialize-PoolNotifierSpool { }
+            Mock -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery { @{ delivered = 2; failed = 0; retried = 0 } }
+            $s = Invoke-PoolNotifierCycle -WarningAction SilentlyContinue
+            Assert-True  $s.ran 'ran despite the unreadable transport'
+            Assert-False $s.ready 'not elected-ready on unreadable'
+            Assert-Equal -Expected 'transports.yml unreadable this cycle' -Actual $s.reason -Because 'distinct reason'
+            Assert-Equal -Expected 2 -Actual $s.delivered -Because 'already-queued messages drained'
+            Assert-MockCalled -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 1 -Exactly -Scope It
+        } finally { $env:YURUNA_RUNTIME_DIR = $saved }
+    }
+    It 'does NOT drain when readiness is unconfigured (clean no-op)' {
+        $saved = $env:YURUNA_RUNTIME_DIR
+        try {
+            $env:YURUNA_RUNTIME_DIR = 'pn-rt'
+            Mock -ModuleName Test.PoolNotifier Get-YurunaPoolStorageConfig { @{ LocalPath = 'x' } }
+            Mock -ModuleName Test.PoolNotifier Test-YurunaPoolStorageMounted { $true }
+            Mock -ModuleName Test.PoolNotifier Get-PoolNotifierSpoolRoot { 'pn-spool' }
+            Mock -ModuleName Test.PoolNotifier Get-PoolNotifierReadiness { @{ Ready = $false; State = 'unconfigured'; Reason = 'pool.alert transport not configured on this host' } }
+            Mock -ModuleName Test.PoolNotifier Initialize-PoolNotifierSpool { }
+            Mock -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery { @{ delivered = 9; failed = 0; retried = 0 } }
+            $s = Invoke-PoolNotifierCycle
+            Assert-False $s.ran 'unconfigured -> clean no-op, did not run'
+            Assert-Equal -Expected 'pool.alert transport not configured on this host' -Actual $s.reason -Because 'unconfigured reason'
+            Assert-MockCalled -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 0 -Exactly -Scope It
+        } finally { $env:YURUNA_RUNTIME_DIR = $saved }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     }
 }
 
-# === Locate base image ===
+# --- REGION: Seek the base image
 $downloadDir   = "$HOME/yuruna/image/stash-service"
 $baseImageName = "host.ubuntu.kvm.guest.stash-service"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
@@ -89,13 +89,13 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDi
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Per-VM directory + disk ===
+# --- REGION: Per-VM directory + disk
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
 $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
 New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
-# === Tear down any existing VM with the same name ===
+# --- REGION: Remove existing VM
 $virshUri = 'qemu:///system'
 $destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
 Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
@@ -108,7 +108,7 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# === Copy base image -> per-VM disk ===
+# --- REGION: Copy base image -> per-VM disk
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 Write-Output "Copying base image to per-VM disk (sparse copy)..."
 & /bin/cp --sparse=always -- $baseImageFile $diskImg
@@ -117,7 +117,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# === Yuruna harness SSH key + vault password ===
+# --- REGION: Yuruna harness SSH key + vault password
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
@@ -128,7 +128,7 @@ if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# === Render user-data / meta-data ===
+# --- REGION: Render user-data / meta-data
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/stash-service.base.user-data'
 $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/stash-service.kvm.overlay.yml'
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/stash-service.meta-data'
@@ -138,7 +138,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
-# === Pick libvirt network (BEFORE the render) ===
+# --- REGION: Pick libvirt network (BEFORE building user-data)
 # The baked share + source coordinates depend on whether this is NAT
 # 'default' (host = libvirt gateway) or bridged 'yuruna-external' (host =
 # LAN IP), so resolve the network first.
@@ -202,6 +202,7 @@ New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 
+# --- REGION: Generate cloud-init seed ISO
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -218,7 +219,7 @@ Write-Output "    virt-viewer --connect $virshUri $VMName"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# === virt-install ===
+# --- REGION: virt-install
 $arch = (& uname -m).Trim()
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
@@ -239,7 +240,7 @@ if ($LASTEXITCODE -eq 0) {
 
 # 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
 # + future in-VM UI.
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -279,7 +280,7 @@ if ($virtInstallExit -ne 0) {
 
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Wait for VM IP ===
+# --- REGION: Wait for VM IP
 Write-Output "Waiting for VM to obtain an IP address..."
 Write-Output "  (cloud-init brings up networking; first boot can take 1-3 minutes)"
 

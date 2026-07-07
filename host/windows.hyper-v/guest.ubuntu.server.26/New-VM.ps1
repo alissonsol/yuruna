@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 4236e7f8-a9b0-4c23-d678-9e0f1a2b3c48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,7 +81,7 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# === Seek the base image ===
+# --- REGION: Seek the base image
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
 $baseImageName = "host.windows.hyper-v.guest.ubuntu.server.26"
@@ -160,7 +160,7 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-# === Create copies and files for VM ===
+# --- REGION: Create copies and files for VM
 
 $vmDir = Join-Path $downloadDir $VMName
 if (!(Test-Path -Path $vmDir)) {
@@ -274,10 +274,11 @@ To intentionally skip the cache:
 }
 }
 
+# --- REGION: Build the autoinstall apt block
 # Build the autoinstall apt block via the shared builder
 # (automation/Yuruna.GuestSeed.psm1). Hyper-V pins the archive.ubuntu.com mirror
-# (x86_64). See https://yuruna.link/vmconfig#apt-proxy-block and
-# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# (x86_64). See feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
 $AptProxyBlock = Build-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyUrl $CachingProxyUrl
 
 # Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the
@@ -309,7 +310,7 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# -- Fetch caching-proxy CA cert (base64-embedded in seed) -------------------
+# --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # Mirrors host/macos.utm/guest.ubuntu.server.26/New-VM.ps1. The installer's
 # late-commands write the cert from CA_CERT_BASE64_PLACEHOLDER before
 # any HTTPS apt fetch, so SSL-bump caching works from the first install
@@ -343,7 +344,8 @@ if ($CachingProxyUrl) {
     }
 }
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: Render user-data / meta-data
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
@@ -368,6 +370,7 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $VMName
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
+# --- REGION: Generate cloud-init seed ISO
 $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Verbose "Generating seed.iso with autoinstall configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
@@ -404,7 +407,7 @@ Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -418,10 +421,10 @@ Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions 
 # in waitForText sequence steps.
 Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
-# === Cleanup temporary folders ===
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Guidance ===
+# --- REGION: Guidance
 Write-Verbose "VM '$VMName' created and configured."
 Write-Verbose "Start the VM from Hyper-V Manager to begin Ubuntu Server installation."
 Write-Verbose "Boot sequence:"

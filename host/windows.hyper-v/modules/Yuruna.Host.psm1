@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     and recurse.
 #>
 
-# === Module setup ===========================================================
+# --- REGION: Module setup
 
 $script:HostTag        = 'host.windows.hyper-v'
 $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
@@ -54,9 +54,9 @@ Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostDownload.psm1
 # Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
 # the Get-Image log-line writer) that all three drivers carried in duplicate.
 Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
-# === Hyper-V host helpers ====================================================
+# --- REGION: Hyper-V host helpers
 
-# --- Define Oscdimg Path (adjust '10' for your ADK version if necessary) ---
+# --- REGION: Define Oscdimg Path (adjust '10' for your ADK version if necessary)
 $OscdimgPath = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\Oscdimg.exe"
 
 <#
@@ -115,7 +115,7 @@ function CreateIso {
     Write-Verbose "ISO created successfully at: $OutputFile"
 }
 
-# --- caching-proxy IP discovery (shared by producer + consumers) --------------
+# --- REGION: caching-proxy IP discovery (shared by producer + consumers)
 # Single source of truth for KVP+ARP discovery shared by guest.caching-proxy/
 # New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/Start-CachingProxy.ps1.
 # Guards against the regression class where a KVP-only summary reports
@@ -178,7 +178,7 @@ function Get-CacheVmCandidateIp {
             } | ForEach-Object { $_.IPAddress })
     }
 
-    # --- See https://yuruna.link/memory#why-get-cachevmcandidateip-emits-a-bare-pipeline
+    # --- REGION: https://yuruna.link/memory#why-get-cachevmcandidateip-emits-a-bare-pipeline
     ($kvpIps + $arpIps) | Select-Object -Unique
 }
 
@@ -645,7 +645,7 @@ function Assert-HyperVEnabled {
     return $true
 }
 
-# === VM lifecycle helpers ====================================================
+# --- REGION: VM lifecycle helpers
 # Hyper-V-internal helpers consumed by Yuruna.Host's contract entry
 # points above. Not part of the test-facing host driver contract; test
 # code calls the contract verbs (New-VM / Start-VM / ...) which
@@ -1069,8 +1069,8 @@ function Restart-HyperVConnect {
     return $true
 }
 
-# === Host proxy helpers =====================================================
-# --- See https://yuruna.link/definition#defining-the-windows-host-proxy-registry-keys
+# --- REGION: Host proxy helpers
+# --- REGION: https://yuruna.link/definition#defining-the-windows-host-proxy-registry-keys
 
 $script:WinInetRegPath    = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
 $script:WinInetMarkerName = 'YurunaProxyManaged'
@@ -1331,7 +1331,7 @@ function Remove-WindowsHostProxy {
     Invoke-WinInetRefresh
 }
 
-# === Port-map helpers =======================================================
+# --- REGION: Port-map helpers
 $script:FirewallRulePrefix        = 'Yuruna-CachingProxy-Port-'
 $script:FirewallProgramRulePrefix = 'Yuruna-CachingProxy-Pwsh-'
 
@@ -1729,7 +1729,7 @@ function Clear-AllCachingProxyPortMapping {
     return ,$unique
 }
 
-# === Screenshot helpers =====================================================
+# --- REGION: Screenshot helpers
 # Two capture paths:
 #   1. Msvm_VirtualSystemManagementService.GetVirtualSystemThumbnailImage --
 #      no window required, native VM resolution. Used by OCR.
@@ -1752,7 +1752,7 @@ client area.
 function Get-HyperVScreenshot {
     param([string]$VMName, [string]$OutputPath)
 
-    # -- Load C# type (once per session) ------------------------------------
+    # --- REGION: Load C# type (once per session)
     try {
         if (-not ('HyperVCapture' -as [type])) {
             Add-Type -TypeDefinition @"
@@ -2019,7 +2019,7 @@ public class HyperVCapture {
     $debugDir = Join-Path (Initialize-YurunaLogDir) "Screenshot"
     if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
 
-    # -- Primary: WMI GetVirtualSystemThumbnailImage ------------------------
+    # --- REGION: Primary: WMI GetVirtualSystemThumbnailImage
     try {
         $vmSettingData = Get-CimInstance -Namespace root/virtualization/v2 `
             -ClassName Msvm_VirtualSystemSettingData `
@@ -2080,7 +2080,7 @@ public class HyperVCapture {
         [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "exception: $_")
     }
 
-    # -- Fallback: PrintWindow via vmconnect window -------------------------
+    # --- REGION: Fallback: PrintWindow via vmconnect window
     try {
         [HyperVCapture]::EnsureDpiAware()
         $hWnd = [HyperVCapture]::FindWindow($VMName)
@@ -2152,7 +2152,7 @@ function Get-HyperVWindowScreenshot {
     }
 }
 
-# === VM lifecycle ===========================================================
+# --- REGION: VM lifecycle
 
 <#
 .SYNOPSIS
@@ -2461,7 +2461,7 @@ function Restart-VMConsole {
     return [bool](Restart-HyperVConnect -VMName $VMName -Confirm:$false)
 }
 
-# === Image ==================================================================
+# --- REGION: Image
 
 <#
 .SYNOPSIS
@@ -2504,7 +2504,7 @@ function Get-ImagePath {
     } catch { $null = $_; return $null }
 }
 
-# === VM I/O =================================================================
+# --- REGION: VM I/O
 
 <#
 .SYNOPSIS
@@ -2656,7 +2656,7 @@ function Get-VMConsoleHandle {
     return $proc.MainWindowHandle
 }
 
-# === Discovery ==============================================================
+# --- REGION: Discovery
 
 <#
 .SYNOPSIS
@@ -2745,7 +2745,7 @@ function Get-VMMac {
     return $mac
 }
 
-# === Networking =============================================================
+# --- REGION: Networking
 
 <#
 .SYNOPSIS
@@ -2954,7 +2954,7 @@ function Get-BestHostIp {
     return ($ranked | Select-Object -ExpandProperty IPAddress -First 1)
 }
 
-# === Caching proxy ==========================================================
+# --- REGION: Caching proxy
 
 <#
 .SYNOPSIS
@@ -3000,7 +3000,7 @@ function Get-CachingProxyVMIp {
     return $null
 }
 
-# === Host config ============================================================
+# --- REGION: Host config
 
 <#
 .SYNOPSIS
@@ -3196,7 +3196,7 @@ function Remove-OrphanedVMFileAccess {
     return $staleSids.Count
 }
 
-# === Exports ================================================================
+# --- REGION: Exports
 
 Export-ModuleMember -Function `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `

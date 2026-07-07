@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f6c5d4-e3b2-4a0b-7890-1c2d3e4f5a62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# --- See https://yuruna.link/memory#why-the-yuruna-result-manifest-is-shaped-this-way
+# --- REGION: https://yuruna.link/memory#why-the-yuruna-result-manifest-is-shaped-this-way
 
 function New-YurunaResultManifest {
     <#

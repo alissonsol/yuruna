@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,7 +54,7 @@ if (-not $HostType) { exit 1 }
 Write-Output "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-# --- stash storage pre-flight (design spec sections 2 and 3.1) -----------
+# --- REGION: stash storage pre-flight (design spec sections 2 and 3.1)
 # The Stash Service stores its files on its OWN, isolated stash share
 # (networkStorage.stash*), separate from the pool. Refuse to bring up a VM that
 # would have nowhere durable to write: fail fast HERE, before the long VM build,
@@ -224,7 +224,31 @@ try {
 try {
     $statusScript = Join-Path $RepoRoot 'test/Start-StatusService.ps1'
     if ($tc -and (Test-Path -LiteralPath $statusScript)) {
-        [void](Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript)
+        # Capture the start decision. Start-StatusService's own console output is
+        # intentionally not surfaced here; keep only the {ShouldStart; Port}
+        # record, the last non-string object the gate returns.
+        $statusResult = Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript
+        $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1
+        # The aggregator lists this host under Extension hosts ONLY if its status
+        # server is actually serving host.registration.json. Start-StatusService
+        # runs its own readiness wait, but that verdict is invisible here, so
+        # confirm the port and warn in the stash context: a stash-only host whose
+        # status server never came up would otherwise print "complete" yet never
+        # appear in the dashboard.
+        if ($statusDecision -and $statusDecision.ShouldStart) {
+            $statusPort = [int]$statusDecision.Port
+            $probe = [System.Net.Sockets.TcpClient]::new()
+            $accepting = $false
+            try {
+                $iar = $probe.BeginConnect('127.0.0.1', $statusPort, $null, $null)
+                $accepting = ($iar.AsyncWaitHandle.WaitOne(2000) -and $probe.Connected)
+            } catch { Write-Verbose "status port probe: $($_.Exception.Message)" } finally { $probe.Dispose() }
+            if ($accepting) {
+                Write-Output "  Status server accepting on :$statusPort -- this host will appear under Extension hosts."
+            } else {
+                Write-Warning "Status server is not accepting on :$statusPort -- this host will NOT appear under Extension hosts (the pool aggregator reads host.registration.json over HTTP). Run test/Start-StatusService.ps1 to diagnose."
+            }
+        }
     }
 } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
 

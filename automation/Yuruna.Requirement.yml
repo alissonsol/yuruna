@@ -26,7 +26,7 @@ requirements:
   - tool: "git"
     command: |-
       ((git --version) -replace '^git version ','')
-    version: "2.54.0"
+    version: "2.55.0"
     releases: "https://git-scm.com/downloads"
   - tool: "python3"
     command: |-
@@ -39,7 +39,7 @@ requirements:
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"
-    version: "v3.21.1"
+    version: "v4.2.2"
     releases: "https://github.com/helm/helm/releases"
   - tool: "Docker"
     # `docker --version` is local (no daemon roundtrip) -- avoids the
@@ -47,7 +47,7 @@ requirements:
     # unreachable, which is the failure mode the diagnostic catches.
     command: |-
       ((docker --version) -replace '^Docker version ','' -replace ',\s*build.*$','')
-    version: "29.6.0"
+    version: "29.6.1"
     releases: "https://docs.docker.com/desktop/"
   - tool: "Docker buildx"
     command: |-
@@ -69,7 +69,7 @@ requirements:
     # `code -v` prints three lines (version / commit / arch); first line
     # is the version.
     command: "(code -v | Select-Object -First 1)"
-    version: "1.125.0"
+    version: "1.127.0"
     releases: "https://code.visualstudio.com/Download"
   - tool: "mkcert"
     # mkcert writes its version banner to stderr -- the `2>&1` redirect
@@ -79,18 +79,18 @@ requirements:
     releases: "https://github.com/filosottile/mkcert/releases"
   - tool: "node"
     command: "node --version"
-    version: "v24.17.0"
+    version: "v24.18.0"
     releases: "https://nodejs.org/en/download"
   - tool: "npm"
     command: "npm --version"
-    version: "11.17.0"
+    version: "11.18.0"
     releases: "https://docs.npmjs.com/cli/v11/configuring-npm/install"
   - tool: "curl"
     # First line is `curl X.Y.Z (build/triplet) libcurl/X.Y.Z ...`; the
     # paren-wrapped suffix is libcurl feature noise.
     command: |-
       ((curl --version | Select-Object -First 1) -replace '\s*\(.*$','')
-    version: "curl 8.20.0"
+    version: "curl 8.21.0"
     releases: "https://curl.se/download.html"
   - tool: "wget"
     command: "(wget --version 2>$null | Select-Object -First 1)"
@@ -105,22 +105,22 @@ requirements:
     # Bellard`; the Copyright tail is a constant suffix.
     command: |-
       ((qemu-img --version | Select-Object -First 1) -replace ',\s*Copyright.*$','')
-    version: "qemu-img version 11.0.1"
+    version: "qemu-img version 11.0.2"
     releases: "https://www.qemu.org/download/"
   - tool: "AWS cli"
     # `aws-cli/X.Y.Z Python/X.Y.Z OS/build prompt/...`; everything past
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.35.8"
+    version: "aws-cli/2.35.16"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
-    version: "2.87.0"
+    version: "2.88.0"
     releases: "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
   - tool: "Google Cloud"
     # No `-q` and no 2>&1 capture: a broken bundled-python install fails
     # silently rather than dumping a traceback into the version column.
     command: "(gcloud -v | Select-Object -First 1)"
-    version: "Google Cloud SDK 573.0.0"
+    version: "Google Cloud SDK 575.0.0"
     releases: "https://cloud.google.com/sdk/docs/install-sdk"

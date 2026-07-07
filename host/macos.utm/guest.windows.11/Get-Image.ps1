@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42b9c0d1-e2f3-4a56-b789-0c1d2e3f4a57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
-# === Configuration (change these to customize the download) ===
+# --- REGION: Configuration (change these to customize the download)
 $downloadDir = "$HOME/yuruna/image/windows.env"
 $baseImageName = "host.macos.utm.guest.windows.11"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
@@ -54,9 +54,7 @@ if (!(Test-Path -Path $downloadDir)) {
 $windowsOk = $false
 $spiceOk = $false
 
-# ===========================================================================
-# 1) Windows 11 ARM64 ISO
-# ===========================================================================
+# --- REGION: 1. Windows 11 ARM64 ISO
 Write-Output ""
 Write-Output "--- Windows 11 ARM64 ISO ---"
 
@@ -89,7 +87,7 @@ if (Test-Path -Path $baseImageFile) {
 }
 
 if (-not $windowsOk) {
-    # === Try Fido (automated) ===
+    # --- REGION: Try Fido (automated)
     Write-Output ""
     Write-Output "Attempting automated download via Fido..."
     $fidoScript = Join-Path $PSScriptRoot "Fido.ps1"
@@ -199,9 +197,7 @@ if (-not $windowsOk) {
     Write-Output "  Then run this script again to continue."
 }
 
-# ===========================================================================
-# 2) UTM Guest Tools ISO (SPICE + VirtIO drivers, ARM64-compatible)
-# ===========================================================================
+# --- REGION: 2. UTM Guest Tools ISO (SPICE + VirtIO drivers, ARM64-compatible)
 Write-Output ""
 Write-Output "--- UTM Guest Tools ISO (SPICE + VirtIO drivers for ARM64) ---"
 
@@ -252,9 +248,7 @@ if (-not $spiceOk) {
     Write-Output "  Then run this script again to continue."
 }
 
-# ===========================================================================
-# Final status
-# ===========================================================================
+# --- REGION: Final status
 Write-Output ""
 if ($windowsOk -and $spiceOk) {
     Write-Output "== All images ready =="

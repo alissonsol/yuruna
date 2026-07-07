@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -300,6 +300,30 @@ function Write-OuterLog {
     }
 }
 
+function Clear-TerminalNotifierJob {
+<#
+.SYNOPSIS
+    Best-effort, non-blocking reap of pool-notifier thread jobs that a prior
+    cycle's Wait-Job timeout leaked onto $State.LeakedNotifierJobs.
+.DESCRIPTION
+    Removes only the jobs that have since gone terminal (Completed/Failed/Stopped)
+    and drops them from the list; a job still wedged in a blocking CIFS syscall
+    stays Running and is left in place for a later sweep. This is deliberate:
+    reading .State and removing a terminal job never block, but a -Force removal
+    of a still-running job can block for the OS SMB timeout -- the exact stall the
+    leak-and-reap design exists to avoid. No-op when nothing was ever leaked.
+#>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable]$State)
+    if (-not $State.LeakedNotifierJobs) { return }
+    foreach ($lj in @($State.LeakedNotifierJobs)) {
+        if ($lj.State -in @('Completed', 'Failed', 'Stopped')) {
+            Remove-Job -Job $lj -ErrorAction SilentlyContinue
+            [void]$State.LeakedNotifierJobs.Remove($lj)
+        }
+    }
+}
+
 # === Main loop ============================================================
 
 function Invoke-RunnerOuterLoop {
@@ -491,37 +515,49 @@ function Invoke-RunnerOuterLoop {
         $stepTimeoutMin = Get-OuterStepTimeoutMinute -ConfigPath $State.ConfigPath -DefaultMinutes $State.StepTimeoutMinutesDefault -PoolTestCycleOverride $poolTC
         Write-OuterLog "[outer cycle $cycle] watchdog: stepTimeoutMinutes=$stepTimeoutMin"
         $watchdogJob = Start-Watchdog -StepTimeoutMinutes $stepTimeoutMin -RuntimeDir $env:YURUNA_RUNTIME_DIR -PollSeconds $State.WatchdogPollSeconds
-        # A watchdog that failed to arm (null job, or one already in a
-        # terminal/failed state) silently disables hang protection: the inner
-        # would run unguarded and a hang would never be killed. Surface it
-        # loudly to console AND outer.log. A freshly started job is
-        # NotStarted -> Running, so only a terminal state here means the arm did
-        # not take -- this avoids a false warn on the NotStarted transition.
-        if ((-not $watchdogJob) -or ($watchdogJob.State -in @('Failed', 'Stopped', 'Completed'))) {
-            $wdState = if ($watchdogJob) { [string]$watchdogJob.State } else { '<null>' }
-            Write-Warning "[outer cycle $cycle] watchdog did NOT arm (state=$wdState) -- hang protection is DISABLED for this cycle."
-            Write-OuterLog "[outer cycle $cycle] WARNING: watchdog did not arm (job state=$wdState); cycle runs without hang protection."
-        }
-        # State machine: cycle-start -> in-cycle. Lands AFTER the
-        # watchdog is armed and BEFORE the call-op blocks. A crash
-        # while inner is running leaves "in-cycle" stale; boot
-        # recovery + Initialize-RunnerState narrate the recovery on
-        # the next startup.
-        if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
-            $null = Set-RunnerState -To 'in-cycle' -Reason "inner spawning" -Confirm:$false
-        }
-        # --- See https://yuruna.link/memory#why-the-inner-spawn-uses-the-call-operator-instead-of-start-process
-        $exitCode = 0
+        # The watchdog lifetime -- the arm-state check, the in-cycle transition,
+        # and the inner spawn -- runs inside try/finally so Stop-Watchdog ALWAYS
+        # runs. A throw in the arm-check warn or in Set-RunnerState (between
+        # arming and the spawn) would otherwise leak the watchdog job (a
+        # background job that outlives the cycle) while the throw propagates. This
+        # is the same try/finally discipline the failure-pause loop below uses.
+        $innerSpawnFailed = $false
         try {
-            & $State.PwshExe @($State.ArgList)
-            $exitCode = $LASTEXITCODE
-        } catch {
-            Write-Warning "[outer cycle $cycle] failed to invoke inner pwsh: $_"
+            # A watchdog that failed to arm (null job, or one already in a
+            # terminal/failed state) silently disables hang protection: the inner
+            # would run unguarded and a hang would never be killed. Surface it
+            # loudly to console AND outer.log. A freshly started job is
+            # NotStarted -> Running, so only a terminal state here means the arm did
+            # not take -- this avoids a false warn on the NotStarted transition.
+            if ((-not $watchdogJob) -or ($watchdogJob.State -in @('Failed', 'Stopped', 'Completed'))) {
+                $wdState = if ($watchdogJob) { [string]$watchdogJob.State } else { '<null>' }
+                Write-Warning "[outer cycle $cycle] watchdog did NOT arm (state=$wdState) -- hang protection is DISABLED for this cycle."
+                Write-OuterLog "[outer cycle $cycle] WARNING: watchdog did not arm (job state=$wdState); cycle runs without hang protection."
+            }
+            # State machine: cycle-start -> in-cycle. Lands AFTER the
+            # watchdog is armed and BEFORE the call-op blocks. A crash
+            # while inner is running leaves "in-cycle" stale; boot
+            # recovery + Initialize-RunnerState narrate the recovery on
+            # the next startup.
+            if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+                $null = Set-RunnerState -To 'in-cycle' -Reason "inner spawning" -Confirm:$false
+            }
+            # --- REGION: https://yuruna.link/memory#why-the-inner-spawn-uses-the-call-operator-instead-of-start-process
+            $exitCode = 0
+            try {
+                & $State.PwshExe @($State.ArgList)
+                $exitCode = $LASTEXITCODE
+            } catch {
+                Write-Warning "[outer cycle $cycle] failed to invoke inner pwsh: $_"
+                $innerSpawnFailed = $true
+            }
+        } finally {
             Stop-Watchdog -Job $watchdogJob
+        }
+        if ($innerSpawnFailed) {
             Start-Sleep -Seconds $State.InnerSpawnErrorSleepSec
             continue
         }
-        Stop-Watchdog -Job $watchdogJob
         # Outer regained control. Emit BOTH to console and to runtime/
         # outer.log so a conhost wedge (documented above) can't hide
         # the moment Start-Process -Wait returned.
@@ -661,16 +697,31 @@ function Invoke-RunnerOuterLoop {
                 # uncompleted delivery simply retries next cycle). Send-Notification works in a
                 # thread job -- the async notification path relies on the same.
                 if (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue) {
+                    # Reap notifier jobs a prior cycle's timeout leaked, best-effort
+                    # and non-blocking (only terminal jobs are removed here).
+                    Clear-TerminalNotifierJob -State $State
                     $njob = Start-ThreadJob -Name "pool-notifier-$cycle" -ScriptBlock {
                         Invoke-PoolNotifierCycle -Config $using:notifierCfg
                     }
                     if (Wait-Job -Job $njob -Timeout 120) {
                         $notifySummary = Receive-Job -Job $njob -ErrorAction SilentlyContinue
+                        # The job completed; removing a terminal job does not block.
+                        Remove-Job -Job $njob -Force -ErrorAction SilentlyContinue
                     } else {
-                        Write-OuterLog "[outer cycle $cycle] pool notifier exceeded 120s -- detaching; will retry next cycle."
-                        Stop-Job -Job $njob -ErrorAction SilentlyContinue
+                        # Do NOT Stop-Job/Remove-Job here: on a wedged CIFS syscall
+                        # those calls can THEMSELVES block for the OS SMB timeout,
+                        # re-introducing the very stall the 120s cap exists to prevent.
+                        # Leak the job (a same-process thread job -- true detach is
+                        # impossible) and reap it best-effort next cycle once terminal.
+                        if (-not $State.LeakedNotifierJobs) { $State.LeakedNotifierJobs = [System.Collections.Generic.List[object]]::new() }
+                        [void]$State.LeakedNotifierJobs.Add($njob)
+                        # Surface the pending-leak count: a host whose poolStorage CIFS
+                        # mount stays wedged keeps accumulating leaked jobs (each holds a
+                        # ThreadJob pool slot, default ThrottleLimit 5), so a climbing
+                        # count is the signal that the mount -- not the notifier -- is the
+                        # problem to fix.
+                        Write-OuterLog "[outer cycle $cycle] pool notifier exceeded 120s -- leaking the job (pending reap: $($State.LeakedNotifierJobs.Count)); will reap best-effort next cycle."
                     }
-                    Remove-Job -Job $njob -Force -ErrorAction SilentlyContinue
                 } else {
                     $notifySummary = Invoke-PoolNotifierCycle -Config $notifierCfg
                 }
@@ -926,4 +977,5 @@ Export-ModuleMember -Function `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, `
     Sync-ForwardEnv, Write-OuterLog, `
+    Clear-TerminalNotifierJob, `
     Invoke-RunnerOuterLoop

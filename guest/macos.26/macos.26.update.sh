@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -146,7 +146,7 @@ if ! xcode-select -p >/dev/null 2>&1; then
 fi
 xcode-select -p || true
 
-# --- See https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+# --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
 echo -e "\e[1;32m==== yuruna framework and project repos ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""

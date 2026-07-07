@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ if ($arch -ne 'x86_64') {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# -- Required ISOs --------------------------------------------------------
+# --- REGION: Required ISOs
 # If any required ISO is missing, auto-run the sibling Get-Image.ps1 once
 # to try to fetch them, then recheck. Two missing ISOs trigger ONE Get-
 # Image run (not two), and a still-missing ISO after the run is a hard
@@ -91,7 +91,7 @@ if ($missingImages.Count -gt 0) {
     }
 }
 
-# -- VM directory + new disk ----------------------------------------------
+# --- REGION: VM directory + new disk
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
 $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $autoIso = Join-Path $vmDir 'autounattend.iso'
@@ -101,7 +101,7 @@ if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg 
 & qemu-img create -f qcow2 $diskImg 64G | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
 
-# -- Render the autounattend.xml + build a CD with it -------------------
+# --- REGION: Render the autounattend.xml + build a CD with it
 $autoTemplate = Join-Path $ScriptDir 'vmconfig/autounattend.xml'
 if (-not (Test-Path -LiteralPath $autoTemplate)) {
     Write-Error "Template missing: $autoTemplate"
@@ -120,7 +120,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# -- OVMF firmware + variables ------------------------------------------
+# --- REGION: OVMF firmware + variables
 # Ubuntu's `ovmf` package ships the secure-boot-enabled binary at
 # /usr/share/OVMF/OVMF_CODE_4M.secboot.fd plus a 4M VARS template at
 # /usr/share/OVMF/OVMF_VARS_4M.ms.fd (the .ms variant has the Microsoft
@@ -139,7 +139,7 @@ if (-not (Test-Path -LiteralPath $nvram)) {
     Copy-Item -Path $ovmfVars -Destination $nvram
 }
 
-# -- Define + start the VM ----------------------------------------------
+# --- REGION: Define + start the VM
 $virshUri = 'qemu:///system'
 # Capture stdout+stderr + exit code for each call so an operator
 # running with -Verbose sees the per-call outcome. The post-condition
@@ -161,7 +161,7 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"

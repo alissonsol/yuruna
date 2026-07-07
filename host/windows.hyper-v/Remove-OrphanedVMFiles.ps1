@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module -Name (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.VMCleanup.psm1') -Force
 Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 
-# === Warning ===
+# --- REGION: Warning
 Write-CleanupMessage ""
 Write-CleanupMessage "================================================================"
 Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
@@ -63,7 +63,7 @@ $baseImageNames = $nameInfo.BaseImageNames
 # Shared Hyper-V / vmms precondition helper.
 Import-Module -Name (Join-Path $ScriptDir 'modules/Yuruna.Host.psm1') -Force
 
-# === Check prerequisites ===
+# --- REGION: Check prerequisites
 Write-CleanupMessage "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-CleanupMessage "Please run this script as Administrator."
@@ -74,7 +74,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # fails with "Class not registered" on some fresh pwsh 7 sessions.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
-# === Scan for VM files ===
+# --- REGION: Scan for VM files
 $vmHost = Get-VMHost
 $vhdPath = $vmHost.VirtualHardDiskPath
 $vmPath = $vmHost.VirtualMachinePath
@@ -83,7 +83,7 @@ Write-CleanupMessage "Hyper-V VirtualHardDiskPath: $vhdPath"
 Write-CleanupMessage "Hyper-V VirtualMachinePath:  $vmPath"
 Write-CleanupMessage ""
 
-# --- See https://yuruna.link/memory#why-orphaned-vm-cleanup-skips-hyper-vs-virtualmachinepath-root
+# --- REGION: https://yuruna.link/memory#why-orphaned-vm-cleanup-skips-hyper-vs-virtualmachinepath-root
 $vmPathNormalized = $vmPath.TrimEnd('\', '/')
 $hyperVVmDataPath = (Join-Path $vmPathNormalized 'Virtual Machines').TrimEnd('\', '/')
 function Test-IsHyperVSystemPath {
@@ -128,7 +128,7 @@ if ($allFiles.Count -eq 0) {
     exit 0
 }
 
-# === Identify files claimed by active VMs ===
+# --- REGION: Identify files claimed by active VMs
 $allVMs = Get-VM
 $claimedFiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
@@ -143,7 +143,7 @@ function Add-ClaimedFilesUnderDir {
     }
 }
 
-# === List registered VMs and their associated files ===
+# --- REGION: List registered VMs and their associated files
 if ($allVMs.Count -eq 0) {
     Write-CleanupMessage "No VMs found in Hyper-V Manager."
 } else {
@@ -221,7 +221,7 @@ foreach ($vm in $allVMs) {
     Write-CleanupMessage ""
 }
 
-# === Identify orphaned files (excluding base images) ===
+# --- REGION: Identify orphaned files (excluding base images)
 $orphanedFiles = [System.Collections.Generic.List[string]]::new()
 $protectedFiles = [System.Collections.Generic.List[string]]::new()
 
@@ -245,7 +245,7 @@ foreach ($f in $allFiles) {
     }
 }
 
-# === List protected base images ===
+# --- REGION: List protected base images
 if ($protectedFiles.Count -gt 0) {
     Write-CleanupMessage "The following base images are KEPT (not associated with any VM, but needed as base images):"
     Write-CleanupMessage ""
@@ -264,7 +264,7 @@ if ($protectedFiles.Count -gt 0) {
     Write-CleanupMessage ""
 }
 
-# === Strip stale per-VM ACEs from kept base images ===
+# --- REGION: Strip stale per-VM ACEs from kept base images
 # A SHARED base image (e.g. a base install ISO reused for every VM creation)
 # gathers one per-VM access ACE per VM created against it; Hyper-V never
 # revokes them on Remove-VM, so the DACL grows until it hits the ~64 KB ACL
@@ -285,7 +285,7 @@ foreach ($filePath in $protectedFiles) {
     }
 }
 
-# === Delete orphaned files ===
+# --- REGION: Delete orphaned files
 if ($orphanedFiles.Count -eq 0) {
     Write-CleanupMessage "No orphaned files found. Nothing to clean up."
     exit 0
@@ -354,7 +354,7 @@ foreach ($scanPath in $scanPaths) {
     }
 }
 
-# === Cleanup result ===
+# --- REGION: Cleanup result
 Write-CleanupMessage ""
 if ($errors -eq 0) {
     Write-CleanupMessage "Cleanup complete. All orphaned items deleted."

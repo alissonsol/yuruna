@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,7 +123,7 @@ function Get-RemoteDiagnosticsCommand {
             "else echo 'diag-bootstrap: yuruna not extracted and status server unreachable' >&2; exit 64; fi")
 }
 
-# --- Save-GuestDiagnostic timeouts -----------------------------------------
+# --- REGION: Save-GuestDiagnostic timeouts
 # Module-level on purpose: not a parameter so every caller (sequence
 # action, failure-artifact path, ad-hoc test driver) shares the same
 # cap. Tune by editing here -- the values below are calibrated for a
@@ -599,6 +599,28 @@ function Invoke-RemoteDiagnosticsConsole {
     return @{ success = $true; output = ''; exitCode = 0; mechanism = 'console' }
 }
 
+function Select-MoreInformativeDiagResult {
+    # Fallback picker for the all-rungs-failed manifest: keep whichever failed
+    # rung produced the longer captured error text. In practice this ranks only
+    # the two SSH rungs (key-ssh, password-ssh) -- they are the only rungs whose
+    # failed result carries .output. The console rung POSTs its capture straight
+    # to the failure folder and returns output='' (see
+    # Invoke-RemoteDiagnosticsConsole), so its candidate is always ignored here.
+    # Preferring rung order alone would pin the manifest to key-ssh even when the
+    # later password-ssh rung captured the fuller stderr, so length is the
+    # content proxy between the two. Length is only a proxy: a verbose low-signal
+    # capture (e.g. the pwsh exit-64 usage banner) can outrank a concise real
+    # error -- acceptable for a post-mortem debugging aid. A tie keeps the
+    # incumbent so an equally sized later rung does not churn the choice; a
+    # candidate with no output is ignored, so an empty capture never replaces a
+    # real one.
+    param($Current, $Candidate)
+    if (-not $Candidate -or -not $Candidate.output) { return $Current }
+    if (-not $Current -or -not $Current.output) { return $Candidate }
+    if (([string]$Candidate.output).Length -gt ([string]$Current.output).Length) { return $Candidate }
+    return $Current
+}
+
 function Save-GuestDiagnostic {
 <#
 .SYNOPSIS
@@ -816,8 +838,9 @@ function Save-GuestDiagnostic {
         Write-Verbose "Save-GuestDiagnostic: Resolve-StatusServiceEndpoint threw: $($_.Exception.Message)"
     }
 
-    # Strategy chain (keyed SSH -> password SSH -> console) and the
-    # $lastResult most-informative-wins fallback policy:
+    # Strategy chain (keyed SSH -> password SSH -> console). The all-rungs-failed
+    # fallback keeps the SSH rung with the fuller captured error text; the
+    # console rung POSTs its capture to disk and adds no manifest text:
     # https://yuruna.link/test/harness
     $fileName = Get-DiagnosticsFileName -Id $Id
     $outPath  = Join-Path $FailureFolderPath $fileName
@@ -841,9 +864,7 @@ function Save-GuestDiagnostic {
             -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $keyBudget `
             -BootstrapUrl $bootstrapUrl
         Test-DiagSshTimeoutHit -Result $keyResult -Rung 'key-ssh'
-        if ($keyResult.output -and -not $lastResult.output) {
-            $lastResult = $keyResult
-        }
+        $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $keyResult
         if ($keyResult.success) {
             $result = $keyResult
         } else {
@@ -867,9 +888,7 @@ function Save-GuestDiagnostic {
                 -SshpassPath $sshpassPath -TimeoutSeconds $pwBudget `
                 -BootstrapUrl $bootstrapUrl
             Test-DiagSshTimeoutHit -Result $passwordResult -Rung 'password-ssh'
-            if ($passwordResult.output -and -not $lastResult.output) {
-                $lastResult = $passwordResult
-            }
+            $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $passwordResult
             if ($passwordResult.success) {
                 $result = $passwordResult
             } else {
@@ -914,9 +933,7 @@ function Save-GuestDiagnostic {
                 try { if (Test-Path -LiteralPath $outPath) { $consoleBytes = [long](Get-Item -LiteralPath $outPath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }
                 return @{ success=$true; outPath=$outPath; mechanism='console'; attempted=$attempted; exitCode=[int]$consoleResult.exitCode; bytes=$consoleBytes; skipped=$false; reason=$null }
             }
-            if ($consoleResult.output -and -not $lastResult.output) {
-                $lastResult = $consoleResult
-            }
+            $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $consoleResult
             Write-Verbose "  Diagnostics: console failed (exit=$($consoleResult.exitCode))."
         }
     }

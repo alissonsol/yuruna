@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d8e9f0-a1b2-4c34-d567-8e9f0a1b2c34
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
-# === Configuration ===
+# --- REGION: Configuration
 $sourceUrl = "https://cdn.amazonlinux.com/al2023/os-images/latest/kvm-arm64/"
 $downloadDir = "$HOME/yuruna/image/amazon.linux.2023"
 $baseImageName = "host.macos.utm.guest.amazon.linux.2023"
@@ -28,6 +28,7 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
+# --- REGION: Find the file to download
 $html = Invoke-WebRequest -Uri $sourceUrl
 $qcow2Link = ($html.Links | Where-Object { $_.href -match "\.qcow2$" })[0].href
 $downloadUrl = $sourceUrl + $qcow2Link
@@ -46,7 +47,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImag
     exit 0
 }
 
-# === Retrieve and process the files ===
+# --- REGION: Retrieve and process the files
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download
 # through Save-CachedHttpUri when available + verifies SHA-256 against
 # the publisher checksum. AL2023 publishes `<basename>.qcow2.sha256`
@@ -71,7 +72,7 @@ if (-not $downloaded) {
 }
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
-# === Name the file as per naming convention ===
+# --- REGION: Name the file as per naming convention
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {

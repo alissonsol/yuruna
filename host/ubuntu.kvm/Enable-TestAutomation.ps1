@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,7 +81,7 @@ function Invoke-Step {
     }
 }
 
-# -- libvirt services + default network --------------------------------------
+# --- REGION: libvirt services + default network
 # When invoked from install/ubuntu.kvm.sh (YURUNA_SUDO_PRIMED=1), the bash
 # wrapper has ALREADY done every sudo step in this block:
 #   sudo systemctl enable --now libvirtd / virtlogd
@@ -131,7 +131,7 @@ if ($wrapperPrimed) {
     }
 }
 
-# -- yuruna image / VM storage layout --------------------------------------
+# --- REGION: yuruna image / VM storage layout
 $imgDir = Join-Path $HOME 'yuruna/image'
 $vmDir  = Join-Path $HOME 'yuruna/vms'
 foreach ($d in @($imgDir, $vmDir)) {
@@ -142,7 +142,7 @@ foreach ($d in @($imgDir, $vmDir)) {
     }
 }
 
-# -- networkStorage pool SMB mount point (optional NAS replication target) ---------
+# --- REGION: networkStorage pool SMB mount point (optional NAS replication target)
 # networkStorage pool (test.config.yml) mounts an SMB share at localPath. The test
 # runner runs UNPRIVILEGED; when localPath sits under a root-owned parent
 # (e.g. /mnt/ypool-nas under /mnt 0755 root:root), Connect-YurunaPoolStorage's own
@@ -193,7 +193,7 @@ if (Test-Path -LiteralPath $cfgPath) {
     }
 }
 
-# -- libvirt-qemu search ACL on $HOME --------------------------------------
+# --- REGION: libvirt-qemu search ACL on $HOME
 # Ubuntu 24.04 cloud images create /home/<user> with mode 0750, which
 # excludes the libvirt-qemu user (uid 64055, gid kvm) that runs guest
 # qemu processes. virt-install then fails with:
@@ -217,7 +217,7 @@ if ($haveLibvirtQemu -and $haveSetfacl) {
     Write-Warning "setfacl not available -- run 'sudo apt-get install acl' so libvirt-qemu can traverse $HOME."
 }
 
-# -- GNOME idle / lock / dim (no-op on headless servers) -------------------
+# --- REGION: GNOME idle / lock / dim (no-op on headless servers)
 # gsettings is GNOME-only. On a server install gsettings is missing
 # entirely; on a desktop install we apply the same equivalents the macOS
 # and Windows scripts apply for their host:
@@ -246,8 +246,8 @@ if ($gsettings) {
     Write-Output "gsettings not present -- headless server, skipping GNOME idle/lock tweaks."
 }
 
-# -- Group membership probe --------------------------------------------------
-# --- See https://yuruna.link/memory#why-the-group-membership-probe-uses-getent-rather-than-the-id-command
+# --- REGION: Group membership probe
+# --- REGION: https://yuruna.link/memory#why-the-group-membership-probe-uses-getent-rather-than-the-id-command
 $activeGroups = (& id -nG 2>$null) -split '\s+'
 foreach ($grp in @('libvirt','kvm')) {
     $line    = & getent group $grp 2>$null
@@ -266,7 +266,7 @@ foreach ($grp in @('libvirt','kvm')) {
     }
 }
 
-# -- networkStorage pool host-identity setup + reimage reclaim (interactive) ---------
+# --- REGION: networkStorage pool host-identity setup + reimage reclaim (interactive)
 # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
 # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     Run this script in an elevated PowerShell terminal.
 #>
 
-# ===== Ensure running as Administrator =====
+# --- REGION: Ensure running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
     Write-Output "=============================================================="
@@ -33,46 +33,46 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# ===== Install JDK (OpenJDK via Microsoft Build) =====
+# --- REGION: Install JDK (OpenJDK via Microsoft Build)
 Write-Output ""
 Write-Output ">>> Installing JDK (Microsoft OpenJDK)..."
 winget install --id Microsoft.OpenJDK.21 --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< JDK installation complete."
 
-# ===== Install .NET SDK =====
+# --- REGION: Install .NET SDK
 Write-Output ""
 Write-Output ">>> Installing .NET SDK..."
 winget install --id Microsoft.DotNet.SDK.10 --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< .NET SDK installation complete."
 
-# ===== Install Git =====
+# --- REGION: Install Git
 Write-Output ""
 Write-Output ">>> Installing Git..."
 winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Git installation complete."
 
-# ===== Install Visual Studio Code =====
+# --- REGION: Install Visual Studio Code
 Write-Output ""
 Write-Output ">>> Installing Visual Studio Code..."
 winget install --id Microsoft.VisualStudioCode --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Visual Studio Code installation complete."
 
-# ===== Install PowerShell 7 =====
+# --- REGION: Install PowerShell 7
 Write-Output ""
 Write-Output ">>> Installing PowerShell 7..."
 winget install --id Microsoft.PowerShell --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< PowerShell 7 installation complete."
 
-# ===== Install GitHub CLI =====
+# --- REGION: Install GitHub CLI
 Write-Output ""
 Write-Output ">>> Installing GitHub CLI..."
 winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< GitHub CLI installation complete."
 
-# ===== Refresh PATH =====
+# --- REGION: Refresh PATH
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
-# ===== Show installed versions =====
+# --- REGION: Show installed versions
 Write-Output ""
 Write-Output "== Installation Summary =="
 try { java --version 2>&1 | Select-Object -First 1 } catch { Write-Output "Java: restart terminal to verify" }

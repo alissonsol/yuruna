@@ -1,8 +1,8 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.03  Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- See https://yuruna.link/install/explained
+# Version: 2026.07.07  Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
 set -euo pipefail
@@ -34,7 +34,7 @@ log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 
-# -- Install log -----------------------------------------------------------
+# --- REGION: Install log
 # Mirror stdout+stderr to a file as well as the terminal so a mid-install
 # failure can be inspected afterwards. A FIFO + backgrounded tee (rather than
 # `exec > >(tee ...)`) lets the EXIT path wait for tee to flush, so the file is
@@ -70,11 +70,11 @@ else
   warn "Could not create an install log file; output goes to this terminal only."
 fi
 
-# -- Preflight: macOS only -------------------------------------------------
+# --- REGION: Preflight: macOS only
 [[ "$(uname -s)" == "Darwin" ]] || die "This installer only supports macOS."
 [[ $EUID -ne 0 ]] || die "Do not run as root. The script will call sudo when needed."
 
-# -- Preflight: Apple Silicon required (HARD gate) -------------------------
+# --- REGION: Preflight: Apple Silicon required (HARD gate)
 # Architecture is a hard incompatibility, not a tunable performance baseline:
 # the guest VMs are arm64 images and Homebrew publishes no x86_64 bottles for
 # the required formulae/casks (qemu, tesseract, UTM, ...). Fail up front with
@@ -85,7 +85,7 @@ log "Yuruna macOS installer starting"
 log "  repo   : $YURUNA_REPO ($YURUNA_BRANCH)"
 log "  target : $YURUNA_DIR"
 
-# -- Preflight: system requirements ----------------------------------------
+# --- REGION: Preflight: system requirements
 preflight_system_requirements() {
   local issues=()
   local osver osmajor arch cores mem_bytes mem_gb disk_kb disk_gb
@@ -134,7 +134,7 @@ preflight_system_requirements() {
 }
 preflight_system_requirements
 
-# -- sudo announcement + keepalive -----------------------------------------
+# --- REGION: sudo announcement + keepalive
 cat <<'SUDO_NOTICE'
 
   +---------------------------------------------------------------+
@@ -164,7 +164,7 @@ yuruna_install_cleanup() {
 }
 trap yuruna_install_cleanup EXIT
 
-# -- Xcode Command Line Tools ----------------------------------------------
+# --- REGION: Xcode Command Line Tools
 if ! xcode-select -p >/dev/null 2>&1; then
   log "Installing Xcode Command Line Tools (a GUI prompt will appear)"
   xcode-select --install || true
@@ -174,7 +174,7 @@ if ! xcode-select -p >/dev/null 2>&1; then
   done
 fi
 
-# -- Homebrew --------------------------------------------------------------
+# --- REGION: Homebrew
 if ! command -v brew >/dev/null 2>&1; then
   log "Installing Homebrew"
   # Pin Homebrew's bootstrap to a known commit and verify its SHA-256 before
@@ -207,7 +207,7 @@ else
   die "Homebrew installation failed -- 'brew' not found on PATH."
 fi
 
-# -- Homebrew health repair (multi-user host) ------------------------------
+# --- REGION: Homebrew health repair (multi-user host)
 # A fresh macOS user account on a host where Homebrew was installed by a
 # different account inherits a /opt/homebrew with mixed ownership AND
 # (often) no .git directory (tarball install). Every subsequent brew op
@@ -303,7 +303,7 @@ if [[ $BREW_SKIP_UPDATE -eq 0 ]]; then
   fi
 fi
 
-# -- Stop running Yuruna processes -----------------------------------------
+# --- REGION: Stop running Yuruna processes
 quit_mac_app() {
   local app="$1" procPattern="${2:-$1}"
   if pgrep -x "$procPattern" >/dev/null 2>&1 || pgrep -f "/$app.app/" >/dev/null 2>&1; then
@@ -322,7 +322,7 @@ quit_mac_app() {
   fi
 }
 
-# -- Stop running Yuruna host services -------------------------------------
+# --- REGION: Stop running Yuruna host services
 # Force-stop the outer runner, its per-cycle inner pwsh, and the detached
 # status HTTP server, then WAIT for them to exit before the repo update
 # renames the checkout aside. VMs (the yuruna-caching-proxy cache, a UTM
@@ -462,7 +462,7 @@ stop_yuruna_processes() {
   warn "  some Yuruna service PIDs did not exit; re-run the installer if the repo update reports the checkout is busy."
 }
 
-# -- Preserve yuruna-caching-proxy if running ------------------------------
+# --- REGION: Preserve yuruna-caching-proxy if running
 SQUID_CACHE_DETECT_REASON=""
 is_squid_cache_running() {
   local state_file="$YURUNA_DIR/test/status/runtime/yuruna-caching-proxy.yml"
@@ -511,7 +511,7 @@ if [[ $PRESERVE_SQUID_CACHE -eq 0 ]]; then
   quit_mac_app "UTM"
 fi
 
-# -- Install platform packages ---------------------------------------------
+# --- REGION: Install platform packages
 brew_ensure_formula() {
   local name="$1"
   if brew list --formula --versions "$name" >/dev/null 2>&1; then
@@ -566,7 +566,7 @@ command -v pwsh >/dev/null 2>&1 || die "pwsh not found after install."
 command -v git  >/dev/null 2>&1 || die "git not found after install."
 [[ -d /Applications/UTM.app ]]  || warn "UTM.app not found under /Applications -- test runner will warn."
 
-# -- PowerShell modules ----------------------------------------------------
+# --- REGION: PowerShell modules
 log "Installing required PowerShell modules"
 pwsh -NoProfile -Command '
     if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
@@ -584,7 +584,7 @@ pwsh -NoProfile -Command '
     }
 ' || warn "powershell-yaml install reported an error -- see above. Continuing install."
 
-# -- Preserve test/status runtime state ------------------------------------
+# --- REGION: Preserve test/status runtime state
 TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)
 preserve_test_status() {
   local src="$YURUNA_DIR/test/status"
@@ -624,7 +624,7 @@ restore_test_status() {
   YURUNA_STATUS_BACKUP=""
 }
 
-# -- Tolerate a v / no-v tag mismatch --------------------------------------
+# --- REGION: Tolerate a v / no-v tag mismatch
 # Canonical Yuruna release tags are BARE CalVer (YYYY.MM.DD, no 'v'); the
 # release tool refuses to create a 'v'-variant. But a human or a tool (or a
 # YURUNA_BRANCH=... arg) can ask for the wrong form -- a recommended
@@ -652,7 +652,7 @@ resolve_yuruna_ref() {
   printf '%s' "$ref"
 }
 
-# -- Development repo pulls latest main, not a release tag ------------------
+# --- REGION: Development repo pulls latest main, not a release tag
 # yurunadev is only tagged at the weekly release, so the pinned-CalVer default
 # resolves to nothing mid-week. When the target repo is yurunadev and the
 # operator did not pin a ref explicitly, track 'main' (latest code) instead.
@@ -664,7 +664,7 @@ use_dev_branch_if_needed() {
   fi
 }
 
-# -- Clone / update the repo -----------------------------------------------
+# --- REGION: Clone / update the repo
 YURUNA_BACKUP_CREATED=""
 preserve_test_status
 mkdir -p "$(dirname "$YURUNA_DIR")"
@@ -739,7 +739,7 @@ else
   git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"
 fi
 
-# -- Renormalize line endings under .gitattributes -------------------------
+# --- REGION: Renormalize line endings under .gitattributes
 if [[ -d "$YURUNA_DIR/.git" ]]; then
   log "Renormalizing repo line endings (per .gitattributes)"
   git -C "$YURUNA_DIR" config core.autocrlf input
@@ -762,7 +762,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
   fi
 fi
 
-# -- Pin to the current release (opt-in) -----------------------------------
+# --- REGION: Pin to the current release (opt-in)
 # PIN_VERSION / --pin-version: now that 'main' is cloned/updated, read the
 # repo's own VERSION file (single source of truth -- top of the repository) and
 # detach HEAD at that release tag so the host freezes there and the per-cycle
@@ -782,14 +782,14 @@ if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DI
 fi
 restore_test_status
 
-# -- Seed test.config.yml from template ------------------------------------
+# --- REGION: Seed test.config.yml from template
 TEST_DIR="$YURUNA_DIR/test"
 if [[ ! -f "$TEST_DIR/test.config.yml" && -f "$TEST_DIR/test.config.yml.template" ]]; then
   log "Creating test/test.config.yml from template (review before running tests)"
   cp "$TEST_DIR/test.config.yml.template" "$TEST_DIR/test.config.yml"
 fi
 
-# -- Baseline reset: remove test-* VMs -------------------------------------
+# --- REGION: Baseline reset: remove test-* VMs
 REMOVE_TEST_VMS="$YURUNA_DIR/test/Remove-TestVMFiles.ps1"
 if [[ -f "$REMOVE_TEST_VMS" ]]; then
   log "Removing test-* VMs left over from previous cycles (cache VM preserved)"
@@ -799,14 +799,14 @@ else
   warn "Remove-TestVMFiles.ps1 not found at $REMOVE_TEST_VMS -- skipping test-VM cleanup."
 fi
 
-# -- Enable-TestAutomation.ps1 hint ----------------------------------------
+# --- REGION: Enable-TestAutomation.ps1 hint
 HOST_SETUP="$YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1"
 log ""
 log "Host configuration (test-host setup) is NOT auto-applied."
 log "To enable this machine as a test host, run:"
 log "    pwsh '$HOST_SETUP'"
 
-# -- Done summary ----------------------------------------------------------
+# --- REGION: Done summary
 BREW_PREFIX="$(brew --prefix)"
 BREW_SHELLENV="eval \"\$($BREW_PREFIX/bin/brew shellenv)\""
 
@@ -853,7 +853,7 @@ Re-running this installer is safe; it will update Homebrew packages and
 fast-forward the Yuruna checkout when possible.
 EOF
 
-# -- Backup notice ---------------------------------------------------------
+# --- REGION: Backup notice
 if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn ""
   warn "============================================================"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,53 @@
 # Invoke-PoolSyncGit.
 
 $script:PoolAdminGitTimeoutSec = 60
+# Idempotent network git ops (fetch/clone/push) retry within one overall
+# wall-clock budget so a single transient blip (a proxy hiccup, a momentary
+# DNS/TLS failure) does not abort the operator action or leave intent
+# committed-but-unpushed. Kept short so an interactive admin command fails in
+# bounded time rather than hanging.
+$script:PoolAdminRetryBudgetSec = 90
+$script:PoolAdminRetryDelaySec  = 3
+
+<#
+.SYNOPSIS
+Runs an idempotent network git op (fetch/clone/push) via Invoke-PoolSyncGit, retrying within one
+overall wall-clock budget. Returns the final git exit code (0 = success).
+.DESCRIPTION
+Only fetch/clone/push route through here -- they are safe to repeat and the failures worth
+surviving are transient (network/proxy). Local ops (add/reset/commit/diff) are NOT retried: a
+retry there cannot clear a real repo-state error and would only mask it. The budget is a deadline
+(UtcNow-based), not an attempt count, so a slow attempt shrinks the remaining retries rather than
+extending the total; each git child is additionally capped at the smaller of the per-call timeout
+and the time left to the deadline. The shared Invoke-WithYurunaRetry policy is not reused here: it
+classifies transient failures on command OUTPUT text, whereas Invoke-PoolSyncGit exposes only an
+exit code, so that policy would degrade to retry-on-any-non-zero and carries no wall-clock budget.
+#>
+function Invoke-PoolAdminGitWithRetry {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string[]]$ArgumentList,
+        [Parameter(Mandatory)][string]$Label,
+        [int]$TimeoutSeconds = $script:PoolAdminGitTimeoutSec,
+        [int]$BudgetSeconds  = $script:PoolAdminRetryBudgetSec,
+        [int]$DelaySeconds   = $script:PoolAdminRetryDelaySec
+    )
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds([Math]::Max(1, $BudgetSeconds))
+    $rc = -1
+    while ($true) {
+        $remaining   = [int][Math]::Ceiling(($deadlineUtc - [DateTime]::UtcNow).TotalSeconds)
+        if ($remaining -lt 1) { $remaining = 1 }
+        $callTimeout = [Math]::Min($TimeoutSeconds, $remaining)
+        $rc = Invoke-PoolSyncGit -ArgumentList $ArgumentList -TimeoutSeconds $callTimeout
+        if ($rc -eq 0) { return 0 }
+        # Stop if another attempt (plus its backoff) would not finish inside the budget.
+        if ([DateTime]::UtcNow.AddSeconds($DelaySeconds) -ge $deadlineUtc) { break }
+        Write-Verbose "${Label}: git exit ${rc}; retrying within the ${BudgetSeconds}s budget"
+        Start-Sleep -Seconds $DelaySeconds
+    }
+    return $rc
+}
 
 <#
 .SYNOPSIS
@@ -70,6 +117,44 @@ function Test-YurunaPoolDocValid {
 
 <#
 .SYNOPSIS
+Validates one pool-intent file against its schema, returning $true when the file is acceptable.
+.DESCRIPTION
+A -Required file that is absent FAILS (returns $false): pools.yml is the pool's identity and the
+runners pull whatever is committed, so a missing pools.yml would silently leave the pool
+unconfigured -- it must not read as success. A non-required file that is absent is a SKIP
+(returns $true) -- guests.compatibility.yml and the test-sets are genuinely optional. A present
+file is parsed and schema-checked via Test-YurunaPoolDocValid. Emits PASS/FAIL/SKIP breadcrumbs.
+#>
+function Test-YurunaPoolIntentFile {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$SchemaName,
+        [Parameter(Mandatory)][string]$Label,
+        [switch]$Required
+    )
+    if (-not (Test-Path -LiteralPath $Path)) {
+        if ($Required) {
+            Write-Warning "FAIL  ${Label}: required file is missing ($Path)"
+            return $false
+        }
+        Write-Information "SKIP  ${Label}: not present ($Path)" -InformationAction Continue
+        return $true
+    }
+    $doc = $null
+    try { $doc = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered } catch {
+        Write-Warning "FAIL  ${Label}: YAML parse error -- $($_.Exception.Message)"
+        return $false
+    }
+    $v = Test-YurunaPoolDocValid -Doc $doc -SchemaName $SchemaName
+    if ($v.Ok) { Write-Information "PASS  ${Label}: schema-valid ($Path)" -InformationAction Continue; return $true }
+    Write-Warning "FAIL  ${Label}: $($v.Errors -join '; ')"
+    return $false
+}
+
+<#
+.SYNOPSIS
 Ensures a working clone of the WRITABLE intent repo at $IntentDir.
 .DESCRIPTION
 Clones when absent, else fetches + reset --hard origin/HEAD so the edit is based on the latest
@@ -88,7 +173,7 @@ function Open-YurunaPoolIntent {
     if (-not $PSCmdlet.ShouldProcess($IntentDir, "Open pool intent clone of $IntentGitUrl")) { return @{ Ok = $true; Error = '' } }
     $gitDir = Join-Path $IntentDir '.git'
     if (Test-Path -LiteralPath $gitDir) {
-        $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+        $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -Label 'git fetch'
         if ($rc -ne 0) { return @{ Ok = $false; Error = "git fetch failed (exit $rc) from $IntentGitUrl" } }
         # Reset to FETCH_HEAD (origin's default branch) rather than the origin/HEAD
         # symbolic ref, which a plain clone does not always populate.
@@ -98,7 +183,12 @@ function Open-YurunaPoolIntent {
     }
     $parent = Split-Path -Parent $IntentDir
     if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-    $rc = Invoke-PoolSyncGit -ArgumentList @('clone', '--quiet', $IntentGitUrl, $IntentDir) -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+    # Clone retry is idempotent for the common transient case: git removes a target
+    # dir it created on a connect-stage failure, so a network/proxy blip re-clones
+    # cleanly. A timeout process-kill mid-transfer can leave a partial dir a later
+    # run must clear -- no worse than a single attempt, and the store is authored
+    # here, not read, so a leftover partial loses no data.
+    $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('clone', '--quiet', $IntentGitUrl, $IntentDir) -Label 'git clone'
     if ($rc -ne 0) { return @{ Ok = $false; Error = "git clone failed (exit $rc) from $IntentGitUrl" } }
     return @{ Ok = $true; Error = '' }
 }
@@ -181,7 +271,7 @@ function Publish-YurunaPoolIntent {
     # destination branch makes the push deterministic even when a fresh clone of
     # an empty repo left the local branch named 'master', so a later clone reading
     # the bare repo's HEAD (main) always sees the pushed commit.
-    $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'push', '--quiet', 'origin', 'HEAD:main') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+    $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push'
     if ($rc -ne 0) {
         return @{ Ok = $true; Pushed = $false; Error = "committed locally but push failed (exit $rc) -- push from a writable location (e.g. on the proxy: a file:// or local path to the bare repo)" }
     }
@@ -231,6 +321,6 @@ function Get-YurunaPoolFromDoc {
 }
 
 Export-ModuleMember -Function `
-    Resolve-YurunaPoolSchemaPath, Test-YurunaPoolDocValid, Open-YurunaPoolIntent, `
-    Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolIntent, Get-YurunaPoolFromDoc, `
-    Resolve-YurunaPoolAdminTarget
+    Resolve-YurunaPoolSchemaPath, Test-YurunaPoolDocValid, Test-YurunaPoolIntentFile, `
+    Open-YurunaPoolIntent, Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolIntent, `
+    Get-YurunaPoolFromDoc, Resolve-YurunaPoolAdminTarget

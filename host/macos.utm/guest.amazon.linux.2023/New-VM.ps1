@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e0f1a2-b3c4-4d56-e789-0f1a2b3c4d56
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@ $UtmDir = "$GuestDir/$VMName.utm"
 $DataDir = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/amazon.linux.2023"
 
-# === Seek the base image ===
+# --- REGION: Seek the base image
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.amazon.linux.2023"
@@ -68,7 +68,7 @@ Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Create copies and files for VM ===
+# --- REGION: Create copies and files for VM
 
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
@@ -93,7 +93,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# === Cloud-init seed ISO ===
+# --- REGION: Generate cloud-init seed ISO
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -173,7 +173,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# === config.plist (Apple Virtualization backend) ===
+# --- REGION: config.plist (Apple Virtualization backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -195,7 +195,7 @@ $MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
 # keystrokes) agree without a sidecar file.
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -226,10 +226,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
-# === Cleanup temporary folders ===
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Guidance ===
+# --- REGION: Guidance
 Write-Verbose ""
 Write-Verbose "VM bundle created: $UtmDir"
 Write-Verbose "Backend: QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"

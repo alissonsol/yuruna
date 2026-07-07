@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456728
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,11 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Output.psm1') -Global -Force
 # Test-RepoFreshness reports on (Invoke-GitPull acts on the same result). Import
 # -Global so a -Force reimport here cannot evict it from the global session.
 Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -Global -Force
+# Test-AgainstSchema parses the config through Read-TestConfig (Test.Config) so schema
+# validation reuses the hardened reader (root-shape check, the macOS Resolve-Path
+# fallback, the shared mtime-keyed cache). Import it here so every consumer of this
+# module has the reader -- the validator is also called by the standalone Test-Config.ps1.
+Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force
 
 function Test-IsSet {
     <#
@@ -78,7 +83,9 @@ function Test-AgainstSchema {
     if (-not (Test-Path $YamlPath))   { Write-Fail "${Label}: file not found ($YamlFull)" -FullPath $YamlFull; return }
     if (-not (Test-Path $SchemaPath)) { Write-Warn "${Label}: schema not found ($SchemaPath)"; return }
     try {
-        $doc = Get-Content -Raw $YamlPath | ConvertFrom-Yaml -Ordered
+        # Route through the hardened reader (root-shape check + the macOS Resolve-Path
+        # fallback + the shared cache) instead of a second, divergent parse path.
+        $doc = Read-TestConfig -Path $YamlPath -ThrowOnError
     } catch {
         Write-Fail "${Label}: YAML parse error in ${YamlFull} -- $($_.Exception.Message)" -FullPath $YamlFull
         return

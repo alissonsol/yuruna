@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ if ($CacheIp -and -not (Test-IpAddress $CacheIp)) {
     exit 1
 }
 
-# === Step 1: tear down legacy shared-NAT forwarders ========================
+# --- REGION: Step 1: tear down legacy shared-NAT forwarders
 # The cache lives directly on the LAN now. Any pwsh forwarder.<port>.pid
 # subprocess left behind from the legacy shared-NAT layout is noise --
 # it binds 0.0.0.0:<port> on this Mac, tunnels to a stale 192.168.64.X
@@ -111,7 +111,7 @@ Write-Output ""
 Write-Output "== Step 1: tear down any legacy host-side forwarders =="
 [void](Remove-PortMap -Confirm:$false)
 
-# === Step 2: locate + verify the cache =====================================
+# --- REGION: Step 2: locate + verify the cache
 Write-Output ""
 Write-Output "== Step 2: locate the cache VM on the LAN =="
 if ($CacheIp) {
@@ -143,7 +143,7 @@ if ($CacheIp) {
     if ($foundUrl -match '^http://([0-9.]+):') { $CacheIp = $matches[1] } else { $CacheIp = '' }
 }
 
-# === Step 3: summarize =====================================================
+# --- REGION: Step 3: summarize
 Write-Output ""
 Write-Output "================================================================="
 Write-Output "== caching-proxy REACHABLE (LAN-direct) =="

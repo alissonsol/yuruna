@@ -1,10 +1,10 @@
 #cloud-config
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- See https://yuruna.link/vmconfig/caching-proxy
-# --- See https://yuruna.link/vmconfig/caching-proxy#squid-cache-hostname-vs-template-name
+# --- REGION: https://yuruna.link/vmconfig/caching-proxy
+# --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-cache-hostname-vs-template-name
 hostname: yuruna-caching-proxy
-# --- See https://yuruna.link/vmconfig/caching-proxy#users-replace-cloud-image-default-with-yuruna
+# --- REGION: https://yuruna.link/vmconfig/caching-proxy#users-replace-cloud-image-default-with-yuruna
 users:
   - name: yuruna
     gecos: yuruna debug user
@@ -20,7 +20,7 @@ chpasswd:
       password: PASSWORD_PLACEHOLDER
       type: text
 ssh_pwauth: true
-# --- See https://yuruna.link/vmconfig/caching-proxy#grafana-apt-repo-inline-gpg-key
+# --- REGION: https://yuruna.link/vmconfig/caching-proxy#grafana-apt-repo-inline-gpg-key
 apt:
   sources:
     grafana.list:
@@ -69,31 +69,31 @@ apt:
         -----END PGP PUBLIC KEY BLOCK-----
 package_update: true
 packages:
-  # --- See https://yuruna.link/vmconfig/caching-proxy#package-squid-openssl-not-squid
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#package-squid-openssl-not-squid
   - squid-openssl
   # squid-cgi (cachemgr.cgi web UI) is intentionally NOT listed: Ubuntu
   # dropped the package in 26.04 (Squid 7), so requesting it has no
   # installation candidate and FAILS the entire cloud-init package
   # transaction. Cache-manager data is reached with `squidclient mgr:<page>`
   # on the VM instead (cachemgr_passwd stays set in squid.conf below).
-  # --- See https://yuruna.link/vmconfig/caching-proxy#squidclient-and-apache2
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squidclient-and-apache2
   - apache2
-  # --- See https://yuruna.link/vmconfig/caching-proxy#monitoring-stack-packages
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#monitoring-stack-packages
   - prometheus
   - grafana
   - loki
   - promtail
-  # --- See https://yuruna.link/vmconfig/caching-proxy#package-acl-for-promtail-log-read
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#package-acl-for-promtail-log-read
   - acl
   - golang-go
-  # --- See https://yuruna.link/vmconfig/caching-proxy#network-debugging-tool-packages
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#network-debugging-tool-packages
   - net-tools       # ifconfig, netstat, route, arp
   - iputils-ping    # ping, ping6
-  # --- See https://yuruna.link/vmconfig/caching-proxy#package-openssl-for-ca-generation
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#package-openssl-for-ca-generation
   - openssl
-  # --- See https://yuruna.link/vmconfig/caching-proxy#package-unattended-upgrades
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#package-unattended-upgrades
   - unattended-upgrades
-  # --- See https://yuruna.link/vmconfig/caching-proxy#packages-cifs-utils-and-sqlite3-for-nas-replication
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#packages-cifs-utils-and-sqlite3-for-nas-replication
   - cifs-utils
   - sqlite3
   # jq: parse the Host Config Service JSON (NAS creds) without shell-quoting the password.
@@ -101,14 +101,14 @@ packages:
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
   # === YURUNA_OVERLAY_NIC_OFFLOAD ===
-  # --- See https://yuruna.link/vmconfig/caching-proxy#apt-retries-on-transient-errors
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#apt-retries-on-transient-errors
   - path: /etc/apt/apt.conf.d/80-yuruna-retries
     permissions: '0644'
     owner: root:root
     content: |
       Acquire::Retries "5";
       Acquire::Retries::Delay-Max "60";
-  # --- See https://yuruna.link/vmconfig/caching-proxy#unattended-upgrades-schedule
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#unattended-upgrades-schedule
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     permissions: '0644'
     owner: root:root
@@ -119,7 +119,7 @@ write_files:
   # No yuruna-cachemgr.conf: the cachemgr.cgi binary it guarded came from
   # squid-cgi, which Ubuntu 26.04 no longer ships (see packages above). Use
   # `squidclient mgr:<page>` on the VM for cache-manager data.
-  # --- See https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-over-read-only-http
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-over-read-only-http
   - path: /etc/apache2/conf-available/yuruna-pool-intent.conf
     permissions: '0644'
     owner: root:root
@@ -132,7 +132,7 @@ write_files:
           Require ip 172.16.0.0/12
           Require ip 192.168.0.0/16
       </Directory>
-  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-drop-in-config-approach
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-drop-in-config-approach
   - path: /etc/squid/conf.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -157,7 +157,7 @@ write_files:
       acl yuruna_local src 172.16.0.0/12
       acl yuruna_local src 192.168.0.0/16
 
-      # --- Cache purge (PURGE method for RFC1918 operators) ---
+      # --- REGION: Cache purge (PURGE method for RFC1918 operators)
       # Must precede `http_access allow yuruna_local` (first-match-wins); otherwise the
       # generic allow matches PURGE-from-yuruna_local first, making the explicit deny dead code.
       acl yuruna_purge method PURGE
@@ -166,7 +166,7 @@ write_files:
 
       http_access allow yuruna_local
 
-      # --- Snapshot-cache tuning ---
+      # --- REGION: Snapshot-cache tuning
       # Tuned as a replayable snapshot:
       #   1. objects stay until the disk is nearly full (no proactive
       #      release)
@@ -298,7 +298,7 @@ write_files:
       # dev pockets; mismatched InRelease vs dep11 -> "Hash Sum mismatch".
       refresh_pattern -i /dep11/.+\.yml(\.gz|\.xz)?$    0 0%  60
 
-      # --- Container registry caching (OCI + Docker v2) ---
+      # --- REGION: Container registry caching (OCI + Docker v2)
       # Diagnostic against active cycles has shown identical
       # digest-pinned blob/manifest URLs being re-fetched multiple times
       # per cycle (per `awk '$4 ~ /MISS/' /var/log/squid/yuruna_access.log`):
@@ -324,7 +324,7 @@ write_files:
       # fetches; this just stretches the window past `must-revalidate`.
       refresh_pattern -i /v2/.+/manifests/[^/]+$        5 50%  60
 
-      # --- OpenTofu / Terraform provider + binary caching ---
+      # --- REGION: OpenTofu / Terraform provider + binary caching
       # See https://yuruna.link/caching#opentofu-provider-binary-caching
       refresh_pattern -i \.zip$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://registry\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
@@ -332,7 +332,7 @@ write_files:
       refresh_pattern -i ^https?://packages\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://get\.opentofu\.org/                     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
-      # --- GitHub release binary caching ---
+      # --- REGION: GitHub release binary caching
       # GitHub release assets (kubectl, helm, gh, jq, terraform-provider-*,
       # tofu, etc.) live at
       #   github.com/<owner>/<repo>/releases/download/<tag>/<asset>
@@ -346,7 +346,7 @@ write_files:
       refresh_pattern -i ^https?://github\.com/[^/]+/[^/]+/releases/download/ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://objects\.githubusercontent\.com/        525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
-      # --- Helm chart + repo index caching ---
+      # --- REGION: Helm chart + repo index caching
       # `helm install <repo>/<chart>` downloads chart packages whose URLs end
       # in .tgz (e.g. https://kubernetes.github.io/ingress-nginx/ingress-
       # nginx-X.Y.Z.tgz). The `\.tar\.gz$` pattern above does NOT match the
@@ -366,8 +366,8 @@ write_files:
 
       logfile_rotate 2
 
-      # --- See https://yuruna.link/caching#ssl_bump-rules
-      # --- See https://yuruna.link/caching#squid-6-parser-traps
+      # --- REGION: https://yuruna.link/caching#ssl_bump-rules
+      # --- REGION: https://yuruna.link/caching#squid-6-parser-traps
       acl step1 at_step SslBump1
       http_port 3129 ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
       sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/lib/squid/ssl_db -M 4MB
@@ -402,7 +402,7 @@ write_files:
       # Squid 7 requires module prefix on access_log; without `stdio:`
       # the parser emits a deprecation WARNING at every config load.
       access_log stdio:/var/log/squid/yuruna_access.log yuruna !yuruna_mgr_scrape
-  # --- See https://yuruna.link/vmconfig/caching-proxy#prometheus-loopback-only
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#prometheus-loopback-only
   - path: /etc/default/prometheus
     permissions: '0644'
     owner: root:root
@@ -455,7 +455,7 @@ write_files:
             insecure_skip_verify: true
           static_configs:
             - targets: ['localhost:9400']
-  # --- See https://yuruna.link/vmconfig/caching-proxy#loki-tiered-retention
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#loki-tiered-retention
   - path: /etc/loki/config.yml
     permissions: '0644'
     owner: root:root
@@ -500,7 +500,7 @@ write_files:
         working_directory: /var/lib/loki/compactor
         retention_enabled: true
         delete_request_store: filesystem
-  # --- See https://yuruna.link/vmconfig/caching-proxy#promtail-timestamp-only-labels
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#promtail-timestamp-only-labels
   - path: /etc/promtail/config.yml
     permissions: '0644'
     owner: root:root
@@ -578,14 +578,14 @@ write_files:
                 source: path
                 value: NO_HTTP_PATH
                 drop_counter_reason: no_http_context
-  # --- See https://yuruna.link/vmconfig/caching-proxy#promtail-supplementary-groups-drop-in
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#promtail-supplementary-groups-drop-in
   - path: /etc/systemd/system/promtail.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
     content: |
       [Service]
       SupplementaryGroups=proxy zot
-  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-metadata-exporter
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-metadata-exporter
   - path: /usr/local/bin/squid-meta-exporter.sh
     permissions: '0755'
     owner: root:root
@@ -663,7 +663,7 @@ write_files:
       Unit=squid-meta-exporter.service
       [Install]
       WantedBy=timers.target
-  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-exporter-unit
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-exporter-unit
   - path: /etc/systemd/system/squid-exporter.service
     permissions: '0644'
     owner: root:root
@@ -681,7 +681,7 @@ write_files:
       RestartSec=5
       [Install]
       WantedBy=multi-user.target
-  # --- See https://yuruna.link/vmconfig/caching-proxy#grafana-anonymous-viewer
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#grafana-anonymous-viewer
   - path: /etc/systemd/system/grafana-server.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -689,7 +689,7 @@ write_files:
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-  # --- See https://yuruna.link/vmconfig/caching-proxy#grafana-datasources-pinned-uids
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#grafana-datasources-pinned-uids
   - path: /etc/grafana/provisioning/datasources/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -709,7 +709,7 @@ write_files:
           access: proxy
           url: http://localhost:3100
           editable: false
-  # --- See https://yuruna.link/vmconfig/caching-proxy#grafana-dashboard-rewriter
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#grafana-dashboard-rewriter
   - path: /usr/local/bin/yuruna-rewrite-zot-dashboard.py
     permissions: '0755'
     owner: root:root
@@ -934,7 +934,7 @@ write_files:
       for k in ('id', '__inputs', '__elements', '__requires'):
           d.pop(k, None)
       json.dump(d, sys.stdout, indent=2)
-  # --- See https://yuruna.link/vmconfig/caching-proxy#grafana-dashboard-provider
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#grafana-dashboard-provider
   - path: /etc/grafana/provisioning/dashboards/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -948,14 +948,14 @@ write_files:
           updateIntervalSeconds: 30
           options:
             path: /var/lib/grafana/dashboards
-  # --- See https://yuruna.link/vmconfig/caching-proxy#yuruna-host-coordinates-for-source-fetch
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#yuruna-host-coordinates-for-source-fetch
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
     content: |
       YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
       YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
-  # --- Host Config Service (mTLS) client materials + dynamic NAS-credential fetch.
+  # --- REGION: Host Config Service (mTLS) client materials + dynamic NAS-credential fetch.
   # The cache VM fetches ystash-nas (later ypool-nas) connection info + password
   # from the host's Config Service at boot AND hourly, so a rotated NAS password
   # reaches this running VM without a rebuild. The client cert chains to THIS
@@ -1095,7 +1095,7 @@ write_files:
       Unit=yuruna-config-fetch@%i.service
       [Install]
       WantedBy=timers.target
-  # --- See https://yuruna.link/vmconfig/caching-proxy#yuruna-hosts-dashboard-inlined
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#yuruna-hosts-dashboard-inlined
   - path: /var/lib/grafana/dashboards/pool.json
     permissions: '0644'
     owner: root:root
@@ -1535,7 +1535,7 @@ write_files:
           }
         ]
       }
-  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-dashboard-inlined
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-dashboard-inlined
   - path: /var/lib/grafana/dashboards/squid.json
     permissions: '0644'
     owner: root:root
@@ -1791,7 +1791,7 @@ write_files:
           }
         ]
       }
-  # --- See https://yuruna.link/caching#zot-oci-registry
+  # --- REGION: https://yuruna.link/caching#zot-oci-registry
   - path: /etc/zot/config.json
     permissions: '0644'
     owner: root:root
@@ -1908,7 +1908,7 @@ write_files:
           }
         }
       }
-  # --- See https://yuruna.link/vmconfig/caching-proxy#zot-systemd-unit
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#zot-systemd-unit
   - path: /etc/systemd/system/zot.service
     permissions: '0644'
     owner: root:root
@@ -1937,7 +1937,7 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
-  # --- See https://yuruna.link/vmconfig/caching-proxy#networkstorage-pool-replication-config
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#networkstorage-pool-replication-config
   - path: /etc/yuruna/ypool-nas.env
     permissions: '0644'
     owner: root:root
@@ -1951,7 +1951,7 @@ write_files:
   # runtime by the Host Config Service (/v1/nas/pool) and written (0600) by
   # yuruna-config-fetch.sh, so a rotated NAS password reaches this VM without a
   # rebuild. The plaintext pool password therefore never ships in the seed.iso.
-  # --- See https://yuruna.link/vmconfig/caching-proxy#pool-auth-token
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-auth-token
   - path: /etc/yuruna/pool-auth.token
     permissions: '0640'
     owner: root:proxy
@@ -2044,9 +2044,9 @@ write_files:
       WantedBy=timers.target
 runcmd:
   # === YURUNA_OVERLAY_RUNCMD_NET ===
-  # --- See https://yuruna.link/vmconfig/caching-proxy#stop-squid-before-ca-bootstrap
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#stop-squid-before-ca-bootstrap
   - systemctl stop squid || true
-  # --- See https://yuruna.link/vmconfig/caching-proxy#ssl-bump-ca-bootstrap
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#ssl-bump-ca-bootstrap
   - |
     set -e
     CA_DIR=/etc/squid/ssl_cert
@@ -2070,7 +2070,7 @@ runcmd:
       chmod 600 "$CA_DIR/ca.key"
       chmod 644 "$CA_DIR/ca.pem"
     fi
-  # --- See https://yuruna.link/vmconfig/caching-proxy#pool-aggregator-tls-leaf
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-aggregator-tls-leaf
   - |
     set -e
     CA_DIR=/etc/squid/ssl_cert
@@ -2091,7 +2091,7 @@ runcmd:
       chmod 600 "$LEAF.key"
       chmod 644 "$LEAF.crt"
     fi
-  # --- See https://yuruna.link/vmconfig/caching-proxy#resolve-pool-dashboard-aggregator-url
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#resolve-pool-dashboard-aggregator-url
   - |
     set -e
     POOL_DASH=/var/lib/grafana/dashboards/pool.json
@@ -2102,7 +2102,7 @@ runcmd:
       [ -f /etc/squid/ssl_cert/pool-aggregator.crt ] && AGG_SCHEME=https
       sed -i "s#AGGREGATOR_BASE_PLACEHOLDER#${AGG_SCHEME}://${AGG_IP}:9400#g" "$POOL_DASH"
     fi
-  # --- See https://yuruna.link/vmconfig/caching-proxy#squid-ssl_db-initialization
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-ssl_db-initialization
   - |
     set -e
     SSL_DB=/var/lib/squid/ssl_db
@@ -2116,13 +2116,13 @@ runcmd:
   # No `a2enmod cgi` / `a2enconf yuruna-cachemgr`: the cachemgr.cgi web UI
   # was removed (squid-cgi is gone in Ubuntu 26.04). Apache still serves the
   # CA cert + pool-intent; cache-manager data is via `squidclient mgr:`.
-  # --- See https://yuruna.link/vmconfig/caching-proxy#publish-squid-ca-cert
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#publish-squid-ca-cert
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
-  # --- See https://yuruna.link/vmconfig/caching-proxy#publish-pool-ca-cert
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#publish-pool-ca-cert
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-pool-ca.crt
   - systemctl enable apache2
   - systemctl restart apache2
-  # --- See https://yuruna.link/vmconfig/caching-proxy#pre-warm-the-cache
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pre-warm-the-cache
   - |
     for i in $(seq 1 60); do
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
@@ -2138,10 +2138,10 @@ runcmd:
       systemctl --no-pager -l status squid || true
       journalctl --no-pager -u squid -n 80 || true
     fi
-  # --- See https://yuruna.link/vmconfig/caching-proxy#route-vm-apt-through-local-squid
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#route-vm-apt-through-local-squid
   - echo 'Acquire::http::Proxy "http://127.0.0.1:3128";' > /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
   - apt-get update
-  # --- See https://yuruna.link/vmconfig/caching-proxy#prewarm-download-loop
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#prewarm-download-loop
   - |
     # === YURUNA_OVERLAY_FIRMWARE_PKGS ===
       echo "== yuruna prewarm: $pkg =="
@@ -2149,11 +2149,11 @@ runcmd:
         || apt-get install --download-only -y "$pkg" 2>/dev/null \
         || echo "yuruna prewarm: skipped $pkg"
     done
-  # --- See https://yuruna.link/vmconfig/caching-proxy#reclaim-apt-cache-after-prewarm
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#reclaim-apt-cache-after-prewarm
   - apt-get clean
-  # --- See https://yuruna.link/vmconfig/caching-proxy#remove-prewarm-apt-proxy-dropin
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#remove-prewarm-apt-proxy-dropin
   - rm -f /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
-  # --- See https://yuruna.link/vmconfig/caching-proxy#flip-squid-into-offline-mode
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#flip-squid-into-offline-mode
   - |
     cat > /etc/squid/conf.d/yuruna-offline.conf << 'EOF'
     # Serve only from cache; never contact origin. Miss returns 504. To
@@ -2162,9 +2162,9 @@ runcmd:
     offline_mode on
     EOF
   - squid -k reconfigure
-  # --- See https://yuruna.link/vmconfig/caching-proxy#offline_mode-echo-yaml-mapping-trap
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#offline_mode-echo-yaml-mapping-trap
   - 'echo "caching-proxy offline_mode ON - serving cached content only"'
-  # --- See https://yuruna.link/vmconfig/caching-proxy#build-squid-exporter-and-caching-proxy-parser
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#build-squid-exporter-and-caching-proxy-parser
   - |
     export GOPATH=/root/go HOME=/root
     # squid-exporter: Prometheus scraper for squid cachemgr counters.
@@ -2243,22 +2243,22 @@ runcmd:
     fi
     cd /
     rm -rf /root/go /opt/caching-proxy-parser /opt/pool-aggregator
-  # --- See https://yuruna.link/vmconfig/caching-proxy#purge-go-toolchain-after-builds
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#purge-go-toolchain-after-builds
   - DEBIAN_FRONTEND=noninteractive apt-get purge -y golang-go || true
   - DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
-  # --- See https://yuruna.link/vmconfig/caching-proxy#start-the-monitoring-stack
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#start-the-monitoring-stack
   - systemctl daemon-reload
   - systemctl enable --now squid-exporter.service
-  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-squid-metadata-exporter-timer
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#enable-squid-metadata-exporter-timer
   - systemctl enable --now squid-meta-exporter.timer
-  # --- See https://yuruna.link/vmconfig/caching-proxy#prime-squid-metadata-exporter-once
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#prime-squid-metadata-exporter-once
   - /usr/local/bin/squid-meta-exporter.sh || true
   - systemctl enable --now prometheus.service
-  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-caching-proxy-parser-service
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#enable-caching-proxy-parser-service
   - systemctl enable --now caching-proxy-parser.service || true
-  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-pool-aggregator-service
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#enable-pool-aggregator-service
   - systemctl enable --now pool-aggregator.service || true
-  # --- See https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-seeding
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-seeding
   - |
     INTENT_GIT=/var/lib/yuruna/pool-intent.git
     if [ ! -d "$INTENT_GIT/refs" ]; then
@@ -2281,7 +2281,7 @@ runcmd:
     systemctl reload apache2 || systemctl restart apache2 || true
   - systemctl enable grafana-server.service
   - systemctl restart grafana-server.service
-  # --- See https://yuruna.link/vmconfig/caching-proxy#wait-for-grafana-server-to-bind
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#wait-for-grafana-server-to-bind
   - |
     for i in $(seq 1 60); do
       systemctl is-active --quiet grafana-server.service && \
@@ -2293,7 +2293,7 @@ runcmd:
       systemctl --no-pager -l status grafana-server.service || true
       journalctl --no-pager -u grafana-server.service -n 80 || true
     fi
-  # --- See https://yuruna.link/vmconfig/caching-proxy#install-community-zot-dashboard
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#install-community-zot-dashboard
   - |
     if curl -fsSL --retry 3 --retry-delay 5 --max-time 30 \
          https://grafana.com/api/dashboards/20501/revisions/latest/download \
@@ -2306,7 +2306,7 @@ runcmd:
     else
         echo "== YURUNA: failed to fetch Grafana dashboard 20501 from grafana.com -- the 'Zot (official)' dashboard will be missing until the next boot retries =="
     fi
-  # --- See https://yuruna.link/caching#loki-promtail-boot-order-traps
+  # --- REGION: https://yuruna.link/caching#loki-promtail-boot-order-traps
   - id zot >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin zot
   - install -d -o promtail -m 0755 /var/lib/promtail
   - install -d -o loki -m 0755 /var/lib/loki
@@ -2315,7 +2315,7 @@ runcmd:
   - systemctl enable --now loki.service
   - systemctl enable --now promtail.service
   - systemctl restart loki.service promtail.service
-  # --- See https://yuruna.link/vmconfig/caching-proxy#enable-nas-replication-timer-conditionally
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#enable-nas-replication-timer-conditionally
   - |
     if grep -qx "YPOOL_NAS_REPLICATE='true'" /etc/yuruna/ypool-nas.env 2>/dev/null; then
       systemctl daemon-reload
@@ -2338,7 +2338,7 @@ runcmd:
   # and no cross-host Config Service / ystash-nas credential dependency for the
   # dashboard. (The Config Service + yuruna-config-fetch still serve ypool-nas
   # replication above.)
-  # --- See https://yuruna.link/vmconfig/caching-proxy#verify-promtail-supplementary-groups
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#verify-promtail-supplementary-groups
   - |
     sleep 2
     GROUPS=$(systemctl show -p SupplementaryGroups --value promtail.service)
@@ -2352,10 +2352,10 @@ runcmd:
           ;;
       esac
     done
-  # --- See https://yuruna.link/vmconfig/caching-proxy#first-boot-security-upgrade
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#first-boot-security-upgrade
   - DEBIAN_FRONTEND=noninteractive apt-get update || true
   - DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade || true
-  # --- See https://yuruna.link/vmconfig/caching-proxy#confirm-apt-daily-timers-armed
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#confirm-apt-daily-timers-armed
   - |
     for t in apt-daily.timer apt-daily-upgrade.timer; do
       systemctl enable --now "$t" 2>/dev/null || true
@@ -2373,7 +2373,7 @@ runcmd:
     echo "  CA cert:    http://${vm_ip}/yuruna-squid-ca.crt (trust to enable :3129 HTTPS caching)"
     echo "  Recent 100: http://${vm_ip}:9302/ (in-memory live tail; see test/extension/caching-proxy-parser/)"
     echo "  zot:        http://${vm_ip}:5000/v2/ (OCI registry, Docker Hub pull-through)"
-  # --- See https://yuruna.link/vmconfig/caching-proxy#zot-install-binary-and-activation
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#zot-install-binary-and-activation
   - |
     set -e
     ZOT_VERSION="v2.1.17"
@@ -2417,5 +2417,5 @@ runcmd:
       setfacl -m u:promtail:r /var/log/zot/zot.log 2>&1 || true
       setfacl -d -m u:promtail:r /var/log/zot/    2>&1 || true
     fi
-  # --- See https://yuruna.link/vmconfig/caching-proxy#ready-banner-yaml-mapping-trap
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#ready-banner-yaml-mapping-trap
   - 'echo "caching-proxy ready: :3128 HTTP + CONNECT, :3129 HTTPS SSL-bump (pre-warmed); zot :5000 OCI pull-through"'

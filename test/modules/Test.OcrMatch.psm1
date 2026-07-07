@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a9b3c7-d1e5-4f02-9b8a-6c3d7e1f4a52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,7 +154,7 @@ function Test-OCRMatch {
         $normLine = Get-OCRNormalized $line
         if ($normLine.Length -eq 0) { continue }
 
-        # --- Strategy 1: Positional (sliding window) comparison ---
+        # --- REGION: Strategy 1: Positional (sliding window) comparison
         # Slide the pattern across the text and count character matches at each
         # aligned position.  This naturally handles arbitrary single-character
         # substitutions (e.g. R→K in "Retype"→"Ketype") that are not covered
@@ -170,7 +170,7 @@ function Test-OCRMatch {
             }
         }
 
-        # --- Strategy 2: Subsequence match (handles dropped characters) ---
+        # --- REGION: Strategy 2: Subsequence match (handles dropped characters)
         # Try from each text position that contains any pattern character.
         # A single greedy pass can latch onto an early occurrence (e.g. the 'l'
         # in "Iinux") and stretch the span past the limit even though the real
@@ -208,14 +208,13 @@ function Test-OCRMatch {
         }
     }
 
-    # --- Strategy 3: Segment match (handles OCR word reordering) ---
+    # --- REGION: Strategy 3: Segment match (handles OCR word reordering)
     # OCR may reorder parts of a line (e.g. "[ec2-user@test-amazon-linux01 ~]$"
     # becomes "test-amazon-I inux01 login: ecZ-user").  Split the original pattern
     # on characters that are stripped during normalization (@, -, etc.) to get
     # meaningful segments, normalize each, and check that every segment appears
     # somewhere in the full normalized text (across all lines).
     $normFull = Get-OCRNormalized $Text
-    # Split on strip chars and spaces to get pattern segments
     $splitPattern = [regex]::Split($Pattern, '[\s@\-\[\]$~"''`]+') | Where-Object { $_.Length -gt 0 }
     if ($splitPattern.Count -gt 1) {
         $allFound = $true

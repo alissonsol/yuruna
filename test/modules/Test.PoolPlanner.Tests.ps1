@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e6f7a8-b9c0-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,7 +150,7 @@ Describe 'Manifest readers + Write-YurunaPoolManifest' {
     }
 }
 
-# --- Sequence-fixture integration: Resolve-TestSetCyclePlan + parity + Resolve-PoolCyclePlan ---
+# --- REGION: Sequence-fixture integration: Resolve-TestSetCyclePlan + parity + Resolve-PoolCyclePlan
 function New-PlannerFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test fixture tree.')]
     [CmdletBinding()] [OutputType([hashtable])] param()

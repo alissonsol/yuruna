@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e9a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,7 +60,7 @@ $virtioOrigin  = Join-Path $downloadDir 'virtio-win.txt'
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# -- Windows 11 ISO: manual download path ----------------------------------
+# --- REGION: Windows 11 ISO: manual download path
 $downloadPage = 'https://www.microsoft.com/en-us/software-download/windows11'
 if (-not (Test-Path -LiteralPath $winIso)) {
     # Accept any Win11*.iso the user dropped here and rename it to the
@@ -99,7 +99,7 @@ Write-Output "Windows 11 ISO present: $winIso"
 # the caller (New-VM.ps1) reacts to a real failure instead of a phantom one.
 $ErrorActionPreference = 'Stop'
 
-# -- virtio-win ISO: Fedora's hosted bundle (signed) ----------------------
+# --- REGION: virtio-win ISO: Fedora's hosted bundle (signed)
 # Pin the concrete versioned file under archive-virtio/. The convenience
 # paths (stable-virtio/ and latest-virtio/) 301-redirect virtio-win.iso to
 # this archived file through a chain that bounces https -> http -> https

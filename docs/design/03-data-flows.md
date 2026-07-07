@@ -92,7 +92,7 @@ sequenceDiagram
     Inner->>Diag: step failed
     Diag->>Guest: Wait-SshReady, collect logs/screenshot
     Diag-->>Status: failure_*.txt / .png
-    Inner->>HostDiag: host.diagnostic.txt
+    Inner->>HostDiag: host.diagnostics.txt
     Inner->>Status: last_failure.json + cycle event
     Inner->>Notify: alert after failuresBeforeAlert
 ```
@@ -101,4 +101,4 @@ sequenceDiagram
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07

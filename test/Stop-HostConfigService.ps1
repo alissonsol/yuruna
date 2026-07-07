@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f9c4d6-8a2b-4e73-9d51-7c3e4f5a6b72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,9 +41,21 @@ if (-not $pid_value) {
     exit 0
 }
 
-$proc = Get-Process -Id $pid_value -ErrorAction SilentlyContinue
+# Parse the PID before touching Get-Process/Stop-Process: -Id coerces its argument
+# to [int] at parameter-binding time, and that ParameterBindingException is NOT
+# suppressed by -ErrorAction SilentlyContinue -- a corrupt/non-numeric PID file
+# would throw an unhandled error here. Treat an unparseable value as a stale file
+# (remove it, no kill), matching the launcher's own [int]::TryParse guard.
+$id = 0
+if (-not [int]::TryParse($pid_value, [ref]$id)) {
+    Write-Output "PID file holds a non-numeric value ('$pid_value'). Removing the stale file."
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+    exit 0
+}
+
+$proc = Get-Process -Id $id -ErrorAction SilentlyContinue
 if (-not $proc) {
-    Write-Output "Process $pid_value is not running. Service was already stopped."
+    Write-Output "Process $id is not running. Service was already stopped."
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
     exit 0
 }
@@ -59,12 +71,12 @@ try {
     $pidFileMtime = (Get-Item -LiteralPath $PidFile).LastWriteTime
     $identityOk = ($proc.StartTime -le $pidFileMtime.AddSeconds(2))
 } catch {
-    Write-Verbose "Identity check failed for PID $pid_value : $($_.Exception.Message)"
+    Write-Verbose "Identity check failed for PID $id : $($_.Exception.Message)"
 }
 if ($identityOk) {
-    Stop-Process -Id $pid_value -Force
-    Write-Output "Host Config Service stopped (PID $pid_value)."
+    Stop-Process -Id $id -Force
+    Write-Output "Host Config Service stopped (PID $id)."
 } else {
-    Write-Warning "PID $pid_value is not the config service (start time post-dates the PID file, or is unreadable) -- likely recycled after a crash/reboot. Removing the stale PID file without killing it."
+    Write-Warning "PID $id is not the config service (start time post-dates the PID file, or is unreadable) -- likely recycled after a crash/reboot. Removing the stale PID file without killing it."
 }
 Remove-Item $PidFile -Force -ErrorAction SilentlyContinue

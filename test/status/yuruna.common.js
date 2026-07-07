@@ -1,16 +1,16 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.03
+  Version: 2026.07.07
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
-  --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
-  --- See https://yuruna.link/definition#defining-the-status-page-hostinfo-aggregator
+  --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
+  --- REGION: https://yuruna.link/definition#defining-the-status-page-hostinfo-aggregator
 */
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.03';
+  var VERSION = '2026.07.07';
 
   // fetch shim for Safari iOS 9.x. (Target support for Yuruna UI).
   if (!window.fetch) {
@@ -100,7 +100,7 @@
   // page needs. Cached for the page's lifetime; multiple consumers share
   // the same Promise (one round-trip per source, regardless of how many
   // helpers ask).
-  // --- See https://yuruna.link/definition#defining-the-status-page-hostinfo-aggregator
+  // --- REGION: https://yuruna.link/definition#defining-the-status-page-hostinfo-aggregator
 
   function fetchText(url) {
     return fetch(url + '?_=' + Date.now(), { cache: 'no-store' })
@@ -151,7 +151,7 @@
   }
 
   // ── Header helpers ──
-  // --- See https://yuruna.link/definition#defining-the-status-page-header-anatomy
+  // --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
 
   function appendHmStack(parentEl, name, host) {
     var stack = document.createElement('span');
@@ -201,7 +201,7 @@
     });
   }
 
-  // --- See https://yuruna.link/definition#defining-the-status-page-visibility-aware-polling
+  // --- REGION: https://yuruna.link/definition#defining-the-status-page-visibility-aware-polling
   function startVisibilityAwarePolling(opts) {
     opts = opts || {};
     var run = opts.run || function() {};
@@ -332,7 +332,7 @@
   // Each page gates its handler block on a stable DOM id so the script
   // can be loaded uniformly via <script src="yuruna.common.js"></script>
   // without inline <script> blocks (CSP script-src 'self' compatible).
-  // --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
+  // --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
 
   function onReady(fn) {
     if (document.readyState === 'loading') {
@@ -350,13 +350,12 @@
       title: 'Edit test/test.config.yml'
     };
 
-    var BANNER = {
-      idle:    'No test data available',
-      running: 'Test in progress',
-      pass:    'All guests operational',
-      fail:    'Incident detected — see details below',
-      stopped: 'Test runner stopped'
-    };
+    // Reuse the shared BANNER_TEXT so the two tables cannot silently diverge;
+    // only the fail copy differs on the index dashboard (it points to the
+    // details below rather than the status banner).
+    var BANNER = Object.assign({}, BANNER_TEXT, {
+      fail: 'Incident detected — see details below'
+    });
 
     var cachingProxyHtml = '';
 
@@ -711,6 +710,12 @@
       var noData = document.getElementById('no-data');
       var banner = document.getElementById('banner');
       var headerMachine = document.getElementById('header-machine');
+      // Match applyBanner's defensive contract: if the core status DOM ids
+      // have drifted, degrade gracefully rather than throwing out of the
+      // 60s poll loop (an uncaught throw there freezes the dashboard).
+      // headerMachine is guarded too because renderHeaderMachine dereferences
+      // it below with no null check of its own.
+      if (!banner || !noData || !headerMachine) { return; }
 
       var nameText = '';
       var hostText = '';
@@ -928,7 +933,7 @@
         loadCachingProxyText();
       });
     }
-    // --- See https://yuruna.link/definition#defining-the-status-page-visibility-aware-polling
+    // --- REGION: https://yuruna.link/definition#defining-the-status-page-visibility-aware-polling
     var poller = Yuruna.startVisibilityAwarePolling({
       run: function() { loadStatus(); },
       onResume: function() { countdown = 0; }

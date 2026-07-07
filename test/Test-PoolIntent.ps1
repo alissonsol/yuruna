@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d7e8f9-a0b1-4c23-8d45-7e8f9a0b1234
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,31 +54,16 @@ $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.Intent
 if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)"; exit $ExitFailure }
 
 $failures = 0
-function Test-OneIntentFile {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param([string]$Path, [string]$SchemaName, [string]$Label)
-    if (-not (Test-Path -LiteralPath $Path)) {
-        Write-Information "SKIP  ${Label}: not present ($Path)" -InformationAction Continue
-        return $true
-    }
-    $doc = $null
-    try { $doc = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Yaml -Ordered } catch {
-        Write-Warning "FAIL  ${Label}: YAML parse error -- $($_.Exception.Message)"
-        return $false
-    }
-    $v = Test-YurunaPoolDocValid -Doc $doc -SchemaName $SchemaName
-    if ($v.Ok) { Write-Information "PASS  ${Label}: schema-valid ($Path)" -InformationAction Continue; return $true }
-    Write-Warning "FAIL  ${Label}: $($v.Errors -join '; ')"
-    return $false
-}
-
-if (-not (Test-OneIntentFile -Path (Join-Path $t.IntentDir 'pools.yml') -SchemaName 'pools.schema.yml' -Label 'pools.yml')) { $failures++ }
-if (-not (Test-OneIntentFile -Path (Join-Path $t.IntentDir 'guests.compatibility.yml') -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml')) { $failures++ }
+# pools.yml is REQUIRED: an absent one must not read as success -- the runners
+# pull whatever is committed, so a missing pools.yml would silently leave the
+# pool unconfigured. guests.compatibility.yml and the test-sets are optional
+# (Test-YurunaPoolIntentFile SKIPs them when absent).
+if (-not (Test-YurunaPoolIntentFile -Path (Join-Path $t.IntentDir 'pools.yml') -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required)) { $failures++ }
+if (-not (Test-YurunaPoolIntentFile -Path (Join-Path $t.IntentDir 'guests.compatibility.yml') -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml')) { $failures++ }
 $tsDir = Join-Path $t.IntentDir 'test-sets'
 if (Test-Path -LiteralPath $tsDir) {
     foreach ($f in @(Get-ChildItem -Path $tsDir -Filter '*.yml' -File -ErrorAction SilentlyContinue)) {
-        if (-not (Test-OneIntentFile -Path $f.FullName -SchemaName 'test-set.schema.yml' -Label "test-sets/$($f.Name)")) { $failures++ }
+        if (-not (Test-YurunaPoolIntentFile -Path $f.FullName -SchemaName 'test-set.schema.yml' -Label "test-sets/$($f.Name)")) { $failures++ }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@ $UtmDir = "$GuestDir/$VMName.utm"
 $DataDir = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/windows.env"
 
-# ===== Environment checks =====
+# --- REGION: Environment checks
 
 # Check macOS version (requires macOS 12 Monterey or later)
 $macosVersion = & sw_vers -productVersion 2>$null
@@ -87,7 +87,7 @@ if ($utmVersion) {
 
 Write-Verbose "All requirements met."
 
-# === Resolve network interface for Bridged mode ===
+# --- REGION: Resolve network interface for Bridged mode
 if ($NetworkMode -eq "Bridged") {
     if (-not $BridgeInterface) {
         $routeOut = & route get default 2>/dev/null
@@ -105,7 +105,7 @@ if ($NetworkMode -eq "Bridged") {
 }
 Write-Output ""
 
-# === Seek the base image ===
+# --- REGION: Seek the base image
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward. The Win11 ISO has
 # no machine-fetchable URL -- the per-guest Get-Image.ps1 prints manual-
@@ -137,7 +137,7 @@ Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Check UTM Guest Tools ISO exists (needed after installation, not during) ===
+# --- REGION: Check UTM Guest Tools ISO exists (needed after installation, not during)
 $spiceImageName = "host.macos.utm.guest.windows.11.spice.iso"
 $spiceImageFile = Join-Path $downloadDir $spiceImageName
 if (-not (Test-Path $spiceImageFile)) {
@@ -145,7 +145,7 @@ if (-not (Test-Path $spiceImageFile)) {
     Write-Warning "You will need it after Windows installation to enable virtio-net-pci networking."
 }
 
-# === Create copies and files for VM ===
+# --- REGION: Create copies and files for VM
 
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
@@ -176,7 +176,6 @@ if (-not (Test-Path $AnswerFileTemplate)) {
     exit 1
 }
 
-# Replace placeholders in autounattend.xml
 $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
     -replace 'COMPUTERNAME_PLACEHOLDER', $VMName
 Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
@@ -208,7 +207,7 @@ $rng.NextBytes($MacBytes)
 $MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
 $MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
 
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"

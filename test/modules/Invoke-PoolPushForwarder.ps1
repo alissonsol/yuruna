@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 424f2c91-6d3b-4e75-9012-3c7a1e5b8d6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,7 @@ if ([string]::IsNullOrWhiteSpace($token)) {
     return
 }
 
-# --- caching-proxy (aggregator) address ---------------------------------------
+# --- REGION: caching-proxy (aggregator) address
 $proxyIp = ''
 if (Get-Command Read-CachingProxyState -ErrorAction SilentlyContinue) {
     try { $st = Read-CachingProxyState; if ($st -and $st.ipAddress) { $proxyIp = [string]$st.ipAddress } } catch { $null = $_ }
@@ -74,7 +74,7 @@ if ([string]::IsNullOrWhiteSpace($proxyIp)) {
     return
 }
 
-# --- resolve the cycle folder to push (explicit, else the newest with an events file) ---
+# --- REGION: resolve the cycle folder to push (explicit, else the newest with an events file)
 if ([string]::IsNullOrWhiteSpace($CycleFolder) -or -not (Test-Path -LiteralPath (Join-Path $CycleFolder 'cycle.events.ndjson'))) {
     $CycleFolder = ''
     try {
@@ -89,7 +89,7 @@ if ([string]::IsNullOrWhiteSpace($CycleFolder)) {
     return
 }
 
-# --- single-instance lock (atomic CreateNew; reclaim a stale lock once) -------
+# --- REGION: single-instance lock (atomic CreateNew; reclaim a stale lock once)
 function Get-PushProcStartUtc { param([int]$ProcId) try { return ((Get-Process -Id $ProcId -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')) } catch { return $null } }
 function Test-PushLockHeldLive {
     param([string]$Path)

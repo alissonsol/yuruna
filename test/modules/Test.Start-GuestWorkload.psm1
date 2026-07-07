@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,49 +80,11 @@ function Start-GuestWorkload {
     # was launched before the call-site removal is still passing the arg.
     # Accept and ignore until those runners restart.
     Write-Debug "Start-GuestWorkload: -ShowOutput=$ShowOutput accepted as a no-op (transitional shim)."
-    if (-not $SequenceNames -or $SequenceNames.Count -eq 0) {
-        return @{ success=$true; skipped=$true; errorMessage=$null }
-    }
-    foreach ($s in $SequenceNames) {
-        Write-Information "  Running: $s" -InformationAction Continue
-        $seqStartUtc = [DateTime]::UtcNow
-        $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s -EffectiveVariables $EffectiveVariables
-        if (-not $ok) {
-            $errMsg = "Workload sequence '$s' failed"
-            $logDir = Initialize-YurunaLogDir
-            $failFile = Join-Path $logDir "last_failure.json"
-            if (Test-Path $failFile) {
-                try {
-                    # Trust last_failure.json only when it was written DURING this
-                    # sequence: a stale file from an earlier sequence (or a prior
-                    # same-cycle attempt) would misattribute its step location to
-                    # '$s' and send triage to the wrong step. Gate on the mtime
-                    # advancing past this sequence's start (2s clock tolerance).
-                    $failItem = Get-Item -LiteralPath $failFile -ErrorAction Stop
-                    if ($failItem.LastWriteTimeUtc -ge $seqStartUtc.AddSeconds(-2)) {
-                        $failInfo = Get-Content -Raw $failFile | ConvertFrom-Json
-                        $errMsg = "Step [$($failInfo.stepNumber)/$($failInfo.totalSteps)] $($failInfo.action) - $($failInfo.description) (sequence: $s)"
-                    } else {
-                        Write-Verbose "last_failure.json predates sequence '$s'; using the generic message rather than a stale step location."
-                    }
-                } catch {
-                    Write-Verbose "Could not parse failure details: $_"
-                }
-            }
-            return @{ success=$false; skipped=$false; errorMessage=$errMsg }
-        }
-        Write-Information "  ${s}: PASS" -InformationAction Continue
-        # Pick up a mid-sequence saveDiskSnapshot rename (e.g. a baseline that
-        # ends in saveDiskSnapshot before a dependent .test loads it) so the next
-        # sequence targets the renamed VM -- the same Get-SequenceFinishedVMName
-        # mechanism Test-Sequence's chain runner uses. No-op when nothing renamed.
-        $finishedVm = Get-SequenceFinishedVMName
-        if ($finishedVm -and $finishedVm -ne $VMName) {
-            Write-Information "  VM renamed mid-chain: '$VMName' -> '$finishedVm'." -InformationAction Continue
-            $VMName = $finishedVm
-        }
-    }
-    return @{ success=$true; skipped=$false; errorMessage=$null }
+    # The dispatcher loop lives in Invoke-Sequence (Invoke-GuestSequenceList), shared
+    # verbatim with Start-GuestOS; only the failure-message phase label differs.
+    return Invoke-GuestSequenceList -PhaseLabel 'Workload' `
+        -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot `
+        -SequencesDir $SequencesDir -SequenceNames $SequenceNames -EffectiveVariables $EffectiveVariables
 }
 
 Export-ModuleMember -Function Start-GuestWorkload

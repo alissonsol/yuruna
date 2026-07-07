@@ -4,7 +4,7 @@
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 # === YURUNA_OVERLAY_NIC_OFFLOAD ===
-  # --- See https://yuruna.link/caching#disable-nic-tx-offloads-on-avf-bridge
+  # --- REGION: https://yuruna.link/caching#disable-nic-tx-offloads-on-avf-bridge
   - path: /etc/systemd/network/10-yuruna-no-offload.link
     permissions: '0644'
     owner: root:root
@@ -18,9 +18,9 @@
       GenericReceiveOffload=false
       TransmitChecksumOffload=false
 # === YURUNA_OVERLAY_RUNCMD_NET ===
-  # --- See https://yuruna.link/caching#disable-nic-tx-offloads-on-avf-bridge
+  # --- REGION: https://yuruna.link/caching#disable-nic-tx-offloads-on-avf-bridge
   - ethtool -K enp0s1 tx off gso off tso off gro off
-  # --- See https://yuruna.link/caching#utm-shared-nat-topology (macos-host hosts alias)
+  # --- REGION: https://yuruna.link/caching#utm-shared-nat-topology (macos-host hosts alias)
   - |
     GW=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3; exit}')
     if [ -n "$GW" ] && ! grep -q "^${GW}[[:space:]]" /etc/hosts; then

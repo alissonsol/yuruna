@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f2a3b4-c5d6-4e78-f901-2a3b4c5d6e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,7 +76,7 @@ if (-not $IsMacOS) {
     exit 1
 }
 
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($CpuCount -eq 0) {
     $CpuCount = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -98,7 +98,7 @@ $UtmDir      = "$GuestDir/$VMName.utm"
 $DataDir     = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/macos.env"
 
-# === Environment checks =====================================================
+# --- REGION: Environment checks
 
 # macOS 15+ host. VZ's macOS-guest surface is moving fast (new
 # VZMacOSInstaller flags every release); pinning to 15 keeps this
@@ -158,7 +158,7 @@ if (-not (Get-Command swift -ErrorAction SilentlyContinue)) {
 Write-Verbose "All host prerequisites met."
 Write-Output ""
 
-# === Seek the base IPSW =====================================================
+# --- REGION: Seek the base IPSW
 # Auto-run Get-Image.ps1 once if the base IPSW is missing; recheck and
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.macos.26"
@@ -187,7 +187,7 @@ $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Build the UTM bundle skeleton ==========================================
+# --- REGION: Build the UTM bundle skeleton
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 Import-Module (Join-Path $RepoRoot "test/modules/Test.VMUtility.psm1") -Force -DisableNameChecking
 
@@ -201,7 +201,7 @@ $DiskImage = Join-Path $DataDir 'disk.img'
 $AuxImage  = Join-Path $DataDir 'aux.img'
 $IdsOut    = Join-Path $DataDir 'mac-platform.txt'
 
-# === Drive VZMacOSInstaller via an embedded Swift helper ===================
+# --- REGION: Drive VZMacOSInstaller via an embedded Swift helper
 #
 # The helper:
 #   1. Loads the IPSW (VZMacOSRestoreImage.load(from:)).
@@ -429,7 +429,7 @@ Set-Content -Path $IdsOut -Value @(
     "machineIdentifier.base64=$MachineIdentifierB64"
 )
 
-# === Generate config.plist =================================================
+# --- REGION: config.plist (Apple Virtualization backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."

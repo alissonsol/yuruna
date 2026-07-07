@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,7 +182,7 @@ foreach ($p in @($GetImageScript, $NewVMScript)) {
     if (-not (Test-Path $p)) { Write-Error "Missing required script: $p"; exit 1 }
 }
 
-# === Step 0: plan + preflight ===============================================
+# --- REGION: Step 0: plan + preflight
 # Past this point Start-CachingProxy runs UNATTENDED -- it must not stop
 # for an interactive prompt. Everything that needs operator awareness is
 # surfaced and resolved HERE, at the start:
@@ -199,7 +199,7 @@ $preflightErrors = @()
 $plannedBridge   = $null   # set on Linux to the Get-YurunaExternalNetworkPlan result
 
 if ($IsLinux) {
-    # -- Hard requirements: without these the cache VM cannot boot. -------
+    # --- REGION: Hard requirements: without these the cache VM cannot boot.
     if (-not (Test-Path -LiteralPath '/dev/kvm')) {
         $preflightErrors += "/dev/kvm is missing -- KVM acceleration unavailable (kvm.ko not loaded, or VT-x/AMD-V disabled in firmware). The cache VM cannot boot."
     }
@@ -262,7 +262,7 @@ if ($IsLinux -and $plannedBridge -and $plannedBridge.WillChangeHostNetworking) {
 
 Write-Output "  Preflight OK -- proceeding unattended (no further prompts)."
 
-# === Step 1: stop + remove any prior VM =====================================
+# --- REGION: Step 1: stop + remove any prior VM
 
 Write-Output ""
 Write-Output "== Step 1: cleanup previous '$VMName' VM =="
@@ -340,7 +340,7 @@ if ($IsMacOS) {
         Write-Output "  No prior VM registered with libvirt."
     }
 
-    # === Step 1.5: ensure the 'yuruna-external' libvirt bridge network ────
+    # --- REGION: Step 1.5: ensure the 'yuruna-external' libvirt bridge network
     # The cache VM is only useful to other LAN hosts when it has its own
     # LAN-routable DHCP lease. libvirt's NAT 'default' network keeps the
     # VM host-only (192.168.122/24, behind libvirt's masquerade), so we
@@ -393,7 +393,7 @@ if ($IsMacOS) {
     }
 }
 
-# === Step 2: base image =====================================================
+# --- REGION: Step 2: base image
 
 # Always defer to Get-Image.ps1 -- it owns the cache-vs-refetch decision
 # via Test-DownloadAlreadyCurrent (4-line sentinel: filename + URL + byte
@@ -405,8 +405,14 @@ if ($IsMacOS) {
 # the decision doesn't cost fast-path observability.
 Write-Output ""
 Write-Output "== Step 2: base image (Get-Image.ps1 decides cache vs refetch) =="
+$LASTEXITCODE = $null
 & $GetImageScript
-if ($LASTEXITCODE -ne 0) {
+# $LASTEXITCODE is unreliable for a child .ps1 that ends on a cmdlet -- a cache-hit
+# Get-Image runs no native command, so $LASTEXITCODE still holds whatever a prior
+# native command left set. Reset it first and treat only a REAL non-zero as failure
+# ($null = "the child set none"); the $ImageFile artifact check below is the
+# reliable secondary gate. feedback_lastexitcode_null_pure_ps_chain.
+if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     Write-Error "Get-Image.ps1 failed (exit $LASTEXITCODE)."
     exit 1
 }
@@ -415,7 +421,7 @@ if (-not (Test-Path $ImageFile)) {
     exit 1
 }
 
-# === Step 2.5: ensure the host status service is up =========================
+# --- REGION: Step 2.5: ensure the host status service is up
 # The cache VM's cloud-init build block fetches the collector + parser source
 # from the LOCAL host working tree (http://<host>:<port>/yuruna-repo/) rather
 # than the public github mirror -- this repo is the source of truth. That needs
@@ -436,7 +442,7 @@ if ($cpStatusDecision.ShouldStart) {
     Write-Output "  statusService disabled (test.config.yml) -- the cache VM will fall back to github for collector/parser source."
 }
 
-# === Step 2.6: host config service (mTLS NAS-credential endpoint) ============
+# --- REGION: Step 2.6: host config service (mTLS NAS-credential endpoint)
 # The cache VM mounts ystash-nas (for the Extension hosts crawl) and ypool-nas
 # using credentials it fetches at boot AND hourly from this service over mutual
 # TLS, so a rotated NAS password reaches the running VM with no rebuild (the fix
@@ -489,17 +495,23 @@ if ($cpConfigDecision.ShouldStart) {
     Write-Output "  configService disabled (test.config.yml) -- VMs use their baked NAS credential; password rotation won't propagate until re-enabled."
 }
 
-# === Step 3: create the VM ==================================================
+# --- REGION: Step 3: create the VM
 
 Write-Output ""
 Write-Output "== Step 3: create VM '$VMName' =="
+$LASTEXITCODE = $null
 & $NewVMScript $VMName
-if ($LASTEXITCODE -ne 0) {
+# Same $LASTEXITCODE-reliability guard as Get-Image above: a child .ps1 that ends
+# on a cmdlet leaves it unset, so only a REAL non-zero is a failure. New-VM.ps1 is
+# the real gate -- it builds and (Hyper-V/KVM) starts the VM and blocks on :3128,
+# exiting non-zero or throwing on failure (a throw terminates this script before
+# the check); the UTM branch's registration check below is a further gate.
+if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     Write-Error "New-VM.ps1 failed (exit $LASTEXITCODE)."
     exit 1
 }
 
-# === Step 4: macOS — register with UTM and start ===========================
+# --- REGION: Step 4: macOS — register with UTM and start
 # (Hyper-V's New-VM.ps1 already starts the VM and waits for :3128.)
 
 $cacheIp = $null
@@ -543,9 +555,12 @@ if ($IsMacOS) {
         exit 1
     }
 
-    # UTM registers asynchronously after import — poll for up to 30 s.
+    # UTM registers asynchronously after import -- poll for up to 30 s against a
+    # wall-clock deadline (an iteration counter drifts past 30 s by the per-call
+    # utmctl status latency; feedback_iter_counter_wallclock_trap).
     $registered = $false
-    for ($i = 0; $i -lt 30; $i++) {
+    $cpRegisterDeadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ([DateTime]::UtcNow -lt $cpRegisterDeadline) {
         Start-Sleep -Seconds 1
         & utmctl status $VMName 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { $registered = $true; break }
@@ -569,9 +584,10 @@ if ($IsMacOS) {
             Write-Error "'utmctl start $VMName' failed (exit $LASTEXITCODE)."
             exit 1
         }
-        # Poll up to 15 s for the VM to leave 'stopped'. A state of 'started'
-        # (or any non-stopped/paused state) means the start actually took.
-        for ($i = 0; $i -lt 15; $i++) {
+        # Poll up to 15 s (wall-clock) for the VM to leave 'stopped'. A state of
+        # 'started' (or any non-stopped/paused state) means the start actually took.
+        $cpStartDeadline = [DateTime]::UtcNow.AddSeconds(15)
+        while ([DateTime]::UtcNow -lt $cpStartDeadline) {
             Start-Sleep -Seconds 1
             $state = (& utmctl status $VMName 2>&1 | Select-Object -First 1)
             if ($LASTEXITCODE -eq 0 -and $state -and "$state".Trim() -notmatch '^(stopped|paused)\s*$') {
@@ -714,7 +730,7 @@ if ($IsMacOS) {
         Write-Warning "  ip -4 addr show           # verify the VM got a DHCP lease on the LAN"
     }
 
-    # === Step 6: tear down legacy host-side forwarders ======================
+    # --- REGION: Step 6: tear down legacy host-side forwarders
     # With bridged networking the cache VM is reachable directly at its
     # LAN IP -- no host:port forwarder layer needed. Any leftover pwsh
     # forwarders from a prior shared-NAT cycle would now bind ports that
@@ -867,7 +883,7 @@ if ($IsMacOS) {
     }
 }
 
-# === Final summary ==========================================================
+# --- REGION: Final summary
 # The yuruna user's password is NOT printed in the banner -- the value
 # already lives in <track>/yuruna-caching-proxy.yml (written by squid-
 # cache's New-VM.ps1) and the vault. Reading it again here just to echo

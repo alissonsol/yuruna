@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 424a157a-a958-4578-af6b-b7eec817ba35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,7 +92,7 @@ param (
 )
 
 begin {
-    # --- 1. Platform-agnostic hosts-file path -----------------------------
+    # --- REGION: 1. Platform-agnostic hosts-file path
     # $IsWindows/$IsLinux/$IsMacOS are PowerShell (Core) automatic variables;
     # #requires -version 7 guarantees they exist.
     if ($IsWindows) {
@@ -105,7 +105,7 @@ begin {
         throw "Set-HostAlias: unsupported operating system; cannot locate a hosts file."
     }
 
-    # --- 2. Elevation / root assertion ------------------------------------
+    # --- REGION: 2. Elevation / root assertion
     # Editing the hosts file needs elevated rights; fail loudly and early so
     # the caller gets a meaningful message instead of an opaque write error.
     if ($IsWindows) {
@@ -159,13 +159,13 @@ process {
         $targetIp = $parsed.ToString()
     }
 
-    # --- Read current content (a missing file is treated as empty) --------
+    # --- REGION: Read current content (a missing file is treated as empty)
     $original = @()
     if (Test-Path -LiteralPath $script:HostsPath) {
         $original = @(Get-Content -LiteralPath $script:HostsPath -ErrorAction Stop)
     }
 
-    # --- 3. Idempotent cleanup --------------------------------------------
+    # --- REGION: 3. Idempotent cleanup
     # Drop existing ENTRY lines that map this hostname. A bare \b boundary is
     # wrong for dotted hostnames: \b sits between 'foo' and '.', so \bfoo\b
     # also matches the 'foo' inside 'foo.bar'. Treat '.' and '-' as in-token
@@ -198,7 +198,7 @@ process {
     }
     $kept = @($kept)
 
-    # --- 4. Conditional upsert / delete -----------------------------------
+    # --- REGION: 4. Conditional upsert / delete
     $final = $kept
     if ($isUpsert) {
         $final += ("{0}`t{1}" -f $targetIp, $name)
@@ -213,7 +213,7 @@ process {
 
     $action = if ($isUpsert) { "Map '$name' -> '$targetIp'" } else { "Remove host alias '$name'" }
     if ($PSCmdlet.ShouldProcess($script:HostsPath, $action)) {
-        # --- 5. Cross-platform safe, atomic write -------------------------
+        # --- REGION: 5. Cross-platform safe, atomic write
         # UTF-8 WITHOUT a BOM: a leading EF BB BF confuses Linux/macOS
         # resolvers (the first entry is read as '<BOM>127.0.0.1'). On PS7
         # Set-Content -Encoding utf8NoBOM writes no BOM and uses platform-

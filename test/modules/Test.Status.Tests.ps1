@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e6b2d9-4a17-4c83-9f25-3b8c1d6e0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,5 +87,80 @@ Describe 'status.json lastFailure surface' {
         $j = Get-Content -Raw $sf | ConvertFrom-Json
         Assert-Null $j.history[0].lastFailure 'a pass row has null lastFailure'
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+}
+
+# --- REGION: Structural guard: cycle-event emits must be Get-Command guarded
+# Test.Status does not import the cycle-event logger, so each
+# Send-CycleEventSafely emit must be gated on command existence or it throws in
+# a degraded context instead of leaving Write-Warning as the fallback. AST-only.
+
+$statusModulePath = Join-Path $here 'Test.Status.psm1'
+
+function Get-StatusModuleAst {
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
+    param([Parameter(Mandatory)][string]$Path)
+    $errs = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
+    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
+    return $ast
+}
+
+function Get-CommandCallCount {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
+    Write-Verbose "Counting calls to '$CommandName'"
+    $hits = $Ast.FindAll({
+        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
+    }, $true)
+    return @($hits).Count
+}
+
+# True iff EVERY call to $CommandName has an ancestor if-statement whose
+# condition calls `Get-Command <CommandName>`.
+function Test-AllCallsGuardedByGetCommand {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
+    Write-Verbose "Checking every '$CommandName' call is Get-Command guarded"
+    $emits = $Ast.FindAll({
+        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
+    }, $true)
+    if (@($emits).Count -eq 0) { return $false }
+    foreach ($emit in $emits) {
+        $guarded = $false
+        $anc = $emit.Parent
+        while ($anc) {
+            if ($anc -is [System.Management.Automation.Language.IfStatementAst]) {
+                foreach ($clause in $anc.Clauses) {
+                    $gc = $clause.Item1.FindAll({
+                        param($n)
+                        $n -is [System.Management.Automation.Language.CommandAst] -and
+                        $n.GetCommandName() -eq 'Get-Command' -and
+                        (@($n.CommandElements | Where-Object { $_.Extent.Text -eq $CommandName }).Count -gt 0)
+                    }, $true)
+                    if (@($gc).Count -gt 0) { $guarded = $true; break }
+                }
+            }
+            if ($guarded) { break }
+            $anc = $anc.Parent
+        }
+        if (-not $guarded) { return $false }
+    }
+    return $true
+}
+
+Describe 'Test.Status guards its Send-CycleEventSafely emits' {
+    $rootAst = Get-StatusModuleAst -Path $statusModulePath
+
+    It 'emits both cycle-event records (status_doc_corrupt and status_doc_write_failed)' {
+        Assert-Equal -Expected 2 -Actual (Get-CommandCallCount -Ast $rootAst -CommandName 'Send-CycleEventSafely') -Because `
+            'the read-path corrupt-doc event and the write-path write-failed event are both present'
+    }
+    It 'gates every Send-CycleEventSafely emit behind a Get-Command existence check' {
+        Assert-True (Test-AllCallsGuardedByGetCommand -Ast $rootAst -CommandName 'Send-CycleEventSafely') `
+            'the module does not import the logger; an absent Send-CycleEventSafely must fall back to Write-Warning, not throw'
     }
 }

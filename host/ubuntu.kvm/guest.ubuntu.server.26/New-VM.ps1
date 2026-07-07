@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,7 @@ if (-not $IsLinux) {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# -- libvirt-qemu search ACL on $HOME (self-heal) --------------------------
+# --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
 # Ubuntu 24.04 cloud images create /home/<user> at mode 0750, which blocks
 # the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu processes
 # from traversing $HOME to reach the qcow2 below it. virt-install then
@@ -88,7 +88,7 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     }
 }
 
-# -- Inputs ----------------------------------------------------------------
+# --- REGION: Inputs
 $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $virtArch = 'x86_64';  $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
@@ -96,6 +96,7 @@ switch ($arch) {
     default   { Write-Error "Unsupported arch: $arch"; exit 1 }
 }
 
+# --- REGION: Seek the base image
 $downloadDir   = "$HOME/yuruna/image/ubuntu.env"
 $baseImageName = "host.ubuntu.kvm.guest.ubuntu.server.26"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
@@ -120,12 +121,13 @@ if (-not (Test-Path -LiteralPath $baseImageFile)) {
     }
 }
 
+# --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
 $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
 New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
-# -- SSH key (single harness key; matches macOS/Hyper-V variants) ---------
+# --- REGION: SSH key (single harness key; matches macOS/Hyper-V variants)
 # The harness uses one ed25519 key pair at test/status/ssh/yuruna_ed25519,
 # owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
 # failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
@@ -139,7 +141,7 @@ Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
 if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# -- Password hash for cloud-init identity --------------------------------
+# --- REGION: Password hash for cloud-init identity
 # Resolve the autoinstall password from the per-cycle authentication
 # vault (test/extension/authentication/default.psm1). Get-Password
 # auto-generates and stores on first call; later calls within the same
@@ -170,7 +172,7 @@ try {
     exit 1
 }
 
-# -- Yuruna host coordinates + guest network (topology-aware) -------------
+# --- REGION: Yuruna host coordinates + guest network (topology-aware)
 # The guest must attach to the SAME libvirt network as the caching-proxy
 # (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else the
 # NAT 'default') and reach the host status server at an address routable
@@ -194,13 +196,13 @@ if (Test-Path -LiteralPath $cfg) {
     } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
 }
 
-# -- Build the autoinstall apt block --------------------------------------
+# --- REGION: Build the autoinstall apt block
 # Shared builder (automation/Yuruna.GuestSeed.psm1); $primaryUri is the arch-
 # resolved mirror knob. See https://yuruna.link/vmconfig#apt-proxy-block
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = Build-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyUrl $CachingProxyUrl
 
-# -- Fetch caching-proxy CA cert (base64-embedded in seed) -------------------
+# --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # Mirrors host/macos.utm/guest.ubuntu.server.26/New-VM.ps1. The installer's
 # late-commands write the cert from CA_CERT_BASE64_PLACEHOLDER before
 # any HTTPS apt fetch, so SSL-bump caching works from the first install
@@ -234,7 +236,7 @@ if ($CachingProxyUrl) {
     }
 }
 
-# -- Render user-data / meta-data ------------------------------------------
+# --- REGION: Render user-data / meta-data
 # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
 # byte-identical across the three host platforms; ubuntu.server.24 and .26
 # share one file). Anchor contract: automation/Yuruna.CloudInitTemplate.psm1.
@@ -250,7 +252,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     }
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 # Bake the guest-side lib scripts into the seed as base64-encoded write_files
 # entries. Eliminates the legacy network-dependent wget+wget bootstrap and
 # ensures the files are on disk before any guest script runs.
@@ -280,7 +282,7 @@ New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 
-# -- Build the seed ISO ----------------------------------------------------
+# --- REGION: Build the seed ISO
 # CIDATA volume label is what cloud-init's NoCloud datasource scans for.
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
@@ -289,7 +291,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# -- Create empty install target -------------------------------------------
+# --- REGION: Create empty install target
 # Fresh 64 G qcow2; subiquity will partition + install onto it. Paired with
 # sizing-policy: all in host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the
 # whole PV instead of subiquity's default ~50% server heuristic that left
@@ -299,7 +301,7 @@ if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg 
 & qemu-img create -f qcow2 $diskImg 64G | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
 
-# -- Define + start the VM via virt-install ---------------------------------
+# --- REGION: Define + start the VM via virt-install
 $virshUri = 'qemu:///system'
 # Capture stdout+stderr + exit code for each call so an operator
 # running with -Verbose sees the per-call outcome. The post-condition
@@ -321,9 +323,9 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# --- See https://yuruna.link/memory#why-we-patch-virt-installs-phase-1-xml-on-kvm
+# --- REGION: https://yuruna.link/memory#why-we-patch-virt-installs-phase-1-xml-on-kvm
 
-# --- See https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
+# --- REGION: https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
 if ($LASTEXITCODE -eq 0) {
@@ -337,11 +339,11 @@ if ($LASTEXITCODE -eq 0) {
     if ($osVariant -eq 'linux2022') {
         # Verbose, not Warning: the fallback variant works fine on every
         # host we've seen the message on, so it's noise at Info level.
-        Write-Verbose "osinfo-db has no 'ubuntu26.04' / 'ubuntu24.04' / 'ubuntu22.04' entry; using 'linux2022' generic variant."
+        Write-Verbose "osinfo-db has no 'ubuntu26.04'/'ubuntu24.04'/'ubuntu22.04' entry; using 'linux2022' generic variant."
     }
 }
 
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -393,7 +395,7 @@ if ($patchedXml -eq $installXml -and $installXml -notmatch '<on_reboot>restart</
     exit 1
 }
 
-# --- See https://yuruna.link/memory#why-we-swap-boot-order-1-and-2-in-the-install-xml
+# --- REGION: https://yuruna.link/memory#why-we-swap-boot-order-1-and-2-in-the-install-xml
 $preBootSwap = $patchedXml
 if ($patchedXml -match "<boot order='1'/>" -and $patchedXml -match "<boot order='2'/>") {
     $patchedXml = $patchedXml -replace "<boot order='1'/>", "<boot order='__YURUNA_BOOT_SWAP__'/>"

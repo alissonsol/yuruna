@@ -68,6 +68,6 @@ Read more: [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](../../../README.md)

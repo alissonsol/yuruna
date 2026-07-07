@@ -8,7 +8,7 @@ one place.
 Source files reference an entry with a single line of the form:
 
 ```
-# --- See https://yuruna.link/network#<topic-slug>
+# --- REGION: https://yuruna.link/network#<topic-slug>
 ```
 
 The fragment resolves to a `### Defining <topic>` heading in this file.
@@ -73,7 +73,7 @@ at `/usr/local/lib/yuruna/yuruna-retry.sh` before any provisioning
 script runs. Guest scripts source it after their arch-detection block:
 
 ```
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
 ```
 
@@ -145,6 +145,6 @@ Linux 2023, and macOS 26 all ship newer.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](../README.md)

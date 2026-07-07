@@ -568,7 +568,7 @@ func TestCommitCells(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.03"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.07"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleId: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		struct {

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,6 +105,60 @@ Import-Module (Join-Path $script:ModulesDir 'Test.Config.psm1')          -Global
 # must route through the shared resolver. Leaf module (no transitive deps).
 Import-Module (Join-Path $script:ModulesDir 'Test.InnerSpawn.psm1')      -Global -Force
 Initialize-OutputState
+
+function Test-TcpReachable {
+    <#
+    .SYNOPSIS
+        Bounded TCP reachability probe that always disposes its socket.
+    .DESCRIPTION
+        BeginConnect + a WaitOne timeout so a black-holed host fails in TimeoutMs
+        instead of the OS default. Returns $true on connect, $false on timeout or a
+        refused connection. The TcpClient is disposed in a finally so no path -- a
+        timeout, a refused connection, or a throw -- leaks the socket handle for the
+        life of this long-running validator process. The two near-identical GitHub and
+        Resend probes differ only in host name, so both route through here.
+    #>
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$HostName,
+        [int]$Port = 443,
+        [int]$TimeoutMs = 5000
+    )
+    $tcp = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $ar = $tcp.BeginConnect($HostName, $Port, $null, $null)
+        if ($ar.AsyncWaitHandle.WaitOne($TimeoutMs, $false) -and $tcp.Connected) {
+            $tcp.EndConnect($ar)
+            return $true
+        }
+        return $false
+    } finally {
+        $tcp.Dispose()
+    }
+}
+
+function ConvertTo-YurunaBool {
+    <#
+    .SYNOPSIS
+        Normalize a config flag to [bool], mapping quoted/typo'd boolean spellings.
+    .DESCRIPTION
+        The YAML parser already yields a real [bool] for an unquoted true/false, so the
+        common case is correct; this only hardens a QUOTED or typo'd scalar, where a
+        bare [bool] cast reads any non-empty string -- including 'false'/'0'/'no' -- as
+        $true. Map the common spellings explicitly; otherwise fall back to the [bool]
+        cast so real booleans, numbers, and $null keep their existing coercion.
+    #>
+    [OutputType([bool])]
+    param([AllowNull()]$Value)
+    if ($Value -is [bool]) { return $Value }
+    if ($Value -is [string]) {
+        switch -Regex ($Value.Trim()) {
+            '^(?i)(false|0|no|off)$' { return $false }
+            '^(?i)(true|1|yes|on)$'  { return $true }
+        }
+    }
+    return [bool]$Value
+}
 
 # ── Section 1: Config file ────────────────────────────────────────────────────
 
@@ -505,16 +559,11 @@ try {
     $resolved = [System.Net.Dns]::GetHostAddresses("github.com")
     Write-Pass "DNS resolved 'github.com' -> $($resolved[0].IPAddressToString)"
     try {
-        $tcp = [System.Net.Sockets.TcpClient]::new()
-        $ar  = $tcp.BeginConnect("github.com", 443, $null, $null)
-        $ok  = $ar.AsyncWaitHandle.WaitOne(5000, $false)
-        if ($ok -and $tcp.Connected) {
-            $tcp.EndConnect($ar)
+        if (Test-TcpReachable -HostName "github.com" -Port 443 -TimeoutMs 5000) {
             Write-Pass "TCP connection to github.com:443 succeeded."
         } else {
             Write-Fail "TCP connection to github.com:443 timed out -- check firewall / VPN / captive portal."
         }
-        $tcp.Close()
     } catch {
         Write-Fail "TCP connection to github.com:443 failed: $($_.Exception.Message)"
     }
@@ -676,7 +725,7 @@ if (Test-Path $UsersPath) {
 
     if ($usersDoc) {
         $strict   = $true
-        if ($usersDoc.Contains('strict')) { $strict = [bool]$usersDoc['strict'] }
+        if ($usersDoc.Contains('strict')) { $strict = ConvertTo-YurunaBool $usersDoc['strict'] }
         $declared = [ordered]@{}
         if ($usersDoc.Contains('users') -and $usersDoc['users'] -is [System.Collections.IDictionary]) {
             foreach ($k in $usersDoc['users'].Keys) { $declared[$k] = $usersDoc['users'][$k] }
@@ -983,7 +1032,7 @@ if (-not (Test-Path $poolMod)) {
     } else {
         # networkReplicate is a pool behavior (pool node), not a networkStorage key.
         $psReplicate = $false
-        if ($Config.Contains('pool') -and $Config['pool'] -is [System.Collections.IDictionary]) { $psReplicate = [bool]$Config['pool']['networkReplicate'] }
+        if ($Config.Contains('pool') -and $Config['pool'] -is [System.Collections.IDictionary]) { $psReplicate = ConvertTo-YurunaBool $Config['pool']['networkReplicate'] }
         # Validate the connection parameters REGARDLESS of the replicate flag, so an
         # operator can confirm the share + credential work BEFORE flipping replicate
         # to true. When replicate is on a problem FAILs (it will actually run next
@@ -1183,7 +1232,7 @@ if (-not (Test-Path $poolSyncMod)) {
     if ($plRaw -isnot [System.Collections.IDictionary]) {
         Write-Info "pool block not present -- pool intent sync is off (optional)."
     } else {
-        $plEnabled = [bool]$plRaw['enabled']
+        $plEnabled = ConvertTo-YurunaBool $plRaw['enabled']
         $plUrl     = [string]$plRaw['intentGitUrl']
         if ([string]::IsNullOrWhiteSpace($plUrl)) {
             if ($plEnabled) { Write-Fail "pool.enabled is true but pool.intentGitUrl is empty -- the runner cannot pull intent. Set the LAN bare-repo URL. See docs/pool-storage.md." -FullPath $ConfigPath }
@@ -1261,17 +1310,12 @@ try {
 }
 
 try {
-    $tcp = [System.Net.Sockets.TcpClient]::new()
-    $ar  = $tcp.BeginConnect("api.resend.com", 443, $null, $null)
-    $ok  = $ar.AsyncWaitHandle.WaitOne(5000, $false)
-    if ($ok -and $tcp.Connected) {
-        $tcp.EndConnect($ar)
+    if (Test-TcpReachable -HostName "api.resend.com" -Port 443 -TimeoutMs 5000) {
         Write-Pass "TCP connection to api.resend.com:443 succeeded."
     } else {
         Write-Fail "TCP connection to api.resend.com:443 timed out."
         Write-Info "Verify that no firewall is blocking outbound HTTPS."
     }
-    $tcp.Close()
 } catch {
     Write-Fail "TCP connection to api.resend.com:443 failed: $_"
 }

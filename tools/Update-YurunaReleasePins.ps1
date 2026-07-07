@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -232,7 +232,7 @@ $pubPem = Join-Path $installDir 'keys/yuruna-release-signing.pub.pem'
 if ($LASTEXITCODE -ne 0) { throw "Self-verify FAILED: $sigFile does not verify against $pubPem." }
 Write-Information "Signed + self-verified: $sigFile" -InformationAction Continue
 
-# --- Publish: commit, tag, push, validate (all opt-in). ---------------------
+# --- REGION: Publish: commit, tag, push, validate (all opt-in).
 # Slip-proofing for the release tag. The tag name is ALWAYS the bare CalVer
 # read+validated from VERSION, never typed by hand -- so the 2026.06.19 break
 # (a 'v2026.06.19' tag while every installer pinned bare '2026.06.19') cannot
@@ -258,7 +258,7 @@ if ($Commit -or $Tag -or $Push) {
         'install/install.sha256.sig'
     )
 
-    # -- Commit -----------------------------------------------------------------
+    # --- REGION: Commit
     if ($Commit) {
         Write-Information "Committing release artifacts for $version" -InformationAction Continue
         foreach ($rel in $releaseFiles) {
@@ -274,7 +274,7 @@ if ($Commit -or $Tag -or $Push) {
         }
     }
 
-    # -- Tag --------------------------------------------------------------------
+    # --- REGION: Tag
     if ($Tag) {
         # Guard 1: never allow a variant tag (e.g. v<version>) -- the exact past
         # slip. One bare-CalVer tag per release is the invariant.
@@ -305,7 +305,7 @@ if ($Commit -or $Tag -or $Push) {
         }
     }
 
-    # -- Push + validate --------------------------------------------------------
+    # --- REGION: Push + validate
     if ($Push) {
         $branch = (& $git -C $RepoRoot rev-parse --abbrev-ref HEAD).Trim()
         if ($branch -and $branch -ne 'HEAD') {

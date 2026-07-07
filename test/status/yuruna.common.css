@@ -1,10 +1,10 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.03
-  --- See https://yuruna.link/definition#defining-the-status-page-browser-baseline
-  --- See https://yuruna.link/definition#defining-the-status-page-header-anatomy
-  --- See https://yuruna.link/definition#defining-the-status-page-mobile-dark-mode-hardening
+  Version: 2026.07.07
+  --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
+  --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
+  --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-dark-mode-hardening
 */
 
 :root {
@@ -228,6 +228,20 @@ button {
   width: .625rem; height: .625rem; border-radius: 50%;
   background: currentColor; display: inline-block; flex-shrink: 0;
 }
+
+/* Per-row status colors for the shared status elements. Kept here (not per
+   page) so index / hostinfo / test.config render identical status colors.
+   The bare status word is scoped to .badge / .step-pill (the elements
+   yuruna.common.js emits) so a page that reuses a status word for an
+   unrelated element -- e.g. perf.html's .cycle-dur.fail duration cell --
+   is not tinted. */
+.badge.idle,    .step-pill.idle,    .idle-bg    { background: var(--bg-hover); color: var(--fg-muted); }
+.badge.pending, .step-pill.pending, .pending-bg { background: var(--bg-hover); color: var(--fg-muted); }
+.badge.running, .step-pill.running, .running-bg { background: var(--running-bg); color: var(--running-fg); }
+.badge.pass,    .step-pill.pass,    .pass-bg    { background: var(--pass-bg); color: var(--pass-fg); }
+.badge.fail,    .step-pill.fail,    .fail-bg    { background: var(--fail-bg); color: var(--fail-fg); }
+.badge.skipped, .step-pill.skipped, .skipped-bg { background: var(--skipped-bg); color: var(--skipped-fg); }
+.badge.paused,  .step-pill.paused,  .paused-bg  { background: var(--pending-bg); color: var(--pending-fg); }
 /* prefers-reduced-motion: respect the OS-level accessibility hint so a
    user who has set "Reduce motion" (vestibular disorder, focus mode,
    battery saver on iOS) does not see a continuously pulsing dot. The

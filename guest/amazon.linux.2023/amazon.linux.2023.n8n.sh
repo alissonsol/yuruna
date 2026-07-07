@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -20,7 +20,7 @@ case "$ARCH" in
     ;;
 esac
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
 
 echo ""

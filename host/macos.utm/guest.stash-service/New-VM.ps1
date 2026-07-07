@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ if (-not (Test-Path $utmPlist)) {
     exit 1
 }
 
-# === Seek the base image ===
+# --- REGION: Seek the base image
 $baseImageName = "host.macos.utm.guest.stash-service"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 if (-not (Test-Path $baseImageFile)) {
@@ -85,7 +85,7 @@ $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScrip
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Create UTM bundle ===
+# --- REGION: Create UTM bundle
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
@@ -102,7 +102,7 @@ if ($LASTEXITCODE -ne 0) {
     Copy-Item -Path $baseImageFile -Destination $DiskImage
 }
 
-# === Generate cloud-init seed ISO ===
+# --- REGION: Generate cloud-init seed ISO
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -111,7 +111,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
 
-# === Yuruna harness SSH key + vault password ===
+# --- REGION: Yuruna harness SSH key + vault password
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
@@ -177,7 +177,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# === Render config.plist from template ===
+# --- REGION: config.plist (Apple Virtualization backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -215,7 +215,7 @@ Write-Output "Bridge interface: $BridgeInterface (stash VM will request DHCP on 
 
 # 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
 # + future in-VM UI.
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"

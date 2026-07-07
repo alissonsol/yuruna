@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
-# === Configuration (change these to customize the download) ===
+# --- REGION: Configuration (change these to customize the download)
 $baseImageName      = "host.windows.hyper-v.guest.windows.11"
 $defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
 
@@ -59,7 +59,7 @@ function Show-ManualDownloadInstruction {
 Write-Output ""
 Write-Output "== Windows 11 ISO =="
 
-# --- Short-circuit #1: default-path existence check (no admin needed) -------
+# --- REGION: Short-circuit #1: default-path existence check (no admin needed)
 # Hyper-V's default VHD location is predictable, so check there FIRST
 # without loading the Hyper-V module or requiring elevation. Most hosts
 # keep the default; when it's been relocated we re-check the configured
@@ -71,7 +71,7 @@ if (Test-Path -LiteralPath $defaultBaseFile) {
     exit 0
 }
 
-# --- Elevation check --------------------------------------------------------
+# --- REGION: Elevation check
 # Get-VMHost, BITS, and writing under ProgramData all need admin. When we
 # don't have it, the only way forward is a manual download -- print the
 # fallback instructions instead of a terse "please run as admin" so the
@@ -85,7 +85,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# --- Resolve the configured VHD folder --------------------------------------
+# --- REGION: Resolve the configured VHD folder
 try {
     $downloadDir = (Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
 } catch {
@@ -101,7 +101,7 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# --- Short-circuit #2: configured-path existence check ----------------------
+# --- REGION: Short-circuit #2: configured-path existence check
 # Re-check under the Hyper-V-configured VHD path when it differs from the
 # default (we already covered the default above). Cheap, and catches the
 # "custom VHD path" case without another download.
@@ -131,7 +131,7 @@ if ($existingIso) {
     exit 0
 }
 
-# === Try Fido (automated) ===
+# --- REGION: Try Fido (automated)
 Write-Output ""
 Write-Output "--- Attempting automated download via Fido ---"
 $fidoScript = Join-Path $PSScriptRoot "Fido.ps1"
@@ -228,6 +228,6 @@ try {
     }
 }
 
-# === Fallback: manual download instructions ===
+# --- REGION: Fallback: manual download instructions
 Show-ManualDownloadInstruction -TargetPath $baseImageFile -TargetDir $downloadDir
 exit 1

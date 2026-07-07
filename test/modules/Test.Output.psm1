@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,13 +98,24 @@ function Get-OutputState {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param()
+    # WarningsBySection is an [ordered] of section -> List[string]. Returning the
+    # live reference would let a caller that mutates the snapshot (adds a section,
+    # or .Add()s to a section's list) corrupt the live counter state. Rebuild a
+    # fresh ordered dictionary whose values are copied lists so the snapshot is
+    # fully isolated -- the copy-safety contract already honored for Failures via
+    # @(...).
+    $warningsCopy = [ordered]@{}
+    foreach ($sectionKey in $script:State.WarningsBySection.Keys) {
+        $warningsCopy[$sectionKey] = [System.Collections.Generic.List[string]]::new(
+            [System.Collections.Generic.IEnumerable[string]]$script:State.WarningsBySection[$sectionKey])
+    }
     return @{
         PassCount         = $script:State.PassCount
         FailCount         = $script:State.FailCount
         WarnCount         = $script:State.WarnCount
         CurrentSection    = $script:State.CurrentSection
         Failures          = @($script:State.Failures)
-        WarningsBySection = $script:State.WarningsBySection
+        WarningsBySection = $warningsCopy
     }
 }
 

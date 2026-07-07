@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -18,7 +18,7 @@
 # guest with no NAS), it falls back to a local share folder so the daemon
 # still starts -- data is then NOT durable across reimage.
 #
-# --- See https://yuruna.link/stash-service
+# --- REGION: https://yuruna.link/stash-service
 set -euo pipefail
 
 # cloud-init's runcmd runs this as root with a MINIMAL environment where
@@ -43,11 +43,11 @@ esac
 
 # Optional shared retry helpers (present once update.sh has run).
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
-  # --- See https://yuruna.link/network#defining-yuruna-retry-lib
+  # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
   . /usr/local/lib/yuruna/yuruna-retry.sh
 fi
 
-# --- Service user --------------------------------------------------------
+# --- REGION: Service user
 # The daemon runs unprivileged. Prefer the cloud-init-created 'yuruna'
 # account; fall back to whoever invoked the script (e.g. an interactive
 # test login). The share mount's uid/gid must match this user for writes
@@ -59,7 +59,7 @@ else
 fi
 echo "Service user: $SERVICE_USER"
 
-# --- Resolve the StashFolder from the stash storage env --------------------
+# --- REGION: Resolve the StashFolder from the stash storage env
 # Read values WITHOUT sourcing the file: a sourced env file aborts the
 # whole script on a stray quote (feedback_findmnt_target_and_cloudinit_env_source_traps.md).
 # Values are single-quoted by the host-side bake; sed-extract them.
@@ -107,7 +107,7 @@ else
   echo "         Data stored here is NOT durable across a VM reimage."
 fi
 
-# --- Locate the daemon source under the cloned repo ----------------------
+# --- REGION: Locate the daemon source under the cloned repo
 # update.sh / the cloud-init bring-up clones the framework into a home dir.
 # Build from wherever the server/go.mod lives so the binary tracks the
 # framework checkout this cycle deployed.
@@ -152,7 +152,7 @@ else
 fi
 go version
 
-# --- Build ---------------------------------------------------------------
+# --- REGION: Build
 # Stage to a user-writable dir so the module cache lands under this user's
 # $HOME/go. go.sum is committed, so DO NOT run `go mod tidy` (it needs the
 # network to recompute the graph); `go build` verifies against go.sum and
@@ -199,7 +199,7 @@ echo -e "\e[1;36m==== Disabling OS sshd to free port 22 ====\e[0m"
 sudo systemctl disable --now ssh.service 2>/dev/null || true
 sudo systemctl disable --now ssh.socket  2>/dev/null || true
 
-# --- VM-local dirs (metadata index + offline buffer), owned by the user --
+# --- REGION: VM-local dirs (metadata index + offline buffer), owned by the user
 echo ""
 echo -e "\e[1;36m==== VM-local storage: /var/lib/stash-server ====\e[0m"
 sudo mkdir -p "$METADATA_DIR" "$BUFFER_DIR"
@@ -210,7 +210,7 @@ sudo chown -R "$SERVICE_USER":"$SERVICE_USER" /var/lib/stash-server
 echo "  metadata: $METADATA_DIR"
 echo "  buffer  : $BUFFER_DIR"
 
-# --- /etc/yuruna/stash.env (consumed by the systemd unit) ----------------
+# --- REGION: /etc/yuruna/stash.env (consumed by the systemd unit)
 echo ""
 echo -e "\e[1;36m==== /etc/yuruna/stash.env ====\e[0m"
 sudo mkdir -p /etc/yuruna
@@ -223,7 +223,7 @@ POOL_WINDOW_DAYS=$POOL_WINDOW_DAYS
 AGGREGATOR_URL=$AGGREGATOR_URL
 ENV
 
-# --- systemd unit --------------------------------------------------------
+# --- REGION: systemd unit
 # After= the cifs mount unit so the daemon starts once the share is up;
 # NOT Requires=/Wants= it -- with the offline buffer (§8.4) the daemon is
 # meant to start and buffer even when the share is down, and on a dev

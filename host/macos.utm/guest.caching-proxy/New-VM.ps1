@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ if (-not (Test-Path $utmPlist)) {
     exit 1
 }
 
-# === Locate base image ===
+# --- REGION: Seek the base image
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.caching-proxy"
@@ -99,7 +99,7 @@ Write-Output "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Create UTM bundle ===
+# --- REGION: Create UTM bundle
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
@@ -107,6 +107,7 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # makes UTM provide a per-bundle pflash file automatically. No Swift
 # VZEFIVariableStore step required (that was the AVF-only path).
 
+# --- REGION: Copy base image -> per-VM disk
 # Copy the pre-built qcow2 cloud image into the bundle as the boot disk.
 # Get-Image.ps1 already produced a qcow2 resized to 512 GB; no conversion
 # here. qcow2 (not raw) is deliberate: UTM's QEMU backend boots it
@@ -124,7 +125,7 @@ if ($LASTEXITCODE -ne 0) {
     Copy-Item -Path $baseImageFile -Destination $DiskImage
 }
 
-# === Generate cloud-init seed ISO ===
+# --- REGION: Generate cloud-init seed ISO
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -133,6 +134,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy.meta-data') -Destination "$SeedDir/meta-data"
 
+# --- REGION: Yuruna harness SSH key
 # yuruna test-harness SSH public key (same module the Ubuntu Server
 # guest uses). One keypair grants passwordless access to every VM,
 # including this cache VM for debugging squid/cloud-init issues.
@@ -141,6 +143,7 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
+# --- REGION: Cache-VM yuruna password
 # Squid-cache 'yuruna' user password. Same model as the Windows
 # caching-proxy New-VM.ps1: the vault now persists across cycles
 # (external-auth simulation), but the cache VM's yuruna password is
@@ -306,7 +309,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# === Render config.plist from template ===
+# --- REGION: config.plist (Apple Virtualization backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -352,6 +355,7 @@ if (-not $BridgeInterface) {
     $BridgeInterface = 'en0'
 }
 
+# --- REGION: Pick network mode
 # Bridged QEMU networking is unreliable over Wi-Fi: the AP commonly drops
 # frames from the VM's locally-administered MAC, so a bridged cache never
 # gets a LAN DHCP lease. On a Wi-Fi-only default route build the cache on
@@ -380,7 +384,7 @@ if (Test-MacDefaultRouteIsWiFi) {
 # and memory-bound, not CPU-bound. Swap is masked in user-data, so an
 # OOM event is unrecoverable; if you tune cache_mem upward, raise the
 # VM total proportionally.
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -420,10 +424,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
-# === Cleanup temporary folders ===
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Guidance ===
+# --- REGION: Guidance
 # LITERAL here-string (@'...'@) for the multi-line block. Shell snippets
 # below contain $(utmctl ...), "$ip", etc. -- pass through verbatim, do
 # NOT let PowerShell evaluate. Placeholders like __VM_NAME__ are

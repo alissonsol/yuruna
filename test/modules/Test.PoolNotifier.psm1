@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 423e9a21-5b84-4f63-9c12-8e4a1d2f6b90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,16 +185,19 @@ function Get-PoolAlertGaugeState {
     return $null
 }
 
-function Test-PoolNotifierReady {
+function Get-PoolNotifierReadiness {
     <#
     .SYNOPSIS
-        True when transports.yml has >=1 subscriber with a non-empty address for the
-        pool-alert EventCode -- the self-election gate (only the operator-configured host
-        passes, so that host alone notifies). False when the transport is unconfigured,
-        which is the graceful "alerts stay gauge/Loki-only" state.
+        Classifies this host's pool-alert election. Returns @{ Ready; State; Reason } where
+        State is 'ready' (transports.yml has a deliverable pool-alert subscriber, so this host
+        alone notifies), 'unconfigured' (absent / empty / no matching subscriber -- the graceful
+        "alerts stay gauge/Loki-only" state), or 'unreadable' (the file EXISTS but a read/parse
+        error this cycle). 'unreadable' is kept distinct from 'unconfigured' so a transient read
+        failure does not silently de-elect the host and strand already-queued messages -- the
+        caller warns and still drains rather than collapsing to the unconfigured no-op.
     #>
     [CmdletBinding()]
-    [OutputType([bool])]
+    [OutputType([hashtable])]
     param(
         [Parameter()][string]$EventCode = '',
         [Parameter()][string]$TransportsPath = ''
@@ -206,22 +209,46 @@ function Test-PoolNotifierReady {
         $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
         $TransportsPath = Join-Path $repoRoot 'test' -AdditionalChildPath 'status', 'extension', 'notification', 'transports.yml'
     }
-    if (-not (Test-Path -LiteralPath $TransportsPath)) { return $false }
-    if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) { return $false }
+    if (-not (Test-Path -LiteralPath $TransportsPath)) { return @{ Ready = $false; State = 'unconfigured'; Reason = 'pool.alert transport not configured on this host' } }
+    if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) { return @{ Ready = $false; State = 'unconfigured'; Reason = 'ConvertFrom-Yaml unavailable' } }
+    $cfg = $null
     try {
-        $cfg = Get-Content -Raw -LiteralPath $TransportsPath | ConvertFrom-Yaml -Ordered
-        if (-not ($cfg -is [System.Collections.IDictionary])) { return $false }
-        if (-not $cfg.Contains('subscribers') -or -not ($cfg['subscribers'] -is [System.Collections.IDictionary])) { return $false }
-        if (-not $cfg['subscribers'].Contains($EventCode)) { return $false }
-        foreach ($s in @($cfg['subscribers'][$EventCode])) {
-            # Require a transport the notification extension can actually deliver (email
-            # today). A subscriber with an unsupported transport would hit the extension's
-            # default branch -> no delivery attempt -> a false 'ok' in the ledger, so it must
-            # NOT self-elect this host as the notifier.
-            if ($s -is [System.Collections.IDictionary] -and ([string]$s['transport'] -eq 'email') -and -not [string]::IsNullOrWhiteSpace([string]$s['address'])) { return $true }
+        $cfg = Get-Content -Raw -LiteralPath $TransportsPath -ErrorAction Stop | ConvertFrom-Yaml -Ordered
+    } catch {
+        # The file is present but could not be read/parsed this cycle (a flapping host-local
+        # read). Report it as 'unreadable', distinct from 'unconfigured', so the caller keeps
+        # this host elected enough to drain what it already queued.
+        return @{ Ready = $false; State = 'unreadable'; Reason = "transports.yml unreadable this cycle: $($_.Exception.Message)" }
+    }
+    if (-not ($cfg -is [System.Collections.IDictionary])) { return @{ Ready = $false; State = 'unconfigured'; Reason = 'transports.yml empty or not a mapping' } }
+    if (-not $cfg.Contains('subscribers') -or -not ($cfg['subscribers'] -is [System.Collections.IDictionary])) { return @{ Ready = $false; State = 'unconfigured'; Reason = 'no subscribers configured' } }
+    if (-not $cfg['subscribers'].Contains($EventCode)) { return @{ Ready = $false; State = 'unconfigured'; Reason = "no $EventCode subscriber" } }
+    foreach ($s in @($cfg['subscribers'][$EventCode])) {
+        # Require a transport the notification extension can actually deliver (email today). A
+        # subscriber with an unsupported transport would hit the extension's default branch ->
+        # no delivery attempt -> a false 'ok' in the ledger, so it must NOT self-elect this host.
+        if ($s -is [System.Collections.IDictionary] -and ([string]$s['transport'] -eq 'email') -and -not [string]::IsNullOrWhiteSpace([string]$s['address'])) {
+            return @{ Ready = $true; State = 'ready'; Reason = '' }
         }
-        return $false
-    } catch { Write-Verbose "Test-PoolNotifierReady: $($_.Exception.Message)"; return $false }
+    }
+    return @{ Ready = $false; State = 'unconfigured'; Reason = "no deliverable $EventCode subscriber" }
+}
+
+function Test-PoolNotifierReady {
+    <#
+    .SYNOPSIS
+        True when this host is elected to notify (transports.yml has a deliverable pool-alert
+        subscriber). A thin bool over Get-PoolNotifierReadiness for callers that only need the
+        election bit; the cycle uses Get-PoolNotifierReadiness so it can tell a genuinely
+        unconfigured host from a transient 'unreadable' this cycle.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter()][string]$EventCode = '',
+        [Parameter()][string]$TransportsPath = ''
+    )
+    return (Get-PoolNotifierReadiness -EventCode $EventCode -TransportsPath $TransportsPath).Ready
 }
 
 function New-PoolAlertSpoolMessage {
@@ -476,12 +503,35 @@ function Invoke-PoolNotifierDelivery {
     if (-not (Test-Path -LiteralPath $WorkDir)) { New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null }
     # Reclaim orphaned claims: a drain that died (e.g. a watchdog SIGKILL) between the
     # claim-rename and the terminal move strands a message in sending/ -- otherwise lost
-    # forever (only outgoing/ is scanned below). Move any sending/ entry older than the
-    # reclaim grace back to outgoing/ so it is retried. The grace avoids stealing a
-    # genuinely in-flight claim from a second notifier (the shared-queue belt-and-suspenders).
-    $reclaimCutoff = (Get-Date).AddSeconds(-$ReclaimGraceSeconds)
-    foreach ($stale in @(Get-ChildItem -LiteralPath $sendDir -Filter '*.json' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $reclaimCutoff })) {
-        try { Move-Item -LiteralPath $stale.FullName -Destination (Join-Path $outDir $stale.Name) -Force -ErrorAction Stop } catch { $null = $_ }
+    # forever (only outgoing/ is scanned below). Move any sending/ entry whose claim is
+    # older than the reclaim grace back to outgoing/ so it is retried. The grace avoids
+    # stealing a genuinely in-flight claim from a second notifier (the shared-queue
+    # belt-and-suspenders). Age is measured from the claimedUtc the claimer stamps into
+    # the message (claim loop below), NOT the file's LastWriteTime: the claim-rename
+    # preserves the message's content-write mtime, so a message enqueued long ago and
+    # claimed a moment ago would look instantly stale and be reclaimed + double-delivered,
+    # and a NAS whose clock differs from this host's could reclaim never or always.
+    # claimedUtc shares the same UtcNow clock as the cutoff. A message with no claimedUtc
+    # (an older drain, or one that died between the rename and the stamp) falls back to the
+    # file mtime in UTC -- coarser, but still bounded.
+    $reclaimCutoffUtc = (Get-Date).ToUniversalTime().AddSeconds(-$ReclaimGraceSeconds)
+    $utcStyles = [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal
+    foreach ($stale in @(Get-ChildItem -LiteralPath $sendDir -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
+        $claimedUtc  = [datetime]::MinValue
+        $haveClaimed = $false
+        try {
+            $sm = Get-Content -Raw -LiteralPath $stale.FullName -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            if (($sm -is [System.Collections.IDictionary]) -and $sm.ContainsKey('claimedUtc')) {
+                $parsed = [datetime]::MinValue
+                if ([datetime]::TryParse([string]$sm['claimedUtc'], [cultureinfo]::InvariantCulture, $utcStyles, [ref]$parsed)) {
+                    $claimedUtc = $parsed; $haveClaimed = $true
+                }
+            }
+        } catch { $null = $_ }
+        if (-not $haveClaimed) { $claimedUtc = $stale.LastWriteTimeUtc }
+        if ($claimedUtc -lt $reclaimCutoffUtc) {
+            try { Move-Item -LiteralPath $stale.FullName -Destination (Join-Path $outDir $stale.Name) -Force -ErrorAction Stop } catch { $null = $_ }
+        }
     }
     $ledger = Join-Path $WorkDir 'notification.delivery.json'
     $files = @(Get-ChildItem -LiteralPath $outDir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First $MaxMessages)
@@ -497,6 +547,12 @@ function Invoke-PoolNotifierDelivery {
             $result.failed++
             continue
         }
+        # Stamp the claim time (UTC) into the message before attempting delivery, so if this
+        # drain dies mid-flight the reclaim above measures the grace from when the message was
+        # claimed rather than the file's preserved content-write mtime. Best-effort: on a write
+        # failure the reclaim falls back to the file mtime.
+        $msg['claimedUtc'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        try { [System.IO.File]::WriteAllText($claim, ($msg | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false)) } catch { $null = $_ }
         if (Send-PoolAlertViaExtension -Message $msg -WorkDir $WorkDir -Ledger $ledger) {
             try { Move-Item -LiteralPath $claim -Destination (Join-Path $doneDir $f.Name) -Force -ErrorAction Stop } catch { $null = $_ }
             $result.delivered++
@@ -522,7 +578,7 @@ function Invoke-PoolNotifierCycle {
     <#
     .SYNOPSIS
         One bounded pass of the host-side pool notifier (the cycle-end hook). Self-elects
-        via Test-PoolNotifierReady; reads the aggregator's latched alert gauge over HTTP;
+        via Get-PoolNotifierReadiness; reads the aggregator's latched alert gauge over HTTP;
         enqueues rising edges to the NAS spool; delivers queued messages and moves them to
         delivered/ on confirm. Best-effort + fully bounded; never throws. Returns a summary
         hashtable for logging.
@@ -548,30 +604,43 @@ function Invoke-PoolNotifierCycle {
         if ((Get-Command Test-YurunaPoolStorageMounted -ErrorAction SilentlyContinue) -and -not (Test-YurunaPoolStorageMounted -Config $psCfg)) {
             $summary.reason = 'NAS not mounted yet (drain mounts it; retry next cycle)'; return $summary
         }
-        # Self-elect: only the operator-configured host (transports.yml has a pool.alert
-        # subscriber) delivers. Everywhere else this is a clean no-op.
-        if (-not (Test-PoolNotifierReady)) { $summary.reason = 'pool.alert transport not configured on this host'; return $summary }
-        $summary.ready = $true
-
-        # Resolve the aggregator's /metrics endpoint on the shared caching-proxy.
-        $ip = ''
-        if (Get-Command Read-CachingProxyState -ErrorAction SilentlyContinue) {
-            try { $st = Read-CachingProxyState; if ($st -and $st.ipAddress) { $ip = [string]$st.ipAddress } } catch { $null = $_ }
+        # Self-elect from transports.yml. 'unconfigured' (absent / no matching subscriber) is
+        # the clean gauge/Loki-only no-op. 'unreadable' (present but a transient read/parse
+        # failure this cycle) must NOT silently de-elect the host: warn and still drain what it
+        # already queued, but skip enqueuing new edges (electing + reading the gauge both want
+        # a healthy config).
+        $readiness = Get-PoolNotifierReadiness
+        if ($readiness.State -eq 'unconfigured') { $summary.reason = $readiness.Reason; return $summary }
+        $unreadable = ($readiness.State -eq 'unreadable')
+        if ($unreadable) {
+            Write-Warning "Invoke-PoolNotifierCycle: $($readiness.Reason); draining already-queued messages without enqueuing new edges."
+            $summary.reason = 'transports.yml unreadable this cycle'
+        } else {
+            $summary.ready = $true
         }
-        if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_IP) { $ip = $env:YURUNA_CACHING_PROXY_IP.Trim() }
-        if ([string]::IsNullOrWhiteSpace($ip)) { $summary.reason = 'no caching-proxy IP (cannot reach aggregator)'; return $summary }
-        $metricsUrl = "http://${ip}:$MetricsPort/metrics"
 
-        $gauge = Get-PoolAlertGaugeState -MetricsUrl $metricsUrl -TimeoutSec $HttpTimeoutSec
-        if ($null -eq $gauge) { $summary.reason = "aggregator metrics unreachable ($metricsUrl)"; return $summary }
-
-        $null = Initialize-PoolNotifierSpool -SpoolRoot $spoolRoot -Confirm:$false
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
         if ([string]::IsNullOrWhiteSpace($runtimeDir)) { $summary.reason = 'YURUNA_RUNTIME_DIR unset'; return $summary }
-        $statePath = Join-Path $runtimeDir 'pool.notifier.state.json'
-        $state = Read-PoolNotifierState -StatePath $statePath
-        $summary.enqueued = Add-PoolAlertSpoolEntry -GaugeState $gauge -State $state -SpoolRoot $spoolRoot
-        $null = Write-PoolNotifierState -StatePath $statePath -State $state -Confirm:$false
+        $null = Initialize-PoolNotifierSpool -SpoolRoot $spoolRoot -Confirm:$false
+
+        if (-not $unreadable) {
+            # Resolve the aggregator's /metrics endpoint on the shared caching-proxy.
+            $ip = ''
+            if (Get-Command Read-CachingProxyState -ErrorAction SilentlyContinue) {
+                try { $st = Read-CachingProxyState; if ($st -and $st.ipAddress) { $ip = [string]$st.ipAddress } } catch { $null = $_ }
+            }
+            if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_IP) { $ip = $env:YURUNA_CACHING_PROXY_IP.Trim() }
+            if ([string]::IsNullOrWhiteSpace($ip)) { $summary.reason = 'no caching-proxy IP (cannot reach aggregator)'; return $summary }
+            $metricsUrl = "http://${ip}:$MetricsPort/metrics"
+
+            $gauge = Get-PoolAlertGaugeState -MetricsUrl $metricsUrl -TimeoutSec $HttpTimeoutSec
+            if ($null -eq $gauge) { $summary.reason = "aggregator metrics unreachable ($metricsUrl)"; return $summary }
+
+            $statePath = Join-Path $runtimeDir 'pool.notifier.state.json'
+            $state = Read-PoolNotifierState -StatePath $statePath
+            $summary.enqueued = Add-PoolAlertSpoolEntry -GaugeState $gauge -State $state -SpoolRoot $spoolRoot
+            $null = Write-PoolNotifierState -StatePath $statePath -State $state -Confirm:$false
+        }
 
         $workDir = Join-Path $runtimeDir 'pool.notifier'
         $deliv = Invoke-PoolNotifierDelivery -SpoolRoot $spoolRoot -WorkDir $workDir -MaxMessages $MaxMessages
@@ -635,7 +704,8 @@ Until then, pool DEGRADED alerts stay visible on the dashboard but are not deliv
 
 Export-ModuleMember -Function `
     Get-PoolNotifierSpoolRoot, Initialize-PoolNotifierSpool, ConvertFrom-PrometheusPoolGauge, `
-    Get-PoolMetricsCandidateUrl, Get-PoolAlertGaugeState, Test-PoolNotifierReady, New-PoolAlertSpoolMessage, `
+    Get-PoolMetricsCandidateUrl, Get-PoolAlertGaugeState, Get-PoolNotifierReadiness, `
+    Test-PoolNotifierReady, New-PoolAlertSpoolMessage, `
     Write-PoolSpoolMessage, Read-PoolNotifierState, Write-PoolNotifierState, `
     Add-PoolAlertSpoolEntry, Send-PoolAlertViaExtension, Invoke-PoolNotifierDelivery, `
     Invoke-PoolNotifierCycle, Write-PoolNotifierSetupNotice

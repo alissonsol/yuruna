@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d5e8a2-b1c4-4f09-a6d3-7e8f0a1b2c3d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,7 +160,7 @@ function New-SequenceFailureRecord {
         $desc  = $fail.LastFailureDescription
     }
 
-    # --- Actionability enrichment (schema v2, additive) -----------------------
+    # --- REGION: Actionability enrichment (schema v2, additive)
     # sequenceName: first-class failing-sequence identity. The record otherwise
     # carried only the path (nested under context); a remediator routing or a
     # repro builder needs the bare name.

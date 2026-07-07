@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f6a7b8-c9d0-4e12-f3a4-5b6c7d8e9f0a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,14 +52,14 @@ Write-Output ""
 Write-Output "== Tesseract OCR test =="
 Write-Output ""
 
-# --- Validate input ---
+# --- REGION: Validate input
 if (-not (Test-Path $ImagePath)) {
     Write-Output "ERROR: File not found: $ImagePath"
     exit 1
 }
 $absPath = (Resolve-Path $ImagePath).Path
 
-# --- Import shared Tesseract module ---
+# --- REGION: Import shared Tesseract module
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath "modules" | Join-Path -ChildPath "Test.Tesseract.psm1") -Force
 
 if (-not (Assert-TesseractInstalled)) { exit 1 }
@@ -72,7 +72,7 @@ Write-Output "Version:   $version"
 Write-Output "Image:     $absPath"
 Write-Output ""
 
-# --- Run OCR ---
+# --- REGION: Run OCR
 try {
     $text = Invoke-TesseractOcr -ImagePath $absPath
 } catch {

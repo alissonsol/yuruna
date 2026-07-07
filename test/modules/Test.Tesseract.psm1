@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     Works on Windows, macOS, and Linux.
 #>
 
-# --- Locate Tesseract ---
+# --- REGION: Locate Tesseract
 
 # Module-scoped cache for Find-Tesseract. tesseract's install location is
 # stable across an entire cycle (and usually across the host's lifetime),
@@ -104,7 +104,7 @@ function Find-Tesseract {
     return $null
 }
 
-# --- Installation guidance ---
+# --- REGION: Installation guidance
 
 function Get-TesseractInstallGuidance {
     <#
@@ -152,7 +152,7 @@ function Assert-TesseractInstalled {
     return $false
 }
 
-# --- Run OCR ---
+# --- REGION: Run OCR
 
 function Invoke-TesseractOcr {
     <#

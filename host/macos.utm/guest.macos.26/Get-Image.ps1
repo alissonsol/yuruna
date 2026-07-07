@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e1f2a3-b4c5-4d67-e890-1f2a3b4c5d68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,7 +48,7 @@ if (-not $IsMacOS) {
     exit 1
 }
 
-# === Configuration ===
+# --- REGION: Configuration
 $downloadDir   = "$HOME/yuruna/image/macos.env"
 $baseImageName = "host.macos.utm.guest.macos.26"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.ipsw"
@@ -56,7 +56,7 @@ $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# === Resolve the latest IPSW URL via the Virtualization framework ===
+# --- REGION: Resolve the latest IPSW URL via the Virtualization framework
 #
 # VZMacOSRestoreImage.fetchLatestSupported returns the IPSW URL + build
 # number for the current host's hardware bucket. We refuse anything
@@ -201,7 +201,7 @@ $build      = $fields[1].Trim()
 $version    = $fields[2].Trim()
 Write-Output "Apple published macOS $version (build $build): $sourceUrl"
 
-# === Skip-if-same-source guard ===
+# --- REGION: Skip-if-same-source guard
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
     Write-Information $msg -InformationAction Continue
@@ -209,7 +209,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
     exit 0
 }
 
-# === Download the IPSW ===
+# --- REGION: Download the IPSW
 $downloadFile = Join-Path $downloadDir "downloaded.ipsw"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceUrl to $downloadFile (~15-20 GB)..."
@@ -221,7 +221,7 @@ try {
 }
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
-# === Validate the IPSW restore-image headers ===
+# --- REGION: Validate the IPSW restore-image headers
 # Apple publishes the IPSW URL via the same VZ API that consumes it,
 # so a SHA mismatch from a CDN proxy is the only realistic corruption
 # mode. VZMacOSRestoreImage.load(from:) parses the IPSW header + verifies
@@ -270,7 +270,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Output ($vOut -join "`n")
 
-# === Name the file as per naming convention ===
+# --- REGION: Name the file as per naming convention
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.ipsw"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {

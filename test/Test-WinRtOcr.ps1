@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e5f6a7-b8c9-4d01-e2f3-4a5b6c7d8e9f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,7 +62,7 @@ Write-Output ""
 Write-Output "== Windows.Media.Ocr access test =="
 Write-Output ""
 
-# --- Attempt 1: Direct WinRT from pwsh (PowerShell 7+) ---
+# --- REGION: Attempt 1: Direct WinRT from pwsh (PowerShell 7+)
 Write-Output "[1] Trying to load Windows.Media.Ocr directly from pwsh..."
 Write-Output "    PowerShell edition : $($PSVersionTable.PSEdition)"
 Write-Output "    PowerShell version : $($PSVersionTable.PSVersion)"
@@ -86,7 +86,7 @@ try {
     Write-Output "    The runtime removed built-in WinRT interop (IInspectable projection)."
 }
 
-# --- Attempt 2: Add-Type with C# WinRT interop from pwsh ---
+# --- REGION: Attempt 2: Add-Type with C# WinRT interop from pwsh
 Write-Output ""
 Write-Output "[2] Trying Add-Type with WinRT reference from pwsh..."
 
@@ -121,7 +121,7 @@ try {
     Write-Output "    Compilation/load error: $_"
 }
 
-# --- Attempt 3: Shell out to Windows PowerShell 5.1 ---
+# --- REGION: Attempt 3: Shell out to Windows PowerShell 5.1
 Write-Output ""
 Write-Output "[3] Trying via Windows PowerShell 5.1 (powershell.exe)..."
 
@@ -159,7 +159,7 @@ Write-Output "from pwsh to run OCR. There is no pure-pwsh path and no NuGet pack
 Write-Output "that can be simply added at runtime to restore access."
 Write-Output ""
 
-# --- Attempt 4: OCR an actual image if provided ---
+# --- REGION: Attempt 4: OCR an actual image if provided
 if ($ImagePath) {
     Write-Output "== OCR: $ImagePath =="
     Write-Output ""
@@ -215,7 +215,9 @@ foreach ($line in $ocrResult.Lines) {
 }
 '@
 
-    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) 'Test-WinRtOcr-run.ps1'
+    # Unique per-run name so concurrent invocations (or a leftover from a killed
+    # run) cannot collide in the shared temp directory; the finally block removes it.
+    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) ("Test-WinRtOcr-run-{0}.ps1" -f [guid]::NewGuid())
     try {
         $ocrScript | Set-Content -Path $scriptFile -Encoding UTF8
         $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptFile $absPath 2>&1

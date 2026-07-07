@@ -75,6 +75,15 @@ Every `-interval` (default 30s) it:
    both the table's raw Pass/Fail and the 24h `increase()` tile stay correct
    across a collector restart, with no dashboard change. Best-effort: if Loki is
    unreachable the collector starts empty and rebuilds as cycles complete.
+   It also **re-seeds its (volatile) host view** from Loki — each host's last-known
+   IP, taken from the cycle-transition feed and from an on-discovery **presence**
+   beacon (`{pool,hostId,src=presence}`, pushed whenever a host is first discovered
+   or changes IP) — so a host discovered before the restart is re-probed on the
+   first poll instead of vanishing. This closes the discovery-liveness gap for a
+   host that is up + reachable but pulling nothing through the proxy right now (a
+   paused runner, or a **stash-only** host that runs no cycles and so emits no
+   transition line): without it, such a host drops off the Extension-hosts panel
+   until it next routes through the proxy.
 7. **Correlates incidents.** A host that fails `-incident-fails` cycles within
    `-incident-window` (default 3 in 2h) opens an **incident** — a fail-burst, not
    a one-off fail. Exposed as `yuruna_pool_incidents_active` /
@@ -199,9 +208,13 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 
 ## MVP limits (Phase 1)
 
-- Discovery is **proxy-traffic-driven**: a host only appears once it (or its
-  guests) has pulled through the proxy recently. A host that never routes through
-  the proxy won't be discovered (Phase 3 adds registration-driven discovery).
+- **Initial** discovery is **proxy-traffic-driven**: a host first appears only
+  once it (or its guests) has pulled through the proxy. A host that has never
+  routed through the proxy won't be discovered (Phase 3 adds registration-driven
+  discovery). Once discovered, though, a host is remembered — re-probed at its
+  last-known IP while idle (`hostTTL`) and re-seeded from Loki's presence beacon
+  across a collector restart — so an idle / stash-only host stays on the dashboard
+  without fresh proxy traffic.
 - Per-step NDJSON events are tailed into Loki (Phase 2, done) for the
   step-failure / event-stream drill-down, surfaced as Loki logs panels.
 - Incident correlation covers **per-host** (N-failures-in-M-minutes) and
@@ -264,4 +277,4 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07

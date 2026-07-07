@@ -3,7 +3,7 @@
 # macOS/UTM (QEMU) overlay for ubuntu.server.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_NETWORK ===
-  # --- See https://yuruna.link/vmconfig#pin-ipv4-dhcp-refuse-ipv6-ra
+  # --- REGION: https://yuruna.link/vmconfig#pin-ipv4-dhcp-refuse-ipv6-ra
   network:
     version: 2
     ethernets:

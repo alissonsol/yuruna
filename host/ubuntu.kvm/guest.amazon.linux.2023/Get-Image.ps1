@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e96
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@ switch ($arch) {
     default   { Write-Error "Unsupported arch: $arch"; exit 1 }
 }
 
+# --- REGION: Configuration
 $sourceUrl     = "https://cdn.amazonlinux.com/al2023/os-images/latest/$platDir/"
 $downloadDir   = "$HOME/yuruna/image/amazon.linux.2023"
 $baseImageName = "host.ubuntu.kvm.guest.amazon.linux.2023"
@@ -52,6 +53,7 @@ $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
+# --- REGION: Find the file to download
 $html = Invoke-WebRequest -Uri $sourceUrl -ErrorAction Stop
 $qcow2Link = ($html.Links | Where-Object { $_.href -match '\.qcow2$' } | Select-Object -First 1).href
 if (-not $qcow2Link) {
@@ -72,6 +74,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImag
     exit 0
 }
 
+# --- REGION: Retrieve and process the files
 $downloadFile = Join-Path $downloadDir 'downloaded.qcow2'
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # Save-ImageWithChecksum (Yuruna.Image.psm1) verifies SHA-256 against
@@ -95,6 +98,7 @@ if (-not $downloaded) {
 }
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
+# --- REGION: Name the file as per naming convention
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $baseImageFile) {

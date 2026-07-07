@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456812
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,12 +41,30 @@ function Read-NotificationConfig {
         Write-Verbose "transports.yml not found at $script:ConfigPath; treating as empty."
         return [ordered]@{ transports = [ordered]@{}; subscribers = [ordered]@{} }
     }
+    $parsed = $null
     try {
-        return (Get-Content -Raw $script:ConfigPath | ConvertFrom-Yaml -Ordered)
+        $parsed = Get-Content -Raw $script:ConfigPath | ConvertFrom-Yaml -Ordered
     } catch {
         Write-Warning "transports.yml parse failed: $($_.Exception.Message). Treating as empty."
         return [ordered]@{ transports = [ordered]@{}; subscribers = [ordered]@{} }
     }
+    # Normalize the success path to one stable shape so every consumer sees an
+    # IDictionary that has both transports and subscribers. A valid-but-oddly-shaped
+    # transports.yml -- an empty / comment-only file (ConvertFrom-Yaml returns
+    # $null), a top-level scalar or list, or a mapping missing either key -- would
+    # otherwise reach Send-Notification's $cfg.Contains('subscribers') and throw,
+    # since a null / non-dictionary has no key-membership contract.
+    if ($parsed -isnot [System.Collections.IDictionary]) {
+        Write-Warning "transports.yml did not parse to a mapping; treating as empty."
+        return [ordered]@{ transports = [ordered]@{}; subscribers = [ordered]@{} }
+    }
+    if (-not $parsed.Contains('transports') -or $parsed['transports'] -isnot [System.Collections.IDictionary]) {
+        $parsed['transports'] = [ordered]@{}
+    }
+    if (-not $parsed.Contains('subscribers') -or $parsed['subscribers'] -isnot [System.Collections.IDictionary]) {
+        $parsed['subscribers'] = [ordered]@{}
+    }
+    return $parsed
 }
 
 function Send-EmailViaResend {

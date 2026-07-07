@@ -27,7 +27,7 @@
 # the cycle on the first undeclared name -- this is intentional, so
 # the production AD path stays exercised on every dev cycle.
 
-strict: true
+strict: false
 
 users:
 

@@ -5,12 +5,12 @@
 # === YURUNA_OVERLAY_NETWORK ===
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
-    # --- See https://yuruna.link/vmconfig#hv_balloon-denylist
+    # --- REGION: https://yuruna.link/vmconfig#hv_balloon-denylist
     - |
       cat > /target/etc/modprobe.d/denylist-hv-balloon.conf << 'MODPROBE'
       blacklist hv_balloon
       MODPROBE
-    # --- See https://yuruna.link/vmconfig#hyperv_fb-framebuffer-pin
+    # --- REGION: https://yuruna.link/vmconfig#hyperv_fb-framebuffer-pin
     - |
       cat > /target/etc/default/grub.d/99-yuruna-hyperv-fb.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} video=hyperv_fb:1024x768"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@
     and recurse.
 #>
 
-# === Module setup ===========================================================
+# --- REGION: Module setup
 
 $script:HostTag        = 'host.ubuntu.kvm'
 $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
@@ -72,7 +72,7 @@ $script:ImagePathTable = @{
     'guest.windows.11'    = "$HOME/yuruna/image/windows.11/host.ubuntu.kvm.guest.windows.11.iso"
 }
 
-# === Private helpers ========================================================
+# --- REGION: Private helpers
 
 <#
 .SYNOPSIS
@@ -101,7 +101,7 @@ function Get-VirshDomState {
     return "$first".Trim()
 }
 
-# === VM lifecycle ===========================================================
+# --- REGION: VM lifecycle
 
 <#
 .SYNOPSIS
@@ -232,7 +232,7 @@ function Remove-VM {
     # Force-stop first; ignore errors (VM may be absent or already stopped).
     Invoke-Virsh -VirshArgs @('destroy', $VMName) | Out-Null
 
-    # --- See https://yuruna.link/memory#why-remove-vm-on-kvm-omits-remove-all-storage
+    # --- REGION: https://yuruna.link/memory#why-remove-vm-on-kvm-omits-remove-all-storage
     Invoke-Virsh -VirshArgs @('undefine', '--nvram', $VMName) | Out-Null
 
     # Per-VM artifact directory (qcow2, seed.iso, autounattend.iso, nvram).
@@ -521,7 +521,7 @@ function Restart-VMConsole {
     return $true
 }
 
-# === Image ==================================================================
+# --- REGION: Image
 
 <#
 .SYNOPSIS
@@ -557,7 +557,7 @@ function Get-ImagePath {
     return $script:ImagePathTable[$GuestKey]
 }
 
-# === VM I/O =================================================================
+# --- REGION: VM I/O
 
 <#
 .SYNOPSIS
@@ -728,7 +728,7 @@ function Get-VMConsoleHandle {
     return $null
 }
 
-# === Discovery ==============================================================
+# --- REGION: Discovery
 
 <#
 .SYNOPSIS
@@ -805,7 +805,7 @@ function Get-VMMac {
     return $null
 }
 
-# === Networking =============================================================
+# --- REGION: Networking
 
 <#
 .SYNOPSIS
@@ -848,7 +848,7 @@ function New-ExternalNetwork {
     return 'default'
 }
 
-# -- helpers for New-YurunaExternalNetwork -----------------------------------
+# --- REGION: helpers for New-YurunaExternalNetwork
 # Internal. Returns the interface name carrying the default IPv4 route, or
 # $null if none. Filters out the NIC if it's already a bridge port whose
 # master is the one we're about to (re-)create; matches "what's the WAN-
@@ -968,7 +968,7 @@ function Write-YurunaNmcliFailure {
     }
 }
 
-# --- See https://yuruna.link/memory#why-the-libvirt-bridge-self-heal-probes-brif-and-activates-the-slave
+# --- REGION: https://yuruna.link/memory#why-the-libvirt-bridge-self-heal-probes-brif-and-activates-the-slave
 function Repair-YurunaExternalBridgeSlave {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
@@ -1240,7 +1240,7 @@ function New-YurunaExternalNetwork {
     # Write-Output would turn $x into a string[] and break downstream
     # consumers (Get-ExternalNetwork compares against this exact name).
 
-    # -- Step 1: idempotency -------------------------------------------------
+    # --- REGION: Step 1: idempotency
     # Fast-return when the libvirt network is already defined -- but
     # NOT before verifying the backing host bridge actually has a LAN
     # uplink. A previous bring-up can leave the bridge half-built
@@ -1260,7 +1260,7 @@ function New-YurunaExternalNetwork {
         return $NetworkName
     }
 
-    # -- Step 2: resolve default-route NIC -----------------------------------
+    # --- REGION: Step 2: resolve default-route NIC
     $nic = Get-YurunaDefaultRouteIface
     if (-not $nic) {
         Write-Warning "No IPv4 default route on the host. Cannot create '$NetworkName' bridge -- connect a NIC to the LAN first."
@@ -1273,7 +1273,7 @@ function New-YurunaExternalNetwork {
         return $null
     }
 
-    # -- Step 3: maybe the NIC is already bridged ----------------------------
+    # --- REGION: Step 3: maybe the NIC is already bridged
     # If the operator (or a previous run) already put the WAN NIC on a
     # bridge, reuse it. This keeps the host networking change to zero:
     # we only need to define the libvirt network pointing at the existing
@@ -1283,7 +1283,7 @@ function New-YurunaExternalNetwork {
         Write-Information "Interface '$nic' is already a port of bridge '$existingBridge'. Reusing it (no host networking change)."
         $BridgeName = $existingBridge
     } else {
-        # -- Step 4: build the bridge ----------------------------------------
+        # --- REGION: Step 4: build the bridge
         # Guard: if NetworkManager has core-dumped recently AND NM is the
         # active backend, the nmcli bridge build is almost certainly what
         # crashed it (upstream NM assertion bug in nm-settings-utils.c).
@@ -1326,7 +1326,7 @@ function New-YurunaExternalNetwork {
         }
     }
 
-    # -- Step 5: define + start the libvirt network --------------------------
+    # --- REGION: Step 5: define + start the libvirt network
     # libvirt's <forward mode='bridge'/> with a <bridge name='...'/> tells
     # qemu to attach guests directly to the named bridge via a tap; the
     # guest's MAC is visible on the LAN and gets its own DHCP lease.
@@ -1876,7 +1876,7 @@ function Resolve-GuestHostBinding {
     return @{ NetworkName = $networkName; HostIp = $hostIp }
 }
 
-# === Caching proxy ==========================================================
+# --- REGION: Caching proxy
 
 <#
 .SYNOPSIS
@@ -2033,7 +2033,7 @@ function Save-CachedHttpUri {
     Yuruna.HostDownload\Save-CachedHttpUri -Uri $Uri -OutFile $OutFile -ResolveCacheHostIp { Resolve-CacheHostIp }
 }
 
-# === Host config ============================================================
+# --- REGION: Host config
 
 <#
 .SYNOPSIS
@@ -2222,7 +2222,7 @@ function Assert-Virtualization {
     return $true
 }
 
-# === Exports ================================================================
+# --- REGION: Exports
 
 Export-ModuleMember -Function `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `

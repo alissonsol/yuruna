@@ -39,7 +39,8 @@ erDiagram
     }
     WORKLOADS {
         map globalVariables
-        list workloads "helm kubectl shell"
+        list workloads "context, deployments"
+        list deployments "chart kubectl helm shell"
     }
     SEQUENCE {
         string action
@@ -105,4 +106,4 @@ per-event-code `subscribers`. Six entities — within the [≤7 rule](00-index.m
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07

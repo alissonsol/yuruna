@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     and recurse.
 #>
 
-# === Module setup ===========================================================
+# --- REGION: Module setup
 
 $script:HostTag        = 'host.macos.utm'
 $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
@@ -48,7 +48,7 @@ Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1
 # Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
 # the Get-Image log-line writer) that all three drivers carried in duplicate.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
-# === macOS/UTM host helpers =================================================
+# --- REGION: macOS/UTM host helpers
 
 <#
 .SYNOPSIS
@@ -575,12 +575,12 @@ function Save-CachedHttpUri {
     Yuruna.HostDownload\Save-CachedHttpUri -Uri $Uri -OutFile $OutFile -ResolveCacheHostIp { Resolve-CacheHostIp }
 }
 
-# === VM lifecycle helpers ====================================================
+# --- REGION: VM lifecycle helpers
 # UTM-internal helpers consumed by Yuruna.Host's contract entry points
 # above. Not part of the test-facing host driver contract; test code
 # calls the contract verbs (New-VM / Start-VM / ...) which delegate here.
 
-# --- UTM dialog watchdog ---------------------------------------------------
+# --- REGION: UTM dialog watchdog
 # Background osascript that clicks accept buttons on UTM dialogs every ~2 s
 # (custom-args import warning, intermittent QEMU "Invalid argument"). PID
 # kept at $HOME/yuruna/image/utm-dialog-watchdog.pid.
@@ -666,7 +666,7 @@ end repeat
     Write-Debug "      UTM dialog watchdog started (pid $($proc.Id))"
 }
 
-# --- VM lifecycle ----------------------------------------------------------
+# --- REGION: VM lifecycle
 
 <#
 .SYNOPSIS
@@ -986,7 +986,7 @@ function Restart-UtmConsole {
     return $true
 }
 
-# === Host proxy helpers =====================================================
+# --- REGION: Host proxy helpers
 # networksetup is sudo-only for writes. Read paths don't need sudo, so the
 # backup capture can happen before the sudo check and surface a clearer
 # error if sudo is missing. Marker file at $HOME/.yuruna/host-proxy.managed
@@ -1194,7 +1194,7 @@ function Disable-MacHostProxy {
     Aggressively wipe networksetup proxy state and the marker file.
 #>
 function Remove-MacHostProxy {
-    # --- See https://yuruna.link/memory#why-remove-machostproxy-sets-state-off-as-the-last-step
+    # --- REGION: https://yuruna.link/memory#why-remove-machostproxy-sets-state-off-as-the-last-step
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Module-private helper; public Remove-HostProxy gates ShouldProcess.')]
@@ -1211,7 +1211,7 @@ function Remove-MacHostProxy {
     if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
 }
 
-# === Screenshot helpers =====================================================
+# --- REGION: Screenshot helpers
 # UTM-side screenshot capture: VNC framebuffer first (real pixels even when
 # UTM's NSWindow stays black), then CGWindowList screencapture -l <id>,
 # then bounds-based screencapture -R fallback. Per-VM VNC port (5910..5989)
@@ -1638,7 +1638,7 @@ end tell
     }
 }
 
-# === VM lifecycle ===========================================================
+# --- REGION: VM lifecycle
 
 <#
 .SYNOPSIS
@@ -2127,7 +2127,7 @@ function Restart-VMConsole {
     return [bool](Restart-UtmConsole -VMName $VMName -Confirm:$false)
 }
 
-# === Image ==================================================================
+# --- REGION: Image
 
 <#
 .SYNOPSIS
@@ -2169,7 +2169,7 @@ function Get-ImagePath {
     return $paths[$GuestKey]
 }
 
-# === VM I/O =================================================================
+# --- REGION: VM I/O
 
 <#
 .SYNOPSIS
@@ -2299,7 +2299,7 @@ function Get-VMConsoleHandle {
     return $proc.Id
 }
 
-# === Discovery ==============================================================
+# --- REGION: Discovery
 
 <#
 .SYNOPSIS
@@ -2512,7 +2512,7 @@ function Resolve-UtmGuestIpByMac {
     return $found
 }
 
-# === Networking =============================================================
+# --- REGION: Networking
 
 <#
 .SYNOPSIS
@@ -2733,7 +2733,7 @@ function Get-GuestReachableHostIp {
     return '192.168.64.1'
 }
 
-# === Caching proxy ==========================================================
+# --- REGION: Caching proxy
 
 <#
 .SYNOPSIS
@@ -2820,7 +2820,7 @@ function Get-CachingProxyVMIp {
     return $null
 }
 
-# === Host config ============================================================
+# --- REGION: Host config
 
 <#
 .SYNOPSIS
@@ -2963,7 +2963,7 @@ function Assert-Virtualization {
     return [bool](Test-Path '/Applications/UTM.app')
 }
 
-# === Exports ================================================================
+# --- REGION: Exports
 
 Export-ModuleMember -Function `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `

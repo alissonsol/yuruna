@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,8 +58,8 @@ $UtmDir = "$GuestDir/$VMName.utm"
 $DataDir = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 
-# ===== Environment checks =====
-# --- See https://yuruna.link/memory#why-the-macos-utm-ubuntu-server-guest-switched-from-avf-to-qemu-and-hvf
+# --- REGION: Environment checks
+# --- REGION: https://yuruna.link/memory#why-the-macos-utm-ubuntu-server-guest-switched-from-avf-to-qemu-and-hvf
 
 # Check macOS version (requires macOS 12 Monterey or later for UTM 4.x)
 $macosVersion = & sw_vers -productVersion 2>$null
@@ -105,7 +105,7 @@ if ($utmVersion) {
 Write-Verbose "All requirements met."
 Write-Output ""
 
-# === Seek the base image ===
+# --- REGION: Seek the base image
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.ubuntu.server.26"
@@ -158,7 +158,7 @@ Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Create copies and files for VM ===
+# --- REGION: Create copies and files for VM
 
 # Load shared helpers (retry-on-EACCES bundle removal -- handles the race
 # where UTM.app / QEMUHelper.xpc still holds file handles on disk.qcow2
@@ -319,12 +319,14 @@ To intentionally skip the cache:
 }
 }
 
+# --- REGION: Build the autoinstall apt block
 # Build the autoinstall apt block via the shared builder
 # (automation/Yuruna.GuestSeed.psm1). UTM pins the aarch64 ports mirror. See
-# https://yuruna.link/vmconfig#apt-proxy-block and
 # feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
 $AptProxyBlock = Build-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyUrl $CachingProxyUrl
 
+# --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # Fetch the caching-proxy CA on the host so it can be base64-embedded in
 # the autoinstall seed. Guests on VZ shared-NAT cannot reach the cache
 # VM directly, but this script runs on the host which can. Any failure
@@ -386,7 +388,8 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: Render user-data / meta-data
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
@@ -410,6 +413,7 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $VMName
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
+# --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
 Write-Verbose "Generating seed.iso with autoinstall configuration..."
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
@@ -442,7 +446,7 @@ $MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
 # keystrokes) agree without a sidecar file.
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -474,10 +478,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
-# === Cleanup temporary folders ===
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Guidance ===
+# --- REGION: Guidance
 Write-Output ""
 Write-Verbose "VM bundle created: $UtmDir"
 Write-Verbose "Backend: QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"

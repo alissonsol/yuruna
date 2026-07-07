@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,7 +67,7 @@ if (-not $ExplicitPrefix) {
 }
 if (-not $Prefix) { $Prefix = 'test-' }
 
-# === Import Test.HostContract (needed for Get-HostType on every platform) ===
+# --- REGION: Import Test.HostContract (needed for Get-HostType on every platform)
 # -Global is load-bearing: when this script is invoked via the call operator
 # from inside a module (the cycle runner calls it for the VM sweep), a -Force
 # import without -Global pulls Test.HostContract (and its host-contract exports)
@@ -105,7 +105,7 @@ if (-not (Test-HostRequirement -HostType $HostType -Quiet:$Quiet)) { exit 1 }
 # Remove-VM are used inside each branch so per-VM cleanup is uniform.
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-# === Stop all test-* VMs ===
+# --- REGION: Stop all test-* VMs
 Write-Status "Stopping VMs with prefix '$Prefix'..."
 Write-Status ""
 
@@ -258,13 +258,24 @@ switch ($HostType) {
                     Write-Status "  Stopping $vmName..."
                     try {
                         & utmctl stop "$vmName" 2>&1 | Out-Null
-                        # Wait for the VM to fully stop before deleting
-                        $waited = 0
-                        while ($waited -lt 30) {
+                        # Wait (wall-clock bounded) for the VM to fully stop before
+                        # deleting. An iteration counter drifts well past the stated
+                        # 30 s because each utmctl status call adds its own latency; a
+                        # UtcNow deadline holds the real budget regardless of per-call
+                        # cost (feedback_iter_counter_wallclock_trap).
+                        $stopDeadlineUtc  = [DateTime]::UtcNow.AddSeconds(30)
+                        $confirmedStopped = $false
+                        while ([DateTime]::UtcNow -lt $stopDeadlineUtc) {
                             Start-Sleep -Seconds 2
-                            $waited += 2
                             $status = & utmctl status "$vmName" 2>&1
-                            if ($status -match "stopped|shutdown") { break }
+                            if ($status -match "stopped|shutdown") { $confirmedStopped = $true; break }
+                        }
+                        if (-not $confirmedStopped) {
+                            # Never observed a stopped/shutdown status: delete anyway
+                            # (utmctl delete handles a stopping VM and the failure is
+                            # tracked below), but surface it -- a VM that will not stop
+                            # can leave a wedged bundle the delete cannot fully reclaim.
+                            Write-Warning "    '$vmName' did not confirm stopped within 30s; attempting delete anyway."
                         }
                         # Delete by UUID (more reliable than by name)
                         $deleted = $false

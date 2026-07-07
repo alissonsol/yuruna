@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e1b4d3-a8f9-4256-bc04-3d5e8a2b1c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,6 +103,7 @@ function New-YurunaRegistry {
     # atomically AND keep the $global: anchor in sync without breaking
     # any other closure's view of "the current store".
     $existing = Get-Variable -Name $AnchorVar -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+    $anchorPreExisted = ($null -ne $existing)
     if ($null -eq $existing) {
         if ($Comparer -eq 'Ordinal') {
             $existing = [Hashtable]::new([StringComparer]::Ordinal)
@@ -112,11 +113,29 @@ function New-YurunaRegistry {
         Set-Variable -Name $AnchorVar -Scope Global -Value $existing
     }
 
+    # Report the case-sensitivity of the store ACTUALLY in use, not the requested
+    # -Comparer. When a global anchor already exists (a -Force re-import, or a second
+    # caller sharing an AnchorVar), the requested -Comparer is not applied to the live
+    # store; echoing it would misreport case-sensitivity to introspection callers and
+    # would make Clear rebuild the store with the wrong comparer. This module builds
+    # exactly two store shapes -- an OrderedDictionary (the case-insensitive
+    # [ordered]@{} default) and a StringComparer.Ordinal Hashtable (case-sensitive) --
+    # so the live store's type is an exact, truthful signal of its comparer.
+    $effectiveComparer =
+        if     ($existing -is [System.Collections.Specialized.OrderedDictionary]) { 'OrdinalIgnoreCase' }
+        elseif ($existing -is [System.Collections.Hashtable])                     { 'Ordinal' }
+        else                                                                       { $Comparer }
+    if ($anchorPreExisted -and $PSBoundParameters.ContainsKey('Comparer') -and $effectiveComparer -ne $Comparer) {
+        Write-Warning ("New-YurunaRegistry: anchor '$AnchorVar' for '$Name' already holds a " +
+            "'$effectiveComparer' store; requested -Comparer '$Comparer' is not applied (live entries " +
+            "are preserved). The reported Comparer reflects the live store.")
+    }
+
     # $storeRef[0] is the live store; Clear rebinds it.
     $storeRef = , $existing
     $anchorName = $AnchorVar
     $domainName = $Name
-    $comparerChoice = $Comparer
+    $comparerChoice = $effectiveComparer
 
     $register = {
         param([string]$Key, $Value)

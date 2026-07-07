@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# === Configuration ===
+# --- REGION: Configuration
 # Ubuntu 26.04 LTS (Resolute Raccoon). Moved up from 24.04 LTS (Noble
 # Numbat) so the cache VM stays inside the supported-LTS window and
 # `unattended-upgrades` (enabled in host/vmconfig/caching-proxy.base.user-data) keeps pulling
@@ -71,7 +71,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
     exit 0
 }
 
-# === Download the cloud image ===
+# --- REGION: Download the cloud image
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.img"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the fetch
@@ -109,7 +109,7 @@ if ($fileSize -lt 100MB) {
     exit 1
 }
 
-# === Convert qcow2 to VHDX + resize ===
+# --- REGION: Convert qcow2 to VHDX + resize
 # The shared Convert-Qcow2ToVhdx (Yuruna.Image) owns qemu-img discovery, the
 # convert, the NTFS sparse-flag clear, and the Resize-VHD/qemu-img resize
 # fallback (feedback_qemu_img_vhdx_sparse.md), so the trap fix lives once.
@@ -120,7 +120,7 @@ if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $convertedFile
     exit 1
 }
 
-# === Preserve previous and finalize ===
+# --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.vhdx"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {

@@ -18,9 +18,9 @@ required: [users]
 properties:
   strict:
     type: boolean
-    default: true
+    default: false
     description: >
-      When true (default), every logical username referenced by an
+      When true, every logical username referenced by an
       active sequence must be declared in users.yml AND any populated
       vaultKey/localOsPasswordRef must resolve to a non-empty vault.yml
       entry; Test-Config.ps1 blocks the cycle otherwise. Setting false

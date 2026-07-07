@@ -8,7 +8,7 @@ stack + the pool-aggregator collector). The user-data file stays lean: each
 topic collapses to a single line of the form:
 
 ```
-# --- See https://yuruna.link/vmconfig/caching-proxy#<topic-slug>
+# --- REGION: https://yuruna.link/vmconfig/caching-proxy#<topic-slug>
 ```
 
 The fragment resolves to a `### <topic name>` heading in this file (standard
@@ -331,7 +331,7 @@ Single-quoted: the bare `: ` after "ready" makes YAML parse the scalar as a mapp
 ## Maintenance notes
 
 - New topic: add a `### <topic name>` section here, then in the user-data emit a
-  single `# --- See https://yuruna.link/vmconfig/caching-proxy#<topic-slug>` at
+  single `# --- REGION: https://yuruna.link/vmconfig/caching-proxy#<topic-slug>` at
   the matching indent. Pick heading text whose GitHub slug is readable -- avoid
   `:`, `(`, `)`, `/`, `=` and other punctuation the slugifier strips silently.
 - Removed topic: drop the section here AND the one-line pointer in the
@@ -344,6 +344,6 @@ Single-quoted: the bare `: ` after "ready" makes YAML parse the scalar as a mapp
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](../README.md)

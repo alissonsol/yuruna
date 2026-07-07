@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,7 +226,19 @@ $StepHeartbeatFile = Join-Path $env:YURUNA_RUNTIME_DIR "runner.stepHeartbeat"
 # outer watchdog to misread. UTF-8 no-BOM is correct here:
 # ASCII-clean digits, and the outer reads via [int]::Parse which
 # would reject a BOM prefix.
-$null = Write-YurunaStateFile -Path $InnerPidFile -Content ([string]$PID) -Confirm:$false
+# Check the write: a failed inner.pid leaves the inner un-targetable by the
+# outer's watchdog, so a hung inner would run unguarded. That is a degraded
+# (unmonitored) run, not a fatal one -- warn and continue. The console
+# Write-Warning here is only inherited by the outer (the Yuruna.Log Write-Warning
+# proxy is not imported yet, and the call-op spawn does not redirect stderr), so
+# also mirror it to outer.log via Write-InnerLog where it stays durable and
+# diagnosable next to the outer/watchdog entries.
+$innerPidWritten = Write-YurunaStateFile -Path $InnerPidFile -Content ([string]$PID) -Confirm:$false
+if (-not $innerPidWritten) {
+    $innerPidWarn = "inner.pid write to '$InnerPidFile' failed; the outer watchdog cannot target this inner by PID (a hung inner will run unguarded this cycle). Check YURUNA_RUNTIME_DIR permissions/free space."
+    Write-Warning $innerPidWarn
+    Write-InnerLog $innerPidWarn
+}
 [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o'))
 
 # Background heartbeat timer lives in Test.RunnerHeartbeat.psm1 (imported with
@@ -253,7 +265,7 @@ if (Test-Path $yurunaLogModule) {
 
 # Shared retry policy with automation/yuruna-retry.sh (Get-YurunaRetryBackoff).
 # Used by the post-cycle-failure backoff path in the cycle catch handler.
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 $yurunaRetryModule = Join-Path -Path $RepoRoot -ChildPath "automation" -AdditionalChildPath "Yuruna.Retry.psm1"
 if (Test-Path $yurunaRetryModule) {
     Import-Module $yurunaRetryModule -Global -Force
@@ -278,7 +290,7 @@ if (-not (Test-Path $StatusFile)) {
         Copy-Item -Path $StatusTmpl -Destination $StatusFile
         Write-Output "Created status.json from template."
     } else {
-        Write-Error "Status template not found: $StatusTmpl"; exit 1
+        Write-Error "Status template not found: $StatusTmpl"; exit $ExitFailure
     }
 }
 
@@ -297,7 +309,7 @@ $script:RunnerCfgState = New-RunnerConfigState -CmdLineLogLevel $script:CmdLineL
 
 # === Read config (syncs against template first) ===
 if (-not (Test-Path $ConfigPath) -and -not (Test-Path $TemplatePath)) {
-    Write-Error "Neither config nor template found. Config: $ConfigPath Template: $TemplatePath"; exit 1
+    Write-Error "Neither config nor template found. Config: $ConfigPath Template: $TemplatePath"; exit $ExitFailure
 }
 $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
 $script:Config = $Config
@@ -308,7 +320,7 @@ Resolve-LogLevel
 
 # === Phase 0: Bootstrap ===
 $HostType = Get-HostType
-if (-not $HostType) { exit 1 }
+if (-not $HostType) { exit $ExitFailure }
 Write-Output "Host type: $HostType"
 
 # Externalize this host's identity + capabilities to runtime/host.registration.json
@@ -332,7 +344,7 @@ if (Get-Command Update-StashServerMarkerAddress -ErrorAction SilentlyContinue) {
     $null = Update-StashServerMarkerAddress
 }
 
-if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
+if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 
 # === UTM concurrent-VM pre-flight ===========================================
 # On some macOS versions vmnet-shared puts each vmnet session on a separate
@@ -344,13 +356,13 @@ if (-not (Assert-HostConditionSet -HostType $HostType)) { exit 1 }
 # (it is a dependency the guests consume, reachable on the shared bridge),
 # so a running cache no longer blocks the cycle.
 if ($HostType -eq 'host.macos.utm') {
-    if (-not (Assert-NoConcurrentUtmVm)) { exit 1 }
+    if (-not (Assert-NoConcurrentUtmVm)) { exit $ExitFailure }
 }
 
 Write-Output "Runtime directory: $env:YURUNA_RUNTIME_DIR"
 Write-Output "Log directory:     $env:YURUNA_LOG_DIR"
 
-# --- Stale cycle-restart flag sweep --------------------------------------
+# --- REGION: Stale cycle-restart flag sweep
 # control.cycle-restart is written by the status server's /control/start-
 # cycle endpoint. The inter-cycle delay loop consumes it on its next tick;
 # the per-step gate in Invoke-Sequence.psm1 honours it too. But if a prior
@@ -380,7 +392,7 @@ try {
 # after its own Initialize-YurunaHost.
 Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -DisableNameChecking -Verbose:$false
 
-# --- Cycle-start caching-proxy gate -------------------------------------
+# --- REGION: Cycle-start caching-proxy gate
 # Run the full Test-CachingProxy.ps1 probe suite (Invoke-CachingProxyProbe
 # in Test.CachingProxy.psm1: :3128 / :3129 / :80 / :3000 TCP probes plus
 # /yuruna-squid-ca.crt fetch) against the two operator-specified sources,
@@ -517,7 +529,7 @@ $global:VerbosePreference = $savedVerbose
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Debug "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
-if (-not (Assert-TesseractInstalled)) { exit 1 }
+if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 
 $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
 # Startup: no -Restart -- Start-YurunaStatusServiceIfEnabled lets the server

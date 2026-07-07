@@ -7,7 +7,7 @@ the guest scripts, and the docs.
 Source files reference an entry with a single line of the form:
 
 ```
-# --- See https://yuruna.link/definition#<topic-slug>
+# --- REGION: https://yuruna.link/definition#<topic-slug>
 ```
 
 The fragment resolves to a `### Defining <topic>` heading in this file.
@@ -18,7 +18,7 @@ with hyphens. So `### Defining the two-source scheme` becomes
 
 This file is the sibling of [Yuruna memory](memory.md) (for historical /
 incident rationale) and of [vmconfig topic reference](vmconfig.md)
-(for `user-data` topic rationale). The same `# --- See` convention is
+(for `user-data` topic rationale). The same `# --- REGION:` convention is
 used in all three.
 
 **Out of scope for this file:**
@@ -36,8 +36,8 @@ Adding a new entry:
    `.SYNOPSIS` docstring).
 2. Add a `### Defining <topic>` heading here with the migrated content.
 3. Replace the source comment with a single
-   `# --- See https://yuruna.link/definition#<slug>` line (or
-   `// --- See …` for Go, etc.).
+   `# --- REGION: https://yuruna.link/definition#<slug>` line (or
+   `// --- REGION: …` for Go, etc.).
 4. The yuruna.link `definition` key already redirects to this file on
    GitHub — no `yuruna.link.json` edit needed for individual topics.
 
@@ -1622,6 +1622,6 @@ back from memory.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](../README.md)

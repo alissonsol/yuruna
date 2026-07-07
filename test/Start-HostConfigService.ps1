@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e8b3c5-7f1a-4d62-9c40-6b2d3e4f5a61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,7 +110,7 @@ if ($Port -le 0) {
     }
 }
 
-# === Shared helpers (used by the -Serve loop) ===============================
+# --- REGION: Shared helpers (used by the -Serve loop)
 
 # Resolve the JSON payload for a NAS name, or $null when not configured. Reads
 # test.config.yml + the vault FRESH each call so a rotated password / changed
@@ -293,14 +293,14 @@ function Invoke-YurunaConfigServeLoop {
     }
 }
 
-# === -Serve: run the loop in this (detached) process ========================
+# --- REGION: -Serve: run the loop in this (detached) process
 if ($Serve) {
     $cfgPath = Join-Path $TestRoot 'test.config.yml'
     Invoke-YurunaConfigServeLoop -ListenPort $Port -ConfigPath $cfgPath
     return
 }
 
-# === Launcher ===============================================================
+# --- REGION: Launcher
 
 # Non-blocking TCP connect probe (used for both skip-if-healthy and readiness).
 function Test-YurunaConfigPortAccepting {
@@ -394,6 +394,10 @@ if ($IsWindows) {
 
 # Detach a serve process that outlives this launcher (mirrors Start-StatusService).
 $scriptPath = $PSCommandPath
+# Set when the detached child is confirmed dead right after launch, so the
+# readiness probe below is skipped rather than burning the full timeout waiting
+# for a port a dead process will never open.
+$launchFailedEarly = $false
 if ($IsWindows) {
     $stdinSink = Join-Path $RuntimeDir 'stdin.empty'
     if (-not (Test-Path -LiteralPath $stdinSink)) { [System.IO.File]::WriteAllBytes($stdinSink, [byte[]]@()) }
@@ -412,10 +416,29 @@ if ($IsWindows) {
     $outFile = Join-Path $RuntimeDir 'config-server.out'
     & bash -c "set -m; nohup pwsh -NoProfile -File '$scriptPath' -Serve -Port $Port </dev/null >'$outFile' 2>'$errFile' & echo `$!" |
         Set-Variable -Name bgPid
-    Set-Content -Path $PidFile -Value $bgPid
+    # The child echoes its PID via `echo $!`. Verify that value parsed to an
+    # integer AND the process is still alive right after launch: a serve process
+    # that dies immediately (module-import error, port already bound) never opens
+    # $Port, so without this check we would record a PID file pointing at a dead
+    # process and then burn the full readiness timeout on a port that will never
+    # accept. If it is already gone, surface the captured startup log now.
+    $bgPidInt = 0
+    if (-not [int]::TryParse("$bgPid".Trim(), [ref]$bgPidInt) -or
+        -not (Get-Process -Id $bgPidInt -ErrorAction SilentlyContinue)) {
+        Write-Warning "Detached config service did not survive launch (pid '$bgPid'). Captured output:"
+        Show-YurunaConfigServerLog -RuntimeDir $RuntimeDir
+        $launchFailedEarly = $true
+    } else {
+        Set-Content -Path $PidFile -Value $bgPidInt
+    }
 }
 
-# --- Verify the service is accepting on $Port (TCP connect probe) ---
+# --- REGION: Verify the service is accepting on $Port (TCP connect probe)
+if ($launchFailedEarly) {
+    Write-YurunaConfigHealth -Up $false -HealthPort $Port
+    Write-Warning "Full logs: $(Join-Path $RuntimeDir 'config-server.err') (stderr), $(Join-Path $RuntimeDir 'config-server.out') (stdout)."
+    return
+}
 $deadline = [DateTime]::UtcNow.AddSeconds($script:ConfigServiceReadyTimeoutSeconds)
 $ready = $false
 while ([DateTime]::UtcNow -lt $deadline) {

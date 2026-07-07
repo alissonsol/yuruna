@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- --- See https://yuruna.link/definition#defining-the-status-page-dashboard -->
+<!-- --- REGION: https://yuruna.link/definition#defining-the-status-page-dashboard -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -152,13 +152,8 @@
     }
     #cycle-timestamp .badge { font-weight: 400; }
 
-    .idle, .idle-bg     { background: var(--bg-hover); color: var(--fg-muted); }
-    .pending, .pending-bg { background: var(--bg-hover); color: var(--fg-muted); }
-    .running, .running-bg { background: var(--running-bg); color: var(--running-fg); }
-    .pass, .pass-bg     { background: var(--pass-bg); color: var(--pass-fg); }
-    .fail, .fail-bg     { background: var(--fail-bg); color: var(--fail-fg); }
-    .skipped, .skipped-bg { background: var(--skipped-bg); color: var(--skipped-fg); }
-    .paused, .paused-bg { background: var(--pending-bg); color: var(--pending-fg); }
+    /* Per-row status colors (.badge / .step-pill) live in yuruna.common.css,
+       shared across the status pages so they stay in lockstep. */
 
     .table-wrap { overflow-x: auto; }
     table {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # failure that breaks first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
+# --- REGION: Remove existing VM
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
@@ -93,7 +94,7 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-# === Locate base image ===
+# --- REGION: Seek the base image
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.caching-proxy"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
@@ -118,7 +119,7 @@ if (!(Test-Path -Path $baseImageFile)) {
     }
 }
 
-# === Create VM disk (copy of base image) ===
+# --- REGION: Copy base image -> per-VM disk
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
@@ -127,7 +128,7 @@ $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
 Write-Output "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
 
-# === Generate cloud-init seed ISO ===
+# --- REGION: Generate cloud-init seed ISO
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 # 4-digit entropy is weak by design (10k cases) but enough to defeat
@@ -140,6 +141,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy.meta-data') -Destination "$SeedDir/meta-data"
 
+# --- REGION: Yuruna harness SSH key
 # Load the yuruna test-harness SSH public key -- same module the Ubuntu
 # Desktop guest uses; one keypair grants passwordless access to every VM
 # (including this cache VM, for debugging squid/cloud-init).
@@ -148,6 +150,7 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
+# --- REGION: Cache-VM yuruna password
 # Squid-cache 'yuruna' user password.
 #
 # The vault now simulates an external auth provider and persists
@@ -185,7 +188,7 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyStatePath
 
-# === Pick a vSwitch (BEFORE building user-data) ===
+# --- REGION: Pick a vSwitch (BEFORE building user-data)
 # Prefer the Yuruna External vSwitch (bridged to the host's primary physical
 # NIC) so the cache VM gets a real LAN IP via DHCP and remote LAN clients
 # reach it directly. Fall back to the built-in Default Switch when no External
@@ -334,7 +337,7 @@ Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VM
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# === Create and configure Hyper-V VM ===
+# --- REGION: Create and configure Hyper-V VM
 # 12 GB RAM, 4 vCPU. This is a DEDICATED cache VM (one job: serve the
 # squid object cache to every guest), so the memory budget is sized
 # around squid's `cache_mem 9 GB` (= 75 % of VM RAM, per the
@@ -355,7 +358,7 @@ Set-VM -Name $VMName -MemoryStartupBytes 12GB -MemoryMinimumBytes 12GB -MemoryMa
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -364,10 +367,10 @@ if ($hostCores -lt 4) {
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 
-# === Cleanup temporary folders ===
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Start VM and wait for squid ===
+# --- REGION: Start VM and wait for squid
 Write-Output "Starting VM '$VMName'..."
 Hyper-V\Start-VM -Name $VMName
 

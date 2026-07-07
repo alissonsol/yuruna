@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,6 +224,17 @@ function Invoke-Remediation {
         try {
             $raw = Get-Content -Raw -LiteralPath $LastFailurePath -ErrorAction Stop
             $FailureRecord = $raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            # Valid JSON that is not an object still parses: a bare string / number
+            # / array / bool, or most subtly a literal `null`. The [hashtable]
+            # parameter type coerces-and-throws for the scalar/array cases, but a
+            # JSON `null` assigns cleanly as $null and would then hit a null-method
+            # exception at the first .Contains() below (past this try/catch).
+            # Validate explicitly so any non-object routes to the same parse-error
+            # fallback rather than relying on the coercion quirk.
+            if ($FailureRecord -isnot [System.Collections.IDictionary]) {
+                $gotType = if ($null -eq $FailureRecord) { 'null' } else { $FailureRecord.GetType().Name }
+                throw "last_failure.json parsed to a non-object ($gotType); expected a JSON object."
+            }
         } catch {
             Write-Warning "Invoke-Remediation: could not parse $LastFailurePath ($($_.Exception.Message))"
             return @{

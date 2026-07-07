@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1179,6 +1179,81 @@ function Get-SequenceFinishedVMName {
 
 <#
 .SYNOPSIS
+    Runs a caller-supplied list of sequence names in order via Invoke-SequenceByName --
+    the shared dispatcher body behind Start-GuestOS and Start-GuestWorkload.
+.DESCRIPTION
+    An empty list returns success/skipped so the caller's cycle step shows as skipped
+    rather than failing. On a sequence failure it reads the last_failure.json sidecar
+    (only when written DURING this sequence, gated on mtime) to surface the step
+    location, and picks up a mid-sequence saveDiskSnapshot rename -- e.g. a baseline
+    ending in saveDiskSnapshot before a dependent workload sequence loads it -- so the
+    next sequence targets the renamed VM. -PhaseLabel is the only value that varies
+    between the two callers: it prefixes the generic failure message ('Start' or 'Workload').
+    Returns @{ success; skipped; errorMessage }.
+#>
+function Invoke-GuestSequenceList {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$PhaseLabel,
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [string[]]$SequenceNames = @(),
+        [System.Collections.IDictionary]$EffectiveVariables
+    )
+    if (-not $SequenceNames -or $SequenceNames.Count -eq 0) {
+        return @{ success=$true; skipped=$true; errorMessage=$null }
+    }
+    foreach ($s in $SequenceNames) {
+        Write-Information "  Running: $s" -InformationAction Continue
+        $seqStartUtc = [DateTime]::UtcNow
+        $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s -EffectiveVariables $EffectiveVariables
+        if (-not $ok) {
+            $errMsg = "$PhaseLabel sequence '$s' failed"
+            # -Global: a nested -Force without -Global evicts Test.YurunaDir from
+            # the parent script's session state, breaking later top-level calls.
+            $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+            Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+            $logDir = Initialize-YurunaLogDir
+            $failFile = Join-Path $logDir "last_failure.json"
+            if (Test-Path $failFile) {
+                try {
+                    # Trust last_failure.json only when it was written DURING this
+                    # sequence: a stale file from an earlier sequence (or a prior
+                    # same-cycle attempt) would misattribute its step location to
+                    # '$s' and send triage to the wrong step. Gate on the mtime
+                    # advancing past this sequence's start (2s clock tolerance).
+                    $failItem = Get-Item -LiteralPath $failFile -ErrorAction Stop
+                    if ($failItem.LastWriteTimeUtc -ge $seqStartUtc.AddSeconds(-2)) {
+                        $failInfo = Get-Content -Raw $failFile | ConvertFrom-Json
+                        $errMsg = "Step [$($failInfo.stepNumber)/$($failInfo.totalSteps)] $($failInfo.action) - $($failInfo.description) (sequence: $s)"
+                    } else {
+                        Write-Verbose "last_failure.json predates sequence '$s'; using the generic message rather than a stale step location."
+                    }
+                } catch {
+                    Write-Verbose "Could not parse failure details: $_"
+                }
+            }
+            return @{ success=$false; skipped=$false; errorMessage=$errMsg }
+        }
+        Write-Information "  ${s}: PASS" -InformationAction Continue
+        # Pick up a mid-sequence saveDiskSnapshot rename so the next sequence in the
+        # list targets the renamed VM -- the same Get-SequenceFinishedVMName mechanism
+        # Test-Sequence's chain runner uses. No-op when nothing renamed.
+        $finishedVm = Get-SequenceFinishedVMName
+        if ($finishedVm -and $finishedVm -ne $VMName) {
+            Write-Information "  VM renamed mid-chain: '$VMName' -> '$finishedVm'." -InformationAction Continue
+            $VMName = $finishedVm
+        }
+    }
+    return @{ success=$true; skipped=$false; errorMessage=$null }
+}
+
+<#
+.SYNOPSIS
     Executes an interaction sequence from a YAML file against a VM.
 .DESCRIPTION
     Reads the steps array from the YAML file and executes each action
@@ -2006,4 +2081,4 @@ function Invoke-Sequence {
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
-    Get-DefaultKeystrokeMechanism, Set-EngineKeystrokeMechanism
+    Get-DefaultKeystrokeMechanism, Set-EngineKeystrokeMechanism, Invoke-GuestSequenceList

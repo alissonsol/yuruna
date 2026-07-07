@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,7 +86,7 @@ $script:InnerSpawnErrorSleepSec   = 30        # short pause if Start-Process its
 $script:StepTimeoutMinutesDefault = 45        # watchdog: kill inner when heartbeat older than this
 $script:WatchdogPollSeconds       = 30        # how often the watchdog re-checks the heartbeat file
 
-# --- See https://yuruna.link/memory#why-yuruna-env-vars-are-snapshotted-and-re-asserted-across-inner-spawns
+# --- REGION: https://yuruna.link/memory#why-yuruna-env-vars-are-snapshotted-and-re-asserted-across-inner-spawns
 $script:ForwardEnvNames = @(
     'YURUNA_CACHING_PROXY_IP',  # Test-CachingProxy / external-cache branch
     'YURUNA_RUNTIME_DIR',         # Test.YurunaDir override
@@ -314,7 +314,17 @@ Write-Output "============================================="
 # cycles silently degrade. Install with `Install-Module powershell-yaml
 # -Scope CurrentUser` or re-run host/<host>/Enable-TestAutomation.ps1.
 if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
-    Write-Warning "powershell-yaml is not installed. The cycle planner will fall back to the legacy guestSequence and Start-GuestOS will be SKIPPED for every guest. Fix with: Install-Module powershell-yaml -Scope CurrentUser  (or re-run host/<host>/Enable-TestAutomation.ps1)"
+    # A missing powershell-yaml is not transient: the cycle planner cannot parse
+    # test.runner.yml, so EVERY cycle silently falls back to the legacy guestSequence
+    # and skips Start-GuestOS for all guests. Refuse to start -- the same hard stop
+    # Test-Project.ps1 makes -- rather than spin an eternal loop of degraded cycles, and
+    # route the reason through Write-OuterLog so it lands in outer.log rather than only
+    # the transient console Warning stream. exit is a bounded, non-interactive stop; the
+    # outer loop must never block on a prompt.
+    $yamlMissing = "powershell-yaml is not installed. The cycle planner cannot parse test.runner.yml, so every cycle would fall back to the legacy guestSequence and SKIP Start-GuestOS for every guest -- refusing to start a silently-degraded loop. Fix with: Install-Module powershell-yaml -Scope CurrentUser  (or re-run host/<host>/Enable-TestAutomation.ps1)"
+    Write-OuterLog "[outer startup] $yamlMissing"
+    Write-Warning $yamlMissing
+    exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
 # === Pre-cycle config gate ==================================================

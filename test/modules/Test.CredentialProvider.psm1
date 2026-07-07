@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42be89e8-3a2d-4f1f-b917-21148e97c8ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,7 +172,7 @@ function Clear-CredentialProvider {
 #   YURUNA_DOCKER_HUB_USERNAME / YURUNA_DOCKER_HUB_PASSWORD
 #   YURUNA_REGISTRY_USERNAME   / YURUNA_REGISTRY_PASSWORD
 
-# --- Azure Container Registry --------------------------------------------
+# --- REGION: Azure Container Registry
 Register-CredentialProvider -Type 'azurecr' `
     -Pattern '\.azurecr\.io(/|$)' `
     -Authenticator {
@@ -194,7 +194,7 @@ Register-CredentialProvider -Type 'azurecr' `
         return "az acr login -n $registry"
     }
 
-# --- AWS Elastic Container Registry --------------------------------------
+# --- REGION: AWS Elastic Container Registry
 # Host shape: <account>.dkr.ecr.<region>.amazonaws.com. Region is the
 # fourth dotted segment; aws ecr get-login-password needs it explicitly.
 Register-CredentialProvider -Type 'ecr' `
@@ -224,7 +224,7 @@ Register-CredentialProvider -Type 'ecr' `
         return "aws ecr get-login-password --region $region | docker login --username AWS --password-stdin $registryHost"
     }
 
-# --- Google Artifact Registry --------------------------------------------
+# --- REGION: Google Artifact Registry
 # Host shape: <region>-docker.pkg.dev (e.g. us-central1-docker.pkg.dev).
 # Token-based login -- no service-account JSON needed when gcloud has an
 # active credential context.
@@ -253,7 +253,7 @@ Register-CredentialProvider -Type 'gar' `
         return "gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://$registryHost"
     }
 
-# --- Docker Hub ----------------------------------------------------------
+# --- REGION: Docker Hub
 # Pattern matches the canonical 'docker.io' and the legacy 'index.docker.io'
 # alias. Credentials must be in YURUNA_DOCKER_HUB_USERNAME +
 # YURUNA_DOCKER_HUB_PASSWORD; when they're not, the LoginCommand returns
@@ -286,7 +286,7 @@ Register-CredentialProvider -Type 'dockerhub' `
         return '$env:YURUNA_DOCKER_HUB_PASSWORD | docker login --username $env:YURUNA_DOCKER_HUB_USERNAME --password-stdin'
     }
 
-# --- Generic Docker Login (catch-all, registered last) -------------------
+# --- REGION: Generic Docker Login (catch-all, registered last)
 # Any host the more-specific providers above did not claim. Requires
 # YURUNA_REGISTRY_USERNAME + YURUNA_REGISTRY_PASSWORD; when they're not
 # set the LoginCommand returns $null and the push proceeds against

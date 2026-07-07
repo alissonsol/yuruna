@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,7 +74,7 @@ if (Test-Path $_testHost) {
     Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 }
 
-# === Warning ===
+# --- REGION: Warning
 Write-CleanupMessage ""
 Write-CleanupMessage "================================================================"
 Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
@@ -101,7 +101,7 @@ if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
 
 $virshUri = 'qemu:///system'
 
-# === Enumerate registered libvirt domains ===
+# --- REGION: Enumerate registered libvirt domains
 $virshOutput = & virsh --connect $virshUri list --all --name 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "virsh list failed (is libvirtd running?). Output: $virshOutput"
@@ -116,6 +116,7 @@ foreach ($n in $virshOutput) {
 Write-CleanupMessage "libvirt registered VMs: $($registered.Count)"
 Write-CleanupMessage ""
 
+# --- REGION: List registered VMs and their associated files
 if ($registered.Count -gt 0) {
     Write-CleanupMessage "Currently registered VMs and their on-disk artifacts:"
     Write-CleanupMessage ""
@@ -135,7 +136,7 @@ if ($registered.Count -gt 0) {
     }
 }
 
-# === Identify orphaned per-VM directories ===
+# --- REGION: Identify orphaned per-VM directories
 $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $dirs = @(Get-ChildItem -LiteralPath $vmRoot -Directory -ErrorAction SilentlyContinue)
 foreach ($d in $dirs) {
@@ -207,6 +208,7 @@ foreach ($item in $orphanedItems) {
     }
 }
 
+# --- REGION: Cleanup result
 Write-CleanupMessage ""
 if ($errors -eq 0) {
     Write-CleanupMessage "Cleanup complete. All orphaned directories deleted."

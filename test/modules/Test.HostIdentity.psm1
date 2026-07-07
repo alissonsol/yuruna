@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f0a1b2-c3d4-4e56-9788-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -435,6 +435,29 @@ function Get-HostFingerprintLinux {
     return $fp
 }
 
+# A macOS sysctl read, guarded so a failed or empty read cannot silently poison the
+# fingerprint. Resolve-GuardedSysctlValue is the pure gate (testable without sysctl):
+# it returns the trimmed value only when the read succeeded (exit 0) AND produced
+# non-empty output, otherwise $null plus a Write-Verbose breadcrumb -- so a numeric
+# caller keeps its default (0) rather than casting '' -> 0 into the fingerprint, and a
+# chronically degraded fingerprint (which silently weakens reclaim) is observable under
+# -Verbose. Get-SysctlValue is the thin OS-touching wrapper around it.
+function Resolve-GuardedSysctlValue {
+    [OutputType([string])]
+    param([string]$Raw, [int]$ExitCode, [string]$Key)
+    if ($ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($Raw)) { return $Raw.Trim() }
+    Write-Verbose "Get-HostFingerprintMacOS: sysctl -n $Key unavailable (exit $ExitCode / empty output); the corroborating field stays at its default -- host fingerprint degraded, reclaim weakened."
+    return $null
+}
+function Get-SysctlValue {
+    [OutputType([string])]
+    param([string]$Key)
+    $raw = $null
+    $ec = 1
+    try { $raw = [string](& sysctl -n $Key 2>$null); $ec = $LASTEXITCODE } catch { $ec = 1 }
+    return (Resolve-GuardedSysctlValue -Raw $raw -ExitCode $ec -Key $Key)
+}
+
 function Get-HostFingerprintMacOS {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -447,9 +470,19 @@ function Get-HostFingerprintMacOS {
         $serLine = ($ioreg | Where-Object { $_ -match 'IOPlatformSerialNumber' } | Select-Object -First 1)
         if ($serLine -match '"IOPlatformSerialNumber"\s*=\s*"([^"]+)"') { $fp.baseboardSerial = $Matches[1] }
     } catch { $null = $_ }
-    try { $fp.cpuModel = [string](& sysctl -n machdep.cpu.brand_string 2>$null).Trim() } catch { $null = $_ }
-    try { $fp.cpuCount = [int](& sysctl -n hw.logicalcpu 2>$null) } catch { $null = $_ }
-    try { $fp.ramBytes = [int64](& sysctl -n hw.memsize 2>$null) } catch { $null = $_ }
+    # Only a successful, non-empty sysctl read overwrites the field's default, so a
+    # failed read leaves cpuModel=''/cpuCount=0/ramBytes=0 (no fingerprint change, no
+    # re-key) while surfacing the degraded read in the verbose breadcrumb.
+    $cpuModelVal = Get-SysctlValue -Key 'machdep.cpu.brand_string'
+    if ($null -ne $cpuModelVal) { $fp.cpuModel = $cpuModelVal }
+    $cpuCountVal = Get-SysctlValue -Key 'hw.logicalcpu'
+    if ($null -ne $cpuCountVal) {
+        try { $fp.cpuCount = [int]$cpuCountVal } catch { Write-Verbose "Get-HostFingerprintMacOS: hw.logicalcpu value '$cpuCountVal' is not an integer; cpuCount stays 0." }
+    }
+    $ramBytesVal = Get-SysctlValue -Key 'hw.memsize'
+    if ($null -ne $ramBytesVal) {
+        try { $fp.ramBytes = [int64]$ramBytesVal } catch { Write-Verbose "Get-HostFingerprintMacOS: hw.memsize value '$ramBytesVal' is not an int64; ramBytes stays 0." }
+    }
     try {
         $macs = (& ifconfig 2>$null | Where-Object { $_ -match '^\s*ether\s' }) | ForEach-Object { ($_ -replace '^\s*ether\s+', '').Trim() }
         $fp.macAddresses = [string[]]@($macs)

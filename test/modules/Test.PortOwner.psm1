@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -262,7 +262,18 @@ function Get-PortHolderServiceInfo {
         $doc = $resp.Content | ConvertFrom-Json -ErrorAction Stop
         if ($doc) {
             $names = @($doc.PSObject.Properties.Name)
-            if (($names -contains 'hostname') -or ($names -contains 'host') -or ($names -contains 'schemaVersion')) {
+            # Require the field COMBINATION a Yuruna status.json always emits, not
+            # any single common key: schemaVersion + overallStatus together are a
+            # Yuruna signature present in EVERY served doc (both live per-cycle docs
+            # and the bootstrap status.json.template the server answers with before
+            # the first cycle), whereas 'host' / 'hostname' / 'schemaVersion' alone
+            # appear in plenty of unrelated JSON and would misclassify a foreign
+            # service on this port as ours. hostId is deliberately NOT required: the
+            # bootstrap template omits it, so requiring it would drop the owner name
+            # from the conflict banner for a peer that has just launched.
+            $isYurunaDoc = ($names -contains 'schemaVersion') -and
+                           ($names -contains 'overallStatus')
+            if ($isYurunaDoc) {
                 return @{
                     IsYuruna = $true
                     Hostname = [string]$doc.hostname
@@ -361,8 +372,13 @@ function Resolve-PortOrphan {
         return @{ Status = 'Conflict'; Port = $Port; Pids = @(); Owner = ''; Service = $service; Message = ($lines -join [Environment]::NewLine) }
     }
 
-    # We have PID(s). Reclaim ONLY an orphan pwsh holder THIS user owns; never
-    # touch another user's process or a non-pwsh listener.
+    # We have PID(s). Reclaim ONLY orphan pwsh holders THIS user owns; never touch
+    # another user's process or a non-pwsh listener. Classify EVERY holder before
+    # stopping any: a single pass that killed as it went would Stop-Process an owned
+    # pwsh and THEN hit a foreign holder later in the list and return Conflict,
+    # leaving partial state. Two passes make the decision order-independent -- if any
+    # holder is unreclaimable, nothing is stopped.
+    $reclaimable = @()
     foreach ($holderPid in $holderPids) {
         $proc = Get-Process -Id $holderPid -ErrorAction SilentlyContinue
         if (-not $proc) { continue }   # exited since the OS query
@@ -383,13 +399,17 @@ function Resolve-PortOrphan {
             )
             return @{ Status = 'Conflict'; Port = $Port; Pids = $holderPids; Owner = $owner; Service = $service; Message = ($lines -join [Environment]::NewLine) }
         }
+        $reclaimable += [pscustomobject]@{ HolderPid = $holderPid; Proc = $proc }
+    }
 
-        if (-not $PSCmdlet.ShouldProcess("PID $holderPid", 'Stop orphan pwsh holder')) { continue }
+    # Every visible holder is a reclaimable orphan pwsh THIS user owns -> stop them.
+    foreach ($r in $reclaimable) {
+        if (-not $PSCmdlet.ShouldProcess("PID $($r.HolderPid)", 'Stop orphan pwsh holder')) { continue }
         # Write-Information, not Write-Output: this function has a singular
         # hashtable return contract, so a status line on the output stream would
         # be captured alongside the result (Write-Output pipeline pollution).
-        Write-Information "Port $Port held by orphan pwsh PID $holderPid (started $($proc.StartTime)). Stopping it." -InformationAction Continue
-        Stop-Process -Id $holderPid -Force -ErrorAction SilentlyContinue
+        Write-Information "Port $Port held by orphan pwsh PID $($r.HolderPid) (started $($r.Proc.StartTime)). Stopping it." -InformationAction Continue
+        Stop-Process -Id $r.HolderPid -Force -ErrorAction SilentlyContinue
     }
 
     # HTTP.sys releases the reservation async after the owner exits; poll the

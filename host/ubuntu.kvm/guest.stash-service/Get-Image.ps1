@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@ if (-not $IsLinux) {
     exit 1
 }
 
-# === Configuration ===
+# --- REGION: Configuration
 # Ubuntu 26.04 LTS (Resolute Raccoon). Moved up from 24.04 LTS (Noble
 # Numbat) per the stash-service spec (section 3.1: default image
 # ubuntu.server.26), matching the caching-proxy LTS so the stash VM stays
@@ -68,6 +68,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
     exit 0
 }
 
+# --- REGION: Download the cloud image
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
@@ -93,6 +94,7 @@ if ($downloadedSize -lt 100MB) {
     exit 1
 }
 
+# --- REGION: Resize the qcow2 to 256 GB
 # Resize to 256 GB sparse (qcow2 grows on write).
 Write-Output "Resizing qcow2 to 256GB..."
 & qemu-img resize $downloadFile 256G
@@ -101,7 +103,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Warning "Resize manually with: qemu-img resize '$baseImageFile' 256G"
 }
 
-# === Preserve previous and finalize ===
+# --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $baseImageFile) {

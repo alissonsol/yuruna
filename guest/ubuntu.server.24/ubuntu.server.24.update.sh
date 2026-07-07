@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -24,10 +24,10 @@ case "$ARCH" in
     ;;
 esac
 
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
 
-# --- See https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
+# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 echo ""
 echo -e "\e[1;36m==== PowerShell ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -61,7 +61,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 pwsh --version
 
-# --- See https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
+# --- REGION: https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
 PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
 sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
@@ -97,7 +97,7 @@ $null = ConvertFrom-Yaml 'k: v'
 "OK"
 PSEOF
 
-# --- See https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
+# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
 echo ""
 echo -e "\e[1;36m==== yuruna framework tarball ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
@@ -163,7 +163,7 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 git --version
 
-# --- See https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+# --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
 echo -e "\e[1;32m==== yuruna framework and project repos ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""

@@ -4,17 +4,17 @@
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_NETWORK ===
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
-  # --- See https://yuruna.link/vmconfig#disable-vt-blanking-on-the-live-installer-kernel
+  # --- REGION: https://yuruna.link/vmconfig#disable-vt-blanking-on-the-live-installer-kernel
   early-commands:
     - setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
-    # --- See https://yuruna.link/vmconfig#consoleblank-kernel-cmdline
+    # --- REGION: https://yuruna.link/vmconfig#consoleblank-kernel-cmdline
     - |
       cat > /target/etc/default/grub.d/99-yuruna-consoleblank.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} consoleblank=0"
       GRUBCFG
 # === YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET ===
-    # --- See https://yuruna.link/vmconfig#console-fb-safe
+    # --- REGION: https://yuruna.link/vmconfig#console-fb-safe
     - |
       cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"

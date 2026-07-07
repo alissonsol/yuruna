@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,7 +186,7 @@ function Invoke-DiagnosticSection {
     }
 }
 
-# --- See https://yuruna.link/system-diagnostic#invoke-withdeadline
+# --- REGION: https://yuruna.link/system-diagnostic#invoke-withdeadline
 function Invoke-WithDeadline {
     param(
         [Parameter(Mandatory)][scriptblock]$ScriptBlock,
@@ -224,7 +224,7 @@ function Invoke-WithDeadline {
     # The native exit code is recovered by Invoke-Tool from the tail of Output
     # (its scriptblock appends $LASTEXITCODE), not from this result -- so there is
     # deliberately no ExitCode key here to imply a signal this never populated.
-    # --- See https://yuruna.link/system-diagnostic#invoke-withdeadline
+    # --- REGION: https://yuruna.link/system-diagnostic#invoke-withdeadline
     return @{ TimedOut = $false; Output = $out }
 }
 
@@ -349,7 +349,7 @@ function Test-CommandAvailable {
     return ($null -ne (Get-Command $Name -ErrorAction SilentlyContinue))
 }
 
-# --- Linux privileged-probe support ------------------------------------
+# --- REGION: Linux privileged-probe support
 # journalctl / dmesg / networkctl only expose system- and kernel-scope
 # output when run with privilege. Over an unprivileged SSH session they
 # silently degrade to the caller's own user journal and a restricted
@@ -419,8 +419,8 @@ try {
     Write-Output ("Time (UTC)   : {0}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
     Write-Output ("Time (local) : {0}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))
 
-    # ---- Software ----------------------------------------------------
-    # --- See https://yuruna.link/system-diagnostic#1-host--software-probe-resilience
+    # --- REGION: Software
+    # --- REGION: https://yuruna.link/system-diagnostic#1-host--software-probe-resilience
     Write-Sub "Software"
     function Get-VersionLine {
         param(
@@ -461,7 +461,7 @@ try {
     Get-VersionLine 'npm' {
         if (Get-Command npm -ErrorAction SilentlyContinue) { & npm --version 2>$null }
     }
-    # --- See https://yuruna.link/system-diagnostic#per-tool-request-timeouts (docker --version)
+    # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (docker --version)
     Get-VersionLine 'Docker' {
         if (Get-Command docker -ErrorAction SilentlyContinue) {
             ((& docker --version 2>$null) -replace '^Docker version ','' -replace ',\s*build.*$','')
@@ -484,7 +484,7 @@ try {
     }
     Get-VersionLine 'Kubernetes' {
         if (Get-Command kubectl -ErrorAction SilentlyContinue) {
-            # --- See https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --client)
+            # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --client)
             $j = & kubectl version --client -o json --request-timeout=5s 2>$null
             if ($LASTEXITCODE -eq 0 -and $j) {
                 (($j -join "`n") | ConvertFrom-Json).clientVersion.gitVersion
@@ -550,7 +550,7 @@ try {
     }
     Get-VersionLine 'Google Cloud' {
         if (Get-Command gcloud -ErrorAction SilentlyContinue) {
-            # --- See https://yuruna.link/system-diagnostic#per-tool-request-timeouts (gcloud -v)
+            # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (gcloud -v)
             & gcloud -v 2>$null | Select-Object -First 1
         }
     }
@@ -560,7 +560,7 @@ try {
         }
     }
 
-    # ---- OS details --------------------------------------------------
+    # --- REGION: OS details
     if ($IsWindows) {
         $osi = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
         if ($osi) {
@@ -785,7 +785,7 @@ try {
 
     Write-Sub "Connectivity"
 
-    # --- See https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
+    # --- REGION: https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
     $proxyUrl  = $null
     $proxyHost = $null
     $proxyPort = 0
@@ -876,7 +876,7 @@ try {
         )
 
         if ($proxyUrl) {
-            # --- See https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
+            # --- REGION: https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
             Write-Output ("Egress goes through ${proxyHost}:${proxyPort} ({0}); reporting round-trip via HTTP CONNECT." -f $proxyUrl)
             $probeTimeoutMs = 4000
             $probeDeadline  = [System.Environment]::TickCount + $probeTimeoutMs
@@ -1171,7 +1171,7 @@ try {
         Write-Output "docker command not found in PATH."
         Add-Problem "DOCKER: docker not installed (or not in PATH)."
     } else {
-        # --- See https://yuruna.link/system-diagnostic#wedged-daemon-protection
+        # --- REGION: https://yuruna.link/system-diagnostic#wedged-daemon-protection
         $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
             $null = & docker info --format '{{.ServerVersion}}' 2>&1
             $LASTEXITCODE
@@ -1313,7 +1313,7 @@ try {
         Add-Problem "KUBE: kubectl not installed (or not in PATH)."
     } else {
         Write-Sub "kubectl version"
-        # --- See https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --request-timeout)
+        # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --request-timeout)
         $kv = & kubectl version --output=json --request-timeout=5s 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
         if ($kv) {
             if ($kv.clientVersion) { Write-Output ("Client : {0}" -f $kv.clientVersion.gitVersion) }
@@ -1448,10 +1448,10 @@ try {
     }
 
     # ===== 11. HOST DETAIL =============================================
-    # --- See https://yuruna.link/system-diagnostic#11-host-detail--runner-process-tree
+    # --- REGION: https://yuruna.link/system-diagnostic#11-host-detail--runner-process-tree
     Invoke-DiagnosticSection "HOST DETAIL" {
 
-        # ---- Runner process tree (all platforms) ----------------------
+        # --- REGION: Runner process tree (all platforms)
         Write-Sub "Yuruna runner process tree (descendants of inner.pid / runner.pid)"
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
         if (-not $runtimeDir) {
@@ -1500,7 +1500,7 @@ try {
                     Write-Output "(Get-CimInstance Win32_Process failed: $($_.Exception.Message))"
                 }
             } elseif ($IsLinux -or $IsMacOS) {
-                # --- See https://yuruna.link/system-diagnostic#ps--ww-is-mandatory-on-macos--linux
+                # --- REGION: https://yuruna.link/system-diagnostic#ps--ww-is-mandatory-on-macos--linux
                 try {
                     $psLines = & '/bin/ps' -ww -axo 'pid=,ppid=,etime=,pcpu=,args=' 2>$null
                     foreach ($line in $psLines) {
@@ -1565,7 +1565,7 @@ try {
         }
 
         if ($IsWindows) {
-            # ---- Windows-specific facts -------------------------------
+            # --- REGION: Windows-specific facts
             Write-Sub "Hyper-V VMs (if present)"
             if (Test-CommandAvailable 'Get-VM') {
                 try {
@@ -1623,7 +1623,7 @@ try {
         }
 
         if ($IsMacOS) {
-            # ---- macOS-specific facts ---------------------------------
+            # --- REGION: macOS-specific facts
             Write-Sub "Default route + interfaces (netstat -nr | head; ifconfig brief)"
             if (Test-CommandAvailable 'netstat') {
                 & netstat -nrf inet 2>$null | Select-Object -First 12 | ForEach-Object { Write-Output $_ }
@@ -1668,7 +1668,7 @@ try {
             return
         }
 
-        # ---- Linux-specific facts (unchanged below) -------------------
+        # --- REGION: Linux-specific facts (unchanged below)
         Write-Sub "Netplan config (/etc/netplan/*.yaml)"
         $netplanFiles = @(Get-ChildItem -Path '/etc/netplan' -Filter '*.yaml' -File -ErrorAction SilentlyContinue)
         if ($netplanFiles.Count -eq 0) {
@@ -1859,7 +1859,7 @@ try {
     }
 
     # ===== 11b. INSTALL & EARLY-BOOT TIMELINE (Linux) ==================
-    # --- See https://yuruna.link/system-diagnostic#11b-install--early-boot-timeline-linux
+    # --- REGION: https://yuruna.link/system-diagnostic#11b-install--early-boot-timeline-linux
     if ($IsLinux) {
         Invoke-DiagnosticSection "INSTALL & EARLY-BOOT TIMELINE (Linux)" {
             Write-Sub "/var/log/installer/ (dir listing)"
@@ -2034,7 +2034,7 @@ try {
     }
 
     # ===== 11c. GUEST PROVISIONING (Linux) =============================
-    # --- See https://yuruna.link/definition#defining-get-systemdiagnostic (section 11c)
+    # --- REGION: https://yuruna.link/definition#defining-get-systemdiagnostic (section 11c)
     if ($IsLinux) {
         Invoke-DiagnosticSection "GUEST PROVISIONING (Linux)" {
             Write-Sub "/var/log/yuruna/ (dir listing)"
@@ -2374,7 +2374,7 @@ try {
     }
 
     # ===== 13. GAP HEURISTICS ==========================================
-    # --- See https://yuruna.link/system-diagnostic#13-gap-heuristics
+    # --- REGION: https://yuruna.link/system-diagnostic#13-gap-heuristics
     Invoke-DiagnosticSection "GAP HEURISTICS" {
         if ($SkipProjectGaps) {
             Write-Output "(skipped via -SkipProjectGaps)"
@@ -2393,8 +2393,8 @@ try {
         $kubectlReady = ($null -ne (Get-Command 'kubectl' -ErrorAction SilentlyContinue)) -and (-not $SkipKube)
         $helmReady    = $null -ne (Get-Command 'helm'    -ErrorAction SilentlyContinue)
 
-        # --- Heuristic 1: tofu.tfstate exists but helm has zero releases ---
-        # --- See https://yuruna.link/system-diagnostic#heuristic-1-tofu-state-without-helm-releases
+        # --- REGION: Heuristic 1: tofu.tfstate exists but helm has zero releases
+        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-1-tofu-state-without-helm-releases
         Write-Sub "Heuristic 1: tofu state without helm releases"
         $tfStateWalk = Get-FileTreeWithDeadline -Label 'tofu.tfstate scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
@@ -2424,8 +2424,8 @@ try {
             }
         }
 
-        # --- Heuristic 2: resources.output.yml declares a namespace that doesn't exist in the cluster ---
-        # --- See https://yuruna.link/system-diagnostic#heuristic-2-declared-namespaces-missing-from-cluster
+        # --- REGION: Heuristic 2: resources.output.yml declares a namespace that doesn't exist in the cluster
+        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-2-declared-namespaces-missing-from-cluster
         Write-Sub "Heuristic 2: declared namespaces missing from cluster"
         $nsOutputWalk = Get-FileTreeWithDeadline -Label 'resources.output.yml scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
@@ -2443,7 +2443,7 @@ try {
                 try {
                     $content = Get-Content -LiteralPath $of.FullName -Raw -ErrorAction Stop
                 } catch { continue }
-                # --- See https://yuruna.link/system-diagnostic#heuristic-2-declared-namespaces-missing-from-cluster (regex rationale)
+                # --- REGION: https://yuruna.link/system-diagnostic#heuristic-2-declared-namespaces-missing-from-cluster (regex rationale)
                 $inGlobals = $false
                 foreach ($raw in ($content -split "`r?`n")) {
                     if ($raw -match '^globalVariables:\s*$') { $inGlobals = $true; continue }
@@ -2468,8 +2468,8 @@ try {
             }
         }
 
-        # --- Heuristic 3: nodes Ready but zero user-namespace pods ---
-        # --- See https://yuruna.link/system-diagnostic#heuristic-3-cluster-ready-but-no-user-namespace-pods
+        # --- REGION: Heuristic 3: nodes Ready but zero user-namespace pods
+        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-3-cluster-ready-but-no-user-namespace-pods
         Write-Sub "Heuristic 3: cluster Ready but no user-namespace pods"
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
@@ -2492,8 +2492,8 @@ try {
             }
         }
 
-        # --- Heuristic 4: image in local registry but no pod references it ---
-        # --- See https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod
+        # --- REGION: Heuristic 4: image in local registry but no pod references it
+        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod
         Write-Sub "Heuristic 4: local registry image not referenced by any pod"
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
@@ -2509,7 +2509,7 @@ try {
                     -split "`n" | Where-Object { $_ })
                 $orphans = @()
                 foreach ($repo in $registryRepos) {
-                    # --- See https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod (image-ref shape)
+                    # --- REGION: https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod (image-ref shape)
                     $needle = "/$repo`:"
                     $matched = @($allImages | Where-Object { $_ -like "*$needle*" })
                     if ($matched.Count -eq 0) {

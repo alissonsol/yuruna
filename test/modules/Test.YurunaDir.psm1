@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a3d6f5-c0b1-4478-de26-5f7a0c4d3e62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,9 +128,31 @@ function Get-YurunaHostId {
     }
     # 42-prefixed (matches Get-PerfHostUuid): '42' + 30 hex = 32 chars.
     $id = '42' + ([Guid]::NewGuid().ToString('N')).Substring(2, 30)
-    try { [System.IO.File]::WriteAllText($uuidFile, $id, [System.Text.UTF8Encoding]::new($false)) }
-    catch { $null = $_ }
-    return $id
+    # Atomic first-write, shared with Get-PerfHostUuid on this same host.uuid: two
+    # processes hitting first-use at once would each generate a DIFFERENT id, so a
+    # plain overwrite would leave the host with two identities. Write a per-process
+    # temp then rename with the two-arg [System.IO.File]::Move, which throws if the
+    # destination already exists -- exactly one racer wins and every loser re-reads
+    # and adopts the winner's id. A genuine persist failure is fatal to the caller
+    # (return $null, per the OUTPUTS contract) rather than an unpersisted id the next
+    # call would silently re-generate as a different one.
+    $tmpFile = "$uuidFile.$PID-$([Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        [System.IO.File]::WriteAllText($tmpFile, $id, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::Move($tmpFile, $uuidFile)
+        return $id
+    } catch {
+        if (Test-Path -LiteralPath $tmpFile) { Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue }
+        try {
+            $winner = ([System.IO.File]::ReadAllText($uuidFile)).Trim()
+            if ($winner) { return $winner }
+        } catch { Write-Verbose "Get-YurunaHostId: winner re-read failed: $($_.Exception.Message)" }
+        # A present-but-empty/corrupt host.uuid also lands here (the create-exclusive
+        # Move fails on the existing path and the re-read is blank): yield $null rather
+        # than overwrite it, so the operator removes the file to deliberately re-key.
+        Write-Verbose "Get-YurunaHostId: host.uuid could not be persisted; returning null."
+        return $null
+    }
 }
 
 Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir, Get-YurunaHostId

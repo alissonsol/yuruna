@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,7 +93,7 @@ if ($Restart -and (Test-Path $PidFile)) {
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
-# --- Check for an existing server ---
+# --- REGION: Check for an existing server
 # The detached server bakes the ~1.5 KLOC here-string (and the modules
 # it imports at startup) into its in-memory state. Files under test/status/
 # are served from disk per request, so frontend edits do NOT need a
@@ -171,7 +171,7 @@ if ($portResolution.Status -eq 'Conflict') {
     throw $conflict
 }
 
-# --- Ensure repoUrl is set in status.json ---
+# --- REGION: Ensure repoUrl is set in status.json
 $StatusFile = Join-Path $RuntimeDir "status.json"
 if (Test-Path $StatusFile) {
     try {
@@ -200,7 +200,11 @@ if (Test-Path $StatusFile) {
             } else {
                 $statusDoc | Add-Member -NotePropertyName 'repoUrl' -NotePropertyValue $repoUrl
             }
-            $statusDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $StatusFile -Encoding utf8BOM
+            # BOM-less UTF-8: status.json is served over HTTP to the browser
+            # dashboard and the Go aggregator, whose JSON parsers reject a
+            # leading BOM. Matches the canonical Write-YurunaStateFile sidecar
+            # encoding and the detached server's own status.json writes.
+            $statusDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $StatusFile -Encoding utf8
             Write-Output "Set repoUrl in status.json: $repoUrl"
         }
     } catch {
@@ -208,7 +212,7 @@ if (Test-Path $StatusFile) {
     }
 }
 
-# --- Clean up leftovers from older layouts ---
+# --- REGION: Clean up leftovers from older layouts
 # server.heartbeat: server no longer reads this; tidy up so inspectors
 # don't think it's load-bearing.
 # Legacy paths directly under test/status/ and under the old
@@ -240,7 +244,7 @@ if (Test-Path -LiteralPath $LegacyTrackDir) {
 Remove-Item (Join-Path $RuntimeDir 'break-active.json')      -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $RuntimeDir 'control.break-continue') -Force -ErrorAction SilentlyContinue
 
-# --- Enumerate host IPs → $env:YURUNA_RUNTIME_DIR/ipaddresses.txt ---
+# --- REGION: Enumerate host IPs → $env:YURUNA_RUNTIME_DIR/ipaddresses.txt
 # UI footer reads this to show reachable addresses. Loopback
 # (127.0.0.1, ::1) excluded — useless for remote clients.
 #
@@ -290,7 +294,7 @@ try {
     # Best-effort: leave a previous file intact.
 }
 
-# --- Detect host type ---
+# --- REGION: Detect host type
 # $detectedHost is captured at parent startup and threaded into the
 # detached server's here-string (as $serverHostType) so the per-host
 # folder lookup at /control/guest-folders can find host/<short>/guest.*.
@@ -303,7 +307,7 @@ try {
     Write-Warning "Host-type detection failed (continuing with HTTP status server): $_"
 }
 
-# --- Probe proxy cache → $env:YURUNA_RUNTIME_DIR/caching-proxy.txt ---
+# --- REGION: Probe proxy cache → $env:YURUNA_RUNTIME_DIR/caching-proxy.txt
 # UI banner appends this string to the status text so viewers see at a
 # glance whether the harness is behind a local squid. File holds
 # ready-to-embed HTML (including <a href> to the Grafana dashboards URL) so the UI
@@ -477,7 +481,7 @@ try {
     # Best-effort: leave a previous file intact if there was one.
 }
 
-# --- Launch the server as a detached process ---
+# --- REGION: Launch the server as a detached process
 $serverScript = @"
 `$ErrorActionPreference = 'Stop'
 `$listener = [System.Net.HttpListener]::new()
@@ -555,7 +559,7 @@ try {
             if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
             `$path = `$path -replace '^status[/\\]', ''
 
-            # --- /control/test-config: read/write test.config.yml from UI ---
+            # --- REGION: /control/test-config: read/write test.config.yml from UI
             # GET parses the YAML on disk and sends it as JSON (200) so the
             # in-browser tree editor (test.config.html) does not need a YAML
             # parser. POST/PUT accepts a JSON body, validates that
@@ -722,7 +726,7 @@ try {
                 continue
             }
 
-            # --- /control/runtime-env: surface specific env vars to the UI ---
+            # --- REGION: /control/runtime-env: surface specific env vars to the UI
             # Read-only GET endpoint. Currently emits one key,
             # YURUNA_CACHING_PROXY_IP, so the test-config editor can show
             # the env value side-by-side with the persisted
@@ -767,7 +771,7 @@ try {
                 continue
             }
 
-            # --- /control/perf-aggregates: per-sequence cycle durations for perf.html ---
+            # --- REGION: /control/perf-aggregates: per-sequence cycle durations for perf.html
             # GET  -> cached aggregates (computes on first call).
             # POST -> clear the cache then return fresh aggregates.
             if (`$path -eq 'control/perf-aggregates') {
@@ -964,7 +968,7 @@ try {
                 continue
             }
 
-            # --- /control/perf-checkpoints: guest-pushed fetch-and-execute phase timings ---
+            # --- REGION: /control/perf-checkpoints: guest-pushed fetch-and-execute phase timings
             # fetch-and-execute.sh POSTs the ==== checkpoint ==== markers it
             # collected while running a fetched script. We host-stamp the arrival
             # time -- that timestamp is the join key: perf-aggregates matches it
@@ -1099,7 +1103,7 @@ try {
                 continue
             }
 
-            # --- /control/test-caching-proxy?ip=<ip>: probe a caching proxy from the host ---
+            # --- REGION: /control/test-caching-proxy?ip=<ip>: probe a caching proxy from the host
             # Wraps Invoke-CachingProxyProbe (Test.CachingProxy.psm1, same
             # function the startup probe uses) so the test-config UI can
             # show a live connectivity verdict next to cachingProxyIP and
@@ -1166,7 +1170,7 @@ try {
                 continue
             }
 
-            # --- /control/guest-folders: list guest.* dirs under current host ---
+            # --- REGION: /control/guest-folders: list guest.* dirs under current host
             # Powers the test-config editor's guestSequence dropdown so the
             # operator picks from real folders instead of free-typing a
             # name that won't match anything at run time. Host folder is
@@ -1200,7 +1204,7 @@ try {
                 continue
             }
 
-            # --- /control/runner-status: is Invoke-TestRunner actually alive? ---
+            # --- REGION: /control/runner-status: is Invoke-TestRunner actually alive?
             # Reads <track>/runner.pid (owned by the outer runner) and
             # identifies the process as the outer runner via TWO paths:
             #
@@ -1289,8 +1293,8 @@ try {
                 continue
             }
 
-            # --- /control/host-diagnostic: run Get-SystemDiagnostic on the host ---
-            # --- See https://yuruna.link/definition#defining-the-status-page-hostinfo-dump
+            # --- REGION: /control/host-diagnostic: run Get-SystemDiagnostic on the host
+            # --- REGION: https://yuruna.link/definition#defining-the-status-page-hostinfo-dump
             if (`$path -eq 'control/host-diagnostic') {
                 `$res.ContentType = 'text/plain; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -1314,7 +1318,7 @@ try {
                 continue
             }
 
-            # --- Control endpoints: Pause/Continue back-channel from UI ---
+            # --- REGION: Control endpoints: Pause/Continue back-channel from UI
             # Two pause switches, each backed by a flag file, mirrored
             # into status.json so the next UI poll flips the banner:
             #   control.step-pause  — Invoke-Sequence checks at every
@@ -1361,7 +1365,7 @@ try {
                 continue
             }
 
-            # --- /control/break-continue: Continue-from-break button ---
+            # --- REGION: /control/break-continue: Continue-from-break button
             # POST-only. Writes control.break-continue under runtimeDir;
             # the break action in Invoke-Sequence.psm1 polls for this
             # file inside its wait loop and on detection calls
@@ -1411,7 +1415,7 @@ try {
                 continue
             }
 
-            # --- /control/start-cycle: save-and-restart trigger from UI ---
+            # --- REGION: /control/start-cycle: save-and-restart trigger from UI
             # POST-only. Atomically (under a process-wide lock file so
             # concurrent UI clicks don't double-spawn):
             #   1. clear control.cycle-pause and control.step-pause so a
@@ -1617,7 +1621,7 @@ try {
                 continue
             }
 
-            # --- /livecheck — cheap reachability probe for guests ---
+            # --- REGION: /livecheck — cheap reachability probe for guests
             # Test-YurunaHost.ps1 (and fetch-and-execute's host probe) GET
             # this; success means "host server is reachable from this
             # guest, prefer it over GitHub." JSON body is {ok, service,
@@ -1646,7 +1650,7 @@ try {
                 continue
             }
 
-            # --- /diagnostics/<folder>/<filename> — guest-pushed diagnostic dump ---
+            # --- REGION: /diagnostics/<folder>/<filename> — guest-pushed diagnostic dump
             # Second-defence path for Test.Diagnostic. The host has just
             # injected a one-liner into the guest console that:
             #   1. wgets automation/Get-SystemDiagnostic.ps1 from us,
@@ -1804,7 +1808,7 @@ try {
                 continue
             }
 
-            # --- /yuruna-archive.tar.gz — committed-content tarball ---
+            # --- REGION: /yuruna-archive.tar.gz — committed-content tarball
             # Replaces ``git clone`` for guests in the dev iteration loop:
             # ``git archive --format=tar.gz HEAD`` streams a tarball of
             # the latest committed tree, no .git/, no working-tree
@@ -1852,7 +1856,7 @@ try {
                 continue
             }
 
-            # --- /yuruna-project-archive.tar.gz — project repo tarball ---
+            # --- REGION: /yuruna-project-archive.tar.gz — project repo tarball
             # Symmetric counterpart to /yuruna-archive.tar.gz, but for the
             # project repo at <repoRoot>/project/. Update-ProjectClone
             # populates that folder each cycle by ``git clone``-ing the
@@ -1912,7 +1916,7 @@ try {
                 continue
             }
 
-            # --- /log-upload/<rel>: write a diagnostic file under `$logDir ---
+            # --- REGION: /log-upload/<rel>: write a diagnostic file under `$logDir
             # Failed-install diagnostic sink. Subiquity's error-commands
             # block runs INSIDE the installer environment (not the half-
             # built target) when the install aborts, and POSTs
@@ -2134,7 +2138,7 @@ try {
                 `$res.OutputStream.Close()
                 continue
             }
-            # --- Directory listing ---
+            # --- REGION: Directory listing
             # When the resolved path is a directory, serve an HTML index
             # of its contents with relative links. Used by the failure-
             # screens folder under /log/<id>.<ts>.failure-screens-<vm>/
@@ -2361,7 +2365,7 @@ if ($IsWindows) {
     Set-Content -Path $PidFile -Value $bgPid
 }
 
-# --- Verify server started ---
+# --- REGION: Verify server started
 $serverReady = Wait-WithProgress -Activity "Status server: waiting for http://localhost:$Port/" `
     -TotalSeconds $script:StatusServiceReadyTimeoutSeconds -PollSeconds 1 -Test {
         try {
@@ -2390,7 +2394,7 @@ try {
     }
 } catch { Write-Verbose "Could not persist server.sha: $($_.Exception.Message)" }
 
-# --- Display connection info ---
+# --- REGION: Display connection info
 $machineName = (hostname).Trim()
 $ip = try {
     ([System.Net.Dns]::GetHostAddresses($machineName) |
@@ -2408,7 +2412,7 @@ if ($ip) {
 Write-Output "  Host:   http://${machineName}:$Port/status/"
 Write-Output ""
 
-# --- LAN reachability pre-check (Windows only) ---
+# --- REGION: LAN reachability pre-check (Windows only)
 # The server binds to http://*:$Port so the socket is on every interface,
 # but on a fresh Windows 11 install the Defender Firewall drops inbound
 # TCP on non-loopback interfaces unless an Allow rule was created. The

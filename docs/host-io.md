@@ -160,6 +160,6 @@ still cost ~1-2 ms each, which compounds across 8+ re-imports per step.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](../README.md)

@@ -15,7 +15,14 @@
 //     lease collapses to a single hostId;
 //   * no DNS dependency -- everything keys off IPs seen in the log + hostId.
 // A host is kept alive in the view (re-probing its last-known IP) for hostTTL
-// even when momentarily idle, so a between-cycles host doesn't blink out.
+// even when momentarily idle, so a between-cycles host doesn't blink out. The
+// in-memory view is otherwise volatile, so on restart it is RE-SEEDED from Loki
+// (each host's last-known IP, from the cycle-transition feed + the on-discovery
+// presence beacon), and a host's address is beaconed to Loki whenever it is first
+// discovered or changes IP. This keeps a host that is up + reachable but pulling
+// nothing through the proxy right now (a paused runner, or a stash-only host that
+// runs no test cycles) discoverable across a restart -- the squid log alone would
+// not re-find it until it next pulled through the proxy.
 //
 // On a transition it ships a line to Loki ({pool,hostId,cycleId}, ingest-clock
 // stamped) and bumps Prometheus counters; Grafana renders the 24h pool view and
@@ -241,6 +248,12 @@ type eventCursor struct {
 	cycleId string
 	offset  int64 // bytes of the events file already shipped
 }
+
+// presenceTarget is one host whose last-known address pollOnce beacons to Loki
+// (src=presence) this tick because it was newly discovered or changed IP. Captured
+// under s.mu (with its pool label) and pushed after the unlock, so a slow Loki
+// never stalls the handlers -- the same snapshot-then-push shape as evTarget.
+type presenceTarget struct{ hostID, baseURL, pool string }
 
 // failRec is one in-window failed cycle: when it failed + its failure class.
 // Replaces the bare fail-time slice so an incident can carry a class histogram.
@@ -527,6 +540,10 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 
 	s.mu.Lock()
 	refreshed := map[string]bool{}
+	// Hosts newly discovered or whose IP changed this tick: their address is
+	// beaconed to Loki (src=presence) after the unlock so the collector can
+	// re-seed its volatile view from Loki on a restart (rehydrateHostPresenceFromLoki).
+	var presence []presenceTarget
 	for _, r := range results {
 		if r == nil {
 			continue // not a pool member (no status server / no hostId)
@@ -534,11 +551,22 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		hid := r.st.HostId
 		base := fmt.Sprintf("http://%s:%d", r.ip, s.statusPort)
 		hv := s.hosts[hid]
+		prevBase := ""
 		if hv == nil {
 			hv = &hostView{HostId: hid}
 			s.hosts[hid] = hv
+		} else {
+			prevBase = hv.BaseURL
 		}
 		hv.CurrentIP, hv.BaseURL, hv.Reachable, hv.LastError = r.ip, base, true, ""
+		// New host (prevBase "") or an IP change -> re-beacon its address. A
+		// re-probe of a Loki-seeded stub at the SAME IP leaves base == prevBase, so
+		// it does NOT churn a presence line every restart. Streamed under s.pool (the
+		// aggregator's -pool default) so rehydrateHostPresenceFromLoki, which queries
+		// that same pool label, finds it on restart; pushed after the unlock.
+		if base != prevBase {
+			presence = append(presence, presenceTarget{hostID: hid, baseURL: base, pool: s.pool})
+		}
 		hv.LastSeenUnixMs = now.UnixMilli()
 		hv.Status = r.st
 		// Keep the prior version on a transient VERSION miss (it is stable; a blank
@@ -640,6 +668,12 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	for _, ev := range gateEvents {
 		pushIncident(client, lokiURL, ev.poolLabel, ev)
 	}
+	// Beacon each newly-discovered / IP-changed host's address to Loki so a restart
+	// can re-seed the volatile view (rehydrateHostPresenceFromLoki). On-change only,
+	// so this is a low-volume feed -- a steady pool pushes nothing here per poll.
+	for _, p := range presence {
+		pushPresence(client, lokiURL, p.pool, p.hostID, p.baseURL, now)
+	}
 	for _, t := range targets {
 		s.tailEvents(client, lokiURL, t.poolLabel, t.hostID, t.baseURL, t.cycleID, t.cycleFolderURL, now)
 	}
@@ -675,7 +709,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.03"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.07"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -828,6 +862,94 @@ func pushLoki(client *http.Client, lokiURL, pool string, st *hostStatus, baseURL
 	}
 }
 
+// pushPresence records a host's last-known address in Loki under {pool,hostId,
+// src=presence} when it is first discovered or its IP changes -- a low-volume,
+// on-change beacon (NOT per-poll) so the collector can re-seed its VOLATILE host
+// view from Loki on restart (rehydrateHostPresenceFromLoki). This is what keeps a
+// host that runs NO test cycles (a stash-only host) -- and so pushes no {src=cycle}
+// transition -- discoverable across a restart: without it, such a host drops off the
+// dashboard until it next pulls through the proxy, even though it is up + reachable +
+// advertising its extension. Hostname-free (hostId + baseUrl IP only), matching
+// pushLoki's posture. Best-effort; a Loki error is logged + dropped (the next
+// discovery re-pushes).
+func pushPresence(client *http.Client, lokiURL, pool, hostID, baseURL string, now time.Time) {
+	if lokiURL == "" || hostID == "" || baseURL == "" {
+		return
+	}
+	line, _ := json.Marshal(map[string]string{"hostId": hostID, "baseUrl": baseURL})
+	payload := map[string]any{"streams": []map[string]any{{
+		"stream": map[string]string{"pool": pool, "hostId": hostID, "src": "presence"},
+		"values": [][]string{{fmt.Sprintf("%d", now.UnixNano()), string(line)}},
+	}}}
+	buf, _ := json.Marshal(payload)
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
+	if err != nil {
+		log.Printf("presence push build: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("presence push: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode/100 != 2 {
+		log.Printf("presence push HTTP %d", resp.StatusCode)
+	}
+}
+
+// hostIPFromBaseURL extracts the bare host (IP) from a status base URL like
+// "http://192.168.7.13:8080" -> "192.168.7.13". Returns "" for an unparseable /
+// host-less URL, so a malformed Loki-recorded baseUrl can't seed a garbage probe
+// candidate. The scheme + port are dropped on purpose: pollOnce rebuilds the probe
+// URL from the IP + the configured -status-port.
+func hostIPFromBaseURL(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return ""
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
+// seedHostStubLocked pre-populates s.hosts with an UNREACHABLE stub for a hostId
+// whose last-known IP was recovered from Loki on startup, so the first pollOnce
+// probes that IP (its candidate set = squid-log IPs UNION every in-view host's
+// CurrentIP). The stub carries NO status/extensions, so handleMetrics emits no
+// extension row / pass-fail for it until a real probe confirms it -- the seed only
+// makes the probe HAPPEN. This restores discovery for a host that is up + reachable
+// but generating no fresh proxy traffic (a paused runner, or a stash-only host)
+// after a restart wiped the volatile view. Caller holds s.mu. A stub NEVER clobbers
+// an existing (possibly live) entry; LastSeenUnixMs is seeded to `now` so a transient
+// first-probe miss does not evict it before a full hostTTL of retries.
+func (s *poolState) seedHostStubLocked(hostID, baseURL string, now time.Time) bool {
+	if hostID == "" {
+		return false
+	}
+	if _, ok := s.hosts[hostID]; ok {
+		return false
+	}
+	ip := hostIPFromBaseURL(baseURL)
+	if ip == "" {
+		return false
+	}
+	s.hosts[hostID] = &hostView{
+		HostId:         hostID,
+		CurrentIP:      ip,
+		BaseURL:        baseURL,
+		Reachable:      false,
+		LastSeenUnixMs: now.UnixMilli(),
+	}
+	return true
+}
+
 // rehydrateFromLoki seeds the in-memory cycle counters (and the seen/counted
 // dedup maps) from Loki at startup so a collector restart RESUMES its pass/fail
 // counts instead of resetting to zero. Loki is the durable record of terminal
@@ -882,6 +1004,12 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	restored, capped := 0, 0
+	// Last-known baseUrl (host IP) per hostId, newest wins: every transition line
+	// already carries baseUrl, so the same query that restores counts also recovers
+	// where each host was, letting the first poll re-probe an idle host that is not
+	// in the squid log. Seeded into s.hosts after the loop.
+	latestBase := map[string]string{}
+	latestBaseAt := map[string]time.Time{}
 	for _, st := range lr.Data.Result {
 		capped += len(st.Values)
 		for _, v := range st.Values {
@@ -890,6 +1018,7 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 				CycleId       string `json:"cycleId"`
 				OverallStatus string `json:"overallStatus"`
 				FailureClass  string `json:"failureClass"`
+				BaseUrl       string `json:"baseUrl"`
 			}
 			if json.Unmarshal([]byte(v[1]), &e) != nil || e.HostId == "" || e.CycleId == "" {
 				continue
@@ -901,6 +1030,10 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 				evTime = time.Unix(0, ns)
 			}
 			s.seenAt[key] = evTime
+			if e.BaseUrl != "" && (latestBaseAt[e.HostId].IsZero() || evTime.After(latestBaseAt[e.HostId])) {
+				latestBase[e.HostId] = e.BaseUrl
+				latestBaseAt[e.HostId] = evTime
+			}
 			if isTerminal(e.OverallStatus) && !s.counted[key] {
 				s.counted[key] = true
 				if e.OverallStatus == "pass" {
@@ -922,6 +1055,14 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 			}
 		}
 	}
+	// Re-seed the volatile host view: each hostId with a recovered last-known IP
+	// becomes a probe candidate for the first poll (skips any already in the view).
+	seeded := 0
+	for hid, base := range latestBase {
+		if s.seedHostStubLocked(hid, base, now) {
+			seeded++
+		}
+	}
 	// The query returns newest-first; sort each seeded window ascending (the live
 	// append path is already chronological) for correct pruning + peak math.
 	// Open incidents are NOT reconstructed here -- they are restored from the
@@ -933,6 +1074,9 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 	}
 	if restored > 0 {
 		log.Printf("rehydrate: restored %d terminal cycle counts from Loki (window=%s)", restored, window)
+	}
+	if seeded > 0 {
+		log.Printf("rehydrate: re-seeded %d host(s) from transition baseUrls (window=%s)", seeded, window)
 	}
 	if capped >= 5000 {
 		log.Printf("rehydrate: WARNING hit the 5000-line query cap; counts older than the most recent 5000 transitions may be undercounted")
@@ -1088,6 +1232,89 @@ func (s *poolState) applyIncidentLines(streams [][][2]string, now time.Time) int
 		}
 	}
 	return restored
+}
+
+// rehydrateHostPresenceFromLoki re-seeds the collector's VOLATILE in-memory host
+// view from the {src=presence} beacon feed on startup, so a host discovered before
+// a restart is re-probed at its last-known IP even when it is generating no fresh
+// proxy traffic (a paused runner, or a stash-only host that runs no test cycles and
+// so emits no {src=cycle} transition for rehydrateFromLoki to seed from). Without
+// this a restart drops such a host from the dashboard until it next pulls through
+// the proxy -- the discovery-liveness gap. Best-effort: any Loki error leaves the
+// view to rebuild from the squid log as before.
+func (s *poolState) rehydrateHostPresenceFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
+	queryURL := strings.TrimSuffix(lokiPushURL, "push") + "query_range"
+	params := url.Values{}
+	params.Set("query", fmt.Sprintf(`{pool=%q, src="presence"} | json`, pool))
+	params.Set("start", strconv.FormatInt(now.Add(-window).UnixNano(), 10))
+	params.Set("end", strconv.FormatInt(now.UnixNano(), 10))
+	params.Set("limit", "5000")
+	params.Set("direction", "backward") // newest-first: the first line per host stream is the latest
+
+	client := &http.Client{Timeout: pushTimeout}
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("rehydrate presence: Loki query: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var lr struct {
+		Data struct {
+			Result []struct {
+				Values [][2]string `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&lr) != nil {
+		return
+	}
+	streams := make([][][2]string, 0, len(lr.Data.Result))
+	for _, st := range lr.Data.Result {
+		streams = append(streams, st.Values)
+	}
+	if n := s.applyPresenceLines(streams, now); n > 0 {
+		log.Printf("rehydrate: re-seeded %d host(s) from the presence feed", n)
+	}
+}
+
+// applyPresenceLines seeds unreachable host stubs from the presence-beacon streams
+// -- each element is one Loki stream's [ts,line] values, newest-first. A host has a
+// single presence stream, so the FIRST line seen per hostId is its newest address.
+// Split from the HTTP fetch (like applyIncidentLines) so it is unit-testable without
+// a live Loki. Takes s.mu.
+func (s *poolState) applyPresenceLines(streams [][][2]string, now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seeded := 0
+	decided := map[string]bool{} // hostId -> newest presence line already applied
+	for _, values := range streams {
+		for _, v := range values { // newest-first within a stream
+			var e struct {
+				HostId  string `json:"hostId"`
+				BaseUrl string `json:"baseUrl"`
+			}
+			if json.Unmarshal([]byte(v[1]), &e) != nil || e.HostId == "" || e.BaseUrl == "" {
+				continue
+			}
+			if decided[e.HostId] {
+				continue // only the newest line per host decides the seed IP
+			}
+			decided[e.HostId] = true
+			if s.seedHostStubLocked(e.HostId, e.BaseUrl, now) {
+				seeded++
+			}
+		}
+	}
+	return seeded
 }
 
 // tailEvents pulls a host's current-cycle NDJSON event file
@@ -2523,6 +2750,12 @@ func main() {
 		if *rehydrateWin > 0 {
 			state.rehydrateFromLoki(*lokiURL, *pool, *rehydrateWin, now)
 			state.rehydrateIncidentsFromLoki(*lokiURL, *pool, *rehydrateWin, now)
+			// Re-seed the volatile host view (last-known IPs) from the presence
+			// beacon feed so an idle/stash-only host discovered before the restart is
+			// re-probed on the first poll instead of vanishing until it next pulls
+			// through the proxy. Runs before the first pollOnce so its seeds are
+			// candidates immediately.
+			state.rehydrateHostPresenceFromLoki(*lokiURL, *pool, *rehydrateWin, now)
 		}
 		state.pollOnce(client, *squidLog, *lokiURL, now)
 		t := time.NewTicker(*interval)

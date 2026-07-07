@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -196,58 +196,68 @@ function Compare-Screenshot {
         Write-Error "Actual screenshot not found: $ActualPath"
         return @{ match=$false; similarity=0.0; error="Actual not found" }
     }
+    $ref = $null
+    $act = $null
     try {
         Add-Type -AssemblyName System.Drawing
-        $ref = [System.Drawing.Bitmap]::new($ReferencePath)
-        $act = [System.Drawing.Bitmap]::new($ActualPath)
-        if ($ref.Width -ne $act.Width -or $ref.Height -ne $act.Height) {
-            $resized = [System.Drawing.Bitmap]::new($act, $ref.Width, $ref.Height)
-            $act.Dispose()
-            $act = $resized
-        }
-
-        # LockBits + Marshal.Copy into managed byte[]. Each Bitmap.GetPixel
-        # is a P/Invoke through GDI+ (microseconds per call); a 1024x768 at
-        # step=4 needs ~49k pairs of calls and ran 1-3 s. Reading the whole
-        # pixel buffer once and indexing into a byte[] is 10-50x faster.
-        # Format32bppArgb byte order is B, G, R, A; stride is row-aligned.
-        $rect = [System.Drawing.Rectangle]::new(0, 0, $ref.Width, $ref.Height)
-        $pf   = [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
-        $lock = [System.Drawing.Imaging.ImageLockMode]::ReadOnly
-        $refData = $ref.LockBits($rect, $lock, $pf)
-        $actData = $act.LockBits($rect, $lock, $pf)
         try {
-            $stride    = $refData.Stride
-            $byteCount = $stride * $ref.Height
-            $refBytes  = [byte[]]::new($byteCount)
-            $actBytes  = [byte[]]::new($byteCount)
-            [System.Runtime.InteropServices.Marshal]::Copy($refData.Scan0, $refBytes, 0, $byteCount)
-            [System.Runtime.InteropServices.Marshal]::Copy($actData.Scan0, $actBytes, 0, $byteCount)
-        } finally {
-            $ref.UnlockBits($refData)
-            $act.UnlockBits($actData)
-        }
-
-        $matchingPixels = 0
-        $step = 4
-        $sampled = 0
-        for ($y = 0; $y -lt $ref.Height; $y += $step) {
-            $rowStart = $y * $stride
-            for ($x = 0; $x -lt $ref.Width; $x += $step) {
-                $sampled++
-                $i = $rowStart + ($x * 4)
-                $diff = [Math]::Abs([int]$refBytes[$i]     - [int]$actBytes[$i]) +
-                        [Math]::Abs([int]$refBytes[$i + 1] - [int]$actBytes[$i + 1]) +
-                        [Math]::Abs([int]$refBytes[$i + 2] - [int]$actBytes[$i + 2])
-                if ($diff -lt 30) { $matchingPixels++ }
+            $ref = [System.Drawing.Bitmap]::new($ReferencePath)
+            $act = [System.Drawing.Bitmap]::new($ActualPath)
+            if ($ref.Width -ne $act.Width -or $ref.Height -ne $act.Height) {
+                $resized = [System.Drawing.Bitmap]::new($act, $ref.Width, $ref.Height)
+                $act.Dispose()
+                $act = $resized
             }
+
+            # LockBits + Marshal.Copy into managed byte[]. Each Bitmap.GetPixel
+            # is a P/Invoke through GDI+ (microseconds per call); a 1024x768 at
+            # step=4 needs ~49k pairs of calls and ran 1-3 s. Reading the whole
+            # pixel buffer once and indexing into a byte[] is 10-50x faster.
+            # Format32bppArgb byte order is B, G, R, A; stride is row-aligned.
+            $rect = [System.Drawing.Rectangle]::new(0, 0, $ref.Width, $ref.Height)
+            $pf   = [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+            $lock = [System.Drawing.Imaging.ImageLockMode]::ReadOnly
+            $refData = $ref.LockBits($rect, $lock, $pf)
+            $actData = $act.LockBits($rect, $lock, $pf)
+            try {
+                $stride    = $refData.Stride
+                $byteCount = $stride * $ref.Height
+                $refBytes  = [byte[]]::new($byteCount)
+                $actBytes  = [byte[]]::new($byteCount)
+                [System.Runtime.InteropServices.Marshal]::Copy($refData.Scan0, $refBytes, 0, $byteCount)
+                [System.Runtime.InteropServices.Marshal]::Copy($actData.Scan0, $actBytes, 0, $byteCount)
+            } finally {
+                $ref.UnlockBits($refData)
+                $act.UnlockBits($actData)
+            }
+
+            $matchingPixels = 0
+            $step = 4
+            $sampled = 0
+            for ($y = 0; $y -lt $ref.Height; $y += $step) {
+                $rowStart = $y * $stride
+                for ($x = 0; $x -lt $ref.Width; $x += $step) {
+                    $sampled++
+                    $i = $rowStart + ($x * 4)
+                    $diff = [Math]::Abs([int]$refBytes[$i]     - [int]$actBytes[$i]) +
+                            [Math]::Abs([int]$refBytes[$i + 1] - [int]$actBytes[$i + 1]) +
+                            [Math]::Abs([int]$refBytes[$i + 2] - [int]$actBytes[$i + 2])
+                    if ($diff -lt 30) { $matchingPixels++ }
+                }
+            }
+            $similarity = $sampled -gt 0 ? [Math]::Round($matchingPixels / $sampled, 4) : 0.0
+            $isMatch = $similarity -ge $Threshold
+            Write-Information "Screenshot comparison: similarity=$similarity threshold=$Threshold match=$isMatch"
+            return @{ match=$isMatch; similarity=$similarity; error=$null }
+        } finally {
+            # Dispose both source bitmaps on EVERY path: a LockBits / Marshal.Copy
+            # throw would otherwise bypass the release and leak native GDI+ handles
+            # across the per-cycle screenshot compares. Null-guarded because a
+            # failed Bitmap::new leaves its variable $null; $act may already hold
+            # the resized copy (the original is disposed at swap time).
+            if ($ref) { $ref.Dispose() }
+            if ($act) { $act.Dispose() }
         }
-        $similarity = $sampled -gt 0 ? [Math]::Round($matchingPixels / $sampled, 4) : 0.0
-        $ref.Dispose()
-        $act.Dispose()
-        $isMatch = $similarity -ge $Threshold
-        Write-Information "Screenshot comparison: similarity=$similarity threshold=$Threshold match=$isMatch"
-        return @{ match=$isMatch; similarity=$similarity; error=$null }
     } catch {
         Write-Error "Screenshot comparison failed: $_"
         return @{ match=$false; similarity=0.0; error="$_" }

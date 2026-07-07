@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d4e5f6-a7b8-4c91-9234-5d6e7f8a9b0c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,34 @@
     [[feedback_threadpool_heartbeat_watchdog_blind]] for the trap class.
 #>
 
+function Get-WatchdogInnerIdentityScript {
+<#
+.SYNOPSIS
+    The PID-identity predicate the watchdog uses to tell the armed inner apart from
+    an unrelated process that later reused its PID, returned as source text.
+.DESCRIPTION
+    The watchdog runs as a separate-process Start-Job that cannot see this module's
+    functions, so the check is handed over as text and rebuilt inside the job via
+    [scriptblock]::Create -- the tests build it from the SAME text, so there is one
+    definition. The predicate is true only when a live process at $ProcId has a
+    StartTime matching the UTC-ISO timestamp captured when the watchdog armed. A
+    gone PID, an unreadable start, or an empty recorded start (identity unprovable)
+    is treated as not-the-same-inner, matching the live-PID + matching-StartTime
+    precedence the pool storage/push forwarders use to survive OS PID reuse.
+.OUTPUTS
+    [string] the identity-check scriptblock body: param([int]$ProcId,[string]$ExpectedStartUtc) -> [bool].
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return @'
+param([int]$ProcId, [string]$ExpectedStartUtc)
+if (-not $ExpectedStartUtc) { return $false }
+try { $s = (Get-Process -Id $ProcId -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') } catch { return $false }
+return ($s -eq $ExpectedStartUtc)
+'@
+}
+
 function Start-Watchdog {
     <#
     .SYNOPSIS
@@ -69,6 +97,10 @@ function Start-Watchdog {
     )
     if (-not $PSCmdlet.ShouldProcess("watchdog job for $RuntimeDir (threshold ${StepTimeoutMinutes}m)", 'Start-Job')) { return $null }
     $thresholdSec = $StepTimeoutMinutes * 60
+    # The identity predicate is captured as source text and rebuilt inside the job
+    # (a separate-process Start-Job cannot see this module's functions), so the
+    # tests and the watchdog exercise one definition.
+    $innerIdentityScript = Get-WatchdogInnerIdentityScript
     # $using: pulls $RuntimeDir/$thresholdSec/$PollSeconds straight from the
     # enclosing scope at job-dispatch time. Cleaner than param() +
     # -ArgumentList, and dodges a PSSA false-positive where the rule
@@ -78,6 +110,8 @@ function Start-Watchdog {
         $runtimeDir   = $using:RuntimeDir
         $thresholdSec = $using:thresholdSec
         $pollSec      = $using:PollSeconds
+        # Rebuild the shared identity predicate in this separate-process job.
+        $sameInner    = [scriptblock]::Create($using:innerIdentityScript)
         $stepHbFile = Join-Path $runtimeDir 'runner.stepHeartbeat'
         $pidFile    = Join-Path $runtimeDir 'inner.pid'
         $outerLog   = Join-Path $runtimeDir 'outer.log'
@@ -101,14 +135,24 @@ function Start-Watchdog {
             Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner.pid present but unreadable; exiting watchdog without action."
             return
         }
-        Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid thresholdSec=$thresholdSec pollSec=$pollSec signal=runner.stepHeartbeat"
+        # Capture the inner's identity (PID + StartTime) at arm so a later PID reuse
+        # can't fool the disarm/kill decisions below. If the process is already gone
+        # or its start is unreadable here there is nothing valid to guard -> exit.
+        $innerStartUtc = try { (Get-Process -Id $innerPid -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') } catch { $null }
+        if (-not $innerStartUtc) {
+            Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner pid $innerPid not present/readable at arm; exiting watchdog without action."
+            return
+        }
+        Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid startUtc=$innerStartUtc thresholdSec=$thresholdSec pollSec=$pollSec signal=runner.stepHeartbeat"
         # Arm timestamp: when no step heartbeat has been published yet, staleness is aged from
         # here so a hang BEFORE the first step write is still detected (not ignored forever).
         $armedAt = Get-Date
         while ($true) {
             Start-Sleep -Seconds $pollSec
-            if (-not (Get-Process -Id $innerPid -ErrorAction SilentlyContinue)) {
-                Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner pid $innerPid exited normally; watchdog disarming."
+            if (-not (& $sameInner $innerPid $innerStartUtc)) {
+                # PID gone, or a different process now holds it (reused): either way the
+                # armed inner is no longer running, so disarm without touching the PID.
+                Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner pid $innerPid no longer matches the armed identity (exited or PID reused); watchdog disarming."
                 return
             }
             if (Test-Path $stepHbFile) {
@@ -119,8 +163,15 @@ function Start-Watchdog {
                 $age = ((Get-Date) - $armedAt).TotalSeconds
             }
             if ($age -gt $thresholdSec) {
-                Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > $thresholdSec s; killing inner PID $innerPid"
-                Stop-Process -Id $innerPid -Force -ErrorAction SilentlyContinue
+                # Re-verify identity immediately before the kill: between the disarm
+                # check above and here the inner could have exited and its PID been
+                # reused, and killing the wrong process is worse than a missed kill.
+                if (& $sameInner $innerPid $innerStartUtc) {
+                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > $thresholdSec s; killing inner PID $innerPid"
+                    Stop-Process -Id $innerPid -Force -ErrorAction SilentlyContinue
+                } else {
+                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale but inner PID $innerPid no longer matches the armed identity (exited or PID reused); disarming without kill."
+                }
                 return
             }
         }
@@ -144,4 +195,4 @@ function Stop-Watchdog {
     Remove-Job -Job $Job -Force -ErrorAction SilentlyContinue
 }
 
-Export-ModuleMember -Function Start-Watchdog, Stop-Watchdog
+Export-ModuleMember -Function Get-WatchdogInnerIdentityScript, Start-Watchdog, Stop-Watchdog

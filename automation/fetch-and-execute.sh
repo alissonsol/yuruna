@@ -1,9 +1,9 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
-# --- See https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
 resolve_base_url() {
     if [ -n "${EXEC_BASE_URL:-}" ]; then
         echo "$EXEC_BASE_URL"
@@ -13,13 +13,13 @@ resolve_base_url() {
         # shellcheck disable=SC1091
         . /etc/yuruna/host.env
         if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
-            # --- See https://yuruna.link/definition#defining-fetch-and-execute-host-environment-variables
+            # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-environment-variables
             if wget -q --no-proxy --timeout=2 -O /dev/null \
                 "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck" 2>/dev/null; then
                 echo "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-repo/"
                 return
             fi
-            # --- See https://yuruna.link/definition#defining-fetch-and-execute-host-unreachable-warning
+            # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-unreachable-warning
             >&2 echo ""
             >&2 echo "!! HOST UNREACHABLE"
             >&2 echo "!!   url:     http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck"
@@ -49,7 +49,7 @@ clear
 # -- the same reason the failure marker below avoids them.
 echo "About to download and run project code: $FILE_PATH"
 
-# --- See https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
 # Resolve the base URL once (host status server, else the GitHub fallback) and
 # do a single fetch. A failed fetch on a bridged guest is most often the guest
 # having no IPv4 DHCP lease -- DHCP pool exhaustion, which retrying cannot fix --
@@ -86,7 +86,7 @@ if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
         . /usr/local/lib/yuruna/yuruna-network.sh
         command -v network_diag >/dev/null 2>&1 && network_diag
     fi
-    # --- See https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
+    # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
     # The failure marker deliberately avoids the words "fetch"/"execute": the
     # host-side OCR FailurePattern matcher is fuzzy, and a marker containing
     # those words fuzzy-matches the echoed 'fetch-and-execute.sh ...' command
@@ -100,7 +100,7 @@ fi
 echo "  bytes: $byte_count"
 echo ""
 
-# --- See https://yuruna.link/memory#why-fetch-and-execute-self-heals-the-yuruna_retry-library
+# --- REGION: https://yuruna.link/memory#why-fetch-and-execute-self-heals-the-yuruna_retry-library
 # The fetched scripts source this lib unconditionally under `set -e`, so the file
 # must exist before the script runs. Cloud-init bakes it into the image, so this
 # is a fallback for guests that lack it; run it only after the fetch above has
@@ -120,10 +120,10 @@ fi
 # shellcheck disable=SC1090
 [ -r "$YURUNA_RETRY_LIB" ] && . "$YURUNA_RETRY_LIB"
 
-# --- See https://yuruna.link/memory#why-fetch-and-execute-tees-into-a-well-known-per-run-log
+# --- REGION: https://yuruna.link/memory#why-fetch-and-execute-tees-into-a-well-known-per-run-log
 fae_log='/tmp/yuruna-last-fetch-and-execute.log'
 
-# --- See https://yuruna.link/definition#defining-fetch-and-execute-checkpoints
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-checkpoints
 # Optional per-phase profiling. A fetched script marks phase boundaries with a
 # line that starts with four equals signs:  ==== phase name ====  . Each such
 # line is captured with bash's high-resolution EPOCHREALTIME clock and later
@@ -204,7 +204,7 @@ fi
   echo "# ended:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >> "$fae_log" 2>/dev/null || true
 
-# --- See https://yuruna.link/definition#defining-fetch-and-execute-end-tags
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-end-tags
 # Emit the end-tag marker as a contiguous continuation of the script's output,
 # BEFORE the console-silent perf-checkpoint POST and temp-file cleanup below. On
 # a headless Hyper-V host the screen-capture surface stops repainting within a
@@ -231,7 +231,7 @@ else
 fi
 printf '\n'%.0s {1..6}
 
-# --- See https://yuruna.link/definition#defining-fetch-and-execute-checkpoints
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-checkpoints
 # Ship the collected checkpoints to the host AFTER the marker above. The host
 # joins a checkpoint sidecar to this step by its host-stamped arrival time
 # falling inside the step's [start,end] window, and that window stays open until

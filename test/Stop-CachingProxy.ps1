@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,7 +54,7 @@ Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
 # undefine on the cache VM. No-op elsewhere.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-# === Step 0: plan + sudo preflight ==========================================
+# --- REGION: Step 0: plan + sudo preflight
 # Stop-CachingProxy runs UNATTENDED -- no interactive prompts. It has no
 # destructive ShouldProcess gates (every Remove-*/Save-* call below already
 # passes -Confirm:$false), so the only thing to resolve up front is sudo:
@@ -75,7 +75,7 @@ $stopProxyReason = if ($IsMacOS) {
 [void](Initialize-SudoCache -Reasons @($stopProxyReason))
 Write-Output "  Proceeding unattended (no further prompts)."
 
-# === Wipe machine-wide host proxy (if it was promoted) =====================
+# --- REGION: Wipe machine-wide host proxy (if it was promoted)
 # Symmetric with Test-CachingProxy.ps1 -SetHostProxy. Runs UNCONDITIONALLY
 # and uses Remove-HostProxy (definitive wipe) rather than the older
 # Clear-HostProxy (snapshot/restore from $HOME/.yuruna/host-proxy.backup.json).

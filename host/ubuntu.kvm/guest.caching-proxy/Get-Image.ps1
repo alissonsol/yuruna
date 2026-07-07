@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@ if (-not $IsLinux) {
     exit 1
 }
 
-# === Configuration ===
+# --- REGION: Configuration
 # Ubuntu 26.04 LTS (Resolute Raccoon). Matches the windows.hyper-v and
 # macos.utm caching-proxy guests so a cache rebuilt on any host produces
 # the same Squid 7.x baseline. `unattended-upgrades` (enabled in
@@ -73,6 +73,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
     exit 0
 }
 
+# --- REGION: Download the cloud image
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download and
@@ -105,6 +106,7 @@ if ($downloadedSize -lt 100MB) {
     exit 1
 }
 
+# --- REGION: Resize the qcow2 to 512 GB
 # Resize to 512 GB sparse. qcow2 is dynamic, so 512 GB is the APPARENT
 # size only -- actual disk consumption stays low until squid starts
 # caching. Sized for squid's `cache_dir ufs /var/spool/squid 393216 16
@@ -121,7 +123,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Warning "  qemu-img resize '$baseImageFile' 512G"
 }
 
-# === Preserve previous and finalize ===
+# --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $baseImageFile) {

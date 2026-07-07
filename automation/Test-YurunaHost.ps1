@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d4e5f6-a7b8-4c90-1d23-4e5f6a7b8c91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,7 @@ function Show-Remediation {
     Write-Output 'iteration changes on the host will NOT be visible in this guest.'
 }
 
-# --- 1. host.env exists and parses ---
+# --- REGION: 1. host.env exists and parses
 if (-not (Test-Path $HostEnvFile)) {
     Write-Result 'FAIL' "host.env not found at $HostEnvFile"
     Write-Result 'INFO' 'This guest was provisioned BEFORE the yuruna-host injection landed.'
@@ -116,7 +116,7 @@ if (-not $hostPort) {
 
 Write-Result 'INFO' "host.env: YURUNA_HOST_IP=$hostIp YURUNA_HOST_PORT=$hostPort"
 
-# --- 2. /etc/hosts maps yuruna-host to YURUNA_HOST_IP ---
+# --- REGION: 2. /etc/hosts maps yuruna-host to YURUNA_HOST_IP
 # Parse the mapped IP (first field of the "<ip> <name>..." line) and compare it
 # to host.env: a stale mapping resolves the name to the wrong host even though
 # IP-based URLs still work. Commented lines are skipped.
@@ -138,7 +138,7 @@ if (Test-Path $hostsFile) {
     }
 }
 
-# --- 3. /livecheck probe ---
+# --- REGION: 3. /livecheck probe
 $livecheckUrl = "http://${hostIp}:${hostPort}/livecheck"
 Write-Result 'INFO' "Probing $livecheckUrl (timeout ${TimeoutSec}s) ..."
 
@@ -157,7 +157,7 @@ if ($response.StatusCode -ne 200) {
     exit 1
 }
 
-# --- 4. Validate the JSON looks like the yuruna status server ---
+# --- REGION: 4. Validate the JSON looks like the yuruna status server
 # A misdirected probe (someone else's HTTP server on :8080) would 200
 # but the body wouldn't match. Distinguish by the `service` field.
 try {

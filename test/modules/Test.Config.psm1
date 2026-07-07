@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,22 @@
 # Callers that need a guaranteed fresh read (e.g. the outer's failure-pause
 # config-mtime trigger) pass -NoCache.
 
-$script:TestConfigCache = @{}
+# Ordinal (case-sensitive) key comparer: the cache is keyed by the resolved absolute
+# path, and on a case-sensitive filesystem two paths differing only in case are
+# DIFFERENT files that must not share a slot (the default @{} literal is case-
+# insensitive). Bounded by a small FIFO cap -- the resolved-config-path set is normally
+# small (test.config.yml plus the handful of schema-validated configs), so the cap is a
+# safety net against unbounded growth, not a hot path.
+$script:TestConfigCacheMax = 64
+function Initialize-TestConfigCacheStore {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
+        Justification = 'A case-SENSITIVE Ordinal comparer is required so case-distinct paths on a case-sensitive filesystem do not share a cache slot; the @{} literal PSSA prefers here is case-insensitive, so the literal initializer is unusable.')]
+    param()
+    $script:TestConfigCache      = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
+    $script:TestConfigCacheOrder = [System.Collections.Generic.List[string]]::new()
+}
+Initialize-TestConfigCacheStore
 
 function Get-TestConfigContentHash {
     [OutputType([string])]
@@ -130,6 +145,12 @@ function Read-TestConfig {
         return $null
     }
     $script:TestConfigCache[$resolved] = @{ Mtime = $mtime; Hash = $hash; Config = $parsed }
+    if (-not $script:TestConfigCacheOrder.Contains($resolved)) { $script:TestConfigCacheOrder.Add($resolved) }
+    while ($script:TestConfigCacheOrder.Count -gt $script:TestConfigCacheMax) {
+        $evict = $script:TestConfigCacheOrder[0]
+        $script:TestConfigCacheOrder.RemoveAt(0)
+        [void]$script:TestConfigCache.Remove($evict)
+    }
     # Auto-publish the snapshot on every successful parse. The publish
     # is a best-effort atomic write; failure is silently logged at
     # Verbose level. Subsequent same-process reads hit the in-process
@@ -150,34 +171,56 @@ function Clear-TestConfigCache {
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if ($PSCmdlet.ShouldProcess('Test.Config cache', 'Clear')) {
-        $script:TestConfigCache = @{}
+        Initialize-TestConfigCacheStore
     }
 }
 
 function Get-TestConfigSnapshotPath {
     <#
     .SYNOPSIS
-        Returns the canonical on-disk path for the parsed-config snapshot
-        the outer publishes for the inner to consume.
+        Returns the on-disk path for the parsed-config snapshot the outer publishes
+        for the inner to consume, one slot per source config.
     .DESCRIPTION
-        Cross-process snapshot location. Outer parses test.config.yml,
-        writes the parsed result here as JSON tagged with the source
-        file's mtime + content hash; inner reads the snapshot if its
-        tag still matches the live YAML's mtime + hash. Avoids the
-        second YAML re-parse per cycle without sacrificing freshness
-        (an operator edit between outer's read and inner's read makes
-        the tags mismatch, and inner falls back to a full YAML parse).
+        Cross-process snapshot location. Outer parses a config, writes the parsed
+        result here as JSON tagged with the source file's mtime + content hash; inner
+        reads the snapshot if its tag still matches the live YAML's mtime + hash. Avoids
+        the second YAML re-parse per cycle without sacrificing freshness (an operator
+        edit between outer's read and inner's read makes the tags mismatch, and inner
+        falls back to a full YAML parse). The resolved SOURCE PATH is hashed into the
+        filename so distinct configs (test.config.yml, vault.yml, ...) get distinct slots
+        instead of clobbering one shared file -- the schema validator reads several
+        configs through the same reader.
+    .PARAMETER SourcePath
+        The resolved source config path this snapshot belongs to.
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param()
-    # $env:TEMP is Windows-only -- it is $null on macOS/Linux, which would make the
-    # Join-Path below throw "Cannot bind argument to parameter 'Path'" whenever a
-    # standalone caller (e.g. Test-Config.ps1) reads a config without
-    # YURUNA_RUNTIME_DIR set. [IO.Path]::GetTempPath() resolves the temp dir on
-    # every platform.
-    $runtimeDir = if (-not [string]::IsNullOrWhiteSpace($env:YURUNA_RUNTIME_DIR)) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
-    return (Join-Path $runtimeDir '.test.config.snapshot.json')
+    param([Parameter(Mandatory)][string]$SourcePath)
+    # Hash the resolved source path into the filename. The resolved path is canonical,
+    # so this respects filesystem case (matching the Ordinal cache key): the same file
+    # always maps to the same slot, and case-distinct files on a case-sensitive FS get
+    # distinct slots.
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $tag = ([System.BitConverter]::ToString(
+            $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($SourcePath))) -replace '-', '').Substring(0, 12).ToLowerInvariant()
+    } finally { $sha.Dispose() }
+    # $env:TEMP is Windows-only ($null on macOS/Linux); [IO.Path]::GetTempPath() resolves
+    # the temp dir on every platform.
+    if (-not [string]::IsNullOrWhiteSpace($env:YURUNA_RUNTIME_DIR)) {
+        # The runner's runtime dir is per-runner and not world-writable.
+        $dir = $env:YURUNA_RUNTIME_DIR
+    } else {
+        # A standalone caller (e.g. Test-Config.ps1) with no runtime dir would otherwise
+        # land in the world-writable shared system temp, where another local user could
+        # collide with -- or plant a poisoned snapshot for -- this one. Namespace under a
+        # per-user subdirectory so each user's snapshots are isolated.
+        $user    = if ($env:USERNAME) { $env:USERNAME } elseif ($env:USER) { $env:USER } else { 'nouser' }
+        $userTag = [System.Text.RegularExpressions.Regex]::Replace($user, '[^A-Za-z0-9._-]', '_')
+        $dir     = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-$userTag"
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force -ErrorAction SilentlyContinue | Out-Null }
+    }
+    return (Join-Path $dir ".test.config.snapshot.$tag.json")
 }
 
 function Publish-TestConfigSnapshot {
@@ -220,7 +263,7 @@ function Publish-TestConfigSnapshot {
     # it must never raise into Read-TestConfig and turn a clean parse into a failure.
     $dest = $null
     try {
-        $dest = Get-TestConfigSnapshotPath
+        $dest = Get-TestConfigSnapshotPath -SourcePath $SourcePath
         if (-not $PSCmdlet.ShouldProcess($dest, 'Publish test.config.yml snapshot')) { return $dest }
         $envelope = [ordered]@{
             sourcePath   = [string]$SourcePath
@@ -274,15 +317,18 @@ function Read-TestConfigOrSnapshot {
     )
     $known = $null
     if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
-        $snapshotPath = Get-TestConfigSnapshotPath
-        if (Test-Path -LiteralPath $snapshotPath) {
-            try {
-                $resolved = (Resolve-Path -LiteralPath $Path).Path
-                $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
-                $hash     = Get-TestConfigContentHash -Path $resolved
-                # Source freshness triple; reuse it on the fallback parse below so
-                # the 64 KB SHA-256 is computed at most once per call.
-                $known    = @{ Path = $resolved; Mtime = $mtime; Hash = $hash }
+        try {
+            $resolved = (Resolve-Path -LiteralPath $Path).Path
+            $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+            $hash     = Get-TestConfigContentHash -Path $resolved
+            # Source freshness triple; reuse it on the fallback parse below so
+            # the 64 KB SHA-256 is computed at most once per call.
+            $known    = @{ Path = $resolved; Mtime = $mtime; Hash = $hash }
+            # Per-source slot: the snapshot filename is keyed by the resolved source
+            # path, so a snapshot published for a different config cannot be mistaken
+            # for this one.
+            $snapshotPath = Get-TestConfigSnapshotPath -SourcePath $resolved
+            if (Test-Path -LiteralPath $snapshotPath) {
                 $raw      = Get-Content -Raw -LiteralPath $snapshotPath -ErrorAction Stop
                 $envelope = $raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
                 if ($envelope -is [System.Collections.IDictionary] `
@@ -292,9 +338,9 @@ function Read-TestConfigOrSnapshot {
                     -and $envelope.Contains('config')      -and ($envelope.config -is [System.Collections.IDictionary])) {
                     return $envelope.config
                 }
-            } catch {
-                Write-Verbose "Read-TestConfigOrSnapshot: snapshot read fell through ($($_.Exception.Message)); using full parse."
             }
+        } catch {
+            Write-Verbose "Read-TestConfigOrSnapshot: snapshot read fell through ($($_.Exception.Message)); using full parse."
         }
     }
     if ($known) {

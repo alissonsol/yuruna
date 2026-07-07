@@ -1,8 +1,8 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.03  Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- See https://yuruna.link/install/explained
+# Version: 2026.07.07  Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
 
@@ -44,7 +44,7 @@ log()  { _yuruna_step="$*"; printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 
-# -- Install log -----------------------------------------------------------
+# --- REGION: Install log
 # Mirror stdout+stderr to a file as well as the terminal so a mid-install
 # failure can be inspected afterwards. A FIFO + backgrounded tee (rather than
 # `exec > >(tee ...)`) lets the EXIT path wait for tee to flush, so the file is
@@ -105,7 +105,7 @@ verify_key_fingerprints() {
   (( found_required )) || die "Required key fingerprint $required missing from $keyfile"
 }
 
-# -- ERR trap --------------------------------------------------------------
+# --- REGION: ERR trap
 _yuruna_on_err() {
     local rc=$?
     printf '\n\033[1;31mXX \033[0m installer aborted (exit %d)\n' "$rc" >&2
@@ -119,7 +119,7 @@ _yuruna_on_err() {
 }
 trap _yuruna_on_err ERR
 
-# -- Preflight: Linux only -------------------------------------------------
+# --- REGION: Preflight: Linux only
 [[ "$(uname -s)" == "Linux" ]] || die "This installer only supports Linux."
 [[ -r /etc/os-release ]] || die "/etc/os-release missing -- not a recognized Linux."
 . /etc/os-release
@@ -133,7 +133,7 @@ log "  arch   : $ARCH"
 log "  repo   : $YURUNA_REPO ($YURUNA_BRANCH)"
 log "  target : $YURUNA_DIR"
 
-# -- Preflight: system requirements ----------------------------------------
+# --- REGION: Preflight: system requirements
 preflight_system_requirements() {
   local issues=()
   local cores mem_kb mem_gb disk_kb disk_gb ubuntu_major ubuntu_minor ubuntu_num
@@ -188,7 +188,7 @@ preflight_system_requirements() {
 }
 preflight_system_requirements
 
-# -- sudo announcement + keepalive -----------------------------------------
+# --- REGION: sudo announcement + keepalive
 cat <<'SUDO_NOTICE'
 
   +---------------------------------------------------------------+
@@ -216,7 +216,7 @@ yuruna_install_cleanup() {
 }
 trap yuruna_install_cleanup EXIT
 
-# -- Preflight: CPU virtualization (vmx/svm) -------------------------------
+# --- REGION: Preflight: CPU virtualization (vmx/svm)
 HAVE_VMX=0
 if grep -qE '(vmx|svm)' /proc/cpuinfo 2>/dev/null; then
   HAVE_VMX=1
@@ -231,7 +231,7 @@ if [[ $HAVE_VMX -eq 0 ]]; then
        unusable -- aborting before installing anything."
 fi
 
-# -- Stop running Yuruna host services -------------------------------------
+# --- REGION: Stop running Yuruna host services
 # Force-stop the outer runner, its per-cycle inner pwsh, and the detached
 # status HTTP server, then WAIT for them to exit before the repo update
 # renames the checkout aside. VMs (the yuruna-caching-proxy cache, a libvirt
@@ -373,7 +373,7 @@ stop_yuruna_processes() {
 log "Stopping anything that would block a repo update (runner + status server; VMs preserved)"
 stop_yuruna_processes
 
-# -- Install platform packages ---------------------------------------------
+# --- REGION: Install platform packages
 log "Refreshing apt index"
 sudo apt-get update -q
 
@@ -435,7 +435,7 @@ fi
 log "Installing / upgrading required apt packages"
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${APT_PACKAGES[@]}"
 
-# -- osinfo-db refresh -----------------------------------------------------
+# --- REGION: osinfo-db refresh
 osinfo_has_variant() {
   local v="$1"
   local re="${v//./\\.}"
@@ -553,7 +553,7 @@ ensure_osinfo_db_has_ubuntu24() {
 }
 ensure_osinfo_db_has_ubuntu24
 
-# -- PowerShell (apt for x86_64, tarball fallback for aarch64) -------------
+# --- REGION: PowerShell (apt for x86_64, tarball fallback for aarch64)
 install_pwsh_apt() {
   local codename
   codename="$(lsb_release -cs 2>/dev/null || echo noble)"
@@ -648,7 +648,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 command -v pwsh >/dev/null 2>&1 || die "pwsh not found after install."
 
-# -- PowerShell modules ----------------------------------------------------
+# --- REGION: PowerShell modules
 log "Installing required PowerShell modules"
 pwsh -NoProfile -Command '
     if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
@@ -666,7 +666,7 @@ pwsh -NoProfile -Command '
     }
 ' || warn "powershell-yaml install reported an error -- see above. Continuing install."
 
-# -- libvirt: enable + groups + ACL + default network ----------------------
+# --- REGION: libvirt: enable + groups + ACL + default network
 log "Enabling libvirtd + virtlogd"
 sudo systemctl enable --now libvirtd
 sudo systemctl enable --now virtlogd
@@ -703,7 +703,7 @@ ensure_default_network() {
 }
 ensure_default_network
 
-# -- Preserve test/status runtime state ------------------------------------
+# --- REGION: Preserve test/status runtime state
 TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)
 preserve_test_status() {
   local src="$YURUNA_DIR/test/status"
@@ -743,7 +743,7 @@ restore_test_status() {
   YURUNA_STATUS_BACKUP=""
 }
 
-# -- Tolerate a v / no-v tag mismatch --------------------------------------
+# --- REGION: Tolerate a v / no-v tag mismatch
 # Canonical Yuruna release tags are BARE CalVer (YYYY.MM.DD, no 'v'); the
 # release tool refuses to create a 'v'-variant. But a human or a tool (or a
 # YURUNA_BRANCH=... arg) can ask for the wrong form -- a recommended
@@ -771,7 +771,7 @@ resolve_yuruna_ref() {
   printf '%s' "$ref"
 }
 
-# -- Development repo pulls latest main, not a release tag ------------------
+# --- REGION: Development repo pulls latest main, not a release tag
 # yurunadev is only tagged at the weekly release, so the pinned-CalVer default
 # resolves to nothing mid-week. When the target repo is yurunadev and the
 # operator did not pin a ref explicitly, track 'main' (latest code) instead.
@@ -783,7 +783,7 @@ use_dev_branch_if_needed() {
   fi
 }
 
-# -- Clone / update the repo -----------------------------------------------
+# --- REGION: Clone / update the repo
 YURUNA_BACKUP_CREATED=""
 preserve_test_status
 mkdir -p "$(dirname "$YURUNA_DIR")"
@@ -858,7 +858,7 @@ else
   git clone --branch "$YURUNA_BRANCH" "$YURUNA_REPO" "$YURUNA_DIR"
 fi
 
-# -- Renormalize line endings under .gitattributes -------------------------
+# --- REGION: Renormalize line endings under .gitattributes
 if [[ -d "$YURUNA_DIR/.git" ]]; then
   log "Renormalizing repo line endings (per .gitattributes)"
   git -C "$YURUNA_DIR" config core.autocrlf input
@@ -881,7 +881,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
   fi
 fi
 
-# -- Pin to the current release (opt-in) -----------------------------------
+# --- REGION: Pin to the current release (opt-in)
 # PIN_VERSION / --pin-version: now that 'main' is cloned/updated, read the
 # repo's own VERSION file (single source of truth -- top of the repository) and
 # detach HEAD at that release tag so the host freezes there and the per-cycle
@@ -901,14 +901,14 @@ if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DI
 fi
 restore_test_status
 
-# -- Seed test.config.yml from template ------------------------------------
+# --- REGION: Seed test.config.yml from template
 TEST_DIR="$YURUNA_DIR/test"
 if [[ ! -f "$TEST_DIR/test.config.yml" && -f "$TEST_DIR/test.config.yml.template" ]]; then
   log "Creating test/test.config.yml from template (review before running tests)"
   cp "$TEST_DIR/test.config.yml.template" "$TEST_DIR/test.config.yml"
 fi
 
-# -- Baseline reset: remove test-* VMs -------------------------------------
+# --- REGION: Baseline reset: remove test-* VMs
 REMOVE_TEST_VMS="$YURUNA_DIR/test/Remove-TestVMFiles.ps1"
 if [[ -f "$REMOVE_TEST_VMS" ]]; then
   log "Removing test-* VMs left over from previous cycles (cache VM preserved)"
@@ -925,14 +925,14 @@ else
   warn "Remove-TestVMFiles.ps1 not found at $REMOVE_TEST_VMS -- skipping test-VM cleanup."
 fi
 
-# -- Enable-TestAutomation.ps1 hint ----------------------------------------
+# --- REGION: Enable-TestAutomation.ps1 hint
 HOST_SETUP="$YURUNA_DIR/host/ubuntu.kvm/Enable-TestAutomation.ps1"
 log ""
 log "Host configuration (test-host setup) is NOT auto-applied."
 log "To enable this machine as a test host, run:"
 log "    pwsh '$HOST_SETUP'"
 
-# -- GitHub CLI ------------------------------------------------------------
+# --- REGION: GitHub CLI
 install_gh_apt() {
   log "Installing GitHub CLI (gh) via cli.github.com apt repo"
   sudo install -d -m 0755 /etc/apt/keyrings
@@ -959,7 +959,7 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 command -v gh >/dev/null 2>&1 || die "gh not found after install."
 
-# -- Final preflight -------------------------------------------------------
+# --- REGION: Final preflight
 log "Running final preflight checks"
 
 PREFLIGHT_ERRORS=()
@@ -1070,7 +1070,7 @@ if (( ${#PREFLIGHT_ERRORS[@]} > 0 )); then
   exit 2
 fi
 
-# -- Done summary ----------------------------------------------------------
+# --- REGION: Done summary
 NEEDS_RELOG_HINT=0
 ACTIVE_GROUPS=$(id -Gn 2>/dev/null | tr ' ' '\n')
 for grp in libvirt kvm; do
@@ -1120,7 +1120,7 @@ Re-running this installer is safe; it will refresh apt packages and
 fast-forward the Yuruna checkout when possible.
 EOF
 
-# -- Backup notice ---------------------------------------------------------
+# --- REGION: Backup notice
 if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn ""
   warn "============================================================"

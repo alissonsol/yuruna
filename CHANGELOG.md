@@ -4,6 +4,11 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.07
+
+- **Reliability & self-healing hardening sweep.** Ended the code sweep. Mid-week test release to verify automated scripts and hardening.
+- **Region tags.** Added region tags across the code to ease detection of behavior drift across hosts, guests and tests.
+
 ## 2026.07.03
 
 - **Hosts auto-update the framework by default.** Fresh installs now clone the
@@ -39,7 +44,6 @@ tagged release.
   [stash-service.md](docs/design/stash-service.md) (§3.2).
 - **Dashboards update.** Extension hosts panel added to the Yuruna hosts dashboard. The Pool hosts now reports the paused status. Other minor visual updates.
 - **Mid-week release.** Test release to verify automated scripts.
-
 
 ## 2026.06.26
 
@@ -120,6 +124,6 @@ tagged release.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.03
+Last review: 2026.07.07
 
 Back to [Yuruna](README.md)

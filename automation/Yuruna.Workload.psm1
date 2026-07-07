@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -358,7 +358,6 @@ function Publish-WorkloadList {
     if ($null -eq $workloadsYaml) { Write-Information "Workloads null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
     if ($null -eq $workloadsYaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
 
-    # Backup workloadsFile to the .yuruna work folder
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
     $workFolder = Resolve-Path -Path $workFolder

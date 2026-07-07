@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -9,9 +9,9 @@
 # systemd-networkd DHCP client. cloud-init deploys this file at
 # /usr/local/lib/yuruna/yuruna-network.sh at install time.
 #
-# --- See https://yuruna.link/network#defining-yuruna-network-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-network-lib
 
-# --- See https://yuruna.link/network#defining-network-diag
+# --- REGION: https://yuruna.link/network#defining-network-diag
 # Print a connectivity diagnostic for this machine. A carrier-up interface
 # that holds no global IPv4 address has neither a static address nor a DHCP
 # lease; on a bridged hypervisor the guest competes with every other LAN
@@ -71,7 +71,7 @@ network_diag() {
     echo ""
 }
 
-# --- See https://yuruna.link/network#defining-network-release
+# --- REGION: https://yuruna.link/network#defining-network-release
 # Release DHCP leases (and any other transient network resources) so the
 # address returns to the pool immediately instead of lingering until lease
 # expiry. Run at end-of-sequence teardown so a churning test fleet does not
@@ -115,7 +115,7 @@ network_release() {
     echo ""
 }
 
-# --- See https://yuruna.link/network#defining-yuruna-network-cli
+# --- REGION: https://yuruna.link/network#defining-yuruna-network-cli
 # Dual-use: `source` this file to get the functions, or run it directly with
 # a verb so the networkRelease sequence action can invoke it by path on the
 # guest console (`bash /usr/local/lib/yuruna/yuruna-network.sh release`).

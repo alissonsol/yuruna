@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ if (-not $IsLinux) {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# -- libvirt-qemu search ACL on $HOME (self-heal) --------------------------
+# --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
 # Ubuntu 24.04 cloud images create /home/<user> at mode 0750, which blocks
 # the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu processes
 # from traversing $HOME to reach the qcow2 below it. virt-install then
@@ -68,6 +68,7 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
 
 $arch = (& uname -m).Trim()
 
+# --- REGION: Seek the base image
 $downloadDir   = "$HOME/yuruna/image/amazon.linux.2023"
 $baseImageName = "host.ubuntu.kvm.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
@@ -91,6 +92,7 @@ if (-not (Test-Path -LiteralPath $baseImageFile)) {
     }
 }
 
+# --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
 $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
@@ -164,6 +166,7 @@ $userData = Build-CloudInitUserData `
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('HOSTNAME_PLACEHOLDER', $VMName)
 
+# --- REGION: Generate cloud-init seed ISO
 $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
@@ -215,7 +218,7 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# --- See https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
+# --- REGION: https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
 if ($LASTEXITCODE -eq 0) {
@@ -242,7 +245,7 @@ if ($LASTEXITCODE -eq 0) {
 # Test-Start.guest.amazon.linux.2023.json -- with `restart`, QEMU performs
 # system_reset rather than exiting, the VNC socket stays alive, and the
 # harness's screenshot loop / virt-viewer window survive the reboot.
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -265,7 +268,7 @@ $installArgs = @(
     '--noautoconsole',
     '--import'
 )
-# --- See https://yuruna.link/memory#why-the-amazonlinux-kvm-guest-uses-seabios-not-uefi
+# --- REGION: https://yuruna.link/memory#why-the-amazonlinux-kvm-guest-uses-seabios-not-uefi
 if ($arch -eq 'aarch64') {
     $installArgs += @('--boot', 'uefi')
     $installArgs += @('--machine', 'virt')

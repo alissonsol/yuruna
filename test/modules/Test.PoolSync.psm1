@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,10 +175,42 @@ function Resolve-YurunaPoolForHost {
     if (-not ($Intent -is [System.Collections.IDictionary]) -or -not $Intent.Contains('pools')) { return $null }
     foreach ($pool in @($Intent['pools'])) {
         if (-not ($pool -is [System.Collections.IDictionary])) { continue }
-        $members = @($pool['members'])
-        if ($members -contains $HostId) { return $pool }
+        foreach ($member in @($pool['members'])) {
+            # A member entry is either a bare hostId string or a mapping carrying a
+            # hostId/name key; normalize to the identity string before comparing, so a
+            # structured entry does not silently fail the bare-string assumption. Compare
+            # ordinal-exact: hostId is a generated lowercase 42-prefixed hex string (32
+            # chars), so an exact
+            # match is the correct identity test and a case/format difference is a real
+            # authoring error, not a variant to accept.
+            $memberId = if ($member -is [System.Collections.IDictionary]) {
+                if ($member.Contains('hostId'))  { [string]$member['hostId'] }
+                elseif ($member.Contains('name')) { [string]$member['name'] }
+                else { '' }
+            } else { [string]$member }
+            if ([string]::Equals($memberId, $HostId, [System.StringComparison]::Ordinal)) { return $pool }
+        }
     }
     return $null
+}
+
+function Test-PoolIntentHasMember {
+    <#
+    .SYNOPSIS
+        Pure: $true when the parsed pool intent lists at least one member in any pool.
+    .DESCRIPTION
+        Lets the caller tell "this host is genuinely absent from a populated members[]"
+        (a probable hostId authoring typo, worth a warning) apart from "the intent lists
+        no members at all". No I/O; unit-testable.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowNull()]$Intent)
+    if (-not ($Intent -is [System.Collections.IDictionary]) -or -not $Intent.Contains('pools')) { return $false }
+    foreach ($pool in @($Intent['pools'])) {
+        if (($pool -is [System.Collections.IDictionary]) -and @($pool['members']).Count -gt 0) { return $true }
+    }
+    return $false
 }
 
 # Resolve-YurunaPoolDesiredState is PURE: returns run|paused|drain for a pool
@@ -368,11 +400,18 @@ function Sync-YurunaPoolIntent {
     $clone   = $pcfg.LocalClonePath
     $gitDir  = Join-Path $clone '.git'
     $pullOk  = $false
+    $rc      = 0
     try {
         if (Test-Path -LiteralPath $gitDir) {
-            $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'fetch', '--depth', '1', '--quiet', 'origin') -TimeoutSeconds $pcfg.PullTimeoutSec
+            # One wall-clock budget for the whole fetch+reset pull: derive each call's
+            # timeout from a single deadline so a slow fetch cannot hand the reset a fresh
+            # full PullTimeoutSec and let the pair run to ~2x the intended bound.
+            $deadlineUtc = [DateTime]::UtcNow.AddSeconds($pcfg.PullTimeoutSec)
+            $fetchBudget = [Math]::Max(1, [int][Math]::Ceiling(($deadlineUtc - [DateTime]::UtcNow).TotalSeconds))
+            $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'fetch', '--depth', '1', '--quiet', 'origin') -TimeoutSeconds $fetchBudget
             if ($rc -eq 0) {
-                $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'reset', '--hard', '--quiet', 'FETCH_HEAD') -TimeoutSeconds $pcfg.PullTimeoutSec
+                $resetBudget = [Math]::Max(1, [int][Math]::Ceiling(($deadlineUtc - [DateTime]::UtcNow).TotalSeconds))
+                $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'reset', '--hard', '--quiet', 'FETCH_HEAD') -TimeoutSeconds $resetBudget
             }
             $pullOk = ($rc -eq 0)
         } else {
@@ -381,23 +420,35 @@ function Sync-YurunaPoolIntent {
             $rc = Invoke-PoolSyncGit -ArgumentList @('clone', '--depth', '1', '--quiet', $pcfg.IntentGitUrl, $clone) -TimeoutSeconds $script:PoolSyncCloneTimeoutSec
             $pullOk = ($rc -eq 0)
         }
-    } catch { Write-Verbose "Sync-YurunaPoolIntent: git step threw: $($_.Exception.Message)" }
+    } catch { $rc = -1; Write-Verbose "Sync-YurunaPoolIntent: git step threw: $($_.Exception.Message)" }
 
     $poolsPath = Join-Path $clone 'pools.yml'
     if (-not (Test-Path -LiteralPath $poolsPath)) {
         # No intent available (first pull failed, nothing cached): behave single-host.
         $null = Write-YurunaPoolState -PoolId $null -DesiredState 'run' -IntentOk:$pullOk -Confirm:$false
         $null = Write-YurunaPoolManifest -Pool $null -Confirm:$false   # clear stale manifest -> single-host
-        if (-not $pullOk) { Write-Warning "pool sync: could not reach the intent store ($($pcfg.IntentGitUrl)); cycling as a single host." }
+        if (-not $pullOk) {
+            $why = if ($rc -eq 124) { 'timed out' } elseif ($rc -eq -1) { 'git not runnable' } else { "git rc=$rc" }
+            Write-Warning "pool sync: could not reach the intent store ($($pcfg.IntentGitUrl)) ($why); cycling as a single host."
+        }
         return $null
     }
     if (-not $pullOk) {
-        Write-Warning "pool sync: intent fetch failed; using the last-good cached pools.yml ($poolsPath)."
+        # Surface WHY the pull failed so a real git error (a persistent 128/network
+        # failure) is not indistinguishable from a transient timeout in the log.
+        $why = if ($rc -eq 124) { 'timed out' } elseif ($rc -eq -1) { 'git not runnable' } else { "git rc=$rc" }
+        Write-Warning "pool sync: intent fetch failed ($why); using the last-good cached pools.yml ($poolsPath)."
     }
 
     $intent = $null
     try { $intent = Get-Content -Raw -LiteralPath $poolsPath | ConvertFrom-Yaml -Ordered } catch { Write-Warning "pool sync: pools.yml parse failed ($($_.Exception.Message)); cycling as a single host." }
     $pool = Resolve-YurunaPoolForHost -Intent $intent -HostId $HostId
+    if (-not $pool -and (Test-PoolIntentHasMember -Intent $intent)) {
+        # pools.yml parsed and lists members, but none is this host: almost always a
+        # hostId spelling/case typo in the intent repo rather than a deliberate exclusion.
+        # Surface it so the authoring error is observable instead of silently single-host.
+        Write-Warning "pool sync: host $HostId is not in any pool's members[] though pools.yml lists members; check the hostId spelling/case in the intent repo. Cycling as a single host."
+    }
     $poolId = if ($pool) { [string]$pool['poolId'] } else { $null }
     $state  = Resolve-YurunaPoolDesiredState -Pool $pool
     # Carry the authored gating policy (the advisory alert thresholds) to the
@@ -417,5 +468,6 @@ function Sync-YurunaPoolIntent {
 Export-ModuleMember -Function `
     Get-YurunaPoolConfig, Sync-YurunaPoolIntent, `
     Resolve-YurunaPoolForHost, Resolve-YurunaPoolDesiredState, `
+    Test-PoolIntentHasMember, `
     Write-YurunaPoolState, Write-YurunaPoolManifest, Invoke-PoolSyncGit, `
     ConvertTo-PoolGatingRecord

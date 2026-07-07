@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,7 +78,7 @@ if ($existingVM) {
 	Write-Output "VM '$VMName' deleted."
 }
 
-# === Seek the base image ===
+# --- REGION: Seek the base image
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
@@ -115,7 +115,7 @@ Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# === Create copies and files for VM ===
+# --- REGION: Create copies and files for VM
 
 # Copy base image as the VM disk
 $vmDir = Join-Path $downloadDir $VMName
@@ -147,6 +147,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
+# --- REGION: Generate cloud-init seed ISO
 # Generate cloud-init seed ISO. 4-digit entropy is weak by design (10k
 # cases) but enough to defeat the deterministic-path symlink trap: an
 # attacker dropping a symlink at %TEMP%\seed_<VMName>\ before New-VM
@@ -233,7 +234,7 @@ Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -Me
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-# --- VM core-count policy: see https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
@@ -247,8 +248,8 @@ Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 # in waitForText sequence steps.
 Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
-# === Cleanup temporary folders ===
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# === Guidance ===
+# --- REGION: Guidance
 Write-Verbose "VM '$VMName' created and configured."

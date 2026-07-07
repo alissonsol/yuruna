@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d7e8f9-a0b1-4c23-d456-7e8f9a0b1c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 	exit 1
 }
 
-# === Configuration ===
+# --- REGION: Configuration
 $sourceUrl = "https://cdn.amazonlinux.com/al2023/os-images/latest/hyperv/"
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.amazon.linux.2023"
@@ -39,7 +39,7 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# === Find the file to download ===
+# --- REGION: Find the file to download
 $html = Invoke-WebRequest -Uri $sourceUrl
 $zipLink = ($html.Links | Where-Object { $_.href -match "\.zip$" })[0].href
 $downloadUrl = $sourceUrl + $zipLink
@@ -58,7 +58,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImag
     exit 0
 }
 
-# === Retrieve and process the files ===
+# --- REGION: Retrieve and process the files
 # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download
 # through Save-CachedHttpUri when available + verifies SHA-256 against
 # the publisher checksum. A MISSING upstream checksum is a soft pass;
@@ -111,7 +111,7 @@ if ($entry) {
 }
 $zip.Dispose()
 
-# === Name the file as per naming convention ===
+# --- REGION: Name the file as per naming convention
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.vhdx"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {

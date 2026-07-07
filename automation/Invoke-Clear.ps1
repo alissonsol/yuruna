@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a7b8c9-d0e1-4f23-4567-809102132435
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,20 +68,20 @@ $global:DebugPreference       = if ($_logRank.Debug       -le $_logEff) { 'Conti
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 Set-Item -Path Env:yuruna_root -Value ${yuruna_root}
 Write-Debug "yuruna_root is $yuruna_root"
-Get-Module | Remove-Module *>&1 | Write-Verbose
+Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $clearModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Clear.psm1"
 Import-Module -Name $clearModulePath -Force
 
 if ([string]::IsNullOrEmpty($project_root)) { $project_root = Get-Location; }
-$resolved_root = Resolve-Path -Path $project_root -ErrorAction SilentlyContinue
-if ([string]::IsNullOrEmpty($resolved_root)) { Write-Information "Project folder not found: $project_root"; return $false; }
+$resolved_root = Resolve-Path -LiteralPath $project_root -ErrorAction SilentlyContinue
+if ($null -eq $resolved_root -or @($resolved_root).Count -ne 1) { Write-Information "Project folder not found or ambiguous: $project_root"; return $false; }
 $project_root = $resolved_root
 Set-Item -Path Env:project_root -Value ${project_root}
 Write-Debug "project_root is $project_root"
 
 $config_relative = Join-Path -Path $project_root -ChildPath "config/$config_subfolder"
-$config_root = Resolve-Path -Path $config_relative -ErrorAction SilentlyContinue
-if ([string]::IsNullOrEmpty($config_root)) { Write-Information "Configuration folder not found: $config_relative"; return $false; }
+$config_root = Resolve-Path -LiteralPath $config_relative -ErrorAction SilentlyContinue
+if ($null -eq $config_root -or @($config_root).Count -ne 1) { Write-Information "Configuration folder not found or ambiguous: $config_relative"; return $false; }
 Set-Item -Path Env:config_root -Value ${config_root}
 Write-Debug "config_root is $config_root"
 

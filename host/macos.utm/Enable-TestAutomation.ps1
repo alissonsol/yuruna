@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456754
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,7 +85,7 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParamete
 
 Set-MacHostConditionSet @PSBoundParameters
 
-# -- networkStorage pool host-identity setup + reimage reclaim (interactive) ---------
+# --- REGION: networkStorage pool host-identity setup + reimage reclaim (interactive)
 # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
 # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator

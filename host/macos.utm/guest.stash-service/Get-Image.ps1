@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
-# === Configuration ===
+# --- REGION: Configuration
 # Ubuntu 26.04 LTS (Resolute Raccoon), arm64 cloud image -- macOS UTM
 # runs on Apple Silicon. Moved up from 24.04 LTS (Noble Numbat) per the
 # stash-service spec (section 3.1: default image ubuntu.server.26),
@@ -72,6 +72,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
     exit 0
 }
 
+# --- REGION: Download the cloud image
 $downloadFile = Join-Path $downloadDir "$baseImageName.downloading.qcow2"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
@@ -98,7 +99,7 @@ if ($fileSize -lt 100MB) {
     exit 1
 }
 
-# === Resize the qcow2 to 256 GB ===
+# --- REGION: Resize the qcow2 to 256 GB
 # No raw conversion: UTM's QEMU backend boots qcow2 directly, and qcow2
 # avoids the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits under
 # UTM's discard=unmap,detect-zeroes=unmap (see the header note and
@@ -117,7 +118,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Warning "Resize manually with: qemu-img resize -f qcow2 '$baseImageFile' 256G"
 }
 
-# === Preserve previous and finalize ===
+# --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {

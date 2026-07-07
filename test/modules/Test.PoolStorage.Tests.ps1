@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -354,6 +354,19 @@ Describe 'Merge-PoolStorageLedger (commit + prune + status)' {
         $m = Merge-PoolStorageLedger -Ledger (Get-TestLedger) -Status @{ lastConnectOk = $false; lastError = 'x' }
         Assert-Equal -Expected $false -Actual $m['lastConnectOk'] -Because 'status carried'
         Assert-Equal -Expected 'x' -Actual $m['lastError'] -Because 'status carried'
+    }
+    It 'carries forward a prior scalar when a failure-run $Status omits it' {
+        # A failure run's $Status has no lastCopied (only a successful copy sets it);
+        # the prior run's lastCopied must survive rather than being dropped.
+        $ledger = @{ replicated = ([ordered]@{ 'cycleA' = 't' }); lastCopied = 5; lastConnectOk = $true }
+        $m = Merge-PoolStorageLedger -Ledger $ledger -Status @{ lastConnectOk = $false; lastError = 'boom'; pendingCount = 3 } -LocalNames @('cycleA')
+        Assert-Equal -Expected 5 -Actual $m['lastCopied'] -Because 'lastCopied is carried forward, not dropped, when $Status omits it'
+        Assert-Equal -Expected $false -Actual $m['lastConnectOk'] -Because '$Status still overwrites the keys it supplies'
+    }
+    It 'lets a present $Status key overwrite the carried-forward value' {
+        $ledger = @{ replicated = ([ordered]@{}); lastCopied = 5 }
+        $m = Merge-PoolStorageLedger -Ledger $ledger -Status @{ lastCopied = 3; pendingCount = 0 }
+        Assert-Equal -Expected 3 -Actual $m['lastCopied'] -Because 'a present $Status key wins over the carried-forward value'
     }
 }
 

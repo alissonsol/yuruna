@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     Run this script in an elevated PowerShell terminal.
 #>
 
-# ===== Ensure running as Administrator =====
+# --- REGION: Ensure running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
     Write-Output "=============================================================="
@@ -78,7 +78,7 @@ if (-not $yamlOk) {
 }
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
-# ===== Cloud CLIs =====
+# --- REGION: Cloud CLIs
 
 Write-Output ""
 Write-Output ">>> Installing Azure CLI..."
@@ -95,7 +95,7 @@ Write-Output ">>> Installing Google Cloud SDK..."
 winget install --id Google.CloudSDK --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Google Cloud SDK installation complete."
 
-# ===== Docker Desktop =====
+# --- REGION: Docker Desktop
 Write-Output ""
 Write-Output ">>> Installing Docker Desktop..."
 winget install --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements --silent
@@ -105,37 +105,37 @@ Write-Output ""
 Write-Output "NOTE: Docker Desktop requires a restart to complete setup."
 Write-Output "After restart, enable Kubernetes in Docker Desktop Settings > Kubernetes > Enable Kubernetes."
 
-# ===== Kubernetes CLI (kubectl) =====
+# --- REGION: Kubernetes CLI (kubectl)
 Write-Output ""
 Write-Output ">>> Installing kubectl..."
 winget install --id Kubernetes.kubectl --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< kubectl installation complete."
 
-# ===== Helm =====
+# --- REGION: Helm
 Write-Output ""
 Write-Output ">>> Installing Helm..."
 winget install --id Helm.Helm --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Helm installation complete."
 
-# ===== OpenTofu =====
+# --- REGION: OpenTofu
 Write-Output ""
 Write-Output ">>> Installing OpenTofu..."
 winget install --id OpenTofu.Tofu --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< OpenTofu installation complete."
 
-# ===== Graphviz =====
+# --- REGION: Graphviz
 Write-Output ""
 Write-Output ">>> Installing Graphviz..."
 winget install --id Graphviz.Graphviz --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Graphviz installation complete."
 
-# ===== GitHub CLI =====
+# --- REGION: GitHub CLI
 Write-Output ""
 Write-Output ">>> Installing GitHub CLI..."
 winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< GitHub CLI installation complete."
 
-# ===== mkcert and HTTPS Development Certificate =====
+# --- REGION: mkcert and HTTPS Development Certificate
 # mkcert is installed last because its root CA installation may require user interaction.
 Write-Output ""
 Write-Output ">>> Installing mkcert..."

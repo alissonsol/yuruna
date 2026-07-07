@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.03
+.VERSION 2026.07.07
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@ Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExp
 # this module returns.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 # Shared retry policy with the guest-side automation/yuruna-retry.sh.
-# --- See https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Force
 
 $globalVariables = [ordered]@{}
@@ -236,7 +236,7 @@ function Publish-ResourceListHelper {
             # cycle. TF_PLUGIN_CACHE_DIR (set above) ensures every
             # subsequent attempt and every subsequent cycle reads the
             # already-fetched plugin from disk instead of redownloading.
-            # --- See https://yuruna.link/network#defining-yuruna-retry-lib
+            # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
             $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile
             if (-not $retryResult.Success) {
                 Pop-Location
@@ -244,7 +244,7 @@ function Publish-ResourceListHelper {
             }
 
             Write-Debug "Executing tofu command from $workFolder"
-            # --- See https://yuruna.link/memory#why-set-resource-uses-a-saved-planfile-for-apply
+            # --- REGION: https://yuruna.link/memory#why-set-resource-uses-a-saved-planfile-for-apply
             $planFile = Join-Path -Path $workFolder -ChildPath "tofu.planfile"
             # tofu plan and the saved-planfile apply are safe to re-run on a
             # transient failure: plan is read-only, and a saved-planfile apply
@@ -315,7 +315,7 @@ function Publish-ResourceListHelper {
                     throw "tofu output -json returned empty for resource '$resourceName' -- this codebase requires every resource to define at least one `output` block. Add one in $templateFolder/*.tf, or remove the resource from resources.yml if it is no longer needed."
                 }
                 $terraformYaml = $jsonOutput | ConvertFrom-Json
-                # --- See https://yuruna.link/memory#why-set-resource-fails-fast-on-empty-tofu-outputs
+                # --- REGION: https://yuruna.link/memory#why-set-resource-fails-fast-on-empty-tofu-outputs
                 $propsList = @($terraformYaml.PSObject.Properties)
                 if ($propsList.Count -eq 0) {
                     Pop-Location

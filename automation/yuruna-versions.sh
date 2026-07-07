@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.03
+# Version: 2026.07.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -19,7 +19,7 @@
 # unquoted and free of spaces -- so Check-DependencyVersion.ps1 can parse
 # it with a line regex without sourcing a shell.
 #
-# --- See https://yuruna.link/network
+# --- REGION: https://yuruna.link/network
 
 # Kubernetes apt-repo minor track: pkgs.k8s.io/core:/stable:/v<minor>/deb.
 # Bump only across a minor your kubeadm/kubelet/kubectl are validated on.
